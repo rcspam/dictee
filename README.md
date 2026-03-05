@@ -2,6 +2,8 @@
 
 **Saisie vocale push-to-talk pour Linux** — parlez, et le texte s'écrit à la position du curseur. Avec traduction optionnelle.
 
+La transcription est réalisée **100% en local** grâce au modèle [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) exécuté via ONNX Runtime. Aucune donnée audio n'est envoyée vers un serveur externe — votre voix reste sur votre machine.
+
 Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active**.
 
 ## Utilisation
