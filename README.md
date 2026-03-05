@@ -88,7 +88,7 @@ transcribe-diarize reunion.wav
 
 ## Dictée vocale (push-to-talk)
 
-Le script `dictee` permet la saisie vocale par raccourci clavier : un premier appui démarre l'enregistrement, un second l'arrête et tape le texte transcrit dans l'application active.
+Le script `dictee` permet la saisie vocale par raccourci clavier : un premier appui démarre l'enregistrement, un second l'arrête et **tape le texte transcrit à la position du curseur**.
 
 ```bash
 # Dictée simple
@@ -106,15 +106,9 @@ dictee --cancel
 
 - `transcribe-daemon` en cours d'exécution
 - `pw-record` (PipeWire)
-- **ydotool-rebind** (wrapper ydotool pour clavier AZERTY — voir ci-dessous)
+- `ydotool` (saisie clavier virtuelle). Pour un clavier **AZERTY français**, installer [ydotool-rebind](https://github.com/david-vct/ydotool-rebind) qui corrige le mapping QWERTY et gère les accents.
 - `wl-clipboard` (copie presse-papier)
 - `translate-shell` ou `ollama` (si `--translate`)
-
-### ydotool-rebind (obligatoire pour clavier AZERTY)
-
-`ydotool` utilise internement un layout QWERTY : sans correction, « Bonjour » serait tapé « Vonjout ». Le wrapper **ydotool-rebind** traduit les frappes AZERTY→QWERTY et gère les caractères accentués français (é, è, ê, à, ù, ç, â, ô, û, æ, œ).
-
-**https://github.com/david-vct/ydotool-rebind**
 
 ### Optionnel
 
