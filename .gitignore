@@ -11,3 +11,6 @@ DS_Store
 *.txt
 *.onnx.data
 *.model
+*.deb
+tdt
+pkg/parakeet-transcribe/usr/bin/

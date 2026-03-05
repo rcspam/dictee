@@ -1,0 +1,29 @@
+.TH TRANSCRIBE-DAEMON 1 "February 2025" "parakeet-transcribe 0.3.2" "User Commands"
+.SH NAME
+transcribe-daemon \- speech recognition daemon with preloaded model
+.SH SYNOPSIS
+.B transcribe-daemon
+.RI [ model_dir ]
+.SH DESCRIPTION
+.B transcribe-daemon
+starts a daemon that keeps the Parakeet TDT model loaded in memory,
+allowing fast repeated transcriptions via
+.BR transcribe-client (1).
+.PP
+The daemon listens on a Unix socket at /tmp/transcribe.sock
+.SH OPTIONS
+.TP
+.I model_dir
+Path to TDT model directory (default: /usr/share/parakeet-transcribe/tdt)
+.SH SYSTEMD
+To run as a user service:
+.PP
+.RS
+systemctl --user enable --now parakeet-transcribe
+.RE
+.SH SEE ALSO
+.BR transcribe-client (1),
+.BR transcribe (1),
+.BR dictee (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

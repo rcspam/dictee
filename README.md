@@ -1,140 +1,165 @@
-# parakeet-rs
-[![Rust](https://github.com/altunenes/parakeet-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/altunenes/parakeet-rs/actions/workflows/rust.yml)
-[![crates.io](https://img.shields.io/crates/v/parakeet-rs.svg)](https://crates.io/crates/parakeet-rs)
+# parakeet-transcribe
 
-Fast speech recognition with NVIDIA's Parakeet models via ONNX Runtime.
-Note: CoreML doesn't stable with this model - stick w/ CPU (or other GPU EP). But its incredible fast in my Mac M3 16gb' CPU compared to Whisper metal! :-)
+Reconnaissance vocale (ASR) et diarisation de locuteurs sous Linux, basé sur les modèles NVIDIA Parakeet via ONNX Runtime.
 
-## Models
+Fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes), enrichi avec des outils CLI prêts à l'emploi : daemon, client micro, diarisation, paquets Debian.
 
-**CTC (English-only)**:
-```rust
-use parakeet_rs::{Parakeet, Transcriber, TimestampMode};
+## Fonctionnalités
 
-let mut parakeet = Parakeet::from_pretrained(".", None)?;
+- **Transcription multilingue** : 25+ langues (dont le français) via ParakeetTDT 0.6B
+- **Diarisation** : identification de qui parle (jusqu'à 4 locuteurs) via Sortformer
+- **Streaming temps réel** : transcription chunk par chunk via Nemotron (anglais uniquement)
+- **Tout format audio** : WAV, MP3, OGG, FLAC, OPUS... conversion automatique via ffmpeg
+- **Mode daemon** : modèle chargé une seule fois, transcriptions quasi-instantanées
+- **Enregistrement micro** : PipeWire / PulseAudio / ALSA, auto-unmute
+- **GPU ou CPU** : CUDA, TensorRT, CoreML, DirectML, OpenVINO
 
-// Load and transcribe audio (see examples/raw.rs for full example)
-let result = parakeet.transcribe_samples(audio, 1600, 1, Some(TimestampMode::Words))?;
-println!("{}", result.text);
+## Programmes
 
-// Token-level timestamps
-for token in result.tokens {
-    println!("[{:.3}s - {:.3}s] {}", token.start, token.end, token.text);
-}
+| Programme | Description | Langues |
+|-----------|-------------|---------|
+| `transcribe` | Transcription d'un fichier audio | Multilingue |
+| `transcribe-daemon` | Serveur socket Unix (modèle préchargé) | Multilingue |
+| `transcribe-client` | Client : fichier, stdin ou micro | Multilingue |
+| `transcribe-diarize` | Transcription + identification des locuteurs | Multilingue |
+| `transcribe-stream-diarize` | Streaming temps réel + diarisation | Anglais uniquement |
+
+Tous les binaires supportent `--help` / `-h`.
+
+## Installation rapide (Debian/Ubuntu)
+
+Télécharger le `.deb` depuis les [Releases](../../releases), puis :
+
+```bash
+# Version GPU (NVIDIA CUDA)
+sudo dpkg -i parakeet-transcribe-cuda_0.3.2_amd64.deb
+
+# Version CPU (tout ordinateur)
+sudo dpkg -i parakeet-transcribe-cpu_0.3.2_amd64.deb
+
+# Installer les dépendances manquantes
+sudo apt-get install -f
 ```
 
-**TDT (Multilingual)**: 25 languages with auto-detection
-```rust
-use parakeet_rs::{ParakeetTDT, Transcriber, TimestampMode};
+### Modèles ONNX
 
-let mut parakeet = ParakeetTDT::from_pretrained("./tdt", None)?;
-let result = parakeet.transcribe_samples(audio, 16000, 1, Some(TimestampMode::Sentences))?;
-println!("{}", result.text);
+Les modèles doivent être placés dans `/usr/share/parakeet-transcribe/` :
 
-// Token-level timestamps
-for token in result.tokens {
-    println!("[{:.3}s - {:.3}s] {}", token.start, token.end, token.text);
-}
+```
+/usr/share/parakeet-transcribe/
+├── tdt/                  # ParakeetTDT (multilingue)
+│   ├── encoder-model.onnx
+│   ├── decoder_joint-model.onnx
+│   └── vocab.txt
+├── sortformer/           # Diarisation
+│   └── diar_streaming_sortformer_4spk-v2.1.onnx
+└── nemotron/             # Streaming (anglais)
+    ├── encoder-model.onnx
+    ├── decoder-model.onnx
+    └── vocab.txt
 ```
 
-**EOU (Streaming)**: Real-time ASR with end-of-utterance detection
-```rust
-use parakeet_rs::ParakeetEOU;
+Le modèle TDT est disponible sur HuggingFace : [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
 
-let mut parakeet = ParakeetEOU::from_pretrained("./eou", None)?;
+## Utilisation
 
-// Prepare your audio (Vec<f32>, 16kHz mono, normalized)
-let audio: Vec<f32> = /* your audio samples */;
+```bash
+# Transcrire un fichier (tout format)
+transcribe audio.mp3
 
-// Process in 160ms chunks for streaming
-const CHUNK_SIZE: usize = 2560; // 160ms at 16kHz
-for chunk in audio.chunks(CHUNK_SIZE) {
-    let text = parakeet.transcribe(chunk, false)?;
-    print!("{}", text);
-}
+# Mode daemon (plus rapide pour plusieurs fichiers)
+transcribe-daemon &
+transcribe-client fichier1.wav
+transcribe-client fichier2.ogg
+cat audio.opus | transcribe-client
+
+# Dictée vocale depuis le micro
+transcribe-client
+# → Enregistre jusqu'à Entrée. Le micro est démuté automatiquement si nécessaire.
+
+# Transcription avec identification des locuteurs
+transcribe-diarize reunion.wav
+# [0.00 - 2.50] Speaker 1: Bonjour à tous.
+# [2.80 - 5.10] Speaker 2: Merci d'être venus.
 ```
 
-**Nemotron (Streaming)**: Cache-aware streaming ASR with punctuation
-```rust
-use parakeet_rs::Nemotron;
+## Compilation depuis les sources
 
-let mut model = Nemotron::from_pretrained("./nemotron", None)?;
+### Prérequis
 
-// Process in 560ms chunks for streaming
-const CHUNK_SIZE: usize = 8960; // 560ms at 16kHz
-for chunk in audio.chunks(CHUNK_SIZE) {
-    let text = model.transcribe_chunk(chunk)?;
-    print!("{}", text);
-}
+- Rust (edition 2021)
+- ffmpeg (pour la conversion des formats audio)
+
+### Build
+
+```bash
+# CPU uniquement
+cargo build --release
+
+# CUDA + diarisation
+cargo build --release --features "cuda,sortformer"
+
+# Paquets Debian (CPU + CUDA)
+./build-deb.sh
 ```
 
-**Sortformer v2 & v2.1 (Speaker Diarization)**: Streaming 4-speaker diarization
-```toml
-parakeet-rs = { version = "0.2", features = ["sortformer"] }
-```
-```rust
-use parakeet_rs::sortformer::{Sortformer, DiarizationConfig};
+### Features Cargo
 
-let mut sortformer = Sortformer::with_config(
-    "diar_streaming_sortformer_4spk-v2.onnx", // or v2.1.onnx
-    None,
-    DiarizationConfig::callhome(),  // or dihard3(),custom()
-)?;
-let segments = sortformer.diarize(audio, 16000, 1)?;
-for seg in segments {
-    println!("Speaker {} [{:.2}s - {:.2}s]", seg.speaker_id, seg.start, seg.end);
-}
-```
-See `examples/diarization.rs` for combining with TDT transcription.
+| Feature | Description |
+|---------|-------------|
+| `cpu` | Exécution CPU (défaut) |
+| `cuda` | GPU NVIDIA via CUDA |
+| `tensorrt` | Optimisation TensorRT |
+| `coreml` | Apple CoreML |
+| `directml` | Microsoft DirectML |
+| `openvino` | Intel OpenVINO |
+| `sortformer` | Diarisation (nécessaire pour `*-diarize`) |
 
-## Setup
+### Tests
 
-**CTC**: Download from [HuggingFace](https://huggingface.co/onnx-community/parakeet-ctc-0.6b-ONNX/tree/main/onnx): `model.onnx`, `model.onnx_data`, `tokenizer.json`
-
-**TDT**: Download from [HuggingFace](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx): `encoder-model.onnx`, `encoder-model.onnx.data`, `decoder_joint-model.onnx`, `vocab.txt`
-
-**EOU**: Download from [HuggingFace](https://huggingface.co/altunenes/parakeet-rs/tree/main/realtime_eou_120m-v1-onnx): `encoder.onnx`, `decoder_joint.onnx`, `tokenizer.json`
-
-**Nemotron**: Download from [HuggingFace](https://huggingface.co/altunenes/parakeet-rs/tree/main/nemotron-speech-streaming-en-0.6b): `encoder.onnx`, `encoder.onnx.data`, `decoder_joint.onnx`, `tokenizer.model` (*[int8](https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int8) / [int4](https://huggingface.co/lokkju/nemotron-speech-streaming-en-0.6b-int4)*)
-
-**Diarization (Sortformer v2 & v2.1)**: Download from [HuggingFace](https://huggingface.co/altunenes/parakeet-rs/tree/main): `diar_streaming_sortformer_4spk-v2.onnx` or `v2.1.onnx`.
-
-Quantized versions available (int8). All files must be in the same directory.
-
-GPU support (auto-falls back to CPU if fails):
-```toml
-parakeet-rs = { version = "0.3", features = ["cuda"] }  # or tensorrt, webgpu, directml, migraphx or other ort supported EPs (check cargo features)
+```bash
+cargo test
+cargo test --features sortformer
 ```
 
-```rust
-use parakeet_rs::{Parakeet, ExecutionConfig, ExecutionProvider};
+## Architecture
 
-let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
-let mut parakeet = Parakeet::from_pretrained(".", Some(config))?;
+```
+Audio (tout format)
+    ↓ ffmpeg (si non-WAV)
+WAV 16kHz mono
+    ↓ preemphasis (0.97)
+STFT (n_fft=512, hop=160, win=400, Hann)
+    ↓
+Mel-spectrogram (128 bins, Slaney)
+    ↓
+Modèle ONNX (ParakeetTDT / Nemotron)
+    ↓
+Décodeur (tokens → texte)
+    ↓
+Agrégation timestamps (tokens → mots → phrases)
+    ↓ [optionnel]
+Sortformer (diarisation)
+    ↓
+Texte final avec horodatages / locuteurs
 ```
 
-Advanced session configuration via [ort SessionBuilder](https://docs.rs/ort/latest/ort/session/builder/struct.SessionBuilder.html):
-```rust
-let config = ExecutionConfig::new()
-    .with_custom_configure(|builder| builder.with_memory_pattern(false));
-```
+## Crédits
 
-## Features
+Ce projet est un fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes), qui fournit la bibliothèque Rust pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
 
-- [CTC: English with punctuation & capitalization](https://huggingface.co/nvidia/parakeet-ctc-0.6b)
-- [TDT: Multilingual (auto lang detection)](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)
-- [EOU: Streaming ASR with end-of-utterance detection](https://huggingface.co/nvidia/parakeet_realtime_eou_120m-v1)
-- [Nemotron: Cache aware streaming ASR (600M params,EN only)](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b)
-- [Sortformer v2 & v2.1: Streaming speaker diarization (up to 4 speakers)](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2) NOTE: you can also download v2.1 model same way.
-- Token-level timestamps (CTC, TDT)
+Ce fork ajoute :
+- 5 binaires CLI prêts à l'emploi (daemon, client, diarisation, streaming)
+- Conversion automatique de tout format audio via ffmpeg
+- Résolution de chemins (`~/`, `./`, `../`)
+- Auto-unmute du microphone (PipeWire/PulseAudio)
+- Paquets Debian (.deb) pour installation système
+- Service systemd
 
-## Notes
+## Licence
 
-- Audio: 16kHz mono WAV (16-bit PCM or 32-bit float)
-- CTC/TDT models have ~4-5 minute audio length limit. For longer files, use streaming models or split into chunks
+Ce fork est distribué sous licence **GPL-3.0-or-later** (voir [LICENSE](LICENSE)).
 
-## License
+Le code original de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par Enes Altun est sous licence MIT (voir [LICENSE-MIT](LICENSE-MIT)).
 
-Code: MIT OR Apache-2.0
-
-FYI: The Parakeet ONNX models (downloaded separately from HuggingFace) by NVIDIA. This library does not distribute the models.
+Les modèles ONNX Parakeet (téléchargés séparément depuis HuggingFace) sont fournis par NVIDIA. Ce projet ne distribue pas les modèles.

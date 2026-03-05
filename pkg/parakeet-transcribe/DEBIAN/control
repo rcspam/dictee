@@ -1,0 +1,18 @@
+Package: parakeet-transcribe-cpu
+Version: 0.3.2
+Section: sound
+Priority: optional
+Architecture: amd64
+Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Conflicts: parakeet-transcribe-cuda
+Provides: parakeet-transcribe
+Maintainer: rcspam <rcspams@gmail.com>
+Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
+ A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
+ This version runs on CPU only (works on any computer, slower than GPU).
+ .
+ Features:
+  - CPU-based transcription (no GPU required)
+  - Low-latency daemon mode with preloaded model
+  - Push-to-talk dictation with ydotool integration
+  - Speaker diarization with Sortformer (who speaks when)

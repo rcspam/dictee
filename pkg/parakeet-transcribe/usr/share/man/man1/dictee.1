@@ -1,0 +1,67 @@
+.TH DICTEE 1 "February 2025" "parakeet-transcribe 0.3.2" "User Commands"
+.SH NAME
+dictee \- push-to-talk voice dictation
+.SH SYNOPSIS
+.B dictee
+.SH DESCRIPTION
+.B dictee
+is a push-to-talk dictation script designed to be bound to a keyboard shortcut.
+.PP
+.B First call:
+starts recording from microphone and displays animation.
+.PP
+.B Second call:
+stops recording, transcribes via transcribe-daemon, and types the result
+using ydotool.
+.SH REQUIREMENTS
+.TP
+.B transcribe-daemon
+Must be running (via systemd or manually)
+.TP
+.B ydotool
+For typing the transcribed text
+.TP
+.B pw-record
+For audio recording (PipeWire)
+.SH ANIMATION
+The script supports an optional visual animation during recording.
+Configure in /usr/bin/dictee:
+.PP
+.RS
+BIN_PATH="/path/to/animation-speech"
+.br
+ANIMATION_CONFIG="circular"
+.br
+ANIMATION_PARAM="-p center -w 1000 -H 150"
+.RE
+.PP
+The animation receives SIGUSR1 to start and SIGUSR2 to stop.
+.SH FILES
+.TP
+.I /tmp/dictee.pid
+PID of pw-record process
+.TP
+.I /tmp/dictee_anim.pid
+PID of animation process
+.TP
+.I /tmp/dictee_recording.wav
+Temporary recording file
+.SH SETUP
+.PP
+1. Enable the transcription daemon:
+.RS
+systemctl --user enable --now parakeet-transcribe
+.RE
+.PP
+2. Enable ydotool daemon:
+.RS
+systemctl --user enable --now ydotool
+.RE
+.PP
+3. Bind /usr/bin/dictee to a keyboard shortcut in your desktop environment.
+.SH SEE ALSO
+.BR transcribe-daemon (1),
+.BR transcribe-client (1),
+.BR ydotool (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

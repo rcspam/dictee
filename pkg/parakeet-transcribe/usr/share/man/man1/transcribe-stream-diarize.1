@@ -1,0 +1,40 @@
+.TH TRANSCRIBE-STREAM-DIARIZE 1 "February 2025" "parakeet-transcribe 0.3.2" "User Commands"
+.SH NAME
+transcribe-stream-diarize \- streaming transcription with speaker identification (English)
+.SH SYNOPSIS
+.B transcribe-stream-diarize
+.RI [ audio.wav ]
+.SH DESCRIPTION
+.B transcribe-stream-diarize
+performs streaming transcription with real-time output and speaker identification.
+Uses Nemotron for streaming transcription and Sortformer for diarization.
+.PP
+.B Note:
+This command supports English only (Nemotron limitation).
+For multilingual support, use
+.BR transcribe-diarize (1).
+.SH OPTIONS
+.TP
+.I audio.wav
+Path to audio file. If not provided, records from microphone until Ctrl+C.
+.SH ENVIRONMENT
+.TP
+.B NEMOTRON_DIR
+Path to Nemotron model (default: /usr/share/parakeet-transcribe/nemotron)
+.TP
+.B SORTFORMER_DIR
+Path to Sortformer model (default: /usr/share/parakeet-transcribe/sortformer)
+.SH EXAMPLES
+.TP
+From file:
+.B transcribe-stream-diarize meeting.wav
+.TP
+From microphone:
+.B transcribe-stream-diarize
+.br
+(Press Ctrl+C to stop recording)
+.SH SEE ALSO
+.BR transcribe-diarize (1),
+.BR transcribe (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

@@ -1,0 +1,13 @@
+[Unit]
+Description=Parakeet Transcribe Daemon (ASR)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/transcribe-daemon /usr/share/parakeet-transcribe/tdt
+Restart=on-failure
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target

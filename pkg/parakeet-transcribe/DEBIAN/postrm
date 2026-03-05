@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    echo "Pour désactiver complètement le service :"
+    echo "  systemctl --user stop parakeet-transcribe"
+    echo "  systemctl --user disable parakeet-transcribe"
+fi
+
+exit 0

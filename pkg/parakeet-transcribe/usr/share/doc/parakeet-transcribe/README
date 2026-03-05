@@ -1,0 +1,74 @@
+PARAKEET-TRANSCRIBE
+===================
+
+Fast speech-to-text transcription using NVIDIA Parakeet models via ONNX Runtime.
+
+COMMANDS
+--------
+
+  transcribe <audio.wav>
+      Simple transcription (TDT model, multilingual)
+
+  transcribe-daemon [model_dir]
+      Start daemon with preloaded model for fast repeated transcriptions
+      Default model_dir: /usr/share/parakeet-transcribe/tdt
+
+  transcribe-client <audio.wav>
+      Send audio to daemon for transcription (requires transcribe-daemon running)
+
+  transcribe-diarize <audio.wav>
+      Transcription with speaker identification (TDT + Sortformer)
+
+  transcribe-stream-diarize [audio.wav]
+      Streaming transcription with diarization (Nemotron + Sortformer, English only)
+      Without argument: records from microphone (Ctrl+C to stop)
+
+  dictee
+      Push-to-talk dictation script for desktop use
+      First call: starts recording
+      Second call: stops, transcribes, and types text via ydotool
+
+MODELS
+------
+
+Models are stored in /usr/share/parakeet-transcribe/
+
+  tdt/          - Parakeet TDT (multilingual, 25 languages)
+  sortformer/   - Sortformer v2.1 (speaker diarization, up to 4 speakers)
+  nemotron/     - Nemotron (streaming English with punctuation)
+
+SYSTEMD SERVICE
+---------------
+
+Enable the daemon for fast transcription:
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now parakeet-transcribe
+
+CONFIGURATION
+-------------
+
+For dictee with animation, edit /usr/bin/dictee and set:
+
+  BIN_PATH="/path/to/animation-speech/directory"
+  ANIMATION_CONFIG="circular"
+  ANIMATION_PARAM="-p center -w 1000 -H 150"
+
+DEPENDENCIES
+------------
+
+  - ydotool (for dictee)
+  - pipewire or pulseaudio-utils or alsa-utils (for recording)
+  - curl (for model download)
+
+LICENSE
+-------
+
+Code: MIT OR Apache-2.0
+Models: See NVIDIA Parakeet license on HuggingFace
+
+LINKS
+-----
+
+  - https://github.com/altunenes/parakeet-rs
+  - https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3

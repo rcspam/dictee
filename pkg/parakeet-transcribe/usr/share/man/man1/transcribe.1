@@ -1,0 +1,34 @@
+.TH TRANSCRIBE 1 "February 2025" "parakeet-transcribe 0.3.2" "User Commands"
+.SH NAME
+transcribe \- transcribe audio files using NVIDIA Parakeet TDT
+.SH SYNOPSIS
+.B transcribe
+.I audio.wav
+.RI [ model_dir ]
+.SH DESCRIPTION
+.B transcribe
+converts speech in audio files to text using the NVIDIA Parakeet TDT model.
+Supports 25 languages with automatic language detection.
+.PP
+Audio should be 16kHz mono WAV format for best results.
+.SH OPTIONS
+.TP
+.I audio.wav
+Path to the audio file to transcribe (required)
+.TP
+.I model_dir
+Path to TDT model directory (default: /usr/share/parakeet-transcribe/tdt)
+.SH EXAMPLES
+.TP
+Transcribe a file:
+.B transcribe recording.wav
+.TP
+Use custom model path:
+.B transcribe recording.wav /path/to/tdt
+.SH SEE ALSO
+.BR transcribe-daemon (1),
+.BR transcribe-client (1),
+.BR transcribe-diarize (1),
+.BR dictee (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

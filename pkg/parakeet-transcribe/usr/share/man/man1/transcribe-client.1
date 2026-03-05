@@ -1,0 +1,37 @@
+.TH TRANSCRIBE-CLIENT 1 "February 2025" "parakeet-transcribe 0.3.2" "User Commands"
+.SH NAME
+transcribe-client \- client for transcribe-daemon
+.SH SYNOPSIS
+.B transcribe-client
+.RI [ audio.wav ]
+.SH DESCRIPTION
+.B transcribe-client
+sends audio to
+.BR transcribe-daemon (1)
+for fast transcription.
+.PP
+Without arguments, records from the microphone for 5 seconds
+(configurable via TRANSCRIBE_DURATION environment variable).
+.SH OPTIONS
+.TP
+.I audio.wav
+Path to audio file (optional). If not provided, records from microphone.
+.SH ENVIRONMENT
+.TP
+.B TRANSCRIBE_DURATION
+Recording duration in seconds (default: 5)
+.SH EXAMPLES
+.TP
+Transcribe a file:
+.B transcribe-client recording.wav
+.TP
+Record and transcribe:
+.B transcribe-client
+.TP
+Record for 10 seconds:
+.B TRANSCRIBE_DURATION=10 transcribe-client
+.SH SEE ALSO
+.BR transcribe-daemon (1),
+.BR dictee (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

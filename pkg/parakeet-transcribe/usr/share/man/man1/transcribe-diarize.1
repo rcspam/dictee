@@ -1,0 +1,34 @@
+.TH TRANSCRIBE-DIARIZE 1 "February 2025" "parakeet-transcribe 0.3.2" "User Commands"
+.SH NAME
+transcribe-diarize \- transcribe with speaker identification
+.SH SYNOPSIS
+.B transcribe-diarize
+.I audio.wav
+.RI [ model_dir ]
+.RI [ sortformer_dir ]
+.SH DESCRIPTION
+.B transcribe-diarize
+transcribes audio and identifies who is speaking (up to 4 speakers).
+Uses Parakeet TDT for transcription and Sortformer for speaker diarization.
+.PP
+Supports 25 languages (TDT). Diarization is language-independent.
+.SH OPTIONS
+.TP
+.I audio.wav
+Path to audio file (required)
+.TP
+.I model_dir
+Path to TDT model (default: /usr/share/parakeet-transcribe/tdt)
+.TP
+.I sortformer_dir
+Path to Sortformer model (default: /usr/share/parakeet-transcribe/sortformer)
+.SH OUTPUT
+.PP
+[0.00s - 2.50s] Speaker 0: Hello, how are you?
+.br
+[2.60s - 5.30s] Speaker 1: I'm fine, thanks!
+.SH SEE ALSO
+.BR transcribe (1),
+.BR transcribe-stream-diarize (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

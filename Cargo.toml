@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["altunenes"]
 description = "Fast ASR & Speaker Diarization with NVIDIA Parakeet via ONNX"
 repository = "https://github.com/altunenes/parakeet-rs"
-license = "MIT OR Apache-2.0"
+license = "GPL-3.0-or-later"
 keywords = ["speech-recognition", "asr", "parakeet", "onnx", "nvidia"]
 categories = ["multimedia::audio", "science"]
 
@@ -25,6 +25,26 @@ path = "examples/raw.rs"
 name = "streaming"
 path = "examples/streaming.rs"
 
+[[bin]]
+name = "transcribe"
+path = "src/bin/transcribe.rs"
+
+[[bin]]
+name = "transcribe-daemon"
+path = "src/bin/transcribe_daemon.rs"
+
+[[bin]]
+name = "transcribe-client"
+path = "src/bin/transcribe_client.rs"
+
+[[bin]]
+name = "transcribe-diarize"
+path = "src/bin/transcribe_diarize.rs"
+
+[[bin]]
+name = "transcribe-stream-diarize"
+path = "src/bin/transcribe_stream_diarize.rs"
+
 [dependencies]
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray"] }
 hound = "3.5"
@@ -34,6 +54,8 @@ tokenizers = { version = "0.22.2", default-features = false, features = ["onig"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rustfft = "6.4"
+ctrlc = "3.4"
+libc = "0.2"
 
 [dev-dependencies]
 
