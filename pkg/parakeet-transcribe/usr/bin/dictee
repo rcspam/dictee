@@ -2,30 +2,52 @@
 # Dictée vocale - push-to-talk avec animation
 # Premier appui : démarre l'enregistrement + animation
 # Deuxième appui : arrête et tape le texte
+#
+# Nécessite : transcribe-daemon (en cours), ydotool, pw-record
+# Optionnel : animation-speech (https://github.com/rcspam/animation-speech)
 
 PID_FILE="/tmp/dictee.pid"
-PID_ANIM="/tmp/dictee_anim.pid"
 WAV_FILE="/tmp/dictee_recording.wav"
-CLIENT="/usr/bin/transcribe-client"
+ANIM_PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/speech-animation.pid"
 
-# Animation
-BIN_PATH="/usr/local/bin"
+# Animation (configurable)
 ANIMATION_CONFIG="circular"
 ANIMATION_PARAM="-p center -w 1000 -H 150"
-ANIMATION_APP="${BIN_PATH}/animation-speech"
+
+get_anim_pid() {
+    if [ -f "$ANIM_PID_FILE" ]; then
+        local pid
+        pid=$(cat "$ANIM_PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "$pid"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+start_animation() {
+    if command -v animation-speech >/dev/null 2>&1; then
+        animation-speech $ANIMATION_CONFIG $ANIMATION_PARAM &
+        sleep 0.5
+        local pid
+        pid=$(get_anim_pid) && kill -SIGUSR1 "$pid" 2>/dev/null
+    fi
+}
+
+stop_animation() {
+    local pid
+    pid=$(get_anim_pid) && {
+        kill -SIGUSR2 "$pid" 2>/dev/null
+        sleep 0.2
+        kill "$pid" 2>/dev/null
+    }
+}
 
 if [ -f "$PID_FILE" ]; then
     # === ARRÊT ===
 
-    # Arrêter l'animation
-    if [ -f "$PID_ANIM" ]; then
-        id_anim=$(cat "$PID_ANIM")
-        kill -SIGUSR2 "$id_anim" 2>/dev/null
-        sleep 0.2
-        kill "$id_anim" 2>/dev/null
-        kill -9 "$id_anim" 2>/dev/null
-        rm -f "$PID_ANIM"
-    fi
+    stop_animation
 
     # Arrêter l'enregistrement
     pid=$(cat "$PID_FILE")
@@ -36,7 +58,7 @@ if [ -f "$PID_FILE" ]; then
 
     # Transcrire et taper
     if [ -f "$WAV_FILE" ]; then
-        text=$("$CLIENT" "$WAV_FILE" 2>/dev/null)
+        text=$(transcribe-client "$WAV_FILE" 2>/dev/null)
         rm -f "$WAV_FILE"
 
         if [ -n "$text" ]; then
@@ -48,14 +70,7 @@ else
 
     rm -f "$WAV_FILE"
 
-    # Lancer l'animation
-    if [ -x "$ANIMATION_APP" ]; then
-        "$ANIMATION_APP" $ANIMATION_CONFIG $ANIMATION_PARAM &
-        PID_A=$!
-        echo "$PID_A" > "$PID_ANIM"
-        sleep 0.5
-        kill -SIGUSR1 "$PID_A" 2>/dev/null
-    fi
+    start_animation
 
     # Démarrer l'enregistrement
     pw-record --rate 16000 --channels 1 --format s16 "$WAV_FILE" &
