@@ -94,7 +94,7 @@ La langue de transcription est la langue par défaut du système (détectée aut
 
 | Variable | Défaut | Description |
 |----------|--------|-------------|
-| `DICTEE_LANG_SOURCE` | `fr` | Langue source (transcription) |
+| `DICTEE_LANG_SOURCE` | langue système (`$LANG`) | Langue source (transcription) |
 | `DICTEE_LANG_TARGET` | `en` | Langue cible (traduction) |
 
 ```bash

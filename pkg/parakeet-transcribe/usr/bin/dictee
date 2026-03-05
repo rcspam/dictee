@@ -5,7 +5,7 @@
 #
 # Backends traduction: trans (défaut), ollama (translategemma)
 # Langues configurables via variables d'environnement :
-#   DICTEE_LANG_SOURCE (défaut: fr), DICTEE_LANG_TARGET (défaut: en)
+#   DICTEE_LANG_SOURCE (défaut: langue système), DICTEE_LANG_TARGET (défaut: en)
 #
 # Usage: dictee [--translate] [--ollama] [--cancel]
 #   dictee                      # transcrit et tape
@@ -20,7 +20,7 @@
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 # === CONFIGURATION ===
-LANG_SOURCE="${DICTEE_LANG_SOURCE:-fr}"
+LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 
