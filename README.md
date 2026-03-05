@@ -24,38 +24,6 @@ dictee --cancel
 dictee --setup
 ```
 
-### Langues
-
-La langue de transcription est détectée automatiquement par le modèle Parakeet (25+ langues supportées). Pour la traduction, les langues sont configurables :
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `DICTEE_LANG_SOURCE` | langue système (`$LANG`) | Langue source |
-| `DICTEE_LANG_TARGET` | `en` | Langue cible |
-
-### Backends de traduction
-
-| Backend | Option | Description |
-|---------|--------|-------------|
-| [translate-shell](https://github.com/soimort/translate-shell) | `--translate` | Rapide, utilise Google Translate (défaut) |
-| [ollama](https://ollama.com/) + translategemma | `--translate --ollama` | 100% local, plus lent mais sans dépendance cloud |
-
-Le backend ollama utilise le modèle [translategemma](https://ollama.com/library/translategemma) avec le prompt suivant :
-
-```
-ollama run translategemma:latest "You are a professional <source> to <target> translator.
-Your goal is to accurately convey the meaning and nuances of the original text
-while adhering to the target language grammar, vocabulary, and cultural sensitivities.
-Produce only the <target> translation, without any additional explanations or commentary.
-Please translate the following text:
-
-<texte transcrit>"
-```
-
-Les langues `<source>` et `<target>` sont remplacées par les valeurs de `DICTEE_LANG_SOURCE` et `DICTEE_LANG_TARGET`.
-
-> **Note :** Le premier appel avec `--ollama` peut être sensiblement plus long, le temps pour ollama de charger le modèle translategemma en mémoire. Les appels suivants seront plus rapides tant que le modèle reste chargé.
-
 ### Post-traitement (dictée française)
 
 Le texte transcrit est post-traité pour interpréter les commandes vocales françaises :
@@ -126,6 +94,17 @@ systemctl --user enable parakeet-tray
 ```
 
 L'icône s'adapte automatiquement au thème clair/sombre.
+
+### Configuration
+
+`dictee --setup` ouvre une interface graphique (GTK3) qui permet de configurer :
+
+- **Raccourci clavier** : capture et enregistrement automatique (KDE Plasma / GNOME)
+- **Traduction** : activer/désactiver, choix du backend (translate-shell ou ollama), langues source et cible
+
+Les préférences sont sauvegardées dans `~/.config/dictee.conf` et chargées automatiquement à chaque lancement. Les arguments CLI (`--translate`, `--ollama`) ont toujours priorité sur la configuration.
+
+> Pour les environnements non supportés (Sway, i3, Hyprland...), l'outil indique la commande à configurer manuellement dans le gestionnaire de fenêtres.
 
 ---
 
