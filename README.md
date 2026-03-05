@@ -112,7 +112,7 @@ Les préférences sont sauvegardées dans `~/.config/dictee.conf` et chargées a
 
 ## Backend : parakeet-transcribe
 
-Le moteur de transcription est basé sur les modèles NVIDIA Parakeet via ONNX Runtime. C'est un fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes).
+Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes) pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
 
 ### Fonctionnalités
 
@@ -243,9 +243,9 @@ cargo test --features sortformer
 
 ## Crédits
 
-Le moteur de transcription est un fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes), qui fournit la bibliothèque Rust pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
+Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes), qui fournit la bibliothèque Rust pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
 
-Ce fork ajoute :
+Ce projet ajoute :
 - 5 binaires CLI prêts à l'emploi (daemon, client, diarisation, streaming)
 - Script de dictée vocale push-to-talk avec traduction
 - Conversion automatique de tout format audio via ffmpeg
@@ -258,7 +258,7 @@ Ce fork ajoute :
 
 ## Licence
 
-Ce fork est distribué sous licence **GPL-3.0-or-later** (voir [LICENSE](LICENSE)).
+Ce projet est distribué sous licence **GPL-3.0-or-later** (voir [LICENSE](LICENSE)).
 
 Le code original de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par Enes Altun est sous licence MIT (voir [LICENSE-MIT](LICENSE-MIT)).
 
