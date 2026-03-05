@@ -10,6 +10,28 @@ PID_FILE="/tmp/dictee.pid"
 WAV_FILE="/tmp/dictee_recording.wav"
 ANIM_PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/speech-animation.pid"
 
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -a "Dictée" "$1" "$2" 2>/dev/null
+    fi
+}
+
+check_deps() {
+    local missing=""
+    command -v pw-record >/dev/null 2>&1 || missing="$missing pw-record"
+    command -v transcribe-client >/dev/null 2>&1 || missing="$missing transcribe-client"
+    command -v ydotool >/dev/null 2>&1 || missing="$missing ydotool"
+    if [ -n "$missing" ]; then
+        notify "Erreur" "Commandes manquantes :$missing"
+        exit 1
+    fi
+    # Vérifier que le daemon tourne
+    if [ ! -S /tmp/transcribe.sock ]; then
+        notify "Erreur" "transcribe-daemon n'est pas lancé"
+        exit 1
+    fi
+}
+
 get_anim_pid() {
     if [ -f "$ANIM_PID_FILE" ]; then
         local pid
@@ -40,6 +62,11 @@ stop_animation() {
     }
 }
 
+cleanup() {
+    stop_animation
+    rm -f "$PID_FILE" "$WAV_FILE"
+}
+
 if [ -f "$PID_FILE" ]; then
     # === ARRÊT ===
 
@@ -47,7 +74,9 @@ if [ -f "$PID_FILE" ]; then
 
     # Arrêter l'enregistrement
     pid=$(cat "$PID_FILE")
-    kill -INT "$pid" 2>/dev/null
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -INT "$pid" 2>/dev/null
+    fi
     rm -f "$PID_FILE"
 
     sleep 0.2  # Laisser le fichier se finaliser
@@ -59,10 +88,16 @@ if [ -f "$PID_FILE" ]; then
 
         if [ -n "$text" ]; then
             echo -n "$text" | ydotool type --file - 2>/dev/null
+        else
+            notify "Dictée" "Aucun texte reconnu"
         fi
+    else
+        notify "Erreur" "Fichier audio non trouvé"
     fi
 else
     # === DÉMARRAGE ===
+
+    check_deps
 
     rm -f "$WAV_FILE"
 
@@ -70,5 +105,15 @@ else
 
     # Démarrer l'enregistrement
     pw-record --rate 16000 --channels 1 --format s16 "$WAV_FILE" &
-    echo $! > "$PID_FILE"
+    rec_pid=$!
+
+    # Vérifier que l'enregistrement a bien démarré
+    sleep 0.3
+    if ! kill -0 "$rec_pid" 2>/dev/null; then
+        cleanup
+        notify "Erreur" "Échec de l'enregistrement (pw-record)"
+        exit 1
+    fi
+
+    echo "$rec_pid" > "$PID_FILE"
 fi
