@@ -79,19 +79,39 @@ sudo apt-get install -f
 
 ### Dépendances
 
-| Dépendance | Rôle | Obligatoire |
-|------------|------|:-----------:|
-| [parakeet-transcribe](#backend--parakeet-transcribe) | Moteur de transcription (daemon) | oui |
-| [animation-speech](https://github.com/rcspam/animation-speech) | Animation visuelle pendant l'enregistrement + annulation par Echap | recommandé |
-| `pw-record` (PipeWire) | Enregistrement audio micro | oui |
-| `ydotool` | Saisie clavier virtuelle | oui |
-| [ydotool-rebind](https://github.com/david-vct/ydotool-rebind) | Correction AZERTY + accents français pour ydotool | oui (clavier AZERTY) |
-| `wl-clipboard` | Copie presse-papier (Wayland) | oui |
-| `libnotify` | Notifications bureau | oui |
-| [translate-shell](https://github.com/soimort/translate-shell) | Traduction via Google Translate | si `--translate` |
-| [ollama](https://ollama.com/) + [translategemma](https://ollama.com/library/translategemma) | Traduction 100% locale | si `--translate --ollama` |
-| `python3-gi` (PyGObject) | Interface de configuration (`dictee --setup`) et icône tray | recommandé |
-| `gir1.2-ayatanaappindicator3-0.1` | Icône dans la zone de notification (KDE/GNOME) | recommandé |
+```bash
+# Dépendances principales
+sudo apt install pipewire ydotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+
+# Pour la traduction (optionnel)
+sudo apt install translate-shell    # --translate (Google Translate)
+# ou
+curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # --translate --ollama (100% local)
+```
+
+#### animation-speech (recommandé)
+
+[animation-speech](https://github.com/rcspam/animation-speech) affiche une animation visuelle pendant l'enregistrement et permet d'annuler avec la touche Echap. Sans cette dépendance, `dictee` fonctionne normalement mais sans retour visuel.
+
+```bash
+# Installer depuis le .deb (voir les releases du repo)
+sudo dpkg -i animation-speech_*.deb
+```
+
+#### ydotool-rebind (clavier AZERTY)
+
+`ydotool` simule les frappes clavier pour taper le texte transcrit dans l'application active. Par défaut, il utilise un layout **QWERTY** — ce qui produit des caractères incorrects sur un clavier AZERTY (par ex. `q` au lieu de `a`).
+
+[ydotool-rebind](https://github.com/david-vct/ydotool-rebind) est un wrapper qui corrige ce problème en remappant les touches pour supporter les claviers AZERTY et les caractères accentués français (é, è, ê, à, ç, etc.).
+
+```bash
+# Installer ydotool-rebind (remplace la commande ydotool)
+git clone https://github.com/david-vct/ydotool-rebind.git
+cd ydotool-rebind
+sudo make install
+```
+
+> **Note :** Sans ydotool-rebind, la dictée produira du texte avec des caractères mélangés sur un clavier français. Cette dépendance est indispensable pour les claviers AZERTY.
 
 ### Icône de zone de notification
 
