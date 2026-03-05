@@ -19,6 +19,9 @@ DICTEE_LANG_TARGET=es dictee --translate    # → espagnol
 
 # Annuler l'enregistrement en cours (via raccourci ou touche Echap)
 dictee --cancel
+
+# Ouvrir l'interface de configuration (raccourci clavier, traduction, langues)
+dictee --setup
 ```
 
 ### Langues
@@ -87,6 +90,22 @@ sudo apt-get install -f
 | `libnotify` | Notifications bureau | oui |
 | [translate-shell](https://github.com/soimort/translate-shell) | Traduction via Google Translate | si `--translate` |
 | [ollama](https://ollama.com/) + [translategemma](https://ollama.com/library/translategemma) | Traduction 100% locale | si `--translate --ollama` |
+| `python3-gi` (PyGObject) | Interface de configuration (`dictee --setup`) et icône tray | recommandé |
+| `gir1.2-ayatanaappindicator3-0.1` | Icône dans la zone de notification (KDE/GNOME) | recommandé |
+
+### Icône de zone de notification
+
+`parakeet-tray` affiche une icône dans la boîte à miniatures du panel qui indique l'état du daemon (actif/arrêté). Le menu contextuel permet de démarrer/arrêter le daemon, lancer une dictée ou ouvrir la configuration.
+
+```bash
+# Lancer manuellement
+parakeet-tray
+
+# Activer au démarrage de la session
+systemctl --user enable parakeet-tray
+```
+
+L'icône s'adapte automatiquement au thème clair/sombre.
 
 ---
 
@@ -233,6 +252,8 @@ Ce fork ajoute :
 - Auto-unmute du microphone (PipeWire/PulseAudio)
 - Paquets Debian (.deb) pour installation système
 - Service systemd
+- Interface de configuration GTK3 (`dictee --setup`)
+- Icône de zone de notification (`parakeet-tray`)
 
 ## Licence
 

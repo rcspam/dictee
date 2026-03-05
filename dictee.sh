@@ -7,11 +7,12 @@
 # Langues configurables via variables d'environnement :
 #   DICTEE_LANG_SOURCE (défaut: langue système), DICTEE_LANG_TARGET (défaut: en)
 #
-# Usage: dictee [--translate] [--ollama] [--cancel]
+# Usage: dictee [--translate] [--ollama] [--cancel] [--setup]
 #   dictee                      # transcrit et tape
 #   dictee --translate          # transcrit, traduit (trans), tape
 #   dictee --translate --ollama # traduit avec ollama/translategemma
 #   dictee --cancel             # annule l'enregistrement en cours
+#   dictee --setup              # ouvre l'interface de configuration
 #
 # Nécessite : transcribe-daemon (en cours), pw-record
 #             ydotool-rebind (https://github.com/david-vct/ydotool-rebind)
@@ -20,6 +21,11 @@
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 # === CONFIGURATION ===
+
+# Charger la configuration (dictee-setup)
+DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
+[ -f "$DICTEE_CONF" ] && source "$DICTEE_CONF"
+
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
@@ -36,9 +42,10 @@ POINT_A_LA_LIGNE="| sed -E 's/[,.]?point à la ligne[,.]?/.\n/Ig' | sed -E 's/^\
 TROIS_PETITS_POINTS="| sed -E 's/(trois|3) petits points/\.\.\./Ig'"
 SUPPRIME="${POINT_A_LA_LIGNE} ${TROIS_PETITS_POINTS}"
 
-# Parse arguments
-TRANSLATE_BACKEND="trans"
-TRANSLATE=false
+# Parse arguments — les valeurs de dictee.conf servent de défaut,
+# les arguments CLI les surchargent.
+TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
+TRANSLATE="${DICTEE_TRANSLATE:-false}"
 CANCEL=false
 
 for arg in "$@"; do
@@ -52,8 +59,11 @@ for arg in "$@"; do
     --ollama)
         TRANSLATE_BACKEND="ollama"
         ;;
+    --setup)
+        exec dictee-setup
+        ;;
     --help|-h)
-        head -n 16 "$0" | grep '^#' | sed 's/^# \?//'
+        head -n 18 "$0" | grep '^#' | sed 's/^# \?//'
         exit 0
         ;;
     esac
