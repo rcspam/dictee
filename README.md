@@ -23,7 +23,7 @@ Fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes]
 | `transcribe-client` | Client : fichier, stdin ou micro | Multilingue |
 | `transcribe-diarize` | Transcription + identification des locuteurs | Multilingue |
 | `transcribe-stream-diarize` | Streaming temps réel + diarisation | Anglais uniquement |
-| `dictee` | Saisie vocale push-to-talk avec traduction optionnelle | Multilingue |
+| `dictee` | Saisie vocale push-to-talk avec traduction optionnelle | Multilingue, FR→EN |
 
 Tous les binaires supportent `--help` / `-h`.
 
@@ -90,6 +90,8 @@ transcribe-diarize reunion.wav
 
 Le script `dictee` permet la saisie vocale par raccourci clavier : un premier appui démarre l'enregistrement, un second l'arrête et **tape le texte transcrit à la position du curseur**.
 
+La langue de transcription est la langue par défaut du système (détectée automatiquement par le modèle Parakeet). L'option `--translate` traduit le texte de FR vers EN avant de le taper.
+
 ```bash
 # Dictée simple
 dictee
@@ -100,6 +102,25 @@ dictee --translate --ollama    # via ollama/translategemma
 
 # Annuler l'enregistrement en cours
 dictee --cancel
+```
+
+### Backends de traduction
+
+| Backend | Option | Description |
+|---------|--------|-------------|
+| [translate-shell](https://github.com/soimort/translate-shell) | `--translate` | Rapide, utilise Google Translate (défaut) |
+| [ollama](https://ollama.com/) + translategemma | `--translate --ollama` | 100% local, plus lent mais sans dépendance cloud |
+
+Le backend ollama utilise le modèle [translategemma](https://ollama.com/library/translategemma) avec le prompt suivant :
+
+```
+ollama run translategemma:latest "You are a professional French (fr) to English (en) translator.
+Your goal is to accurately convey the meaning and nuances of the original French text
+while adhering to English grammar, vocabulary, and cultural sensitivities.
+Produce only the English translation, without any additional explanations or commentary.
+Please translate the following French text into English:
+
+<texte transcrit>"
 ```
 
 ### Dépendances
