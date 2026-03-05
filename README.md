@@ -27,6 +27,8 @@ Fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes]
 
 Tous les binaires supportent `--help` / `-h`.
 
+> **Conseil :** pour des transcriptions plus réactives, utilisez le mode daemon (`transcribe-daemon` + `transcribe-client`). Le modèle est chargé une seule fois en mémoire, les transcriptions suivantes sont quasi-instantanées.
+
 ## Installation rapide (Debian/Ubuntu)
 
 Télécharger le `.deb` depuis les [Releases](../../releases), puis :
@@ -92,17 +94,13 @@ Le script `dictee` permet la saisie vocale par raccourci clavier : un premier ap
 
 - `transcribe-daemon` en cours d'exécution
 - `pw-record` (PipeWire)
-- **ydotool-rebind** (fork de ydotool avec support Unicode)
+- **ydotool-rebind** (wrapper ydotool pour clavier AZERTY — voir ci-dessous)
 
-### ydotool-rebind (obligatoire pour le français)
+### ydotool-rebind (obligatoire pour clavier AZERTY)
 
-Le `ydotool` standard ne gère pas les caractères accentués (é, è, à, ç, ê, etc.) — il envoie des scancodes clavier US.
-
-Pour que la dictée fonctionne correctement en français, il faut installer le fork **ydotool-rebind** :
+`ydotool` utilise internement un layout QWERTY : sans correction, « Bonjour » serait tapé « Vonjout ». Le wrapper **ydotool-rebind** traduit les frappes AZERTY→QWERTY et gère les caractères accentués français (é, è, ê, à, ù, ç, â, ô, û, æ, œ).
 
 **https://github.com/david-vct/ydotool-rebind**
-
-Ce fork prend en charge la saisie Unicode complète, indispensable pour les langues avec diacritiques.
 
 ### Optionnel
 

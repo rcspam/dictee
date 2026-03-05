@@ -5,7 +5,8 @@
 #
 # Nécessite : transcribe-daemon (en cours), pw-record
 #             ydotool-rebind (https://github.com/david-vct/ydotool-rebind)
-#             ⚠ ydotool standard ne gère pas les accents - utiliser le fork ci-dessus
+#             ⚠ ydotool standard utilise un layout QWERTY - le wrapper est
+#               nécessaire pour les claviers AZERTY et les accents français
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 PID_FILE="/tmp/dictee.pid"
