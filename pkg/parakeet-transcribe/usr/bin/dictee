@@ -8,11 +8,11 @@ PID_ANIM="/tmp/dictee_anim.pid"
 WAV_FILE="/tmp/dictee_recording.wav"
 CLIENT="/usr/bin/transcribe-client"
 
-# Animation (configurable)
+# Animation
 BIN_PATH="/usr/local/bin"
 ANIMATION_CONFIG="circular"
 ANIMATION_PARAM="-p center -w 1000 -H 150"
-ANIMATION_APP="${BIN_PATH}/animation-speech ${ANIMATION_CONFIG} ${ANIMATION_PARAM}"
+ANIMATION_APP="${BIN_PATH}/animation-speech"
 
 if [ -f "$PID_FILE" ]; then
     # === ARRÊT ===
@@ -49,8 +49,8 @@ else
     rm -f "$WAV_FILE"
 
     # Lancer l'animation
-    if [ -x "${BIN_PATH}/animation-speech" ]; then
-        $ANIMATION_APP &
+    if [ -x "$ANIMATION_APP" ]; then
+        "$ANIMATION_APP" $ANIMATION_CONFIG $ANIMATION_PARAM &
         PID_A=$!
         echo "$PID_A" > "$PID_ANIM"
         sleep 0.5

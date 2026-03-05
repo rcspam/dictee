@@ -13,7 +13,11 @@ DS_Store
 *.model
 *.deb
 tdt
-pkg/parakeet-transcribe/usr/bin/
+pkg/parakeet-transcribe/usr/bin/transcribe
+pkg/parakeet-transcribe/usr/bin/transcribe-daemon
+pkg/parakeet-transcribe/usr/bin/transcribe-client
+pkg/parakeet-transcribe/usr/bin/transcribe-diarize
+pkg/parakeet-transcribe/usr/bin/transcribe-stream-diarize
 CLAUDE.md
 DOC.md
 ETAT_PROJET.md
