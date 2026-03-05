@@ -23,6 +23,7 @@ Fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes]
 | `transcribe-client` | Client : fichier, stdin ou micro | Multilingue |
 | `transcribe-diarize` | Transcription + identification des locuteurs | Multilingue |
 | `transcribe-stream-diarize` | Streaming temps réel + diarisation | Anglais uniquement |
+| `dictee` | Saisie vocale push-to-talk (raccourci clavier) | Multilingue |
 
 Tous les binaires supportent `--help` / `-h`.
 
@@ -82,6 +83,30 @@ transcribe-diarize reunion.wav
 # [0.00 - 2.50] Speaker 1: Bonjour à tous.
 # [2.80 - 5.10] Speaker 2: Merci d'être venus.
 ```
+
+## Dictée vocale (push-to-talk)
+
+Le script `dictee` permet la saisie vocale par raccourci clavier : un premier appui démarre l'enregistrement, un second l'arrête et tape le texte transcrit dans l'application active.
+
+### Dépendances
+
+- `transcribe-daemon` en cours d'exécution
+- `pw-record` (PipeWire)
+- **ydotool-rebind** (fork de ydotool avec support Unicode)
+
+### ydotool-rebind (obligatoire pour le français)
+
+Le `ydotool` standard ne gère pas les caractères accentués (é, è, à, ç, ê, etc.) — il envoie des scancodes clavier US.
+
+Pour que la dictée fonctionne correctement en français, il faut installer le fork **ydotool-rebind** :
+
+**https://github.com/david-vct/ydotool-rebind**
+
+Ce fork prend en charge la saisie Unicode complète, indispensable pour les langues avec diacritiques.
+
+### Optionnel
+
+- [animation-speech](https://github.com/rcspam/animation-speech) : animation visuelle pendant l'enregistrement (contrôlée via `animation-speech-ctl`)
 
 ## Compilation depuis les sources
 

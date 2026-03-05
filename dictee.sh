@@ -3,13 +3,14 @@
 # Premier appui : démarre l'enregistrement + animation
 # Deuxième appui : arrête et tape le texte
 #
-# Nécessite : transcribe-daemon (en cours), ydotool, pw-record
-# Optionnel : animation-speech (https://github.com/rcspam/animation-speech)
+# Nécessite : transcribe-daemon (en cours), pw-record
+#             ydotool-rebind (https://github.com/david-vct/ydotool-rebind)
+#             ⚠ ydotool standard ne gère pas les accents - utiliser le fork ci-dessus
+# Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 PID_FILE="/tmp/dictee.pid"
 WAV_FILE="/tmp/dictee_recording.wav"
 MUTE_FLAG="/tmp/dictee_was_muted"
-ANIM_PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/speech-animation.pid"
 
 notify() {
     if command -v notify-send >/dev/null 2>&1; then
@@ -90,40 +91,28 @@ check_mic() {
     return 1
 }
 
-# --- Animation ---
-
-get_anim_pid() {
-    if [ -f "$ANIM_PID_FILE" ]; then
-        local pid
-        pid=$(cat "$ANIM_PID_FILE")
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "$pid"
-            return 0
-        fi
-    fi
-    return 1
-}
+# --- Animation (via animation-speech-ctl) ---
 
 start_animation() {
-    if command -v animation-speech >/dev/null 2>&1; then
-        animation-speech &
-        sleep 0.5
-        local pid
-        pid=$(get_anim_pid) && kill -SIGUSR1 "$pid" 2>/dev/null
+    if command -v animation-speech-ctl >/dev/null 2>&1; then
+        animation-speech-ctl start 2>/dev/null
     fi
 }
 
 stop_animation() {
-    local pid
-    pid=$(get_anim_pid) && {
-        kill -SIGUSR2 "$pid" 2>/dev/null
-        sleep 0.2
-        kill "$pid" 2>/dev/null
-    }
+    if command -v animation-speech-ctl >/dev/null 2>&1; then
+        animation-speech-ctl stop 2>/dev/null
+    fi
+}
+
+quit_animation() {
+    if command -v animation-speech-ctl >/dev/null 2>&1; then
+        animation-speech-ctl quit 2>/dev/null
+    fi
 }
 
 cleanup() {
-    stop_animation
+    quit_animation
     remute_mic
     rm -f "$PID_FILE" "$WAV_FILE"
 }
