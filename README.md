@@ -90,15 +90,23 @@ transcribe-diarize reunion.wav
 
 Le script `dictee` permet la saisie vocale par raccourci clavier : un premier appui démarre l'enregistrement, un second l'arrête et **tape le texte transcrit à la position du curseur**.
 
-La langue de transcription est la langue par défaut du système (détectée automatiquement par le modèle Parakeet). L'option `--translate` traduit le texte de FR vers EN avant de le taper.
+La langue de transcription est la langue par défaut du système (détectée automatiquement par le modèle Parakeet). L'option `--translate` traduit le texte avant de le taper. Les langues source/cible sont configurables via variables d'environnement :
+
+| Variable | Défaut | Description |
+|----------|--------|-------------|
+| `DICTEE_LANG_SOURCE` | `fr` | Langue source (transcription) |
+| `DICTEE_LANG_TARGET` | `en` | Langue cible (traduction) |
 
 ```bash
 # Dictée simple
 dictee
 
-# Avec traduction FR→EN
+# Avec traduction FR→EN (défaut)
 dictee --translate
 dictee --translate --ollama    # via ollama/translategemma
+
+# Traduction FR→ES (espagnol)
+DICTEE_LANG_TARGET=es dictee --translate
 
 # Annuler l'enregistrement en cours
 dictee --cancel
@@ -114,14 +122,16 @@ dictee --cancel
 Le backend ollama utilise le modèle [translategemma](https://ollama.com/library/translategemma) avec le prompt suivant :
 
 ```
-ollama run translategemma:latest "You are a professional French (fr) to English (en) translator.
-Your goal is to accurately convey the meaning and nuances of the original French text
-while adhering to English grammar, vocabulary, and cultural sensitivities.
-Produce only the English translation, without any additional explanations or commentary.
-Please translate the following French text into English:
+ollama run translategemma:latest "You are a professional <source> to <target> translator.
+Your goal is to accurately convey the meaning and nuances of the original text
+while adhering to the target language grammar, vocabulary, and cultural sensitivities.
+Produce only the <target> translation, without any additional explanations or commentary.
+Please translate the following text:
 
 <texte transcrit>"
 ```
+
+Les langues `<source>` et `<target>` sont remplacées par les valeurs de `DICTEE_LANG_SOURCE` et `DICTEE_LANG_TARGET`.
 
 ### Dépendances
 

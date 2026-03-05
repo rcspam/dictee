@@ -1,13 +1,15 @@
 #!/bin/bash
 #
 # Dictée vocale - enregistre avec le micro, transcrit et tape le texte
-# Optionnellement traduit FR→EN avant d'envoyer
+# Optionnellement traduit avant d'envoyer
 #
 # Backends traduction: trans (défaut), ollama (translategemma)
+# Langues configurables via variables d'environnement :
+#   DICTEE_LANG_SOURCE (défaut: fr), DICTEE_LANG_TARGET (défaut: en)
 #
 # Usage: dictee [--translate] [--ollama] [--cancel]
 #   dictee                      # transcrit et tape
-#   dictee --translate          # transcrit, traduit FR→EN (trans), tape
+#   dictee --translate          # transcrit, traduit (trans), tape
 #   dictee --translate --ollama # traduit avec ollama/translategemma
 #   dictee --cancel             # annule l'enregistrement en cours
 #
@@ -18,6 +20,10 @@
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 # === CONFIGURATION ===
+LANG_SOURCE="${DICTEE_LANG_SOURCE:-fr}"
+LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
+LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
+
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.mp3"
 PIDFILE="/tmp/recording_dictee_pid"
 ID_TMP_FILE="/tmp/notify_dictee"
@@ -127,11 +133,11 @@ translate() {
 
     case "$backend" in
     trans)
-        echo "$text" | trans -b fr:en
+        echo "$text" | trans -b "${LANG_SOURCE}:${LANG_TARGET}"
         ;;
     ollama)
-        local prompt="You are a professional French (fr) to English (en) translator. Your goal is to accurately convey the meaning and nuances of the original French text while adhering to English grammar, vocabulary, and cultural sensitivities.
-Produce only the English translation, without any additional explanations or commentary. Please translate the following French text into English:
+        local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
+Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
 ${text}"
         ollama run translategemma:latest "$prompt" 2>/dev/null
@@ -227,9 +233,9 @@ if [ -f "$PIDFILE" ]; then
         wl-paste | ydotool type --file - 2>/dev/null
 
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "FR→EN ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "FR→EN ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         fi
     else
         # Copier directement
@@ -274,7 +280,7 @@ else
 
     # Notification
     if [ "$TRANSLATE" = true ]; then
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement FR→EN ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
     else
         notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
     fi
