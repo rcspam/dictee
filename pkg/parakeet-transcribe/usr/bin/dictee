@@ -8,6 +8,7 @@
 
 PID_FILE="/tmp/dictee.pid"
 WAV_FILE="/tmp/dictee_recording.wav"
+MUTE_FLAG="/tmp/dictee_was_muted"
 ANIM_PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/speech-animation.pid"
 
 notify() {
@@ -31,6 +32,65 @@ check_deps() {
         exit 1
     fi
 }
+
+# --- Gestion du micro ---
+
+# Vérifie si le micro est muté. Retourne 0 si muté, 1 sinon.
+is_mic_muted() {
+    # PipeWire (wpctl)
+    if command -v wpctl >/dev/null 2>&1; then
+        wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -q "\[MUTED\]"
+        return $?
+    fi
+    # PulseAudio (pactl)
+    if command -v pactl >/dev/null 2>&1; then
+        LANG=C pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null | grep -q "yes"
+        return $?
+    fi
+    return 1
+}
+
+unmute_mic() {
+    if is_mic_muted; then
+        # Marquer qu'on a démuté (pour remuter après)
+        touch "$MUTE_FLAG"
+        if command -v wpctl >/dev/null 2>&1; then
+            wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0
+        elif command -v pactl >/dev/null 2>&1; then
+            pactl set-source-mute @DEFAULT_SOURCE@ 0
+        fi
+    fi
+}
+
+remute_mic() {
+    if [ -f "$MUTE_FLAG" ]; then
+        rm -f "$MUTE_FLAG"
+        if command -v wpctl >/dev/null 2>&1; then
+            wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 1
+        elif command -v pactl >/dev/null 2>&1; then
+            pactl set-source-mute @DEFAULT_SOURCE@ 1
+        fi
+    fi
+}
+
+# Vérifie qu'une source audio est disponible
+check_mic() {
+    # PipeWire
+    if command -v wpctl >/dev/null 2>&1; then
+        if wpctl get-volume @DEFAULT_AUDIO_SOURCE@ >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    # PulseAudio
+    if command -v pactl >/dev/null 2>&1; then
+        if pactl get-source-mute @DEFAULT_SOURCE@ >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# --- Animation ---
 
 get_anim_pid() {
     if [ -f "$ANIM_PID_FILE" ]; then
@@ -64,8 +124,11 @@ stop_animation() {
 
 cleanup() {
     stop_animation
+    remute_mic
     rm -f "$PID_FILE" "$WAV_FILE"
 }
+
+# === LOGIQUE PRINCIPALE ===
 
 if [ -f "$PID_FILE" ]; then
     # === ARRÊT ===
@@ -80,6 +143,9 @@ if [ -f "$PID_FILE" ]; then
     rm -f "$PID_FILE"
 
     sleep 0.2  # Laisser le fichier se finaliser
+
+    # Remuter le micro si on l'avait démuté
+    remute_mic
 
     # Transcrire et taper
     if [ -f "$WAV_FILE" ]; then
@@ -99,7 +165,16 @@ else
 
     check_deps
 
+    # Vérifier l'accès au micro
+    if ! check_mic; then
+        notify "Erreur" "Aucun microphone détecté"
+        exit 1
+    fi
+
     rm -f "$WAV_FILE"
+
+    # Démuter le micro si nécessaire
+    unmute_mic
 
     start_animation
 
