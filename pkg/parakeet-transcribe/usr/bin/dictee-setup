@@ -8,13 +8,16 @@ Sauvegarde dans ~/.config/dictee.conf (format shell, sourceable par dictee.sh).
 
 import os
 import re
+import shutil
 import subprocess
 import locale
+import tempfile
+import threading
 
 import gi
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gtk, Gdk  # noqa: E402
+from gi.repository import Gtk, Gdk, GLib  # noqa: E402
 
 # === Configuration ===
 
@@ -40,6 +43,8 @@ LANGUAGES = [
 ]
 
 DICTEE_COMMAND = "/usr/bin/dictee"
+ANIMATION_SPEECH_REPO = "rcspam/animation-speech"
+ANIMATION_SPEECH_BIN = "animation-speech-ctl"
 
 # === Détection DE ===
 
@@ -347,6 +352,34 @@ class DicteeSetupWindow(Gtk.Window):
         # Appliquer l'état initial
         self._on_translate_toggled(self.chk_translate)
 
+        # -- Section animation-speech --
+        frame_anim = Gtk.Frame(label=" Animation vocale ")
+        frame_anim.set_shadow_type(Gtk.ShadowType.NONE)
+        frame_anim.get_label_widget().set_markup("<b>Animation vocale</b>")
+        box_anim = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box_anim.set_margin_start(12)
+        box_anim.set_margin_end(12)
+        box_anim.set_margin_top(6)
+        box_anim.set_margin_bottom(6)
+        frame_anim.add(box_anim)
+        vbox.pack_start(frame_anim, False, False, 0)
+
+        self.lbl_anim_status = Gtk.Label()
+        self.lbl_anim_status.set_xalign(0)
+        self.lbl_anim_status.set_line_wrap(True)
+        box_anim.pack_start(self.lbl_anim_status, False, False, 0)
+
+        self.btn_install_anim = Gtk.Button(label="Installer animation-speech")
+        self.btn_install_anim.connect("clicked", self._on_install_animation)
+        self.btn_install_anim.set_no_show_all(True)
+        box_anim.pack_start(self.btn_install_anim, False, False, 0)
+
+        self.progress_anim = Gtk.ProgressBar()
+        self.progress_anim.set_no_show_all(True)
+        box_anim.pack_start(self.progress_anim, False, False, 0)
+
+        self._check_animation_speech()
+
         # -- Boutons --
         box_buttons = Gtk.Box(spacing=8)
         box_buttons.set_halign(Gtk.Align.END)
@@ -422,6 +455,163 @@ class DicteeSetupWindow(Gtk.Window):
 
         return True
 
+    # -- Animation-speech --
+
+    def _check_animation_speech(self):
+        """Vérifie si animation-speech-ctl est installé."""
+        if shutil.which(ANIMATION_SPEECH_BIN):
+            # Récupérer la version installée
+            try:
+                result = subprocess.run(
+                    ["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
+                    capture_output=True, text=True,
+                )
+                version = result.stdout.strip() if result.returncode == 0 else ""
+                if version:
+                    self.lbl_anim_status.set_markup(
+                        f'<span foreground="green">✓ animation-speech {version} installé</span>'
+                    )
+                else:
+                    self.lbl_anim_status.set_markup(
+                        '<span foreground="green">✓ animation-speech installé</span>'
+                    )
+            except FileNotFoundError:
+                self.lbl_anim_status.set_markup(
+                    '<span foreground="green">✓ animation-speech installé</span>'
+                )
+            self.btn_install_anim.hide()
+        else:
+            self.lbl_anim_status.set_markup(
+                "<i>animation-speech</i> affiche une animation visuelle pendant\n"
+                "l'enregistrement et permet d'annuler avec Echap."
+            )
+            self.btn_install_anim.show()
+
+    def _on_install_animation(self, _widget):
+        """Télécharge et installe le .deb depuis GitHub releases."""
+        self.btn_install_anim.set_sensitive(False)
+        self.btn_install_anim.set_label("Téléchargement…")
+        self.progress_anim.show()
+        self.progress_anim.pulse()
+        self._pulse_id = GLib.timeout_add(100, self._pulse_progress)
+
+        thread = threading.Thread(target=self._download_and_install, daemon=True)
+        thread.start()
+
+    def _pulse_progress(self):
+        self.progress_anim.pulse()
+        return True
+
+    @staticmethod
+    def _is_debian_based():
+        """Détecte si le système utilise dpkg (Debian/Ubuntu/Mint…)."""
+        return shutil.which("dpkg") is not None
+
+    def _download_and_install(self):
+        """Thread : télécharge le .deb ou .tar.gz via gh et installe."""
+        try:
+            # Vérifier que gh est disponible
+            if not shutil.which("gh"):
+                GLib.idle_add(
+                    self._install_error,
+                    "L'outil 'gh' (GitHub CLI) est nécessaire.\n"
+                    "Installez-le : sudo apt install gh && gh auth login",
+                )
+                return
+
+            tmp_dir = tempfile.mkdtemp(prefix="dictee-setup-")
+
+            if self._is_debian_based():
+                # Télécharger le .deb
+                result = subprocess.run(
+                    ["gh", "release", "download", "--repo", ANIMATION_SPEECH_REPO,
+                     "--pattern", "*.deb", "--dir", tmp_dir],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    GLib.idle_add(self._install_error, result.stderr.strip() or "Erreur téléchargement .deb")
+                    return
+
+                # Trouver le fichier téléchargé
+                debs = [f for f in os.listdir(tmp_dir) if f.endswith(".deb")]
+                if not debs:
+                    GLib.idle_add(self._install_error, "Aucun .deb trouvé dans la release.")
+                    return
+
+                deb_path = os.path.join(tmp_dir, debs[0])
+                GLib.idle_add(self._update_install_label, "Installation…")
+                result = subprocess.run(
+                    ["pkexec", "dpkg", "-i", deb_path],
+                    capture_output=True, text=True,
+                )
+            else:
+                # Télécharger le .tar.gz
+                result = subprocess.run(
+                    ["gh", "release", "download", "--repo", ANIMATION_SPEECH_REPO,
+                     "--pattern", "*.tar.gz", "--dir", tmp_dir],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    GLib.idle_add(self._install_error, result.stderr.strip() or "Erreur téléchargement .tar.gz")
+                    return
+
+                tarballs = [f for f in os.listdir(tmp_dir) if f.endswith(".tar.gz")]
+                if not tarballs:
+                    GLib.idle_add(self._install_error, "Aucun .tar.gz trouvé dans la release.")
+                    return
+
+                tarball_path = os.path.join(tmp_dir, tarballs[0])
+                GLib.idle_add(self._update_install_label, "Installation…")
+                # Extraire dans /usr/local via pkexec
+                result = subprocess.run(
+                    ["pkexec", "tar", "xzf", tarball_path, "-C", "/usr/local"],
+                    capture_output=True, text=True,
+                )
+
+            # Nettoyage
+            try:
+                for f in os.listdir(tmp_dir):
+                    os.remove(os.path.join(tmp_dir, f))
+                os.rmdir(tmp_dir)
+            except OSError:
+                pass
+
+            if result.returncode == 0:
+                GLib.idle_add(self._install_success)
+            else:
+                err = result.stderr.strip() or "Erreur lors de l'installation."
+                GLib.idle_add(self._install_error, err)
+
+        except Exception as e:
+            GLib.idle_add(self._install_error, str(e))
+
+    def _update_install_label(self, text):
+        self.btn_install_anim.set_label(text)
+        return False
+
+    def _install_success(self):
+        GLib.source_remove(self._pulse_id)
+        self.progress_anim.hide()
+        self._check_animation_speech()
+        return False
+
+    def _install_error(self, msg):
+        GLib.source_remove(self._pulse_id)
+        self.progress_anim.hide()
+        self.btn_install_anim.set_label("Installer animation-speech")
+        self.btn_install_anim.set_sensitive(True)
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text="Erreur d'installation",
+        )
+        dialog.format_secondary_text(msg)
+        dialog.run()
+        dialog.destroy()
+        return False
+
     # -- Appliquer --
 
     def _on_apply(self, _widget):
@@ -438,7 +628,8 @@ class DicteeSetupWindow(Gtk.Window):
         if self.captured_accel and self.de_type in ("kde", "gnome"):
             try:
                 if self.de_type == "kde":
-                    kde_accel = apply_kde_shortcut(self.captured_accel)
+                    apply_kde_shortcut(self.captured_accel)
+                    kde_accel = gtk_accel_to_kde(self.captured_accel)
                     shortcut_msg = f"\nRaccourci appliqué : {kde_accel}"
                     shortcut_msg += "\nUn re-login peut être nécessaire pour activer le raccourci."
                 else:
