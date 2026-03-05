@@ -4,13 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/rapha/SOURCES/parakeet-rs/target/release/transcribe-daemon /home/rapha/SOURCES/parakeet-rs/tdt
+ExecStart=/usr/bin/transcribe-daemon
 Restart=on-failure
 RestartSec=5
-
-# Socket permissions
-RuntimeDirectory=transcribe
-Environment=XDG_RUNTIME_DIR=/run/user/1000
 
 [Install]
 WantedBy=default.target
