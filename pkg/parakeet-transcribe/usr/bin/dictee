@@ -1,7 +1,15 @@
 #!/bin/bash
-# Dictée vocale - push-to-talk avec animation
-# Premier appui : démarre l'enregistrement + animation
-# Deuxième appui : arrête et tape le texte
+#
+# Dictée vocale - enregistre avec le micro, transcrit et tape le texte
+# Optionnellement traduit FR→EN avant d'envoyer
+#
+# Backends traduction: trans (défaut), ollama (translategemma)
+#
+# Usage: dictee [--translate] [--ollama] [--cancel]
+#   dictee                      # transcrit et tape
+#   dictee --translate          # transcrit, traduit FR→EN (trans), tape
+#   dictee --translate --ollama # traduit avec ollama/translategemma
+#   dictee --cancel             # annule l'enregistrement en cours
 #
 # Nécessite : transcribe-daemon (en cours), pw-record
 #             ydotool-rebind (https://github.com/david-vct/ydotool-rebind)
@@ -9,176 +17,265 @@
 #               nécessaire pour les claviers AZERTY et les accents français
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
-PID_FILE="/tmp/dictee.pid"
-WAV_FILE="/tmp/dictee_recording.wav"
-MUTE_FLAG="/tmp/dictee_was_muted"
+# === CONFIGURATION ===
+RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.mp3"
+PIDFILE="/tmp/recording_dictee_pid"
+ID_TMP_FILE="/tmp/notify_dictee"
+MUT_FILE="/tmp/mut_dictee"
+TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend"
+TRANSLATE_FLAG_FILE="/tmp/dictee_translate"
 
-notify() {
-    if command -v notify-send >/dev/null 2>&1; then
-        notify-send -a "Dictée" "$1" "$2" 2>/dev/null
+# Post-traitement du texte (commandes de dictée françaises)
+POINT_A_LA_LIGNE="| sed -E 's/[,.]?point à la ligne[,.]?/.\n/Ig' | sed -E 's/^\.?//g'"
+TROIS_PETITS_POINTS="| sed -E 's/(trois|3) petits points/\.\.\./Ig'"
+SUPPRIME="${POINT_A_LA_LIGNE} ${TROIS_PETITS_POINTS}"
+
+# Parse arguments
+TRANSLATE_BACKEND="trans"
+TRANSLATE=false
+CANCEL=false
+
+for arg in "$@"; do
+    case "$arg" in
+    --cancel)
+        CANCEL=true
+        ;;
+    --translate)
+        TRANSLATE=true
+        ;;
+    --ollama)
+        TRANSLATE_BACKEND="ollama"
+        ;;
+    --help|-h)
+        head -n 16 "$0" | grep '^#' | sed 's/^# \?//'
+        exit 0
+        ;;
+    esac
+done
+
+# === FONCTIONS ===
+
+check_dependencies() {
+    local missing=()
+    command -v pw-record >/dev/null || missing+=("pipewire")
+    command -v wl-copy >/dev/null || missing+=("wl-clipboard")
+    command -v ydotool >/dev/null || missing+=("ydotool")
+    command -v pactl >/dev/null || missing+=("pulseaudio-utils")
+    command -v notify-send >/dev/null || missing+=("libnotify-bin")
+
+    # Vérifier le backend de traduction si --translate
+    if [ "$TRANSLATE" = true ]; then
+        if [ "$TRANSLATE_BACKEND" = "trans" ]; then
+            command -v trans >/dev/null || missing+=("translate-shell")
+        elif [ "$TRANSLATE_BACKEND" = "ollama" ]; then
+            command -v ollama >/dev/null || missing+=("ollama")
+        fi
     fi
-}
 
-check_deps() {
-    local missing=""
-    command -v pw-record >/dev/null 2>&1 || missing="$missing pw-record"
-    command -v transcribe-client >/dev/null 2>&1 || missing="$missing transcribe-client"
-    command -v ydotool >/dev/null 2>&1 || missing="$missing ydotool"
-    if [ -n "$missing" ]; then
-        notify "Erreur" "Commandes manquantes :$missing"
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Dépendances manquantes: ${missing[*]}" >&2
         exit 1
     fi
-    # Vérifier que le daemon tourne
-    if [ ! -S /tmp/transcribe.sock ]; then
-        notify "Erreur" "transcribe-daemon n'est pas lancé"
-        exit 1
-    fi
 }
 
-# --- Gestion du micro ---
+cleanup_on_error() {
+    local exit_code=$?
 
-# Vérifie si le micro est muté. Retourne 0 si muté, 1 sinon.
-is_mic_muted() {
-    # PipeWire (wpctl)
-    if command -v wpctl >/dev/null 2>&1; then
-        wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -q "\[MUTED\]"
-        return $?
+    # Tuer pw-record et ses enfants
+    if [ -f "$PIDFILE" ]; then
+        local rec_pid=$(cat "$PIDFILE")
+        kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
+        sleep 0.1
+        kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
+        rm -f "$PIDFILE"
     fi
-    # PulseAudio (pactl)
-    if command -v pactl >/dev/null 2>&1; then
-        LANG=C pactl get-source-mute @DEFAULT_SOURCE@ 2>/dev/null | grep -q "yes"
-        return $?
-    fi
-    return 1
-}
 
-unmute_mic() {
-    if is_mic_muted; then
-        # Marquer qu'on a démuté (pour remuter après)
-        touch "$MUTE_FLAG"
-        if command -v wpctl >/dev/null 2>&1; then
-            wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 0
-        elif command -v pactl >/dev/null 2>&1; then
-            pactl set-source-mute @DEFAULT_SOURCE@ 0
-        fi
-    fi
-}
-
-remute_mic() {
-    if [ -f "$MUTE_FLAG" ]; then
-        rm -f "$MUTE_FLAG"
-        if command -v wpctl >/dev/null 2>&1; then
-            wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 1
-        elif command -v pactl >/dev/null 2>&1; then
-            pactl set-source-mute @DEFAULT_SOURCE@ 1
-        fi
-    fi
-}
-
-# Vérifie qu'une source audio est disponible
-check_mic() {
-    # PipeWire
-    if command -v wpctl >/dev/null 2>&1; then
-        if wpctl get-volume @DEFAULT_AUDIO_SOURCE@ >/dev/null 2>&1; then
-            return 0
-        fi
-    fi
-    # PulseAudio
-    if command -v pactl >/dev/null 2>&1; then
-        if pactl get-source-mute @DEFAULT_SOURCE@ >/dev/null 2>&1; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-# --- Animation (via animation-speech-ctl) ---
-
-start_animation() {
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        animation-speech-ctl start 2>/dev/null
-    fi
-}
-
-stop_animation() {
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        animation-speech-ctl stop 2>/dev/null
-    fi
-}
-
-quit_animation() {
+    # Arrêter l'animation
     if command -v animation-speech-ctl >/dev/null 2>&1; then
         animation-speech-ctl quit 2>/dev/null
     fi
+
+    # Tuer tous les processus enfants restants
+    pkill -P $$ 2>/dev/null
+
+    # Restaurer l'état audio
+    pactl set-sink-mute @DEFAULT_SINK@ 0
+    if [ -f "$MUT_FILE" ]; then
+        [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
+        rm -f "$MUT_FILE"
+    fi
+
+    # Fermer la notification persistante
+    local id=$(cat "$ID_TMP_FILE" 2>/dev/null)
+    if [ -n "$id" ]; then
+        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement interrompu"
+    fi
+
+    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+
+    exit $exit_code
 }
 
-cleanup() {
-    quit_animation
-    remute_mic
-    rm -f "$PID_FILE" "$WAV_FILE"
+transcribe() {
+    local audio_file="$1"
+    eval transcribe-client "$audio_file" $SUPPRIME
 }
 
-# === LOGIQUE PRINCIPALE ===
+translate() {
+    local text="$1"
+    local backend="$2"
 
-if [ -f "$PID_FILE" ]; then
-    # === ARRÊT ===
+    case "$backend" in
+    trans)
+        echo "$text" | trans -b fr:en
+        ;;
+    ollama)
+        local prompt="You are a professional French (fr) to English (en) translator. Your goal is to accurately convey the meaning and nuances of the original French text while adhering to English grammar, vocabulary, and cultural sensitivities.
+Produce only the English translation, without any additional explanations or commentary. Please translate the following French text into English:
 
-    stop_animation
+${text}"
+        ollama run translategemma:latest "$prompt" 2>/dev/null
+        ;;
+    *)
+        echo "Backend traduction inconnu: $backend" >&2
+        exit 1
+        ;;
+    esac
+}
+
+# === MAIN ===
+
+check_dependencies
+trap cleanup_on_error INT TERM HUP QUIT ERR
+
+# === ANNULATION ===
+if [ "$CANCEL" = true ]; then
+    if [ -f "$PIDFILE" ]; then
+        id=$(cat "$ID_TMP_FILE" 2>/dev/null)
+
+        # Arrêter l'animation
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            animation-speech-ctl quit 2>/dev/null
+        fi
+
+        # Restaurer l'état du micro
+        if [ -f "$MUT_FILE" ]; then
+            [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
+            rm -f "$MUT_FILE"
+        fi
+        pactl set-sink-mute @DEFAULT_SINK@ 0
+
+        # Arrêter l'enregistrement
+        kill "$(cat "$PIDFILE")" 2>/dev/null
+        rm -f "$PIDFILE"
+
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
+        else
+            notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
+        fi
+        rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    fi
+    exit 0
+fi
+
+if [ -f "$PIDFILE" ]; then
+    # === ARRÊT DE L'ENREGISTREMENT ===
+
+    # Récupérer les options utilisées au démarrage
+    if [ -f "$TRANSLATE_FLAG_FILE" ]; then
+        TRANSLATE=true
+    fi
+    if [ -f "$TRANSLATE_BACKEND_FILE" ]; then
+        TRANSLATE_BACKEND=$(cat "$TRANSLATE_BACKEND_FILE")
+    fi
+
+    id=$(cat "$ID_TMP_FILE" 2>/dev/null)
+
+    # Arrêter l'animation
+    if command -v animation-speech-ctl >/dev/null 2>&1; then
+        animation-speech-ctl stop 2>/dev/null
+    fi
+
+    # Restaurer l'état du micro
+    if [ -f "$MUT_FILE" ]; then
+        [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
+        rm -f "$MUT_FILE"
+    fi
+    # Démuter le son
+    pactl set-sink-mute @DEFAULT_SINK@ 0
 
     # Arrêter l'enregistrement
-    pid=$(cat "$PID_FILE")
-    if kill -0 "$pid" 2>/dev/null; then
-        kill -INT "$pid" 2>/dev/null
+    kill "$(cat "$PIDFILE")" 2>/dev/null
+    rm -f "$PIDFILE"
+
+    if [ -n "$id" ]; then
+        notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
     fi
-    rm -f "$PID_FILE"
 
-    sleep 0.2  # Laisser le fichier se finaliser
+    # Transcrire
+    transcribed=$(transcribe "$RECORDING_FILE")
 
-    # Remuter le micro si on l'avait démuté
-    remute_mic
+    if [ "$TRANSLATE" = true ]; then
+        # Traduire et copier
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
+        fi
 
-    # Transcrire et taper
-    if [ -f "$WAV_FILE" ]; then
-        text=$(transcribe-client "$WAV_FILE" 2>/dev/null)
-        rm -f "$WAV_FILE"
+        translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
+        echo "$translated" | wl-copy
+        wl-paste | ydotool type --file - 2>/dev/null
 
-        if [ -n "$text" ]; then
-            echo -n "$text" | ydotool type --file - 2>/dev/null
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "FR→EN ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         else
-            notify "Dictée" "Aucun texte reconnu"
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "FR→EN ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         fi
     else
-        notify "Erreur" "Fichier audio non trouvé"
+        # Copier directement
+        echo "$transcribed" | wl-copy
+        wl-paste | ydotool type --file - 2>/dev/null
+
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
+        else
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
+        fi
     fi
+
+    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+
 else
-    # === DÉMARRAGE ===
+    # === DÉMARRAGE DE L'ENREGISTREMENT ===
 
-    check_deps
-
-    # Vérifier l'accès au micro
-    if ! check_mic; then
-        notify "Erreur" "Aucun microphone détecté"
-        exit 1
+    # Sauvegarder les options choisies
+    if [ "$TRANSLATE" = true ]; then
+        touch "$TRANSLATE_FLAG_FILE"
+        echo "$TRANSLATE_BACKEND" >"$TRANSLATE_BACKEND_FILE"
     fi
 
-    rm -f "$WAV_FILE"
+    # Vérifier si le micro est muté et le démuter
+    if pactl get-source-mute @DEFAULT_SOURCE@ | grep -q -i -E 'oui|yes'; then
+        pactl set-source-mute @DEFAULT_SOURCE@ 0
+        echo "MUT=1" >"$MUT_FILE"
+    fi
+    # Muter le son (pour éviter le feedback)
+    pactl set-sink-mute @DEFAULT_SINK@ 1
 
-    # Démuter le micro si nécessaire
-    unmute_mic
-
-    start_animation
+    # Lancer l'animation (si disponible, avec annulation par Echap)
+    if command -v animation-speech-ctl >/dev/null 2>&1; then
+        SCRIPT_PATH="$(readlink -f "$0")"
+        animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null
+    fi
 
     # Démarrer l'enregistrement
-    pw-record --rate 16000 --channels 1 --format s16 "$WAV_FILE" &
-    rec_pid=$!
+    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    echo $! >"$PIDFILE"
 
-    # Vérifier que l'enregistrement a bien démarré
-    sleep 0.3
-    if ! kill -0 "$rec_pid" 2>/dev/null; then
-        cleanup
-        notify "Erreur" "Échec de l'enregistrement (pw-record)"
-        exit 1
+    # Notification
+    if [ "$TRANSLATE" = true ]; then
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement FR→EN ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
+    else
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
     fi
-
-    echo "$rec_pid" > "$PID_FILE"
 fi

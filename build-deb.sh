@@ -29,7 +29,7 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
-Recommends: nvidia-cuda-toolkit
+Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin
 Conflicts: parakeet-transcribe-cpu
 Provides: parakeet-transcribe
 Maintainer: rcspam <rcspams@gmail.com>
@@ -85,6 +85,7 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Recommends: wl-clipboard, libnotify-bin
 Conflicts: parakeet-transcribe-cuda
 Provides: parakeet-transcribe
 Maintainer: rcspam <rcspams@gmail.com>

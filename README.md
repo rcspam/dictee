@@ -23,7 +23,7 @@ Fork de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes]
 | `transcribe-client` | Client : fichier, stdin ou micro | Multilingue |
 | `transcribe-diarize` | Transcription + identification des locuteurs | Multilingue |
 | `transcribe-stream-diarize` | Streaming temps réel + diarisation | Anglais uniquement |
-| `dictee` | Saisie vocale push-to-talk (raccourci clavier) | Multilingue |
+| `dictee` | Saisie vocale push-to-talk avec traduction optionnelle | Multilingue |
 
 Tous les binaires supportent `--help` / `-h`.
 
@@ -90,11 +90,25 @@ transcribe-diarize reunion.wav
 
 Le script `dictee` permet la saisie vocale par raccourci clavier : un premier appui démarre l'enregistrement, un second l'arrête et tape le texte transcrit dans l'application active.
 
+```bash
+# Dictée simple
+dictee
+
+# Avec traduction FR→EN
+dictee --translate
+dictee --translate --ollama    # via ollama/translategemma
+
+# Annuler l'enregistrement en cours
+dictee --cancel
+```
+
 ### Dépendances
 
 - `transcribe-daemon` en cours d'exécution
 - `pw-record` (PipeWire)
 - **ydotool-rebind** (wrapper ydotool pour clavier AZERTY — voir ci-dessous)
+- `wl-clipboard` (copie presse-papier)
+- `translate-shell` ou `ollama` (si `--translate`)
 
 ### ydotool-rebind (obligatoire pour clavier AZERTY)
 
@@ -104,7 +118,7 @@ Le script `dictee` permet la saisie vocale par raccourci clavier : un premier ap
 
 ### Optionnel
 
-- [animation-speech](https://github.com/rcspam/animation-speech) : animation visuelle pendant l'enregistrement (contrôlée via `animation-speech-ctl`)
+- [animation-speech](https://github.com/rcspam/animation-speech) : animation visuelle pendant l'enregistrement (contrôlée via `animation-speech-ctl`), annulation par touche Echap
 
 ## Compilation depuis les sources
 
