@@ -136,6 +136,10 @@ translate() {
         echo "$text" | trans -b "${LANG_SOURCE}:${LANG_TARGET}"
         ;;
     ollama)
+        # Vérifier si le modèle est déjà téléchargé
+        if ! ollama list 2>/dev/null | grep -q "translategemma"; then
+            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle translategemma..." "Premier lancement, veuillez patienter"
+        fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
