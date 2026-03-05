@@ -133,6 +133,8 @@ Please translate the following text:
 
 Les langues `<source>` et `<target>` sont remplacées par les valeurs de `DICTEE_LANG_SOURCE` et `DICTEE_LANG_TARGET`.
 
+> **Note :** Le premier appel avec `--ollama` peut être sensiblement plus long, le temps pour ollama de charger le modèle translategemma en mémoire. Les appels suivants seront plus rapides tant que le modèle reste chargé.
+
 ### Dépendances
 
 - `transcribe-daemon` en cours d'exécution
