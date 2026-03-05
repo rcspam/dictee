@@ -10,10 +10,6 @@ PID_FILE="/tmp/dictee.pid"
 WAV_FILE="/tmp/dictee_recording.wav"
 ANIM_PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/speech-animation.pid"
 
-# Animation (configurable)
-ANIMATION_CONFIG="circular"
-ANIMATION_PARAM="-p center -w 1000 -H 150"
-
 get_anim_pid() {
     if [ -f "$ANIM_PID_FILE" ]; then
         local pid
@@ -28,7 +24,7 @@ get_anim_pid() {
 
 start_animation() {
     if command -v animation-speech >/dev/null 2>&1; then
-        animation-speech $ANIMATION_CONFIG $ANIMATION_PARAM &
+        animation-speech &
         sleep 0.5
         local pid
         pid=$(get_anim_pid) && kill -SIGUSR1 "$pid" 2>/dev/null
