@@ -45,17 +45,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("  transcribe-stream-diarize            Enregistrer depuis le micro (Ctrl+C)");
             eprintln!();
             eprintln!("Variables d'environnement:");
-            eprintln!("  NEMOTRON_DIR    Répertoire Nemotron (défaut: /usr/share/parakeet-transcribe/nemotron)");
-            eprintln!("  SORTFORMER_DIR  Répertoire Sortformer (défaut: /usr/share/parakeet-transcribe/sortformer)");
+            eprintln!("  NEMOTRON_DIR    Répertoire Nemotron (défaut: /usr/share/dictee/nemotron)");
+            eprintln!("  SORTFORMER_DIR  Répertoire Sortformer (défaut: /usr/share/dictee/sortformer)");
             eprintln!();
             eprintln!("Le micro est automatiquement démuté si nécessaire.");
             return Ok(());
         }
 
         let nemotron_dir = env::var("NEMOTRON_DIR")
-            .unwrap_or_else(|_| "/usr/share/parakeet-transcribe/nemotron".to_string());
+            .unwrap_or_else(|_| "/usr/share/dictee/nemotron".to_string());
         let sortformer_dir = env::var("SORTFORMER_DIR")
-            .unwrap_or_else(|_| "/usr/share/parakeet-transcribe/sortformer".to_string());
+            .unwrap_or_else(|_| "/usr/share/dictee/sortformer".to_string());
 
         // Configure execution
         #[cfg(feature = "cuda")]

@@ -1,11 +1,12 @@
-Package: parakeet-transcribe-cpu
+Package: dictee-cpu
 Version: 0.3.2
 Section: sound
 Priority: optional
 Architecture: amd64
 Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
-Conflicts: parakeet-transcribe-cuda
-Provides: parakeet-transcribe
+Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
+Conflicts: dictee-cuda
+Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
 Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.

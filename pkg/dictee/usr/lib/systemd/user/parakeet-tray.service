@@ -1,6 +1,6 @@
 [Unit]
 Description=Parakeet Transcribe Tray Icon
-After=parakeet-transcribe.service
+After=dictee.service
 BindsTo=graphical-session.target
 
 [Service]

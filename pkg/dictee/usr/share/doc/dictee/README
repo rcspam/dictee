@@ -11,7 +11,7 @@ COMMANDS
 
   transcribe-daemon [model_dir]
       Start daemon with preloaded model for fast repeated transcriptions
-      Default model_dir: /usr/share/parakeet-transcribe/tdt
+      Default model_dir: /usr/share/dictee/tdt
 
   transcribe-client <audio.wav>
       Send audio to daemon for transcription (requires transcribe-daemon running)
@@ -31,7 +31,7 @@ COMMANDS
 MODELS
 ------
 
-Models are stored in /usr/share/parakeet-transcribe/
+Models are stored in /usr/share/dictee/
 
   tdt/          - Parakeet TDT (multilingual, 25 languages)
   sortformer/   - Sortformer v2.1 (speaker diarization, up to 4 speakers)
@@ -43,7 +43,7 @@ SYSTEMD SERVICE
 Enable the daemon for fast transcription:
 
   systemctl --user daemon-reload
-  systemctl --user enable --now parakeet-transcribe
+  systemctl --user enable --now dictee
 
 CONFIGURATION
 -------------

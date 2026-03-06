@@ -15,19 +15,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!();
         eprintln!("Arguments:");
         eprintln!("  <audio>       Fichier audio (tout format supporté par ffmpeg)");
-        eprintln!("  [model_dir]   Répertoire du modèle TDT (défaut: /usr/share/parakeet-transcribe/tdt)");
+        eprintln!("  [model_dir]   Répertoire du modèle TDT (défaut: /usr/share/dictee/tdt)");
         return Ok(());
     }
 
     if args.len() < 2 {
         eprintln!("Usage: transcribe <audio> [model_dir]");
         eprintln!("  audio:     Audio file (any format supported by ffmpeg)");
-        eprintln!("  model_dir: Path to TDT model directory (default: /usr/share/parakeet-transcribe/tdt)");
+        eprintln!("  model_dir: Path to TDT model directory (default: /usr/share/dictee/tdt)");
         std::process::exit(1);
     }
 
     let audio_path = resolve_path(&args[1])?;
-    let model_dir = if args.len() > 2 { &args[2] } else { "/usr/share/parakeet-transcribe/tdt" };
+    let model_dir = if args.len() > 2 { &args[2] } else { "/usr/share/dictee/tdt" };
 
     // Convert to WAV 16kHz mono if needed
     let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;

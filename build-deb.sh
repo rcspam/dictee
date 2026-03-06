@@ -4,10 +4,10 @@ set -e
 cd "$(dirname "$0")"
 
 VERSION="0.3.2"
-PKG_DIR="pkg/parakeet-transcribe"
+PKG_DIR="pkg/dictee"
 
 echo "========================================"
-echo "  Building parakeet-transcribe $VERSION"
+echo "  Building dictee $VERSION"
 echo "========================================"
 echo ""
 
@@ -23,15 +23,15 @@ build_cuda() {
 
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
-Package: parakeet-transcribe-cuda
+Package: dictee-cuda
 Version: 0.3.2
 Section: sound
 Priority: optional
 Architecture: amd64
 Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
-Conflicts: parakeet-transcribe-cpu
-Provides: parakeet-transcribe
+Conflicts: dictee-cpu
+Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
 Description: Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
@@ -79,15 +79,15 @@ build_cpu() {
 
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
-Package: parakeet-transcribe-cpu
+Package: dictee-cpu
 Version: 0.3.2
 Section: sound
 Priority: optional
 Architecture: amd64
 Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
-Conflicts: parakeet-transcribe-cuda
-Provides: parakeet-transcribe
+Conflicts: dictee-cuda
+Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
 Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.

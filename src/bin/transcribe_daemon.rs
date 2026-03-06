@@ -16,13 +16,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Usage: transcribe-daemon [model_dir]");
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  [model_dir]   Répertoire du modèle TDT (défaut: /usr/share/parakeet-transcribe/tdt)");
+        eprintln!("  [model_dir]   Répertoire du modèle TDT (défaut: /usr/share/dictee/tdt)");
         eprintln!();
         eprintln!("Écoute sur {}. Utiliser avec transcribe-client.", SOCKET_PATH);
         return Ok(());
     }
 
-    let model_dir = if args.len() > 1 { &args[1] } else { "/usr/share/parakeet-transcribe/tdt" };
+    let model_dir = if args.len() > 1 { &args[1] } else { "/usr/share/dictee/tdt" };
 
     // Remove existing socket
     if Path::new(SOCKET_PATH).exists() {

@@ -110,7 +110,7 @@ Les préférences sont sauvegardées dans `~/.config/dictee.conf` et chargées a
 
 ---
 
-## Backend : parakeet-transcribe
+## Backend : moteur de transcription
 
 Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes) pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
 
@@ -162,10 +162,10 @@ transcribe-diarize reunion.wav
 
 ### Modèles ONNX
 
-Les modèles doivent être placés dans `/usr/share/parakeet-transcribe/` :
+Les modèles doivent être placés dans `/usr/share/dictee/` :
 
 ```
-/usr/share/parakeet-transcribe/
+/usr/share/dictee/
 ├── tdt/                  # ParakeetTDT (multilingue)
 │   ├── encoder-model.onnx
 │   ├── decoder_joint-model.onnx

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-MODEL_DIR="/usr/share/parakeet-transcribe"
+MODEL_DIR="/usr/share/dictee"
 TDT_DIR="$MODEL_DIR/tdt"
 DIAR_DIR="$MODEL_DIR/sortformer"
 NEMOTRON_DIR="$MODEL_DIR/nemotron"
@@ -131,7 +131,7 @@ echo "=== Parakeet Transcribe installé ==="
 echo ""
 echo "Pour activer le service :"
 echo "  systemctl --user daemon-reload"
-echo "  systemctl --user enable --now parakeet-transcribe"
+echo "  systemctl --user enable --now dictee"
 echo ""
 echo "Assurez-vous que ydotool daemon tourne :"
 echo "  systemctl --user enable --now ydotool"

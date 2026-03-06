@@ -1,5 +1,5 @@
 #!/bin/bash
-# install.sh — Installation de parakeet-transcribe pour distributions non-Debian
+# install.sh — Installation de dictee pour distributions non-Debian
 # Usage : sudo ./install.sh
 set -e
 
@@ -7,7 +7,7 @@ PREFIX="/usr/local"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 ICON_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 MAN_DIR="$PREFIX/share/man/man1"
-MODEL_DIR="/usr/share/parakeet-transcribe"
+MODEL_DIR="/usr/share/dictee"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -25,7 +25,7 @@ REAL_HOME=$(eval echo "~$REAL_USER")
 SYSTEMD_USER_DIR="$REAL_HOME/.config/systemd/user"
 ICON_DIR="$REAL_HOME/.local/share/icons/hicolor/scalable/apps"
 
-echo "=== Installation de parakeet-transcribe ==="
+echo "=== Installation de dictee ==="
 echo ""
 
 # Binaires
@@ -74,7 +74,7 @@ echo "=== Installation terminée ==="
 echo ""
 echo "Pour activer le service :"
 echo "  systemctl --user daemon-reload"
-echo "  systemctl --user enable --now parakeet-transcribe"
+echo "  systemctl --user enable --now dictee"
 echo ""
 echo "Pour configurer le raccourci clavier et la traduction :"
 echo "  dictee --setup"

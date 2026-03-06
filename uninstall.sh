@@ -1,10 +1,10 @@
 #!/bin/bash
-# uninstall.sh — Désinstallation de parakeet-transcribe
+# uninstall.sh — Désinstallation de dictee
 # Usage : sudo ./uninstall.sh
 set -e
 
 PREFIX="/usr/local"
-MODEL_DIR="/usr/share/parakeet-transcribe"
+MODEL_DIR="/usr/share/dictee"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Ce script doit être lancé avec sudo :"
@@ -15,14 +15,14 @@ fi
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
 
-echo "=== Désinstallation de parakeet-transcribe ==="
+echo "=== Désinstallation de dictee ==="
 echo ""
 
 # Arrêter les services
 echo "→ Arrêt des services"
-su "$REAL_USER" -c "systemctl --user stop parakeet-transcribe 2>/dev/null || true"
+su "$REAL_USER" -c "systemctl --user stop dictee 2>/dev/null || true"
 su "$REAL_USER" -c "systemctl --user stop parakeet-tray 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user disable parakeet-transcribe 2>/dev/null || true"
+su "$REAL_USER" -c "systemctl --user disable dictee 2>/dev/null || true"
 su "$REAL_USER" -c "systemctl --user disable parakeet-tray 2>/dev/null || true"
 
 # Binaires
@@ -41,7 +41,7 @@ done
 
 # Services systemd
 echo "→ Suppression des services systemd"
-rm -f "$REAL_HOME/.config/systemd/user/parakeet-transcribe.service"
+rm -f "$REAL_HOME/.config/systemd/user/dictee.service"
 rm -f "$REAL_HOME/.config/systemd/user/parakeet-tray.service"
 su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
 

@@ -28,7 +28,7 @@ from gi.repository import Gtk, GLib, GdkPixbuf  # noqa: E402
 
 SOCKET_PATH = "/tmp/transcribe.sock"
 DAEMON_BIN = "transcribe-daemon"
-APP_ID = "parakeet-transcribe"
+APP_ID = "dictee"
 POLL_INTERVAL_MS = 3000
 
 # Icônes personnalisées — AppIndicator3 veut un répertoire + nom sans extension
@@ -96,7 +96,7 @@ def daemon_start():
     """Démarre le daemon via systemd --user (ou en direct)."""
     try:
         subprocess.Popen(
-            ["systemctl", "--user", "start", "parakeet-transcribe"],
+            ["systemctl", "--user", "start", "dictee"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -113,7 +113,7 @@ def daemon_stop():
     """Arrête le daemon via systemd --user (ou kill)."""
     try:
         subprocess.Popen(
-            ["systemctl", "--user", "stop", "parakeet-transcribe"],
+            ["systemctl", "--user", "stop", "dictee"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

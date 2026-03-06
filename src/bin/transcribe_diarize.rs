@@ -31,22 +31,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!();
             eprintln!("Arguments:");
             eprintln!("  <audio>          Fichier audio (tout format supporté par ffmpeg)");
-            eprintln!("  [model_dir]      Répertoire du modèle TDT (défaut: /usr/share/parakeet-transcribe/tdt)");
-            eprintln!("  [sortformer_dir] Répertoire Sortformer (défaut: /usr/share/parakeet-transcribe/sortformer)");
+            eprintln!("  [model_dir]      Répertoire du modèle TDT (défaut: /usr/share/dictee/tdt)");
+            eprintln!("  [sortformer_dir] Répertoire Sortformer (défaut: /usr/share/dictee/sortformer)");
             return Ok(());
         }
 
         if args.len() < 2 {
             eprintln!("Usage: transcribe-diarize <audio> [model_dir] [sortformer_dir]");
             eprintln!("  audio:          Audio file (any format supported by ffmpeg)");
-            eprintln!("  model_dir:      Path to TDT model (default: /usr/share/parakeet-transcribe/tdt)");
-            eprintln!("  sortformer_dir: Path to Sortformer model (default: /usr/share/parakeet-transcribe/sortformer)");
+            eprintln!("  model_dir:      Path to TDT model (default: /usr/share/dictee/tdt)");
+            eprintln!("  sortformer_dir: Path to Sortformer model (default: /usr/share/dictee/sortformer)");
             std::process::exit(1);
         }
 
         let audio_path = resolve_path(&args[1])?;
-        let model_dir = args.get(2).map(|s| s.as_str()).unwrap_or("/usr/share/parakeet-transcribe/tdt");
-        let sortformer_dir = args.get(3).map(|s| s.as_str()).unwrap_or("/usr/share/parakeet-transcribe/sortformer");
+        let model_dir = args.get(2).map(|s| s.as_str()).unwrap_or("/usr/share/dictee/tdt");
+        let sortformer_dir = args.get(3).map(|s| s.as_str()).unwrap_or("/usr/share/dictee/sortformer");
 
         // Convert to WAV 16kHz mono if needed
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
