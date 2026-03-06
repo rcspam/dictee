@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="0.3.2"
+VERSION="0.99"
 PKG_DIR="pkg/dictee"
 
 echo "========================================"
@@ -24,7 +24,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 0.3.2
+Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -82,7 +82,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 0.3.2
+Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64

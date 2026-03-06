@@ -52,10 +52,10 @@ Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
 # Version GPU (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_0.3.2_amd64.deb
+sudo dpkg -i dictee-cuda_0.99_amd64.deb
 
 # Version CPU (tout ordinateur)
-sudo dpkg -i dictee-cpu_0.3.2_amd64.deb
+sudo dpkg -i dictee-cpu_0.99_amd64.deb
 
 # Installer les dépendances manquantes
 sudo apt-get install -f
