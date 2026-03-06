@@ -85,14 +85,14 @@ sudo make install
 
 ### Icône de zone de notification
 
-`parakeet-tray` affiche une icône dans la boîte à miniatures du panel qui indique l'état du daemon (actif/arrêté). Le menu contextuel permet de démarrer/arrêter le daemon, lancer une dictée ou ouvrir la configuration.
+`dictee-tray` affiche une icône dans la boîte à miniatures du panel qui indique l'état du daemon (actif/arrêté). Le menu contextuel permet de démarrer/arrêter le daemon, lancer une dictée ou ouvrir la configuration.
 
 ```bash
 # Lancer manuellement
-parakeet-tray
+dictee-tray
 
 # Activer au démarrage de la session
-systemctl --user enable parakeet-tray
+systemctl --user enable dictee-tray
 ```
 
 L'icône s'adapte automatiquement au thème clair/sombre.
@@ -254,7 +254,7 @@ Ce projet ajoute :
 - Paquets Debian (.deb) pour installation système
 - Service systemd
 - Interface de configuration GTK3 (`dictee --setup`)
-- Icône de zone de notification (`parakeet-tray`)
+- Icône de zone de notification (`dictee-tray`)
 
 ## Licence
 

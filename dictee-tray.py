@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-parakeet-tray — Icône de zone de notification pour transcribe-daemon
+dictee-tray — Icône de zone de notification pour transcribe-daemon
 Affiche l'état du daemon dans la boîte à miniatures du panel.
 """
 

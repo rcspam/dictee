@@ -37,7 +37,7 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-diarize" "$PREFIX/bin/transcribe-
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-stream-diarize" "$PREFIX/bin/transcribe-stream-diarize"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee" "$PREFIX/bin/dictee"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-setup" "$PREFIX/bin/dictee-setup"
-install -Dm755 "$SCRIPT_DIR/usr/bin/parakeet-tray" "$PREFIX/bin/parakeet-tray"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-tray" "$PREFIX/bin/dictee-tray"
 
 # Man pages
 echo "→ Installation des pages de manuel"

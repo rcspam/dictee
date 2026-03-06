@@ -5,7 +5,7 @@ BindsTo=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/parakeet-tray
+ExecStart=/usr/bin/dictee-tray
 Restart=on-failure
 RestartSec=3
 

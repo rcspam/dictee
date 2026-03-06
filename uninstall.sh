@@ -21,14 +21,14 @@ echo ""
 # Arrêter les services
 echo "→ Arrêt des services"
 su "$REAL_USER" -c "systemctl --user stop dictee 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user stop parakeet-tray 2>/dev/null || true"
+su "$REAL_USER" -c "systemctl --user stop dictee-tray 2>/dev/null || true"
 su "$REAL_USER" -c "systemctl --user disable dictee 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user disable parakeet-tray 2>/dev/null || true"
+su "$REAL_USER" -c "systemctl --user disable dictee-tray 2>/dev/null || true"
 
 # Binaires
 echo "→ Suppression des binaires"
 for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-           transcribe-stream-diarize dictee dictee-setup parakeet-tray; do
+           transcribe-stream-diarize dictee dictee-setup dictee-tray; do
     rm -f "$PREFIX/bin/$bin"
 done
 
@@ -42,7 +42,7 @@ done
 # Services systemd
 echo "→ Suppression des services systemd"
 rm -f "$REAL_HOME/.config/systemd/user/dictee.service"
-rm -f "$REAL_HOME/.config/systemd/user/parakeet-tray.service"
+rm -f "$REAL_HOME/.config/systemd/user/dictee-tray.service"
 su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
 
 # Icônes

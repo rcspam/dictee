@@ -136,7 +136,7 @@ build_tarball() {
     done
     cp "$PKG_DIR/usr/bin/dictee" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/parakeet-tray" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-tray" "$TARBALL_DIR/usr/bin/"
 
     # Services systemd
     cp "$PKG_DIR/usr/lib/systemd/user/"*.service "$TARBALL_DIR/usr/lib/systemd/user/"
