@@ -119,9 +119,48 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
 }
 
-# Build both versions
+# Build tar.gz (non-Debian)
+build_tarball() {
+    echo ""
+    echo "=== [TAR.GZ] Creating universal archive ==="
+    local TARBALL_DIR="parakeet-transcribe-${VERSION}"
+    rm -rf "$TARBALL_DIR"
+    mkdir -p "$TARBALL_DIR/usr/bin"
+    mkdir -p "$TARBALL_DIR/usr/lib/systemd/user"
+    mkdir -p "$TARBALL_DIR/usr/share/man/man1"
+    mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
+
+    # Binaires (derniers compilés = CPU)
+    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize; do
+        cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
+    done
+    cp "$PKG_DIR/usr/bin/dictee" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/parakeet-tray" "$TARBALL_DIR/usr/bin/"
+
+    # Services systemd
+    cp "$PKG_DIR/usr/lib/systemd/user/"*.service "$TARBALL_DIR/usr/lib/systemd/user/"
+
+    # Man pages
+    cp "$PKG_DIR/usr/share/man/man1/"*.1 "$TARBALL_DIR/usr/share/man/man1/" 2>/dev/null || true
+
+    # Icônes
+    cp "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"*.svg "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps/"
+
+    # Scripts d'installation
+    cp install.sh "$TARBALL_DIR/"
+    cp uninstall.sh "$TARBALL_DIR/"
+    chmod 755 "$TARBALL_DIR/install.sh" "$TARBALL_DIR/uninstall.sh"
+
+    tar czf "parakeet-transcribe-${VERSION}_amd64.tar.gz" "$TARBALL_DIR"
+    rm -rf "$TARBALL_DIR"
+    echo "Built: parakeet-transcribe-${VERSION}_amd64.tar.gz"
+}
+
+# Build both versions + tarball
 build_cuda
 build_cpu
+build_tarball
 
 echo ""
 echo "========================================"
@@ -129,13 +168,19 @@ echo "  Build complete!"
 echo "========================================"
 echo ""
 echo "Packages created:"
-echo "  - parakeet-transcribe-cuda_${VERSION}_amd64.deb (for NVIDIA GPU)"
-echo "  - parakeet-transcribe-cpu_${VERSION}_amd64.deb  (for any computer)"
+echo "  - parakeet-transcribe-cuda_${VERSION}_amd64.deb  (Debian/Ubuntu, NVIDIA GPU)"
+echo "  - parakeet-transcribe-cpu_${VERSION}_amd64.deb   (Debian/Ubuntu, CPU)"
+echo "  - parakeet-transcribe-${VERSION}_amd64.tar.gz    (Autres distributions)"
 echo ""
-echo "Install with:"
+echo "Install (.deb):"
 echo "  sudo dpkg -i parakeet-transcribe-{cuda,cpu}_${VERSION}_amd64.deb"
 echo "  sudo apt-get install -f  # if dependencies missing"
 echo ""
-echo "Uninstall with:"
-echo "  sudo dpkg -r parakeet-transcribe-cuda"
-echo "  sudo dpkg -r parakeet-transcribe-cpu"
+echo "Install (.tar.gz):"
+echo "  tar xzf parakeet-transcribe-${VERSION}_amd64.tar.gz"
+echo "  cd parakeet-transcribe-${VERSION}"
+echo "  sudo ./install.sh"
+echo ""
+echo "Uninstall:"
+echo "  sudo dpkg -r parakeet-transcribe-{cuda,cpu}"
+echo "  sudo ./uninstall.sh  # tar.gz"
