@@ -59,11 +59,11 @@ EOF
     # Compress man pages
     gzip -9 -f "$PKG_DIR/usr/share/man/man1/"*.1 2>/dev/null || true
 
-    dpkg-deb --build "$PKG_DIR" "parakeet-transcribe-cuda_${VERSION}_amd64.deb"
+    dpkg-deb --build "$PKG_DIR" "dictee-cuda_${VERSION}_amd64.deb"
 
     # Decompress for next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
-    echo "Built: parakeet-transcribe-cuda_${VERSION}_amd64.deb"
+    echo "Built: dictee-cuda_${VERSION}_amd64.deb"
 }
 
 # Build CPU version
@@ -112,8 +112,8 @@ EOF
     # Compress man pages
     gzip -9 -f "$PKG_DIR/usr/share/man/man1/"*.1 2>/dev/null || true
 
-    dpkg-deb --build "$PKG_DIR" "parakeet-transcribe-cpu_${VERSION}_amd64.deb"
-    echo "Built: parakeet-transcribe-cpu_${VERSION}_amd64.deb"
+    dpkg-deb --build "$PKG_DIR" "dictee-cpu_${VERSION}_amd64.deb"
+    echo "Built: dictee-cpu_${VERSION}_amd64.deb"
 
     # Decompress for potential next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
@@ -123,7 +123,7 @@ EOF
 build_tarball() {
     echo ""
     echo "=== [TAR.GZ] Creating universal archive ==="
-    local TARBALL_DIR="parakeet-transcribe-${VERSION}"
+    local TARBALL_DIR="dictee-${VERSION}"
     rm -rf "$TARBALL_DIR"
     mkdir -p "$TARBALL_DIR/usr/bin"
     mkdir -p "$TARBALL_DIR/usr/lib/systemd/user"
@@ -152,9 +152,9 @@ build_tarball() {
     cp uninstall.sh "$TARBALL_DIR/"
     chmod 755 "$TARBALL_DIR/install.sh" "$TARBALL_DIR/uninstall.sh"
 
-    tar czf "parakeet-transcribe-${VERSION}_amd64.tar.gz" "$TARBALL_DIR"
+    tar czf "dictee-${VERSION}_amd64.tar.gz" "$TARBALL_DIR"
     rm -rf "$TARBALL_DIR"
-    echo "Built: parakeet-transcribe-${VERSION}_amd64.tar.gz"
+    echo "Built: dictee-${VERSION}_amd64.tar.gz"
 }
 
 # Build both versions + tarball
@@ -168,19 +168,19 @@ echo "  Build complete!"
 echo "========================================"
 echo ""
 echo "Packages created:"
-echo "  - parakeet-transcribe-cuda_${VERSION}_amd64.deb  (Debian/Ubuntu, NVIDIA GPU)"
-echo "  - parakeet-transcribe-cpu_${VERSION}_amd64.deb   (Debian/Ubuntu, CPU)"
-echo "  - parakeet-transcribe-${VERSION}_amd64.tar.gz    (Autres distributions)"
+echo "  - dictee-cuda_${VERSION}_amd64.deb  (Debian/Ubuntu, NVIDIA GPU)"
+echo "  - dictee-cpu_${VERSION}_amd64.deb   (Debian/Ubuntu, CPU)"
+echo "  - dictee-${VERSION}_amd64.tar.gz    (Autres distributions)"
 echo ""
 echo "Install (.deb):"
-echo "  sudo dpkg -i parakeet-transcribe-{cuda,cpu}_${VERSION}_amd64.deb"
+echo "  sudo dpkg -i dictee-{cuda,cpu}_${VERSION}_amd64.deb"
 echo "  sudo apt-get install -f  # if dependencies missing"
 echo ""
 echo "Install (.tar.gz):"
-echo "  tar xzf parakeet-transcribe-${VERSION}_amd64.tar.gz"
-echo "  cd parakeet-transcribe-${VERSION}"
+echo "  tar xzf dictee-${VERSION}_amd64.tar.gz"
+echo "  cd dictee-${VERSION}"
 echo "  sudo ./install.sh"
 echo ""
 echo "Uninstall:"
-echo "  sudo dpkg -r parakeet-transcribe-{cuda,cpu}"
+echo "  sudo dpkg -r dictee-{cuda,cpu}"
 echo "  sudo ./uninstall.sh  # tar.gz"
