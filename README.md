@@ -1,238 +1,252 @@
-# dictee
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
+    <img src="assets/banner-light.svg" alt="dictée" width="480">
+  </picture>
+</p>
 
-**Saisie vocale push-to-talk pour Linux** — parlez, et le texte s'écrit à la position du curseur. Avec traduction optionnelle.
+<p align="center">
+  <b>Push-to-talk voice dictation for Linux</b> — speak, and the text is typed at the cursor position. With optional translation.
+</p>
 
-La transcription est réalisée **100% en local** grâce au modèle [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) exécuté via ONNX Runtime. Aucune donnée audio n'est envoyée vers un serveur externe — votre voix reste sur votre machine.
+<p align="center">
+  <a href="README.fr.md">Lire en Fran&ccedil;ais</a>
+</p>
 
-Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active**.
+---
 
-## Utilisation
+Transcription is performed **100% locally** using the [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) model running via ONNX Runtime. No audio data is sent to any external server — your voice stays on your machine.
+
+A first press of the keyboard shortcut starts recording (with a visual animation), a second press stops it, transcribes the speech and **types the text directly into the active application**.
+
+## Usage
 
 ```bash
-# Dictée simple — transcrit et tape
+# Simple dictation — transcribe and type
 dictee
 
-# Avec traduction (défaut: langue système → anglais)
+# With translation (default: system language → English)
 dictee --translate
-dictee --translate --ollama    # traduction 100% locale via ollama/translategemma
+dictee --translate --ollama    # 100% local translation via ollama/translategemma
 
-# Changer les langues de traduction
-DICTEE_LANG_TARGET=es dictee --translate    # → espagnol
+# Change translation languages
+DICTEE_LANG_TARGET=es dictee --translate    # → Spanish
 
-# Annuler l'enregistrement en cours (via raccourci ou touche Echap)
+# Cancel an ongoing recording (via shortcut or Escape key)
 dictee --cancel
 
-# Ouvrir l'interface de configuration (raccourci clavier, traduction, langues)
+# Open the configuration interface (keyboard shortcut, translation, languages)
 dictee --setup
 ```
 
-### Post-traitement (dictée française)
+### Post-processing (French dictation)
 
-Le texte transcrit est post-traité pour interpréter les commandes vocales françaises :
-- « point à la ligne » → saut de ligne
-- « trois petits points » → `...`
+Transcribed text is post-processed to interpret French voice commands:
+- "point à la ligne" → line break
+- "trois petits points" → `...`
 
 ## Installation
 
-Télécharger le `.deb` depuis les [Releases](../../releases), puis :
+Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
-# Version GPU (NVIDIA CUDA)
+# GPU version (NVIDIA CUDA)
 sudo dpkg -i dictee-cuda_0.3.2_amd64.deb
 
-# Version CPU (tout ordinateur)
+# CPU version (any computer)
 sudo dpkg -i dictee-cpu_0.3.2_amd64.deb
 
-# Installer les dépendances manquantes
+# Install missing dependencies
 sudo apt-get install -f
 ```
 
-### Dépendances
+### Dependencies
 
 ```bash
-# Dépendances principales
+# Main dependencies
 sudo apt install pipewire ydotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
 
-# Pour la traduction (optionnel)
+# For translation (optional)
 sudo apt install translate-shell    # --translate (Google Translate)
-# ou
+# or
 curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # --translate --ollama (100% local)
 ```
 
-#### animation-speech (recommandé)
+#### animation-speech (recommended)
 
-[animation-speech](https://github.com/rcspam/animation-speech) affiche une animation visuelle pendant l'enregistrement et permet d'annuler avec la touche Echap. Sans cette dépendance, `dictee` fonctionne normalement mais sans retour visuel.
+[animation-speech](https://github.com/rcspam/animation-speech) displays a visual animation during recording and allows cancellation with the Escape key. Without this dependency, `dictee` works normally but without visual feedback.
 
 ```bash
-# Installer depuis le .deb (voir les releases du repo)
+# Install from the .deb (see the repo's releases)
 sudo dpkg -i animation-speech_*.deb
 ```
 
-#### ydotool-rebind (clavier AZERTY)
+#### ydotool-rebind (AZERTY keyboard)
 
-`ydotool` simule les frappes clavier pour taper le texte transcrit dans l'application active. Par défaut, il utilise un layout **QWERTY** — ce qui produit des caractères incorrects sur un clavier AZERTY (par ex. `q` au lieu de `a`).
+`ydotool` simulates keystrokes to type transcribed text into the active application. By default, it uses a **QWERTY** layout — which produces incorrect characters on an AZERTY keyboard (e.g. `q` instead of `a`).
 
-[ydotool-rebind](https://github.com/david-vct/ydotool-rebind) est un wrapper qui corrige ce problème en remappant les touches pour supporter les claviers AZERTY et les caractères accentués français (é, è, ê, à, ç, etc.).
+[ydotool-rebind](https://github.com/david-vct/ydotool-rebind) is a wrapper that fixes this by remapping keys to support AZERTY keyboards and French accented characters (é, è, ê, à, ç, etc.).
 
 ```bash
-# Installer ydotool-rebind (remplace la commande ydotool)
+# Install ydotool-rebind (replaces the ydotool command)
 git clone https://github.com/david-vct/ydotool-rebind.git
 cd ydotool-rebind
 sudo make install
 ```
 
-> **Note :** Sans ydotool-rebind, la dictée produira du texte avec des caractères mélangés sur un clavier français. Cette dépendance est indispensable pour les claviers AZERTY.
+> **Note:** Without ydotool-rebind, dictation will produce garbled text on a French keyboard. This dependency is essential for AZERTY keyboards.
 
-### Icône de zone de notification
+### Notification area icon
 
-`dictee-tray` affiche une icône dans la boîte à miniatures du panel qui indique l'état du daemon (actif/arrêté). Le menu contextuel permet de démarrer/arrêter le daemon, lancer une dictée ou ouvrir la configuration.
+`dictee-tray` displays an icon in the panel's notification area showing the daemon status (active/stopped). The context menu allows starting/stopping the daemon, launching a dictation, or opening the configuration.
 
 ```bash
-# Lancer manuellement
+# Launch manually
 dictee-tray
 
-# Activer au démarrage de la session
+# Enable at session startup
 systemctl --user enable dictee-tray
 ```
 
-L'icône s'adapte automatiquement au thème clair/sombre.
+The icon automatically adapts to light/dark themes.
 
 ### Configuration
 
-`dictee --setup` ouvre une interface graphique (GTK3) qui permet de configurer :
+`dictee --setup` opens a graphical interface (GTK3) for configuring:
 
-- **Raccourci clavier** : capture et enregistrement automatique (KDE Plasma / GNOME)
-- **Traduction** : activer/désactiver, choix du backend (translate-shell ou ollama), langues source et cible
+- **Keyboard shortcut**: capture and automatic registration (KDE Plasma / GNOME)
+- **Translation**: enable/disable, backend choice (translate-shell or ollama), source and target languages
 
-Les préférences sont sauvegardées dans `~/.config/dictee.conf` et chargées automatiquement à chaque lancement. Les arguments CLI (`--translate`, `--ollama`) ont toujours priorité sur la configuration.
+Preferences are saved in `~/.config/dictee.conf` and automatically loaded on each launch. CLI arguments (`--translate`, `--ollama`) always take priority over the configuration.
 
-> Pour les environnements non supportés (Sway, i3, Hyprland...), l'outil indique la commande à configurer manuellement dans le gestionnaire de fenêtres.
+> For unsupported environments (Sway, i3, Hyprland...), the tool shows the command to configure manually in your window manager.
 
 ---
 
-## Backend : moteur de transcription
+## Backend: transcription engine
 
-Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes) pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
+The transcription engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [@altunenes](https://github.com/altunenes) for NVIDIA Parakeet model inference via ONNX Runtime.
 
-### Fonctionnalités
+### Features
 
-- **Transcription multilingue** : 25+ langues (dont le français) via ParakeetTDT 0.6B
-- **Diarisation** : identification de qui parle (jusqu'à 4 locuteurs) via Sortformer
-- **Streaming temps réel** : transcription chunk par chunk via Nemotron (anglais uniquement)
-- **Tout format audio** : WAV, MP3, OGG, FLAC, OPUS... conversion automatique via ffmpeg
-- **Mode daemon** : modèle chargé une seule fois, transcriptions quasi-instantanées
-- **Enregistrement micro** : PipeWire / PulseAudio / ALSA, auto-unmute
-- **GPU ou CPU** : CUDA, TensorRT, CoreML, DirectML, OpenVINO
+- **Multilingual transcription**: 25+ languages (including French) via ParakeetTDT 0.6B
+- **Diarization**: speaker identification (up to 4 speakers) via Sortformer
+- **Real-time streaming**: chunk-by-chunk transcription via Nemotron (English only)
+- **Any audio format**: WAV, MP3, OGG, FLAC, OPUS... automatic conversion via ffmpeg
+- **Daemon mode**: model loaded once, near-instant transcriptions
+- **Microphone recording**: PipeWire / PulseAudio / ALSA, auto-unmute
+- **GPU or CPU**: CUDA, TensorRT, CoreML, DirectML, OpenVINO
 
-### Programmes
+### Programs
 
-| Programme | Description | Langues |
-|-----------|-------------|---------|
-| `transcribe` | Transcription d'un fichier audio | Multilingue |
-| `transcribe-daemon` | Serveur socket Unix (modèle préchargé) | Multilingue |
-| `transcribe-client` | Client : fichier, stdin ou micro | Multilingue |
-| `transcribe-diarize` | Transcription + identification des locuteurs | Multilingue |
-| `transcribe-stream-diarize` | Streaming temps réel + diarisation | Anglais uniquement |
+| Program | Description | Languages |
+|---------|-------------|-----------|
+| `transcribe` | Transcribe an audio file | Multilingual |
+| `transcribe-daemon` | Unix socket server (preloaded model) | Multilingual |
+| `transcribe-client` | Client: file, stdin, or microphone | Multilingual |
+| `transcribe-diarize` | Transcription + speaker identification | Multilingual |
+| `transcribe-stream-diarize` | Real-time streaming + diarization | English only |
 
-Tous les binaires supportent `--help` / `-h`.
+All binaries support `--help` / `-h`.
 
-> **Conseil :** `dictee` utilise le mode daemon (`transcribe-daemon` + `transcribe-client`). Le modèle est chargé une seule fois en mémoire, les transcriptions suivantes sont quasi-instantanées.
+> **Tip:** `dictee` uses daemon mode (`transcribe-daemon` + `transcribe-client`). The model is loaded once into memory, subsequent transcriptions are near-instant.
 
-### Utilisation directe
+### Direct usage
 
 ```bash
-# Transcrire un fichier (tout format)
+# Transcribe a file (any format)
 transcribe audio.mp3
 
-# Mode daemon (plus rapide pour plusieurs fichiers)
+# Daemon mode (faster for multiple files)
 transcribe-daemon &
-transcribe-client fichier1.wav
-transcribe-client fichier2.ogg
+transcribe-client file1.wav
+transcribe-client file2.ogg
 cat audio.opus | transcribe-client
 
-# Dictée vocale depuis le micro (sans le script dictee)
+# Voice dictation from microphone (without the dictee script)
 transcribe-client
-# → Enregistre jusqu'à Entrée. Le micro est démuté automatiquement si nécessaire.
+# → Records until Enter. Microphone is auto-unmuted if necessary.
 
-# Transcription avec identification des locuteurs
-transcribe-diarize reunion.wav
-# [0.00 - 2.50] Speaker 1: Bonjour à tous.
-# [2.80 - 5.10] Speaker 2: Merci d'être venus.
+# Transcription with speaker identification
+transcribe-diarize meeting.wav
+# [0.00 - 2.50] Speaker 1: Hello everyone.
+# [2.80 - 5.10] Speaker 2: Thanks for coming.
 ```
 
-### Modèles ONNX
+### ONNX models
 
-Les modèles doivent être placés dans `/usr/share/dictee/` :
+Models should be placed in `/usr/share/dictee/`:
 
 ```
 /usr/share/dictee/
-├── tdt/                  # ParakeetTDT (multilingue)
+├── tdt/                  # ParakeetTDT (multilingual)
 │   ├── encoder-model.onnx
 │   ├── decoder_joint-model.onnx
 │   └── vocab.txt
-├── sortformer/           # Diarisation
+├── sortformer/           # Diarization
 │   └── diar_streaming_sortformer_4spk-v2.1.onnx
-└── nemotron/             # Streaming (anglais)
+└── nemotron/             # Streaming (English)
     ├── encoder-model.onnx
     ├── decoder-model.onnx
     └── vocab.txt
 ```
 
-Le modèle TDT est disponible sur HuggingFace : [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
+The TDT model is available on HuggingFace: [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
 
-### Architecture du pipeline audio
+### Audio pipeline architecture
 
 ```
-Audio (tout format)
-    ↓ ffmpeg (si non-WAV)
+Audio (any format)
+    ↓ ffmpeg (if not WAV)
 WAV 16kHz mono
     ↓ preemphasis (0.97)
 STFT (n_fft=512, hop=160, win=400, Hann)
     ↓
 Mel-spectrogram (128 bins, Slaney)
     ↓
-Modèle ONNX (ParakeetTDT / Nemotron)
+ONNX model (ParakeetTDT / Nemotron)
     ↓
-Décodeur (tokens → texte)
+Decoder (tokens → text)
     ↓
-Agrégation timestamps (tokens → mots → phrases)
-    ↓ [optionnel]
-Sortformer (diarisation)
+Timestamp aggregation (tokens → words → sentences)
+    ↓ [optional]
+Sortformer (diarization)
     ↓
-Texte final avec horodatages / locuteurs
+Final text with timestamps / speakers
 ```
 
-## Compilation depuis les sources
+## Building from source
 
-### Prérequis
+### Prerequisites
 
 - Rust (edition 2021)
-- ffmpeg (pour la conversion des formats audio)
+- ffmpeg (for audio format conversion)
 
 ### Build
 
 ```bash
-# CPU uniquement
+# CPU only
 cargo build --release
 
-# CUDA + diarisation
+# CUDA + diarization
 cargo build --release --features "cuda,sortformer"
 
-# Paquets Debian (CPU + CUDA)
+# Debian packages (CPU + CUDA)
 ./build-deb.sh
 ```
 
-### Features Cargo
+### Cargo features
 
 | Feature | Description |
 |---------|-------------|
-| `cpu` | Exécution CPU (défaut) |
-| `cuda` | GPU NVIDIA via CUDA |
-| `tensorrt` | Optimisation TensorRT |
+| `cpu` | CPU execution (default) |
+| `cuda` | NVIDIA GPU via CUDA |
+| `tensorrt` | TensorRT optimization |
 | `coreml` | Apple CoreML |
 | `directml` | Microsoft DirectML |
 | `openvino` | Intel OpenVINO |
-| `sortformer` | Diarisation (nécessaire pour `*-diarize`) |
+| `sortformer` | Diarization (required for `*-diarize`) |
 
 ### Tests
 
@@ -241,25 +255,25 @@ cargo test
 cargo test --features sortformer
 ```
 
-## Crédits
+## Credits
 
-Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes), qui fournit la bibliothèque Rust pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
+The transcription engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes), which provides the Rust library for NVIDIA Parakeet model inference via ONNX Runtime.
 
-Ce projet ajoute :
-- 5 binaires CLI prêts à l'emploi (daemon, client, diarisation, streaming)
-- Script de dictée vocale push-to-talk avec traduction
-- Conversion automatique de tout format audio via ffmpeg
-- Résolution de chemins (`~/`, `./`, `../`)
-- Auto-unmute du microphone (PipeWire/PulseAudio)
-- Paquets Debian (.deb) pour installation système
-- Service systemd
-- Interface de configuration GTK3 (`dictee --setup`)
-- Icône de zone de notification (`dictee-tray`)
+This project adds:
+- 5 ready-to-use CLI binaries (daemon, client, diarization, streaming)
+- Push-to-talk voice dictation script with translation
+- Automatic conversion of any audio format via ffmpeg
+- Path resolution (`~/`, `./`, `../`)
+- Microphone auto-unmute (PipeWire/PulseAudio)
+- Debian packages (.deb) for system installation
+- Systemd service
+- GTK3 configuration interface (`dictee --setup`)
+- Notification area icon (`dictee-tray`)
 
-## Licence
+## License
 
-Ce projet est distribué sous licence **GPL-3.0-or-later** (voir [LICENSE](LICENSE)).
+This project is distributed under the **GPL-3.0-or-later** license (see [LICENSE](LICENSE)).
 
-Le code original de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par Enes Altun est sous licence MIT (voir [LICENSE-MIT](LICENSE-MIT)).
+The original [parakeet-rs](https://github.com/altunenes/parakeet-rs) code by Enes Altun is under the MIT license (see [LICENSE-MIT](LICENSE-MIT)).
 
-Les modèles ONNX Parakeet (téléchargés séparément depuis HuggingFace) sont fournis par NVIDIA. Ce projet ne distribue pas les modèles.
+The Parakeet ONNX models (downloaded separately from HuggingFace) are provided by NVIDIA. This project does not distribute the models.
