@@ -1,0 +1,73 @@
+.TH DICTEE-SETUP 1 "March 2025" "dictee 0.3.2" "User Commands"
+.SH NAME
+dictee-setup \- graphical configuration for voice dictation
+.SH SYNOPSIS
+.B dictee-setup
+.br
+.B dictee \-\-setup
+.SH DESCRIPTION
+.B dictee-setup
+is a GTK3 graphical interface for configuring
+.BR dictee (1).
+It allows setting up:
+.TP
+\(bu
+.B Keyboard shortcut
+\(em capture a key combination and register it as a global shortcut
+for
+.BR dictee (1).
+Automatic registration is supported on KDE Plasma (via kwriteconfig6)
+and GNOME/Unity/Cinnamon (via gsettings). Other desktop environments
+display instructions for manual configuration.
+.TP
+\(bu
+.B Translation
+\(em enable or disable translation, choose the backend
+.RB ( trans
+or
+.BR ollama ),
+and select source and target languages from 13 supported languages.
+.TP
+\(bu
+.B Animation
+\(em check if
+.B animation-speech
+is installed, and optionally download and install it from GitHub releases
+(requires
+.BR gh (1)).
+.PP
+All settings are saved to
+.IR ~/.config/dictee.conf ,
+a shell-sourceable file read by
+.BR dictee (1)
+at startup. Command-line options to dictee override these settings.
+.SH DESKTOP ENVIRONMENT SUPPORT
+.TP
+.B KDE Plasma
+Creates a
+.I dictee.desktop
+file in
+.IR ~/.local/share/applications/
+and registers the shortcut via
+.BR kwriteconfig6 (1).
+Detects conflicts with existing global shortcuts.
+.TP
+.B GNOME / Unity / Cinnamon
+Registers a custom keybinding via
+.BR gsettings (1).
+.TP
+.B Other
+Displays instructions for manual shortcut configuration.
+.SH FILES
+.TP
+.I ~/.config/dictee.conf
+Configuration file. Contains:
+.BR DICTEE_TRANSLATE ,
+.BR DICTEE_TRANSLATE_BACKEND ,
+.BR DICTEE_LANG_SOURCE ,
+.BR DICTEE_LANG_TARGET .
+.SH SEE ALSO
+.BR dictee (1),
+.BR dictee\-tray (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

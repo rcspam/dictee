@@ -1,0 +1,74 @@
+.TH DICTEE-SETUP 1 "Mars 2025" "dictee 0.3.2" "Commandes utilisateur"
+.SH NOM
+dictee-setup \- configuration graphique de la dict\('ee vocale
+.SH SYNOPSIS
+.B dictee-setup
+.br
+.B dictee \-\-setup
+.SH DESCRIPTION
+.B dictee-setup
+est une interface graphique GTK3 pour configurer
+.BR dictee (1).
+Elle permet de param\('etrer :
+.TP
+\(bu
+.B Raccourci clavier
+\(em capturer une combinaison de touches et l'enregistrer comme raccourci
+global pour
+.BR dictee (1).
+L'enregistrement automatique est support\('e sur KDE Plasma (via kwriteconfig6)
+et GNOME/Unity/Cinnamon (via gsettings). Les autres environnements de bureau
+affichent des instructions pour la configuration manuelle.
+.TP
+\(bu
+.B Traduction
+\(em activer ou d\('esactiver la traduction, choisir le backend
+.RB ( trans
+ou
+.BR ollama ),
+et s\('electionner les langues source et cible parmi 13 langues support\('ees.
+.TP
+\(bu
+.B Animation
+\(em v\('erifier si
+.B animation-speech
+est install\('e, et optionnellement le t\('el\('echarger et l'installer depuis les
+releases GitHub (n\('ecessite
+.BR gh (1)).
+.PP
+Tous les param\(`etres sont sauvegard\('es dans
+.IR ~/.config/dictee.conf ,
+un fichier sourceable par le shell, lu par
+.BR dictee (1)
+au d\('emarrage. Les options de la ligne de commande de dictee surchargent
+ces param\(`etres.
+.SH SUPPORT DES ENVIRONNEMENTS DE BUREAU
+.TP
+.B KDE Plasma
+Cr\('ee un fichier
+.I dictee.desktop
+dans
+.IR ~/.local/share/applications/
+et enregistre le raccourci via
+.BR kwriteconfig6 (1).
+D\('etecte les conflits avec les raccourcis globaux existants.
+.TP
+.B GNOME / Unity / Cinnamon
+Enregistre un raccourci personnalis\('e via
+.BR gsettings (1).
+.TP
+.B Autre
+Affiche des instructions pour la configuration manuelle du raccourci.
+.SH FICHIERS
+.TP
+.I ~/.config/dictee.conf
+Fichier de configuration. Contient :
+.BR DICTEE_TRANSLATE ,
+.BR DICTEE_TRANSLATE_BACKEND ,
+.BR DICTEE_LANG_SOURCE ,
+.BR DICTEE_LANG_TARGET .
+.SH VOIR AUSSI
+.BR dictee (1),
+.BR dictee\-tray (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

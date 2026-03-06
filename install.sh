@@ -45,6 +45,12 @@ mkdir -p "$MAN_DIR"
 for f in "$SCRIPT_DIR/usr/share/man/man1/"*.1; do
     [ -f "$f" ] && install -Dm644 "$f" "$MAN_DIR/$(basename "$f")"
 done
+# Man pages FR
+MAN_FR_DIR="$PREFIX/share/man/fr/man1"
+mkdir -p "$MAN_FR_DIR"
+for f in "$SCRIPT_DIR/usr/share/man/fr/man1/"*.1; do
+    [ -f "$f" ] && install -Dm644 "$f" "$MAN_FR_DIR/$(basename "$f")"
+done
 
 # Icônes (dans le home de l'utilisateur réel)
 echo "→ Installation des icônes"

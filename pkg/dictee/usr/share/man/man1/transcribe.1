@@ -1,34 +1,48 @@
-.TH TRANSCRIBE 1 "February 2025" "dictee 0.3.2" "User Commands"
+.TH TRANSCRIBE 1 "March 2025" "dictee 0.3.2" "User Commands"
 .SH NAME
 transcribe \- transcribe audio files using NVIDIA Parakeet TDT
 .SH SYNOPSIS
 .B transcribe
-.I audio.wav
+.I audio_file
 .RI [ model_dir ]
 .SH DESCRIPTION
 .B transcribe
 converts speech in audio files to text using the NVIDIA Parakeet TDT model.
-Supports 25 languages with automatic language detection.
+Supports 25 languages with automatic language detection. Includes native
+punctuation and capitalization.
 .PP
-Audio should be 16kHz mono WAV format for best results.
+Accepts any audio format (MP3, OGG, FLAC, OPUS, etc.) via automatic
+.BR ffmpeg (1)
+conversion to WAV 16kHz mono.
+File paths support
+.BR ~ ", " ./ ", and " ../
+resolution.
 .SH OPTIONS
 .TP
-.I audio.wav
-Path to the audio file to transcribe (required)
+.I audio_file
+Path to the audio file to transcribe (required). Any format supported
+by ffmpeg is accepted.
 .TP
 .I model_dir
-Path to TDT model directory (default: /usr/share/dictee/tdt)
+Path to TDT model directory (default: /usr/share/dictee/tdt).
+.TP
+.BR \-\-help ", " \-h
+Display a brief usage summary and exit.
 .SH EXAMPLES
 .TP
-Transcribe a file:
+Transcribe a WAV file:
 .B transcribe recording.wav
+.TP
+Transcribe an MP3 file:
+.B transcribe interview.mp3
 .TP
 Use custom model path:
 .B transcribe recording.wav /path/to/tdt
 .SH SEE ALSO
-.BR transcribe-daemon (1),
-.BR transcribe-client (1),
-.BR transcribe-diarize (1),
-.BR dictee (1)
+.BR transcribe\-daemon (1),
+.BR transcribe\-client (1),
+.BR transcribe\-diarize (1),
+.BR dictee (1),
+.BR ffmpeg (1)
 .SH AUTHOR
 rcspam <rcspams@gmail.com>

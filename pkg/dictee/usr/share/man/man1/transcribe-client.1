@@ -1,37 +1,80 @@
-.TH TRANSCRIBE-CLIENT 1 "February 2025" "dictee 0.3.2" "User Commands"
+.TH TRANSCRIBE-CLIENT 1 "March 2025" "dictee 0.3.2" "User Commands"
 .SH NAME
 transcribe-client \- client for transcribe-daemon
 .SH SYNOPSIS
 .B transcribe-client
-.RI [ audio.wav ]
+.RI [ audio_file ]
+.br
+.I command
+.B |
+.B transcribe-client
 .SH DESCRIPTION
 .B transcribe-client
 sends audio to
-.BR transcribe-daemon (1)
+.BR transcribe\-daemon (1)
 for fast transcription.
 .PP
-Without arguments, records from the microphone for 5 seconds
-(configurable via TRANSCRIBE_DURATION environment variable).
+Accepts any audio format (MP3, OGG, FLAC, OPUS, etc.) via automatic
+.BR ffmpeg (1)
+conversion to WAV 16kHz mono. File paths support
+.BR ~ ", " ./ ", and " ../
+resolution.
+.PP
+There are three input modes:
+.TP
+.B File
+Pass an audio file as argument. Non-WAV files are automatically converted
+via ffmpeg.
+.TP
+.B Stdin
+Pipe audio data into standard input. ffmpeg auto-detects the format
+from stream headers.
+.TP
+.B Microphone
+Without arguments and with stdin connected to a terminal, records from
+the default microphone (PipeWire \(-> PulseAudio \(-> ALSA fallback).
+If the microphone is muted, it is automatically unmuted for recording
+and re-muted afterwards.
+.RS
+.PP
+Without
+.BR TRANSCRIBE_DURATION ,
+recording continues until Enter is pressed.
+With
+.BR TRANSCRIBE_DURATION ,
+recording stops after the specified number of seconds.
+.RE
 .SH OPTIONS
 .TP
-.I audio.wav
-Path to audio file (optional). If not provided, records from microphone.
+.I audio_file
+Path to an audio file (optional). Supports any format convertible by ffmpeg.
+.TP
+.BR \-\-help ", " \-h
+Display a brief usage summary and exit.
 .SH ENVIRONMENT
 .TP
 .B TRANSCRIBE_DURATION
-Recording duration in seconds (default: 5)
+Recording duration in seconds. Without this variable, recording runs until
+Enter is pressed.
 .SH EXAMPLES
 .TP
-Transcribe a file:
+Transcribe a WAV file:
 .B transcribe-client recording.wav
 .TP
-Record and transcribe:
+Transcribe an MP3 file (auto-converted):
+.B transcribe-client interview.mp3
+.TP
+Transcribe from stdin:
+.B cat audio.ogg | transcribe-client
+.TP
+Record from microphone (stop with Enter):
 .B transcribe-client
 .TP
 Record for 10 seconds:
 .B TRANSCRIBE_DURATION=10 transcribe-client
 .SH SEE ALSO
-.BR transcribe-daemon (1),
-.BR dictee (1)
+.BR transcribe\-daemon (1),
+.BR dictee (1),
+.BR ffmpeg (1)
 .SH AUTHOR
 rcspam <rcspams@gmail.com>

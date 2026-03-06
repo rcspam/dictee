@@ -1,0 +1,87 @@
+.TH DICTEE-TRAY 1 "March 2025" "dictee 0.3.2" "User Commands"
+.SH NAME
+dictee-tray \- notification area icon for transcribe-daemon
+.SH SYNOPSIS
+.B dictee-tray
+.SH DESCRIPTION
+.B dictee-tray
+displays a notification area (system tray) icon that shows the status of
+.BR transcribe\-daemon (1)
+and provides quick actions via a context menu.
+.PP
+The icon adapts to the desktop theme (light or dark) using 4 SVG icons:
+.BR parakeet-active ", " parakeet-active-dark ", "
+.BR parakeet-inactive ", " parakeet-inactive-dark .
+Theme detection is automatic (KDE via kreadconfig6, GNOME via color-scheme).
+.PP
+The daemon status is polled every 3 seconds by checking the socket
+.I /tmp/transcribe.sock
+and verifying the process via
+.BR pgrep (1).
+.SH INDICATOR BACKENDS
+.B dictee-tray
+tries indicator backends in this order:
+.TP
+1.
+.B AyatanaAppIndicator3
+(Ubuntu, KDE Plasma)
+.TP
+2.
+.B AppIndicator3
+.TP
+3.
+.B Gtk.StatusIcon
+(fallback)
+.SH CONTEXT MENU
+.TP
+\(bu
+.B Status
+\(em shows whether the daemon is active or stopped.
+.TP
+\(bu
+.B Start / Stop daemon
+\(em controls
+.BR transcribe\-daemon (1)
+via
+.BR systemctl (1)
+(user service), or direct process management if systemd is unavailable.
+.TP
+\(bu
+.B Voice dictation
+\(em launches
+.BR dictee (1).
+.TP
+\(bu
+.B Dictation + Translation
+\(em launches
+.B dictee \-\-translate
+.TP
+\(bu
+.B Configuration
+\(em opens
+.BR dictee\-setup (1).
+.TP
+\(bu
+.B Quit icon
+\(em exits the tray application.
+.SH SYSTEMD
+To auto-start the tray icon at login:
+.PP
+.RS
+systemctl \-\-user enable \-\-now dictee\-tray
+.RE
+.PP
+The service unit is
+.IR dictee\-tray.service .
+.SH ICONS
+SVG icons are installed in:
+.PP
+.RS
+/usr/share/icons/hicolor/scalable/apps/
+.RE
+.SH SEE ALSO
+.BR transcribe\-daemon (1),
+.BR dictee (1),
+.BR dictee\-setup (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

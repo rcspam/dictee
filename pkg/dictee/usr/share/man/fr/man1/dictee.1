@@ -1,0 +1,196 @@
+.TH DICTEE 1 "Mars 2025" "dictee 0.3.2" "Commandes utilisateur"
+.SH NOM
+dictee \- dict\('ee vocale push-to-talk
+.SH SYNOPSIS
+.B dictee
+.RB [ \-\-translate ]
+.RB [ \-\-ollama ]
+.br
+.B dictee \-\-cancel
+.br
+.B dictee \-\-setup
+.br
+.B dictee \-\-help
+.SH DESCRIPTION
+.B dictee
+est un script de dict\('ee vocale push-to-talk con\(,cu pour \(^etre associ\('e \(`a un
+raccourci clavier. Il fonctionne en bascule :
+.PP
+.B Premier appel :
+d\('emarre l'enregistrement depuis le microphone, coupe le son de sortie
+(anti-feedback), d\('emute automatiquement le micro s'il est muet, et affiche
+une animation optionnelle.
+.PP
+.B Deuxi\(`eme appel :
+arr\(^ete l'enregistrement, restaure l'\('etat audio, transcrit via
+.BR transcribe\-daemon (1),
+et tape le r\('esultat dans l'application active avec
+.BR ydotool (1).
+Le texte transcrit est aussi copi\('e dans le presse-papier via
+.BR wl\-copy (1).
+.SH OPTIONS
+.TP
+.B \-\-translate
+Active la traduction apr\(`es la transcription. Le texte source est transcrit,
+puis traduit de la langue source vers la langue cible avant d'\(^etre tap\('e.
+.TP
+.B \-\-ollama
+Utilise ollama avec le mod\(`ele translategemma pour la traduction au lieu du
+backend translate-shell par d\('efaut. Traduction enti\(`erement locale. Le
+mod\(`ele est t\('el\('echarg\('e automatiquement au premier usage.
+.TP
+.B \-\-cancel
+Annule un enregistrement en cours. Arr\(^ete le micro, l'animation, et restaure
+l'\('etat audio sans transcrire.
+.TP
+.B \-\-setup
+Ouvre l'interface graphique de configuration. Voir
+.BR dictee\-setup (1).
+.TP
+.BR \-\-help ", " \-h
+Affiche un r\('esum\('e de l'utilisation et quitte.
+.SH CONFIGURATION
+.B dictee
+lit sa configuration depuis
+.IR ~/.config/dictee.conf ,
+un fichier sourceable par le shell, g\('en\('er\('e par
+.BR dictee\-setup (1).
+.PP
+Les options de la ligne de commande surchargent les valeurs du fichier de
+configuration.
+.PP
+Variables support\('ees :
+.TP
+.B DICTEE_TRANSLATE
+Active la traduction par d\('efaut
+.RI ( true " ou " false ).
+.TP
+.B DICTEE_TRANSLATE_BACKEND
+Backend de traduction :
+.B trans
+(translate-shell, d\('efaut) ou
+.B ollama
+(translategemma, local).
+.TP
+.B DICTEE_LANG_SOURCE
+Code de la langue source (d\('efaut : locale syst\(`eme, ex.
+.IR fr ).
+.TP
+.B DICTEE_LANG_TARGET
+Code de la langue cible (d\('efaut :
+.IR en ).
+.SH ENVIRONNEMENT
+.TP
+.B DICTEE_LANG_SOURCE
+Langue source pour la traduction (surcharg\('ee par le fichier de config).
+.TP
+.B DICTEE_LANG_TARGET
+Langue cible pour la traduction (surcharg\('ee par le fichier de config).
+.TP
+.B DICTEE_TRANSLATE
+Mettre \(`a
+.B true
+pour activer la traduction par d\('efaut.
+.TP
+.B DICTEE_TRANSLATE_BACKEND
+Backend de traduction :
+.B trans
+ou
+.BR ollama .
+.SH POST-TRAITEMENT
+.B dictee
+applique des substitutions de commandes vocales fran\(,caises au texte transcrit :
+.TP
+\(bu
+\(lqpoint \(`a la ligne\(rq est remplac\('e par un point suivi d'un saut de ligne.
+.TP
+\(bu
+\(lqtrois petits points\(rq est remplac\('e par des points de suspension (\.\.\.).
+.SH FICHIERS
+.TP
+.I ~/.config/dictee.conf
+Fichier de configuration (g\('en\('er\('e par
+.BR dictee\-setup (1)).
+.TP
+.I ~/.cache/tmp_recording_dictee.mp3
+Fichier d'enregistrement temporaire.
+.TP
+.I /tmp/recording_dictee_pid
+PID du processus pw-record actif (utilis\('e comme verrou de bascule).
+.TP
+.I /tmp/notify_dictee
+ID de notification pour le remplacement des notifications persistantes.
+.TP
+.I /tmp/mut_dictee
+Stocke l'\('etat de mute original du micro pour la restauration.
+.TP
+.I /tmp/dictee_translate
+Fichier drapeau indiquant que le mode traduction est actif.
+.TP
+.I /tmp/translate_dictee_backend
+Stocke le backend de traduction choisi au d\('emarrage de l'enregistrement.
+.SH D\('EPENDANCES
+.TP
+.B transcribe-daemon
+Doit \(^etre en cours d'ex\('ecution (via systemd ou manuellement). Voir
+.BR transcribe\-daemon (1).
+.TP
+.B ydotool / ydotool-rebind
+Pour taper le texte transcrit. Le ydotool standard utilise un layout QWERTY ;
+.B ydotool-rebind
+est n\('ecessaire pour les claviers AZERTY et les accents fran\(,cais.
+.TP
+.B pw-record
+Pour l'enregistrement audio (PipeWire).
+.TP
+.B wl-clipboard
+Pour copier le texte dans le presse-papier Wayland.
+.TP
+.B pactl
+Pour muter/d\('emuter l'audio (utilitaires PulseAudio).
+.TP
+.B notify-send
+Pour les notifications bureau (libnotify).
+.PP
+.B Optionnel :
+.TP
+.B animation-speech-ctl
+Affiche une animation visuelle pendant l'enregistrement et permet l'annulation
+via \('Echap. L'animation est lanc\('ee avec
+.B animation\-speech\-ctl launch \-\-on\-escape
+et ne n\('ecessite pas de gestion manuelle des PID.
+.TP
+.B translate-shell
+N\('ecessaire avec le backend de traduction
+.B trans
+(d\('efaut).
+.TP
+.B ollama
+N\('ecessaire avec le backend de traduction
+.BR ollama .
+.SH MISE EN PLACE
+.TP
+1. Activer le daemon de transcription :
+.RS
+systemctl \-\-user enable \-\-now dictee
+.RE
+.TP
+2. Activer le daemon ydotool :
+.RS
+systemctl \-\-user enable \-\-now ydotool
+.RE
+.TP
+3. Associer
+.B /usr/bin/dictee
+\(`a un raccourci clavier dans votre environnement de bureau, ou utiliser
+.B dictee \-\-setup
+pour le configurer automatiquement (KDE Plasma / GNOME).
+.SH VOIR AUSSI
+.BR transcribe\-daemon (1),
+.BR transcribe\-client (1),
+.BR dictee\-setup (1),
+.BR dictee\-tray (1),
+.BR ydotool (1),
+.BR pw\-record (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

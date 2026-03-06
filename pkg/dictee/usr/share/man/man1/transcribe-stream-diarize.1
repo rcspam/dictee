@@ -1,9 +1,9 @@
-.TH TRANSCRIBE-STREAM-DIARIZE 1 "February 2025" "dictee 0.3.2" "User Commands"
+.TH TRANSCRIBE-STREAM-DIARIZE 1 "March 2025" "dictee 0.3.2" "User Commands"
 .SH NAME
 transcribe-stream-diarize \- streaming transcription with speaker identification (English)
 .SH SYNOPSIS
 .B transcribe-stream-diarize
-.RI [ audio.wav ]
+.RI [ audio_file ]
 .SH DESCRIPTION
 .B transcribe-stream-diarize
 performs streaming transcription with real-time output and speaker identification.
@@ -12,18 +12,32 @@ Uses Nemotron for streaming transcription and Sortformer for diarization.
 .B Note:
 This command supports English only (Nemotron limitation).
 For multilingual support, use
-.BR transcribe-diarize (1).
+.BR transcribe\-diarize (1).
+.PP
+Accepts any audio format (MP3, OGG, FLAC, OPUS, etc.) via automatic
+.BR ffmpeg (1)
+conversion to WAV 16kHz mono.
+File paths support
+.BR ~ ", " ./ ", and " ../
+resolution.
+.PP
+When recording from the microphone, if the microphone is muted it is automatically
+unmuted for recording and re-muted afterwards.
 .SH OPTIONS
 .TP
-.I audio.wav
+.I audio_file
 Path to audio file. If not provided, records from microphone until Ctrl+C.
+Any format supported by ffmpeg is accepted.
+.TP
+.BR \-\-help ", " \-h
+Display a brief usage summary and exit.
 .SH ENVIRONMENT
 .TP
 .B NEMOTRON_DIR
-Path to Nemotron model (default: /usr/share/dictee/nemotron)
+Path to Nemotron model (default: /usr/share/dictee/nemotron).
 .TP
 .B SORTFORMER_DIR
-Path to Sortformer model (default: /usr/share/dictee/sortformer)
+Path to Sortformer model (default: /usr/share/dictee/sortformer).
 .SH EXAMPLES
 .TP
 From file:
@@ -33,8 +47,17 @@ From microphone:
 .B transcribe-stream-diarize
 .br
 (Press Ctrl+C to stop recording)
+.SH BUILD
+This binary requires the
+.B sortformer
+Cargo feature:
+.PP
+.RS
+cargo build \-\-release \-\-features sortformer
+.RE
 .SH SEE ALSO
-.BR transcribe-diarize (1),
-.BR transcribe (1)
+.BR transcribe\-diarize (1),
+.BR transcribe (1),
+.BR ffmpeg (1)
 .SH AUTHOR
 rcspam <rcspams@gmail.com>

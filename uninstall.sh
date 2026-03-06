@@ -35,8 +35,9 @@ done
 # Man pages
 echo "→ Suppression des pages de manuel"
 for man in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-           transcribe-stream-diarize dictee; do
+           transcribe-stream-diarize dictee dictee-setup dictee-tray; do
     rm -f "$PREFIX/share/man/man1/$man.1"
+    rm -f "$PREFIX/share/man/fr/man1/$man.1"
 done
 
 # Services systemd

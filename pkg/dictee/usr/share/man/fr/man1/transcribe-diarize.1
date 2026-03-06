@@ -1,0 +1,53 @@
+.TH TRANSCRIBE-DIARIZE 1 "Mars 2025" "dictee 0.3.2" "Commandes utilisateur"
+.SH NOM
+transcribe-diarize \- transcrire avec identification des locuteurs
+.SH SYNOPSIS
+.B transcribe-diarize
+.I fichier_audio
+.RI [ r\('ep_mod\(`ele ]
+.RI [ r\('ep_sortformer ]
+.SH DESCRIPTION
+.B transcribe-diarize
+transcrit l'audio et identifie qui parle (jusqu'\(`a 4 locuteurs).
+Utilise Parakeet TDT pour la transcription et Sortformer pour la diarisation.
+.PP
+Supporte 25 langues (TDT). La diarisation est ind\('ependante de la langue.
+.PP
+Accepte tout format audio (MP3, OGG, FLAC, OPUS, etc.) via conversion
+automatique par
+.BR ffmpeg (1)
+en WAV 16kHz mono. Les chemins de fichiers supportent la r\('esolution de
+.BR ~ ", " ./ " et " ../ .
+.SH OPTIONS
+.TP
+.I fichier_audio
+Chemin vers le fichier audio (requis). Tout format support\('e par ffmpeg
+est accept\('e.
+.TP
+.I r\('ep_mod\(`ele
+Chemin vers le mod\(`ele TDT (d\('efaut : /usr/share/dictee/tdt).
+.TP
+.I r\('ep_sortformer
+Chemin vers le mod\(`ele Sortformer (d\('efaut : /usr/share/dictee/sortformer).
+.TP
+.BR \-\-help ", " \-h
+Affiche un r\('esum\('e de l'utilisation et quitte.
+.SH SORTIE
+.PP
+[0.00s \- 2.50s] Speaker 0: Bonjour, comment allez-vous ?
+.br
+[2.60s \- 5.30s] Speaker 1: Tr\(`es bien, merci !
+.SH COMPILATION
+Ce binaire n\('ecessite la feature Cargo
+.B sortformer
+:
+.PP
+.RS
+cargo build \-\-release \-\-features sortformer
+.RE
+.SH VOIR AUSSI
+.BR transcribe (1),
+.BR transcribe\-stream\-diarize (1),
+.BR ffmpeg (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

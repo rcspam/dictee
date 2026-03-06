@@ -58,11 +58,13 @@ EOF
 
     # Compress man pages
     gzip -9 -f "$PKG_DIR/usr/share/man/man1/"*.1 2>/dev/null || true
+    gzip -9 -f "$PKG_DIR/usr/share/man/fr/man1/"*.1 2>/dev/null || true
 
     dpkg-deb --build "$PKG_DIR" "dictee-cuda_${VERSION}_amd64.deb"
 
     # Decompress for next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
+    gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
     echo "Built: dictee-cuda_${VERSION}_amd64.deb"
 }
 
@@ -111,12 +113,14 @@ EOF
 
     # Compress man pages
     gzip -9 -f "$PKG_DIR/usr/share/man/man1/"*.1 2>/dev/null || true
+    gzip -9 -f "$PKG_DIR/usr/share/man/fr/man1/"*.1 2>/dev/null || true
 
     dpkg-deb --build "$PKG_DIR" "dictee-cpu_${VERSION}_amd64.deb"
     echo "Built: dictee-cpu_${VERSION}_amd64.deb"
 
     # Decompress for potential next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
+    gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 }
 
 # Build tar.gz (non-Debian)
@@ -128,6 +132,7 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/bin"
     mkdir -p "$TARBALL_DIR/usr/lib/systemd/user"
     mkdir -p "$TARBALL_DIR/usr/share/man/man1"
+    mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
     mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
 
     # Binaires (derniers compilés = CPU)
@@ -143,6 +148,7 @@ build_tarball() {
 
     # Man pages
     cp "$PKG_DIR/usr/share/man/man1/"*.1 "$TARBALL_DIR/usr/share/man/man1/" 2>/dev/null || true
+    cp "$PKG_DIR/usr/share/man/fr/man1/"*.1 "$TARBALL_DIR/usr/share/man/fr/man1/" 2>/dev/null || true
 
     # Icônes
     cp "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"*.svg "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps/"
