@@ -25,7 +25,9 @@
 ---
 
 <p align="center">
-  <img src="assets/demo.gif" alt="démo dictee" width="960">
+  <a href="https://youtu.be/-fWZZEO7mCA">
+    <img src="assets/demo.gif" alt="démo dictee — cliquez pour voir sur YouTube" width="960">
+  </a>
 </p>
 
 La transcription est réalisée **100% en local** grâce au modèle [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) exécuté via ONNX Runtime. Aucune donnée audio n'est envoyée vers un serveur externe — votre voix reste sur votre machine.
