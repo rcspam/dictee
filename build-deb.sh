@@ -135,6 +135,7 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/share/man/man1"
     mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
     mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
+    mkdir -p "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES"
 
     # Binaires (derniers compilés = CPU)
     for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize; do
@@ -154,6 +155,9 @@ build_tarball() {
 
     # Icônes
     cp "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"*.svg "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps/"
+
+    # Locale
+    cp -r "$PKG_DIR/usr/share/locale/fr/LC_MESSAGES/"*.mo "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES/"
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"

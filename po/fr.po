@@ -1,0 +1,240 @@
+# French translation for dictee-setup
+# Copyright (C) 2026 rcspam
+# This file is distributed under the same license as the dictee package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: dictee 0.99\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-03-08 21:53+0100\n"
+"PO-Revision-Date: 2026-03-08 21:50+0100\n"
+"Last-Translator: rcspam <rcspams@gmail.com>\n"
+"Language-Team: French\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: pkg/dictee/usr/bin/dictee-setup:79
+msgid "unknown"
+msgstr "inconnu"
+
+#: pkg/dictee/usr/bin/dictee-setup:220 pkg/dictee/usr/bin/dictee-tray:224
+msgid "Voice dictation"
+msgstr "Dictée vocale"
+
+#: pkg/dictee/usr/bin/dictee-setup:238
+msgid "Voice dictation configuration"
+msgstr "Configuration de la dictée vocale"
+
+#: pkg/dictee/usr/bin/dictee-setup:269
+#, python-brace-format
+msgid "Detected environment: <b>{name}</b>"
+msgstr "Environnement détecté : <b>{name}</b>"
+
+#: pkg/dictee/usr/bin/dictee-setup:275
+msgid "Click to capture a shortcut…"
+msgstr "Appuyez pour capturer un raccourci…"
+
+#: pkg/dictee/usr/bin/dictee-setup:290
+#, python-brace-format
+msgid ""
+"Unsupported environment for automatic configuration.\n"
+"Configure the shortcut manually in your window manager:\n"
+"Command: <b>{cmd}</b>"
+msgstr ""
+"Environnement non supporté pour la configuration automatique.\n"
+"Configurez le raccourci manuellement dans votre gestionnaire de fenêtres :\n"
+"Commande : <b>{cmd}</b>"
+
+#: pkg/dictee/usr/bin/dictee-setup:311
+msgid "Enable translation"
+msgstr "Activer la traduction"
+
+#: pkg/dictee/usr/bin/dictee-setup:322
+msgid "Backend:"
+msgstr "Backend :"
+
+#: pkg/dictee/usr/bin/dictee-setup:326
+msgid "translate-shell (fast, Google Translate)"
+msgstr "translate-shell (rapide, Google Translate)"
+
+#: pkg/dictee/usr/bin/dictee-setup:331
+#, python-format
+msgid "ollama (100% local, translategemma)"
+msgstr "ollama (100% local, translategemma)"
+
+#: pkg/dictee/usr/bin/dictee-setup:342
+msgid "Source language:"
+msgstr "Langue source :"
+
+#: pkg/dictee/usr/bin/dictee-setup:355
+msgid "Target language:"
+msgstr "Langue cible :"
+
+#: pkg/dictee/usr/bin/dictee-setup:390 pkg/dictee/usr/bin/dictee-setup:683
+msgid "Install animation-speech"
+msgstr "Installer animation-speech"
+
+#: pkg/dictee/usr/bin/dictee-setup:417
+msgid "Start transcription daemon at login"
+msgstr "Démarrer le daemon de transcription au login"
+
+#: pkg/dictee/usr/bin/dictee-setup:423
+msgid "Show notification area icon"
+msgstr "Afficher l'icône de notification"
+
+#: pkg/dictee/usr/bin/dictee-setup:434
+msgid "Cancel"
+msgstr "Annuler"
+
+#: pkg/dictee/usr/bin/dictee-setup:438
+msgid "Apply"
+msgstr "Appliquer"
+
+#: pkg/dictee/usr/bin/dictee-setup:482
+msgid "Press a key combination…"
+msgstr "Appuyez sur une combinaison de touches…"
+
+#: pkg/dictee/usr/bin/dictee-setup:510
+#, python-brace-format
+msgid "Shortcut: {label}"
+msgstr "Raccourci : {label}"
+
+#: pkg/dictee/usr/bin/dictee-setup:517
+#, python-brace-format
+msgid "Shortcut already used by '{name}'"
+msgstr "Raccourci utilisé par « {name} »"
+
+#: pkg/dictee/usr/bin/dictee-setup:540
+#, python-brace-format
+msgid "animation-speech {version} installed"
+msgstr "animation-speech {version} installé"
+
+#: pkg/dictee/usr/bin/dictee-setup:548 pkg/dictee/usr/bin/dictee-setup:554
+msgid "animation-speech installed"
+msgstr "animation-speech installé"
+
+#: pkg/dictee/usr/bin/dictee-setup:561
+msgid ""
+"displays a visual animation during\n"
+"recording and allows cancellation with Escape."
+msgstr ""
+"affiche une animation visuelle pendant\n"
+"l'enregistrement et permet d'annuler avec Echap."
+
+#: pkg/dictee/usr/bin/dictee-setup:569
+msgid "Downloading…"
+msgstr "Téléchargement…"
+
+#: pkg/dictee/usr/bin/dictee-setup:592
+msgid ""
+"The 'gh' tool (GitHub CLI) is required.\n"
+"Install it: sudo apt install gh && gh auth login"
+msgstr ""
+"L'outil 'gh' (GitHub CLI) est nécessaire.\n"
+"Installez-le : sudo apt install gh && gh auth login"
+
+#: pkg/dictee/usr/bin/dictee-setup:608
+msgid "Download error (.deb)"
+msgstr "Erreur téléchargement .deb"
+
+#: pkg/dictee/usr/bin/dictee-setup:616
+msgid "No .deb found in the release."
+msgstr "Aucun .deb trouvé dans la release."
+
+#: pkg/dictee/usr/bin/dictee-setup:621 pkg/dictee/usr/bin/dictee-setup:648
+msgid "Installing…"
+msgstr "Installation…"
+
+#: pkg/dictee/usr/bin/dictee-setup:635
+msgid "Download error (.tar.gz)"
+msgstr "Erreur téléchargement .tar.gz"
+
+#: pkg/dictee/usr/bin/dictee-setup:643
+msgid "No .tar.gz found in the release."
+msgstr "Aucun .tar.gz trouvé dans la release."
+
+#: pkg/dictee/usr/bin/dictee-setup:664
+msgid "Installation error."
+msgstr "Erreur lors de l'installation."
+
+#: pkg/dictee/usr/bin/dictee-setup:690
+msgid "Installation error"
+msgstr "Erreur d'installation"
+
+#: pkg/dictee/usr/bin/dictee-setup:713 pkg/dictee/usr/bin/dictee-setup:721
+#, python-brace-format
+msgid "Shortcut applied: {key}"
+msgstr "Raccourci appliqué : {key}"
+
+#: pkg/dictee/usr/bin/dictee-setup:717
+msgid "A re-login may be required to activate the shortcut."
+msgstr "Un re-login peut être nécessaire pour activer le raccourci."
+
+#: pkg/dictee/usr/bin/dictee-setup:725
+#, python-brace-format
+msgid "Shortcut error: {err}"
+msgstr "Erreur raccourci : {err}"
+
+#: pkg/dictee/usr/bin/dictee-setup:735
+msgid "Configuration saved"
+msgstr "Configuration sauvegardée"
+
+#: pkg/dictee/usr/bin/dictee-setup:738
+#, python-brace-format
+msgid "File: {path}"
+msgstr "Fichier : {path}"
+
+#: pkg/dictee/usr/bin/dictee-tray:213
+msgid "Start daemon"
+msgstr "Démarrer le daemon"
+
+#: pkg/dictee/usr/bin/dictee-tray:217
+msgid "Stop daemon"
+msgstr "Arrêter le daemon"
+
+#: pkg/dictee/usr/bin/dictee-tray:228
+msgid "Dictation + Translation"
+msgstr "Dictée + Traduction"
+
+#: pkg/dictee/usr/bin/dictee-tray:237
+msgid "Configuration…"
+msgstr "Configuration…"
+
+#: pkg/dictee/usr/bin/dictee-tray:244
+msgid "Quit icon"
+msgstr "Quitter l'icône"
+
+#: pkg/dictee/usr/bin/dictee-tray:252
+msgid "Daemon active"
+msgstr "● Daemon actif"
+
+#: pkg/dictee/usr/bin/dictee-tray:257
+msgid "Daemon stopped"
+msgstr "○ Daemon arrêté"
+
+#: pkg/dictee/usr/bin/dictee-tray:271
+msgid "Parakeet — active"
+msgstr "Parakeet — actif"
+
+#: pkg/dictee/usr/bin/dictee-tray:271
+msgid "Parakeet — stopped"
+msgstr "Parakeet — arrêté"
+
+#: pkg/dictee/usr/bin/dictee-setup:256
+msgid "Keyboard shortcut"
+msgstr "Raccourci clavier"
+
+#: pkg/dictee/usr/bin/dictee-setup:303
+msgid "Translation"
+msgstr "Traduction"
+
+#: pkg/dictee/usr/bin/dictee-setup:374
+msgid "Voice animation"
+msgstr "Animation vocale"
+
+#: pkg/dictee/usr/bin/dictee-setup:406
+msgid "Startup services"
+msgstr "Services au démarrage"

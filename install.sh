@@ -52,6 +52,17 @@ for f in "$SCRIPT_DIR/usr/share/man/fr/man1/"*.1; do
     [ -f "$f" ] && install -Dm644 "$f" "$MAN_FR_DIR/$(basename "$f")"
 done
 
+# Locale (gettext)
+echo "→ Installation des traductions"
+for lang_dir in "$SCRIPT_DIR/usr/share/locale/"*/LC_MESSAGES; do
+    [ -d "$lang_dir" ] || continue
+    lang=$(basename "$(dirname "$lang_dir")")
+    install -d "$PREFIX/share/locale/$lang/LC_MESSAGES"
+    for mo in "$lang_dir/"*.mo; do
+        [ -f "$mo" ] && install -Dm644 "$mo" "$PREFIX/share/locale/$lang/LC_MESSAGES/$(basename "$mo")"
+    done
+done
+
 # Icônes (dans le home de l'utilisateur réel)
 echo "→ Installation des icônes"
 install -d "$ICON_DIR"

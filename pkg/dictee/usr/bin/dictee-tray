@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-dictee-tray — Icône de zone de notification pour transcribe-daemon
-Affiche l'état du daemon dans la boîte à miniatures du panel.
+dictee-tray — Notification area icon for transcribe-daemon
+Shows daemon status in the panel's system tray.
 """
 
+import gettext
 import os
 import signal
 import subprocess
@@ -13,7 +14,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 
-# Essayer AyatanaAppIndicator3 (Ubuntu/Debian), puis AppIndicator3, sinon fallback StatusIcon
+# Try AyatanaAppIndicator3 (Ubuntu/Debian), then AppIndicator3, else fallback StatusIcon
 AppIndicator3 = None
 for _ai_ns in ("AyatanaAppIndicator3", "AppIndicator3"):
     try:
@@ -26,12 +27,31 @@ HAS_APPINDICATOR = AppIndicator3 is not None
 
 from gi.repository import Gtk, GLib, GdkPixbuf  # noqa: E402
 
+# === i18n ===
+
+LOCALE_DIRS = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "share", "locale"),
+    os.path.expanduser("~/.local/share/locale"),
+    "/usr/local/share/locale",
+    "/usr/share/locale",
+]
+
+for _d in LOCALE_DIRS:
+    if os.path.isdir(_d):
+        gettext.bindtextdomain("dictee", _d)
+        break
+
+gettext.textdomain("dictee")
+_ = gettext.gettext
+
+# === Configuration ===
+
 SOCKET_PATH = "/tmp/transcribe.sock"
 DAEMON_BIN = "transcribe-daemon"
 APP_ID = "dictee"
 POLL_INTERVAL_MS = 3000
 
-# Icônes personnalisées — AppIndicator3 veut un répertoire + nom sans extension
+# Custom icons — AppIndicator3 wants a directory + name without extension
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ICON_SEARCH_DIRS = [
     os.path.join(_SCRIPT_DIR, "icons"),
@@ -45,20 +65,19 @@ for _d in _ICON_SEARCH_DIRS:
         break
 
 def _is_dark_theme():
-    """Détecte si le thème du panel est sombre (KDE/GNOME)."""
-    # KDE : lire la couleur de fond du panel
+    """Detect if the panel theme is dark (KDE/GNOME)."""
+    # KDE: read panel background color
     try:
         result = subprocess.run(
             ["kreadconfig6", "--group", "Colors:Window", "--key", "BackgroundNormal"],
             capture_output=True, text=True,
         )
         if result.returncode == 0 and result.stdout.strip():
-            # Format: "r,g,b"
             r, g, b = (int(x) for x in result.stdout.strip().split(","))
             return (r + g + b) / 3 < 128
     except (FileNotFoundError, ValueError):
         pass
-    # GNOME : vérifier prefer-dark
+    # GNOME: check prefer-dark
     try:
         result = subprocess.run(
             ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
@@ -77,10 +96,8 @@ ICON_INACTIVE = "parakeet-inactive-dark" if _DARK else "parakeet-inactive"
 
 
 def daemon_is_running():
-    """Vérifie si transcribe-daemon est en cours d'exécution."""
-    # Vérifier la socket
+    """Check if transcribe-daemon is running."""
     if os.path.exists(SOCKET_PATH):
-        # Vérifier que le processus tourne aussi
         try:
             result = subprocess.run(
                 ["pgrep", "-x", DAEMON_BIN],
@@ -88,12 +105,12 @@ def daemon_is_running():
             )
             return result.returncode == 0
         except FileNotFoundError:
-            return True  # pgrep absent, on fait confiance à la socket
+            return True
     return False
 
 
 def daemon_start():
-    """Démarre le daemon via systemd --user (ou en direct)."""
+    """Start daemon via systemd --user (or directly)."""
     try:
         subprocess.Popen(
             ["systemctl", "--user", "start", "dictee"],
@@ -101,7 +118,6 @@ def daemon_start():
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        # Pas de systemctl, lancer en direct
         subprocess.Popen(
             [DAEMON_BIN],
             stdout=subprocess.DEVNULL,
@@ -110,7 +126,7 @@ def daemon_start():
 
 
 def daemon_stop():
-    """Arrête le daemon via systemd --user (ou kill)."""
+    """Stop daemon via systemd --user (or kill)."""
     try:
         subprocess.Popen(
             ["systemctl", "--user", "stop", "dictee"],
@@ -133,7 +149,7 @@ class ParakeetTray:
         self._update_status()
         GLib.timeout_add(POLL_INTERVAL_MS, self._poll_status)
 
-    # === AppIndicator3 (KDE Plasma, GNOME avec extension) ===
+    # === AppIndicator3 (KDE Plasma, GNOME with extension) ===
 
     def _init_appindicator(self):
         icon = ICON_ACTIVE if self.running else ICON_INACTIVE
@@ -154,7 +170,7 @@ class ParakeetTray:
 
     @staticmethod
     def _load_icon_pixbuf(name, size=22):
-        """Charge l'icône SVG en pixbuf pour StatusIcon."""
+        """Load SVG icon as pixbuf for StatusIcon."""
         if ICON_DIR:
             path = os.path.join(ICON_DIR, f"{name}.svg")
             if os.path.isfile(path):
@@ -181,35 +197,35 @@ class ParakeetTray:
     def _on_statusicon_activate(self, _icon):
         self.menu.popup_at_pointer(None)
 
-    # === Menu contextuel ===
+    # === Context menu ===
 
     def _build_menu(self):
         self.menu = Gtk.Menu()
 
-        # Statut
+        # Status
         self.item_status = Gtk.MenuItem()
         self.item_status.set_sensitive(False)
         self.menu.append(self.item_status)
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
-        # Démarrer / Arrêter
-        self.item_start = Gtk.MenuItem(label="Démarrer le daemon")
+        # Start / Stop
+        self.item_start = Gtk.MenuItem(label=_("Start daemon"))
         self.item_start.connect("activate", self._on_start)
         self.menu.append(self.item_start)
 
-        self.item_stop = Gtk.MenuItem(label="Arrêter le daemon")
+        self.item_stop = Gtk.MenuItem(label=_("Stop daemon"))
         self.item_stop.connect("activate", self._on_stop)
         self.menu.append(self.item_stop)
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
-        # Dictée
-        item_dictee = Gtk.MenuItem(label="Dictée vocale")
+        # Dictation
+        item_dictee = Gtk.MenuItem(label=_("Voice dictation"))
         item_dictee.connect("activate", lambda _: subprocess.Popen(["dictee"]))
         self.menu.append(item_dictee)
 
-        item_translate = Gtk.MenuItem(label="Dictée + Traduction")
+        item_translate = Gtk.MenuItem(label=_("Dictation + Translation"))
         item_translate.connect(
             "activate", lambda _: subprocess.Popen(["dictee", "--translate"])
         )
@@ -218,14 +234,14 @@ class ParakeetTray:
         self.menu.append(Gtk.SeparatorMenuItem())
 
         # Configuration
-        item_setup = Gtk.MenuItem(label="Configuration…")
+        item_setup = Gtk.MenuItem(label=_("Configuration…"))
         item_setup.connect("activate", lambda _: subprocess.Popen(["dictee-setup"]))
         self.menu.append(item_setup)
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
-        # Quitter
-        item_quit = Gtk.MenuItem(label="Quitter l'icône")
+        # Quit
+        item_quit = Gtk.MenuItem(label=_("Quit icon"))
         item_quit.connect("activate", self._on_quit)
         self.menu.append(item_quit)
 
@@ -233,12 +249,12 @@ class ParakeetTray:
 
     def _update_status(self):
         if self.running:
-            self.item_status.set_label("● Daemon actif")
+            self.item_status.set_label(_("Daemon active"))
             self.item_start.set_sensitive(False)
             self.item_stop.set_sensitive(True)
             icon = ICON_ACTIVE
         else:
-            self.item_status.set_label("○ Daemon arrêté")
+            self.item_status.set_label(_("Daemon stopped"))
             self.item_start.set_sensitive(True)
             self.item_stop.set_sensitive(False)
             icon = ICON_INACTIVE
@@ -251,7 +267,9 @@ class ParakeetTray:
                 self.status_icon.set_from_pixbuf(pixbuf)
             else:
                 self.status_icon.set_from_icon_name(icon)
-            tooltip = "Parakeet – actif" if self.running else "Parakeet – arrêté"
+            tooltip = (
+                _("Parakeet — active") if self.running else _("Parakeet — stopped")
+            )
             self.status_icon.set_tooltip_text(tooltip)
 
     def _poll_status(self):
@@ -259,13 +277,12 @@ class ParakeetTray:
         self.running = daemon_is_running()
         if self.running != was_running:
             self._update_status()
-        return True  # continuer le polling
+        return True
 
     # === Actions ===
 
     def _on_start(self, _widget):
         daemon_start()
-        # Vérifier après un délai (le daemon met un peu à démarrer)
         GLib.timeout_add(2000, self._delayed_refresh)
 
     def _on_stop(self, _widget):
@@ -275,16 +292,14 @@ class ParakeetTray:
     def _delayed_refresh(self):
         self.running = daemon_is_running()
         self._update_status()
-        return False  # exécuter une seule fois
+        return False
 
     def _on_quit(self, _widget):
         Gtk.main_quit()
 
 
 def main():
-    # Permettre Ctrl+C
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-
     ParakeetTray()
     Gtk.main()
 
