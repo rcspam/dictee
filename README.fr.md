@@ -23,6 +23,9 @@ Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animat
 ## Utilisation
 
 ```bash
+# Premier lancement : configurer le raccourci clavier, la traduction, les langues
+dictee --setup
+
 # Dictée simple — transcrit et tape
 dictee
 
@@ -60,6 +63,8 @@ sudo dpkg -i dictee-cpu_0.99_amd64.deb
 # Installer les dépendances manquantes
 sudo apt-get install -f
 ```
+
+Après installation, lancez `dictee --setup` pour configurer le raccourci clavier et les options de traduction.
 
 ### Dépendances
 

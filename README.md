@@ -23,6 +23,9 @@ A first press of the keyboard shortcut starts recording (with a visual animation
 ## Usage
 
 ```bash
+# First launch: configure keyboard shortcut, translation, languages
+dictee --setup
+
 # Simple dictation — transcribe and type
 dictee
 
@@ -60,6 +63,8 @@ sudo dpkg -i dictee-cpu_0.99_amd64.deb
 # Install missing dependencies
 sudo apt-get install -f
 ```
+
+After installation, run `dictee --setup` to configure the keyboard shortcut and translation options.
 
 ### Dependencies
 
