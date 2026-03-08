@@ -126,25 +126,23 @@ case $choice in
         ;;
 esac
 
-# Activer et démarrer le service pour tous les utilisateurs connectés
+# Recharger les services systemd pour les utilisateurs connectés
 echo ""
-echo "=== Activation du service dictee ==="
+echo "=== Rechargement des services ==="
 for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     if [ -d "/run/user/$uid" ]; then
-        echo "→ Activation pour $user (uid $uid)"
+        echo "→ Rechargement pour $user (uid $uid)"
         sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
             systemctl --user daemon-reload 2>/dev/null || true
-        sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
-            systemctl --user enable --now dictee 2>/dev/null || true
     fi
 done
 
 echo ""
 echo "=== Parakeet Transcribe installé ==="
 echo ""
-echo "Le service dictee est activé et démarré."
-echo "Il se relancera automatiquement à chaque connexion."
+echo "Les services seront activés automatiquement au prochain login."
+echo "Pour les activer/désactiver, utilisez : dictee --setup"
 echo ""
 echo "Assurez-vous que ydotool daemon tourne :"
 echo "  systemctl --user enable --now ydotool"

@@ -380,6 +380,32 @@ class DicteeSetupWindow(Gtk.Window):
 
         self._check_animation_speech()
 
+        # -- Section services --
+        frame_services = Gtk.Frame(label=" Services au démarrage ")
+        frame_services.set_shadow_type(Gtk.ShadowType.NONE)
+        frame_services.get_label_widget().set_markup(
+            "<b>Services au démarrage</b>"
+        )
+        box_svc = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box_svc.set_margin_start(12)
+        box_svc.set_margin_end(12)
+        box_svc.set_margin_top(6)
+        box_svc.set_margin_bottom(6)
+        frame_services.add(box_svc)
+        vbox.pack_start(frame_services, False, False, 0)
+
+        self.chk_daemon = Gtk.CheckButton(
+            label="Démarrer le daemon de transcription au login"
+        )
+        self.chk_daemon.set_active(self._is_service_enabled("dictee"))
+        box_svc.pack_start(self.chk_daemon, False, False, 0)
+
+        self.chk_tray = Gtk.CheckButton(
+            label="Afficher l'icône de notification"
+        )
+        self.chk_tray.set_active(self._is_service_enabled("dictee-tray"))
+        box_svc.pack_start(self.chk_tray, False, False, 0)
+
         # -- Boutons --
         box_buttons = Gtk.Box(spacing=8)
         box_buttons.set_halign(Gtk.Align.END)
@@ -407,6 +433,29 @@ class DicteeSetupWindow(Gtk.Window):
 
     def _on_translate_toggled(self, widget):
         self.box_tr_opts.set_sensitive(widget.get_active())
+
+    # -- Services systemd --
+
+    @staticmethod
+    def _is_service_enabled(name):
+        """Vérifie si un service utilisateur est activé."""
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "is-enabled", name],
+                capture_output=True, text=True,
+            )
+            return result.stdout.strip() == "enabled"
+        except FileNotFoundError:
+            return False
+
+    @staticmethod
+    def _set_service(name, enable):
+        """Active/désactive et démarre/arrête un service utilisateur."""
+        action = "enable" if enable else "disable"
+        subprocess.run(
+            ["systemctl", "--user", action, "--now", name],
+            capture_output=True,
+        )
 
     # -- Capture raccourci --
 
@@ -637,6 +686,10 @@ class DicteeSetupWindow(Gtk.Window):
                     shortcut_msg = f"\nRaccourci appliqué : {self.captured_accel}"
             except Exception as e:
                 shortcut_msg = f"\nErreur raccourci : {e}"
+
+        # Appliquer les services
+        self._set_service("dictee", self.chk_daemon.get_active())
+        self._set_service("dictee-tray", self.chk_tray.get_active())
 
         # Dialog de confirmation
         dialog = Gtk.MessageDialog(

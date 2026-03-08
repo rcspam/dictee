@@ -83,21 +83,19 @@ done
 echo "→ Création du répertoire des modèles"
 mkdir -p "$MODEL_DIR"
 
-# Activer et démarrer le service pour l'utilisateur
-echo "→ Activation du service dictee"
+# Recharger les services systemd
+echo "→ Rechargement des services systemd"
 REAL_UID=$(id -u "$REAL_USER")
 if [ -d "/run/user/$REAL_UID" ]; then
     sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$REAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$REAL_UID/bus" \
         systemctl --user daemon-reload 2>/dev/null || true
-    sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$REAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$REAL_UID/bus" \
-        systemctl --user enable --now dictee 2>/dev/null || true
 fi
 
 echo ""
 echo "=== Installation terminée ==="
 echo ""
-echo "Le service dictee est activé et démarré."
-echo "Il se relancera automatiquement à chaque connexion."
+echo "Les services seront activés automatiquement au prochain login."
+echo "Pour les activer/désactiver, utilisez : dictee --setup"
 echo ""
 echo "Pour configurer le raccourci clavier et la traduction :"
 echo "  dictee --setup"

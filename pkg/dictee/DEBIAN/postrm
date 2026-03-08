@@ -7,6 +7,8 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
         user=$(id -nu "$uid" 2>/dev/null) || continue
         if [ -d "/run/user/$uid" ]; then
             sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+                systemctl --user disable --now dictee-tray 2>/dev/null || true
+            sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
                 systemctl --user disable --now dictee 2>/dev/null || true
         fi
     done

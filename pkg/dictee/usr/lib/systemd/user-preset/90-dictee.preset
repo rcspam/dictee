@@ -1,1 +1,2 @@
 enable dictee.service
+enable dictee-tray.service
