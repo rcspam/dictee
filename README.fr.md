@@ -38,9 +38,6 @@ DICTEE_LANG_TARGET=es dictee --translate    # → espagnol
 
 # Annuler l'enregistrement en cours (via raccourci ou touche Echap)
 dictee --cancel
-
-# Ouvrir l'interface de configuration (raccourci clavier, traduction, langues)
-dictee --setup
 ```
 
 ### Post-traitement (dictée française)

@@ -38,9 +38,6 @@ DICTEE_LANG_TARGET=es dictee --translate    # → Spanish
 
 # Cancel an ongoing recording (via shortcut or Escape key)
 dictee --cancel
-
-# Open the configuration interface (keyboard shortcut, translation, languages)
-dictee --setup
 ```
 
 ### Post-processing (French dictation)
