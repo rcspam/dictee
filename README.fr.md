@@ -78,24 +78,29 @@ curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # -
 [animation-speech](https://github.com/rcspam/animation-speech) affiche une animation visuelle pendant l'enregistrement et permet d'annuler avec la touche Echap. Sans cette dépendance, `dictee` fonctionne normalement mais sans retour visuel.
 
 ```bash
-# Installer depuis le .deb (voir les releases du repo)
-sudo dpkg -i animation-speech_*.deb
+# Installer depuis le .deb
+sudo dpkg -i animation-speech_1.2.0_all.deb
 ```
 
-#### ydotool-rebind (clavier AZERTY)
+> Télécharger : [releases animation-speech](https://github.com/rcspam/animation-speech/releases) (.deb et .tar.gz)
 
-`ydotool` simule les frappes clavier pour taper le texte transcrit dans l'application active. Par défaut, il utilise un layout **QWERTY** — ce qui produit des caractères incorrects sur un clavier AZERTY (par ex. `q` au lieu de `a`).
+#### ydotool-rebind (claviers non-QWERTY)
 
-[ydotool-rebind](https://github.com/david-vct/ydotool-rebind) est un wrapper qui corrige ce problème en remappant les touches pour supporter les claviers AZERTY et les caractères accentués français (é, è, ê, à, ç, etc.).
+`ydotool` simule les frappes clavier pour taper le texte transcrit dans l'application active. Par défaut, il utilise un layout **QWERTY** — ce qui produit des caractères incorrects sur les autres dispositions clavier (par ex. `q` au lieu de `a` en AZERTY).
+
+[ydotool-rebind](https://github.com/rcspam/ydotool-rebind) est un wrapper qui corrige ce problème en traduisant le texte vers QWERTY avant de le passer à `ydotool`. Layouts supportés : **français (fr)**, **allemand (de)**, **belge (be)**, **italien (it)**, **espagnol (es)**. Le layout est détecté automatiquement depuis la configuration système.
 
 ```bash
-# Installer ydotool-rebind (remplace la commande ydotool)
-git clone https://github.com/david-vct/ydotool-rebind.git
-cd ydotool-rebind
-sudo make install
+# Installer depuis le .deb
+sudo dpkg -i ydotool-rebind_2.0.0_all.deb
+
+# Changer le layout si nécessaire
+echo "LAYOUT=de" | sudo tee /etc/ydotool-rebind/config
 ```
 
-> **Note :** Sans ydotool-rebind, la dictée produira du texte avec des caractères mélangés sur un clavier français. Cette dépendance est indispensable pour les claviers AZERTY.
+> Télécharger : [releases ydotool-rebind](https://github.com/rcspam/ydotool-rebind/releases) (.deb et .tar.gz)
+>
+> **Note :** Sans ydotool-rebind, la dictée produira du texte incorrect sur les claviers non-QWERTY. D'autres layouts peuvent être [facilement ajoutés](https://github.com/rcspam/ydotool-rebind#adding-a-new-layout).
 
 ### Icône de zone de notification
 

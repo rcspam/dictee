@@ -78,24 +78,29 @@ curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # -
 [animation-speech](https://github.com/rcspam/animation-speech) displays a visual animation during recording and allows cancellation with the Escape key. Without this dependency, `dictee` works normally but without visual feedback.
 
 ```bash
-# Install from the .deb (see the repo's releases)
-sudo dpkg -i animation-speech_*.deb
+# Install from the .deb
+sudo dpkg -i animation-speech_1.2.0_all.deb
 ```
 
-#### ydotool-rebind (AZERTY keyboard)
+> Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases) (.deb and .tar.gz)
 
-`ydotool` simulates keystrokes to type transcribed text into the active application. By default, it uses a **QWERTY** layout — which produces incorrect characters on an AZERTY keyboard (e.g. `q` instead of `a`).
+#### ydotool-rebind (non-QWERTY keyboards)
 
-[ydotool-rebind](https://github.com/david-vct/ydotool-rebind) is a wrapper that fixes this by remapping keys to support AZERTY keyboards and French accented characters (é, è, ê, à, ç, etc.).
+`ydotool` simulates keystrokes to type transcribed text into the active application. By default, it uses a **QWERTY** layout — which produces incorrect characters on other keyboard layouts (e.g. `q` instead of `a` on AZERTY).
+
+[ydotool-rebind](https://github.com/rcspam/ydotool-rebind) is a wrapper that fixes this by translating text to QWERTY before passing it to `ydotool`. Supported layouts: **French (fr)**, **German (de)**, **Belgian (be)**, **Italian (it)**, **Spanish (es)**. The layout is auto-detected from your system configuration.
 
 ```bash
-# Install ydotool-rebind (replaces the ydotool command)
-git clone https://github.com/david-vct/ydotool-rebind.git
-cd ydotool-rebind
-sudo make install
+# Install from the .deb
+sudo dpkg -i ydotool-rebind_2.0.0_all.deb
+
+# Override layout if needed
+echo "LAYOUT=de" | sudo tee /etc/ydotool-rebind/config
 ```
 
-> **Note:** Without ydotool-rebind, dictation will produce garbled text on a French keyboard. This dependency is essential for AZERTY keyboards.
+> Download: [ydotool-rebind releases](https://github.com/rcspam/ydotool-rebind/releases) (.deb and .tar.gz)
+>
+> **Note:** Without ydotool-rebind, dictation will produce garbled text on non-QWERTY keyboards. Other layouts can be [easily added](https://github.com/rcspam/ydotool-rebind#adding-a-new-layout).
 
 ### Notification area icon
 
