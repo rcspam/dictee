@@ -71,6 +71,10 @@ sudo apt-get install -f
 
 After installation, run `dictee --setup` to configure the keyboard shortcut and translation options.
 
+<p align="center">
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="400">
+</p>
+
 ### Dependencies
 
 ```bash
@@ -129,10 +133,6 @@ The icon automatically adapts to light/dark themes.
 ### Configuration
 
 `dictee --setup` opens a graphical interface (GTK3) for configuring:
-
-<p align="center">
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="400">
-</p>
 
 - **Keyboard shortcut**: capture and automatic registration (KDE Plasma / GNOME)
 - **Translation**: enable/disable, backend choice (translate-shell or ollama), source and target languages

@@ -71,6 +71,10 @@ sudo apt-get install -f
 
 Après installation, lancez `dictee --setup` pour configurer le raccourci clavier et les options de traduction.
 
+<p align="center">
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="400">
+</p>
+
 ### Dépendances
 
 ```bash
@@ -129,10 +133,6 @@ L'icône s'adapte automatiquement au thème clair/sombre.
 ### Configuration
 
 `dictee --setup` ouvre une interface graphique (GTK3) qui permet de configurer :
-
-<p align="center">
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="400">
-</p>
 
 - **Raccourci clavier** : capture et enregistrement automatique (KDE Plasma / GNOME)
 - **Traduction** : activer/désactiver, choix du backend (translate-shell ou ollama), langues source et cible
