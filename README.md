@@ -18,7 +18,7 @@
 
 Transcription is performed **100% locally** using the [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) model running via ONNX Runtime. No audio data is sent to any external server — your voice stays on your machine.
 
-A first press of the keyboard shortcut starts recording (with a visual animation), a second press stops it, transcribes the speech and **types the text directly into the active application**.
+A first press of the keyboard shortcut starts recording (with a visual animation via [animation-speech](https://github.com/rcspam/animation-speech)), a second press stops it, transcribes the speech and **types the text directly into the active application** (multilingual keyboard support via [ydotool-rebind](https://github.com/rcspam/ydotool-rebind)).
 
 ## Usage
 

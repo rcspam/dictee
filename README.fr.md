@@ -18,7 +18,7 @@
 
 La transcription est réalisée **100% en local** grâce au modèle [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) exécuté via ONNX Runtime. Aucune donnée audio n'est envoyée vers un serveur externe — votre voix reste sur votre machine.
 
-Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active**.
+Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle via [animation-speech](https://github.com/rcspam/animation-speech)), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active** (support clavier multilingue via [ydotool-rebind](https://github.com/rcspam/ydotool-rebind)).
 
 ## Utilisation
 
