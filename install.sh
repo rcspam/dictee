@@ -71,6 +71,14 @@ for svc in "$SCRIPT_DIR/usr/lib/systemd/user/"*.service; do
 done
 chown -R "$REAL_USER:" "$SYSTEMD_USER_DIR"
 
+# Preset systemd (auto-enable au login)
+echo "→ Installation du preset systemd"
+PRESET_DIR="/usr/lib/systemd/user-preset"
+install -d "$PRESET_DIR"
+for preset in "$SCRIPT_DIR/usr/lib/systemd/user-preset/"*.preset; do
+    [ -f "$preset" ] && install -Dm644 "$preset" "$PRESET_DIR/$(basename "$preset")"
+done
+
 # Répertoire des modèles
 echo "→ Création du répertoire des modèles"
 mkdir -p "$MODEL_DIR"
@@ -78,9 +86,10 @@ mkdir -p "$MODEL_DIR"
 echo ""
 echo "=== Installation terminée ==="
 echo ""
-echo "Pour activer le service :"
+echo "Le service dictee sera activé automatiquement à la prochaine connexion."
+echo "Pour le démarrer immédiatement :"
 echo "  systemctl --user daemon-reload"
-echo "  systemctl --user enable --now dictee"
+echo "  systemctl --user start dictee"
 echo ""
 echo "Pour configurer le raccourci clavier et la traduction :"
 echo "  dictee --setup"

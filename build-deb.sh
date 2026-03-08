@@ -131,6 +131,7 @@ build_tarball() {
     rm -rf "$TARBALL_DIR"
     mkdir -p "$TARBALL_DIR/usr/bin"
     mkdir -p "$TARBALL_DIR/usr/lib/systemd/user"
+    mkdir -p "$TARBALL_DIR/usr/lib/systemd/user-preset"
     mkdir -p "$TARBALL_DIR/usr/share/man/man1"
     mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
     mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
@@ -143,8 +144,9 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-tray" "$TARBALL_DIR/usr/bin/"
 
-    # Services systemd
+    # Services systemd + preset
     cp "$PKG_DIR/usr/lib/systemd/user/"*.service "$TARBALL_DIR/usr/lib/systemd/user/"
+    cp "$PKG_DIR/usr/lib/systemd/user-preset/"*.preset "$TARBALL_DIR/usr/lib/systemd/user-preset/"
 
     # Man pages
     cp "$PKG_DIR/usr/share/man/man1/"*.1 "$TARBALL_DIR/usr/share/man/man1/" 2>/dev/null || true
