@@ -11,6 +11,14 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue" alt="Dernière release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-green" alt="Licence GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/backend-Rust-orange?logo=rust" alt="Rust">
+  <img src="https://img.shields.io/badge/frontend-GTK3%20%2F%20Bash-yellow" alt="GTK3 / Bash">
+  <img src="https://img.shields.io/badge/plateforme-Linux-lightgrey?logo=linux" alt="Linux">
+</p>
+
+<p align="center">
   <a href="README.md">Read in English</a>
 </p>
 
