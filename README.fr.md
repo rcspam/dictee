@@ -85,7 +85,10 @@ Après installation, lancez `dictee --setup` pour configurer le raccourci clavie
 
 ```bash
 # Dépendances principales
-sudo apt install pipewire dotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+
+# Optionnel (copie dans le presse-papier en bonus)
+sudo apt install wl-clipboard
 
 # Pour la traduction (optionnel)
 sudo apt install translate-shell    # --translate (Google Translate)

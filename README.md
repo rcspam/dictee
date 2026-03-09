@@ -85,7 +85,10 @@ After installation, run `dictee --setup` to configure the keyboard shortcut and 
 
 ```bash
 # Main dependencies
-sudo apt install pipewire dotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+
+# Optional (clipboard copy as bonus)
+sudo apt install wl-clipboard
 
 # For translation (optional)
 sudo apt install translate-shell    # --translate (Google Translate)
