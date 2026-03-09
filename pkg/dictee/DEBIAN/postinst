@@ -126,6 +126,12 @@ case $choice in
         ;;
 esac
 
+# Recharger les règles udev (dotool)
+echo ""
+echo "=== Configuration udev ==="
+udevadm control --reload-rules 2>/dev/null || true
+echo "Règles udev rechargées (dotool/uinput)"
+
 # Recharger les services systemd pour les utilisateurs connectés
 echo ""
 echo "=== Rechargement des services ==="
@@ -144,10 +150,8 @@ echo ""
 echo "Les services seront activés automatiquement au prochain login."
 echo "Pour les activer/désactiver, utilisez : dictee --setup"
 echo ""
-echo "Assurez-vous que ydotool daemon tourne :"
-echo "  systemctl --user enable --now ydotool"
-echo ""
-echo "Assignez un raccourci clavier à : /usr/bin/dictee"
+echo "Configurez le raccourci clavier et les options :"
+echo "  dictee --setup"
 echo ""
 echo "Commandes disponibles :"
 echo "  transcribe               - Transcription simple (TDT, multilingue)"
@@ -155,7 +159,7 @@ echo "  transcribe-daemon        - Daemon avec modèle préchargé"
 echo "  transcribe-client        - Client pour le daemon"
 echo "  transcribe-diarize       - Transcription + diarisation (TDT)"
 echo "  transcribe-stream-diarize - Streaming + diarisation (Nemotron, anglais)"
-echo "  dictee                   - Push-to-talk avec ydotool"
+echo "  dictee                   - Push-to-talk (dictée vocale)"
 echo ""
 
 exit 0

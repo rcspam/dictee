@@ -38,6 +38,13 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-stream-diarize" "$PREFIX/bin/tran
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee" "$PREFIX/bin/dictee"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-setup" "$PREFIX/bin/dictee-setup"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-tray" "$PREFIX/bin/dictee-tray"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
+
+# Udev rules (dotool — accès uinput pour le groupe input)
+echo "→ Installation des règles udev"
+install -Dm644 "$SCRIPT_DIR/etc/udev/rules.d/80-dotool.rules" "/etc/udev/rules.d/80-dotool.rules"
+udevadm control --reload-rules 2>/dev/null || true
 
 # Man pages
 echo "→ Installation des pages de manuel"

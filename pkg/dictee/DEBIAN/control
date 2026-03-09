@@ -3,7 +3,7 @@ Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: dotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
 Conflicts: dictee-cuda
 Provides: dictee

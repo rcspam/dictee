@@ -1,0 +1,29 @@
+#!/bin/sh
+for a; do
+	case "$a" in
+	-h|--help)
+		echo 'dotoold runs dotool reading from a pipe for dotoolc to write to. dotoold
+will exit immediately if the pipe is already being read. The path used
+for the pipe is $DOTOOL_PIPE else /tmp/dotool-pipe.' >&2
+		exit
+	;;
+	--) break;;
+	esac
+done
+
+fifo_being_read(){
+	[ -p "$1" ] && /bin/echo 1<>"$1" >"$1"
+}
+
+p="${DOTOOL_PIPE:-/tmp/dotool-pipe}"
+
+if fifo_being_read "$p" 2> /dev/null; then
+	printf %s\\n "dotoold: another instance is already reading the pipe: $p" >&2
+	exit 1
+fi
+
+rm -f -- "$p" || exit 1
+trap 'rm -f -- "$p"; pkill -P $$; trap - EXIT; exit' EXIT INT TERM HUP
+mkfifo -m 660 "$p" || exit 1
+dotool "$@" <> "$p" &
+wait $!

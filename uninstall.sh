@@ -28,9 +28,13 @@ su "$REAL_USER" -c "systemctl --user disable dictee-tray 2>/dev/null || true"
 # Binaires
 echo "→ Suppression des binaires"
 for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-           transcribe-stream-diarize dictee dictee-setup dictee-tray; do
+           transcribe-stream-diarize dictee dictee-setup dictee-tray dotool dotoold; do
     rm -f "$PREFIX/bin/$bin"
 done
+
+# Udev rules
+echo "→ Suppression des règles udev"
+rm -f "/etc/udev/rules.d/80-dotool.rules"
 
 # Man pages
 echo "→ Suppression des pages de manuel"

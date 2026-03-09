@@ -6,10 +6,35 @@ cd "$(dirname "$0")"
 VERSION="0.99"
 PKG_DIR="pkg/dictee"
 
+DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
+DOTOOL_DIR="/tmp/dotool-build"
+
 echo "========================================"
 echo "  Building dictee $VERSION"
 echo "========================================"
 echo ""
+
+# Build dotool (keyboard input tool)
+build_dotool() {
+    echo "=== Building dotool ==="
+    if [ ! -f "$DOTOOL_DIR/dotool" ]; then
+        rm -rf "$DOTOOL_DIR"
+        git clone "$DOTOOL_REPO" "$DOTOOL_DIR"
+        (cd "$DOTOOL_DIR" && ./build.sh)
+    else
+        echo "dotool already built, skipping"
+    fi
+
+    # Install into package tree
+    cp "$DOTOOL_DIR/dotool" "$PKG_DIR/usr/bin/"
+    cp "$DOTOOL_DIR/dotoold" "$PKG_DIR/usr/bin/"
+    mkdir -p "$PKG_DIR/etc/udev/rules.d"
+    cp "$DOTOOL_DIR/80-dotool.rules" "$PKG_DIR/etc/udev/rules.d/"
+    echo "dotool built and staged"
+    echo ""
+}
+
+build_dotool
 
 # Build CUDA version
 build_cuda() {
@@ -28,7 +53,7 @@ Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: dotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
 Conflicts: dictee-cpu
 Provides: dictee
@@ -86,7 +111,7 @@ Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: dotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
 Conflicts: dictee-cuda
 Provides: dictee
@@ -136,6 +161,7 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
     mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
     mkdir -p "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES"
+    mkdir -p "$TARBALL_DIR/etc/udev/rules.d"
 
     # Binaires (derniers compilés = CPU)
     for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize; do
@@ -144,6 +170,11 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-tray" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dotool" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dotoold" "$TARBALL_DIR/usr/bin/"
+
+    # Udev rules (dotool)
+    cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$TARBALL_DIR/etc/udev/rules.d/"
 
     # Services systemd + preset
     cp "$PKG_DIR/usr/lib/systemd/user/"*.service "$TARBALL_DIR/usr/lib/systemd/user/"

@@ -1,0 +1,2 @@
+# This allows users in group input to use dotool without root permissions.
+KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
