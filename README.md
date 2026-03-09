@@ -106,7 +106,7 @@ The included Plasma 6 widget displays real-time audio bars directly in the panel
 
 **Option 2: animation-speech (all desktops)**
 
-[animation-speech](https://github.com/rcspam/animation-speech) displays a fullscreen visual animation during recording and allows cancellation with the Escape key. Works on any desktop environment (KDE, GNOME, Sway, i3…).
+[animation-speech](https://github.com/rcspam/animation-speech) displays a fullscreen visual animation during recording and allows cancellation with the Escape key. Works on Wayland compositors supporting `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…). Not compatible with GNOME.
 
 ```bash
 # Install from the .deb
