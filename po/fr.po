@@ -238,3 +238,11 @@ msgstr "Animation vocale"
 #: pkg/dictee/usr/bin/dictee-setup:406
 msgid "Startup services"
 msgstr "Services au démarrage"
+
+#: pkg/dictee/usr/bin/dictee-setup
+msgid "Options"
+msgstr "Options"
+
+#: pkg/dictee/usr/bin/dictee-setup
+msgid "Copy transcription to clipboard"
+msgstr "Copier la transcription dans le presse-papier"

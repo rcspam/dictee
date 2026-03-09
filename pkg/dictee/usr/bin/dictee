@@ -26,6 +26,7 @@ DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
+CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 
 # Détection du layout clavier pour dotool (localectl > setxkbmap > us)
 if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
@@ -248,7 +249,7 @@ if [ -f "$PIDFILE" ]; then
         fi
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        command -v wl-copy >/dev/null && echo "$translated" | wl-copy
+        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$translated" | wl-copy
         printf 'type %s' "$translated" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
@@ -258,7 +259,7 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         # Copier directement
-        command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
+        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
         printf 'type %s' "$transcribed" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then

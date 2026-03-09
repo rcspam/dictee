@@ -98,7 +98,7 @@ def load_config():
     return conf
 
 
-def save_config(translate, backend, lang_source, lang_target):
+def save_config(translate, backend, lang_source, lang_target, clipboard):
     """Write dictee.conf."""
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
     with open(CONF_PATH, "w") as f:
@@ -107,6 +107,7 @@ def save_config(translate, backend, lang_source, lang_target):
         f.write(f"DICTEE_TRANSLATE_BACKEND={backend}\n")
         f.write(f"DICTEE_LANG_SOURCE={lang_source}\n")
         f.write(f"DICTEE_LANG_TARGET={lang_target}\n")
+        f.write(f"DICTEE_CLIPBOARD={str(clipboard).lower()}\n")
 
 
 # === KDE shortcut ===
@@ -366,6 +367,28 @@ class DicteeSetupWindow(Gtk.Window):
         grid_lang.attach(self.combo_tgt, 1, 1, 1, 1)
 
         self._on_translate_toggled(self.chk_translate)
+
+        # -- Options section --
+        frame_options = Gtk.Frame()
+        frame_options.set_shadow_type(Gtk.ShadowType.NONE)
+        lbl_frame_opts = Gtk.Label()
+        lbl_frame_opts.set_markup(f"<b>{_('Options')}</b>")
+        frame_options.set_label_widget(lbl_frame_opts)
+        box_opts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box_opts.set_margin_start(12)
+        box_opts.set_margin_end(12)
+        box_opts.set_margin_top(6)
+        box_opts.set_margin_bottom(6)
+        frame_options.add(box_opts)
+        vbox.pack_start(frame_options, False, False, 0)
+
+        self.chk_clipboard = Gtk.CheckButton(
+            label=_("Copy transcription to clipboard")
+        )
+        self.chk_clipboard.set_active(
+            conf.get("DICTEE_CLIPBOARD", "true") == "true"
+        )
+        box_opts.pack_start(self.chk_clipboard, False, False, 0)
 
         # -- Animation-speech section --
         frame_anim = Gtk.Frame()
@@ -702,7 +725,8 @@ class DicteeSetupWindow(Gtk.Window):
         lang_src = self.combo_src.get_active_id()
         lang_tgt = self.combo_tgt.get_active_id()
 
-        save_config(translate, backend, lang_src, lang_tgt)
+        clipboard = self.chk_clipboard.get_active()
+        save_config(translate, backend, lang_src, lang_tgt, clipboard)
 
         shortcut_msg = ""
         if self.captured_accel and self.de_type in ("kde", "gnome"):
