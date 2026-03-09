@@ -32,7 +32,7 @@
 
 La transcription est réalisée **100% en local** grâce au modèle [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) exécuté via ONNX Runtime. Aucune donnée audio n'est envoyée vers un serveur externe — votre voix reste sur votre machine.
 
-Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle via [animation-speech](https://github.com/rcspam/animation-speech), à installer séparément), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active** via [dotool](https://sr.ht/~geb/dotool/).
+Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle via [animation-speech](https://github.com/rcspam/animation-speech) ou le **widget KDE Plasma** inclus), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active** via [dotool](https://sr.ht/~geb/dotool/).
 
 ## Utilisation
 
@@ -66,10 +66,10 @@ Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
 # Version GPU (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_0.99_amd64.deb
+sudo dpkg -i dictee-cuda_0.99.5_amd64.deb
 
 # Version CPU (tout ordinateur)
-sudo dpkg -i dictee-cpu_0.99_amd64.deb
+sudo dpkg -i dictee-cpu_0.99.5_amd64.deb
 
 # Installer les dépendances manquantes
 sudo apt-get install -f
@@ -96,9 +96,17 @@ sudo apt install translate-shell    # --translate (Google Translate)
 curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # --translate --ollama (100% local)
 ```
 
-#### animation-speech (recommandé)
+#### Retour visuel pendant l'enregistrement
 
-[animation-speech](https://github.com/rcspam/animation-speech) affiche une animation visuelle pendant l'enregistrement et permet d'annuler avec la touche Echap. Sans cette dépendance, `dictee` fonctionne normalement mais sans retour visuel.
+Deux options sont disponibles pour le retour visuel pendant l'enregistrement :
+
+**Option 1 : Widget KDE Plasma (recommandé pour les utilisateurs KDE)**
+
+Le widget Plasma 6 inclus affiche des barres audio en temps réel directement dans le panneau, avec contrôles du daemon et animations configurables. Voir [Widget KDE Plasma](#widget-kde-plasma) ci-dessous.
+
+**Option 2 : animation-speech (tous les bureaux)**
+
+[animation-speech](https://github.com/rcspam/animation-speech) affiche une animation visuelle plein écran pendant l'enregistrement et permet d'annuler avec la touche Echap. Fonctionne sur tous les environnements de bureau (KDE, GNOME, Sway, i3…).
 
 ```bash
 # Installer depuis le .deb
@@ -106,6 +114,8 @@ sudo dpkg -i animation-speech_1.2.0_all.deb
 ```
 
 > Télécharger : [releases animation-speech](https://github.com/rcspam/animation-speech/releases) (.deb et .tar.gz)
+
+Sans aucune de ces options, `dictee` fonctionne normalement mais sans retour visuel.
 
 ### Icône de zone de notification
 
@@ -120,6 +130,24 @@ systemctl --user enable dictee-tray
 ```
 
 L'icône s'adapte automatiquement au thème clair/sombre.
+
+### Widget KDE Plasma
+
+Un widget natif KDE Plasma 6 est inclus. Il affiche des barres audio en temps réel pendant l'enregistrement, l'état du daemon, et des contrôles rapides (dictée, traduction, annulation).
+
+```bash
+# Installer (inclus dans le .deb, ou manuellement)
+kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid
+
+# Mettre à jour
+kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid
+```
+
+Clic droit sur le panneau → « Ajouter des composants graphiques… » → chercher « Dictée ».
+
+Le widget est configurable : style d'animation (barres, onde, pulsation, points), nombre de barres, sensibilité audio, etc.
+
+> Nécessite `python3-numpy` et `pulseaudio-utils` (parec) pour la visualisation audio en temps réel.
 
 ### Configuration
 
@@ -279,6 +307,7 @@ Ce projet ajoute :
 - Service systemd
 - Interface de configuration GTK3 (`dictee --setup`)
 - Icône de zone de notification (`dictee-tray`)
+- Widget KDE Plasma 6 avec visualisation audio temps réel
 
 ## Licence
 

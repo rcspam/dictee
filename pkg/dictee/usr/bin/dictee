@@ -27,6 +27,7 @@ LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
+ANIMATION="${DICTEE_ANIMATION:-speech}"
 
 # Détection du layout clavier pour dotool (localectl > setxkbmap > us)
 if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
@@ -113,8 +114,10 @@ cleanup_on_error() {
     fi
 
     # Arrêter l'animation
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        animation-speech-ctl quit 2>/dev/null
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            animation-speech-ctl quit 2>/dev/null
+        fi
     fi
 
     # Tuer tous les processus enfants restants
@@ -180,8 +183,10 @@ if [ "$CANCEL" = true ]; then
         id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
         # Arrêter l'animation
-        if command -v animation-speech-ctl >/dev/null 2>&1; then
-            animation-speech-ctl quit 2>/dev/null
+        if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+            if command -v animation-speech-ctl >/dev/null 2>&1; then
+                animation-speech-ctl quit 2>/dev/null
+            fi
         fi
 
         # Restaurer l'état du micro
@@ -219,8 +224,10 @@ if [ -f "$PIDFILE" ]; then
     id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
     # Arrêter l'animation
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        animation-speech-ctl stop 2>/dev/null
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            animation-speech-ctl stop 2>/dev/null
+        fi
     fi
 
     # Restaurer l'état du micro
@@ -288,10 +295,12 @@ else
     # Muter le son (pour éviter le feedback)
     pactl set-sink-mute @DEFAULT_SINK@ 1
 
-    # Lancer l'animation (si disponible, avec annulation par Echap)
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        SCRIPT_PATH="$(readlink -f "$0")"
-        animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null
+    # Lancer l'animation (si mode speech ou both, et si disponible)
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            SCRIPT_PATH="$(readlink -f "$0")"
+            animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null
+        fi
     fi
 
     # Démarrer l'enregistrement

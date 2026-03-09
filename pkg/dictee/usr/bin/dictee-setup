@@ -98,7 +98,7 @@ def load_config():
     return conf
 
 
-def save_config(translate, backend, lang_source, lang_target, clipboard):
+def save_config(translate, backend, lang_source, lang_target, clipboard, animation="speech"):
     """Write dictee.conf."""
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
     with open(CONF_PATH, "w") as f:
@@ -108,6 +108,7 @@ def save_config(translate, backend, lang_source, lang_target, clipboard):
         f.write(f"DICTEE_LANG_SOURCE={lang_source}\n")
         f.write(f"DICTEE_LANG_TARGET={lang_target}\n")
         f.write(f"DICTEE_CLIPBOARD={str(clipboard).lower()}\n")
+        f.write(f"DICTEE_ANIMATION={animation}\n")
 
 
 # === KDE shortcut ===
@@ -404,10 +405,30 @@ class DicteeSetupWindow(Gtk.Window):
         frame_anim.add(box_anim)
         vbox.pack_start(frame_anim, False, False, 0)
 
-        self.lbl_anim_status = Gtk.Label()
-        self.lbl_anim_status.set_xalign(0)
-        self.lbl_anim_status.set_line_wrap(True)
-        box_anim.pack_start(self.lbl_anim_status, False, False, 0)
+        # ComboBox choix du mode animation
+        hbox_mode = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        lbl_mode = Gtk.Label(label=_("Animation mode:"))
+        lbl_mode.set_xalign(0)
+        hbox_mode.pack_start(lbl_mode, False, False, 0)
+
+        self.combo_anim = Gtk.ComboBoxText()
+        self.combo_anim.append("speech", _("animation-speech (window)"))
+        self.combo_anim.append("plasmoid", _("Plasmoid (panel widget)"))
+        self.combo_anim.append("both", _("Both"))
+        anim_mode = conf.get("DICTEE_ANIMATION", "speech")
+        self.combo_anim.set_active_id(anim_mode)
+        if self.combo_anim.get_active_id() is None:
+            self.combo_anim.set_active(0)
+        self.combo_anim.connect("changed", self._on_anim_mode_changed)
+        hbox_mode.pack_start(self.combo_anim, True, True, 0)
+        box_anim.pack_start(hbox_mode, False, False, 0)
+
+        # Warnings de disponibilite
+        self.lbl_anim_warn_speech = Gtk.Label()
+        self.lbl_anim_warn_speech.set_xalign(0)
+        self.lbl_anim_warn_speech.set_line_wrap(True)
+        self.lbl_anim_warn_speech.set_no_show_all(True)
+        box_anim.pack_start(self.lbl_anim_warn_speech, False, False, 0)
 
         self.btn_install_anim = Gtk.Button(
             label=_("Install animation-speech")
@@ -416,11 +437,30 @@ class DicteeSetupWindow(Gtk.Window):
         self.btn_install_anim.set_no_show_all(True)
         box_anim.pack_start(self.btn_install_anim, False, False, 0)
 
+        self.lbl_anim_warn_plasmoid = Gtk.Label()
+        self.lbl_anim_warn_plasmoid.set_xalign(0)
+        self.lbl_anim_warn_plasmoid.set_line_wrap(True)
+        self.lbl_anim_warn_plasmoid.set_no_show_all(True)
+        box_anim.pack_start(self.lbl_anim_warn_plasmoid, False, False, 0)
+
+        self.btn_install_plasmoid = Gtk.Button(
+            label=_("Install Dictee plasmoid")
+        )
+        self.btn_install_plasmoid.connect("clicked", self._on_install_plasmoid)
+        self.btn_install_plasmoid.set_no_show_all(True)
+        box_anim.pack_start(self.btn_install_plasmoid, False, False, 0)
+
         self.progress_anim = Gtk.ProgressBar()
         self.progress_anim.set_no_show_all(True)
         box_anim.pack_start(self.progress_anim, False, False, 0)
 
-        self._check_animation_speech()
+        # Status label (installé / pas installé)
+        self.lbl_anim_status = Gtk.Label()
+        self.lbl_anim_status.set_xalign(0)
+        self.lbl_anim_status.set_line_wrap(True)
+        box_anim.pack_start(self.lbl_anim_status, False, False, 0)
+
+        self._update_anim_availability()
 
         # -- Startup services section --
         frame_services = Gtk.Frame()
@@ -546,45 +586,126 @@ class DicteeSetupWindow(Gtk.Window):
 
         return True
 
-    # -- Animation-speech --
+    # -- Animation --
 
-    def _check_animation_speech(self):
+    @staticmethod
+    def _is_animation_speech_installed():
         """Check if animation-speech-ctl is installed."""
-        if shutil.which(ANIMATION_SPEECH_BIN):
-            try:
+        return shutil.which(ANIMATION_SPEECH_BIN) is not None
+
+    @staticmethod
+    def _is_plasmoid_installed():
+        """Check if the Dictee plasmoid is installed."""
+        try:
+            result = subprocess.run(
+                ["kpackagetool6", "-t", "Plasma/Applet", "-l"],
+                capture_output=True, text=True,
+            )
+            return "com.github.rcspam.dictee" in result.stdout
+        except FileNotFoundError:
+            return False
+
+    def _on_anim_mode_changed(self, _widget):
+        self._update_anim_availability()
+
+    def _update_anim_availability(self):
+        """Update visibility of warnings and install buttons based on mode."""
+        mode = self.combo_anim.get_active_id() or "speech"
+        has_speech = self._is_animation_speech_installed()
+        has_plasmoid = self._is_plasmoid_installed()
+
+        # Status line
+        parts = []
+        if has_speech:
+            parts.append('<span foreground="green">animation-speech ' + _("installed") + '</span>')
+        if has_plasmoid:
+            parts.append('<span foreground="green">' + _("Dictee plasmoid installed") + '</span>')
+        if parts:
+            self.lbl_anim_status.set_markup(" — ".join(parts))
+        else:
+            self.lbl_anim_status.set_markup("")
+
+        # Speech warning
+        needs_speech = mode in ("speech", "both")
+        if needs_speech and not has_speech:
+            self.lbl_anim_warn_speech.set_markup(
+                '<span foreground="orange">'
+                + _("animation-speech is not installed")
+                + '</span>'
+            )
+            self.lbl_anim_warn_speech.show()
+            self.btn_install_anim.show()
+        else:
+            self.lbl_anim_warn_speech.hide()
+            self.btn_install_anim.hide()
+
+        # Plasmoid warning
+        needs_plasmoid = mode in ("plasmoid", "both")
+        if needs_plasmoid and not has_plasmoid:
+            self.lbl_anim_warn_plasmoid.set_markup(
+                '<span foreground="orange">'
+                + _("Dictee plasmoid is not installed")
+                + '</span>'
+            )
+            self.lbl_anim_warn_plasmoid.show()
+            self.btn_install_plasmoid.show()
+        else:
+            self.lbl_anim_warn_plasmoid.hide()
+            self.btn_install_plasmoid.hide()
+
+    def _on_install_plasmoid(self, _widget):
+        """Install the Dictee plasmoid via kpackagetool6."""
+        plasmoid_path = "/usr/share/dictee/dictee.plasmoid"
+        if not os.path.isfile(plasmoid_path):
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text=_("Installation error"),
+            )
+            dialog.format_secondary_text(
+                _("File not found: {path}").format(path=plasmoid_path)
+            )
+            dialog.run()
+            dialog.destroy()
+            return
+
+        try:
+            # Essayer d'abord une mise a jour, sinon installer
+            result = subprocess.run(
+                ["kpackagetool6", "-t", "Plasma/Applet", "-u", plasmoid_path],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
                 result = subprocess.run(
-                    ["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
+                    ["kpackagetool6", "-t", "Plasma/Applet", "-i", plasmoid_path],
                     capture_output=True, text=True,
                 )
-                version = result.stdout.strip() if result.returncode == 0 else ""
-                if version:
-                    self.lbl_anim_status.set_markup(
-                        '<span foreground="green">'
-                        + _("animation-speech {version} installed").format(
-                            version=version
-                        )
-                        + "</span>"
-                    )
-                else:
-                    self.lbl_anim_status.set_markup(
-                        '<span foreground="green">'
-                        + _("animation-speech installed")
-                        + "</span>"
-                    )
-            except FileNotFoundError:
-                self.lbl_anim_status.set_markup(
-                    '<span foreground="green">'
-                    + _("animation-speech installed")
-                    + "</span>"
+            if result.returncode == 0:
+                self._update_anim_availability()
+            else:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    modal=True,
+                    message_type=Gtk.MessageType.ERROR,
+                    buttons=Gtk.ButtonsType.OK,
+                    text=_("Installation error"),
                 )
-            self.btn_install_anim.hide()
-        else:
-            self.lbl_anim_status.set_markup(
-                "<i>animation-speech</i> "
-                + _("displays a visual animation during\n"
-                    "recording and allows cancellation with Escape.")
+                dialog.format_secondary_text(result.stderr.strip())
+                dialog.run()
+                dialog.destroy()
+        except FileNotFoundError:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text=_("Installation error"),
             )
-            self.btn_install_anim.show()
+            dialog.format_secondary_text("kpackagetool6 " + _("not found"))
+            dialog.run()
+            dialog.destroy()
 
     def _on_install_animation(self, _widget):
         """Download and install the .deb from GitHub releases."""
@@ -726,7 +847,8 @@ class DicteeSetupWindow(Gtk.Window):
         lang_tgt = self.combo_tgt.get_active_id()
 
         clipboard = self.chk_clipboard.get_active()
-        save_config(translate, backend, lang_src, lang_tgt, clipboard)
+        animation = self.combo_anim.get_active_id() or "speech"
+        save_config(translate, backend, lang_src, lang_tgt, clipboard, animation)
 
         shortcut_msg = ""
         if self.captured_accel and self.de_type in ("kde", "gnome"):

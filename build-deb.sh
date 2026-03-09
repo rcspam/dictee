@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="0.99"
+VERSION="0.99.5"
 PKG_DIR="pkg/dictee"
 
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
@@ -51,6 +51,23 @@ build_dotool() {
 
 build_dotool
 
+# Build plasmoid
+build_plasmoid() {
+    echo "=== Building dictee.plasmoid ==="
+    local PLASMOID_SRC="plasmoid/package"
+    if [ ! -d "$PLASMOID_SRC" ]; then
+        echo "Plasmoid source not found, skipping"
+        return
+    fi
+    (cd "$PLASMOID_SRC" && zip -r "../../dictee.plasmoid" metadata.json contents/)
+    mkdir -p "$PKG_DIR/usr/share/dictee"
+    cp dictee.plasmoid "$PKG_DIR/usr/share/dictee/"
+    echo "Plasmoid built and staged"
+    echo ""
+}
+
+build_plasmoid
+
 # Build CUDA version
 build_cuda() {
     echo "=== [CUDA] Compiling binaries with GPU support ==="
@@ -64,12 +81,12 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 0.99
+Version: 0.99.5
 Section: sound
 Priority: optional
 Architecture: amd64
 Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
-Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
+Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1, python3-numpy
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -122,12 +139,12 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 0.99
+Version: 0.99.5
 Section: sound
 Priority: optional
 Architecture: amd64
 Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
-Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
+Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1, python3-numpy
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -186,6 +203,9 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-tray" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dotool" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dotoold" "$TARBALL_DIR/usr/bin/"
 
@@ -208,6 +228,10 @@ build_tarball() {
 
     # Desktop entry
     cp "$PKG_DIR/usr/share/applications/"*.desktop "$TARBALL_DIR/usr/share/applications/"
+
+    # Plasmoid
+    mkdir -p "$TARBALL_DIR/usr/share/dictee"
+    cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$TARBALL_DIR/usr/share/dictee/" 2>/dev/null || true
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"

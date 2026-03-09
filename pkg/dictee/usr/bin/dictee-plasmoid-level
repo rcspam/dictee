@@ -1,0 +1,41 @@
+#!/bin/bash
+# dictee-plasmoid-level — Lit le niveau audio depuis le daemon dictee-plasmoid-level-daemon
+# Usage:
+#   dictee-plasmoid-level          → single RMS level
+#   dictee-plasmoid-levelN         → N frequency bands
+#   dictee-plasmoid-levelstop      → stop daemon
+
+PID_FILE="/dev/shm/.dictee_level_v2_pid"
+BANDS_FILE="/dev/shm/.dictee_audio_bands"
+
+if [ "${1:-}" = "stop" ]; then
+    dictee-plasmoid-level-daemon stop
+    exit 0
+fi
+
+BARS="${1:-}"
+
+# Daemon en cours ?
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+    cat "$BANDS_FILE" 2>/dev/null || echo "0"
+    exit 0
+fi
+
+# Lancer le daemon (une seule fois grâce au flock)
+(
+    flock -n 9 || { cat "$BANDS_FILE" 2>/dev/null || echo "0"; exit 0; }
+
+    # Re-vérifier après le lock
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+        cat "$BANDS_FILE" 2>/dev/null || echo "0"
+        exit 0
+    fi
+
+    if [ -n "$BARS" ] && [ "$BARS" -eq "$BARS" ] 2>/dev/null && [ "$BARS" -gt 1 ]; then
+        nohup dictee-plasmoid-level-daemon "$BARS" >/dev/null 2>&1 &
+    else
+        nohup dictee-plasmoid-level-daemon >/dev/null 2>&1 &
+    fi
+
+    echo "0"
+) 9>/dev/shm/.dictee_level_flock

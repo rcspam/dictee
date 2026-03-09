@@ -1,0 +1,90 @@
+#!/bin/bash
+# dictee-plasmoid-level-daemon — Daemon audio pour le plasmoid Dictee.
+# Capture le micro via parec, calcule les bandes FFT via dictee-plasmoid-level-fft.
+# Usage: dictee-level-daemon [N_BARS]
+#        dictee-level-daemon stop
+
+PID_FILE="/dev/shm/.dictee_level_v2_pid"
+BANDS_FILE="/dev/shm/.dictee_audio_bands"
+BARS_COUNT_FILE="/dev/shm/.dictee_level_bars"
+
+cleanup() {
+    # Tuer parec si encore actif
+    [ -n "$PAREC_PID" ] && kill "$PAREC_PID" 2>/dev/null
+    [ -n "$FFT_PID" ] && kill "$FFT_PID" 2>/dev/null
+    rm -f "$PID_FILE" "$BANDS_FILE" "$BARS_COUNT_FILE"
+    exit 0
+}
+
+stop_existing() {
+    if [ -f "$PID_FILE" ]; then
+        local pid
+        pid=$(cat "$PID_FILE" 2>/dev/null)
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null
+            sleep 0.2
+            kill -9 "$pid" 2>/dev/null
+        fi
+    fi
+    rm -f "$PID_FILE" "$BANDS_FILE" "$BARS_COUNT_FILE"
+}
+
+if [ "${1:-}" = "stop" ]; then
+    stop_existing
+    exit 0
+fi
+
+N_BARS="${1:-6}"
+
+# Arrêter l'ancien daemon
+stop_existing
+
+# Écrire PID
+echo $$ > "$PID_FILE"
+echo "$N_BARS" > "$BARS_COUNT_FILE"
+
+trap cleanup TERM INT HUP
+
+# Initialiser la sortie
+printf '%s' "$(printf '0 %.0s' $(seq 1 "$N_BARS"))" > "$BANDS_FILE"
+
+# Vérifier que parec est disponible
+if ! command -v parec >/dev/null 2>&1; then
+    echo "parec non trouvé (installer pulseaudio-utils)" >&2
+    cleanup
+fi
+
+# Vérifier que dictee-plasmoid-level-fft est disponible
+if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
+    # Fallback : mode RMS simple sans FFT
+    parec --rate=16000 --channels=1 --format=s16le --latency-msec=80 2>/dev/null | \
+    while true; do
+        # Lire 2560 octets (1280 samples × 2 bytes = 80ms à 16kHz)
+        chunk=$(dd bs=2560 count=1 2>/dev/null | od -An -td2 -w2 | \
+            awk -v n="$N_BARS" '
+            BEGIN { for(i=0;i<n;i++) sum[i]=0; cnt=0 }
+            { v=$1; if(v<0) v=-v; band=int(cnt*n/1280); sum[band]+=v; cnt++ }
+            END {
+                for(i=0;i<n;i++) {
+                    avg = (cnt>0) ? sum[i]/(cnt/n)/32768.0 : 0
+                    # Amplifier pour visibilité
+                    avg = avg * 8
+                    if(avg > 1) avg = 1
+                    printf "%.3f ", avg
+                }
+                printf "\n"
+            }')
+        printf '%s' "$chunk" > "$BANDS_FILE"
+    done &
+    PAREC_PID=$!
+    wait $PAREC_PID
+    cleanup
+fi
+
+# Mode FFT : parec → dictee-plasmoid-level-fft
+parec --rate=16000 --channels=1 --format=s16le --latency-msec=80 2>/dev/null | \
+    dictee-plasmoid-level-fft "$N_BARS" "$BANDS_FILE" &
+PAREC_PID=$!
+
+wait $PAREC_PID
+cleanup
