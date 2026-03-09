@@ -108,6 +108,8 @@ The included Plasma 6 widget displays real-time audio bars directly in the panel
 
 [animation-speech](https://github.com/rcspam/animation-speech) displays a fullscreen visual animation during recording and allows cancellation with the Escape key. Works on Wayland compositors supporting `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…). Not compatible with GNOME.
 
+> **GNOME users**: there is currently no GNOME Shell extension for dictee. Contributions are welcome — if you'd like to develop one, see the [plasmoid source](plasmoid/) for reference architecture (state machine, audio bands via FFT, daemon communication).
+
 ```bash
 # Install from the .deb
 sudo dpkg -i animation-speech_1.2.0_all.deb
@@ -133,7 +135,7 @@ The icon automatically adapts to light/dark themes.
 
 ### KDE Plasma widget
 
-A native KDE Plasma 6 widget is included. It displays real-time audio bars during recording, daemon status, and provides quick controls (dictate, translate, cancel).
+A native KDE Plasma 6 widget is included. It displays real-time audio visualization during recording, daemon status, and provides quick controls (dictate, translate, cancel).
 
 ```bash
 # Install (included in .deb, or manually)
@@ -145,7 +147,21 @@ kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid
 
 Right-click on the panel → "Add Widgets…" → search for "Dictée".
 
-The widget is configurable: animation style (bars, wave, pulse, dots), number of bars, audio sensitivity, etc.
+#### Animation styles
+
+Five animation styles are available, all with Hanning envelope (tapered edges), per-style sensitivity, and optional rainbow colors:
+
+| Bars | Wave | Pulse | Dots | Waveform |
+|:----:|:----:|:-----:|:----:|:--------:|
+| ![Bars](plasmoid/assets/anim-bars.svg) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
+
+Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg)
+
+#### Settings
+
+- **Noise gate** — zero out audio below a threshold for clean silence
+- **Calibrate** — record silence to subtract background noise
+- **Per-style controls** — bar count, spacing, radius, speed, etc.
 
 > Requires `python3-numpy` and `pulseaudio-utils` (parec) for real-time audio visualization.
 

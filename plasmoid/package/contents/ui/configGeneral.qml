@@ -12,6 +12,10 @@ KCM.SimpleKCM {
     property alias cfg_showLastTranscription: showTranscriptionCheck.checked
     property alias cfg_previewMode: previewModeCheck.checked
     property double cfg_audioSensitivity: 2.0
+    property double cfg_barSensitivity: 2.0
+    property double cfg_waveSensitivity: 2.0
+    property double cfg_pulseSensitivity: 2.0
+    property double cfg_dotSensitivity: 2.0
     property alias cfg_animationStyle: animationStyleCombo.currentValue
 
     // Bars
@@ -23,19 +27,50 @@ KCM.SimpleKCM {
     property alias cfg_animationSpeed: animationSpeedSpin.value
 
     // Wave
+    property alias cfg_waveWidth: waveWidthSpin.value
     property alias cfg_waveThickness: waveThicknessSpin.value
     property double cfg_waveFrequency: 2.0
     property double cfg_waveAmplitude: 0.8
     property alias cfg_waveSpeed: waveSpeedSpin.value
+    property alias cfg_waveFill: waveFillCheck.checked
 
     // Pulse
     property alias cfg_pulseRings: pulseRingsSpin.value
     property alias cfg_pulseSpeed: pulseSpeedSpin.value
+    property alias cfg_pulseThickness: pulseThicknessSpin.value
 
     // Dots
     property alias cfg_dotCount: dotCountSpin.value
     property alias cfg_dotSize: dotSizeSpin.value
+    property alias cfg_dotBounce: dotBounceSpin.value
+    property alias cfg_dotSpacing: dotSpacingSpin.value
     property alias cfg_dotSpeed: dotSpeedSpin.value
+
+    // Rainbow
+    property alias cfg_useRainbow: rainbowCheck.checked
+    property alias cfg_rainbowStartHue: rainbowStartSpin.value
+    property alias cfg_rainbowEndHue: rainbowEndSpin.value
+
+    // Waveform
+    property double cfg_waveformSensitivity: 2.0
+    property alias cfg_waveformBars: waveformBarsSpin.value
+    property alias cfg_waveformSpacing: waveformSpacingSpin.value
+    property alias cfg_waveformRadius: waveformRadiusSpin.value
+    property double cfg_waveformMinHeight: 0.1
+    property double cfg_noiseGate: 0.05
+
+    // Sensibilité active selon le style courant
+    readonly property real activeSensitivity: {
+        var style = animationStyleCombo.currentValue || "bars"
+        switch (style) {
+        case "bars":  return cfg_barSensitivity
+        case "wave":  return cfg_waveSensitivity
+        case "pulse": return cfg_pulseSensitivity
+        case "dots":     return cfg_dotSensitivity
+        case "waveform": return cfg_waveformSensitivity
+        default:         return cfg_audioSensitivity
+        }
+    }
 
     // Lecture niveau micro pour la preview
     property real previewAudioLevel: 0.0
@@ -50,7 +85,6 @@ KCM.SimpleKCM {
         connectedSources: []
         onNewData: function(source, data) {
             var stdout = data["stdout"].trim()
-            var stderr = data["stderr"].trim()
             if (stdout.indexOf("Calibration OK") !== -1) {
                 configPage.calibrationStatus = i18n("Calibration done!")
             } else {
@@ -74,13 +108,18 @@ KCM.SimpleKCM {
         onNewData: function(source, data) {
             var output = data["stdout"].trim()
             if (output.length === 0) { disconnectSource(source); return }
+            var gate = configPage.cfg_noiseGate || 0.0
             var parts = output.split(" ")
             if (parts.length > 1) {
                 var bands = []
                 var sum = 0
                 for (var i = 0; i < parts.length; i++) {
                     var v = parseFloat(parts[i])
-                    if (!isNaN(v)) { bands.push(Math.min(1.0, v)); sum += v }
+                    if (!isNaN(v)) {
+                        v = Math.min(1.0, v)
+                        if (v < gate) v = 0.0
+                        bands.push(v); sum += v
+                    }
                 }
                 if (bands.length > 0) {
                     configPage.previewAudioBands = bands
@@ -88,11 +127,17 @@ KCM.SimpleKCM {
                 }
             } else {
                 var level = parseFloat(output)
-                if (!isNaN(level)) configPage.previewAudioLevel = Math.min(1.0, level)
+                if (!isNaN(level)) {
+                    level = Math.min(1.0, level)
+                    if (level < gate) level = 0.0
+                    configPage.previewAudioLevel = level
+                }
             }
             disconnectSource(source)
         }
     }
+
+    Component.onDestruction: previewExec.connectSource("dictee-plasmoid-level stop")
 
     Timer {
         id: previewAudioTimer
@@ -102,14 +147,15 @@ KCM.SimpleKCM {
         onTriggered: {
             configPage.previewTick++
             var cmd = "env _=" + configPage.previewTick + " dictee-plasmoid-level"
-            if ((animationStyleCombo.currentValue || "bars") === "bars") {
+            var style = animationStyleCombo.currentValue || "bars"
+            if (style === "bars") {
                 cmd += " " + cfg_barCount
+            } else if (style === "waveform") {
+                cmd += " " + cfg_waveformBars
             }
             previewExec.connectSource(cmd)
         }
     }
-
-    Component.onDestruction: previewExec.connectSource("dictee-plasmoid-level stop")
 
     Kirigami.FormLayout {
         // === General ===
@@ -118,17 +164,29 @@ KCM.SimpleKCM {
             Kirigami.FormData.isSection: true
         }
 
-        QQC2.SpinBox {
-            id: pollingIntervalSpin
+        RowLayout {
             Kirigami.FormData.label: i18n("Polling interval (ms):")
-            from: 500
-            to: 10000
-            stepSize: 100
+            spacing: Kirigami.Units.smallSpacing
+            QQC2.SpinBox {
+                id: pollingIntervalSpin
+                from: 500
+                to: 10000
+                stepSize: 100
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("How often the widget checks if the daemon is running (in milliseconds).")
+            }
         }
 
-        QQC2.CheckBox {
-            id: showTranscriptionCheck
+        RowLayout {
             Kirigami.FormData.label: i18n("Show last transcription:")
+            spacing: Kirigami.Units.smallSpacing
+            QQC2.CheckBox {
+                id: showTranscriptionCheck
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Display the last transcribed text in the popup window.")
+            }
         }
 
         QQC2.CheckBox {
@@ -136,46 +194,46 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Preview mode (test with mic):")
         }
 
-        // === Sensibilite ===
-        RowLayout {
-            Kirigami.FormData.label: i18n("Audio sensitivity:")
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Slider {
-                id: sensitivitySlider
-                from: 0.1
-                to: 3.5
-                stepSize: 0.1
-                value: cfg_audioSensitivity
-                onMoved: cfg_audioSensitivity = value
-                Layout.fillWidth: true
-            }
-
-            QQC2.Label {
-                text: sensitivitySlider.value.toFixed(1) + "x"
-                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-            }
-        }
-
         // === Calibration bruit de fond ===
         RowLayout {
             Kirigami.FormData.label: i18n("Noise floor:")
             spacing: Kirigami.Units.smallSpacing
-
             QQC2.Button {
                 text: i18n("Calibrate")
                 icon.name: "audio-input-microphone"
                 onClicked: {
                     configPage.calibrationStatus = i18n("Recording silence…")
                     var n = (animationStyleCombo.currentValue || "bars") === "bars" ? cfg_barCount : 6
-                    calibrateExec.connectSource("dictee-plasmoid-level-fft --calibrate " + n)
+                    calibrateExec.connectSource("dictee-plasmoid-level-fft --calibrate " + n + " 5")
                 }
             }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Record 5 seconds of silence to calibrate the background noise level. This improves animation accuracy.")
+            }
+        }
 
+        QQC2.Label {
+            visible: configPage.calibrationStatus.length > 0
+            text: configPage.calibrationStatus
+            opacity: 0.7
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Noise gate:")
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.Slider {
+                from: 0.0; to: 0.8; stepSize: 0.01
+                value: cfg_noiseGate
+                onMoved: cfg_noiseGate = value
+                Layout.fillWidth: true
+            }
             QQC2.Label {
-                text: configPage.calibrationStatus
-                visible: text.length > 0
-                opacity: 0.7
+                text: (cfg_noiseGate * 100).toFixed(0) + "%"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Audio levels below this threshold are zeroed. Increase to suppress background noise and get clean silence.")
             }
         }
 
@@ -192,7 +250,8 @@ KCM.SimpleKCM {
                 { text: i18n("Bars (default)"), value: "bars" },
                 { text: i18n("Wave"), value: "wave" },
                 { text: i18n("Pulse"), value: "pulse" },
-                { text: i18n("Dots"), value: "dots" }
+                { text: i18n("Dots"), value: "dots" },
+                { text: i18n("Waveform"), value: "waveform" }
             ]
             textRole: "text"
             valueRole: "value"
@@ -201,31 +260,362 @@ KCM.SimpleKCM {
             }
         }
 
-        // Apercu en direct
+        QQC2.CheckBox {
+            id: rainbowCheck
+            Kirigami.FormData.label: i18n("Rainbow colors:")
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Start hue:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: cfg_useRainbow
+
+            QQC2.Slider {
+                id: rainbowStartSpin
+                from: 0; to: 360; stepSize: 5
+                Layout.fillWidth: true
+            }
+            Rectangle {
+                width: Kirigami.Units.gridUnit; height: width; radius: 3
+                color: Qt.hsla(cfg_rainbowStartHue / 360.0, 0.8, 0.55, 1.0)
+            }
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("End hue:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: cfg_useRainbow
+
+            QQC2.Slider {
+                id: rainbowEndSpin
+                from: 0; to: 360; stepSize: 5
+                Layout.fillWidth: true
+            }
+            Rectangle {
+                width: Kirigami.Units.gridUnit; height: width; radius: 3
+                color: Qt.hsla(cfg_rainbowEndHue / 360.0, 0.8, 0.55, 1.0)
+            }
+        }
+
+        // Apercu en direct (inline, sans charger les fichiers animation)
         Rectangle {
             Kirigami.FormData.label: i18n("Preview:")
-            width: Kirigami.Units.gridUnit * 6
-            height: Kirigami.Units.gridUnit * 3
-            color: Kirigami.Theme.backgroundColor
-            border.color: Kirigami.Theme.separatorColor
-            border.width: 1
-            radius: 4
+            implicitWidth: Kirigami.Units.gridUnit * 8
+            implicitHeight: Kirigami.Units.gridUnit * 3
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+            Layout.minimumHeight: Kirigami.Units.gridUnit * 3
+            color: "transparent"
+            clip: true
 
-            Loader {
+            property string currentStyle: animationStyleCombo.currentValue || "bars"
+            property real sens: configPage.activeSensitivity
+            property real audioLvl: configPage.previewAudioLevel
+            property var audioBnds: configPage.previewAudioBands
+            property color animColor: Kirigami.Theme.highlightColor
+
+            // === Bars preview ===
+            Row {
+                id: barsPreview
+                visible: parent.currentStyle === "bars"
                 anchors.fill: parent
                 anchors.margins: 4
-                source: {
-                    var style = animationStyleCombo.currentValue || "bars"
-                    return "animations/" + style.charAt(0).toUpperCase() + style.slice(1) + "Animation.qml"
-                }
-                onLoaded: {
-                    if (item) {
-                        item.state = "recording"
-                        item.barColor = Kirigami.Theme.highlightColor
-                        item.audioLevel = Qt.binding(function() { return configPage.previewAudioLevel })
-                        if (item.hasOwnProperty("audioBands")) {
-                            item.audioBands = Qt.binding(function() { return configPage.previewAudioBands })
+                spacing: cfg_barSpacing
+
+                Repeater {
+                    model: cfg_barCount
+                    Rectangle {
+                        readonly property int bi: index
+                        readonly property real envelope: {
+                            var n = cfg_barCount
+                            if (n <= 1) return 1.0
+                            return 0.5 - 0.5 * Math.cos(2 * Math.PI * bi / (n - 1))
                         }
+                        readonly property real lvl: {
+                            var s = barsPreview.parent.sens
+                            var bands = barsPreview.parent.audioBnds
+                            var raw
+                            if (bands.length > 0) {
+                                var bidx = Math.min(Math.floor(bi * bands.length / cfg_barCount), bands.length - 1)
+                                raw = Math.min(1.0, bands[bidx] * s)
+                            } else {
+                                raw = Math.min(1.0, barsPreview.parent.audioLvl * s)
+                            }
+                            return raw * envelope
+                        }
+                        width: Math.max(1, (barsPreview.width - (cfg_barCount - 1) * cfg_barSpacing) / cfg_barCount)
+                        height: {
+                            var minR = cfg_barMinHeight
+                            return barsPreview.height * (minR + (1.0 - minR) * lvl)
+                        }
+                        anchors.bottom: parent.bottom
+                        radius: cfg_barRadius
+                        color: {
+                            if (!cfg_useRainbow) return barsPreview.parent.animColor
+                            var n = cfg_barCount
+                            var t = n > 1 ? bi / (n - 1) : 0.5
+                            var startH = cfg_rainbowStartHue / 360.0
+                            var endH = cfg_rainbowEndHue / 360.0
+                            return Qt.hsla(startH + (endH - startH) * t, 0.8, 0.55, 1.0)
+                        }
+                        Behavior on height { NumberAnimation { duration: 50; easing.type: Easing.OutQuad } }
+                    }
+                }
+            }
+
+            // === Wave preview ===
+            Item {
+                id: wavePreview
+                visible: parent.currentStyle === "wave"
+                anchors.fill: parent
+                anchors.margins: 4
+                property real phase: 0.0
+                NumberAnimation on phase {
+                    running: wavePreview.visible
+                    from: 0; to: 6.2832
+                    duration: cfg_waveSpeed * 4
+                    loops: Animation.Infinite
+                }
+                onPhaseChanged: waveCanvas.requestPaint()
+                Canvas {
+                    id: waveCanvas
+                    anchors.fill: parent
+                    onWidthChanged: if (width > 0 && height > 0) requestPaint()
+                    onHeightChanged: if (width > 0 && height > 0) requestPaint()
+
+                    Connections {
+                        target: configPage
+                        function onPreviewAudioLevelChanged() { waveCanvas.requestPaint() }
+                        function onPreviewAudioBandsChanged() { waveCanvas.requestPaint() }
+                    }
+
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+                        if (width <= 0 || height <= 0) return
+                        var previewRect = wavePreview.parent
+                        var s = previewRect.sens
+                        var maxAmp = height * 0.45 * cfg_waveAmplitude
+                        var freq = cfg_waveFrequency
+                        var centerY = height / 2
+                        var bands = previewRect.audioBnds
+                        var hasBands = bands.length > 0
+                        var points = []
+                        for (var x = 0; x <= width; x += 2) {
+                            var ratio = x / width
+                            var envelope = 0.5 - 0.5 * Math.cos(2 * Math.PI * ratio)
+                            var localLvl
+                            if (hasBands) {
+                                var bidx = Math.min(Math.floor(ratio * bands.length), bands.length - 1)
+                                localLvl = Math.min(1.0, bands[bidx] * s)
+                            } else {
+                                localLvl = Math.min(1.0, previewRect.audioLvl * s)
+                            }
+                            var amp = maxAmp * Math.max(0.15, localLvl) * envelope
+                            var y = amp * Math.sin(ratio * freq * 6.2832 + wavePreview.phase)
+                            points.push({ x: x, y: y })
+                        }
+                        if (cfg_waveFill) {
+                            ctx.fillStyle = Qt.rgba(previewRect.animColor.r, previewRect.animColor.g, previewRect.animColor.b, 0.15)
+                            ctx.beginPath()
+                            ctx.moveTo(0, centerY)
+                            for (var i = 0; i < points.length; i++)
+                                ctx.lineTo(points[i].x, centerY + points[i].y)
+                            ctx.lineTo(width, centerY)
+                            ctx.closePath()
+                            ctx.fill()
+                        }
+                        ctx.lineWidth = cfg_waveThickness
+                        ctx.lineCap = "round"
+                        ctx.lineJoin = "round"
+                        if (cfg_useRainbow && points.length > 1) {
+                            var startH = cfg_rainbowStartHue / 360.0
+                            var endH = cfg_rainbowEndHue / 360.0
+                            for (var si = 0; si < points.length - 1; si++) {
+                                var t = si / (points.length - 1)
+                                ctx.strokeStyle = Qt.hsla(startH + (endH - startH) * t, 0.8, 0.55, 1.0)
+                                ctx.beginPath()
+                                ctx.moveTo(points[si].x, centerY + points[si].y)
+                                ctx.lineTo(points[si+1].x, centerY + points[si+1].y)
+                                ctx.stroke()
+                            }
+                        } else {
+                            ctx.strokeStyle = previewRect.animColor
+                            ctx.beginPath()
+                            for (var j = 0; j < points.length; j++) {
+                                if (j === 0) ctx.moveTo(points[j].x, centerY + points[j].y)
+                                else ctx.lineTo(points[j].x, centerY + points[j].y)
+                            }
+                            ctx.stroke()
+                        }
+                    }
+                }
+            }
+
+            // === Pulse preview ===
+            Item {
+                id: pulsePreview
+                visible: parent.currentStyle === "pulse"
+                anchors.fill: parent
+                anchors.margins: 4
+
+                readonly property real ampLevel: {
+                    var s = pulsePreview.parent.sens
+                    var bands = pulsePreview.parent.audioBnds
+                    if (bands.length > 0) {
+                        var mx = 0
+                        for (var i = 0; i < bands.length; i++)
+                            if (bands[i] > mx) mx = bands[i]
+                        return Math.min(1.0, mx * s)
+                    }
+                    return Math.min(1.0, pulsePreview.parent.audioLvl * s)
+                }
+
+                Repeater {
+                    model: cfg_pulseRings
+                    Rectangle {
+                        readonly property int ri: index
+                        anchors.centerIn: parent
+                        width: Math.min(pulsePreview.width, pulsePreview.height) * (0.9 - ri * 0.15)
+                        height: width; radius: width / 2
+                        color: "transparent"
+                        border.color: {
+                            if (!cfg_useRainbow) return pulsePreview.parent.animColor
+                            var n = cfg_pulseRings
+                            var t = n > 1 ? ri / (n - 1) : 0.5
+                            var startH = cfg_rainbowStartHue / 360.0
+                            var endH = cfg_rainbowEndHue / 360.0
+                            return Qt.hsla(startH + (endH - startH) * t, 0.8, 0.55, 1.0)
+                        }
+                        border.width: cfg_pulseThickness
+                        scale: 0.5 + 0.5 * pulsePreview.ampLevel
+                        opacity: 0.4 + 0.6 * pulsePreview.ampLevel
+                        Behavior on scale { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
+                        Behavior on opacity { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
+                    }
+                }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: Math.min(pulsePreview.width, pulsePreview.height) * 0.25
+                    height: width; radius: width / 2
+                    color: {
+                        if (!cfg_useRainbow) return pulsePreview.parent.animColor
+                        var startH = cfg_rainbowStartHue / 360.0
+                        var endH = cfg_rainbowEndHue / 360.0
+                        return Qt.hsla((startH + endH) / 2, 0.8, 0.55, 1.0)
+                    }
+                    scale: 0.5 + 0.5 * pulsePreview.ampLevel
+                    opacity: 0.6 + 0.4 * pulsePreview.ampLevel
+                    Behavior on scale { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
+                    Behavior on opacity { NumberAnimation { duration: 80; easing.type: Easing.OutQuad } }
+                }
+            }
+
+            // === Dots preview ===
+            Item {
+                id: dotsPreview
+                visible: parent.currentStyle === "dots"
+                anchors.fill: parent
+                anchors.margins: 4
+                clip: true
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: cfg_dotSpacing
+
+                    Repeater {
+                        model: cfg_dotCount
+                        Rectangle {
+                            readonly property int di: index
+                            readonly property real dl: {
+                                var s = dotsPreview.parent.sens
+                                var bands = dotsPreview.parent.audioBnds
+                                if (bands.length > 0) {
+                                    var bidx = Math.min(Math.floor(di * bands.length / cfg_dotCount), bands.length - 1)
+                                    return Math.min(1.0, bands[bidx] * s)
+                                }
+                                return Math.min(1.0, dotsPreview.parent.audioLvl * s)
+                            }
+                            width: cfg_dotSize * (0.6 + 0.8 * dl)
+                            height: width; radius: width / 2
+                            color: {
+                                if (!cfg_useRainbow) return dotsPreview.parent.animColor
+                                var n = cfg_dotCount
+                                var t = n > 1 ? di / (n - 1) : 0.5
+                                var startH = cfg_rainbowStartHue / 360.0
+                                var endH = cfg_rainbowEndHue / 360.0
+                                return Qt.hsla(startH + (endH - startH) * t, 0.8, 0.55, 1.0)
+                            }
+                            opacity: 0.4 + 0.6 * dl
+                            y: {
+                                var dotSz = cfg_dotSize
+                                var centerY = dotsPreview.height / 2 - dotSz / 2
+                                if (dl <= 0.01) return centerY
+                                var bounce = cfg_dotBounce / 100.0
+                                var phase = Math.sin(di * 1.8 + dl * 8)
+                                var disp = dotsPreview.height * bounce * dl * phase
+                                var raw = centerY - disp
+                                return Math.max(0, Math.min(raw, dotsPreview.height - dotSz))
+                            }
+                            Behavior on y { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                            Behavior on width { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                            Behavior on opacity { NumberAnimation { duration: 60; easing.type: Easing.OutQuad } }
+                        }
+                    }
+                }
+            }
+
+            // === Waveform preview ===
+            Row {
+                id: waveformPreview
+                visible: parent.currentStyle === "waveform"
+                anchors.fill: parent
+                anchors.margins: 4
+                spacing: cfg_waveformSpacing
+
+                Repeater {
+                    model: cfg_waveformBars
+                    Rectangle {
+                        readonly property int wi: index
+                        // Enveloppe Hanning : ~0 aux extrémités, 1 au centre
+                        readonly property real envelope: {
+                            var n = cfg_waveformBars
+                            if (n <= 1) return 1.0
+                            return 0.5 - 0.5 * Math.cos(2 * Math.PI * wi / (n - 1))
+                        }
+                        readonly property real wl: {
+                            var s = waveformPreview.parent.sens
+                            var bands = waveformPreview.parent.audioBnds
+                            var raw
+                            if (bands.length > 0) {
+                                var bidx = Math.min(Math.floor(wi * bands.length / cfg_waveformBars), bands.length - 1)
+                                raw = Math.min(1.0, bands[bidx] * s)
+                            } else {
+                                raw = Math.min(1.0, waveformPreview.parent.audioLvl * s)
+                            }
+                            return raw * envelope
+                        }
+                        readonly property real minR: cfg_waveformMinHeight
+
+                        width: Math.max(1, (waveformPreview.width - (cfg_waveformBars - 1) * cfg_waveformSpacing) / cfg_waveformBars)
+                        height: {
+                            var h = waveformPreview.height * (minR + (1.0 - minR) * wl)
+                            return Math.max(2, h)
+                        }
+                        radius: cfg_waveformRadius
+                        color: {
+                            if (!cfg_useRainbow) return waveformPreview.parent.animColor
+                            var n = cfg_waveformBars
+                            var t = n > 1 ? wi / (n - 1) : 0.5
+                            var startH = cfg_rainbowStartHue / 360.0
+                            var endH = cfg_rainbowEndHue / 360.0
+                            return Qt.hsla(startH + (endH - startH) * t, 0.8, 0.55, 1.0)
+                        }
+                        y: (waveformPreview.height - height) / 2
+                        opacity: 0.4 + 0.6 * wl
+
+                        Behavior on height { NumberAnimation { duration: 50; easing.type: Easing.OutQuad } }
+                        Behavior on opacity { NumberAnimation { duration: 50; easing.type: Easing.OutQuad } }
                     }
                 }
             }
@@ -236,6 +626,23 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Bars settings")
             Kirigami.FormData.isSection: true
             visible: animationStyleCombo.currentValue === "bars"
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Sensitivity:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: animationStyleCombo.currentValue === "bars"
+
+            QQC2.Slider {
+                from: 0.1; to: 2.0; stepSize: 0.1
+                value: cfg_barSensitivity
+                onMoved: cfg_barSensitivity = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: cfg_barSensitivity.toFixed(1) + "x"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
         }
 
         QQC2.SpinBox {
@@ -296,11 +703,36 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "wave"
         }
 
+        RowLayout {
+            Kirigami.FormData.label: i18n("Sensitivity:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: animationStyleCombo.currentValue === "wave"
+
+            QQC2.Slider {
+                from: 0.1; to: 2.0; stepSize: 0.1
+                value: cfg_waveSensitivity
+                onMoved: cfg_waveSensitivity = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: cfg_waveSensitivity.toFixed(1) + "x"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
+        }
+
+        QQC2.SpinBox {
+            id: waveWidthSpin
+            Kirigami.FormData.label: i18n("Width (px):")
+            from: 15
+            to: 80
+            visible: animationStyleCombo.currentValue === "wave"
+        }
+
         QQC2.SpinBox {
             id: waveThicknessSpin
-            Kirigami.FormData.label: i18n("Line thickness:")
+            Kirigami.FormData.label: i18n("Line thickness (px):")
             from: 1
-            to: 10
+            to: 15
             visible: animationStyleCombo.currentValue === "wave"
         }
 
@@ -335,6 +767,12 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "wave"
         }
 
+        QQC2.CheckBox {
+            id: waveFillCheck
+            Kirigami.FormData.label: i18n("Fill under wave:")
+            visible: animationStyleCombo.currentValue === "wave"
+        }
+
         // === Pulse settings ===
         Kirigami.Separator {
             Kirigami.FormData.label: i18n("Pulse settings")
@@ -342,11 +780,36 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "pulse"
         }
 
+        RowLayout {
+            Kirigami.FormData.label: i18n("Sensitivity:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: animationStyleCombo.currentValue === "pulse"
+
+            QQC2.Slider {
+                from: 0.1; to: 2.0; stepSize: 0.1
+                value: cfg_pulseSensitivity
+                onMoved: cfg_pulseSensitivity = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: cfg_pulseSensitivity.toFixed(1) + "x"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
+        }
+
         QQC2.SpinBox {
             id: pulseRingsSpin
             Kirigami.FormData.label: i18n("Number of rings:")
             from: 1
             to: 5
+            visible: animationStyleCombo.currentValue === "pulse"
+        }
+
+        QQC2.SpinBox {
+            id: pulseThicknessSpin
+            Kirigami.FormData.label: i18n("Ring thickness (px):")
+            from: 1
+            to: 8
             visible: animationStyleCombo.currentValue === "pulse"
         }
 
@@ -366,6 +829,23 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "dots"
         }
 
+        RowLayout {
+            Kirigami.FormData.label: i18n("Sensitivity:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: animationStyleCombo.currentValue === "dots"
+
+            QQC2.Slider {
+                from: 0.1; to: 2.0; stepSize: 0.1
+                value: cfg_dotSensitivity
+                onMoved: cfg_dotSensitivity = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: cfg_dotSensitivity.toFixed(1) + "x"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
+        }
+
         QQC2.SpinBox {
             id: dotCountSpin
             Kirigami.FormData.label: i18n("Number of dots:")
@@ -378,7 +858,24 @@ KCM.SimpleKCM {
             id: dotSizeSpin
             Kirigami.FormData.label: i18n("Dot size (px):")
             from: 2
-            to: 12
+            to: 20
+            visible: animationStyleCombo.currentValue === "dots"
+        }
+
+        QQC2.SpinBox {
+            id: dotSpacingSpin
+            Kirigami.FormData.label: i18n("Dot spacing (px):")
+            from: 0
+            to: 15
+            visible: animationStyleCombo.currentValue === "dots"
+        }
+
+        QQC2.SpinBox {
+            id: dotBounceSpin
+            Kirigami.FormData.label: i18n("Bounce amplitude (%):")
+            from: 10
+            to: 100
+            stepSize: 5
             visible: animationStyleCombo.currentValue === "dots"
         }
 
@@ -389,6 +886,65 @@ KCM.SimpleKCM {
             to: 2000
             stepSize: 50
             visible: animationStyleCombo.currentValue === "dots"
+        }
+
+        // === Waveform settings ===
+        Kirigami.Separator {
+            Kirigami.FormData.label: i18n("Waveform settings")
+            Kirigami.FormData.isSection: true
+            visible: animationStyleCombo.currentValue === "waveform"
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Sensitivity:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: animationStyleCombo.currentValue === "waveform"
+
+            QQC2.Slider {
+                from: 0.1; to: 2.0; stepSize: 0.1
+                value: cfg_waveformSensitivity
+                onMoved: cfg_waveformSensitivity = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: cfg_waveformSensitivity.toFixed(1) + "x"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
+        }
+
+        QQC2.SpinBox {
+            id: waveformBarsSpin
+            Kirigami.FormData.label: i18n("Number of bars:")
+            from: 4
+            to: 32
+            visible: animationStyleCombo.currentValue === "waveform"
+        }
+
+        QQC2.SpinBox {
+            id: waveformSpacingSpin
+            Kirigami.FormData.label: i18n("Bar spacing (px):")
+            from: 0
+            to: 10
+            visible: animationStyleCombo.currentValue === "waveform"
+        }
+
+        QQC2.SpinBox {
+            id: waveformRadiusSpin
+            Kirigami.FormData.label: i18n("Bar corner radius:")
+            from: 0
+            to: 10
+            visible: animationStyleCombo.currentValue === "waveform"
+        }
+
+        QQC2.SpinBox {
+            id: waveformMinHeightSpin
+            Kirigami.FormData.label: i18n("Min height (%):")
+            from: 5
+            to: 50
+            stepSize: 5
+            value: cfg_waveformMinHeight * 100
+            visible: animationStyleCombo.currentValue === "waveform"
+            onValueModified: cfg_waveformMinHeight = value / 100.0
         }
     }
 }

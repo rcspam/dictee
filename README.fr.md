@@ -108,6 +108,8 @@ Le widget Plasma 6 inclus affiche des barres audio en temps réel directement da
 
 [animation-speech](https://github.com/rcspam/animation-speech) affiche une animation visuelle plein écran pendant l'enregistrement et permet d'annuler avec la touche Echap. Fonctionne sur les compositeurs Wayland supportant `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…). Non compatible avec GNOME.
 
+> **Utilisateurs GNOME** : il n'existe pas encore d'extension GNOME Shell pour dictee. Les contributions sont les bienvenues — voir le [code source du plasmoid](plasmoid/) comme architecture de référence (machine à états, bandes audio FFT, communication avec le daemon).
+
 ```bash
 # Installer depuis le .deb
 sudo dpkg -i animation-speech_1.2.0_all.deb
@@ -133,7 +135,7 @@ L'icône s'adapte automatiquement au thème clair/sombre.
 
 ### Widget KDE Plasma
 
-Un widget natif KDE Plasma 6 est inclus. Il affiche des barres audio en temps réel pendant l'enregistrement, l'état du daemon, et des contrôles rapides (dictée, traduction, annulation).
+Un widget natif KDE Plasma 6 est inclus. Il affiche une visualisation audio en temps réel pendant l'enregistrement, l'état du daemon, et des contrôles rapides (dictée, traduction, annulation).
 
 ```bash
 # Installer (inclus dans le .deb, ou manuellement)
@@ -145,7 +147,21 @@ kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid
 
 Clic droit sur le panneau → « Ajouter des composants graphiques… » → chercher « Dictée ».
 
-Le widget est configurable : style d'animation (barres, onde, pulsation, points), nombre de barres, sensibilité audio, etc.
+#### Styles d'animation
+
+Cinq styles d'animation sont disponibles, tous avec enveloppe Hanning (atténuation aux bords), sensibilité par style, et couleurs arc-en-ciel optionnelles :
+
+| Barres | Onde | Pulsation | Points | Forme d'onde |
+|:------:|:----:|:---------:|:------:|:------------:|
+| ![Barres](plasmoid/assets/anim-bars.svg) | ![Onde](plasmoid/assets/anim-wave.svg) | ![Pulsation](plasmoid/assets/anim-pulse.svg) | ![Points](plasmoid/assets/anim-dots.svg) | ![Forme d'onde](plasmoid/assets/anim-waveform.svg) |
+
+Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg)
+
+#### Réglages
+
+- **Seuil de silence** — met à zéro l'audio sous un seuil pour un silence net
+- **Calibration** — enregistre le silence pour soustraire le bruit de fond
+- **Contrôles par style** — nombre de barres, espacement, rayon, vitesse, etc.
 
 > Nécessite `python3-numpy` et `pulseaudio-utils` (parec) pour la visualisation audio en temps réel.
 

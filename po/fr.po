@@ -231,11 +231,23 @@ msgstr "Raccourci clavier"
 msgid "Translation"
 msgstr "Traduction"
 
-#: pkg/dictee/usr/bin/dictee-setup:374
-msgid "Voice animation"
-msgstr "Animation vocale"
+#: pkg/dictee/usr/bin/dictee-setup
+msgid "Visual feedback"
+msgstr "Retour visuel"
 
-#: pkg/dictee/usr/bin/dictee-setup:406
+#: pkg/dictee/usr/bin/dictee-setup
+msgid "animation-speech (fullscreen window)"
+msgstr "animation-speech (fenêtre plein écran)"
+
+#: pkg/dictee/usr/bin/dictee-setup
+msgid "KDE Plasma widget (panel)"
+msgstr "Widget KDE Plasma (panneau)"
+
+#: pkg/dictee/usr/bin/dictee-setup
+msgid "GNOME Shell extension (not yet available)"
+msgstr "Extension GNOME Shell (pas encore disponible)"
+
+#: pkg/dictee/usr/bin/dictee-setup
 msgid "Startup services"
 msgstr "Services au démarrage"
 
@@ -246,19 +258,6 @@ msgstr "Options"
 #: pkg/dictee/usr/bin/dictee-setup
 msgid "Copy transcription to clipboard"
 msgstr "Copier la transcription dans le presse-papier"
-
-#: pkg/dictee/usr/bin/dictee-setup (animation section)
-msgid "Animation mode:"
-msgstr "Mode d'animation :"
-
-msgid "animation-speech (window)"
-msgstr "animation-speech (fenêtre)"
-
-msgid "Plasmoid (panel widget)"
-msgstr "Plasmoid (widget du panneau)"
-
-msgid "Both"
-msgstr "Les deux"
 
 msgid "animation-speech is not installed"
 msgstr "animation-speech n'est pas installé"

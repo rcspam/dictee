@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
+import QtQuick.Controls as QQC2
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
@@ -195,7 +196,7 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
-        PlasmaComponents.CheckBox {
+        QQC2.CheckBox {
             text: i18n("Preview (mic test)")
             checked: Plasmoid.configuration.previewMode
             onToggled: Plasmoid.configuration.previewMode = checked

@@ -391,11 +391,11 @@ class DicteeSetupWindow(Gtk.Window):
         )
         box_opts.pack_start(self.chk_clipboard, False, False, 0)
 
-        # -- Animation-speech section --
+        # -- Visual feedback section --
         frame_anim = Gtk.Frame()
         frame_anim.set_shadow_type(Gtk.ShadowType.NONE)
         lbl_frame_anim = Gtk.Label()
-        lbl_frame_anim.set_markup(f"<b>{_('Voice animation')}</b>")
+        lbl_frame_anim.set_markup(f"<b>{_('Visual feedback')}</b>")
         frame_anim.set_label_widget(lbl_frame_anim)
         box_anim = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box_anim.set_margin_start(12)
@@ -405,27 +405,25 @@ class DicteeSetupWindow(Gtk.Window):
         frame_anim.add(box_anim)
         vbox.pack_start(frame_anim, False, False, 0)
 
-        # ComboBox choix du mode animation
-        hbox_mode = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        lbl_mode = Gtk.Label(label=_("Animation mode:"))
-        lbl_mode.set_xalign(0)
-        hbox_mode.pack_start(lbl_mode, False, False, 0)
-
-        self.combo_anim = Gtk.ComboBoxText()
-        self.combo_anim.append("speech", _("animation-speech (window)"))
-        self.combo_anim.append("plasmoid", _("Plasmoid (panel widget)"))
-        self.combo_anim.append("both", _("Both"))
+        # Déterminer l'état initial depuis la config
         anim_mode = conf.get("DICTEE_ANIMATION", "speech")
-        self.combo_anim.set_active_id(anim_mode)
-        if self.combo_anim.get_active_id() is None:
-            self.combo_anim.set_active(0)
-        self.combo_anim.connect("changed", self._on_anim_mode_changed)
-        hbox_mode.pack_start(self.combo_anim, True, True, 0)
-        box_anim.pack_start(hbox_mode, False, False, 0)
+        init_speech = anim_mode in ("speech", "both")
+        init_plasmoid = anim_mode in ("plasmoid", "both")
 
-        # Warnings de disponibilite
+        # Checkbox animation-speech
+        hbox_speech = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.chk_anim_speech = Gtk.CheckButton(
+            label=_("animation-speech (fullscreen window)")
+        )
+        self.chk_anim_speech.set_active(init_speech)
+        self.chk_anim_speech.connect("toggled", self._on_anim_toggled)
+        hbox_speech.pack_start(self.chk_anim_speech, True, True, 0)
+        box_anim.pack_start(hbox_speech, False, False, 0)
+
+        # Warning + bouton install animation-speech
         self.lbl_anim_warn_speech = Gtk.Label()
         self.lbl_anim_warn_speech.set_xalign(0)
+        self.lbl_anim_warn_speech.set_margin_start(20)
         self.lbl_anim_warn_speech.set_line_wrap(True)
         self.lbl_anim_warn_speech.set_no_show_all(True)
         box_anim.pack_start(self.lbl_anim_warn_speech, False, False, 0)
@@ -433,12 +431,30 @@ class DicteeSetupWindow(Gtk.Window):
         self.btn_install_anim = Gtk.Button(
             label=_("Install animation-speech")
         )
+        self.btn_install_anim.set_margin_start(20)
         self.btn_install_anim.connect("clicked", self._on_install_animation)
         self.btn_install_anim.set_no_show_all(True)
         box_anim.pack_start(self.btn_install_anim, False, False, 0)
 
+        self.progress_anim = Gtk.ProgressBar()
+        self.progress_anim.set_margin_start(20)
+        self.progress_anim.set_no_show_all(True)
+        box_anim.pack_start(self.progress_anim, False, False, 0)
+
+        # Checkbox plasmoid KDE
+        hbox_plasmoid = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.chk_anim_plasmoid = Gtk.CheckButton(
+            label=_("KDE Plasma widget (panel)")
+        )
+        self.chk_anim_plasmoid.set_active(init_plasmoid)
+        self.chk_anim_plasmoid.connect("toggled", self._on_anim_toggled)
+        hbox_plasmoid.pack_start(self.chk_anim_plasmoid, True, True, 0)
+        box_anim.pack_start(hbox_plasmoid, False, False, 0)
+
+        # Warning + bouton install plasmoid
         self.lbl_anim_warn_plasmoid = Gtk.Label()
         self.lbl_anim_warn_plasmoid.set_xalign(0)
+        self.lbl_anim_warn_plasmoid.set_margin_start(20)
         self.lbl_anim_warn_plasmoid.set_line_wrap(True)
         self.lbl_anim_warn_plasmoid.set_no_show_all(True)
         box_anim.pack_start(self.lbl_anim_warn_plasmoid, False, False, 0)
@@ -446,18 +462,24 @@ class DicteeSetupWindow(Gtk.Window):
         self.btn_install_plasmoid = Gtk.Button(
             label=_("Install Dictee plasmoid")
         )
+        self.btn_install_plasmoid.set_margin_start(20)
         self.btn_install_plasmoid.connect("clicked", self._on_install_plasmoid)
         self.btn_install_plasmoid.set_no_show_all(True)
         box_anim.pack_start(self.btn_install_plasmoid, False, False, 0)
 
-        self.progress_anim = Gtk.ProgressBar()
-        self.progress_anim.set_no_show_all(True)
-        box_anim.pack_start(self.progress_anim, False, False, 0)
+        # Checkbox GNOME extension (grisée)
+        self.chk_anim_gnome = Gtk.CheckButton(
+            label=_("GNOME Shell extension (not yet available)")
+        )
+        self.chk_anim_gnome.set_active(False)
+        self.chk_anim_gnome.set_sensitive(False)
+        box_anim.pack_start(self.chk_anim_gnome, False, False, 0)
 
-        # Status label (installé / pas installé)
+        # Status label
         self.lbl_anim_status = Gtk.Label()
         self.lbl_anim_status.set_xalign(0)
         self.lbl_anim_status.set_line_wrap(True)
+        self.lbl_anim_status.set_margin_top(4)
         box_anim.pack_start(self.lbl_anim_status, False, False, 0)
 
         self._update_anim_availability()
@@ -605,12 +627,23 @@ class DicteeSetupWindow(Gtk.Window):
         except FileNotFoundError:
             return False
 
-    def _on_anim_mode_changed(self, _widget):
+    def _on_anim_toggled(self, _widget):
         self._update_anim_availability()
 
+    def _get_animation_mode(self):
+        """Return the animation mode string for dictee.conf."""
+        speech = self.chk_anim_speech.get_active()
+        plasmoid = self.chk_anim_plasmoid.get_active()
+        if speech and plasmoid:
+            return "both"
+        if plasmoid:
+            return "plasmoid"
+        if speech:
+            return "speech"
+        return "none"
+
     def _update_anim_availability(self):
-        """Update visibility of warnings and install buttons based on mode."""
-        mode = self.combo_anim.get_active_id() or "speech"
+        """Update visibility of warnings and install buttons."""
         has_speech = self._is_animation_speech_installed()
         has_plasmoid = self._is_plasmoid_installed()
 
@@ -626,8 +659,7 @@ class DicteeSetupWindow(Gtk.Window):
             self.lbl_anim_status.set_markup("")
 
         # Speech warning
-        needs_speech = mode in ("speech", "both")
-        if needs_speech and not has_speech:
+        if self.chk_anim_speech.get_active() and not has_speech:
             self.lbl_anim_warn_speech.set_markup(
                 '<span foreground="orange">'
                 + _("animation-speech is not installed")
@@ -640,8 +672,7 @@ class DicteeSetupWindow(Gtk.Window):
             self.btn_install_anim.hide()
 
         # Plasmoid warning
-        needs_plasmoid = mode in ("plasmoid", "both")
-        if needs_plasmoid and not has_plasmoid:
+        if self.chk_anim_plasmoid.get_active() and not has_plasmoid:
             self.lbl_anim_warn_plasmoid.set_markup(
                 '<span foreground="orange">'
                 + _("Dictee plasmoid is not installed")
@@ -847,7 +878,7 @@ class DicteeSetupWindow(Gtk.Window):
         lang_tgt = self.combo_tgt.get_active_id()
 
         clipboard = self.chk_clipboard.get_active()
-        animation = self.combo_anim.get_active_id() or "speech"
+        animation = self._get_animation_mode()
         save_config(translate, backend, lang_src, lang_tgt, clipboard, animation)
 
         shortcut_msg = ""

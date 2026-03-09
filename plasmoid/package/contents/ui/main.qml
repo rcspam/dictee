@@ -18,6 +18,19 @@ PlasmoidItem {
     // Etat effectif (preview force recording)
     readonly property string effectiveState: Plasmoid.configuration.previewMode ? "recording" : state
 
+    // Sensibilité active selon le style d'animation
+    readonly property real activeSensitivity: {
+        var style = Plasmoid.configuration.animationStyle || "bars"
+        switch (style) {
+        case "bars":  return Plasmoid.configuration.barSensitivity  || 2.0
+        case "wave":  return Plasmoid.configuration.waveSensitivity || 2.0
+        case "pulse": return Plasmoid.configuration.pulseSensitivity || 2.0
+        case "dots":     return Plasmoid.configuration.dotSensitivity      || 2.0
+        case "waveform": return Plasmoid.configuration.waveformSensitivity || 2.0
+        default:         return Plasmoid.configuration.audioSensitivity    || 2.0
+        }
+    }
+
     // Couleur des barres selon l'etat
     property color barColor: {
         switch (effectiveState) {
@@ -67,7 +80,7 @@ PlasmoidItem {
                     root.state = "idle"
                 }
             } else if (source.indexOf("/dev/shm/.dictee_state") !== -1) {
-                // Polling rapide : état écrit par dictee
+                root.stateReadPending = false
                 if (stdout.length > 0) {
                     parseState(stdout)
                 }
@@ -83,7 +96,7 @@ PlasmoidItem {
         }
     }
 
-    // DataSource pour lire le niveau audio — cat direct sur /dev/shm
+    // DataSource pour lire le niveau audio — ping-pong entre 2 sources
     Plasma5Support.DataSource {
         id: audioExec
         engine: "executable"
@@ -91,6 +104,7 @@ PlasmoidItem {
         onNewData: function(source, data) {
             var output = data["stdout"].trim()
             if (output.length > 0) {
+                var gate = Plasmoid.configuration.noiseGate || 0.0
                 var parts = output.split(" ")
                 if (parts.length > 1) {
                     var bands = []
@@ -98,7 +112,9 @@ PlasmoidItem {
                     for (var i = 0; i < parts.length; i++) {
                         var v = parseFloat(parts[i])
                         if (!isNaN(v)) {
-                            bands.push(Math.min(1.0, v))
+                            v = Math.min(1.0, v)
+                            if (v < gate) v = 0.0
+                            bands.push(v)
                             sum += v
                         }
                     }
@@ -109,30 +125,37 @@ PlasmoidItem {
                 } else {
                     var level = parseFloat(output)
                     if (!isNaN(level)) {
-                        root.audioLevel = Math.min(1.0, level)
+                        level = Math.min(1.0, level)
+                        if (level < gate) level = 0.0
+                        root.audioLevel = level
                     }
                 }
             }
+            root.audioReadPending = false
             disconnectSource(source)
-        }
-        function read(tick) {
-            // Commentaire unique pour éviter le cache DataSource
-            connectSource("cat /dev/shm/.dictee_audio_bands #" + tick)
         }
     }
 
-    property int audioTick: 0
+    // Ping-pong : 2 noms de source seulement, jamais d'accumulation
+    property int audioSlot: 0
+    property bool audioReadPending: false
+    readonly property var audioCmds: [
+        "cat /dev/shm/.dictee_audio_bands #A",
+        "cat /dev/shm/.dictee_audio_bands #B"
+    ]
 
-    // Timer de lecture niveau audio (~20 fps)
+    // Timer de lecture niveau audio (~12 fps)
     Timer {
         id: audioTimer
-        interval: 50
+        interval: 80
         running: root.effectiveState === "recording"
         repeat: true
         onTriggered: {
-            root.audioTick++
-            // Lecture directe du fichier /dev/shm — pas de script bash intermédiaire
-            audioExec.read(root.audioTick)
+            if (!root.audioReadPending) {
+                root.audioReadPending = true
+                root.audioSlot = 1 - root.audioSlot
+                audioExec.connectSource(root.audioCmds[root.audioSlot])
+            }
         }
         onRunningChanged: {
             if (!running) {
@@ -142,9 +165,6 @@ PlasmoidItem {
         }
     }
 
-    // Commande rapide : lire l'état depuis /dev/shm (écrit par dictee)
-    property string fastStateCmd: "cat /dev/shm/.dictee_state 2>/dev/null"
-
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
     property string daemonCheckCmd: "bash -c '" +
         "if [ ! -S /tmp/transcribe.sock ] && ! pgrep -x transcribe-daemon >/dev/null 2>&1; then " +
@@ -153,7 +173,13 @@ PlasmoidItem {
         "  echo idle; " +
         "fi'"
 
-    property int stateTick: 0
+    // Ping-pong pour l'état aussi
+    property int stateSlot: 0
+    property bool stateReadPending: false
+    readonly property var stateCmds: [
+        "cat /dev/shm/.dictee_state 2>/dev/null #A",
+        "cat /dev/shm/.dictee_state 2>/dev/null #B"
+    ]
 
     function parseState(output) {
         var newState = output.trim()
@@ -170,16 +196,19 @@ PlasmoidItem {
         }
     }
 
-    // Timer rapide : lit /dev/shm/.dictee_state toutes les 200ms
+    // Timer rapide : lit /dev/shm/.dictee_state toutes les 500ms
     Timer {
         id: fastPollTimer
-        interval: 200
+        interval: 500
         running: true
         repeat: true
         triggeredOnStart: true
         onTriggered: {
-            root.stateTick++
-            executable.run("cat /dev/shm/.dictee_state 2>/dev/null #" + root.stateTick)
+            if (!root.stateReadPending) {
+                root.stateReadPending = true
+                root.stateSlot = 1 - root.stateSlot
+                executable.run(root.stateCmds[root.stateSlot])
+            }
         }
     }
 
@@ -213,10 +242,11 @@ PlasmoidItem {
         barColor: root.barColor
         audioLevel: root.audioLevel
         audioBands: root.audioBands
+        sensitivity: root.activeSensitivity
     }
 
     fullRepresentation: FullRepresentation {
-        state: root.effectiveState
+        state: root.state
         barColor: root.barColor
         lastTranscription: root.lastTranscription
         onActionRequested: function(action) {
