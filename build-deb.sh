@@ -13,6 +13,9 @@ echo "========================================"
 echo "  Building dictee $VERSION"
 echo "========================================"
 echo ""
+echo "Build dependencies:"
+echo "  sudo apt install golang-go scdoc libxkbcommon-dev"
+echo ""
 
 # Build dotool (keyboard input tool)
 build_dotool() {
