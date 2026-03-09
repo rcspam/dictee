@@ -17,6 +17,18 @@ echo ""
 # Build dotool (keyboard input tool)
 build_dotool() {
     echo "=== Building dotool ==="
+
+    # Vérifier les dépendances de compilation
+    local missing=()
+    command -v go >/dev/null || missing+=("golang-go")
+    command -v scdoc >/dev/null || missing+=("scdoc")
+    dpkg -s libxkbcommon-dev >/dev/null 2>&1 || missing+=("libxkbcommon-dev")
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Dépendances manquantes pour compiler dotool : ${missing[*]}"
+        echo "  sudo apt install ${missing[*]}"
+        exit 1
+    fi
+
     if [ ! -f "$DOTOOL_DIR/dotool" ]; then
         rm -rf "$DOTOOL_DIR"
         git clone "$DOTOOL_REPO" "$DOTOOL_DIR"
