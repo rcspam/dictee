@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""dictee-plasmoid-level-fft — FFT spectrum analyzer for dictee plasmoid.
+Reads raw s16le mono 16kHz PCM from stdin, writes N frequency band levels to a file.
+Usage: parec ... | dictee-plasmoid-level-fft N /dev/shm/.dictee_audio_bands
+"""
+import sys, os, tempfile
+import numpy as np
+
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: dictee-plasmoid-level-fft N output_file", file=sys.stderr)
+        sys.exit(1)
+
+    N_BARS = int(sys.argv[1])
+    OUT = sys.argv[2]
+    RATE = 16000
+    CHUNK = 1280  # 80ms
+
+    # Limites de frequences log entre 80 Hz et 4000 Hz (plage vocale)
+    freq_lo, freq_hi = 80.0, 4000.0
+    limits = [int(freq_lo * (freq_hi / freq_lo) ** (i / N_BARS) * CHUNK / RATE)
+              for i in range(N_BARS + 1)]
+
+    hann = np.hanning(CHUNK).astype(np.float32)
+    prev = np.zeros(N_BARS, dtype=np.float32)
+
+    # Lissage different par bande : basses = plus lisse, aigus = plus reactif
+    # Cree une decorrelation visuelle naturelle entre les bandes
+    smooth_prev = np.linspace(0.35, 0.05, N_BARS).astype(np.float32)
+    smooth_new = 1.0 - smooth_prev
+
+    # Calibration du bruit de fond (premieres frames)
+    noise_floor = np.zeros(N_BARS, dtype=np.float32)
+    cal_frames = []
+    calibrated = False
+    CAL_FRAMES = 4  # ~320ms de calibration
+
+    # RNG pour micro-variation
+    rng = np.random.default_rng(42)
+
+    while True:
+        data = sys.stdin.buffer.read(CHUNK * 2)
+        if len(data) < CHUNK * 2:
+            break
+
+        samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        windowed = samples * hann
+        spectrum = np.abs(np.fft.rfft(windowed))
+
+        bands = np.zeros(N_BARS, dtype=np.float32)
+        for b in range(N_BARS):
+            lo = max(1, limits[b])
+            hi = max(lo + 1, limits[b + 1])
+            hi = min(hi, len(spectrum))
+            if lo < hi:
+                # Utiliser max au lieu de RMS pour plus de variation entre bandes
+                chunk = spectrum[lo:hi]
+                bands[b] = (np.sqrt(np.mean(chunk ** 2)) * 0.6 + np.max(chunk) * 0.4) / 32768.0
+
+        # Phase de calibration : mesurer le bruit de fond
+        if not calibrated:
+            cal_frames.append(bands.copy())
+            if len(cal_frames) >= CAL_FRAMES:
+                noise_floor = np.mean(cal_frames, axis=0) * 1.2
+                calibrated = True
+            atomic_write(OUT, " ".join("0.000" for _ in range(N_BARS)))
+            continue
+
+        # Soustraire le bruit de fond
+        clean = np.maximum(0, bands - noise_floor)
+
+        # Normalisation adaptative par bande
+        normalized = np.zeros(N_BARS, dtype=np.float32)
+        for b in range(N_BARS):
+            if noise_floor[b] > 1e-6:
+                normalized[b] = min(1.0, clean[b] / (noise_floor[b] * 5.0))
+            elif clean[b] > 0:
+                normalized[b] = min(1.0, clean[b] * 10.0)
+
+        # Micro-variation proportionnelle au signal (decorrelation visuelle)
+        # Ajoute +-10% de jitter quand il y a du signal
+        jitter = rng.uniform(-0.1, 0.1, N_BARS).astype(np.float32)
+        normalized = np.clip(normalized + normalized * jitter, 0, 1)
+
+        # Lissage temporel differencie par bande
+        normalized = prev * smooth_prev + normalized * smooth_new
+        prev = normalized.copy()
+
+        atomic_write(OUT, " ".join(f"{v:.3f}" for v in normalized))
+
+
+def atomic_write(path, data):
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+    os.write(fd, data.encode())
+    os.close(fd)
+    os.rename(tmp, path)
+
+
+if __name__ == "__main__":
+    main()
