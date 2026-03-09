@@ -66,10 +66,10 @@ Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
 # GPU version (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_0.99.5_amd64.deb
+sudo dpkg -i dictee-cuda_0.99.6_amd64.deb
 
 # CPU version (any computer)
-sudo dpkg -i dictee-cpu_0.99.5_amd64.deb
+sudo dpkg -i dictee-cpu_0.99.6_amd64.deb
 
 # Install missing dependencies
 sudo apt-get install -f
@@ -184,7 +184,7 @@ The transcription engine is built on [parakeet-rs](https://github.com/altunenes/
 
 ### Features
 
-- **Multilingual transcription**: 25+ languages (including French) via ParakeetTDT 0.6B
+- **Multilingual transcription**: 25+ languages via ParakeetTDT 0.6B, text typed in any language via dotool (native XKB support)
 - **Diarization**: speaker identification (up to 4 speakers) via Sortformer
 - **Real-time streaming**: chunk-by-chunk transcription via Nemotron (English only)
 - **Any audio format**: WAV, MP3, OGG, FLAC, OPUS... automatic conversion via ffmpeg

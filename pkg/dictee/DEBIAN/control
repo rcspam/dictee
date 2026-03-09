@@ -1,5 +1,5 @@
 Package: dictee-cpu
-Version: 0.99.5
+Version: 0.99.6
 Section: sound
 Priority: optional
 Architecture: amd64
