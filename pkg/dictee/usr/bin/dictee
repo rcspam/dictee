@@ -79,7 +79,7 @@ done
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
-    command -v wl-copy >/dev/null || missing+=("wl-clipboard")
+    # wl-copy est optionnel (copie dans le presse-papier en bonus)
     command -v dotool >/dev/null || missing+=("dotool")
     command -v pactl >/dev/null || missing+=("pulseaudio-utils")
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
@@ -248,7 +248,7 @@ if [ -f "$PIDFILE" ]; then
         fi
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        echo "$translated" | wl-copy
+        command -v wl-copy >/dev/null && echo "$translated" | wl-copy
         printf 'type %s' "$translated" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
@@ -258,13 +258,13 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         # Copier directement
-        echo "$transcribed" | wl-copy
+        command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
         printf 'type %s' "$transcribed" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
         else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
         fi
     fi
 
