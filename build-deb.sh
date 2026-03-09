@@ -28,7 +28,7 @@ Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Depends: dotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
 Conflicts: dictee-cpu
 Provides: dictee
@@ -41,7 +41,7 @@ Description: Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
  Features:
   - GPU-accelerated transcription via CUDA
   - Low-latency daemon mode with preloaded model
-  - Push-to-talk dictation with ydotool integration
+  - Push-to-talk dictation with dotool integration
   - Speaker diarization with Sortformer (who speaks when)
 EOF
 
@@ -86,7 +86,7 @@ Version: 0.99
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: ydotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
+Depends: dotool, pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
 Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1
 Conflicts: dictee-cuda
 Provides: dictee
@@ -98,7 +98,7 @@ Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
  Features:
   - CPU-based transcription (no GPU required)
   - Low-latency daemon mode with preloaded model
-  - Push-to-talk dictation with ydotool integration
+  - Push-to-talk dictation with dotool integration
   - Speaker diarization with Sortformer (who speaks when)
 EOF
 

@@ -25,7 +25,7 @@ une animation optionnelle.
 arr\(^ete l'enregistrement, restaure l'\('etat audio, transcrit via
 .BR transcribe\-daemon (1),
 et tape le r\('esultat dans l'application active avec
-.BR ydotool (1).
+.BR dotool (1).
 Le texte transcrit est aussi copi\('e dans le presse-papier via
 .BR wl\-copy (1).
 .SH OPTIONS
@@ -135,10 +135,8 @@ Stocke le backend de traduction choisi au d\('emarrage de l'enregistrement.
 Doit \(^etre en cours d'ex\('ecution (via systemd ou manuellement). Voir
 .BR transcribe\-daemon (1).
 .TP
-.B ydotool / ydotool-rebind
-Pour taper le texte transcrit. Le ydotool standard utilise un layout QWERTY ;
-.B ydotool-rebind
-est n\('ecessaire pour les claviers AZERTY et les accents fran\(,cais.
+.B dotool
+Pour taper le texte transcrit.
 .TP
 .B pw-record
 Pour l'enregistrement audio (PipeWire).
@@ -175,9 +173,9 @@ N\('ecessaire avec le backend de traduction
 systemctl \-\-user enable \-\-now dictee
 .RE
 .TP
-2. Activer le daemon ydotool :
+2. Activer le daemon dotool :
 .RS
-systemctl \-\-user enable \-\-now ydotool
+systemctl \-\-user enable \-\-now dotoold
 .RE
 .TP
 3. Associer
@@ -190,7 +188,7 @@ pour le configurer automatiquement (KDE Plasma / GNOME).
 .BR transcribe\-client (1),
 .BR dictee\-setup (1),
 .BR dictee\-tray (1),
-.BR ydotool (1),
+.BR dotool (1),
 .BR pw\-record (1)
 .SH AUTEUR
 rcspam <rcspams@gmail.com>

@@ -14,10 +14,7 @@
 #   dictee --cancel             # annule l'enregistrement en cours
 #   dictee --setup              # ouvre l'interface de configuration
 #
-# Nécessite : transcribe-daemon (en cours), pw-record
-#             ydotool-rebind (https://github.com/david-vct/ydotool-rebind)
-#             ⚠ ydotool standard utilise un layout QWERTY - le wrapper est
-#               nécessaire pour les claviers AZERTY et les accents français
+# Nécessite : transcribe-daemon (en cours), pw-record, dotool
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 # === CONFIGURATION ===
@@ -29,6 +26,14 @@ DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
+
+# Détection du layout clavier pour dotool (localectl > setxkbmap > us)
+if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
+    DOTOOL_XKB_LAYOUT=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
+    [ -z "$DOTOOL_XKB_LAYOUT" ] && DOTOOL_XKB_LAYOUT=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
+    DOTOOL_XKB_LAYOUT="${DOTOOL_XKB_LAYOUT:-us}"
+fi
+export DOTOOL_XKB_LAYOUT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.mp3"
 PIDFILE="/tmp/recording_dictee_pid"
@@ -75,7 +80,7 @@ check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
     command -v wl-copy >/dev/null || missing+=("wl-clipboard")
-    command -v ydotool >/dev/null || missing+=("ydotool")
+    command -v dotool >/dev/null || missing+=("dotool")
     command -v pactl >/dev/null || missing+=("pulseaudio-utils")
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
 
@@ -244,7 +249,7 @@ if [ -f "$PIDFILE" ]; then
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
         echo "$translated" | wl-copy
-        wl-paste | ydotool type --file - 2>/dev/null
+        printf 'type %s' "$translated" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
             notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
@@ -254,7 +259,7 @@ if [ -f "$PIDFILE" ]; then
     else
         # Copier directement
         echo "$transcribed" | wl-copy
-        wl-paste | ydotool type --file - 2>/dev/null
+        printf 'type %s' "$transcribed" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
             notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
