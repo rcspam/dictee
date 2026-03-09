@@ -44,6 +44,10 @@ for man in transcribe transcribe-daemon transcribe-client transcribe-diarize \
     rm -f "$PREFIX/share/man/fr/man1/$man.1"
 done
 
+# Desktop entry
+echo "→ Suppression du fichier .desktop"
+rm -f "$PREFIX/share/applications/dictee-setup.desktop"
+
 # Services systemd
 echo "→ Suppression des services systemd"
 rm -f "$REAL_HOME/.config/systemd/user/dictee.service"

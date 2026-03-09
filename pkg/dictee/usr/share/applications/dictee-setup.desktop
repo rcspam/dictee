@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Dictee Configuration
+Name[fr]=Configuration de Dictée
+GenericName=Voice Dictation Settings
+GenericName[fr]=Paramètres de dictée vocale
+Comment=Configure keyboard shortcut, translation and clipboard options
+Comment[fr]=Configurer le raccourci clavier, la traduction et le presse-papier
+Exec=/usr/bin/dictee-setup
+Icon=audio-input-microphone
+Terminal=false
+Categories=Settings;Utility;Accessibility;
+Keywords=voice;dictation;speech;transcription;shortcut;
+Keywords[fr]=voix;dictee;parole;transcription;raccourci;

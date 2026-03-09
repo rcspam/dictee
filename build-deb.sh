@@ -176,6 +176,7 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
     mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
     mkdir -p "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES"
+    mkdir -p "$TARBALL_DIR/usr/share/applications"
     mkdir -p "$TARBALL_DIR/etc/udev/rules.d"
 
     # Binaires (derniers compilés = CPU)
@@ -204,6 +205,9 @@ build_tarball() {
 
     # Locale
     cp -r "$PKG_DIR/usr/share/locale/fr/LC_MESSAGES/"*.mo "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES/"
+
+    # Desktop entry
+    cp "$PKG_DIR/usr/share/applications/"*.desktop "$TARBALL_DIR/usr/share/applications/"
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"
