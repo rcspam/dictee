@@ -32,7 +32,7 @@
 
 Transcription is performed **100% locally** using the [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) model running via ONNX Runtime. No audio data is sent to any external server — your voice stays on your machine.
 
-A first press of the keyboard shortcut starts recording (with a visual animation via [animation-speech](https://github.com/rcspam/animation-speech), to install separately), a second press stops it, transcribes the speech and **types the text directly into the active application** (multilingual keyboard support via [ydotool-rebind](https://github.com/rcspam/ydotool-rebind), to install separately).
+A first press of the keyboard shortcut starts recording (with a visual animation via [animation-speech](https://github.com/rcspam/animation-speech), to install separately), a second press stops it, transcribes the speech and **types the text directly into the active application** via [dotool](https://sr.ht/~geb/dotool/).
 
 ## Usage
 
@@ -85,7 +85,7 @@ After installation, run `dictee --setup` to configure the keyboard shortcut and 
 
 ```bash
 # Main dependencies
-sudo apt install pipewire ydotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+sudo apt install pipewire dotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
 
 # For translation (optional)
 sudo apt install translate-shell    # --translate (Google Translate)
@@ -103,24 +103,6 @@ sudo dpkg -i animation-speech_1.2.0_all.deb
 ```
 
 > Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases) (.deb and .tar.gz)
-
-#### ydotool-rebind (non-QWERTY keyboards)
-
-`ydotool` simulates keystrokes to type transcribed text into the active application. By default, it uses a **QWERTY** layout — which produces incorrect characters on other keyboard layouts (e.g. `q` instead of `a` on AZERTY).
-
-[ydotool-rebind](https://github.com/rcspam/ydotool-rebind) is a wrapper that fixes this by translating text to QWERTY before passing it to `ydotool`. Supported layouts: **French (fr)**, **German (de)**, **Belgian (be)**, **Italian (it)**, **Spanish (es)**. The layout is auto-detected from your system configuration.
-
-```bash
-# Install from the .deb
-sudo dpkg -i ydotool-rebind_2.0.0_all.deb
-
-# Override layout if needed
-echo "LAYOUT=de" | sudo tee /etc/ydotool-rebind/config
-```
-
-> Download: [ydotool-rebind releases](https://github.com/rcspam/ydotool-rebind/releases) (.deb and .tar.gz)
->
-> **Note:** Without ydotool-rebind, dictation will produce garbled text on non-QWERTY keyboards. Other layouts can be [easily added](https://github.com/rcspam/ydotool-rebind#adding-a-new-layout).
 
 ### Notification area icon
 

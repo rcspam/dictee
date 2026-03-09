@@ -32,7 +32,7 @@
 
 La transcription est réalisée **100% en local** grâce au modèle [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) exécuté via ONNX Runtime. Aucune donnée audio n'est envoyée vers un serveur externe — votre voix reste sur votre machine.
 
-Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle via [animation-speech](https://github.com/rcspam/animation-speech), à installer séparément), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active** (support clavier multilingue via [ydotool-rebind](https://github.com/rcspam/ydotool-rebind), à installer séparément).
+Un premier appui sur le raccourci clavier démarre l'enregistrement (avec animation visuelle via [animation-speech](https://github.com/rcspam/animation-speech), à installer séparément), un second l'arrête, transcrit la voix et **tape le texte directement dans l'application active** via [dotool](https://sr.ht/~geb/dotool/).
 
 ## Utilisation
 
@@ -85,7 +85,7 @@ Après installation, lancez `dictee --setup` pour configurer le raccourci clavie
 
 ```bash
 # Dépendances principales
-sudo apt install pipewire ydotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+sudo apt install pipewire dotool wl-clipboard libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
 
 # Pour la traduction (optionnel)
 sudo apt install translate-shell    # --translate (Google Translate)
@@ -103,24 +103,6 @@ sudo dpkg -i animation-speech_1.2.0_all.deb
 ```
 
 > Télécharger : [releases animation-speech](https://github.com/rcspam/animation-speech/releases) (.deb et .tar.gz)
-
-#### ydotool-rebind (claviers non-QWERTY)
-
-`ydotool` simule les frappes clavier pour taper le texte transcrit dans l'application active. Par défaut, il utilise un layout **QWERTY** — ce qui produit des caractères incorrects sur les autres dispositions clavier (par ex. `q` au lieu de `a` en AZERTY).
-
-[ydotool-rebind](https://github.com/rcspam/ydotool-rebind) est un wrapper qui corrige ce problème en traduisant le texte vers QWERTY avant de le passer à `ydotool`. Layouts supportés : **français (fr)**, **allemand (de)**, **belge (be)**, **italien (it)**, **espagnol (es)**. Le layout est détecté automatiquement depuis la configuration système.
-
-```bash
-# Installer depuis le .deb
-sudo dpkg -i ydotool-rebind_2.0.0_all.deb
-
-# Changer le layout si nécessaire
-echo "LAYOUT=de" | sudo tee /etc/ydotool-rebind/config
-```
-
-> Télécharger : [releases ydotool-rebind](https://github.com/rcspam/ydotool-rebind/releases) (.deb et .tar.gz)
->
-> **Note :** Sans ydotool-rebind, la dictée produira du texte incorrect sur les claviers non-QWERTY. D'autres layouts peuvent être [facilement ajoutés](https://github.com/rcspam/ydotool-rebind#adding-a-new-layout).
 
 ### Icône de zone de notification
 

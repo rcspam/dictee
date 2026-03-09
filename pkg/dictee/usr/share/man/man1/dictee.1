@@ -24,7 +24,7 @@ auto-unmutes the microphone if muted, and displays an optional animation.
 stops recording, restores audio state, transcribes the recording via
 .BR transcribe\-daemon (1),
 and types the result into the focused application using
-.BR ydotool (1).
+.BR dotool (1).
 The transcribed text is also copied to the clipboard via
 .BR wl\-copy (1).
 .SH OPTIONS
@@ -133,10 +133,8 @@ Stores the translation backend chosen at recording start.
 Must be running (via systemd or manually). See
 .BR transcribe\-daemon (1).
 .TP
-.B ydotool / ydotool-rebind
-For typing the transcribed text. The standard ydotool uses a QWERTY layout;
-.B ydotool-rebind
-is required for AZERTY keyboards and French accents.
+.B dotool
+For typing the transcribed text.
 .TP
 .B pw-record
 For audio recording (PipeWire).
@@ -174,9 +172,9 @@ translation backend.
 systemctl \-\-user enable \-\-now dictee
 .RE
 .TP
-2. Enable ydotool daemon:
+2. Enable dotool daemon:
 .RS
-systemctl \-\-user enable \-\-now ydotool
+systemctl \-\-user enable \-\-now dotoold
 .RE
 .TP
 3. Bind
@@ -189,7 +187,7 @@ to configure it automatically (KDE Plasma / GNOME).
 .BR transcribe\-client (1),
 .BR dictee\-setup (1),
 .BR dictee\-tray (1),
-.BR ydotool (1),
+.BR dotool (1),
 .BR pw\-record (1)
 .SH AUTHOR
 rcspam <rcspams@gmail.com>
