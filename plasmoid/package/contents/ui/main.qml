@@ -59,8 +59,18 @@ PlasmoidItem {
         onNewData: function(source, data) {
             var stdout = data["stdout"].trim()
 
-            if (source === stateCheckCmd) {
-                parseState(stdout)
+            if (source === daemonCheckCmd) {
+                // Polling lent : offline ou idle (seulement si pas en recording/transcribing)
+                if (stdout === "offline") {
+                    root.state = "offline"
+                } else if (root.state === "offline") {
+                    root.state = "idle"
+                }
+            } else if (source.indexOf("/dev/shm/.dictee_state") !== -1) {
+                // Polling rapide : état écrit par dictee
+                if (stdout.length > 0) {
+                    parseState(stdout)
+                }
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
@@ -73,7 +83,7 @@ PlasmoidItem {
         }
     }
 
-    // DataSource pour lire le niveau audio (comme animation-speech: simple et direct)
+    // DataSource pour lire le niveau audio — cat direct sur /dev/shm
     Plasma5Support.DataSource {
         id: audioExec
         engine: "executable"
@@ -105,70 +115,83 @@ PlasmoidItem {
             }
             disconnectSource(source)
         }
+        function read(tick) {
+            // Commentaire unique pour éviter le cache DataSource
+            connectSource("cat /dev/shm/.dictee_audio_bands #" + tick)
+        }
     }
 
     property int audioTick: 0
 
-    // Timer de lecture niveau audio (~12 fps)
+    // Timer de lecture niveau audio (~20 fps)
     Timer {
         id: audioTimer
-        interval: 80
+        interval: 50
         running: root.effectiveState === "recording"
         repeat: true
         onTriggered: {
             root.audioTick++
-            var cmd = "env _=" + root.audioTick + " dictee-plasmoid-level"
-            if (Plasmoid.configuration.animationStyle === "bars") {
-                cmd += " " + Plasmoid.configuration.barCount
-            }
-            audioExec.connectSource(cmd)
+            // Lecture directe du fichier /dev/shm — pas de script bash intermédiaire
+            audioExec.read(root.audioTick)
         }
         onRunningChanged: {
             if (!running) {
                 root.audioLevel = 0.0
                 root.audioBands = []
-                executable.run("dictee-plasmoid-level stop")
             }
         }
     }
 
-    // Commande de verification d'etat
-    property string stateCheckCmd: "bash -c '" +
-        "SOCK=/tmp/transcribe.sock; " +
-        "PID=/tmp/recording_dictee_pid; " +
-        "if [ ! -S \"$SOCK\" ] && ! pgrep -x transcribe-daemon >/dev/null 2>&1; then " +
+    // Commande rapide : lire l'état depuis /dev/shm (écrit par dictee)
+    property string fastStateCmd: "cat /dev/shm/.dictee_state 2>/dev/null"
+
+    // Commande lente : vérifier si le daemon tourne (pour offline/idle)
+    property string daemonCheckCmd: "bash -c '" +
+        "if [ ! -S /tmp/transcribe.sock ] && ! pgrep -x transcribe-daemon >/dev/null 2>&1; then " +
         "  echo offline; " +
-        "elif [ -f \"$PID\" ] && kill -0 $(cat \"$PID\") 2>/dev/null; then " +
-        "  echo recording; " +
         "else " +
         "  echo idle; " +
         "fi'"
 
+    property int stateTick: 0
+
     function parseState(output) {
         var newState = output.trim()
-        if (newState === "recording" || newState === "idle" || newState === "offline") {
-            if (root.state === "recording" && newState === "idle") {
+        if (newState === "recording" || newState === "idle" || newState === "offline" || newState === "transcribing") {
+            if (newState === "transcribing" && root.state !== "transcribing") {
+                root.state = "transcribing"
+                transcribingTimer.start()
+            } else if (root.state === "recording" && newState === "idle") {
                 root.state = "transcribing"
                 transcribingTimer.start()
             } else {
-                // Pré-démarrer le daemon audio dès la détection de recording
-                if (newState === "recording" && root.state !== "recording") {
-                    preStartAudioDaemon()
-                }
                 root.state = newState
             }
         }
     }
 
-    // Timer de polling principal
+    // Timer rapide : lit /dev/shm/.dictee_state toutes les 200ms
     Timer {
-        id: pollTimer
-        interval: root.state === "recording" ? 500 : Plasmoid.configuration.pollingInterval
+        id: fastPollTimer
+        interval: 200
         running: true
         repeat: true
         triggeredOnStart: true
         onTriggered: {
-            executable.run(stateCheckCmd)
+            root.stateTick++
+            executable.run("cat /dev/shm/.dictee_state 2>/dev/null #" + root.stateTick)
+        }
+    }
+
+    // Timer lent : vérifie si le daemon est en ligne (toutes les N secondes)
+    Timer {
+        id: daemonPollTimer
+        interval: Plasmoid.configuration.pollingInterval
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            executable.run(daemonCheckCmd)
         }
     }
 
@@ -204,16 +227,28 @@ PlasmoidItem {
     function handleAction(action) {
         switch (action) {
         case "dictate":
-            // Pré-démarrer le daemon audio pour réduire la latence
-            preStartAudioDaemon()
+            if (root.state === "recording") {
+                root.expanded = false
+                root.state = "transcribing"
+                transcribingTimer.start()
+            } else {
+                root.state = "recording"
+            }
             executable.run("dictee")
             break
         case "dictate-translate":
-            preStartAudioDaemon()
+            if (root.state === "recording") {
+                root.expanded = false
+                root.state = "transcribing"
+                transcribingTimer.start()
+            } else {
+                root.state = "recording"
+            }
             executable.run("dictee --translate")
             break
         case "cancel":
             executable.run("dictee --cancel")
+            root.state = "idle"
             break
         case "start-daemon":
             executable.run("systemctl --user start dictee")
@@ -234,6 +269,9 @@ PlasmoidItem {
         }
         executable.run(cmd)
     }
+
+    // Lancer le daemon audio au chargement pour éviter la latence
+    Component.onCompleted: preStartAudioDaemon()
 
     Component.onDestruction: {
         executable.run("dictee-plasmoid-level stop")

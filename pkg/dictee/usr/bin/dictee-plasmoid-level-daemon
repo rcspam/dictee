@@ -57,7 +57,7 @@ fi
 # Vérifier que dictee-plasmoid-level-fft est disponible
 if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
     # Fallback : mode RMS simple sans FFT
-    parec --rate=16000 --channels=1 --format=s16le --latency-msec=80 2>/dev/null | \
+    parec --rate=16000 --channels=1 --format=s16le --latency-msec=40 2>/dev/null | \
     while true; do
         # Lire 2560 octets (1280 samples × 2 bytes = 80ms à 16kHz)
         chunk=$(dd bs=2560 count=1 2>/dev/null | od -An -td2 -w2 | \
@@ -82,7 +82,7 @@ if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
 fi
 
 # Mode FFT : parec → dictee-plasmoid-level-fft
-parec --rate=16000 --channels=1 --format=s16le --latency-msec=80 2>/dev/null | \
+parec --rate=16000 --channels=1 --format=s16le --latency-msec=40 2>/dev/null | \
     dictee-plasmoid-level-fft "$N_BARS" "$BANDS_FILE" &
 PAREC_PID=$!
 

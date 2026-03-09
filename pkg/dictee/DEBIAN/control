@@ -1,20 +1,19 @@
-Package: dictee-cuda
+Package: dictee-cpu
 Version: 0.99.5
 Section: sound
 Priority: optional
 Architecture: amd64
 Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg
-Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1, python3-numpy
-Conflicts: dictee-cpu
+Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1, python3-numpy
+Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
-Description: Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
+Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
- This version uses CUDA for GPU acceleration (NVIDIA GPUs only).
- Falls back to CPU if CUDA is not available.
+ This version runs on CPU only (works on any computer, slower than GPU).
  .
  Features:
-  - GPU-accelerated transcription via CUDA
+  - CPU-based transcription (no GPU required)
   - Low-latency daemon mode with preloaded model
   - Push-to-talk dictation with dotool integration
   - Speaker diarization with Sortformer (who speaks when)

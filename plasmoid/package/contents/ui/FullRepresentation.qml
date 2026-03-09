@@ -20,14 +20,35 @@ ColumnLayout {
 
     spacing: Kirigami.Units.smallSpacing
 
-    // En-tete
-    PlasmaExtras.Heading {
-        level: 3
-        text: "Dictee"
+    // En-tete avec pin
+    RowLayout {
         Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
+
+        PlasmaExtras.Heading {
+            level: 3
+            text: "Dictée"
+            Layout.fillWidth: true
+        }
+
+        PlasmaComponents.ToolButton {
+            id: pinButton
+            checkable: true
+            checked: Plasmoid.configuration.pinPopup
+            icon.name: "window-pin"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            PlasmaComponents.ToolTip { text: pinButton.checked ? i18n("Unpin popup") : i18n("Pin popup") }
+            onToggled: {
+                Plasmoid.configuration.pinPopup = checked
+                root.hideOnWindowDeactivate = !checked
+            }
+            Component.onCompleted: {
+                root.hideOnWindowDeactivate = !Plasmoid.configuration.pinPopup
+            }
+        }
     }
 
-    // Statut daemon
+    // Statut daemon + bouton start/stop discret
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
@@ -67,24 +88,20 @@ ColumnLayout {
             }
             Layout.fillWidth: true
         }
+
+        PlasmaComponents.ToolButton {
+            icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            PlasmaComponents.ToolTip {
+                text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
+            }
+            onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
+        }
     }
 
     // Separateur
     Kirigami.Separator {
         Layout.fillWidth: true
-    }
-
-    // Boutons daemon
-    RowLayout {
-        Layout.fillWidth: true
-        spacing: Kirigami.Units.smallSpacing
-
-        PlasmaComponents.Button {
-            text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
-            icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
-            onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
-            Layout.fillWidth: true
-        }
     }
 
     // Boutons dictee
@@ -112,8 +129,6 @@ ColumnLayout {
 
     // Bouton annuler (visible uniquement en recording)
     PlasmaComponents.Button {
-        text: i18n("Cancel recording")
-        icon.name: "dialog-cancel"
         visible: fullRep.state === "recording"
         Layout.fillWidth: true
         onClicked: fullRep.actionRequested("cancel")

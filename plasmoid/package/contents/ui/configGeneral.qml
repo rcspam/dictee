@@ -42,6 +42,31 @@ KCM.SimpleKCM {
     property var previewAudioBands: []
     property int previewTick: 0
 
+    property string calibrationStatus: ""
+
+    Plasma5Support.DataSource {
+        id: calibrateExec
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(source, data) {
+            var stdout = data["stdout"].trim()
+            var stderr = data["stderr"].trim()
+            if (stdout.indexOf("Calibration OK") !== -1) {
+                configPage.calibrationStatus = i18n("Calibration done!")
+            } else {
+                configPage.calibrationStatus = i18n("Calibration failed")
+            }
+            calibrationResetTimer.start()
+            disconnectSource(source)
+        }
+    }
+
+    Timer {
+        id: calibrationResetTimer
+        interval: 3000
+        onTriggered: configPage.calibrationStatus = ""
+    }
+
     Plasma5Support.DataSource {
         id: previewExec
         engine: "executable"
@@ -129,6 +154,28 @@ KCM.SimpleKCM {
             QQC2.Label {
                 text: sensitivitySlider.value.toFixed(1) + "x"
                 Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+            }
+        }
+
+        // === Calibration bruit de fond ===
+        RowLayout {
+            Kirigami.FormData.label: i18n("Noise floor:")
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.Button {
+                text: i18n("Calibrate")
+                icon.name: "audio-input-microphone"
+                onClicked: {
+                    configPage.calibrationStatus = i18n("Recording silence…")
+                    var n = (animationStyleCombo.currentValue || "bars") === "bars" ? cfg_barCount : 6
+                    calibrateExec.connectSource("dictee-plasmoid-level-fft --calibrate " + n)
+                }
+            }
+
+            QQC2.Label {
+                text: configPage.calibrationStatus
+                visible: text.length > 0
+                opacity: 0.7
             }
         }
 

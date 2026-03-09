@@ -206,6 +206,7 @@ if [ "$CANCEL" = true ]; then
             notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
         fi
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        echo "idle" > /dev/shm/.dictee_state 2>/dev/null
     fi
     exit 0
 fi
@@ -237,6 +238,9 @@ if [ -f "$PIDFILE" ]; then
     fi
     # Démuter le son
     pactl set-sink-mute @DEFAULT_SINK@ 0
+
+    # Signaler au plasmoid
+    echo "transcribing" > /dev/shm/.dictee_state 2>/dev/null
 
     # Arrêter l'enregistrement
     kill "$(cat "$PIDFILE")" 2>/dev/null
@@ -277,6 +281,7 @@ if [ -f "$PIDFILE" ]; then
     fi
 
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    echo "idle" > /dev/shm/.dictee_state 2>/dev/null
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
@@ -302,6 +307,9 @@ else
             animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null
         fi
     fi
+
+    # Signaler au plasmoid que l'enregistrement démarre (avant pw-record pour réduire la latence)
+    echo "recording" > /dev/shm/.dictee_state 2>/dev/null
 
     # Démarrer l'enregistrement
     pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &

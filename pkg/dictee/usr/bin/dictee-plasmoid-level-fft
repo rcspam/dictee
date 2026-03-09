@@ -6,15 +6,76 @@ Usage: parec ... | dictee-plasmoid-level-fft N /dev/shm/.dictee_audio_bands
 import sys, os, tempfile
 import numpy as np
 
+NOISE_CACHE = os.path.expanduser("~/.cache/dictee/noise_floor")
+
+def load_noise_floor(n_bars):
+    """Charge le bruit de fond depuis le cache persistant."""
+    try:
+        vals = np.loadtxt(NOISE_CACHE, dtype=np.float32)
+        if len(vals) == n_bars:
+            return vals
+    except Exception:
+        pass
+    return None
+
+def save_noise_floor(noise_floor):
+    """Sauvegarde le bruit de fond dans le cache persistant."""
+    os.makedirs(os.path.dirname(NOISE_CACHE), exist_ok=True)
+    np.savetxt(NOISE_CACHE, noise_floor, fmt="%.6f")
+
+def calibrate(n_bars, n_frames=10):
+    """Enregistre n_frames de silence et sauvegarde le bruit de fond."""
+    import subprocess
+    RATE = 16000
+    CHUNK = 640
+    freq_lo, freq_hi = 80.0, 4000.0
+    limits = [int(freq_lo * (freq_hi / freq_lo) ** (i / n_bars) * CHUNK / RATE)
+              for i in range(n_bars + 1)]
+    hann = np.hanning(CHUNK).astype(np.float32)
+
+    proc = subprocess.Popen(
+        ["parec", "--rate=16000", "--channels=1", "--format=s16le", "--latency-msec=40"],
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    frames = []
+    for _ in range(n_frames):
+        data = proc.stdout.read(CHUNK * 2)
+        if len(data) < CHUNK * 2:
+            break
+        samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        spectrum = np.abs(np.fft.rfft(samples * hann))
+        bands = np.zeros(n_bars, dtype=np.float32)
+        for b in range(n_bars):
+            lo = max(1, limits[b])
+            hi = min(max(lo + 1, limits[b + 1]), len(spectrum))
+            if lo < hi:
+                chunk = spectrum[lo:hi]
+                bands[b] = (np.sqrt(np.mean(chunk ** 2)) * 0.6 + np.max(chunk) * 0.4) / 32768.0
+        frames.append(bands)
+
+    proc.terminate()
+    proc.wait()
+
+    noise_floor = np.mean(frames, axis=0) * 1.2
+    save_noise_floor(noise_floor)
+    print(f"Calibration OK ({n_frames} frames, {n_bars} bandes) → {NOISE_CACHE}")
+
+
 def main():
+    # Mode calibration : dictee-plasmoid-level-fft --calibrate N
+    if len(sys.argv) >= 3 and sys.argv[1] == "--calibrate":
+        calibrate(int(sys.argv[2]))
+        return
+
     if len(sys.argv) < 3:
         print("Usage: dictee-plasmoid-level-fft N output_file", file=sys.stderr)
+        print("       dictee-plasmoid-level-fft --calibrate N", file=sys.stderr)
         sys.exit(1)
 
     N_BARS = int(sys.argv[1])
     OUT = sys.argv[2]
     RATE = 16000
-    CHUNK = 1280  # 80ms
+    CHUNK = 640  # 40ms
 
     # Limites de frequences log entre 80 Hz et 4000 Hz (plage vocale)
     freq_lo, freq_hi = 80.0, 4000.0
@@ -25,15 +86,13 @@ def main():
     prev = np.zeros(N_BARS, dtype=np.float32)
 
     # Lissage different par bande : basses = plus lisse, aigus = plus reactif
-    # Cree une decorrelation visuelle naturelle entre les bandes
     smooth_prev = np.linspace(0.35, 0.05, N_BARS).astype(np.float32)
     smooth_new = 1.0 - smooth_prev
 
-    # Calibration du bruit de fond (premieres frames)
-    noise_floor = np.zeros(N_BARS, dtype=np.float32)
-    cal_frames = []
-    calibrated = False
-    CAL_FRAMES = 4  # ~320ms de calibration
+    # Charger le bruit de fond depuis le cache (pas de calibration auto)
+    noise_floor = load_noise_floor(N_BARS)
+    if noise_floor is None:
+        noise_floor = np.zeros(N_BARS, dtype=np.float32)
 
     # RNG pour micro-variation
     rng = np.random.default_rng(42)
@@ -53,20 +112,10 @@ def main():
             hi = max(lo + 1, limits[b + 1])
             hi = min(hi, len(spectrum))
             if lo < hi:
-                # Utiliser max au lieu de RMS pour plus de variation entre bandes
                 chunk = spectrum[lo:hi]
                 bands[b] = (np.sqrt(np.mean(chunk ** 2)) * 0.6 + np.max(chunk) * 0.4) / 32768.0
 
-        # Phase de calibration : mesurer le bruit de fond
-        if not calibrated:
-            cal_frames.append(bands.copy())
-            if len(cal_frames) >= CAL_FRAMES:
-                noise_floor = np.mean(cal_frames, axis=0) * 1.2
-                calibrated = True
-            atomic_write(OUT, " ".join("0.000" for _ in range(N_BARS)))
-            continue
-
-        # Soustraire le bruit de fond
+        # Soustraire le bruit de fond (zéro si pas de calibration)
         clean = np.maximum(0, bands - noise_floor)
 
         # Normalisation adaptative par bande
@@ -78,7 +127,6 @@ def main():
                 normalized[b] = min(1.0, clean[b] * 10.0)
 
         # Micro-variation proportionnelle au signal (decorrelation visuelle)
-        # Ajoute +-10% de jitter quand il y a du signal
         jitter = rng.uniform(-0.1, 0.1, N_BARS).astype(np.float32)
         normalized = np.clip(normalized + normalized * jitter, 0, 1)
 
