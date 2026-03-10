@@ -183,6 +183,10 @@ PlasmoidItem {
 
     function parseState(output) {
         var newState = output.trim()
+        if (newState === "cancelled") {
+            root.state = "idle"
+            return
+        }
         if (newState === "recording" || newState === "idle" || newState === "offline" || newState === "transcribing") {
             if (newState === "transcribing" && root.state !== "transcribing") {
                 root.state = "transcribing"

@@ -248,6 +248,9 @@ trap cleanup_on_error INT TERM HUP QUIT ERR
 # === ANNULATION ===
 if [ "$CANCEL" = true ]; then
     if [ -f "$PIDFILE" ]; then
+        # Signaler immédiatement au plasmoid (avant toute autre action, évite race condition)
+        echo "cancelled" > /dev/shm/.dictee_state 2>/dev/null
+
         id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
         stop_escape_listener
@@ -276,7 +279,6 @@ if [ "$CANCEL" = true ]; then
             notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
         fi
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
-        echo "idle" > /dev/shm/.dictee_state 2>/dev/null
     fi
     exit 0
 fi
