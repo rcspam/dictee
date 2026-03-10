@@ -78,6 +78,64 @@ done
 
 # === FONCTIONS ===
 
+# === ÉCOUTE ESCAPE (/dev/input) ===
+
+ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid"
+
+start_escape_listener() {
+    # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
+    # Écoute tous les claviers simultanément. Nécessite le groupe 'input'.
+    stop_escape_listener
+    # Trouver tous les claviers physiques
+    local kbd_devs
+    kbd_devs=$(grep -E "keyboard|Keyboard" -A4 /proc/bus/input/devices \
+        | grep -oP 'event\d+' | sort -u | sed 's|^|/dev/input/|')
+    [ -z "$kbd_devs" ] && return
+    local self_path
+    self_path="$(readlink -f "$0")"
+    nohup python3 -c "
+import struct, subprocess, signal, select, os
+signal.signal(signal.SIGTERM, lambda *_: exit(0))
+devs = '''$kbd_devs'''.strip().split('\n')
+fds = []
+for d in devs:
+    try:
+        fds.append(open(d, 'rb'))
+    except (PermissionError, FileNotFoundError):
+        pass
+if not fds:
+    exit(1)
+while True:
+    ready, _, _ = select.select(fds, [], [])
+    for f in ready:
+        data = f.read(24)
+        if len(data) < 24:
+            continue
+        _s, _u, t, code, val = struct.unpack('llHHi', data)
+        if t == 1 and code == 1 and val == 1:
+            for ff in fds:
+                ff.close()
+            subprocess.Popen(['$self_path', '--cancel'])
+            exit(0)
+" >/dev/null 2>&1 &
+    echo $! > "$ESC_LISTENER_PIDFILE"
+    disown $!
+}
+
+stop_escape_listener() {
+    if [ -f "$ESC_LISTENER_PIDFILE" ]; then
+        local pid
+        pid=$(cat "$ESC_LISTENER_PIDFILE" 2>/dev/null)
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null
+            pkill -P "$pid" 2>/dev/null
+        fi
+        rm -f "$ESC_LISTENER_PIDFILE"
+    fi
+}
+
+# === DÉPENDANCES ===
+
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
@@ -103,6 +161,8 @@ check_dependencies() {
 
 cleanup_on_error() {
     local exit_code=$?
+
+    stop_escape_listener
 
     # Tuer pw-record et ses enfants
     if [ -f "$PIDFILE" ]; then
@@ -182,6 +242,8 @@ if [ "$CANCEL" = true ]; then
     if [ -f "$PIDFILE" ]; then
         id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
+        stop_escape_listener
+
         # Arrêter l'animation
         if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
             if command -v animation-speech-ctl >/dev/null 2>&1; then
@@ -213,6 +275,8 @@ fi
 
 if [ -f "$PIDFILE" ]; then
     # === ARRÊT DE L'ENREGISTREMENT ===
+
+    stop_escape_listener
 
     # Récupérer les options utilisées au démarrage
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
@@ -285,6 +349,8 @@ if [ -f "$PIDFILE" ]; then
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
+
+    start_escape_listener
 
     # Sauvegarder les options choisies
     if [ "$TRANSLATE" = true ]; then
