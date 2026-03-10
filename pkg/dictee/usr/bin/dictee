@@ -86,10 +86,18 @@ start_escape_listener() {
     # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
     # Écoute tous les claviers simultanément. Nécessite le groupe 'input'.
     stop_escape_listener
-    # Trouver tous les claviers physiques
+    # Trouver tous les claviers physiques (sysrq+kbd = vrai clavier, exclure virtuels)
     local kbd_devs
-    kbd_devs=$(grep -E "keyboard|Keyboard" -A4 /proc/bus/input/devices \
-        | grep -oP 'event\d+' | sort -u | sed 's|^|/dev/input/|')
+    kbd_devs=$(awk -f <(cat << 'AWKEOF'
+/^N:/ { name = $0 }
+/^H:.*sysrq.*kbd/ {
+    if (name !~ /virtual|Virtual|uinput/) {
+        match($0, /event[0-9]+/)
+        if (RSTART) print "/dev/input/" substr($0, RSTART, RLENGTH)
+    }
+}
+AWKEOF
+    ) /proc/bus/input/devices)
     [ -z "$kbd_devs" ] && return
     local self_path
     self_path="$(readlink -f "$0")"
