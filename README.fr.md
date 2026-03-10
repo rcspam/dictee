@@ -137,6 +137,10 @@ L'icône s'adapte automatiquement au thème clair/sombre.
 
 Un widget natif KDE Plasma 6 est inclus. Il affiche une visualisation audio en temps réel pendant l'enregistrement, l'état du daemon, et des contrôles rapides (dictée, traduction, annulation).
 
+| Popup du widget (enregistrement) | Configuration |
+|:--------------------------------:|:-------------:|
+| ![Popup plasmoid](plasmoid.png) | ![Configuration plasmoid](plasmoid_config.png) |
+
 ```bash
 # Installer (inclus dans le .deb, ou manuellement)
 kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid
