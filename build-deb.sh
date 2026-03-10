@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="0.99.6"
+VERSION="0.99.7"
 PKG_DIR="pkg/dictee"
 
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
@@ -81,7 +81,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 0.99.6
+Version: 0.99.7
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -139,7 +139,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 0.99.6
+Version: 0.99.7
 Section: sound
 Priority: optional
 Architecture: amd64
