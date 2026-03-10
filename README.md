@@ -25,6 +25,14 @@
 ---
 
 <p align="center">
+  <b>KDE Plasma widget</b><br>
+  <a href="https://youtu.be/4ZGtqiYHNbg">
+    <img src="https://img.youtube.com/vi/4ZGtqiYHNbg/maxresdefault.jpg" alt="Dictée Plasmoid demo — click to watch on YouTube" width="960">
+  </a>
+</p>
+
+<p align="center">
+  <b>Fullscreen animation (animation-speech)</b><br>
   <a href="https://youtu.be/-fWZZEO7mCA">
     <img src="assets/demo.gif" alt="dictee demo — click to watch on YouTube" width="960">
   </a>
