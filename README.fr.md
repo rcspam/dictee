@@ -27,7 +27,7 @@
 <p align="center">
   <b>Widget KDE Plasma</b><br>
   <a href="https://youtu.be/4ZGtqiYHNbg">
-    <img src="https://img.youtube.com/vi/4ZGtqiYHNbg/maxresdefault.jpg" alt="Démo Plasmoid Dictée — cliquez pour voir sur YouTube" width="960">
+    <img src="assets/demo-plasmoid.gif" alt="Démo Plasmoid Dictée — cliquez pour voir sur YouTube" width="960">
   </a>
 </p>
 
