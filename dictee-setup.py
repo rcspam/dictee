@@ -954,8 +954,8 @@ class DicteeSetupDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumWidth(520)
-        self.resize(600, 650)
+        self.setMinimumWidth(620)
+        self.resize(700, 700)
         self.setWindowIcon(QIcon.fromTheme("audio-input-microphone"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
@@ -976,53 +976,8 @@ class DicteeSetupDialog(QDialog):
         layout.setSpacing(16)
         layout.setContentsMargins(20, 20, 20, 16)
 
-        # -- Section modèles ASR --
-        grp_models = QGroupBox(_("ASR models"))
-        lay_mod = QVBoxLayout(grp_models)
-        lay_mod.setSpacing(6)
-        lay_mod.setContentsMargins(16, 16, 16, 12)
-
         self._model_widgets = {}
         self._model_threads = {}
-
-        for model in ASR_MODELS:
-            row = QHBoxLayout()
-            row.setSpacing(8)
-
-            installed = model_is_installed(model)
-            required = _(" (required)") if model["required"] else ""
-
-            lbl = QLabel()
-            icon = '<span style="color: green;">✓</span>' if installed \
-                else '<span style="color: orange;">⚠</span>'
-            line2 = model["desc"] + (required if not installed else "")
-            lbl.setText(f'{icon} {model["name"]}<br>'
-                        f'<span style="font-size: 9.5pt; color: gray;">{line2}</span>')
-            lbl.setWordWrap(True)
-            row.addWidget(lbl, 1)
-
-            btn_info = QPushButton("?")
-            btn_info.setFixedSize(24, 24)
-            btn_info.setToolTip(model["help"])
-            btn_info.setStyleSheet("font-weight: bold; border-radius: 12px;")
-            btn_info.clicked.connect(lambda checked, m=model: QMessageBox.information(
-                self, m["name"], m["help"]))
-            row.addWidget(btn_info)
-
-            btn = QPushButton(_("Download") if not installed else _("Installed"))
-            btn.setEnabled(not installed)
-            btn.setFixedWidth(120)
-            row.addWidget(btn)
-
-            lay_mod.addLayout(row)
-
-            progress = QProgressBar()
-            progress.setRange(0, 0)
-            progress.setVisible(False)
-            lay_mod.addWidget(progress)
-
-            self._model_widgets[model["id"]] = {"label": lbl, "button": btn, "progress": progress, "model": model}
-            btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
 
         # -- Section raccourci --
         grp_shortcut = QGroupBox(_("Keyboard shortcut"))
@@ -1086,8 +1041,6 @@ class DicteeSetupDialog(QDialog):
             lbl_unsup.setWordWrap(True)
             lay_sc.addWidget(lbl_unsup)
 
-        layout.addWidget(grp_models)
-
         # -- Section backend ASR --
         grp_asr = QGroupBox(_("ASR backend"))
         lay_asr = QVBoxLayout(grp_asr)
@@ -1105,6 +1058,47 @@ class DicteeSetupDialog(QDialog):
         self.asr_group.addButton(self.rb_parakeet)
         lay_asr.addWidget(self.rb_parakeet)
 
+        # Modèles Parakeet (indentés sous le radio)
+        for model in ASR_MODELS:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            row.setContentsMargins(24, 0, 0, 0)
+
+            installed = model_is_installed(model)
+            required = _(" (required)") if model["required"] else ""
+
+            lbl = QLabel()
+            icon = '<span style="color: green;">✓</span>' if installed \
+                else '<span style="color: orange;">⚠</span>'
+            line2 = model["desc"] + (required if not installed else "")
+            lbl.setText(f'{icon} {model["name"]}<br>'
+                        f'<span style="font-size: 9.5pt; color: gray;">{line2}</span>')
+            lbl.setWordWrap(True)
+            row.addWidget(lbl, 1)
+
+            btn_info = QPushButton("?")
+            btn_info.setFixedSize(24, 24)
+            btn_info.setToolTip(model["help"])
+            btn_info.setStyleSheet("font-weight: bold; border-radius: 12px;")
+            btn_info.clicked.connect(lambda checked, m=model: QMessageBox.information(
+                self, m["name"], m["help"]))
+            row.addWidget(btn_info)
+
+            btn = QPushButton(_("Download") if not installed else _("Installed"))
+            btn.setEnabled(not installed)
+            btn.setFixedWidth(120)
+            row.addWidget(btn)
+
+            lay_asr.addLayout(row)
+
+            progress = QProgressBar()
+            progress.setRange(0, 0)
+            progress.setVisible(False)
+            lay_asr.addWidget(progress)
+
+            self._model_widgets[model["id"]] = {"label": lbl, "button": btn, "progress": progress, "model": model}
+            btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
+
         # Vosk
         row_vosk = QHBoxLayout()
         self.rb_vosk = QRadioButton("Vosk — " + _("lightweight, streaming (~50 MB)"))
@@ -1121,8 +1115,9 @@ class DicteeSetupDialog(QDialog):
         lay_asr.addLayout(row_vosk)
 
         # Sous-options Vosk : choix de langue
-        self.vosk_options = QHBoxLayout()
-        self.vosk_options.setContentsMargins(24, 0, 0, 0)
+        self.w_vosk_options = QWidget()
+        vosk_lay = QHBoxLayout(self.w_vosk_options)
+        vosk_lay.setContentsMargins(24, 0, 0, 0)
         lbl_vosk_lang = QLabel(_("Language:"))
         self.cmb_vosk_lang = QComboBox()
         for code, name in VOSK_MODELS.items():
@@ -1131,10 +1126,11 @@ class DicteeSetupDialog(QDialog):
         idx = self.cmb_vosk_lang.findData(cur_vosk)
         if idx >= 0:
             self.cmb_vosk_lang.setCurrentIndex(idx)
-        self.vosk_options.addWidget(lbl_vosk_lang)
-        self.vosk_options.addWidget(self.cmb_vosk_lang)
-        self.vosk_options.addStretch()
-        lay_asr.addLayout(self.vosk_options)
+        vosk_lay.addWidget(lbl_vosk_lang)
+        vosk_lay.addWidget(self.cmb_vosk_lang)
+        vosk_lay.addStretch()
+        self.w_vosk_options.setVisible(current_asr == "vosk")
+        lay_asr.addWidget(self.w_vosk_options)
 
         # faster-whisper
         row_whisper = QHBoxLayout()
@@ -1152,8 +1148,9 @@ class DicteeSetupDialog(QDialog):
         lay_asr.addLayout(row_whisper)
 
         # Sous-options Whisper : choix modèle + langue
-        self.whisper_options = QHBoxLayout()
-        self.whisper_options.setContentsMargins(24, 0, 0, 0)
+        self.w_whisper_options = QWidget()
+        whisper_lay = QHBoxLayout(self.w_whisper_options)
+        whisper_lay.setContentsMargins(24, 0, 0, 0)
         lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = QComboBox()
         for m in WHISPER_MODELS:
@@ -1162,21 +1159,30 @@ class DicteeSetupDialog(QDialog):
         idx = self.cmb_whisper_model.findText(cur_wh)
         if idx >= 0:
             self.cmb_whisper_model.setCurrentIndex(idx)
-        self.whisper_options.addWidget(lbl_wh_model)
-        self.whisper_options.addWidget(self.cmb_whisper_model)
+        whisper_lay.addWidget(lbl_wh_model)
+        whisper_lay.addWidget(self.cmb_whisper_model)
         lbl_wh_lang = QLabel(_("Language:"))
         self.txt_whisper_lang = QComboBox()
         self.txt_whisper_lang.setEditable(True)
         self.txt_whisper_lang.addItems(["", "fr", "en", "es", "de", "it", "pt", "ru", "zh", "ja", "ko", "ar"])
         cur_wl = self.conf.get("DICTEE_WHISPER_LANG", "")
         self.txt_whisper_lang.setCurrentText(cur_wl)
-        self.whisper_options.addWidget(lbl_wh_lang)
-        self.whisper_options.addWidget(self.txt_whisper_lang)
+        whisper_lay.addWidget(lbl_wh_lang)
+        whisper_lay.addWidget(self.txt_whisper_lang)
         lbl_auto = QLabel(_("(empty = auto-detect)"))
         lbl_auto.setStyleSheet("color: gray;")
-        self.whisper_options.addWidget(lbl_auto)
-        self.whisper_options.addStretch()
-        lay_asr.addLayout(self.whisper_options)
+        whisper_lay.addWidget(lbl_auto)
+        whisper_lay.addStretch()
+        self.w_whisper_options.setVisible(current_asr == "whisper")
+        lay_asr.addWidget(self.w_whisper_options)
+
+        # Afficher/masquer les sous-options selon le backend sélectionné
+        def _on_asr_toggled():
+            self.w_vosk_options.setVisible(self.rb_vosk.isChecked())
+            self.w_whisper_options.setVisible(self.rb_whisper.isChecked())
+        self.rb_parakeet.toggled.connect(lambda: _on_asr_toggled())
+        self.rb_vosk.toggled.connect(lambda: _on_asr_toggled())
+        self.rb_whisper.toggled.connect(lambda: _on_asr_toggled())
 
         layout.addWidget(grp_asr)
 
