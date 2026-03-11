@@ -23,6 +23,9 @@
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 [ -f "$DICTEE_CONF" ] && source "$DICTEE_CONF"
 
+# Exporter OLLAMA_NUM_GPU si défini dans la config (mode CPU forcé)
+[ -n "$OLLAMA_NUM_GPU" ] && export OLLAMA_NUM_GPU
+
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
@@ -156,6 +159,8 @@ check_dependencies() {
     if [ "$TRANSLATE" = true ]; then
         if [ "$TRANSLATE_BACKEND" = "trans" ]; then
             command -v trans >/dev/null || missing+=("translate-shell")
+        elif [ "$TRANSLATE_BACKEND" = "libretranslate" ]; then
+            command -v curl >/dev/null || missing+=("curl")
         elif [ "$TRANSLATE_BACKEND" = "ollama" ]; then
             command -v ollama >/dev/null || missing+=("ollama")
         fi
@@ -220,18 +225,39 @@ translate() {
 
     case "$backend" in
     trans)
-        echo "$text" | trans -b "${LANG_SOURCE}:${LANG_TARGET}"
+        local engine="${DICTEE_TRANS_ENGINE:-google}"
+        echo "$text" | trans -b -e "$engine" "${LANG_SOURCE}:${LANG_TARGET}"
+        ;;
+    libretranslate)
+        local port="${DICTEE_LIBRETRANSLATE_PORT:-5000}"
+        local url="http://localhost:${port}/translate"
+        # Échapper le texte pour JSON
+        local json_text
+        json_text=$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+        local result
+        result=$(curl -s --max-time 10 "$url" \
+            -H "Content-Type: application/json" \
+            -d "{\"q\":${json_text},\"source\":\"${LANG_SOURCE}\",\"target\":\"${LANG_TARGET}\"}")
+        if echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["translatedText"])' 2>/dev/null; then
+            :
+        else
+            echo "Erreur LibreTranslate: $result" >&2
+            exit 1
+        fi
         ;;
     ollama)
+        local model="${DICTEE_OLLAMA_MODEL:-translategemma}"
         # Vérifier si le modèle est déjà téléchargé
-        if ! ollama list 2>/dev/null | grep -q "translategemma"; then
-            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle translategemma..." "Premier lancement, veuillez patienter"
+        if ! ollama list 2>/dev/null | grep -q "${model%%:*}"; then
+            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle ${model}..." "Premier lancement, veuillez patienter"
         fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
 ${text}"
-        ollama run translategemma:latest "$prompt" 2>/dev/null
+        # Ajouter :latest seulement si pas de tag explicite
+        [[ "$model" == *:* ]] || model="${model}:latest"
+        ollama run "$model" "$prompt" 2>/dev/null
         ;;
     *)
         echo "Backend traduction inconnu: $backend" >&2

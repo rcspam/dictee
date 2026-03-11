@@ -14,7 +14,7 @@
   <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue" alt="Dernière release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-green" alt="Licence GPL-3.0"></a>
   <img src="https://img.shields.io/badge/backend-Rust-orange?logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/frontend-GTK3%20%2F%20Bash-yellow" alt="GTK3 / Bash">
+  <img src="https://img.shields.io/badge/frontend-PyQt6%20%2F%20Bash-yellow" alt="PyQt6 / Bash">
   <img src="https://img.shields.io/badge/plateforme-Linux-lightgrey?logo=linux" alt="Linux">
 </p>
 
@@ -74,10 +74,10 @@ Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
 # Version GPU (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_0.99.7_amd64.deb
+sudo dpkg -i dictee-cuda_0.99.8_amd64.deb
 
 # Version CPU (tout ordinateur)
-sudo dpkg -i dictee-cpu_0.99.7_amd64.deb
+sudo dpkg -i dictee-cpu_0.99.8_amd64.deb
 
 # Installer les dépendances manquantes
 sudo apt-get install -f
@@ -98,10 +98,12 @@ sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindic
 # Optionnel (copie dans le presse-papier en bonus)
 sudo apt install wl-clipboard
 
-# Pour la traduction (optionnel)
-sudo apt install translate-shell    # --translate (Google Translate)
+# Pour la traduction (optionnel) — 3 backends disponibles :
+sudo apt install translate-shell    # translate-shell (Google ou Bing)
 # ou
-curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # --translate --ollama (100% local)
+docker pull libretranslate/libretranslate  # LibreTranslate (100% local, Docker)
+# ou
+curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # ollama (100% local)
 ```
 
 #### Retour visuel pendant l'enregistrement
@@ -179,10 +181,16 @@ Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 
 ### Configuration
 
-`dictee --setup` ouvre une interface graphique (GTK3) qui permet de configurer :
+`dictee --setup` ouvre une interface graphique (PyQt6) qui permet de configurer :
 
-- **Raccourci clavier** : capture et enregistrement automatique (KDE Plasma / GNOME)
-- **Traduction** : activer/désactiver, choix du backend (translate-shell ou ollama), langues source et cible
+- **Modèles ASR** : téléchargement et gestion des modèles de transcription (TDT, Sortformer, Nemotron)
+- **Raccourcis clavier** : capture et enregistrement automatique (KDE Plasma / GNOME) — raccourcis séparés pour la dictée et la dictée + traduction
+- **Traduction** : langues source/cible, choix du backend :
+  - **translate-shell** — moteur Google ou Bing (en ligne)
+  - **LibreTranslate** — 100% local via Docker (~2 Go), avec contrôles pull/start/stop
+  - **ollama** — traduction 100% locale via LLM (translategemma, aya…)
+- **Options** : copie presse-papier, retour visuel (overlay animation-speech ou widget Plasma)
+- **Services** : démarrage automatique du daemon et du tray
 
 Les préférences sont sauvegardées dans `~/.config/dictee.conf` et chargées automatiquement à chaque lancement. Les arguments CLI (`--translate`, `--ollama`) ont toujours priorité sur la configuration.
 

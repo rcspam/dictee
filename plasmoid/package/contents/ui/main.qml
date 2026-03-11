@@ -166,12 +166,7 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c '" +
-        "if [ ! -S /tmp/transcribe.sock ] && ! pgrep -x transcribe-daemon >/dev/null 2>&1; then " +
-        "  echo offline; " +
-        "else " +
-        "  echo idle; " +
-        "fi'"
+    property string daemonCheckCmd: "bash -c 'systemctl --user is-active dictee 2>/dev/null | grep -qx active && echo idle || echo offline'"
 
     // Ping-pong pour l'état aussi
     property int stateSlot: 0
@@ -187,16 +182,16 @@ PlasmoidItem {
             root.state = "idle"
             return
         }
-        if (newState === "recording" || newState === "idle" || newState === "offline" || newState === "transcribing") {
-            if (newState === "transcribing" && root.state !== "transcribing") {
-                root.state = "transcribing"
-                transcribingTimer.start()
-            } else if (root.state === "recording" && newState === "idle") {
-                root.state = "transcribing"
-                transcribingTimer.start()
-            } else {
-                root.state = newState
-            }
+        // Le fichier d'état ne gère que les transitions actives
+        // offline/idle sont gérés exclusivement par daemonCheckCmd (systemctl)
+        if (newState === "recording") {
+            root.state = "recording"
+        } else if (newState === "transcribing" && root.state !== "transcribing") {
+            root.state = "transcribing"
+            transcribingTimer.start()
+        } else if (newState === "idle" && root.state === "recording") {
+            root.state = "transcribing"
+            transcribingTimer.start()
         }
     }
 
@@ -286,9 +281,11 @@ PlasmoidItem {
             break
         case "start-daemon":
             executable.run("systemctl --user start dictee")
+            root.state = "idle"
             break
         case "stop-daemon":
             executable.run("systemctl --user stop dictee")
+            root.state = "offline"
             break
         case "setup":
             executable.run("dictee-setup")

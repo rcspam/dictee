@@ -14,7 +14,7 @@
   <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License GPL-3.0"></a>
   <img src="https://img.shields.io/badge/backend-Rust-orange?logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/frontend-GTK3%20%2F%20Bash-yellow" alt="GTK3 / Bash">
+  <img src="https://img.shields.io/badge/frontend-PyQt6%20%2F%20Bash-yellow" alt="PyQt6 / Bash">
   <img src="https://img.shields.io/badge/platform-Linux-lightgrey?logo=linux" alt="Linux">
 </p>
 
@@ -74,10 +74,10 @@ Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
 # GPU version (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_0.99.7_amd64.deb
+sudo dpkg -i dictee-cuda_0.99.8_amd64.deb
 
 # CPU version (any computer)
-sudo dpkg -i dictee-cpu_0.99.7_amd64.deb
+sudo dpkg -i dictee-cpu_0.99.8_amd64.deb
 
 # Install missing dependencies
 sudo apt-get install -f
@@ -98,10 +98,12 @@ sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindic
 # Optional (clipboard copy as bonus)
 sudo apt install wl-clipboard
 
-# For translation (optional)
-sudo apt install translate-shell    # --translate (Google Translate)
+# For translation (optional) — 3 backends available:
+sudo apt install translate-shell    # translate-shell (Google or Bing)
 # or
-curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # --translate --ollama (100% local)
+docker pull libretranslate/libretranslate  # LibreTranslate (100% local, Docker)
+# or
+curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # ollama (100% local)
 ```
 
 #### Visual feedback during recording
@@ -179,10 +181,16 @@ Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 
 ### Configuration
 
-`dictee --setup` opens a graphical interface (GTK3) for configuring:
+`dictee --setup` opens a graphical interface (PyQt6) for configuring:
 
-- **Keyboard shortcut**: capture and automatic registration (KDE Plasma / GNOME)
-- **Translation**: enable/disable, backend choice (translate-shell or ollama), source and target languages
+- **ASR models**: download and manage transcription models (TDT, Sortformer, Nemotron)
+- **Keyboard shortcuts**: capture and automatic registration (KDE Plasma / GNOME) — separate shortcuts for dictation and dictation + translation
+- **Translation**: source/target languages, backend choice:
+  - **translate-shell** — Google or Bing engine (online)
+  - **LibreTranslate** — 100% local via Docker (~2 GB image), with pull/start/stop controls
+  - **ollama** — 100% local LLM translation (translategemma, aya…)
+- **Options**: clipboard copy, visual feedback (animation-speech overlay or Plasma widget)
+- **Services**: daemon and tray autostart
 
 Preferences are saved in `~/.config/dictee.conf` and automatically loaded on each launch. CLI arguments (`--translate`, `--ollama`) always take priority over the configuration.
 

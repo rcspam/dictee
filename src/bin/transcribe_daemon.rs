@@ -5,9 +5,19 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 
-const SOCKET_PATH: &str = "/tmp/transcribe.sock";
+/// Retourne le chemin du socket par utilisateur.
+/// Utilise $XDG_RUNTIME_DIR/transcribe.sock (par défaut /run/user/UID/),
+/// ou /tmp/transcribe-UID.sock en fallback.
+fn socket_path() -> String {
+    if let Ok(dir) = env::var("XDG_RUNTIME_DIR") {
+        format!("{}/transcribe.sock", dir)
+    } else {
+        format!("/tmp/transcribe-{}.sock", unsafe { libc::getuid() })
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let socket_path = socket_path();
     let args: Vec<String> = env::args().collect();
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -18,15 +28,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Arguments:");
         eprintln!("  [model_dir]   Répertoire du modèle TDT (défaut: /usr/share/dictee/tdt)");
         eprintln!();
-        eprintln!("Écoute sur {}. Utiliser avec transcribe-client.", SOCKET_PATH);
+        eprintln!("Écoute sur {}. Utiliser avec transcribe-client.", socket_path);
         return Ok(());
     }
 
     let model_dir = if args.len() > 1 { &args[1] } else { "/usr/share/dictee/tdt" };
 
     // Remove existing socket
-    if Path::new(SOCKET_PATH).exists() {
-        fs::remove_file(SOCKET_PATH)?;
+    if Path::new(&socket_path).exists() {
+        fs::remove_file(&socket_path)?;
     }
 
     // Configure CUDA if available
@@ -37,12 +47,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("Loading model from {}...", model_dir);
     let mut parakeet = ParakeetTDT::from_pretrained(model_dir, Some(config))?;
-    eprintln!("Model loaded. Listening on {}", SOCKET_PATH);
+    eprintln!("Model loaded. Listening on {}", socket_path);
 
-    let listener = UnixListener::bind(SOCKET_PATH)?;
+    let listener = UnixListener::bind(&socket_path)?;
 
-    // Make socket accessible
-    fs::set_permissions(SOCKET_PATH, fs::Permissions::from_mode(0o666))?;
+    // Make socket accessible (only current user)
+    fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
 
     for stream in listener.incoming() {
         match stream {

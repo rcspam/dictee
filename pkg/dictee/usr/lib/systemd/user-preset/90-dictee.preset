@@ -1,2 +1,2 @@
-enable dictee.service
-enable dictee-tray.service
+disable dictee.service
+disable dictee-tray.service

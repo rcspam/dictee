@@ -3,14 +3,25 @@ use std::fs;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 extern crate hound;
 
-const SOCKET_PATH: &str = "/tmp/transcribe.sock";
-const TEMP_WAV: &str = "/tmp/transcribe_recording.wav";
-const TEMP_CONVERTED: &str = "/tmp/transcribe_converted.wav";
-const TEMP_STDIN: &str = "/tmp/transcribe_stdin_input";
+/// Chemins par utilisateur via $XDG_RUNTIME_DIR (ou /tmp fallback).
+/// Chaque utilisateur a ses propres fichiers temporaires et socket.
+fn user_path(name: &str) -> String {
+    if let Ok(dir) = env::var("XDG_RUNTIME_DIR") {
+        format!("{}/{}", dir, name)
+    } else {
+        format!("/tmp/{}-{}", name, unsafe { libc::getuid() })
+    }
+}
+
+static SOCKET_PATH: LazyLock<String> = LazyLock::new(|| user_path("transcribe.sock"));
+static TEMP_WAV: LazyLock<String> = LazyLock::new(|| user_path("transcribe_recording.wav"));
+static TEMP_CONVERTED: LazyLock<String> = LazyLock::new(|| user_path("transcribe_converted.wav"));
+static TEMP_STDIN: LazyLock<String> = LazyLock::new(|| user_path("transcribe_stdin_input"));
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -51,25 +62,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if input.is_empty() {
             return Err("No data received on stdin".into());
         }
-        fs::write(TEMP_STDIN, &input)?;
+        fs::write(TEMP_STDIN.as_str(), &input)?;
 
         // ffmpeg auto-détecte le format via les headers
         let status = Command::new("ffmpeg")
-            .args(["-y", "-i", TEMP_STDIN, "-ar", "16000", "-ac", "1", "-f", "wav", TEMP_CONVERTED])
+            .args(["-y", "-i", TEMP_STDIN.as_str(), "-ar", "16000", "-ac", "1", "-f", "wav", TEMP_CONVERTED.as_str()])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
             .map_err(|e| format!("ffmpeg not found: {}. Install ffmpeg to read from stdin.", e))?;
 
-        let _ = fs::remove_file(TEMP_STDIN);
+        let _ = fs::remove_file(TEMP_STDIN.as_str());
 
         if !status.success() {
             return Err("ffmpeg failed to convert stdin audio (unsupported format?)".into());
         }
 
-        let text = send_to_daemon(TEMP_CONVERTED);
-        let _ = fs::remove_file(TEMP_CONVERTED);
+        let text = send_to_daemon(TEMP_CONVERTED.as_str());
+        let _ = fs::remove_file(TEMP_CONVERTED.as_str());
         println!("{}", text?);
         return Ok(());
     }
@@ -102,16 +113,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("Recording complete. Transcribing...");
 
-    let text = send_to_daemon(TEMP_WAV);
+    let text = send_to_daemon(TEMP_WAV.as_str());
     if was_muted { mute_mic(); }
-    let _ = fs::remove_file(TEMP_WAV);
+    let _ = fs::remove_file(TEMP_WAV.as_str());
     println!("{}", text?);
 
     Ok(())
 }
 
 fn record_with_pipewire(duration: u32) -> Result<(), Box<dyn std::error::Error>> {
-    // Use timeout command to limit pw-record duration
     let _status = Command::new("timeout")
         .args([
             "--signal=INT",
@@ -120,14 +130,13 @@ fn record_with_pipewire(duration: u32) -> Result<(), Box<dyn std::error::Error>>
             "--rate", "16000",
             "--channels", "1",
             "--format", "s16",
-            TEMP_WAV,
+            TEMP_WAV.as_str(),
         ])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .status()?;
 
-    // timeout returns 124 on timeout, but file should be written
-    if std::path::Path::new(TEMP_WAV).exists() {
+    if std::path::Path::new(TEMP_WAV.as_str()).exists() {
         Ok(())
     } else {
         Err("pw-record failed".into())
@@ -135,7 +144,6 @@ fn record_with_pipewire(duration: u32) -> Result<(), Box<dyn std::error::Error>>
 }
 
 fn record_with_pulseaudio(duration: u32) -> Result<(), Box<dyn std::error::Error>> {
-    // Use timeout command to limit parecord duration
     let _status = Command::new("timeout")
         .args([
             "--signal=INT",
@@ -145,13 +153,13 @@ fn record_with_pulseaudio(duration: u32) -> Result<(), Box<dyn std::error::Error
             "--channels=1",
             "--format=s16le",
             "--file-format=wav",
-            TEMP_WAV,
+            TEMP_WAV.as_str(),
         ])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .status()?;
 
-    if std::path::Path::new(TEMP_WAV).exists() {
+    if std::path::Path::new(TEMP_WAV.as_str()).exists() {
         Ok(())
     } else {
         Err("parecord failed".into())
@@ -165,7 +173,7 @@ fn record_with_alsa(duration: u32) -> Result<(), Box<dyn std::error::Error>> {
             "-c", "1",
             "-f", "S16_LE",
             "-d", &duration.to_string(),
-            TEMP_WAV,
+            TEMP_WAV.as_str(),
         ])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
@@ -187,7 +195,7 @@ fn stop_recording(child: &mut std::process::Child) {
 
 fn record_pipewire_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
     let mut child = Command::new("pw-record")
-        .args(["--rate", "16000", "--channels", "1", "--format", "s16", TEMP_WAV])
+        .args(["--rate", "16000", "--channels", "1", "--format", "s16", TEMP_WAV.as_str()])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()?;
@@ -196,7 +204,7 @@ fn record_pipewire_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::io::stdin().read_line(&mut input);
     stop_recording(&mut child);
 
-    if std::path::Path::new(TEMP_WAV).exists() {
+    if std::path::Path::new(TEMP_WAV.as_str()).exists() {
         Ok(())
     } else {
         Err("pw-record failed".into())
@@ -205,7 +213,7 @@ fn record_pipewire_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
 
 fn record_pulseaudio_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
     let mut child = Command::new("parecord")
-        .args(["--rate=16000", "--channels=1", "--format=s16le", "--file-format=wav", TEMP_WAV])
+        .args(["--rate=16000", "--channels=1", "--format=s16le", "--file-format=wav", TEMP_WAV.as_str()])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()?;
@@ -214,7 +222,7 @@ fn record_pulseaudio_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::io::stdin().read_line(&mut input);
     stop_recording(&mut child);
 
-    if std::path::Path::new(TEMP_WAV).exists() {
+    if std::path::Path::new(TEMP_WAV.as_str()).exists() {
         Ok(())
     } else {
         Err("parecord failed".into())
@@ -223,7 +231,7 @@ fn record_pulseaudio_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
 
 fn record_alsa_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
     let mut child = Command::new("arecord")
-        .args(["-r", "16000", "-c", "1", "-f", "S16_LE", TEMP_WAV])
+        .args(["-r", "16000", "-c", "1", "-f", "S16_LE", TEMP_WAV.as_str()])
         .stdin(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()?;
@@ -232,7 +240,7 @@ fn record_alsa_until_stopped() -> Result<(), Box<dyn std::error::Error>> {
     let _ = std::io::stdin().read_line(&mut input);
     stop_recording(&mut child);
 
-    if std::path::Path::new(TEMP_WAV).exists() {
+    if std::path::Path::new(TEMP_WAV.as_str()).exists() {
         Ok(())
     } else {
         Err("arecord failed".into())
@@ -311,7 +319,7 @@ fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Er
     }
 
     let status = Command::new("ffmpeg")
-        .args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", TEMP_CONVERTED])
+        .args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", TEMP_CONVERTED.as_str()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -326,10 +334,10 @@ fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Er
 }
 
 fn send_to_daemon(audio_path: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let mut stream = UnixStream::connect(SOCKET_PATH).map_err(|e| {
+    let mut stream = UnixStream::connect(SOCKET_PATH.as_str()).map_err(|e| {
         format!(
             "Cannot connect to daemon at {}. Is transcribe-daemon running? Error: {}",
-            SOCKET_PATH, e
+            SOCKET_PATH.as_str(), e
         )
     })?;
 

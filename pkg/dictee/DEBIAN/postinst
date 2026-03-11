@@ -67,64 +67,32 @@ download_nemotron() {
 }
 
 # Vérifier si les modèles existent déjà
-TDT_EXISTS=false
-DIAR_EXISTS=false
-[ -f "$TDT_DIR/encoder-model.onnx" ] && TDT_EXISTS=true
-[ -f "$DIAR_DIR/diar_streaming_sortformer_4spk-v2.1.onnx" ] && DIAR_EXISTS=true
-
 echo ""
-echo "=== Installation des modèles Parakeet ==="
+echo "=== Vérification des modèles ==="
 echo ""
 
-# Mode interactif si terminal disponible
-if [ -t 0 ]; then
-    echo "Quels modèles voulez-vous installer ?"
-    echo ""
-    echo "  1) Tous (recommandé) - TDT + Sortformer + Nemotron (~5 Go)"
-    echo "  2) TDT + Sortformer - transcription multilingue + diarisation (~2.6 Go)"
-    echo "  3) TDT seul - transcription multilingue (~2.5 Go)"
-    echo "  4) Nemotron + Sortformer - streaming anglais + diarisation (~2.6 Go)"
-    echo "  5) Aucun - je les installerai manuellement"
-    echo ""
-    read -p "Choix [1-5, défaut=1]: " choice
-    choice=${choice:-1}
+if [ -f "$TDT_DIR/encoder-model.onnx" ]; then
+    echo "✓ Modèle TDT présent"
 else
-    # Mode non-interactif : installer tous par défaut
-    choice=1
+    echo "⚠ Modèle TDT absent — nécessaire pour la transcription"
 fi
 
-case $choice in
-    1)
-        download_tdt
-        download_sortformer
-        download_nemotron
-        ;;
-    2)
-        download_tdt
-        download_sortformer
-        ;;
-    3)
-        download_tdt
-        ;;
-    4)
-        download_nemotron
-        download_sortformer
-        ;;
-    5)
-        echo "Installation manuelle choisie."
-        echo "Téléchargez les modèles depuis :"
-        echo "  TDT: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx"
-        echo "  Sortformer: https://huggingface.co/altunenes/parakeet-rs"
-        echo "  Nemotron: https://huggingface.co/altunenes/parakeet-rs/tree/main/nemotron-speech-streaming-en-0.6b"
-        echo "Et placez-les dans : $MODEL_DIR"
-        ;;
-    *)
-        echo "Choix invalide, installation par défaut (tous les modèles)"
-        download_tdt
-        download_sortformer
-        download_nemotron
-        ;;
-esac
+if [ -f "$DIAR_DIR/diar_streaming_sortformer_4spk-v2.1.onnx" ]; then
+    echo "✓ Modèle Sortformer présent"
+else
+    echo "  Modèle Sortformer absent (optionnel, diarisation)"
+fi
+
+if [ -f "$NEMOTRON_DIR/encoder.onnx" ]; then
+    echo "✓ Modèle Nemotron présent"
+else
+    echo "  Modèle Nemotron absent (optionnel, streaming anglais)"
+fi
+
+if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
+    echo ""
+    echo "Lancez 'dictee-setup' pour télécharger les modèles."
+fi
 
 # Recharger les règles udev (dotool)
 echo ""

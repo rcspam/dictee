@@ -46,7 +46,10 @@ _ = gettext.gettext
 
 # === Configuration ===
 
-SOCKET_PATH = "/tmp/transcribe.sock"
+SOCKET_PATH = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR", "/tmp"),
+    "transcribe.sock",
+)
 DAEMON_BIN = "transcribe-daemon"
 APP_ID = "dictee"
 POLL_INTERVAL_MS = 3000
@@ -126,15 +129,17 @@ def daemon_start():
 
 
 def daemon_stop():
-    """Stop daemon via systemd --user (or kill)."""
+    """Stop daemon via systemd --user + pkill (pour couvrir les deux cas)."""
     try:
-        subprocess.Popen(
+        subprocess.run(
             ["systemctl", "--user", "stop", "dictee"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
     except FileNotFoundError:
-        subprocess.run(["pkill", "-x", DAEMON_BIN], check=False)
+        pass
+    # Tuer aussi les instances lancées hors systemd (uniquement celles de l'utilisateur courant)
+    subprocess.run(["pkill", "-xu", str(os.getuid()), DAEMON_BIN], check=False)
 
 
 class ParakeetTray:
