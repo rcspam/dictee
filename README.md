@@ -193,10 +193,10 @@ Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 
 | Backend | Privacy | Speed | Quality | Requirements |
 |---------|---------|-------|---------|--------------|
-| **translate-shell** (Google) | Online | ~0.2s | Good | `apt install translate-shell` |
-| **translate-shell** (Bing) | Online | ~1.7s | Good | `apt install translate-shell` |
-| **LibreTranslate** | 100% local | ~0.1s | Good | Docker (~2 GB image) |
-| **ollama** | 100% local | ~3.4s | Best | ollama + translategemma/aya model |
+| **translate-shell** (Google) | Online | 0.2–0.7s | Good | `apt install translate-shell` |
+| **translate-shell** (Bing) | Online | 1.7–2.2s | Good | `apt install translate-shell` |
+| **LibreTranslate** | 100% local | 0.1–0.3s | Good | Docker (~2 GB image) |
+| **ollama** | 100% local | 2.3–3.4s | Best | ollama + translategemma/aya model |
 - **Options**: clipboard copy, visual feedback (animation-speech overlay or Plasma widget)
 - **Services**: daemon and tray autostart
 

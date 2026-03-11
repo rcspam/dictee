@@ -193,10 +193,10 @@ Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 
 | Backend | Confidentialité | Vitesse | Qualité | Prérequis |
 |---------|-----------------|---------|---------|-----------|
-| **translate-shell** (Google) | En ligne | ~0,2s | Bonne | `apt install translate-shell` |
-| **translate-shell** (Bing) | En ligne | ~1,7s | Bonne | `apt install translate-shell` |
-| **LibreTranslate** | 100% local | ~0,1s | Bonne | Docker (~2 Go d'image) |
-| **ollama** | 100% local | ~3,4s | Meilleure | ollama + modèle translategemma/aya |
+| **translate-shell** (Google) | En ligne | 0,2–0,7s | Bonne | `apt install translate-shell` |
+| **translate-shell** (Bing) | En ligne | 1,7–2,2s | Bonne | `apt install translate-shell` |
+| **LibreTranslate** | 100% local | 0,1–0,3s | Bonne | Docker (~2 Go d'image) |
+| **ollama** | 100% local | 2,3–3,4s | Meilleure | ollama + modèle translategemma/aya |
 - **Options** : copie presse-papier, retour visuel (overlay animation-speech ou widget Plasma)
 - **Services** : démarrage automatique du daemon et du tray
 
