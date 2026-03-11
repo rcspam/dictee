@@ -173,8 +173,12 @@ Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 
 #### Réglages
 
+- **Volume micro** — réglage du niveau d'entrée directement depuis la config du widget
 - **Seuil de silence** — met à zéro l'audio sous un seuil pour un silence net
-- **Calibration** — enregistre le silence pour soustraire le bruit de fond
+- **Auto-calibration** — capture le bruit ambiant au démarrage pour une normalisation optimale
+- **Sensibilité** — courbe de puissance par style d'animation (`pow(raw, 1/sens)`) pour un contrôle précis
+- **Forme d'enveloppe** — puissance Hanning ajustable (plate → pointue)
+- **Centre d'enveloppe** — déplace le pic sur la plage de fréquences (80–4000 Hz) pour une meilleure répartition spectrale
 - **Contrôles par style** — nombre de barres, espacement, rayon, vitesse, etc.
 
 > Nécessite `python3-numpy` et `pulseaudio-utils` (parec) pour la visualisation audio en temps réel.
@@ -186,9 +190,12 @@ Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 - **Modèles ASR** : téléchargement et gestion des modèles de transcription (TDT, Sortformer, Nemotron)
 - **Raccourcis clavier** : capture et enregistrement automatique (KDE Plasma / GNOME) — raccourcis séparés pour la dictée et la dictée + traduction
 - **Traduction** : langues source/cible, choix du backend :
-  - **translate-shell** — moteur Google ou Bing (en ligne)
-  - **LibreTranslate** — 100% local via Docker (~2 Go), avec contrôles pull/start/stop
-  - **ollama** — traduction 100% locale via LLM (translategemma, aya…)
+
+| Backend | Confidentialité | Vitesse | Qualité | Prérequis |
+|---------|-----------------|---------|---------|-----------|
+| **translate-shell** | En ligne (Google/Bing) | ~0,5s | Bonne | `apt install translate-shell` |
+| **LibreTranslate** | 100% local | ~1–2s | Bonne | Docker (~2 Go d'image) |
+| **ollama** | 100% local | ~2–5s | Meilleure | ollama + modèle translategemma/aya |
 - **Options** : copie presse-papier, retour visuel (overlay animation-speech ou widget Plasma)
 - **Services** : démarrage automatique du daemon et du tray
 
@@ -200,7 +207,7 @@ Les préférences sont sauvegardées dans `~/.config/dictee.conf` et chargées a
 
 ## Backend : moteur de transcription
 
-Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes) pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
+Trois backends de transcription sont supportés. Le moteur par défaut s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [@altunenes](https://github.com/altunenes) pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime. Des backends alternatifs (Vosk, faster-whisper) sont disponibles pour les cas d'usage légers ou multilingues.
 
 ### Fonctionnalités
 
@@ -211,7 +218,26 @@ Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunen
 - **Mode daemon** : modèle chargé une seule fois, transcriptions quasi-instantanées
 - **Enregistrement micro** : PipeWire / PulseAudio / ALSA, auto-unmute
 - **GPU ou CPU** : CUDA, TensorRT, CoreML, DirectML, OpenVINO
-- **Backends ASR alternatifs** : Vosk (léger, streaming) et faster-whisper (99 langues, CTranslate2) — installables depuis `dictee --setup`
+- **Backends ASR alternatifs** : Vosk et faster-whisper — installables depuis `dictee --setup`
+
+### Backends ASR
+
+Trois backends de transcription mutuellement exclusifs sont disponibles, commutables depuis `dictee --setup` :
+
+| Backend | Langues | Taille modèle | Démarrage à froid | Daemon chaud | Type |
+|---------|---------|----------------|-------------------|--------------|------|
+| **Parakeet-TDT** (défaut) | 25 | ~2,5 Go | ~3s | ~0,8s | ONNX Runtime (Rust) |
+| **Vosk** | 9+ | ~50 Mo | ~2s | ~1,5s | Python (léger) |
+| **faster-whisper** | 99 | ~500 Mo–3 Go | ~2s | ~0,3s | CTranslate2 (Python) |
+
+> Mesuré sur 10s de parole française, CPU (AMD Ryzen). Démarrage à froid = lancement service + chargement modèle + première transcription. Chaud = daemon déjà chargé.
+
+**Parakeet-TDT** offre la meilleure précision avec ponctuation et capitalisation natives. **faster-whisper** est le plus rapide une fois chargé et supporte 99 langues. **Vosk** est le plus léger en disque et RAM (~50 Mo de modèle).
+
+- Chaque backend tourne en service systemd utilisateur (`dictee.service`, `dictee-vosk.service`, `dictee-whisper.service`) — mutuellement exclusifs via `Conflicts=`
+- Même protocole socket Unix → `transcribe-client` et `dictee` fonctionnent sans modification
+- Vosk et faster-whisper sont installés dans des venvs Python isolés (`~/.local/share/dictee/`)
+- Le téléchargement de modèles et le changement de backend se font depuis `dictee --setup`
 
 ### Programmes
 
@@ -342,7 +368,7 @@ Ce projet ajoute :
 - Auto-unmute du microphone (PipeWire/PulseAudio)
 - Paquets Debian (.deb) pour installation système
 - Service systemd
-- Interface de configuration GTK3 (`dictee --setup`)
+- Interface de configuration PyQt6 (`dictee --setup`)
 - Icône de zone de notification (`dictee-tray`)
 - Widget KDE Plasma 6 avec visualisation audio temps réel
 

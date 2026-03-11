@@ -173,8 +173,12 @@ Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 
 #### Settings
 
+- **Microphone volume** — adjust input level directly from the widget config
 - **Noise gate** — zero out audio below a threshold for clean silence
-- **Calibrate** — record silence to subtract background noise
+- **Auto-calibration** — captures ambient noise at startup for optimal normalization
+- **Sensitivity** — power curve per animation style (`pow(raw, 1/sens)`) for precise control
+- **Envelope shape** — adjustable Hanning power (flat → sharp)
+- **Envelope center** — shift the peak across the frequency range (80–4000 Hz) for better spectral distribution
 - **Per-style controls** — bar count, spacing, radius, speed, etc.
 
 > Requires `python3-numpy` and `pulseaudio-utils` (parec) for real-time audio visualization.
@@ -186,9 +190,12 @@ Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg)
 - **ASR models**: download and manage transcription models (TDT, Sortformer, Nemotron)
 - **Keyboard shortcuts**: capture and automatic registration (KDE Plasma / GNOME) — separate shortcuts for dictation and dictation + translation
 - **Translation**: source/target languages, backend choice:
-  - **translate-shell** — Google or Bing engine (online)
-  - **LibreTranslate** — 100% local via Docker (~2 GB image), with pull/start/stop controls
-  - **ollama** — 100% local LLM translation (translategemma, aya…)
+
+| Backend | Privacy | Speed | Quality | Requirements |
+|---------|---------|-------|---------|--------------|
+| **translate-shell** | Online (Google/Bing) | ~0.5s | Good | `apt install translate-shell` |
+| **LibreTranslate** | 100% local | ~1–2s | Good | Docker (~2 GB image) |
+| **ollama** | 100% local | ~2–5s | Best | ollama + translategemma/aya model |
 - **Options**: clipboard copy, visual feedback (animation-speech overlay or Plasma widget)
 - **Services**: daemon and tray autostart
 
@@ -200,7 +207,7 @@ Preferences are saved in `~/.config/dictee.conf` and automatically loaded on eac
 
 ## Backend: transcription engine
 
-The transcription engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [@altunenes](https://github.com/altunenes) for NVIDIA Parakeet model inference via ONNX Runtime.
+Three transcription backends are supported. The default engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [@altunenes](https://github.com/altunenes) for NVIDIA Parakeet model inference via ONNX Runtime. Alternative backends (Vosk, faster-whisper) are available for lightweight or multilingual use cases.
 
 ### Features
 
@@ -211,7 +218,26 @@ The transcription engine is built on [parakeet-rs](https://github.com/altunenes/
 - **Daemon mode**: model loaded once, near-instant transcriptions
 - **Microphone recording**: PipeWire / PulseAudio / ALSA, auto-unmute
 - **GPU or CPU**: CUDA, TensorRT, CoreML, DirectML, OpenVINO
-- **Alternative ASR backends**: Vosk (lightweight, streaming) and faster-whisper (99 languages, CTranslate2) — installable from `dictee --setup`
+- **Alternative ASR backends**: Vosk and faster-whisper — installable from `dictee --setup`
+
+### ASR backends
+
+Three mutually exclusive transcription backends are available, switchable from `dictee --setup`:
+
+| Backend | Languages | Model size | Cold start | Warm daemon | Type |
+|---------|-----------|------------|-----------|-------------|------|
+| **Parakeet-TDT** (default) | 25 | ~2.5 GB | ~3s | ~0.8s | ONNX Runtime (Rust) |
+| **Vosk** | 9+ | ~50 MB | ~2s | ~1.5s | Python (lightweight) |
+| **faster-whisper** | 99 | ~500 MB–3 GB | ~2s | ~0.3s | CTranslate2 (Python) |
+
+> Benchmarked on 10s of French speech, CPU (AMD Ryzen). Cold start = service start + model load + first transcription. Warm = daemon already loaded.
+
+**Parakeet-TDT** offers the best accuracy with native punctuation and capitalization. **faster-whisper** is the fastest once loaded and supports 99 languages. **Vosk** is the lightest on disk and RAM (~50 MB model).
+
+- Each backend runs as a systemd user service (`dictee.service`, `dictee-vosk.service`, `dictee-whisper.service`) — mutually exclusive via `Conflicts=`
+- Same Unix socket protocol → `transcribe-client` and `dictee` work without modification
+- Vosk and faster-whisper are installed in isolated Python venvs (`~/.local/share/dictee/`)
+- Model download and backend switching are handled by `dictee --setup`
 
 ### Programs
 
@@ -342,7 +368,7 @@ This project adds:
 - Microphone auto-unmute (PipeWire/PulseAudio)
 - Debian packages (.deb) for system installation
 - Systemd service
-- GTK3 configuration interface (`dictee --setup`)
+- PyQt6 configuration interface (`dictee --setup`)
 - Notification area icon (`dictee-tray`)
 - KDE Plasma 6 widget with real-time audio visualization
 
