@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""
+transcribe-daemon-whisper — Serveur de transcription via socket Unix
+Utilise faster-whisper (CTranslate2) comme backend ASR.
+Même protocole que transcribe-daemon (Rust/Parakeet) :
+  le client envoie un chemin WAV, le daemon répond avec le texte transcrit.
+"""
+
+import sys, os, socket, signal, traceback
+
+# — Injection du venv faster-whisper dans sys.path —
+VENV_SITE = os.path.expanduser("~/.local/share/dictee/whisper-env/lib")
+for d in os.listdir(VENV_SITE) if os.path.isdir(VENV_SITE) else []:
+    sp = os.path.join(VENV_SITE, d, "site-packages")
+    if os.path.isdir(sp) and sp not in sys.path:
+        sys.path.insert(0, sp)
+
+from faster_whisper import WhisperModel  # noqa: E402
+
+
+def socket_path():
+    """Chemin du socket par utilisateur (même logique que le daemon Rust)."""
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return os.path.join(xdg, "transcribe.sock")
+    return f"/tmp/transcribe-{os.getuid()}.sock"
+
+
+def main():
+    sock_path = socket_path()
+
+    # — Paramètres via variables d'environnement —
+    model_size = os.environ.get("DICTEE_WHISPER_MODEL", "small")
+    language = os.environ.get("DICTEE_WHISPER_LANG") or None
+
+    # — Suppression d'un socket résiduel —
+    if os.path.exists(sock_path):
+        os.remove(sock_path)
+
+    # — Chargement du modèle (une seule fois) —
+    print(f"Chargement du modèle faster-whisper '{model_size}'…", file=sys.stderr)
+    model = WhisperModel(model_size, device="auto", compute_type="auto")
+    print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
+
+    # — Création du socket Unix —
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(sock_path)
+    os.chmod(sock_path, 0o600)
+    server.listen(1)
+
+    # — Arrêt propre sur SIGTERM/SIGINT —
+    def cleanup(signum, frame):
+        print("\nArrêt du daemon.", file=sys.stderr)
+        server.close()
+        if os.path.exists(sock_path):
+            os.remove(sock_path)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+
+    # — Boucle principale : une connexion à la fois —
+    while True:
+        conn, _ = server.accept()
+        try:
+            # Le client envoie un chemin de fichier audio (une ligne)
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+
+            wav_path = data.decode("utf-8").strip()
+            if not wav_path:
+                conn.sendall(b"ERROR: chemin vide\n")
+                continue
+
+            if not os.path.isfile(wav_path):
+                conn.sendall(f"ERROR: fichier introuvable: {wav_path}\n".encode())
+                continue
+
+            # — Transcription —
+            segments, _info = model.transcribe(
+                wav_path,
+                language=language,
+                beam_size=5,
+                vad_filter=True,
+            )
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+            conn.sendall((text + "\n").encode("utf-8"))
+
+        except Exception:
+            err = traceback.format_exc().replace("\n", " ")
+            try:
+                conn.sendall(f"ERROR: {err}\n".encode("utf-8"))
+            except OSError:
+                pass
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    main()

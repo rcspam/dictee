@@ -1,6 +1,7 @@
 [Unit]
 Description=Parakeet Transcribe Daemon (ASR)
 After=network.target
+Conflicts=dictee-vosk.service dictee-whisper.service
 
 [Service]
 Type=simple

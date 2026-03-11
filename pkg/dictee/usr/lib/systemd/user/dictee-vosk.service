@@ -1,0 +1,15 @@
+[Unit]
+Description=Vosk Transcription Daemon (ASR)
+After=network.target
+Conflicts=dictee.service dictee-whisper.service
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/dictee.conf
+ExecStart=/usr/bin/transcribe-daemon-vosk
+Restart=on-failure
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+
+[Install]
+WantedBy=default.target

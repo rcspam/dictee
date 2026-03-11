@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""transcribe-daemon-vosk — Serveur de transcription Vosk via socket Unix.
+
+Même protocole que le daemon Rust : le client envoie un chemin WAV (une ligne),
+le daemon répond avec le texte transcrit (une ligne).
+"""
+
+import sys
+import os
+import socket
+import json
+import signal
+import wave
+import locale
+
+# Injection du venv Vosk dans sys.path
+VENV_SITE = os.path.expanduser("~/.local/share/dictee/vosk-env/lib")
+for d in os.listdir(VENV_SITE) if os.path.isdir(VENV_SITE) else []:
+    sp = os.path.join(VENV_SITE, d, "site-packages")
+    if os.path.isdir(sp) and sp not in sys.path:
+        sys.path.insert(0, sp)
+
+from vosk import Model, KaldiRecognizer, SetLogLevel
+
+
+def socket_path():
+    """Chemin du socket par utilisateur (même logique que le daemon Rust)."""
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return os.path.join(xdg, "transcribe.sock")
+    return f"/tmp/transcribe-{os.getuid()}.sock"
+
+
+def find_model_dir():
+    """Trouve le répertoire du modèle Vosk."""
+    base = os.environ.get(
+        "DICTEE_VOSK_MODEL_DIR",
+        os.path.expanduser("~/.local/share/dictee/vosk-models"),
+    )
+    if not os.path.isdir(base):
+        os.makedirs(base, exist_ok=True)
+    # Chercher le premier sous-répertoire contenant un modèle
+    for entry in sorted(os.listdir(base)):
+        full = os.path.join(base, entry)
+        if os.path.isdir(full):
+            return full
+    # Aucun modèle trouvé → télécharger le modèle small pour la langue système
+    return download_default_model(base)
+
+
+def download_default_model(base):
+    """Télécharge le modèle Vosk small par défaut pour la langue système."""
+    import zipfile
+    from urllib.request import urlretrieve
+
+    lang = locale.getlocale()[0] or "en_US"
+    lang = lang.split("_")[0]  # "fr_FR" → "fr"
+    # Modèles small connus (lang → nom exact du zip)
+    known = {
+        "fr": "vosk-model-small-fr-0.22",
+        "en": "vosk-model-small-en-us-0.15",
+        "de": "vosk-model-small-de-0.15",
+        "es": "vosk-model-small-es-0.42",
+        "it": "vosk-model-small-it-0.22",
+        "pt": "vosk-model-small-pt-0.3",
+        "ru": "vosk-model-small-ru-0.22",
+        "zh": "vosk-model-small-cn-0.22",
+        "ja": "vosk-model-small-ja-0.22",
+    }
+    name = known.get(lang, known["en"])
+    url = f"https://alphacephei.com/vosk/models/{name}.zip"
+    zip_path = os.path.join(base, f"{name}.zip")
+    model_dir = os.path.join(base, name)
+
+    print(f"Téléchargement du modèle {name}...", file=sys.stderr)
+    urlretrieve(url, zip_path)
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(base)
+    os.remove(zip_path)
+    print(f"Modèle installé dans {model_dir}", file=sys.stderr)
+    return model_dir
+
+
+def transcribe_wav(rec, path):
+    """Transcrit un fichier WAV 16 kHz mono avec le recognizer donné."""
+    with wave.open(path, "rb") as wf:
+        if wf.getnchannels() != 1 or wf.getframerate() != 16000:
+            return "ERROR: le fichier WAV doit être mono 16 kHz"
+        if wf.getsampwidth() != 2:
+            return "ERROR: le fichier WAV doit être en PCM 16 bits"
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            rec.AcceptWaveform(data)
+    result = json.loads(rec.FinalResult())
+    return result.get("text", "")
+
+
+def main():
+    sock_path = socket_path()
+
+    # Nettoyage propre à la réception de SIGTERM/SIGINT
+    def cleanup(signum=None, frame=None):
+        try:
+            os.unlink(sock_path)
+        except OSError:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+
+    # Supprimer un socket résiduel
+    if os.path.exists(sock_path):
+        os.unlink(sock_path)
+
+    # Charger le modèle une seule fois
+    SetLogLevel(-1)
+    model_dir = find_model_dir()
+    print(f"Chargement du modèle depuis {model_dir}...", file=sys.stderr)
+    model = Model(model_dir)
+    print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
+
+    # Créer le socket Unix
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(sock_path)
+    os.chmod(sock_path, 0o600)
+    server.listen(1)
+
+    # Boucle principale — connexions séquentielles
+    while True:
+        conn, _ = server.accept()
+        try:
+            data = b""
+            while b"\n" not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            wav_path = data.decode("utf-8").strip()
+            if not wav_path:
+                conn.sendall(b"ERROR: chemin vide\n")
+                continue
+            if not os.path.isfile(wav_path):
+                conn.sendall(f"ERROR: fichier introuvable: {wav_path}\n".encode())
+                continue
+            # Nouveau recognizer par requête (réinitialise l'état)
+            rec = KaldiRecognizer(model, 16000)
+            text = transcribe_wav(rec, wav_path)
+            conn.sendall((text + "\n").encode("utf-8"))
+        except Exception as e:
+            try:
+                conn.sendall(f"ERROR: {e}\n".encode("utf-8"))
+            except OSError:
+                pass
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -470,6 +470,47 @@ msgstr "LibreTranslate arrêté"
 msgid "Error"
 msgstr "Erreur"
 
+#: dictee-setup.py
+msgid "ASR backend"
+msgstr "Backend ASR"
+
+#: dictee-setup.py
+msgid "multilingual, 25 languages (installed with .deb)"
+msgstr "multilingue, 25 langues (installé avec le .deb)"
+
+#: dictee-setup.py
+msgid "lightweight, streaming (~50 MB)"
+msgstr "léger, streaming (~50 Mo)"
+
+#: dictee-setup.py
+msgid "99 languages, auto-detect (CTranslate2)"
+msgstr "99 langues, détection auto (CTranslate2)"
+
+#: dictee-setup.py
+msgid "Install"
+msgstr "Installer"
+
+#: dictee-setup.py
+msgid "Language:"
+msgstr "Langue :"
+
+#: dictee-setup.py
+msgid "(empty = auto-detect)"
+msgstr "(vide = détection auto)"
+
+#: dictee-setup.py
+msgid "Creating virtual environment…"
+msgstr "Création de l'environnement virtuel…"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid "Installing {pkg}…"
+msgstr "Installation de {pkg}…"
+
+#: dictee-setup.py
+msgid "Installation timed out."
+msgstr "Installation expirée."
+
 # === dictee-tray ===
 
 #: dictee-tray

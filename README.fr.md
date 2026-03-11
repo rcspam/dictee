@@ -74,10 +74,10 @@ Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
 # Version GPU (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_0.99.8_amd64.deb
+sudo dpkg -i dictee-cuda_0.99.9_amd64.deb
 
 # Version CPU (tout ordinateur)
-sudo dpkg -i dictee-cpu_0.99.8_amd64.deb
+sudo dpkg -i dictee-cpu_0.99.9_amd64.deb
 
 # Installer les dépendances manquantes
 sudo apt-get install -f
@@ -211,6 +211,7 @@ Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunen
 - **Mode daemon** : modèle chargé une seule fois, transcriptions quasi-instantanées
 - **Enregistrement micro** : PipeWire / PulseAudio / ALSA, auto-unmute
 - **GPU ou CPU** : CUDA, TensorRT, CoreML, DirectML, OpenVINO
+- **Backends ASR alternatifs** : Vosk (léger, streaming) et faster-whisper (99 langues, CTranslate2) — installables depuis `dictee --setup`
 
 ### Programmes
 
