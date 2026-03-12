@@ -1,71 +1,70 @@
-# SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# Italian translation for dictee
+# Copyright (C) 2026 rcspam
 # This file is distributed under the same license as the dictee package.
-# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-03-13 00:09+0100\n"
-"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
-"Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
+"PO-Revision-Date: 2026-03-13 00:09+0100\n"
+"Last-Translator: rcspam <rcspams@gmail.com>\n"
+"Language-Team: Italian\n"
+"Language: it\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 #: dictee-setup.py:98
 msgid "unknown"
-msgstr ""
+msgstr "sconosciuto"
 
 #: dictee-setup.py:411 dictee-setup.py:993 dictee-setup.py:1906
 msgid "Voice dictation"
-msgstr ""
+msgstr "Dettatura vocale"
 
 #: dictee-setup.py:428
 msgid "translategemma 4B (3.3 GB, 55 languages, 8 GB RAM)"
-msgstr ""
+msgstr "translategemma 4B (3,3 GB, 55 lingue, 8 GB RAM)"
 
 #: dictee-setup.py:429
 msgid "translategemma 12B (8 GB, best quality, 16 GB RAM)"
-msgstr ""
+msgstr "translategemma 12B (8 GB, qualità migliore, 16 GB RAM)"
 
 #: dictee-setup.py:430
 msgid "aya 8B (5 GB, Cohere, 23 languages, 16 GB RAM)"
-msgstr ""
+msgstr "aya 8B (5 GB, Cohere, 23 lingue, 16 GB RAM)"
 
 #: dictee-setup.py:521
 #, python-brace-format
 msgid "Downloading {model}…"
-msgstr ""
+msgstr "Download di {model}…"
 
 #: dictee-setup.py:529 dictee-setup.py:703 dictee-setup.py:812
 msgid "Download failed."
-msgstr ""
+msgstr "Download fallito."
 
 #: dictee-setup.py:531 dictee-setup.py:814
 msgid "Download timed out (10 min)."
-msgstr ""
+msgstr "Download scaduto (10 min)."
 
 #: dictee-setup.py:585
 msgid "Creating virtual environment…"
-msgstr ""
+msgstr "Creazione dell'ambiente virtuale…"
 
 #: dictee-setup.py:595
 #, python-brace-format
 msgid "Installing {pkg}…"
-msgstr ""
+msgstr "Installazione di {pkg}…"
 
 #: dictee-setup.py:605
 msgid "Installation timed out."
-msgstr ""
+msgstr "Installazione scaduta."
 
 #: dictee-setup.py:613
 msgid "Multilingual transcription (25 languages, ~2.5 GB)"
-msgstr ""
+msgstr "Trascrizione multilingue (25 lingue, ~2,5 GB)"
 
 #: dictee-setup.py:615
 msgid ""
@@ -77,10 +76,17 @@ msgid ""
 "daemon).<br>Used by: <code>transcribe</code>, <code>transcribe-daemon</"
 "code>, <code>transcribe-diarize</code>, <code>dictee</code>"
 msgstr ""
+"<b>Parakeet-TDT 0.6B v3</b> — Modello di trascrizione principale<br><br>Encoder "
+"FastConformer + decoder Token-and-Duration Transducer (TDT).<br>Supporta <b>25 "
+"lingue</b> tra cui francese, inglese, spagnolo, tedesco ecc.<br>Punteggiatura "
+"e maiuscole native (nessuna post-elaborazione necessaria)."
+"<br><br><b>Necessario</b> per tutte le modalità di trascrizione (dettatura, batch, "
+"daemon).<br>Usato da: <code>transcribe</code>, <code>transcribe-daemon</"
+"code>, <code>transcribe-diarize</code>, <code>dictee</code>"
 
 #: dictee-setup.py:636
 msgid "Speaker diarization (4 speakers max, ~50 MB)"
-msgstr ""
+msgstr "Diarizzazione (max 4 interlocutori, ~50 MB)"
 
 #: dictee-setup.py:638
 msgid ""
@@ -90,10 +96,15 @@ msgid ""
 "b> — only needed if you want speaker identification.<br>Used by: "
 "<code>transcribe-diarize</code>, <code>transcribe-stream-diarize</code>"
 msgstr ""
+"<b>Sortformer</b> — Modello di diarizzazione<br><br>Identifica e "
+"separa fino a <b>4 interlocutori diversi</b> in una registrazione audio.<br>Associa "
+"ogni segmento di trascrizione all'interlocutore corrispondente.<br><br><b>Opzionale</"
+"b> — necessario solo per l'identificazione degli interlocutori.<br>Usato da: "
+"<code>transcribe-diarize</code>, <code>transcribe-stream-diarize</code>"
 
 #: dictee-setup.py:654
 msgid "English streaming (~2.5 GB)"
-msgstr ""
+msgstr "Streaming inglese (~2,5 GB)"
 
 #: dictee-setup.py:656
 msgid ""
@@ -103,84 +114,91 @@ msgid ""
 "<br><br><b>Optional</b> — only needed for English streaming + diarization "
 "mode.<br>Used by: <code>transcribe-stream-diarize</code>"
 msgstr ""
+"<b>Nemotron 0.6B</b> — Modello streaming inglese<br><br>Ottimizzato per la trascrizione "
+"<b>inglese in tempo reale</b> con bassa latenza.<br>Elabora l'audio in "
+"blocchi di streaming invece di attendere la registrazione completa."
+"<br><br><b>Opzionale</b> — necessario solo per la modalità streaming inglese + diarizzazione."
+"<br>Usato da: <code>transcribe-stream-diarize</code>"
 
 #: dictee-setup.py:697
 #, python-brace-format
 msgid "Downloading {name}…"
-msgstr ""
+msgstr "Download di {name}…"
 
 #: dictee-setup.py:707
 msgid "Download timed out (30 min)."
-msgstr ""
+msgstr "Download scaduto (30 min)."
 
 #: dictee-setup.py:709
 #, python-brace-format
 msgid "Permission denied. Run: sudo chmod 777 {dir}"
-msgstr ""
+msgstr "Permesso negato. Eseguire: sudo chmod 777 {dir}"
 
 #: dictee-setup.py:804
 msgid "Downloading Docker image…"
-msgstr ""
+msgstr "Download dell'immagine Docker…"
 
 #: dictee-setup.py:831
 msgid ""
 "The 'gh' tool (GitHub CLI) is required.\n"
 "Install it: sudo apt install gh && gh auth login"
 msgstr ""
+"Lo strumento 'gh' (GitHub CLI) è necessario.\n"
+"Installarlo: sudo apt install gh && gh auth login"
 
 #: dictee-setup.py:846
 msgid "Download error (.deb)"
-msgstr ""
+msgstr "Errore di download (.deb)"
 
 #: dictee-setup.py:851
 msgid "No .deb found in the release."
-msgstr ""
+msgstr "Nessun .deb trovato nella release."
 
 #: dictee-setup.py:854 dictee-setup.py:874 dictee-setup.py:1760
 msgid "Installing…"
-msgstr ""
+msgstr "Installazione…"
 
 #: dictee-setup.py:866
 msgid "Download error (.tar.gz)"
-msgstr ""
+msgstr "Errore di download (.tar.gz)"
 
 #: dictee-setup.py:871
 msgid "No .tar.gz found in the release."
-msgstr ""
+msgstr "Nessun .tar.gz trovato nella release."
 
 #: dictee-setup.py:891
 msgid "Installation error."
-msgstr ""
+msgstr "Errore di installazione."
 
 #: dictee-setup.py:906
 msgid "Click to capture a shortcut…"
-msgstr ""
+msgstr "Clicca per catturare una scorciatoia…"
 
 #: dictee-setup.py:914
 msgid "Press a key combination…"
-msgstr ""
+msgstr "Premi una combinazione di tasti…"
 
 #: dictee-setup.py:943 dictee-setup.py:1002 dictee-setup.py:1024
 #, python-brace-format
 msgid "Shortcut: {label}"
-msgstr ""
+msgstr "Scorciatoia: {label}"
 
 #: dictee-setup.py:956
 msgid "Voice dictation configuration"
-msgstr ""
+msgstr "Configurazione dettatura vocale"
 
 #: dictee-setup.py:983
 msgid "Keyboard shortcut"
-msgstr ""
+msgstr "Scorciatoia da tastiera"
 
 #: dictee-setup.py:988
 #, python-brace-format
 msgid "Detected environment: <b>{name}</b>"
-msgstr ""
+msgstr "Ambiente rilevato: <b>{name}</b>"
 
 #: dictee-setup.py:1015 dictee-setup.py:1908
 msgid "Dictation + Translation"
-msgstr ""
+msgstr "Dettatura + Traduzione"
 
 #: dictee-setup.py:1036
 #, python-brace-format
@@ -189,262 +207,344 @@ msgid ""
 "Configure the shortcut manually in your window manager:\n"
 "Command: <b>{cmd}</b>"
 msgstr ""
+"Ambiente non supportato per la configurazione automatica.\n"
+"Configura la scorciatoia manualmente nel tuo gestore di finestre:\n"
+"Comando: <b>{cmd}</b>"
 
 #: dictee-setup.py:1045
 msgid "ASR backend"
-msgstr ""
+msgstr "Backend ASR"
 
 #: dictee-setup.py:1074
 msgid " (required)"
-msgstr ""
+msgstr " (necessario)"
 
 #: dictee-setup.py:1093 dictee-setup.py:1751
 msgid "Download"
-msgstr ""
+msgstr "Scarica"
 
 #: dictee-setup.py:1093 dictee-setup.py:1119 dictee-setup.py:1149
 #: dictee-setup.py:1746 dictee-setup.py:1770
 msgid "Installed"
-msgstr ""
+msgstr "Installato"
 
 #: dictee-setup.py:1119 dictee-setup.py:1149 dictee-setup.py:1773
 msgid "Install"
-msgstr ""
+msgstr "Installa"
 
 #: dictee-setup.py:1124 dictee-setup.py:1162
 msgid "Language:"
-msgstr ""
+msgstr "Lingua:"
 
 #: dictee-setup.py:1154 dictee-setup.py:1360
 msgid "Model:"
-msgstr ""
+msgstr "Modello:"
 
 #: dictee-setup.py:1168
 msgid "(empty = auto-detect)"
-msgstr ""
+msgstr "(vuoto = rilevamento automatico)"
 
 #: dictee-setup.py:1196
 msgid "Visual feedback"
-msgstr ""
+msgstr "Feedback visivo"
 
 #: dictee-setup.py:1201
 msgid "animation-speech (overlay)"
-msgstr ""
+msgstr "animation-speech (overlay)"
 
 #: dictee-setup.py:1202
 msgid "KDE Plasma widget (panel)"
-msgstr ""
+msgstr "Widget KDE Plasma (pannello)"
 
 #: dictee-setup.py:1203
 msgid "GNOME Shell extension (not yet available)"
-msgstr ""
+msgstr "Estensione GNOME Shell (non ancora disponibile)"
 
 #: dictee-setup.py:1220 dictee-setup.py:1837
 msgid "Install animation-speech"
-msgstr ""
+msgstr "Installa animation-speech"
 
 #: dictee-setup.py:1239
 msgid "Translation"
-msgstr ""
+msgstr "Traduzione"
 
 #: dictee-setup.py:1244
 msgid "How to translate:"
-msgstr ""
+msgstr "Come tradurre:"
 
 #: dictee-setup.py:1245
 msgid "• Keyboard shortcut: configure above (Dictation + Translation)"
-msgstr ""
+msgstr "• Scorciatoia da tastiera: configura sopra (Dettatura + Traduzione)"
 
 #: dictee-setup.py:1246
 msgid "• Plasmoid: long press or translation button"
-msgstr ""
+msgstr "• Plasmoid: pressione lunga o pulsante traduzione"
 
 #: dictee-setup.py:1247
 msgid "• CLI: dictee --translate"
-msgstr ""
+msgstr "• CLI: dictee --translate"
 
 #: dictee-setup.py:1248
 msgid "• Direct: transcribe-client | trans -b :en"
-msgstr ""
+msgstr "• Diretto: transcribe-client | trans -b :en"
 
 #: dictee-setup.py:1274
 msgid "Source language:"
-msgstr ""
+msgstr "Lingua sorgente:"
 
 #: dictee-setup.py:1275
 msgid "Target language:"
-msgstr ""
+msgstr "Lingua di destinazione:"
 
 #: dictee-setup.py:1281
 msgid "Backend:"
-msgstr ""
+msgstr "Backend:"
 
 #: dictee-setup.py:1288
 msgid "ollama (local)"
-msgstr ""
+msgstr "ollama (locale)"
 
 #: dictee-setup.py:1301
 msgid "Port:"
-msgstr ""
+msgstr "Porta:"
 
 #: dictee-setup.py:1324 dictee-setup.py:1708
 msgid "Download image"
-msgstr ""
+msgstr "Scarica immagine"
 
 #: dictee-setup.py:1329
 msgid "Start"
-msgstr ""
+msgstr "Avvia"
 
 #: dictee-setup.py:1334
 msgid "Stop"
-msgstr ""
+msgstr "Arresta"
 
 #: dictee-setup.py:1374
 msgid "Force CPU (OLLAMA_NUM_GPU=0)"
-msgstr ""
+msgstr "Forza CPU (OLLAMA_NUM_GPU=0)"
 
 #: dictee-setup.py:1378
 msgid "Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"
-msgstr ""
+msgstr "Usa CPU invece di GPU per l'inferenza ollama (più lento ma senza VRAM)"
 
 #: dictee-setup.py:1381 dictee-setup.py:1610 dictee-setup.py:1629
 msgid "Download model"
-msgstr ""
+msgstr "Scarica modello"
 
 #: dictee-setup.py:1424
 msgid "Options"
-msgstr ""
+msgstr "Opzioni"
 
 #: dictee-setup.py:1429
 msgid "Copy transcription to clipboard"
-msgstr ""
+msgstr "Copia la trascrizione negli appunti"
 
 #: dictee-setup.py:1436
 msgid "Startup services"
-msgstr ""
+msgstr "Servizi all'avvio"
 
 #: dictee-setup.py:1441
 msgid "Start transcription daemon at startup"
-msgstr ""
+msgstr "Avvia il daemon di trascrizione all'avvio"
 
 #: dictee-setup.py:1442
 msgid "Show notification area icon"
-msgstr ""
+msgstr "Mostra l'icona nell'area di notifica"
 
 #: dictee-setup.py:1462
 msgid "Cancel"
-msgstr ""
+msgstr "Annulla"
 
 #: dictee-setup.py:1468
 msgid "Apply"
-msgstr ""
+msgstr "Applica"
 
 #: dictee-setup.py:1474
 msgid "OK"
-msgstr ""
+msgstr "OK"
 
 #: dictee-setup.py:1525
 #, python-brace-format
 msgid "Shortcut already used by '{name}'"
-msgstr ""
+msgstr "Scorciatoia già usata da '{name}'"
 
 #: dictee-setup.py:1542
 msgid "ollama is not installed"
-msgstr ""
+msgstr "ollama non è installato"
 
 #: dictee-setup.py:1566
 #, python-brace-format
 msgid "RAM: {actual} GB / {required} GB recommended"
-msgstr ""
+msgstr "RAM: {actual} GB / {required} GB consigliati"
 
 #: dictee-setup.py:1576
 #, python-brace-format
 msgid "VRAM free: {free} GB / {required} GB required (total: {total} GB)"
-msgstr ""
+msgstr "VRAM libera: {free} GB / {required} GB necessari (totale: {total} GB)"
 
 #: dictee-setup.py:1583
 msgid "No GPU detected — ollama will use CPU (slower)."
-msgstr ""
+msgstr "Nessuna GPU rilevata — ollama userà la CPU (più lento)."
 
 #: dictee-setup.py:1599
 #, python-brace-format
 msgid "Model {model} ready"
-msgstr ""
+msgstr "Modello {model} pronto"
 
 #: dictee-setup.py:1606
 #, python-brace-format
 msgid "Model {model} not downloaded"
-msgstr ""
+msgstr "Modello {model} non scaricato"
 
 #: dictee-setup.py:1631 dictee-setup.py:1710 dictee-setup.py:1753
 msgid "Download error"
-msgstr ""
+msgstr "Errore di download"
 
 #: dictee-setup.py:1644
 msgid "Docker is not installed"
-msgstr ""
+msgstr "Docker non è installato"
 
 #: dictee-setup.py:1655
 msgid "Docker permission denied"
-msgstr ""
+msgstr "Docker: permesso negato"
 
 #: dictee-setup.py:1657
 msgid "(then log out and back in)"
-msgstr ""
+msgstr "(poi disconnettersi e riconnettersi)"
 
 #: dictee-setup.py:1667
 msgid "Docker image not downloaded (~2 GB)"
-msgstr ""
+msgstr "Immagine Docker non scaricata (~2 GB)"
 
 #: dictee-setup.py:1679
 #, python-brace-format
 msgid "LibreTranslate running on port {port}"
-msgstr ""
+msgstr "LibreTranslate in esecuzione sulla porta {port}"
 
 #: dictee-setup.py:1687
 msgid "LibreTranslate stopped"
-msgstr ""
+msgstr "LibreTranslate arrestato"
 
 #: dictee-setup.py:1717 dictee-setup.py:1724
 msgid "Error"
-msgstr ""
+msgstr "Errore"
 
 #: dictee-setup.py:1775 dictee-setup.py:1839
 msgid "Installation error"
-msgstr ""
+msgstr "Errore di installazione"
 
 #: dictee-setup.py:1799
 #, python-brace-format
 msgid "animation-speech {version} installed"
-msgstr ""
+msgstr "animation-speech {version} installato"
 
 #: dictee-setup.py:1803 dictee-setup.py:1806
 msgid "animation-speech installed"
-msgstr ""
+msgstr "animation-speech installato"
 
 #: dictee-setup.py:1817
 msgid "Dictee plasmoid installed"
-msgstr ""
+msgstr "Plasmoid Dictee installato"
 
 #: dictee-setup.py:1824
 msgid "Downloading…"
-msgstr ""
+msgstr "Download…"
 
 #: dictee-setup.py:1918 dictee-setup.py:1922
 #, python-brace-format
 msgid "Shortcut applied: {key}"
-msgstr ""
+msgstr "Scorciatoia applicata: {key}"
 
 #: dictee-setup.py:1924
 #, python-brace-format
 msgid "Shortcut error: {err}"
-msgstr ""
+msgstr "Errore scorciatoia: {err}"
 
 #: dictee-setup.py:1928
 msgid "Configuration saved"
-msgstr ""
+msgstr "Configurazione salvata"
 
 #: dictee-setup.py:1929
 #, python-brace-format
 msgid "File: {path}"
-msgstr ""
+msgstr "File: {path}"
+
+# === dictee-tray ===
+
+#: dictee-tray
+msgid "Start dictation"
+msgstr "Avvia dettatura"
+
+#: dictee-tray
+msgid "Stop dictation"
+msgstr "Arresta dettatura"
+
+#: dictee-tray
+msgid "Start translation"
+msgstr "Avvia traduzione"
+
+#: dictee-tray
+msgid "Stop translation"
+msgstr "Arresta traduzione"
+
+
+#: dictee-tray
+msgid "Configure Dictée"
+msgstr "Configura Dictée"
+
+#: dictee-tray
+msgid "Quit icon"
+msgstr "Chiudi icona"
+
+#: dictee-tray
+msgid "Daemon active"
+msgstr "Daemon attivo"
+
+#: dictee-tray
+msgid "Daemon stopped"
+msgstr "Daemon arrestato"
+
+#: dictee-tray
+msgid "Recording…"
+msgstr "Registrazione…"
+
+#: dictee-tray
+msgid "Transcribing…"
+msgstr "Trascrizione…"
+
+#: dictee-tray
+msgid "Dictation"
+msgstr "Dettatura"
+
+#: dictee-tray
+msgid "Dictation — ready"
+msgstr "Dettatura — pronta"
+
+#: dictee-tray
+msgid "Dictation — offline"
+msgstr "Dettatura — offline"
+
+#: dictee-tray
+msgid "Dictation — recording"
+msgstr "Dettatura — registrazione"
+
+#: dictee-tray
+msgid "Dictation — transcribing"
+msgstr "Dettatura — trascrizione"
+
+#: dictee-tray
+msgid "Click = dictation, Ctrl+click = translation"
+msgstr "Clic = dettatura, Ctrl+clic = traduzione"
+
+#: dictee-tray
+msgid "Click = stop, Middle = cancel"
+msgstr "Clic = arresta, Centrale = annulla"
+
+#: dictee-tray
+msgid "click to start"
+msgstr "clicca per avviare"
+
+#: dictee-tray
+msgid "click to stop"
+msgstr "clicca per arrestare"

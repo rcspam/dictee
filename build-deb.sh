@@ -17,9 +17,11 @@ echo "Build dependencies:"
 echo "  sudo apt install golang-go scdoc libxkbcommon-dev"
 echo ""
 
-# Copier le script dictee depuis la source unique (racine)
+# Copier les scripts depuis les sources uniques (racine)
 cp ./dictee "$PKG_DIR/usr/bin/dictee"
-chmod 755 "$PKG_DIR/usr/bin/dictee"
+cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
+cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray"
 
 # Build dotool (keyboard input tool)
 build_dotool() {
@@ -196,7 +198,9 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/share/man/man1"
     mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
     mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
-    mkdir -p "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES"
+    for _lang in fr de es it pt uk; do
+        mkdir -p "$TARBALL_DIR/usr/share/locale/$_lang/LC_MESSAGES"
+    done
     mkdir -p "$TARBALL_DIR/usr/share/applications"
     mkdir -p "$TARBALL_DIR/etc/udev/rules.d"
 
@@ -227,8 +231,10 @@ build_tarball() {
     # Icônes
     cp "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"*.svg "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps/"
 
-    # Locale
-    cp -r "$PKG_DIR/usr/share/locale/fr/LC_MESSAGES/"*.mo "$TARBALL_DIR/usr/share/locale/fr/LC_MESSAGES/"
+    # Locales
+    for _lang in fr de es it pt uk; do
+        cp "$PKG_DIR/usr/share/locale/$_lang/LC_MESSAGES/"*.mo "$TARBALL_DIR/usr/share/locale/$_lang/LC_MESSAGES/" 2>/dev/null || true
+    done
 
     # Desktop entry
     cp "$PKG_DIR/usr/share/applications/"*.desktop "$TARBALL_DIR/usr/share/applications/"

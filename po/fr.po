@@ -551,19 +551,19 @@ msgstr "Dictée"
 
 #: dictee-tray
 msgid "Daemon active"
-msgstr "🟢 Daemon actif"
+msgstr "Daemon actif"
 
 #: dictee-tray
 msgid "Daemon stopped"
-msgstr "🔴 Daemon arrêté"
+msgstr "Daemon arrêté"
 
 #: dictee-tray
 msgid "Recording…"
-msgstr "🔴 Enregistrement…"
+msgstr "Enregistrement…"
 
 #: dictee-tray
 msgid "Transcribing…"
-msgstr "🔵 Transcription…"
+msgstr "Transcription…"
 
 #: dictee-tray
 msgid "Transcription done"
@@ -592,3 +592,11 @@ msgstr "Clic = dictée, Ctrl+clic = traduction"
 #: dictee-tray
 msgid "Click = stop, Middle = cancel"
 msgstr "Clic = arrêter, Molette = annuler"
+
+#: dictee-tray
+msgid "click to start"
+msgstr "cliquer pour démarrer"
+
+#: dictee-tray
+msgid "click to stop"
+msgstr "cliquer pour arrêter"

@@ -107,8 +107,15 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     if [ -d "/run/user/$uid" ]; then
         echo "→ Rechargement pour $user (uid $uid)"
-        sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
-            systemctl --user daemon-reload 2>/dev/null || true
+        _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+        $_run systemctl --user daemon-reload 2>/dev/null || true
+        # Redémarrer les services actifs après upgrade
+        for svc in dictee dictee-vosk dictee-whisper dictee-tray; do
+            if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+                echo "  ↳ Redémarrage de $svc"
+                $_run systemctl --user restart "$svc" 2>/dev/null || true
+            fi
+        done
     fi
 done
 

@@ -6,12 +6,26 @@ Substitut au plasmoid KDE pour les bureaux non-KDE.
 Clic gauche = dictée, Ctrl+clic gauche = traduction, clic droit = menu.
 """
 
+import gettext
 import os
 import signal
 import subprocess
 import sys
 
 from PyQt6.QtCore import Qt, QTimer, QFileSystemWatcher
+
+# === i18n ===
+LOCALE_DIRS = [
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "po"),
+    "/usr/share/locale",
+    "/usr/local/share/locale",
+]
+for _d in LOCALE_DIRS:
+    if os.path.isfile(os.path.join(_d, "fr", "LC_MESSAGES", "dictee.mo")):
+        gettext.bindtextdomain("dictee", _d)
+        break
+gettext.textdomain("dictee")
+_ = gettext.gettext
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
@@ -176,7 +190,7 @@ class DicteeTray:
 
         # Tray icon
         self.tray = QSystemTrayIcon(self._icons.get("offline", QIcon()), app)
-        self.tray.setToolTip("Dictée — hors ligne")
+        self.tray.setToolTip(_("Dictation — offline"))
         self.tray.activated.connect(self._on_activated)
 
         # Menu contextuel
@@ -205,9 +219,9 @@ class DicteeTray:
     # === Menu ===
 
     def _build_menu(self):
-        self.action_dictee = self.menu.addAction("Démarrer dictée")
-        self.action_translate = self.menu.addAction("Démarrer traduction")
-        self.action_cancel = self.menu.addAction("Annuler")
+        self.action_dictee = self.menu.addAction(_("Start dictation"))
+        self.action_translate = self.menu.addAction(_("Start translation"))
+        self.action_cancel = self.menu.addAction(_("Cancel"))
         self.menu.addSeparator()
         self.action_daemon = self.menu.addAction("")
         self.action_daemon_hint = self.menu.addAction("")
@@ -217,9 +231,9 @@ class DicteeTray:
         self.action_daemon_hint.setFont(hint_font)
         self.action_daemon_hint.setEnabled(False)
         self.menu.addSeparator()
-        self.action_setup = self.menu.addAction("Configurer Dictée")
+        self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.menu.addSeparator()
-        self.action_quit = self.menu.addAction("Quitter l'icône")
+        self.action_quit = self.menu.addAction(_("Quit icon"))
 
         self.menu.triggered.connect(self._on_menu_triggered)
 
@@ -281,34 +295,34 @@ class DicteeTray:
 
         # Tooltip
         tooltips = {
-            "idle": "Dictée — prêt\nClic = dictée, Ctrl+clic = traduction",
-            "offline": "Dictée — hors ligne",
-            "recording": "Dictée — enregistrement\nClic = arrêter, Molette = annuler",
-            "transcribing": "Dictée — transcription",
+            "idle": _("Dictation — ready") + "\n" + _("Click = dictation, Ctrl+click = translation"),
+            "offline": _("Dictation — offline"),
+            "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
+            "transcribing": _("Dictation — transcribing"),
         }
-        self.tray.setToolTip(tooltips.get(self.state, "Dictée"))
+        self.tray.setToolTip(tooltips.get(self.state, _("Dictation")))
 
         # Menu : daemon (ligne unique toggle avec picto play/stop en bout de ligne)
         pad = "\u2003" * 6  # em spaces pour pousser le picto à droite
         if self.state == "offline":
-            self.action_daemon.setText(f"  Daemon arrêté{pad}▶")
+            self.action_daemon.setText(f"  {_('Daemon stopped')}{pad}▶")
             self.action_daemon.setIcon(_dot_icon("#e74c3c"))
-            self.action_daemon_hint.setText(" cliquer pour démarrer")
+            self.action_daemon_hint.setText(f" {_('click to start')}")
         else:
-            labels = {"idle": "Daemon actif", "recording": "Enregistrement…", "transcribing": "Transcription…"}
-            self.action_daemon.setText(f"{labels.get(self.state, '  Daemon actif')}{pad}■")
+            labels = {"idle": _("Daemon active"), "recording": _("Recording…"), "transcribing": _("Transcribing…")}
+            self.action_daemon.setText(f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■")
             self.action_daemon.setIcon(_dot_icon("#2ecc71"))
-            self.action_daemon_hint.setText(" cliquer pour arrêter")
+            self.action_daemon_hint.setText(f" {_('click to stop')}")
 
         # Menu : dictée / traduction
         is_busy = self.state in ("recording", "transcribing")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         self.action_dictee.setText(
-            "Arrêter traduction" if is_translating
-            else "Arrêter dictée" if is_busy
-            else "Démarrer dictée")
+            _("Stop translation") if is_translating
+            else _("Stop dictation") if is_busy
+            else _("Start dictation"))
         self.action_dictee.setEnabled(self.state != "offline")
-        self.action_translate.setText("Démarrer traduction")
+        self.action_translate.setText(_("Start translation"))
         self.action_translate.setEnabled(self.state != "offline")
         self.action_translate.setVisible(not is_busy)
 
@@ -349,7 +363,7 @@ def main():
     app.setApplicationName(APP_ID)
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
-        print("Erreur : pas de tray système disponible", file=sys.stderr)
+        print("Error: no system tray available", file=sys.stderr)
         sys.exit(1)
 
     tray = DicteeTray(app)  # garder la référence (évite GC du menu)

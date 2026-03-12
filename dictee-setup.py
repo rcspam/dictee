@@ -44,7 +44,7 @@ LOCALE_DIRS = [
 ]
 
 for _d in LOCALE_DIRS:
-    if os.path.isdir(_d):
+    if os.path.isfile(os.path.join(_d, "fr", "LC_MESSAGES", "dictee.mo")):
         gettext.bindtextdomain("dictee", _d)
         break
 
