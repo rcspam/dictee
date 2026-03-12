@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="0.99.9"
+VERSION="1.0.0"
 PKG_DIR="pkg/dictee"
 
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
@@ -16,6 +16,10 @@ echo ""
 echo "Build dependencies:"
 echo "  sudo apt install golang-go scdoc libxkbcommon-dev"
 echo ""
+
+# Copier le script dictee depuis la source unique (racine)
+cp ./dictee "$PKG_DIR/usr/bin/dictee"
+chmod 755 "$PKG_DIR/usr/bin/dictee"
 
 # Build dotool (keyboard input tool)
 build_dotool() {
@@ -81,7 +85,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 0.99.9
+Version: 1.0.0
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -139,7 +143,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 0.99.9
+Version: 1.0.0
 Section: sound
 Priority: optional
 Architecture: amd64

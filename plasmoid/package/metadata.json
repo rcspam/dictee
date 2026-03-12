@@ -11,7 +11,7 @@
         "Icon": "audio-input-microphone",
         "Id": "com.github.rcspam.dictee",
         "Name": "Plasmoid Dictée",
-        "Version": "0.99.9",
+        "Version": "1.0.0",
         "License": "GPL-3.0+"
     },
     "X-Plasma-API-Minimum-Version": "6.0",

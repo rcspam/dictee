@@ -14,10 +14,7 @@
 #   dictee --cancel             # annule l'enregistrement en cours
 #   dictee --setup              # ouvre l'interface de configuration
 #
-# Nécessite : transcribe-daemon (en cours), pw-record
-#             ydotool-rebind (https://github.com/david-vct/ydotool-rebind)
-#             ⚠ ydotool standard utilise un layout QWERTY - le wrapper est
-#               nécessaire pour les claviers AZERTY et les accents français
+# Nécessite : transcribe-daemon (en cours), pw-record, dotool
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
 
 # === CONFIGURATION ===
@@ -26,9 +23,22 @@
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 [ -f "$DICTEE_CONF" ] && source "$DICTEE_CONF"
 
+# Exporter OLLAMA_NUM_GPU si défini dans la config (mode CPU forcé)
+[ -n "$OLLAMA_NUM_GPU" ] && export OLLAMA_NUM_GPU
+
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
+CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
+ANIMATION="${DICTEE_ANIMATION:-speech}"
+
+# Détection du layout clavier pour dotool (localectl > setxkbmap > us)
+if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
+    DOTOOL_XKB_LAYOUT=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
+    [ -z "$DOTOOL_XKB_LAYOUT" ] && DOTOOL_XKB_LAYOUT=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
+    DOTOOL_XKB_LAYOUT="${DOTOOL_XKB_LAYOUT:-us}"
+fi
+export DOTOOL_XKB_LAYOUT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.mp3"
 PIDFILE="/tmp/recording_dictee_pid"
@@ -36,6 +46,17 @@ ID_TMP_FILE="/tmp/notify_dictee"
 MUT_FILE="/tmp/mut_dictee"
 TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate"
+
+# État partagé avec plasmoid/tray (protégé par flock)
+STATE_FILE="/dev/shm/.dictee_state"
+STATE_LOCK="/dev/shm/.dictee_state.lock"
+
+write_state() {
+    (
+        flock -n 200 || return 1
+        echo "$1" > "$STATE_FILE"
+    ) 200>"$STATE_LOCK"
+}
 
 # Post-traitement du texte (commandes de dictée françaises)
 POINT_A_LA_LIGNE="| sed -E 's/[,.]?point à la ligne[,.]?/.\n/Ig' | sed -E 's/^\.?//g'"
@@ -71,11 +92,77 @@ done
 
 # === FONCTIONS ===
 
+# === ÉCOUTE ESCAPE (/dev/input) ===
+
+ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid"
+
+start_escape_listener() {
+    # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
+    # Écoute tous les claviers simultanément. Nécessite le groupe 'input'.
+    stop_escape_listener
+    # Trouver tous les claviers physiques (sysrq+kbd = vrai clavier, exclure virtuels)
+    local kbd_devs
+    kbd_devs=$(awk -f <(cat << 'AWKEOF'
+/^N:/ { name = $0 }
+/^H:.*sysrq.*kbd/ {
+    if (name !~ /virtual|Virtual|uinput/) {
+        match($0, /event[0-9]+/)
+        if (RSTART) print "/dev/input/" substr($0, RSTART, RLENGTH)
+    }
+}
+AWKEOF
+    ) /proc/bus/input/devices)
+    [ -z "$kbd_devs" ] && return
+    local self_path
+    self_path="$(readlink -f "$0")"
+    nohup python3 -c "
+import struct, subprocess, signal, select, os
+signal.signal(signal.SIGTERM, lambda *_: exit(0))
+devs = '''$kbd_devs'''.strip().split('\n')
+fds = []
+for d in devs:
+    try:
+        fds.append(open(d, 'rb'))
+    except (PermissionError, FileNotFoundError):
+        pass
+if not fds:
+    exit(1)
+while True:
+    ready, _, _ = select.select(fds, [], [])
+    for f in ready:
+        data = f.read(24)
+        if len(data) < 24:
+            continue
+        _s, _u, t, code, val = struct.unpack('llHHi', data)
+        if t == 1 and code == 1 and val == 1:
+            for ff in fds:
+                ff.close()
+            subprocess.Popen(['$self_path', '--cancel'])
+            exit(0)
+" >/dev/null 2>&1 &
+    echo $! > "$ESC_LISTENER_PIDFILE"
+    disown $!
+}
+
+stop_escape_listener() {
+    if [ -f "$ESC_LISTENER_PIDFILE" ]; then
+        local pid
+        pid=$(cat "$ESC_LISTENER_PIDFILE" 2>/dev/null)
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null
+            pkill -P "$pid" 2>/dev/null
+        fi
+        rm -f "$ESC_LISTENER_PIDFILE"
+    fi
+}
+
+# === DÉPENDANCES ===
+
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
-    command -v wl-copy >/dev/null || missing+=("wl-clipboard")
-    command -v ydotool >/dev/null || missing+=("ydotool")
+    # wl-copy est optionnel (copie dans le presse-papier en bonus)
+    command -v dotool >/dev/null || missing+=("dotool")
     command -v pactl >/dev/null || missing+=("pulseaudio-utils")
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
 
@@ -83,6 +170,8 @@ check_dependencies() {
     if [ "$TRANSLATE" = true ]; then
         if [ "$TRANSLATE_BACKEND" = "trans" ]; then
             command -v trans >/dev/null || missing+=("translate-shell")
+        elif [ "$TRANSLATE_BACKEND" = "libretranslate" ]; then
+            command -v curl >/dev/null || missing+=("curl")
         elif [ "$TRANSLATE_BACKEND" = "ollama" ]; then
             command -v ollama >/dev/null || missing+=("ollama")
         fi
@@ -97,6 +186,8 @@ check_dependencies() {
 cleanup_on_error() {
     local exit_code=$?
 
+    stop_escape_listener
+
     # Tuer pw-record et ses enfants
     if [ -f "$PIDFILE" ]; then
         local rec_pid=$(cat "$PIDFILE")
@@ -107,8 +198,10 @@ cleanup_on_error() {
     fi
 
     # Arrêter l'animation
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        animation-speech-ctl quit 2>/dev/null
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            animation-speech-ctl quit 2>/dev/null
+        fi
     fi
 
     # Tuer tous les processus enfants restants
@@ -143,18 +236,39 @@ translate() {
 
     case "$backend" in
     trans)
-        echo "$text" | trans -b "${LANG_SOURCE}:${LANG_TARGET}"
+        local engine="${DICTEE_TRANS_ENGINE:-google}"
+        echo "$text" | trans -b -e "$engine" "${LANG_SOURCE}:${LANG_TARGET}"
+        ;;
+    libretranslate)
+        local port="${DICTEE_LIBRETRANSLATE_PORT:-5000}"
+        local url="http://localhost:${port}/translate"
+        # Échapper le texte pour JSON
+        local json_text
+        json_text=$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+        local result
+        result=$(curl -s --max-time 10 "$url" \
+            -H "Content-Type: application/json" \
+            -d "{\"q\":${json_text},\"source\":\"${LANG_SOURCE}\",\"target\":\"${LANG_TARGET}\"}")
+        if echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["translatedText"])' 2>/dev/null; then
+            :
+        else
+            echo "Erreur LibreTranslate: $result" >&2
+            exit 1
+        fi
         ;;
     ollama)
+        local model="${DICTEE_OLLAMA_MODEL:-translategemma}"
         # Vérifier si le modèle est déjà téléchargé
-        if ! ollama list 2>/dev/null | grep -q "translategemma"; then
-            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle translategemma..." "Premier lancement, veuillez patienter"
+        if ! ollama list 2>/dev/null | grep -q "${model%%:*}"; then
+            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle ${model}..." "Premier lancement, veuillez patienter"
         fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
 ${text}"
-        ollama run translategemma:latest "$prompt" 2>/dev/null
+        # Ajouter :latest seulement si pas de tag explicite
+        [[ "$model" == *:* ]] || model="${model}:latest"
+        ollama run "$model" "$prompt" 2>/dev/null
         ;;
     *)
         echo "Backend traduction inconnu: $backend" >&2
@@ -168,14 +282,26 @@ ${text}"
 check_dependencies
 trap cleanup_on_error INT TERM HUP QUIT ERR
 
-# === ANNULATION ===
+# === ANNULATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
+    (
+        flock -n 200 || exit 0          # un autre cancel tient le verrou → no-op
+        current=$(cat "$STATE_FILE" 2>/dev/null)
+        [ "$current" = "cancelled" ] && exit 0  # déjà annulé
+        [ "$current" = "idle" ] && exit 0        # rien à annuler
+        echo "cancelled" > "$STATE_FILE"
+    ) 200>"$STATE_LOCK"
+
     if [ -f "$PIDFILE" ]; then
         id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
+        stop_escape_listener
+
         # Arrêter l'animation
-        if command -v animation-speech-ctl >/dev/null 2>&1; then
-            animation-speech-ctl quit 2>/dev/null
+        if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+            if command -v animation-speech-ctl >/dev/null 2>&1; then
+                animation-speech-ctl quit 2>/dev/null
+            fi
         fi
 
         # Restaurer l'état du micro
@@ -202,6 +328,8 @@ fi
 if [ -f "$PIDFILE" ]; then
     # === ARRÊT DE L'ENREGISTREMENT ===
 
+    stop_escape_listener
+
     # Récupérer les options utilisées au démarrage
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
         TRANSLATE=true
@@ -213,8 +341,10 @@ if [ -f "$PIDFILE" ]; then
     id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
     # Arrêter l'animation
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        animation-speech-ctl stop 2>/dev/null
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            animation-speech-ctl stop 2>/dev/null
+        fi
     fi
 
     # Restaurer l'état du micro
@@ -224,6 +354,9 @@ if [ -f "$PIDFILE" ]; then
     fi
     # Démuter le son
     pactl set-sink-mute @DEFAULT_SINK@ 0
+
+    # Signaler au plasmoid
+    write_state "transcribing"
 
     # Arrêter l'enregistrement
     kill "$(cat "$PIDFILE")" 2>/dev/null
@@ -243,8 +376,8 @@ if [ -f "$PIDFILE" ]; then
         fi
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        echo "$translated" | wl-copy
-        wl-paste | ydotool type --file - 2>/dev/null
+        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$translated" | wl-copy
+        printf 'type %s' "$translated" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
             notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
@@ -253,20 +386,23 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         # Copier directement
-        echo "$transcribed" | wl-copy
-        wl-paste | ydotool type --file - 2>/dev/null
+        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
+        printf 'type %s' "$transcribed" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
         else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Copié dans le presse-papier:" "<i>\"$(wl-paste)\"</i>"
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
         fi
     fi
 
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    write_state "idle"
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
+
+    start_escape_listener
 
     # Sauvegarder les options choisies
     if [ "$TRANSLATE" = true ]; then
@@ -282,11 +418,16 @@ else
     # Muter le son (pour éviter le feedback)
     pactl set-sink-mute @DEFAULT_SINK@ 1
 
-    # Lancer l'animation (si disponible, avec annulation par Echap)
-    if command -v animation-speech-ctl >/dev/null 2>&1; then
-        SCRIPT_PATH="$(readlink -f "$0")"
-        animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null
+    # Lancer l'animation (si mode speech ou both, et si disponible)
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            SCRIPT_PATH="$(readlink -f "$0")"
+            animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null
+        fi
     fi
+
+    # Signaler au plasmoid que l'enregistrement démarre (avant pw-record pour réduire la latence)
+    write_state "recording"
 
     # Démarrer l'enregistrement
     pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &

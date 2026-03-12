@@ -1049,16 +1049,22 @@ class DicteeSetupDialog(QDialog):
 
         current_asr = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
 
-        self.asr_group = QButtonGroup(self)
         self._venv_threads = {}
 
-        # Parakeet-TDT (toujours disponible si modèle installé)
-        self.rb_parakeet = QRadioButton("Parakeet-TDT 0.6B — " + _("multilingual, 25 languages (installed with .deb)"))
-        self.rb_parakeet.setChecked(current_asr == "parakeet")
-        self.asr_group.addButton(self.rb_parakeet)
-        lay_asr.addWidget(self.rb_parakeet)
+        # ComboBox backend ASR
+        self.cmb_asr_backend = QComboBox()
+        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
+        self.cmb_asr_backend.addItem("Vosk", "vosk")
+        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
+        lay_asr.addWidget(self.cmb_asr_backend)
 
-        # Modèles Parakeet (indentés sous le radio)
+        # --- Sous-options Parakeet ---
+        self.w_parakeet_options = QWidget()
+        lay_parakeet = QVBoxLayout(self.w_parakeet_options)
+        lay_parakeet.setContentsMargins(0, 4, 0, 0)
+        lay_parakeet.setSpacing(4)
+
         for model in ASR_MODELS:
             row = QHBoxLayout()
             row.setSpacing(8)
@@ -1089,35 +1095,32 @@ class DicteeSetupDialog(QDialog):
             btn.setFixedWidth(120)
             row.addWidget(btn)
 
-            lay_asr.addLayout(row)
+            lay_parakeet.addLayout(row)
 
             progress = QProgressBar()
             progress.setRange(0, 0)
             progress.setVisible(False)
-            lay_asr.addWidget(progress)
+            lay_parakeet.addWidget(progress)
 
             self._model_widgets[model["id"]] = {"label": lbl, "button": btn, "progress": progress, "model": model}
             btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
 
-        # Vosk
-        row_vosk = QHBoxLayout()
-        self.rb_vosk = QRadioButton("Vosk — " + _("lightweight, streaming (~50 MB)"))
-        self.rb_vosk.setChecked(current_asr == "vosk")
-        self.asr_group.addButton(self.rb_vosk)
-        row_vosk.addWidget(self.rb_vosk, 1)
+        lay_asr.addWidget(self.w_parakeet_options)
 
+        # --- Sous-options Vosk ---
+        self.w_vosk_options = QWidget()
+        vosk_outer = QVBoxLayout(self.w_vosk_options)
+        vosk_outer.setContentsMargins(0, 4, 0, 0)
+        vosk_outer.setSpacing(4)
+
+        row_vosk = QHBoxLayout()
+        row_vosk.setContentsMargins(24, 0, 0, 0)
         vosk_installed = venv_is_installed(VOSK_VENV)
         self.btn_install_vosk = QPushButton(_("Installed") if vosk_installed else _("Install"))
         self.btn_install_vosk.setEnabled(not vosk_installed)
         self.btn_install_vosk.setFixedWidth(120)
         self.btn_install_vosk.clicked.connect(lambda: self._install_venv("vosk", VOSK_VENV, "vosk"))
-        row_vosk.addWidget(self.btn_install_vosk)
-        lay_asr.addLayout(row_vosk)
 
-        # Sous-options Vosk : choix de langue
-        self.w_vosk_options = QWidget()
-        vosk_lay = QHBoxLayout(self.w_vosk_options)
-        vosk_lay.setContentsMargins(24, 0, 0, 0)
         lbl_vosk_lang = QLabel(_("Language:"))
         self.cmb_vosk_lang = QComboBox()
         for code, name in VOSK_MODELS.items():
@@ -1126,31 +1129,28 @@ class DicteeSetupDialog(QDialog):
         idx = self.cmb_vosk_lang.findData(cur_vosk)
         if idx >= 0:
             self.cmb_vosk_lang.setCurrentIndex(idx)
-        vosk_lay.addWidget(lbl_vosk_lang)
-        vosk_lay.addWidget(self.cmb_vosk_lang)
-        vosk_lay.addStretch()
-        self.w_vosk_options.setVisible(current_asr == "vosk")
+        row_vosk.addWidget(lbl_vosk_lang)
+        row_vosk.addWidget(self.cmb_vosk_lang)
+        row_vosk.addStretch()
+        row_vosk.addWidget(self.btn_install_vosk)
+        vosk_outer.addLayout(row_vosk)
+
         lay_asr.addWidget(self.w_vosk_options)
 
-        # faster-whisper
-        row_whisper = QHBoxLayout()
-        self.rb_whisper = QRadioButton("faster-whisper — " + _("99 languages, auto-detect (CTranslate2)"))
-        self.rb_whisper.setChecked(current_asr == "whisper")
-        self.asr_group.addButton(self.rb_whisper)
-        row_whisper.addWidget(self.rb_whisper, 1)
+        # --- Sous-options Whisper ---
+        self.w_whisper_options = QWidget()
+        whisper_outer = QVBoxLayout(self.w_whisper_options)
+        whisper_outer.setContentsMargins(0, 4, 0, 0)
+        whisper_outer.setSpacing(4)
 
+        row_whisper_install = QHBoxLayout()
+        row_whisper_install.setContentsMargins(24, 0, 0, 0)
         whisper_installed = venv_is_installed(WHISPER_VENV)
         self.btn_install_whisper = QPushButton(_("Installed") if whisper_installed else _("Install"))
         self.btn_install_whisper.setEnabled(not whisper_installed)
         self.btn_install_whisper.setFixedWidth(120)
         self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
-        row_whisper.addWidget(self.btn_install_whisper)
-        lay_asr.addLayout(row_whisper)
 
-        # Sous-options Whisper : choix modèle + langue
-        self.w_whisper_options = QWidget()
-        whisper_lay = QHBoxLayout(self.w_whisper_options)
-        whisper_lay.setContentsMargins(24, 0, 0, 0)
         lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = QComboBox()
         for m in WHISPER_MODELS:
@@ -1159,34 +1159,77 @@ class DicteeSetupDialog(QDialog):
         idx = self.cmb_whisper_model.findText(cur_wh)
         if idx >= 0:
             self.cmb_whisper_model.setCurrentIndex(idx)
-        whisper_lay.addWidget(lbl_wh_model)
-        whisper_lay.addWidget(self.cmb_whisper_model)
         lbl_wh_lang = QLabel(_("Language:"))
         self.txt_whisper_lang = QComboBox()
         self.txt_whisper_lang.setEditable(True)
         self.txt_whisper_lang.addItems(["", "fr", "en", "es", "de", "it", "pt", "ru", "zh", "ja", "ko", "ar"])
         cur_wl = self.conf.get("DICTEE_WHISPER_LANG", "")
         self.txt_whisper_lang.setCurrentText(cur_wl)
-        whisper_lay.addWidget(lbl_wh_lang)
-        whisper_lay.addWidget(self.txt_whisper_lang)
         lbl_auto = QLabel(_("(empty = auto-detect)"))
         lbl_auto.setStyleSheet("color: gray;")
-        whisper_lay.addWidget(lbl_auto)
-        whisper_lay.addStretch()
-        self.w_whisper_options.setVisible(current_asr == "whisper")
+
+        row_whisper_install.addWidget(lbl_wh_model)
+        row_whisper_install.addWidget(self.cmb_whisper_model)
+        row_whisper_install.addWidget(lbl_wh_lang)
+        row_whisper_install.addWidget(self.txt_whisper_lang)
+        row_whisper_install.addWidget(lbl_auto)
+        row_whisper_install.addStretch()
+        row_whisper_install.addWidget(self.btn_install_whisper)
+        whisper_outer.addLayout(row_whisper_install)
+
         lay_asr.addWidget(self.w_whisper_options)
 
         # Afficher/masquer les sous-options selon le backend sélectionné
-        def _on_asr_toggled():
-            self.w_vosk_options.setVisible(self.rb_vosk.isChecked())
-            self.w_whisper_options.setVisible(self.rb_whisper.isChecked())
-        self.rb_parakeet.toggled.connect(lambda: _on_asr_toggled())
-        self.rb_vosk.toggled.connect(lambda: _on_asr_toggled())
-        self.rb_whisper.toggled.connect(lambda: _on_asr_toggled())
+        def _on_asr_changed():
+            backend = self.cmb_asr_backend.currentData()
+            self.w_parakeet_options.setVisible(backend == "parakeet")
+            self.w_vosk_options.setVisible(backend == "vosk")
+            self.w_whisper_options.setVisible(backend == "whisper")
+        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
+        _on_asr_changed()
 
         layout.addWidget(grp_asr)
 
         layout.addWidget(grp_shortcut)
+
+        # -- Section retour visuel (déplacée ici, juste après les raccourcis) --
+        grp_visual = QGroupBox(_("Visual feedback"))
+        lay_vis = QVBoxLayout(grp_visual)
+        lay_vis.setSpacing(6)
+        lay_vis.setContentsMargins(16, 16, 16, 12)
+
+        self.chk_anim_speech = QCheckBox(_("animation-speech (overlay)"))
+        self.chk_plasmoid = QCheckBox(_("KDE Plasma widget (panel)"))
+        self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
+        self.chk_gnome_ext.setEnabled(False)
+
+        # Charger l'état depuis la config
+        anim = conf.get("DICTEE_ANIMATION", "speech")
+        self.chk_anim_speech.setChecked(anim in ("speech", "both"))
+        self.chk_plasmoid.setChecked(anim in ("plasmoid", "both"))
+
+        lay_vis.addWidget(self.chk_anim_speech)
+        lay_vis.addWidget(self.chk_plasmoid)
+        lay_vis.addWidget(self.chk_gnome_ext)
+
+        # Status et installation
+        self.lbl_anim_status = QLabel()
+        self.lbl_anim_status.setWordWrap(True)
+        lay_vis.addWidget(self.lbl_anim_status)
+
+        self.btn_install_anim = QPushButton(_("Install animation-speech"))
+        self.btn_install_anim.setVisible(False)
+        self.btn_install_anim.clicked.connect(self._on_install_animation)
+        lay_vis.addWidget(self.btn_install_anim)
+
+        self.progress_anim = QProgressBar()
+        self.progress_anim.setRange(0, 0)
+        self.progress_anim.setVisible(False)
+        lay_vis.addWidget(self.progress_anim)
+
+        self._check_animation_speech()
+
+        layout.addWidget(grp_visual)
 
         # -- Section traduction --
         grp_translate = QGroupBox()
@@ -1234,44 +1277,18 @@ class DicteeSetupDialog(QDialog):
 
         lay_tr.addSpacing(4)
 
-        # Backend radio buttons
+        # Backend ComboBox
         lbl_backend = QLabel(_("Backend:"))
         lay_tr.addWidget(lbl_backend)
 
-        self.radio_trans = QRadioButton(_("translate-shell"))
-        self.radio_libretranslate = QRadioButton(_("LibreTranslate (local, Docker)"))
-        self.radio_ollama = QRadioButton(_("ollama (100% local)"))
-        self.radio_trans.setChecked(True)
+        self.cmb_trans_backend = QComboBox()
+        self.cmb_trans_backend.addItem("Google Translate", "trans:google")
+        self.cmb_trans_backend.addItem("Bing", "trans:bing")
+        self.cmb_trans_backend.addItem("LibreTranslate", "libretranslate")
+        self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
+        lay_tr.addWidget(self.cmb_trans_backend)
 
-        self.btn_group_backend = QButtonGroup(self)
-        self.btn_group_backend.addButton(self.radio_trans)
-        self.btn_group_backend.addButton(self.radio_libretranslate)
-        self.btn_group_backend.addButton(self.radio_ollama)
-
-        for radio in (self.radio_trans, self.radio_libretranslate, self.radio_ollama):
-            radio.setContentsMargins(16, 0, 0, 0)
-            lay_tr.addWidget(radio)
-
-        # translate-shell engine selection
-        self.trans_widget = QFrame()
-        lay_trans = QHBoxLayout(self.trans_widget)
-        lay_trans.setContentsMargins(32, 4, 0, 0)
-        lay_trans.setSpacing(8)
-        lbl_engine = QLabel(_("Engine:"))
-        self.combo_trans_engine = QComboBox()
-        for eid, elabel in [
-            ("google", "Google Translate"),
-            ("bing", "Bing"),
-        ]:
-            self.combo_trans_engine.addItem(elabel, eid)
-        default_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
-        self._set_combo_by_data(self.combo_trans_engine, default_engine, 0)
-        lay_trans.addWidget(lbl_engine)
-        lay_trans.addWidget(self.combo_trans_engine, 1)
-        lay_tr.addWidget(self.trans_widget)
-
-        self.radio_trans.toggled.connect(lambda checked: self.trans_widget.setVisible(checked))
-        self.trans_widget.setVisible(self.radio_trans.isChecked())
+        # (translate-shell engine intégrée dans la ComboBox ci-dessus)
 
         # LibreTranslate (Docker) widget
         self.lt_widget = QFrame()
@@ -1329,7 +1346,6 @@ class DicteeSetupDialog(QDialog):
 
         lay_tr.addWidget(self.lt_widget)
 
-        self.radio_libretranslate.toggled.connect(self._on_lt_toggled)
         self.lt_widget.setVisible(False)
         self._docker_pull_thread = None
 
@@ -1375,19 +1391,32 @@ class DicteeSetupDialog(QDialog):
         lay_tr.addWidget(self.ollama_widget)
 
         # Connect signals
-        self.radio_ollama.toggled.connect(self._on_backend_toggled)
         self.combo_ollama_model.currentIndexChanged.connect(self._on_ollama_model_changed)
         self._ollama_pull_thread = None
 
+        # Sélectionner le backend sauvegardé dans la ComboBox
         saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        saved_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
         if saved_backend == "ollama":
-            self.radio_ollama.setChecked(True)
+            self._set_combo_by_data(self.cmb_trans_backend, "ollama", 0)
         elif saved_backend == "libretranslate":
-            self.radio_libretranslate.setChecked(True)
+            self._set_combo_by_data(self.cmb_trans_backend, "libretranslate", 0)
+        elif saved_backend == "trans" and saved_engine == "bing":
+            self._set_combo_by_data(self.cmb_trans_backend, "trans:bing", 0)
+        else:
+            self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
 
-        # Initial state
-        self._on_backend_toggled(self.radio_ollama.isChecked())
-        self._on_lt_toggled(self.radio_libretranslate.isChecked())
+        # Afficher/masquer les sous-options selon le backend sélectionné
+        def _on_trans_backend_changed():
+            data = self.cmb_trans_backend.currentData()
+            self.lt_widget.setVisible(data == "libretranslate")
+            self.ollama_widget.setVisible(data == "ollama")
+            if data == "libretranslate":
+                self._check_lt_status()
+            if data == "ollama":
+                self._check_ollama_status()
+        self.cmb_trans_backend.currentIndexChanged.connect(lambda: _on_trans_backend_changed())
+        _on_trans_backend_changed()
 
         layout.addWidget(grp_translate)
 
@@ -1402,45 +1431,6 @@ class DicteeSetupDialog(QDialog):
         lay_opt.addWidget(self.chk_clipboard)
 
         layout.addWidget(grp_options)
-
-        # -- Section retour visuel --
-        grp_visual = QGroupBox(_("Visual feedback"))
-        lay_vis = QVBoxLayout(grp_visual)
-        lay_vis.setSpacing(6)
-        lay_vis.setContentsMargins(16, 16, 16, 12)
-
-        self.chk_anim_speech = QCheckBox(_("animation-speech (overlay)"))
-        self.chk_plasmoid = QCheckBox(_("KDE Plasma widget (panel)"))
-        self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
-        self.chk_gnome_ext.setEnabled(False)
-
-        # Charger l'état depuis la config
-        anim = conf.get("DICTEE_ANIMATION", "speech")
-        self.chk_anim_speech.setChecked(anim in ("speech", "both"))
-        self.chk_plasmoid.setChecked(anim in ("plasmoid", "both"))
-
-        lay_vis.addWidget(self.chk_anim_speech)
-        lay_vis.addWidget(self.chk_plasmoid)
-        lay_vis.addWidget(self.chk_gnome_ext)
-
-        # Status et installation
-        self.lbl_anim_status = QLabel()
-        self.lbl_anim_status.setWordWrap(True)
-        lay_vis.addWidget(self.lbl_anim_status)
-
-        self.btn_install_anim = QPushButton(_("Install animation-speech"))
-        self.btn_install_anim.setVisible(False)
-        self.btn_install_anim.clicked.connect(self._on_install_animation)
-        lay_vis.addWidget(self.btn_install_anim)
-
-        self.progress_anim = QProgressBar()
-        self.progress_anim.setRange(0, 0)
-        self.progress_anim.setVisible(False)
-        lay_vis.addWidget(self.progress_anim)
-
-        self._check_animation_speech()
-
-        layout.addWidget(grp_visual)
 
         # -- Section services --
         grp_services = QGroupBox(_("Startup services"))
@@ -1541,13 +1531,8 @@ class DicteeSetupDialog(QDialog):
 
     # -- Ollama backend --
 
-    def _on_backend_toggled(self, ollama_checked):
-        self.ollama_widget.setVisible(ollama_checked)
-        if ollama_checked:
-            self._check_ollama_status()
-
     def _on_ollama_model_changed(self, _index):
-        if self.radio_ollama.isChecked():
+        if self.cmb_trans_backend.currentData() == "ollama":
             self._check_ollama_status()
 
     def _check_ollama_status(self):
@@ -1856,9 +1841,10 @@ class DicteeSetupDialog(QDialog):
     # -- Appliquer --
 
     def _on_apply(self):
-        if self.radio_ollama.isChecked():
+        trans_data = self.cmb_trans_backend.currentData()
+        if trans_data == "ollama":
             backend = "ollama"
-        elif self.radio_libretranslate.isChecked():
+        elif trans_data == "libretranslate":
             backend = "libretranslate"
         else:
             backend = "trans"
@@ -1880,15 +1866,14 @@ class DicteeSetupDialog(QDialog):
 
         ollama_model = self.combo_ollama_model.currentData()
         ollama_cpu = self.chk_ollama_cpu.isChecked()
-        trans_engine = self.combo_trans_engine.currentData()
+        # Dériver l'engine translate-shell depuis la ComboBox
+        if trans_data and trans_data.startswith("trans:"):
+            trans_engine = trans_data.split(":")[1]
+        else:
+            trans_engine = "google"
         lt_port = int(self.spin_lt_port.currentText()) if self.spin_lt_port.currentText().isdigit() else 5000
         # Backend ASR
-        if self.rb_vosk.isChecked():
-            asr_backend = "vosk"
-        elif self.rb_whisper.isChecked():
-            asr_backend = "whisper"
-        else:
-            asr_backend = "parakeet"
+        asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
         whisper_model = self.cmb_whisper_model.currentText()
         whisper_lang = self.txt_whisper_lang.currentText().strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"

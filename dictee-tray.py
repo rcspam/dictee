@@ -11,18 +11,18 @@ import signal
 import subprocess
 import sys
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtCore import Qt, QTimer, QFileSystemWatcher
+from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 
 # === Configuration ===
 
 STATE_FILE = "/dev/shm/.dictee_state"
+TRANSLATE_FLAG = "/tmp/dictee_translate"
 APP_ID = "dictee"
 SERVICES = ("dictee", "dictee-vosk", "dictee-whisper")
-POLL_FAST_MS = 500   # polling état (recording/transcribing)
-POLL_SLOW_MS = 3000  # polling daemon (systemctl)
+POLL_SLOW_MS = 3000  # polling daemon (systemctl) + fallback re-watch
 
 # Icônes
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -70,6 +70,19 @@ ICON_MAP = {
     "recording": "parakeet-recording",
     "transcribing": "parakeet-transcribing",
 }
+
+
+def _dot_icon(color):
+    """Crée une icône 16×16 avec un cercle coloré."""
+    pix = QPixmap(16, 16)
+    pix.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setBrush(QColor(color))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.drawEllipse(2, 2, 12, 12)
+    p.end()
+    return QIcon(pix)
 
 
 def _icon_path(name):
@@ -178,11 +191,13 @@ class DicteeTray:
 
         self.tray.show()
 
-        # Timers (après show)
-        self._timer_fast = QTimer()
-        self._timer_fast.timeout.connect(self._poll_fast)
-        self._timer_fast.start(POLL_FAST_MS)
+        # Watcher fichier état (remplace le polling rapide)
+        self._watcher = QFileSystemWatcher()
+        if os.path.isfile(STATE_FILE):
+            self._watcher.addPath(STATE_FILE)
+        self._watcher.fileChanged.connect(self._on_state_changed)
 
+        # Timer lent pour le check daemon (systemctl) et re-watch fallback
         self._timer_slow = QTimer()
         self._timer_slow.timeout.connect(self._poll_slow)
         self._timer_slow.start(POLL_SLOW_MS)
@@ -194,10 +209,13 @@ class DicteeTray:
         self.action_translate = self.menu.addAction("Démarrer traduction")
         self.action_cancel = self.menu.addAction("Annuler")
         self.menu.addSeparator()
-        self.action_status = self.menu.addAction("")
-        self.action_status.setEnabled(False)
-        self.action_start = self.menu.addAction("Démarrer le daemon")
-        self.action_stop = self.menu.addAction("Arrêter le daemon")
+        self.action_daemon = self.menu.addAction("")
+        self.action_daemon_hint = self.menu.addAction("")
+        hint_font = self.action_daemon_hint.font() or QFont()
+        hint_font.setPointSize(8)
+        hint_font.setItalic(True)
+        self.action_daemon_hint.setFont(hint_font)
+        self.action_daemon_hint.setEnabled(False)
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction("Configurer Dictée")
         self.menu.addSeparator()
@@ -212,12 +230,13 @@ class DicteeTray:
             subprocess.Popen(["dictee", "--translate"])
         elif action == self.action_cancel:
             subprocess.Popen(["dictee", "--cancel"])
-        elif action == self.action_start:
-            daemon_start()
-            QTimer.singleShot(2000, self._delayed_refresh)
-        elif action == self.action_stop:
-            daemon_stop()
-            QTimer.singleShot(1000, self._delayed_refresh)
+        elif action == self.action_daemon:
+            if self.state == "offline":
+                daemon_start()
+                QTimer.singleShot(2000, self._delayed_refresh)
+            else:
+                daemon_stop()
+                QTimer.singleShot(1000, self._delayed_refresh)
         elif action == self.action_setup:
             subprocess.Popen(["dictee-setup"])
         elif action == self.action_quit:
@@ -269,39 +288,52 @@ class DicteeTray:
         }
         self.tray.setToolTip(tooltips.get(self.state, "Dictée"))
 
-        # Menu : statut
-        labels = {
-            "idle": "Daemon actif",
-            "offline": "Daemon arrêté",
-            "recording": "Enregistrement…",
-            "transcribing": "Transcription…",
-        }
-        self.action_status.setText(labels.get(self.state, "Daemon arrêté"))
-
-        # Menu : daemon
-        self.action_start.setEnabled(self.state == "offline")
-        self.action_stop.setEnabled(self.state != "offline")
+        # Menu : daemon (ligne unique toggle avec picto play/stop en bout de ligne)
+        pad = "\u2003" * 6  # em spaces pour pousser le picto à droite
+        if self.state == "offline":
+            self.action_daemon.setText(f"  Daemon arrêté{pad}▶")
+            self.action_daemon.setIcon(_dot_icon("#e74c3c"))
+            self.action_daemon_hint.setText(" cliquer pour démarrer")
+        else:
+            labels = {"idle": "Daemon actif", "recording": "Enregistrement…", "transcribing": "Transcription…"}
+            self.action_daemon.setText(f"{labels.get(self.state, '  Daemon actif')}{pad}■")
+            self.action_daemon.setIcon(_dot_icon("#2ecc71"))
+            self.action_daemon_hint.setText(" cliquer pour arrêter")
 
         # Menu : dictée / traduction
         is_busy = self.state in ("recording", "transcribing")
-        self.action_dictee.setText("Arrêter dictée" if is_busy else "Démarrer dictée")
-        self.action_translate.setText("Arrêter traduction" if is_busy else "Démarrer traduction")
+        is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
+        self.action_dictee.setText(
+            "Arrêter traduction" if is_translating
+            else "Arrêter dictée" if is_busy
+            else "Démarrer dictée")
         self.action_dictee.setEnabled(self.state != "offline")
+        self.action_translate.setText("Démarrer traduction")
         self.action_translate.setEnabled(self.state != "offline")
+        self.action_translate.setVisible(not is_busy)
 
         # Menu : annuler (visible uniquement si actif)
         self.action_cancel.setVisible(is_busy)
 
         self._prev_state = self.state
 
-    # === Polling ===
+    # === Réaction aux changements d'état ===
 
-    def _poll_fast(self):
+    def _on_state_changed(self, path):
+        """Appelé par QFileSystemWatcher quand le fichier état change."""
         self._check_state()
         self._apply_state()
+        # Re-watch : QFileSystemWatcher perd le watch après réécriture (nouveau inode)
+        if not self._watcher.files():
+            self._watcher.addPath(path)
 
     def _poll_slow(self):
         self._check_daemon()
+        # Fallback : re-ajouter le fichier si le watcher l'a perdu
+        if os.path.isfile(STATE_FILE) and STATE_FILE not in (self._watcher.files() or []):
+            self._watcher.addPath(STATE_FILE)
+        self._check_state()
+        self._apply_state()
 
     def _delayed_refresh(self):
         self._check_daemon()

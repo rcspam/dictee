@@ -47,6 +47,17 @@ MUT_FILE="/tmp/mut_dictee"
 TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate"
 
+# État partagé avec plasmoid/tray (protégé par flock)
+STATE_FILE="/dev/shm/.dictee_state"
+STATE_LOCK="/dev/shm/.dictee_state.lock"
+
+write_state() {
+    (
+        flock -n 200 || return 1
+        echo "$1" > "$STATE_FILE"
+    ) 200>"$STATE_LOCK"
+}
+
 # Post-traitement du texte (commandes de dictée françaises)
 POINT_A_LA_LIGNE="| sed -E 's/[,.]?point à la ligne[,.]?/.\n/Ig' | sed -E 's/^\.?//g'"
 TROIS_PETITS_POINTS="| sed -E 's/(trois|3) petits points/\.\.\./Ig'"
@@ -271,12 +282,17 @@ ${text}"
 check_dependencies
 trap cleanup_on_error INT TERM HUP QUIT ERR
 
-# === ANNULATION ===
+# === ANNULATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
-    if [ -f "$PIDFILE" ]; then
-        # Signaler immédiatement au plasmoid (avant toute autre action, évite race condition)
-        echo "cancelled" > /dev/shm/.dictee_state 2>/dev/null
+    (
+        flock -n 200 || exit 0          # un autre cancel tient le verrou → no-op
+        current=$(cat "$STATE_FILE" 2>/dev/null)
+        [ "$current" = "cancelled" ] && exit 0  # déjà annulé
+        [ "$current" = "idle" ] && exit 0        # rien à annuler
+        echo "cancelled" > "$STATE_FILE"
+    ) 200>"$STATE_LOCK"
 
+    if [ -f "$PIDFILE" ]; then
         id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
         stop_escape_listener
@@ -340,7 +356,7 @@ if [ -f "$PIDFILE" ]; then
     pactl set-sink-mute @DEFAULT_SINK@ 0
 
     # Signaler au plasmoid
-    echo "transcribing" > /dev/shm/.dictee_state 2>/dev/null
+    write_state "transcribing"
 
     # Arrêter l'enregistrement
     kill "$(cat "$PIDFILE")" 2>/dev/null
@@ -381,7 +397,7 @@ if [ -f "$PIDFILE" ]; then
     fi
 
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
-    echo "idle" > /dev/shm/.dictee_state 2>/dev/null
+    write_state "idle"
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
@@ -411,7 +427,7 @@ else
     fi
 
     # Signaler au plasmoid que l'enregistrement démarre (avant pw-record pour réduire la latence)
-    echo "recording" > /dev/shm/.dictee_state 2>/dev/null
+    write_state "recording"
 
     # Démarrer l'enregistrement
     pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
