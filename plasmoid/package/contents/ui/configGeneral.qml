@@ -58,6 +58,8 @@ KCM.SimpleKCM {
     property alias cfg_waveformRadius: waveformRadiusSpin.value
     property double cfg_waveformMinHeight: 0.1
     property double cfg_noiseGate: 0.05
+    property double cfg_envelopePower: 1.0
+    property double cfg_envelopeCenter: 0.5
 
     // Sensibilité active selon le style courant
     readonly property real activeSensitivity: {
@@ -78,6 +80,34 @@ KCM.SimpleKCM {
     property int previewTick: 0
 
     property string calibrationStatus: ""
+    property real micVolume: 0.5
+    property bool micVolumeReady: false
+
+    // Lire le volume micro au chargement
+    Plasma5Support.DataSource {
+        id: micVolumeExec
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(source, data) {
+            var stdout = data["stdout"].trim()
+            // wpctl get-volume → "Volume: 0.30" ou "Volume: 0.30 [MUTED]"
+            var match = stdout.match(/Volume:\s+([\d.]+)/)
+            if (match) {
+                configPage.micVolume = parseFloat(match[1])
+                configPage.micVolumeReady = true
+            }
+            disconnectSource(source)
+        }
+    }
+    Component.onCompleted: micVolumeExec.connectSource("wpctl get-volume @DEFAULT_SOURCE@")
+
+    // Appliquer le changement de volume
+    Plasma5Support.DataSource {
+        id: micVolumeSetExec
+        engine: "executable"
+        connectedSources: []
+        onNewData: function(source, data) { disconnectSource(source) }
+    }
 
     Plasma5Support.DataSource {
         id: calibrateExec
@@ -194,6 +224,36 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Preview mode (test with mic):")
         }
 
+        // === Volume micro ===
+        RowLayout {
+            Kirigami.FormData.label: i18n("Microphone volume:")
+            spacing: Kirigami.Units.smallSpacing
+            visible: configPage.micVolumeReady
+
+            Kirigami.Icon {
+                source: "audio-input-microphone"
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: Kirigami.Units.iconSizes.small
+            }
+            QQC2.Slider {
+                id: micVolumeSlider
+                from: 0.0; to: 1.5; stepSize: 0.01
+                value: configPage.micVolume
+                onMoved: {
+                    configPage.micVolume = value
+                    micVolumeSetExec.connectSource("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+                }
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: (configPage.micVolume * 100).toFixed(0) + "%"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 2.5
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Adjust the microphone input volume (PipeWire/PulseAudio default source).")
+            }
+        }
+
         // === Calibration bruit de fond ===
         RowLayout {
             Kirigami.FormData.label: i18n("Noise floor:")
@@ -234,6 +294,51 @@ KCM.SimpleKCM {
             }
             Kirigami.ContextualHelpButton {
                 toolTipText: i18n("Audio levels below this threshold are zeroed. Increase to suppress background noise and get clean silence.")
+            }
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Envelope shape:")
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.Slider {
+                from: 0.0; to: 3.0; stepSize: 0.1
+                value: cfg_envelopePower
+                onMoved: cfg_envelopePower = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: {
+                    if (cfg_envelopePower < 0.05) return i18n("Flat")
+                    if (cfg_envelopePower < 0.5) return cfg_envelopePower.toFixed(1)
+                    if (Math.abs(cfg_envelopePower - 1.0) < 0.05) return i18n("Normal")
+                    return cfg_envelopePower.toFixed(1)
+                }
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 3
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, higher = more peaked at the center.")
+            }
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Envelope center:")
+            spacing: Kirigami.Units.smallSpacing
+            enabled: cfg_envelopePower >= 0.05
+
+            QQC2.Slider {
+                from: 0.0; to: 1.0; stepSize: 0.05
+                value: cfg_envelopeCenter
+                onMoved: cfg_envelopeCenter = value
+                Layout.fillWidth: true
+            }
+            QQC2.Label {
+                text: Math.round(80 * Math.pow(50, cfg_envelopeCenter)) + " Hz"
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 3.5
+                horizontalAlignment: Text.AlignRight
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Shift the envelope peak across the frequency range (80–4000 Hz). Useful with rainbow colors to emphasize different frequency bands.")
             }
         }
 
@@ -329,7 +434,14 @@ KCM.SimpleKCM {
                         readonly property real envelope: {
                             var n = cfg_barCount
                             if (n <= 1) return 1.0
-                            return 0.5 - 0.5 * Math.cos(2 * Math.PI * bi / (n - 1))
+                            var t = bi / (n - 1)
+                            var c = cfg_envelopeCenter
+                            var r = (c > 0.01 && t <= c) ? 0.5 * t / c
+                                  : (c < 0.99 && t > c)  ? 0.5 + 0.5 * (t - c) / (1.0 - c)
+                                  : (c <= 0.01)           ? 0.5 + 0.5 * t
+                                  :                         0.5 * t
+                            var h = 0.5 - 0.5 * Math.cos(2 * Math.PI * r)
+                            return cfg_envelopePower > 0.01 ? Math.pow(h, cfg_envelopePower) : 1.0
                         }
                         readonly property real lvl: {
                             var s = barsPreview.parent.sens
@@ -337,11 +449,12 @@ KCM.SimpleKCM {
                             var raw
                             if (bands.length > 0) {
                                 var bidx = Math.min(Math.floor(bi * bands.length / cfg_barCount), bands.length - 1)
-                                raw = Math.min(1.0, bands[bidx] * s)
+                                raw = Math.min(1.0, bands[bidx])
                             } else {
-                                raw = Math.min(1.0, barsPreview.parent.audioLvl * s)
+                                raw = Math.min(1.0, barsPreview.parent.audioLvl)
                             }
-                            return raw * envelope
+                            var level = raw > 0 ? Math.pow(raw, 1.0 / s) : 0
+                            return level * envelope
                         }
                         width: Math.max(1, (barsPreview.width - (cfg_barCount - 1) * cfg_barSpacing) / cfg_barCount)
                         height: {
@@ -403,14 +516,21 @@ KCM.SimpleKCM {
                         var points = []
                         for (var x = 0; x <= width; x += 2) {
                             var ratio = x / width
-                            var envelope = 0.5 - 0.5 * Math.cos(2 * Math.PI * ratio)
-                            var localLvl
+                            var cEnv = cfg_envelopeCenter
+                            var rEnv = (cEnv > 0.01 && ratio <= cEnv) ? 0.5 * ratio / cEnv
+                                     : (cEnv < 0.99 && ratio > cEnv)  ? 0.5 + 0.5 * (ratio - cEnv) / (1.0 - cEnv)
+                                     : (cEnv <= 0.01)                  ? 0.5 + 0.5 * ratio
+                                     :                                   0.5 * ratio
+                            var hEnv = 0.5 - 0.5 * Math.cos(2 * Math.PI * rEnv)
+                            var envelope = cfg_envelopePower > 0.01 ? Math.pow(hEnv, cfg_envelopePower) : 1.0
+                            var rawLvl
                             if (hasBands) {
                                 var bidx = Math.min(Math.floor(ratio * bands.length), bands.length - 1)
-                                localLvl = Math.min(1.0, bands[bidx] * s)
+                                rawLvl = Math.min(1.0, bands[bidx])
                             } else {
-                                localLvl = Math.min(1.0, previewRect.audioLvl * s)
+                                rawLvl = Math.min(1.0, previewRect.audioLvl)
                             }
+                            var localLvl = rawLvl > 0 ? Math.pow(rawLvl, 1.0 / s) : 0
                             var amp = maxAmp * Math.max(0.15, localLvl) * envelope
                             var y = amp * Math.sin(ratio * freq * 6.2832 + wavePreview.phase)
                             points.push({ x: x, y: y })
@@ -462,13 +582,16 @@ KCM.SimpleKCM {
                 readonly property real ampLevel: {
                     var s = pulsePreview.parent.sens
                     var bands = pulsePreview.parent.audioBnds
+                    var raw
                     if (bands.length > 0) {
                         var mx = 0
                         for (var i = 0; i < bands.length; i++)
                             if (bands[i] > mx) mx = bands[i]
-                        return Math.min(1.0, mx * s)
+                        raw = Math.min(1.0, mx)
+                    } else {
+                        raw = Math.min(1.0, pulsePreview.parent.audioLvl)
                     }
-                    return Math.min(1.0, pulsePreview.parent.audioLvl * s)
+                    return raw > 0 ? Math.pow(raw, 1.0 / s) : 0
                 }
 
                 Repeater {
@@ -530,11 +653,14 @@ KCM.SimpleKCM {
                             readonly property real dl: {
                                 var s = dotsPreview.parent.sens
                                 var bands = dotsPreview.parent.audioBnds
+                                var raw
                                 if (bands.length > 0) {
                                     var bidx = Math.min(Math.floor(di * bands.length / cfg_dotCount), bands.length - 1)
-                                    return Math.min(1.0, bands[bidx] * s)
+                                    raw = Math.min(1.0, bands[bidx])
+                                } else {
+                                    raw = Math.min(1.0, dotsPreview.parent.audioLvl)
                                 }
-                                return Math.min(1.0, dotsPreview.parent.audioLvl * s)
+                                return raw > 0 ? Math.pow(raw, 1.0 / s) : 0
                             }
                             width: cfg_dotSize * (0.6 + 0.8 * dl)
                             height: width; radius: width / 2
@@ -577,11 +703,17 @@ KCM.SimpleKCM {
                     model: cfg_waveformBars
                     Rectangle {
                         readonly property int wi: index
-                        // Enveloppe Hanning : ~0 aux extrémités, 1 au centre
                         readonly property real envelope: {
                             var n = cfg_waveformBars
                             if (n <= 1) return 1.0
-                            return 0.5 - 0.5 * Math.cos(2 * Math.PI * wi / (n - 1))
+                            var t = wi / (n - 1)
+                            var c = cfg_envelopeCenter
+                            var r = (c > 0.01 && t <= c) ? 0.5 * t / c
+                                  : (c < 0.99 && t > c)  ? 0.5 + 0.5 * (t - c) / (1.0 - c)
+                                  : (c <= 0.01)           ? 0.5 + 0.5 * t
+                                  :                         0.5 * t
+                            var h = 0.5 - 0.5 * Math.cos(2 * Math.PI * r)
+                            return cfg_envelopePower > 0.01 ? Math.pow(h, cfg_envelopePower) : 1.0
                         }
                         readonly property real wl: {
                             var s = waveformPreview.parent.sens
@@ -589,11 +721,12 @@ KCM.SimpleKCM {
                             var raw
                             if (bands.length > 0) {
                                 var bidx = Math.min(Math.floor(wi * bands.length / cfg_waveformBars), bands.length - 1)
-                                raw = Math.min(1.0, bands[bidx] * s)
+                                raw = Math.min(1.0, bands[bidx])
                             } else {
-                                raw = Math.min(1.0, waveformPreview.parent.audioLvl * s)
+                                raw = Math.min(1.0, waveformPreview.parent.audioLvl)
                             }
-                            return raw * envelope
+                            var level = raw > 0 ? Math.pow(raw, 1.0 / s) : 0
+                            return level * envelope
                         }
                         readonly property real minR: cfg_waveformMinHeight
 
@@ -634,7 +767,7 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "bars"
 
             QQC2.Slider {
-                from: 0.1; to: 2.0; stepSize: 0.1
+                from: 0.5; to: 5.0; stepSize: 0.1
                 value: cfg_barSensitivity
                 onMoved: cfg_barSensitivity = value
                 Layout.fillWidth: true
@@ -709,7 +842,7 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "wave"
 
             QQC2.Slider {
-                from: 0.1; to: 2.0; stepSize: 0.1
+                from: 0.5; to: 5.0; stepSize: 0.1
                 value: cfg_waveSensitivity
                 onMoved: cfg_waveSensitivity = value
                 Layout.fillWidth: true
@@ -786,7 +919,7 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "pulse"
 
             QQC2.Slider {
-                from: 0.1; to: 2.0; stepSize: 0.1
+                from: 0.5; to: 5.0; stepSize: 0.1
                 value: cfg_pulseSensitivity
                 onMoved: cfg_pulseSensitivity = value
                 Layout.fillWidth: true
@@ -835,7 +968,7 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "dots"
 
             QQC2.Slider {
-                from: 0.1; to: 2.0; stepSize: 0.1
+                from: 0.5; to: 5.0; stepSize: 0.1
                 value: cfg_dotSensitivity
                 onMoved: cfg_dotSensitivity = value
                 Layout.fillWidth: true
@@ -901,7 +1034,7 @@ KCM.SimpleKCM {
             visible: animationStyleCombo.currentValue === "waveform"
 
             QQC2.Slider {
-                from: 0.1; to: 2.0; stepSize: 0.1
+                from: 0.5; to: 5.0; stepSize: 0.1
                 value: cfg_waveformSensitivity
                 onMoved: cfg_waveformSensitivity = value
                 Layout.fillWidth: true

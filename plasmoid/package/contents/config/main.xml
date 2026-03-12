@@ -30,6 +30,16 @@
             <default>0.05</default>
         </entry>
 
+        <!-- Envelope power: controls Hanning envelope shape (0=flat, 1=normal, 3=peaked) -->
+        <entry name="envelopePower" type="Double">
+            <default>1.0</default>
+        </entry>
+
+        <!-- Envelope center: peak position (0=low freq, 0.5=center, 1=high freq) -->
+        <entry name="envelopeCenter" type="Double">
+            <default>0.5</default>
+        </entry>
+
         <!-- Audio sensitivity (shared fallback) -->
         <entry name="audioSensitivity" type="Double">
             <default>2.0</default>

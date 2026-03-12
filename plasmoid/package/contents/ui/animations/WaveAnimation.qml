@@ -51,15 +51,24 @@ Item {
             var points = []
             for (var x = 0; x <= width; x += 2) {
                 var ratio = x / width
-                // Enveloppe Hanning
-                var envelope = 0.5 - 0.5 * Math.cos(2 * Math.PI * ratio)
+                // Enveloppe Hanning avec centre et puissance configurables
+                var c = Plasmoid.configuration.envelopeCenter
+                var rr = (c > 0.01 && ratio <= c) ? 0.5 * ratio / c
+                       : (c < 0.99 && ratio > c)  ? 0.5 + 0.5 * (ratio - c) / (1.0 - c)
+                       : (c <= 0.01)               ? 0.5 + 0.5 * ratio
+                       :                             0.5 * ratio
+                var h = 0.5 - 0.5 * Math.cos(2 * Math.PI * rr)
+                var envPow = Plasmoid.configuration.envelopePower
+                var envelope = envPow > 0.01 ? Math.pow(h, envPow) : 1.0
                 var localLevel
+                var rawLevel
                 if (hasBands && waveAnim.state === "recording") {
                     var bandIdx = Math.min(Math.floor(ratio * bands.length), bands.length - 1)
-                    localLevel = Math.min(1.0, bands[bandIdx] * sens)
+                    rawLevel = Math.min(1.0, bands[bandIdx])
                 } else {
-                    localLevel = Math.min(1.0, waveAnim.audioLevel * sens)
+                    rawLevel = Math.min(1.0, waveAnim.audioLevel)
                 }
+                localLevel = rawLevel > 0 ? Math.pow(rawLevel, 1.0 / sens) : 0
                 var amp = waveAnim.state === "recording"
                     ? maxAmplitude * Math.max(0.15, localLevel) * envelope
                     : maxAmplitude * 0.15 * envelope

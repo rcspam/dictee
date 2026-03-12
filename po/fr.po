@@ -522,25 +522,73 @@ msgid "Stop daemon"
 msgstr "Arrêter le daemon"
 
 #: dictee-tray
-msgid "Configuration…"
-msgstr "Configuration…"
+msgid "Start dictation"
+msgstr "Démarrer dictée"
+
+#: dictee-tray
+msgid "Stop dictation"
+msgstr "Arrêter dictée"
+
+#: dictee-tray
+msgid "Start translation"
+msgstr "Démarrer traduction"
+
+#: dictee-tray
+msgid "Stop translation"
+msgstr "Arrêter traduction"
+
+#: dictee-tray
+msgid "Configure Dictée"
+msgstr "Configurer Dictée"
 
 #: dictee-tray
 msgid "Quit icon"
 msgstr "Quitter l'icône"
 
 #: dictee-tray
+msgid "Dictation"
+msgstr "Dictée"
+
+#: dictee-tray
 msgid "Daemon active"
-msgstr "● Daemon actif"
+msgstr "🟢 Daemon actif"
 
 #: dictee-tray
 msgid "Daemon stopped"
-msgstr "○ Daemon arrêté"
+msgstr "🔴 Daemon arrêté"
 
 #: dictee-tray
-msgid "Parakeet — active"
-msgstr "Parakeet — actif"
+msgid "Recording…"
+msgstr "🔴 Enregistrement…"
 
 #: dictee-tray
-msgid "Parakeet — stopped"
-msgstr "Parakeet — arrêté"
+msgid "Transcribing…"
+msgstr "🔵 Transcription…"
+
+#: dictee-tray
+msgid "Transcription done"
+msgstr "Transcription terminée"
+
+#: dictee-tray
+msgid "Dictation — ready"
+msgstr "Dictée — prêt"
+
+#: dictee-tray
+msgid "Dictation — offline"
+msgstr "Dictée — hors ligne"
+
+#: dictee-tray
+msgid "Dictation — recording"
+msgstr "Dictée — enregistrement"
+
+#: dictee-tray
+msgid "Dictation — transcribing"
+msgstr "Dictée — transcription"
+
+#: dictee-tray
+msgid "Click = dictation, Ctrl+click = translation"
+msgstr "Clic = dictée, Ctrl+clic = traduction"
+
+#: dictee-tray
+msgid "Click = stop, Middle = cancel"
+msgstr "Clic = arrêter, Molette = annuler"

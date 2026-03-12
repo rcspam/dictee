@@ -131,17 +131,17 @@ Sans aucune de ces options, `dictee` fonctionne normalement mais sans retour vis
 
 ### Icône de zone de notification
 
-`dictee-tray` affiche une icône dans la boîte à miniatures du panel qui indique l'état du daemon (actif/arrêté). Le menu contextuel permet de démarrer/arrêter le daemon, lancer une dictée ou ouvrir la configuration.
+`dictee-tray` est le substitut au widget KDE Plasma pour les bureaux non-KDE (GNOME, Xfce, Sway, Hyprland…). Il affiche une icône dans la zone de notification qui reflète l'état en temps réel : idle, enregistrement (vert), transcription (bleu), daemon arrêté (rouge). Le clic gauche lance une dictée, le clic molette annule, et le menu contextuel donne accès à toutes les actions (dictée, traduction, daemon, configuration).
 
 ```bash
 # Lancer manuellement
 dictee-tray
 
 # Activer au démarrage de la session
-systemctl --user enable dictee-tray
+systemctl --user enable --now dictee-tray
 ```
 
-L'icône s'adapte automatiquement au thème clair/sombre.
+L'icône s'adapte automatiquement au thème clair/sombre. Sur KDE Plasma, préférer le [widget plasmoid](#widget-kde-plasma) qui offre des animations audio en temps réel.
 
 ### Widget KDE Plasma
 

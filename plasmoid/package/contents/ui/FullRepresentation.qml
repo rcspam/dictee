@@ -205,7 +205,7 @@ ColumnLayout {
         Item { Layout.fillWidth: true }
 
         PlasmaComponents.Button {
-            text: i18n("Configuration…")
+            text: i18n("Configure Dictée")
             icon.name: "configure"
             flat: true
             onClicked: fullRep.actionRequested("setup")

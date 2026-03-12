@@ -70,8 +70,8 @@ msgid "Preview (mic test)"
 msgstr "Aperçu (test micro)"
 
 #: package/contents/ui/FullRepresentation.qml
-msgid "Configuration…"
-msgstr "Configuration…"
+msgid "Configure Dictée"
+msgstr "Configurer Dictée"
 
 #: package/contents/ui/configGeneral.qml
 msgid "Calibration done!"

@@ -27,13 +27,16 @@ Item {
 
                 readonly property real dotLevel: {
                     var sens = dotsAnim.sensitivity
+                    var raw
                     if (dotsAnim.audioBands.length > 0) {
                         var bandIdx = Math.min(
                             Math.floor(dotIndex * dotsAnim.audioBands.length / Plasmoid.configuration.dotCount),
                             dotsAnim.audioBands.length - 1)
-                        return Math.min(1.0, dotsAnim.audioBands[bandIdx] * sens)
+                        raw = Math.min(1.0, dotsAnim.audioBands[bandIdx])
+                    } else {
+                        raw = Math.min(1.0, dotsAnim.audioLevel)
                     }
-                    return Math.min(1.0, dotsAnim.audioLevel * sens)
+                    return raw > 0 ? Math.pow(raw, 1.0 / sens) : 0
                 }
 
                 width: {

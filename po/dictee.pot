@@ -189,30 +189,78 @@ msgstr ""
 msgid "Stop daemon"
 msgstr ""
 
-#: pkg/dictee/usr/bin/dictee-tray:228
-msgid "Dictation + Translation"
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Start dictation"
 msgstr ""
 
-#: pkg/dictee/usr/bin/dictee-tray:237
-msgid "Configuration…"
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Stop dictation"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Start translation"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Stop translation"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Configure Dictée"
 msgstr ""
 
 #: pkg/dictee/usr/bin/dictee-tray:244
 msgid "Quit icon"
 msgstr ""
 
-#: pkg/dictee/usr/bin/dictee-tray:252
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Dictation"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
 msgid "Daemon active"
 msgstr ""
 
-#: pkg/dictee/usr/bin/dictee-tray:257
+#: pkg/dictee/usr/bin/dictee-tray
 msgid "Daemon stopped"
 msgstr ""
 
-#: pkg/dictee/usr/bin/dictee-tray:271
-msgid "Parakeet — active"
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Recording…"
 msgstr ""
 
-#: pkg/dictee/usr/bin/dictee-tray:271
-msgid "Parakeet — stopped"
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Transcribing…"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Transcription done"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Dictation — ready"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Dictation — offline"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Dictation — recording"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Dictation — transcribing"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Click = dictation, Ctrl+click = translation"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Click = stop, Middle = cancel"
+msgstr ""
+
+#: pkg/dictee/usr/bin/dictee-tray
+msgid "Cancel"
 msgstr ""

@@ -35,11 +35,19 @@ Item {
 
                 readonly property int barIndex: index
 
-                // Enveloppe Hanning
+                // Enveloppe Hanning avec centre et puissance configurables
                 readonly property real envelope: {
                     var n = Plasmoid.configuration.barCount
                     if (n <= 1) return 1.0
-                    return 0.5 - 0.5 * Math.cos(2 * Math.PI * barIndex / (n - 1))
+                    var t = barIndex / (n - 1)
+                    var c = Plasmoid.configuration.envelopeCenter
+                    var r = (c > 0.01 && t <= c) ? 0.5 * t / c
+                          : (c < 0.99 && t > c)  ? 0.5 + 0.5 * (t - c) / (1.0 - c)
+                          : (c <= 0.01)           ? 0.5 + 0.5 * t
+                          :                         0.5 * t
+                    var h = 0.5 - 0.5 * Math.cos(2 * Math.PI * r)
+                    var p = Plasmoid.configuration.envelopePower
+                    return p > 0.01 ? Math.pow(h, p) : 1.0
                 }
 
                 readonly property real targetHeight: {
@@ -49,17 +57,18 @@ Item {
                         return barRow.height * (minRatio * envelope + minRatio * (1 - envelope) * 0.3)
                     }
 
-                    var level
                     var sens = barsAnim.sensitivity
+                    var raw
 
                     if (barsAnim.audioBands.length > 0) {
                         var bandIdx = Math.min(
                             Math.floor(barIndex * barsAnim.audioBands.length / Plasmoid.configuration.barCount),
                             barsAnim.audioBands.length - 1)
-                        level = Math.min(1.0, barsAnim.audioBands[bandIdx] * sens)
+                        raw = Math.min(1.0, barsAnim.audioBands[bandIdx])
                     } else {
-                        level = Math.min(1.0, barsAnim.audioLevel * sens)
+                        raw = Math.min(1.0, barsAnim.audioLevel)
                     }
+                    var level = raw > 0 ? Math.pow(raw, 1.0 / sens) : 0
 
                     level *= envelope
 

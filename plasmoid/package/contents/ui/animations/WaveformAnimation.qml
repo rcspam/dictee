@@ -22,11 +22,19 @@ Item {
 
             Rectangle {
                 readonly property int barIndex: index
-                // Enveloppe Hanning : ~0 aux extrémités, 1 au centre
+                // Enveloppe Hanning avec centre et puissance configurables
                 readonly property real envelope: {
                     var n = Plasmoid.configuration.waveformBars
                     if (n <= 1) return 1.0
-                    return 0.5 - 0.5 * Math.cos(2 * Math.PI * barIndex / (n - 1))
+                    var t = barIndex / (n - 1)
+                    var c = Plasmoid.configuration.envelopeCenter
+                    var r = (c > 0.01 && t <= c) ? 0.5 * t / c
+                          : (c < 0.99 && t > c)  ? 0.5 + 0.5 * (t - c) / (1.0 - c)
+                          : (c <= 0.01)           ? 0.5 + 0.5 * t
+                          :                         0.5 * t
+                    var h = 0.5 - 0.5 * Math.cos(2 * Math.PI * r)
+                    var p = Plasmoid.configuration.envelopePower
+                    return p > 0.01 ? Math.pow(h, p) : 1.0
                 }
                 readonly property real barLevel: {
                     var sens = wfAnim.sensitivity
@@ -35,11 +43,12 @@ Item {
                         var bandIdx = Math.min(
                             Math.floor(barIndex * wfAnim.audioBands.length / Plasmoid.configuration.waveformBars),
                             wfAnim.audioBands.length - 1)
-                        raw = Math.min(1.0, wfAnim.audioBands[bandIdx] * sens)
+                        raw = Math.min(1.0, wfAnim.audioBands[bandIdx])
                     } else {
-                        raw = Math.min(1.0, wfAnim.audioLevel * sens)
+                        raw = Math.min(1.0, wfAnim.audioLevel)
                     }
-                    return raw * envelope
+                    var level = raw > 0 ? Math.pow(raw, 1.0 / sens) : 0
+                    return level * envelope
                 }
 
                 readonly property real minRatio: Plasmoid.configuration.waveformMinHeight

@@ -1912,7 +1912,7 @@ class DicteeSetupDialog(QDialog):
 
         # Tray
         action = "enable" if self.chk_tray.isChecked() else "disable"
-        subprocess.run(["systemctl", "--user", action, "dictee-tray"], capture_output=True)
+        subprocess.run(["systemctl", "--user", action, "--now", "dictee-tray"], capture_output=True)
 
         shortcut_msg = ""
         if self.de_type in ("kde", "gnome") and hasattr(self, "btn_capture"):

@@ -95,7 +95,16 @@ Item {
             for (var i = 0; i < nSeg; i++) {
                 var x = (i + 0.5) * segWidth
                 // Enveloppe Hanning : 0 aux extrémités, 1 au centre
-                var envelope = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (nSeg - 1))
+                var tEnv = i / (nSeg - 1)
+                var cEnv = Plasmoid.configuration.envelopeCenter
+                cEnv = (cEnv !== undefined) ? cEnv : 0.5
+                var rEnv = (cEnv > 0.01 && tEnv <= cEnv) ? 0.5 * tEnv / cEnv
+                         : (cEnv < 0.99 && tEnv > cEnv)  ? 0.5 + 0.5 * (tEnv - cEnv) / (1.0 - cEnv)
+                         : (cEnv <= 0.01)                  ? 0.5 + 0.5 * tEnv
+                         :                                   0.5 * tEnv
+                var hEnv = 0.5 - 0.5 * Math.cos(2 * Math.PI * rEnv)
+                var envPow = Plasmoid.configuration.envelopePower
+                var envelope = (envPow !== undefined && envPow > 0.01) ? Math.pow(hEnv, envPow) : hEnv
                 var amp = rawSegments[i] * envelope * maxAmp
                 if (amp < 1) amp = 1
                 ctx.moveTo(x, centerY - amp)

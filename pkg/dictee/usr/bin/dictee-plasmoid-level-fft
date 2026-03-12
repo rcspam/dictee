@@ -111,45 +111,58 @@ def main():
                              for i in range(N_BARS)], dtype=np.float32)
     eq_gain = np.sqrt(center_freqs / freq_lo)  # +3dB/octave de compensation
 
-    # Charger le bruit de fond depuis le cache (pas de calibration auto)
+    # Charger le bruit de fond depuis le cache
     noise_floor = load_noise_floor(N_BARS)
+
+    # Auto-calibration si pas de cache valide (25 frames ≈ 1s de silence)
+    AUTO_CAL_FRAMES = 25
+    auto_cal_buf = [] if noise_floor is None else None
+
     if noise_floor is None:
         noise_floor = np.zeros(N_BARS, dtype=np.float32)
 
     # RNG pour micro-variation
     rng = np.random.default_rng(42)
 
+    def compute_bands(data):
+        samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+        windowed = samples * hann
+        spectrum = np.abs(np.fft.rfft(windowed))
+        bands = np.zeros(N_BARS, dtype=np.float32)
+        for b in range(N_BARS):
+            lo = max(1, limits[b])
+            hi = min(max(lo + 1, limits[b + 1]), len(spectrum))
+            if lo < hi:
+                chunk = spectrum[lo:hi]
+                bands[b] = (np.sqrt(np.mean(chunk ** 2)) * 0.6 + np.max(chunk) * 0.4) / 32768.0
+        bands *= eq_gain
+        return bands
+
     while True:
         data = sys.stdin.buffer.read(CHUNK * 2)
         if len(data) < CHUNK * 2:
             break
 
-        samples = np.frombuffer(data, dtype=np.int16).astype(np.float32)
-        windowed = samples * hann
-        spectrum = np.abs(np.fft.rfft(windowed))
+        bands = compute_bands(data)
 
-        bands = np.zeros(N_BARS, dtype=np.float32)
-        for b in range(N_BARS):
-            lo = max(1, limits[b])
-            hi = max(lo + 1, limits[b + 1])
-            hi = min(hi, len(spectrum))
-            if lo < hi:
-                chunk = spectrum[lo:hi]
-                bands[b] = (np.sqrt(np.mean(chunk ** 2)) * 0.6 + np.max(chunk) * 0.4) / 32768.0
+        # Phase d'auto-calibration : collecter les frames de bruit ambiant
+        if auto_cal_buf is not None:
+            auto_cal_buf.append(bands.copy())
+            # Pendant l'auto-calibration, écrire des zéros
+            atomic_write(OUT, " ".join("0.000" for _ in range(N_BARS)))
+            if len(auto_cal_buf) >= AUTO_CAL_FRAMES:
+                noise_floor = np.mean(auto_cal_buf, axis=0).astype(np.float32) * 1.2
+                save_noise_floor(noise_floor)
+                auto_cal_buf = None
+            continue
 
-        # Égalisation fréquentielle (boost aigus)
-        bands *= eq_gain
-
-        # Soustraire le bruit de fond (zéro si pas de calibration)
+        # Soustraire le bruit de fond
         clean = np.maximum(0, bands - noise_floor)
 
-        # Normalisation adaptative par bande
-        normalized = np.zeros(N_BARS, dtype=np.float32)
-        for b in range(N_BARS):
-            if noise_floor[b] > 1e-6:
-                normalized[b] = min(1.0, clean[b] / (noise_floor[b] * 1.5))
-            elif clean[b] > 0:
-                normalized[b] = min(1.0, clean[b] * 10.0)
+        # Compression logarithmique — préserve la dynamique vocale
+        # log1p(ratio)/log1p(20) : 0 au bruit, ~0.23 à 1×, ~0.59 à 5×, 1.0 à 20×
+        ratio = clean / np.maximum(noise_floor, 1e-6)
+        normalized = np.minimum(1.0, np.log1p(ratio) / np.log1p(20)).astype(np.float32)
 
         # Micro-variation proportionnelle au signal (decorrelation visuelle)
         jitter = rng.uniform(-0.1, 0.1, N_BARS).astype(np.float32)

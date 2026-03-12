@@ -131,17 +131,17 @@ Without either option, `dictee` works normally but without visual feedback.
 
 ### Notification area icon
 
-`dictee-tray` displays an icon in the panel's notification area showing the daemon status (active/stopped). The context menu allows starting/stopping the daemon, launching a dictation, or opening the configuration.
+`dictee-tray` is the substitute for the KDE Plasma widget on non-KDE desktops (GNOME, Xfce, Sway, Hyprland…). It displays a notification area icon reflecting the real-time state: idle, recording (green), transcribing (blue), daemon stopped (red). Left click starts a dictation, middle click cancels, and the context menu provides access to all actions (dictation, translation, daemon, configuration).
 
 ```bash
 # Launch manually
 dictee-tray
 
 # Enable at session startup
-systemctl --user enable dictee-tray
+systemctl --user enable --now dictee-tray
 ```
 
-The icon automatically adapts to light/dark themes.
+The icon automatically adapts to light/dark themes. On KDE Plasma, prefer the [plasmoid widget](#kde-plasma-widget) which offers real-time audio animations.
 
 ### KDE Plasma widget
 

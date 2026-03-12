@@ -70,7 +70,7 @@ msgid "Preview (mic test)"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml
-msgid "Configuration…"
+msgid "Configure Dictée"
 msgstr ""
 
 #: package/contents/ui/configGeneral.qml

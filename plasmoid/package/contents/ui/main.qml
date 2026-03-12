@@ -18,13 +18,13 @@ PlasmoidItem {
     // Etat effectif (preview force recording)
     readonly property string effectiveState: Plasmoid.configuration.previewMode ? "recording" : state
 
-    // Sensibilité active selon le style d'animation
+    // Sensibilité active selon le style d'animation (contrôle la courbe de puissance)
     readonly property real activeSensitivity: {
         var style = Plasmoid.configuration.animationStyle || "bars"
         switch (style) {
-        case "bars":  return Plasmoid.configuration.barSensitivity  || 2.0
-        case "wave":  return Plasmoid.configuration.waveSensitivity || 2.0
-        case "pulse": return Plasmoid.configuration.pulseSensitivity || 2.0
+        case "bars":     return Plasmoid.configuration.barSensitivity      || 2.0
+        case "wave":     return Plasmoid.configuration.waveSensitivity     || 2.0
+        case "pulse":    return Plasmoid.configuration.pulseSensitivity    || 2.0
         case "dots":     return Plasmoid.configuration.dotSensitivity      || 2.0
         case "waveform": return Plasmoid.configuration.waveformSensitivity || 2.0
         default:         return Plasmoid.configuration.audioSensitivity    || 2.0
@@ -192,13 +192,17 @@ PlasmoidItem {
         } else if (newState === "idle" && root.state === "recording") {
             root.state = "transcribing"
             transcribingTimer.start()
+        } else if (newState === "idle" && root.state === "transcribing") {
+            // Transcription terminée — retour immédiat à idle
+            transcribingTimer.stop()
+            root.state = "idle"
         }
     }
 
-    // Timer rapide : lit /dev/shm/.dictee_state toutes les 500ms
+    // Timer rapide : lit /dev/shm/.dictee_state toutes les 150ms
     Timer {
         id: fastPollTimer
-        interval: 500
+        interval: 150
         running: true
         repeat: true
         triggeredOnStart: true
@@ -288,15 +292,18 @@ PlasmoidItem {
             root.state = "offline"
             break
         case "setup":
-            executable.run("dictee-setup")
+            executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")
             break
         }
     }
 
     function preStartAudioDaemon() {
         var cmd = "dictee-plasmoid-level"
-        if (Plasmoid.configuration.animationStyle === "bars") {
+        var style = Plasmoid.configuration.animationStyle || "bars"
+        if (style === "bars") {
             cmd += " " + Plasmoid.configuration.barCount
+        } else if (style === "waveform") {
+            cmd += " " + Plasmoid.configuration.waveformBars
         }
         executable.run(cmd)
     }

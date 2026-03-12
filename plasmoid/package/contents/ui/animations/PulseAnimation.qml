@@ -13,15 +13,16 @@ Item {
 
     readonly property real amplifiedLevel: {
         var sens = pulseAnim.sensitivity
-        var level = audioLevel
+        var raw = audioLevel
         if (audioBands.length > 0) {
             var maxBand = 0
             for (var i = 0; i < audioBands.length; i++) {
                 if (audioBands[i] > maxBand) maxBand = audioBands[i]
             }
-            level = maxBand
+            raw = maxBand
         }
-        return Math.min(1.0, level * sens)
+        raw = Math.min(1.0, raw)
+        return raw > 0 ? Math.pow(raw, 1.0 / sens) : 0
     }
 
     Repeater {
@@ -34,7 +35,8 @@ Item {
                     var bandIdx = Math.min(
                         Math.floor(ringIndex * audioBands.length / Plasmoid.configuration.pulseRings),
                         audioBands.length - 1)
-                    return Math.min(1.0, audioBands[bandIdx] * pulseAnim.sensitivity)
+                    var rv = Math.min(1.0, audioBands[bandIdx])
+                    return rv > 0 ? Math.pow(rv, 1.0 / pulseAnim.sensitivity) : 0
                 }
                 return pulseAnim.amplifiedLevel
             }
