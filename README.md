@@ -167,9 +167,9 @@ Five animation styles are available, all with Hanning envelope (tapered edges), 
 
 | Bars | Wave | Pulse | Dots | Waveform |
 |:----:|:----:|:-----:|:----:|:--------:|
-| ![Bars](plasmoid/assets/anim-bars.svg) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
+| ![Bars](plasmoid/assets/anim-bars.svg?v=2) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
 
-Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg)
+Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg?v=2)
 
 #### Settings
 

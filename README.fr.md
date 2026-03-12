@@ -167,9 +167,9 @@ Cinq styles d'animation sont disponibles, tous avec enveloppe Hanning (atténuat
 
 | Barres | Onde | Pulsation | Points | Forme d'onde |
 |:------:|:----:|:---------:|:------:|:------------:|
-| ![Barres](plasmoid/assets/anim-bars.svg) | ![Onde](plasmoid/assets/anim-wave.svg) | ![Pulsation](plasmoid/assets/anim-pulse.svg) | ![Points](plasmoid/assets/anim-dots.svg) | ![Forme d'onde](plasmoid/assets/anim-waveform.svg) |
+| ![Barres](plasmoid/assets/anim-bars.svg?v=2) | ![Onde](plasmoid/assets/anim-wave.svg) | ![Pulsation](plasmoid/assets/anim-pulse.svg) | ![Points](plasmoid/assets/anim-dots.svg) | ![Forme d'onde](plasmoid/assets/anim-waveform.svg) |
 
-Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg)
+Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg?v=2)
 
 #### Réglages
 
