@@ -25,8 +25,8 @@
 ---
 
 <p align="center">
-  <img src="plasmoid.png" alt="Popup du plasmoid (enregistrement)" width="400"><br>
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="340">
+  <img src="plasmoid.png" alt="Popup du plasmoid (enregistrement)" width="450"><br>
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="380">
 </p>
 
 **dictee** est un système complet de dictée vocale pour Linux. La transcription est réalisée **100% en local** — aucune donnée audio ne quitte votre machine. Appuyez sur un raccourci, parlez, et le texte est tapé directement dans l'application active.
