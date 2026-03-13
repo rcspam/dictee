@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Push-to-talk voice dictation for Linux</b> — speak, and the text is typed at the cursor position. With optional translation.
+  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, translation, and real-time visual feedback. Text appears right where your cursor is.
 </p>
 
 <p align="center">

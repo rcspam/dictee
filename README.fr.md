@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <b>Saisie vocale push-to-talk pour Linux</b> — parlez, et le texte s'écrit à la position du curseur. Avec traduction optionnelle.
+  <b>Parlez librement, tapez instantanément</b> — dictée vocale 100% locale pour Linux avec 25+ langues, traduction et retour visuel en temps réel. Le texte apparaît directement sous votre curseur.
 </p>
 
 <p align="center">
