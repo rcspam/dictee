@@ -144,6 +144,10 @@ Clic droit sur le panneau → « Ajouter des composants graphiques… » → che
 
 `dictee-tray` est l'alternative au widget KDE Plasma pour les bureaux non-KDE (GNOME, Xfce, Sway, Hyprland…). Il affiche une icône dans la zone de notification qui reflète l'état en temps réel : idle, enregistrement (vert), transcription (bleu), daemon arrêté (rouge).
 
+<p align="center">
+  <img src="tray.png" alt="Menu contextuel dictee-tray" width="400">
+</p>
+
 - Clic gauche → lancer une dictée
 - Clic molette → annuler
 - Menu contextuel → toutes les actions (dictée, traduction, daemon, configuration)
