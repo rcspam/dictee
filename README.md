@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
-    <img src="assets/banner-light.svg" alt="dictée" width="480">
+    <img src="assets/banner-light.svg" alt="dictée" width="640">
   </picture>
 </p>
 
@@ -31,42 +31,15 @@
   </a>
 </p>
 
-<p align="center">
-  <b>Fullscreen animation (animation-speech)</b><br>
-  <a href="https://youtu.be/-fWZZEO7mCA">
-    <img src="assets/demo.gif" alt="dictee demo — click to watch on YouTube" width="960">
-  </a>
-</p>
+**dictee** is a complete voice dictation system for Linux. Transcription is performed **100% locally** — no audio data ever leaves your machine. Press a shortcut, speak, and the text is typed directly into the active application.
 
-Transcription is performed **100% locally** using the [NVIDIA Parakeet-TDT 0.6B](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) model running via ONNX Runtime. No audio data is sent to any external server — your voice stays on your machine.
+- **3 ASR backends**: [Parakeet-TDT](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (25 languages, native punctuation), [Vosk](https://alphacephei.com/vosk/) (lightweight, ~50 MB), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (99 languages)
+- **Daemon mode**: model loaded once, near-instant transcriptions (~0.8s on CPU)
+- **Translation**: 4 backends — Google, Bing, LibreTranslate (local), ollama (local)
+- **Speaker diarization**: who said what, up to 4 speakers via Sortformer
+- **3 visual interfaces**: KDE Plasma widget, notification area icon, fullscreen animation
 
-A first press of the keyboard shortcut starts recording (with a visual animation via [animation-speech](https://github.com/rcspam/animation-speech) or the included **KDE Plasma widget**), a second press stops it, transcribes the speech and **types the text directly into the active application** via [dotool](https://sr.ht/~geb/dotool/).
-
-## Usage
-
-```bash
-# First launch: configure keyboard shortcut, translation, languages
-dictee --setup
-
-# Simple dictation — transcribe and type
-dictee
-
-# With translation (default: system language → English)
-dictee --translate
-dictee --translate --ollama    # 100% local translation via ollama/translategemma
-
-# Change translation languages
-DICTEE_LANG_TARGET=es dictee --translate    # → Spanish
-
-# Cancel an ongoing recording (via shortcut or Escape key)
-dictee --cancel
-```
-
-### Post-processing (French dictation)
-
-Transcribed text is post-processed to interpret French voice commands:
-- "point à la ligne" → line break
-- "trois petits points" → `...`
+---
 
 ## Installation
 
@@ -83,55 +56,97 @@ sudo dpkg -i dictee-cpu_1.0.0_amd64.deb
 sudo apt-get install -f
 ```
 
-After installation, run `dictee --setup` to configure the keyboard shortcut and translation options.
+For non-Debian distributions, a `.tar.gz` archive is also available:
+
+```bash
+tar xzf dictee-1.0.0_amd64.tar.gz
+cd dictee-1.0.0
+sudo ./install.sh
+```
+
+### Dependencies
+
+```bash
+# Main dependencies (included in .deb)
+sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
+
+# Optional — clipboard copy
+sudo apt install wl-clipboard
+```
+
+---
+
+## Configuration
+
+After installation, run `dictee --setup` to configure everything from a graphical interface:
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="400">
 </p>
 
-### Dependencies
+### ASR backend
+
+Three mutually exclusive transcription backends, switchable from `dictee --setup`:
+
+| Backend | Languages | Model size | Warm daemon | Type |
+|---------|-----------|------------|-------------|------|
+| **Parakeet-TDT** (default) | 25 | ~2.5 GB | ~0.8s | ONNX Runtime (Rust) |
+| **Vosk** | 9+ | ~50 MB | ~1.5s | Python (lightweight) |
+| **faster-whisper** | 99 | ~500 MB–3 GB | ~0.3s | CTranslate2 (Python) |
+
+Each backend runs as a systemd user service — same Unix socket protocol, fully transparent to the user.
+
+### Keyboard shortcuts
+
+`dictee --setup` captures and registers shortcuts automatically (KDE Plasma / GNOME). Two separate shortcuts: one for dictation, one for dictation + translation.
+
+> For tiling WMs (Sway, i3, Hyprland…), the tool shows the command to add manually to your config.
+
+### Translation
+
+| Backend | Privacy | Speed | Quality | Setup |
+|---------|---------|-------|---------|-------|
+| **translate-shell** (Google) | Online | 0.2–0.7s | Good | `apt install translate-shell` |
+| **translate-shell** (Bing) | Online | 1.7–2.2s | Good | `apt install translate-shell` |
+| **LibreTranslate** | 100% local | 0.1–0.3s | Good | Docker (~2 GB image) |
+| **ollama** | 100% local | 2.3–3.4s | Best | ollama + translategemma model |
+
+---
+
+## Visual interfaces
+
+### KDE Plasma widget
+
+A native KDE Plasma 6 widget with real-time audio visualization during recording, daemon status, and quick controls (dictate, translate, cancel).
+
+| Widget popup (recording) | Configuration |
+|:------------------------:|:-------------:|
+| ![Plasmoid popup](plasmoid.png) | ![Plasmoid config](plasmoid_config.png) |
+
+Five animation styles with Hanning envelope, per-style sensitivity, and optional rainbow colors:
+
+| Bars | Wave | Pulse | Dots | Waveform |
+|:----:|:----:|:-----:|:----:|:--------:|
+| ![Bars](plasmoid/assets/anim-bars.svg?v=2) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
+
+Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg?v=2)
 
 ```bash
-# Main dependencies
-sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
-
-# Optional (clipboard copy as bonus)
-sudo apt install wl-clipboard
-
-# For translation (optional) — 3 backends available:
-sudo apt install translate-shell    # translate-shell (Google or Bing)
-# or
-docker pull libretranslate/libretranslate  # LibreTranslate (100% local, Docker)
-# or
-curl -fsSL https://ollama.com/install.sh | sh && ollama pull translategemma  # ollama (100% local)
+# Install (included in .deb, or manually)
+kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid
 ```
 
-#### Visual feedback during recording
+Right-click on the panel → "Add Widgets…" → search for "Dictée".
 
-Two options are available for visual feedback during recording:
+> For full widget settings documentation, see [docs/plasmoid.md](docs/plasmoid.md).
 
-**Option 1: KDE Plasma widget (recommended for KDE users)**
+### Notification area icon (dictee-tray)
 
-The included Plasma 6 widget displays real-time audio bars directly in the panel, with daemon controls and configurable animations. See [KDE Plasma widget](#kde-plasma-widget) below.
+`dictee-tray` is the alternative to the KDE Plasma widget for non-KDE desktops (GNOME, Xfce, Sway, Hyprland…). It displays a notification area icon reflecting the real-time state: idle, recording (green), transcribing (blue), daemon stopped (red).
 
-**Option 2: animation-speech (all desktops)**
-
-[animation-speech](https://github.com/rcspam/animation-speech) displays a fullscreen visual animation during recording and allows cancellation with the Escape key. Works on Wayland compositors supporting `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…). Not compatible with GNOME.
-
-> **GNOME users**: there is currently no GNOME Shell extension for dictee. Contributions are welcome — if you'd like to develop one, see the [plasmoid source](plasmoid/) for reference architecture (state machine, audio bands via FFT, daemon communication).
-
-```bash
-# Install from the .deb
-sudo dpkg -i animation-speech_1.2.0_all.deb
-```
-
-> Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases) (.deb and .tar.gz)
-
-Without either option, `dictee` works normally but without visual feedback.
-
-### Notification area icon
-
-`dictee-tray` is the substitute for the KDE Plasma widget on non-KDE desktops (GNOME, Xfce, Sway, Hyprland…). It displays a notification area icon reflecting the real-time state: idle, recording (green), transcribing (blue), daemon stopped (red). Left click starts a dictation, middle click cancels, and the context menu provides access to all actions (dictation, translation, daemon, configuration).
+- Left click → start dictation
+- Middle click → cancel
+- Context menu → all actions (dictation, translation, daemon, configuration)
 
 ```bash
 # Launch manually
@@ -141,237 +156,62 @@ dictee-tray
 systemctl --user enable --now dictee-tray
 ```
 
-The icon automatically adapts to light/dark themes. On KDE Plasma, prefer the [plasmoid widget](#kde-plasma-widget) which offers real-time audio animations.
+The icon automatically adapts to light/dark themes.
 
-### KDE Plasma widget
+### animation-speech
 
-A native KDE Plasma 6 widget is included. It displays real-time audio visualization during recording, daemon status, and provides quick controls (dictate, translate, cancel).
+[animation-speech](https://github.com/rcspam/animation-speech) is a standalone project that provides a fullscreen visual animation during recording, with cancellation via Escape key. It works on any Wayland compositor supporting `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…).
 
-| Widget popup (recording) | Configuration |
-|:------------------------:|:-------------:|
-| ![Plasmoid popup](plasmoid.png) | ![Plasmoid config](plasmoid_config.png) |
+<p align="center">
+  <a href="https://youtu.be/-fWZZEO7mCA">
+    <img src="assets/demo.gif" alt="animation-speech demo — click to watch on YouTube" width="640">
+  </a>
+</p>
 
 ```bash
-# Install (included in .deb, or manually)
-kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid
-
-# Update
-kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid
+sudo dpkg -i animation-speech_1.2.0_all.deb
 ```
 
-Right-click on the panel → "Add Widgets…" → search for "Dictée".
+> Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases)
 
-#### Animation styles
+> **Note:** animation-speech is not compatible with GNOME (no `wlr-layer-shell` support). GNOME users can use `dictee-tray` for visual feedback. Contributions for a GNOME Shell extension are welcome — see the [plasmoid source](plasmoid/) for reference architecture.
 
-Five animation styles are available, all with Hanning envelope (tapered edges), per-style sensitivity, and optional rainbow colors:
-
-| Bars | Wave | Pulse | Dots | Waveform |
-|:----:|:----:|:-----:|:----:|:--------:|
-| ![Bars](plasmoid/assets/anim-bars.svg?v=2) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
-
-Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg?v=2)
-
-#### Settings
-
-- **Microphone volume** — adjust input level directly from the widget config
-- **Noise gate** — zero out audio below a threshold for clean silence
-- **Auto-calibration** — captures ambient noise at startup for optimal normalization
-- **Sensitivity** — power curve per animation style (`pow(raw, 1/sens)`) for precise control
-- **Envelope shape** — adjustable Hanning power (flat → sharp)
-- **Envelope center** — shift the peak across the frequency range (80–4000 Hz) for better spectral distribution
-- **Per-style controls** — bar count, spacing, radius, speed, etc.
-
-> Requires `python3-numpy` and `pulseaudio-utils` (parec) for real-time audio visualization.
-
-### Configuration
-
-`dictee --setup` opens a graphical interface (PyQt6) for configuring:
-
-- **ASR models**: download and manage transcription models (TDT, Sortformer, Nemotron)
-- **Keyboard shortcuts**: capture and automatic registration (KDE Plasma / GNOME) — separate shortcuts for dictation and dictation + translation
-- **Translation**: source/target languages, backend choice:
-
-| Backend | Privacy | Speed | Quality | Requirements |
-|---------|---------|-------|---------|--------------|
-| **translate-shell** (Google) | Online | 0.2–0.7s | Good | `apt install translate-shell` |
-| **translate-shell** (Bing) | Online | 1.7–2.2s | Good | `apt install translate-shell` |
-| **LibreTranslate** | 100% local | 0.1–0.3s | Good | Docker (~2 GB image) |
-| **ollama** | 100% local | 2.3–3.4s | Best | ollama + translategemma/aya model |
-- **Options**: clipboard copy, visual feedback (animation-speech overlay or Plasma widget)
-- **Services**: daemon and tray autostart
-
-Preferences are saved in `~/.config/dictee.conf` and automatically loaded on each launch. CLI arguments (`--translate`, `--ollama`) always take priority over the configuration.
-
-> For unsupported environments (Sway, i3, Hyprland...), the tool shows the command to configure manually in your window manager.
+Without any visual interface, `dictee` works normally but without visual feedback during recording.
 
 ---
 
-## Backend: transcription engine
-
-Three transcription backends are supported. The default engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [@altunenes](https://github.com/altunenes) for NVIDIA Parakeet model inference via ONNX Runtime. Alternative backends (Vosk, faster-whisper) are available for lightweight or multilingual use cases.
-
-### Features
-
-- **Multilingual transcription**: 25+ languages via ParakeetTDT 0.6B, text typed in any language via dotool (native XKB support)
-- **Diarization**: speaker identification (up to 4 speakers) via Sortformer
-- **Real-time streaming**: chunk-by-chunk transcription via Nemotron (English only)
-- **Any audio format**: WAV, MP3, OGG, FLAC, OPUS... automatic conversion via ffmpeg
-- **Daemon mode**: model loaded once, near-instant transcriptions
-- **Microphone recording**: PipeWire / PulseAudio / ALSA, auto-unmute
-- **GPU or CPU**: CUDA, TensorRT, CoreML, DirectML, OpenVINO
-- **Alternative ASR backends**: Vosk and faster-whisper — installable from `dictee --setup`
-
-### ASR backends
-
-Three mutually exclusive transcription backends are available, switchable from `dictee --setup`:
-
-| Backend | Languages | Model size | Cold start | Warm daemon | Type |
-|---------|-----------|------------|-----------|-------------|------|
-| **Parakeet-TDT** (default) | 25 | ~2.5 GB | ~3s | ~0.8s | ONNX Runtime (Rust) |
-| **Vosk** | 9+ | ~50 MB | ~2s | ~1.5s | Python (lightweight) |
-| **faster-whisper** | 99 | ~500 MB–3 GB | ~2s | ~0.3s | CTranslate2 (Python) |
-
-> Benchmarked on 10s of French speech, CPU (AMD Ryzen). Cold start = service start + model load + first transcription. Warm = daemon already loaded.
-
-**Parakeet-TDT** offers the best accuracy with native punctuation and capitalization. **faster-whisper** is the fastest once loaded and supports 99 languages. **Vosk** is the lightest on disk and RAM (~50 MB model).
-
-- Each backend runs as a systemd user service (`dictee.service`, `dictee-vosk.service`, `dictee-whisper.service`) — mutually exclusive via `Conflicts=`
-- Same Unix socket protocol → `transcribe-client` and `dictee` work without modification
-- Vosk and faster-whisper are installed in isolated Python venvs (`~/.local/share/dictee/`)
-- Model download and backend switching are handled by `dictee --setup`
-
-### Programs
-
-| Program | Description | Languages |
-|---------|-------------|-----------|
-| `transcribe` | Transcribe an audio file | Multilingual |
-| `transcribe-daemon` | Unix socket server (preloaded model) | Multilingual |
-| `transcribe-client` | Client: file, stdin, or microphone | Multilingual |
-| `transcribe-diarize` | Transcription + speaker identification | Multilingual |
-| `transcribe-stream-diarize` | Real-time streaming + diarization | English only |
-
-All binaries support `--help` / `-h`.
-
-> **Tip:** `dictee` uses daemon mode (`transcribe-daemon` + `transcribe-client`). The model is loaded once into memory, subsequent transcriptions are near-instant.
-
-### Direct usage
+## Usage
 
 ```bash
-# Transcribe a file (any format)
-transcribe audio.mp3
+# Simple dictation — transcribe and type
+dictee
 
-# Daemon mode (faster for multiple files)
-transcribe-daemon &
-transcribe-client file1.wav
-transcribe-client file2.ogg
-cat audio.opus | transcribe-client
+# With translation (default: system language → English)
+dictee --translate
+dictee --translate --ollama    # 100% local translation via ollama
 
-# Voice dictation from microphone (without the dictee script)
-transcribe-client
-# → Records until Enter. Microphone is auto-unmuted if necessary.
+# Change translation languages
+DICTEE_LANG_TARGET=es dictee --translate    # → Spanish
 
-# Transcription with speaker identification
-transcribe-diarize meeting.wav
-# [0.00 - 2.50] Speaker 1: Hello everyone.
-# [2.80 - 5.10] Speaker 2: Thanks for coming.
+# Cancel an ongoing recording (via shortcut or Escape key)
+dictee --cancel
 ```
 
-### ONNX models
+---
 
-Models should be placed in `/usr/share/dictee/`:
+## Going further
 
-```
-/usr/share/dictee/
-├── tdt/                  # ParakeetTDT (multilingual)
-│   ├── encoder-model.onnx
-│   ├── decoder_joint-model.onnx
-│   └── vocab.txt
-├── sortformer/           # Diarization
-│   └── diar_streaming_sortformer_4spk-v2.1.onnx
-└── nemotron/             # Streaming (English)
-    ├── encoder-model.onnx
-    ├── decoder-model.onnx
-    └── vocab.txt
-```
+| Documentation | Description |
+|---------------|-------------|
+| [docs/cli-programs.md](docs/cli-programs.md) | CLI binaries, direct usage, ONNX models |
+| [docs/building.md](docs/building.md) | Building from source, Cargo features, audio pipeline |
+| [docs/plasmoid.md](docs/plasmoid.md) | Widget settings, animation styles, configuration details |
 
-The TDT model is available on HuggingFace: [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx).
-
-### Audio pipeline architecture
-
-```
-Audio (any format)
-    ↓ ffmpeg (if not WAV)
-WAV 16kHz mono
-    ↓ preemphasis (0.97)
-STFT (n_fft=512, hop=160, win=400, Hann)
-    ↓
-Mel-spectrogram (128 bins, Slaney)
-    ↓
-ONNX model (ParakeetTDT / Nemotron)
-    ↓
-Decoder (tokens → text)
-    ↓
-Timestamp aggregation (tokens → words → sentences)
-    ↓ [optional]
-Sortformer (diarization)
-    ↓
-Final text with timestamps / speakers
-```
-
-## Building from source
-
-### Prerequisites
-
-- Rust (edition 2021)
-- ffmpeg (for audio format conversion)
-
-### Build
-
-```bash
-# CPU only
-cargo build --release
-
-# CUDA + diarization
-cargo build --release --features "cuda,sortformer"
-
-# Debian packages (CPU + CUDA)
-./build-deb.sh
-```
-
-### Cargo features
-
-| Feature | Description |
-|---------|-------------|
-| `cpu` | CPU execution (default) |
-| `cuda` | NVIDIA GPU via CUDA |
-| `tensorrt` | TensorRT optimization |
-| `coreml` | Apple CoreML |
-| `directml` | Microsoft DirectML |
-| `openvino` | Intel OpenVINO |
-| `sortformer` | Diarization (required for `*-diarize`) |
-
-### Tests
-
-```bash
-cargo test
-cargo test --features sortformer
-```
+---
 
 ## Credits
 
 The transcription engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes), which provides the Rust library for NVIDIA Parakeet model inference via ONNX Runtime.
-
-This project adds:
-- 5 ready-to-use CLI binaries (daemon, client, diarization, streaming)
-- Push-to-talk voice dictation script with translation
-- Automatic conversion of any audio format via ffmpeg
-- Path resolution (`~/`, `./`, `../`)
-- Microphone auto-unmute (PipeWire/PulseAudio)
-- Debian packages (.deb) for system installation
-- Systemd service
-- PyQt6 configuration interface (`dictee --setup`)
-- Notification area icon (`dictee-tray`)
-- KDE Plasma 6 widget with real-time audio visualization
 
 ## License
 
