@@ -7,8 +7,11 @@
 </p>
 
 <p align="center">
-  <b>Parlez librement, tapez instantanément</b> — dictée vocale 100% locale pour Linux avec 25+ langues, traduction et retour visuel en temps réel. Le texte apparaît directement sous votre curseur.<br>
   <b><i>Parler, c'est plus simple.</i></b>
+</p>
+
+<p align="center">
+  <b>Parlez librement, tapez instantanément</b> — dictée vocale 100% locale pour Linux avec 25+ langues, traduction et retour visuel en temps réel. Le texte apparaît directement sous votre curseur.
 </p>
 
 <p align="center">

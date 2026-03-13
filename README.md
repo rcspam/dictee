@@ -7,8 +7,11 @@
 </p>
 
 <p align="center">
-  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, translation, and real-time visual feedback. Text appears right where your cursor is.<br>
   <b><i>Speaking is just easier.</i></b>
+</p>
+
+<p align="center">
+  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, translation, and real-time visual feedback. Text appears right where your cursor is.
 </p>
 
 <p align="center">
