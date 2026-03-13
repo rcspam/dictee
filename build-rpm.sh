@@ -12,6 +12,12 @@ echo "  Building dictee RPM $VERSION"
 echo "========================================"
 echo ""
 
+# Copier les scripts depuis les sources uniques (racine)
+cp ./dictee "$PKG_DIR/usr/bin/dictee"
+cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
+cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray"
+
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
     echo "rpmbuild non trouvé. Installer avec :"
