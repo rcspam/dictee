@@ -25,10 +25,7 @@
 ---
 
 <p align="center">
-  <b>KDE Plasma widget</b><br>
-  <a href="https://youtu.be/c6MyyW4LarE">
-    <img src="assets/demo-plasmoid-v2.gif" alt="Dictée Plasmoid demo — click to watch on YouTube" width="960">
-  </a>
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="450">
 </p>
 
 **dictee** is a complete voice dictation system for Linux. Transcription is performed **100% locally** — no audio data ever leaves your machine. Press a shortcut, speak, and the text is typed directly into the active application.
@@ -68,7 +65,11 @@ sudo dnf install ./dictee-cpu-1.0.0-1.x86_64.rpm
 
 **Arch Linux (AUR):**
 
-A `PKGBUILD` is available in the repository root. It builds from source and includes all components.
+A `PKGBUILD` is available in the repository root. It builds from source and includes all components (x86_64 and aarch64).
+
+**aarch64 (ARM64):**
+
+Pre-built packages are x86_64 only. On aarch64 (Raspberry Pi 5, Ampere, etc.), build from source — see below. CUDA is limited to NVIDIA Jetson on this architecture; most users will use CPU mode.
 
 **Other distributions (.tar.gz):**
 
