@@ -123,13 +123,13 @@ A native KDE Plasma 6 widget with real-time audio visualization during recording
 |:------------------------:|:-------------:|
 | ![Plasmoid popup](plasmoid.png) | ![Plasmoid config](plasmoid_config.png) |
 
-Five animation styles with Hanning envelope, per-style sensitivity, and optional rainbow colors:
+Five animation styles with Hanning envelope, per-style sensitivity, and optional color gradients:
 
 | Bars | Wave | Pulse | Dots | Waveform |
 |:----:|:----:|:-----:|:----:|:--------:|
 | ![Bars](plasmoid/assets/anim-bars.svg?v=2) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
 
-Rainbow mode: ![Rainbow](plasmoid/assets/anim-rainbow.svg?v=2)
+All styles support color gradients, adjustable Hanning envelope (shape and center frequency), per-style sensitivity curve, and fine-tuning options (bar count, spacing, radius, speed…).
 
 ```bash
 # Install (included in .deb, or manually)

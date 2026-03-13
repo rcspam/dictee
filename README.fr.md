@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
+        <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
     <img src="assets/banner-light.svg" alt="dictée" width="640">
   </picture>
 </p>
@@ -123,13 +123,13 @@ Un widget natif KDE Plasma 6 avec visualisation audio en temps réel pendant l'e
 |:--------------------------------:|:-------------:|
 | ![Popup plasmoid](plasmoid.png) | ![Configuration plasmoid](plasmoid_config.png) |
 
-Cinq styles d'animation avec enveloppe Hanning, sensibilité par style et couleurs arc-en-ciel optionnelles :
+Cinq styles d'animation avec enveloppe Hanning, sensibilité par style et dégradés de couleurs optionnels :
 
 | Barres | Onde | Pulsation | Points | Forme d'onde |
 |:------:|:----:|:---------:|:------:|:------------:|
 | ![Barres](plasmoid/assets/anim-bars.svg?v=2) | ![Onde](plasmoid/assets/anim-wave.svg) | ![Pulsation](plasmoid/assets/anim-pulse.svg) | ![Points](plasmoid/assets/anim-dots.svg) | ![Forme d'onde](plasmoid/assets/anim-waveform.svg) |
 
-Mode arc-en-ciel : ![Rainbow](plasmoid/assets/anim-rainbow.svg?v=2)
+Tous les styles supportent les dégradés de couleurs, une enveloppe Hanning ajustable (forme et fréquence centrale), une courbe de sensibilité par style, et des options de réglage fin (nombre de barres, espacement, rayon, vitesse…).
 
 ```bash
 # Installer (inclus dans le .deb, ou manuellement)
