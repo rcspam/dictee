@@ -98,7 +98,7 @@ sudo ./install.sh
 | `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
 | `libnotify-bin` | `libnotify` | `libnotify` |
 | `python3-gi` | `python3-gobject` | `python-gobject` |
-| `wl-clipboard` | `wl-clipboard` | `wl-clipboard` |
+| `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` |
 
 ---
 

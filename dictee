@@ -156,12 +156,25 @@ stop_escape_listener() {
     fi
 }
 
+# === CLIPBOARD ===
+
+copy_to_clipboard() {
+    [ "$CLIPBOARD" = true ] || return 0
+    if command -v wl-copy >/dev/null 2>&1 && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+        echo "$1" | wl-copy
+    elif command -v xclip >/dev/null 2>&1; then
+        echo "$1" | xclip -selection clipboard
+    elif command -v xsel >/dev/null 2>&1; then
+        echo "$1" | xsel --clipboard --input
+    fi
+}
+
 # === DÉPENDANCES ===
 
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
-    # wl-copy est optionnel (copie dans le presse-papier en bonus)
+    # wl-copy / xclip / xsel est optionnel (copie dans le presse-papier en bonus)
     command -v dotool >/dev/null || missing+=("dotool")
     command -v pactl >/dev/null || missing+=("pulseaudio-utils")
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
@@ -376,7 +389,7 @@ if [ -f "$PIDFILE" ]; then
         fi
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$translated" | wl-copy
+        copy_to_clipboard "$translated"
         printf 'type %s' "$translated" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
@@ -386,7 +399,7 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         # Copier directement
-        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
+        copy_to_clipboard "$transcribed"
         printf 'type %s' "$transcribed" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
