@@ -12,6 +12,7 @@ ColumnLayout {
     property string state: "offline"
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
+    property bool previewActive: false
     signal actionRequested(string action)
 
     Layout.preferredWidth: Kirigami.Units.gridUnit * 18
@@ -59,6 +60,8 @@ ColumnLayout {
             height: width
             radius: width / 2
             color: {
+                if (fullRep.previewActive && fullRep.state === "offline")
+                    return Kirigami.Theme.highlightColor
                 switch (fullRep.state) {
                 case "offline":
                     return Kirigami.Theme.negativeTextColor
@@ -74,6 +77,8 @@ ColumnLayout {
 
         PlasmaComponents.Label {
             text: {
+                if (fullRep.previewActive && fullRep.state === "offline")
+                    return i18n("Preview mode")
                 switch (fullRep.state) {
                 case "offline":
                     return i18n("Daemon stopped")
