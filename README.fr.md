@@ -23,15 +23,14 @@
 </p>
 
 <p align="center">
-  <a href="README.md">Read in English</a>
+  <a href="#installation">Installation</a> &bull;
+  <a href="#configuration">Configuration</a> &bull;
+  <a href="#interfaces-visuelles">Interfaces visuelles</a> &bull;
+  <a href="#utilisation">Utilisation</a> &bull;
+  <a href="#pour-aller-plus-loin">Pour aller plus loin</a>
 </p>
 
 ---
-
-<p align="center">
-  <img src="plasmoid.png" alt="Popup du plasmoid (enregistrement)" width="520"><br>
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="600">
-</p>
 
 **dictee** est un système complet de dictée vocale pour Linux. La transcription est réalisée **100% en local** — aucune donnée audio ne quitte votre machine. Appuyez sur un raccourci, parlez, et le texte est tapé directement dans l'application active.
 
@@ -40,6 +39,11 @@
 - **Traduction** : 4 backends — Google, Bing, LibreTranslate (local), ollama (local)
 - **Diarisation** : identification des locuteurs, jusqu'à 4 via Sortformer
 - **3 interfaces visuelles** : widget KDE Plasma, icône de notification, animation plein écran
+
+<p align="center">
+  <img src="plasmoid.png" alt="Popup du plasmoid (enregistrement)" width="520"><br>
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="600">
+</p>
 
 ---
 
