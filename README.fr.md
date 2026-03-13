@@ -119,9 +119,13 @@ Chaque backend tourne en service systemd utilisateur — même protocole socket 
 
 Un widget natif KDE Plasma 6 avec visualisation audio en temps réel pendant l'enregistrement, état du daemon et contrôles rapides (dictée, traduction, annulation).
 
-| Popup du widget (enregistrement) | Configuration |
-|:--------------------------------:|:-------------:|
-| ![Popup plasmoid](plasmoid.png) | ![Configuration plasmoid](plasmoid_config.png) |
+<p align="center">
+  <img src="plasmoid.png" alt="Popup du widget (enregistrement)" width="500">
+</p>
+
+<p align="center">
+  <img src="plasmoid_config.png" alt="Configuration du plasmoid" width="450">
+</p>
 
 Cinq styles d'animation avec enveloppe Hanning, sensibilité par style et dégradés de couleurs optionnels :
 
