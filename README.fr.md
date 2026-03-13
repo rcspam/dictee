@@ -56,7 +56,21 @@ sudo dpkg -i dictee-cpu_1.0.0_amd64.deb
 sudo apt-get install -f
 ```
 
-Pour les distributions non-Debian, une archive `.tar.gz` est également disponible :
+**Fedora / openSUSE :**
+
+```bash
+# Version GPU (NVIDIA CUDA)
+sudo dnf install ./dictee-cuda-1.0.0-1.x86_64.rpm
+
+# Version CPU (tout ordinateur)
+sudo dnf install ./dictee-cpu-1.0.0-1.x86_64.rpm
+```
+
+**Arch Linux (AUR) :**
+
+Un `PKGBUILD` est disponible à la racine du dépôt. Il compile depuis les sources et inclut tous les composants.
+
+**Autres distributions (.tar.gz) :**
 
 ```bash
 tar xzf dictee-1.0.0_amd64.tar.gz
@@ -64,15 +78,27 @@ cd dictee-1.0.0
 sudo ./install.sh
 ```
 
-### Dépendances
+**Depuis les sources :**
 
 ```bash
-# Dépendances principales (incluses dans le .deb)
-sudo apt install pipewire dotool libnotify-bin python3-gi gir1.2-ayatanaappindicator3-0.1
-
-# Optionnel — copie dans le presse-papier
-sudo apt install wl-clipboard
+tar xzf dictee-1.0.0-source.tar.gz
+cd dictee-1.0.0-source
+cargo build --release --features sortformer
+sudo ./install.sh
 ```
+
+> Pour les instructions de compilation détaillées et les features Cargo, voir [docs/building.md](docs/building.md).
+
+### Dépendances
+
+| Debian / Ubuntu | Fedora / openSUSE | Arch Linux |
+|-----------------|-------------------|------------|
+| `pipewire` | `pipewire` | `pipewire` |
+| `dotool` | — (inclus) | `dotool` |
+| `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
+| `libnotify-bin` | `libnotify` | `libnotify` |
+| `python3-gi` | `python3-gobject` | `python-gobject` |
+| `wl-clipboard` | `wl-clipboard` | `wl-clipboard` |
 
 ---
 
