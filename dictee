@@ -69,11 +69,15 @@ SUPPRIME="${POINT_A_LA_LIGNE} ${TROIS_PETITS_POINTS}"
 TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
 TRANSLATE="${DICTEE_TRANSLATE:-false}"
 CANCEL=false
+NO_ESC_LISTENER=false
 
 for arg in "$@"; do
     case "$arg" in
     --cancel)
         CANCEL=true
+        ;;
+    --no-esc-listener)
+        NO_ESC_LISTENER=true
         ;;
     --translate)
         TRANSLATE=true
@@ -420,7 +424,7 @@ if [ -f "$PIDFILE" ]; then
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
 
-    start_escape_listener
+    [ "$NO_ESC_LISTENER" = false ] && start_escape_listener
 
     # Sauvegarder les options choisies
     if [ "$TRANSLATE" = true ]; then
