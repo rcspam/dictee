@@ -16,7 +16,8 @@ echo ""
 cp ./dictee "$PKG_DIR/usr/bin/dictee"
 cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
 cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray"
+cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -55,6 +56,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/dictee" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-setup" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-tray" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-ptt" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$buildroot/usr/bin/"

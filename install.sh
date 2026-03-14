@@ -38,6 +38,7 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-stream-diarize" "$PREFIX/bin/tran
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee" "$PREFIX/bin/dictee"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-setup" "$PREFIX/bin/dictee-setup"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-tray" "$PREFIX/bin/dictee-tray"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-ptt" "$PREFIX/bin/dictee-ptt"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
 

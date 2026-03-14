@@ -22,13 +22,15 @@ echo ""
 echo "→ Arrêt des services"
 su "$REAL_USER" -c "systemctl --user stop dictee 2>/dev/null || true"
 su "$REAL_USER" -c "systemctl --user stop dictee-tray 2>/dev/null || true"
+su "$REAL_USER" -c "systemctl --user stop dictee-ptt 2>/dev/null || true"
 su "$REAL_USER" -c "systemctl --user disable dictee 2>/dev/null || true"
 su "$REAL_USER" -c "systemctl --user disable dictee-tray 2>/dev/null || true"
+su "$REAL_USER" -c "systemctl --user disable dictee-ptt 2>/dev/null || true"
 
 # Binaires
 echo "→ Suppression des binaires"
 for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-           transcribe-stream-diarize dictee dictee-setup dictee-tray dotool dotoold; do
+           transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt dotool dotoold; do
     rm -f "$PREFIX/bin/$bin"
 done
 
@@ -52,6 +54,7 @@ rm -f "$PREFIX/share/applications/dictee-setup.desktop"
 echo "→ Suppression des services systemd"
 rm -f "$REAL_HOME/.config/systemd/user/dictee.service"
 rm -f "$REAL_HOME/.config/systemd/user/dictee-tray.service"
+rm -f "$REAL_HOME/.config/systemd/user/dictee-ptt.service"
 su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
 
 # Icônes

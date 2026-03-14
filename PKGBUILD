@@ -65,6 +65,7 @@ package() {
     install -Dm755 dictee "$pkgdir/usr/bin/dictee"
     install -Dm755 dictee-setup.py "$pkgdir/usr/bin/dictee-setup"
     install -Dm755 dictee-tray.py "$pkgdir/usr/bin/dictee-tray"
+    install -Dm755 dictee-ptt.py "$pkgdir/usr/bin/dictee-ptt"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-fft "$pkgdir/usr/bin/dictee-plasmoid-level-fft"
@@ -79,6 +80,7 @@ package() {
     # Systemd services
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee.service "$pkgdir/usr/lib/systemd/user/dictee.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-tray.service "$pkgdir/usr/lib/systemd/user/dictee-tray.service"
+    install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-ptt.service "$pkgdir/usr/lib/systemd/user/dictee-ptt.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-vosk.service "$pkgdir/usr/lib/systemd/user/dictee-vosk.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user-preset/90-dictee.preset "$pkgdir/usr/lib/systemd/user-preset/90-dictee.preset"
