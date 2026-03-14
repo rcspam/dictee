@@ -1,32 +1,38 @@
 #!/usr/bin/env python3
 """dictee-ptt — daemon push-to-talk / toggle pour dictee.
 
-Écoute les claviers physiques via /dev/input/event* et déclenche dictee
-selon le mode configuré (toggle ou hold).
+Écoute les claviers physiques via evdev, capture exclusivement la touche
+configurée (grab + re-émission uinput), et déclenche dictee selon le mode.
 
-En mode hold : key-down = start (synchrone, attend PIDFILE),
-               key-up = stop+transcribe (asynchrone).
+En mode hold : key-down = start, key-up = stop+transcribe.
+En mode toggle : key-down = start/stop alternés.
 
 Usage:
     dictee-ptt [--mode=toggle|hold] [--key=67] [--key-translate=0]
     dictee-ptt --help
 
-Nécessite : groupe 'input' pour lire /dev/input/event*.
+Nécessite : groupe 'input' pour /dev/input/* et /dev/uinput.
 
 Keycodes Linux courants :
     F1=59  F2=60  F3=61  F4=62  F5=63  F6=64  F7=65  F8=66
     F9=67  F10=68 F11=87 F12=88 ESC=1
 """
 
-import struct
 import subprocess
 import signal
 import select
 import os
 import sys
-import re
 import time
 import fcntl
+import re
+
+try:
+    import evdev
+    from evdev import InputDevice, UInput, ecodes
+    HAS_EVDEV = True
+except ImportError:
+    HAS_EVDEV = False
 
 # --- Config ---
 
@@ -35,19 +41,16 @@ DICTEE_BIN = None  # auto-detect
 PIDFILE = "/tmp/recording_dictee_pid"
 OWN_PIDFILE = "/tmp/dictee-ptt.pid"
 
-# Constantes input_event
-KEY_ESC = 1
 EV_KEY = 1
 KEY_DOWN = 1
 KEY_UP = 0
 KEY_REPEAT = 2
-EVENT_SIZE = struct.calcsize("llHHi")
-EVENT_FMT = "llHHi"
+KEY_ESC = 1
 
 DEBOUNCE = 0.15       # 150ms anti-rebond
 STOP_COOLDOWN = 0.5   # 500ms — ignore KEY_DOWN parasites après stop
-PIDFILE_TIMEOUT = 3.0 # attente max PIDFILE au key-up
-RESCAN_INTERVAL = 10  # secondes entre rescans claviers (hotplug)
+PIDFILE_TIMEOUT = 3.0  # attente max PIDFILE au key-up
+RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 
 
 def load_config():
@@ -63,12 +66,29 @@ def load_config():
     return conf
 
 
-def find_keyboards():
-    """Trouve les claviers physiques via /proc/bus/input/devices.
+def find_keyboards_evdev():
+    """Trouve les claviers physiques via evdev."""
+    devs = []
+    for path in evdev.list_devices():
+        try:
+            dev = InputDevice(path)
+        except (PermissionError, OSError):
+            continue
+        caps = dev.capabilities(verbose=False)
+        # EV_KEY présent et au moins les touches alphanumériques
+        if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
+            name = dev.name.lower()
+            if not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
+                devs.append(dev)
+            else:
+                dev.close()
+        else:
+            dev.close()
+    return devs
 
-    Cherche les devices avec handler 'kbd' (couvre USB, Bluetooth, PS/2).
-    Exclut les claviers virtuels (uinput, dotool, etc.).
-    """
+
+def find_keyboards_raw():
+    """Trouve les claviers physiques via /proc/bus/input/devices (fallback)."""
     devs = []
     try:
         with open("/proc/bus/input/devices") as f:
@@ -84,9 +104,8 @@ def find_keyboards():
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-        # kbd suffit — sysrq n'est pas présent sur tous les claviers (Bluetooth, certains USB)
         if "kbd" in handlers_line:
-            if not re.search(r"virtual|Virtual|uinput|dotool", name_line, re.IGNORECASE):
+            if not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE):
                 m = re.search(r"event\d+", handlers_line)
                 if m:
                     devs.append(f"/dev/input/{m.group()}")
@@ -107,7 +126,7 @@ def find_dictee_bin():
 
 def run_dictee_async(*args, no_animation=False):
     """Lance dictee en subprocess non-bloquant."""
-    cmd = [DICTEE_BIN] + list(args)
+    cmd = [DICTEE_BIN, "--no-esc-listener"] + list(args)
     env = None
     if no_animation:
         env = os.environ.copy()
@@ -128,7 +147,6 @@ def wait_pidfile():
     return False
 
 
-
 def acquire_lock():
     """Empêche les instances multiples via flock."""
     try:
@@ -142,23 +160,375 @@ def acquire_lock():
         sys.exit(1)
 
 
-def open_keyboards(existing_paths):
-    """Ouvre les nouveaux claviers détectés (hotplug)."""
-    new_fds = []
-    for dev in find_keyboards():
-        if dev not in existing_paths:
-            try:
-                new_fds.append(open(dev, "rb", buffering=0))
-                print(f"[ptt] clavier ajouté: {dev}")
-            except (PermissionError, FileNotFoundError) as e:
-                print(f"[ptt] impossible d'ouvrir {dev}: {e}", file=sys.stderr)
-    return new_fds
-
-
 def sync_state():
     """Resynchronise l'état interne avec l'état réel (PIDFILE)."""
     return os.path.isfile(PIDFILE)
 
+
+# ─── Logique PTT commune ───────────────────────────────────────────
+
+class PttState:
+    def __init__(self, mode, key_dictee, key_translate):
+        self.mode = mode
+        self.key_dictee = key_dictee
+        self.key_translate = key_translate
+        self.recording = False
+        self.recording_translate = False
+        self.last_down_time = 0
+        self.last_stop_time = 0
+        self.keys_held = set()
+
+    def handle_event(self, code, value):
+        """Traite un événement clavier. Retourne True si l'événement est consommé."""
+        if value == KEY_REPEAT:
+            return code in (self.key_dictee, self.key_translate, KEY_ESC)
+
+        # Déduplique multi-claviers
+        if value == KEY_DOWN:
+            if code in self.keys_held:
+                return code in (self.key_dictee, self.key_translate)
+            self.keys_held.add(code)
+        elif value == KEY_UP:
+            self.keys_held.discard(code)
+
+        now = time.monotonic()
+
+        # Resync si dictee a crashé
+        if (self.recording or self.recording_translate) and now - self.last_down_time > PIDFILE_TIMEOUT + 2:
+            if not sync_state():
+                print("[ptt] resync: enregistrement terminé extérieurement")
+                self.recording = False
+                self.recording_translate = False
+                self.last_stop_time = now
+
+        # ESC : annuler
+        if code == KEY_ESC and value == KEY_DOWN:
+            if self.recording or self.recording_translate:
+                print("[ptt] ESC → cancel")
+                run_dictee_async("--cancel")
+                self.recording = False
+                self.recording_translate = False
+                self.last_stop_time = now
+            return False  # laisser ESC passer aux applications
+
+        # Empêcher dictée + traduction simultanées
+        if self.recording_translate and code == self.key_dictee:
+            return True
+        if self.recording and self.key_translate and code == self.key_translate:
+            return True
+
+        # Touche dictée
+        if code == self.key_dictee:
+            self._handle_dictee(value, now)
+            return True  # consommer
+
+        # Touche traduction
+        if self.key_translate and code == self.key_translate:
+            self._handle_translate(value, now)
+            return True  # consommer
+
+        return False  # laisser passer
+
+    def _check_debounce(self, now):
+        if now - self.last_down_time < DEBOUNCE:
+            return False
+        if now - self.last_stop_time < STOP_COOLDOWN:
+            return False
+        return True
+
+    def _handle_dictee(self, value, now):
+        if self.mode == "hold":
+            if value == KEY_DOWN and not self.recording:
+                if not self._check_debounce(now):
+                    return
+                self.last_down_time = now
+                print("[ptt] hold: start")
+                run_dictee_async(no_animation=True)
+                self.recording = True
+            elif value == KEY_UP and self.recording:
+                if not os.path.isfile(PIDFILE):
+                    wait_pidfile()
+                print("[ptt] hold: stop")
+                run_dictee_async()
+                self.recording = False
+                self.last_stop_time = now
+        else:  # toggle
+            if value == KEY_DOWN:
+                if not self._check_debounce(now):
+                    return
+                self.last_down_time = now
+                if not self.recording:
+                    print("[ptt] toggle: start")
+                    run_dictee_async()
+                    self.recording = True
+                else:
+                    print("[ptt] toggle: stop")
+                    run_dictee_async()
+                    self.recording = False
+                    self.last_stop_time = now
+
+    def _handle_translate(self, value, now):
+        if self.mode == "hold":
+            if value == KEY_DOWN and not self.recording_translate:
+                if not self._check_debounce(now):
+                    return
+                self.last_down_time = now
+                print("[ptt] hold: start+translate")
+                run_dictee_async("--translate", no_animation=True)
+                self.recording_translate = True
+            elif value == KEY_UP and self.recording_translate:
+                if not os.path.isfile(PIDFILE):
+                    wait_pidfile()
+                print("[ptt] hold: stop+translate")
+                run_dictee_async("--translate")
+                self.recording_translate = False
+                self.last_stop_time = now
+        else:  # toggle
+            if value == KEY_DOWN:
+                if not self._check_debounce(now):
+                    return
+                self.last_down_time = now
+                if not self.recording_translate:
+                    print("[ptt] toggle: start+translate")
+                    run_dictee_async("--translate")
+                    self.recording_translate = True
+                else:
+                    print("[ptt] toggle: stop+translate")
+                    run_dictee_async("--translate")
+                    self.recording_translate = False
+                    self.last_stop_time = now
+
+
+# ─── Backend evdev (grab + uinput) ─────────────────────────────────
+
+def run_evdev(ptt):
+    """Boucle principale avec evdev : grab claviers, filtre la touche PTT, ré-émet le reste."""
+    devices = find_keyboards_evdev()
+    if not devices:
+        print("[ptt] aucun clavier détecté!", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[ptt] claviers: {[d.path for d in devices]}")
+
+    # Créer le clavier virtuel pour ré-émettre les événements non-PTT
+    ui = UInput(name="dictee-ptt-passthrough")
+    print(f"[ptt] uinput: {ui.device.path}")
+
+    # Grab tous les claviers
+    for dev in devices:
+        try:
+            dev.grab()
+            print(f"[ptt] grab: {dev.name}")
+        except OSError as e:
+            print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
+
+    running = True
+    last_rescan = time.monotonic()
+
+    def on_signal(*_):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+
+    print("[ptt] en écoute (evdev grab)...")
+
+    try:
+        while running:
+            # Hotplug : rescanner périodiquement
+            now_mono = time.monotonic()
+            if now_mono - last_rescan > RESCAN_INTERVAL:
+                last_rescan = now_mono
+                known_paths = {d.path for d in devices}
+                for new_dev in find_keyboards_evdev():
+                    if new_dev.path not in known_paths:
+                        try:
+                            new_dev.grab()
+                            devices.append(new_dev)
+                            print(f"[ptt] hotplug grab: {new_dev.name}")
+                        except OSError:
+                            new_dev.close()
+                    else:
+                        new_dev.close()
+
+            # Nettoyer les devices morts
+            dead = []
+            for dev in devices:
+                try:
+                    dev.fd  # accès fd pour vérifier
+                except Exception:
+                    dead.append(dev)
+            for dev in dead:
+                print(f"[ptt] clavier perdu: {dev.path}")
+                devices.remove(dev)
+
+            if not devices:
+                time.sleep(1)
+                last_rescan = 0
+                continue
+
+            # select sur les fd evdev
+            try:
+                r, _, _ = select.select(devices, [], [], 1.0)
+            except (ValueError, OSError):
+                # Nettoyer les fd invalides
+                bad = []
+                for dev in devices:
+                    try:
+                        select.select([dev], [], [], 0)
+                    except (ValueError, OSError):
+                        bad.append(dev)
+                for dev in bad:
+                    print(f"[ptt] clavier perdu: {dev.path}")
+                    try:
+                        dev.close()
+                    except OSError:
+                        pass
+                    devices.remove(dev)
+                continue
+
+            for dev in r:
+                try:
+                    for event in dev.read():
+                        if event.type != EV_KEY:
+                            # Ré-émettre les événements non-clavier (SYN, MSC, etc.)
+                            ui.write_event(event)
+                            continue
+
+                        consumed = ptt.handle_event(event.code, event.value)
+                        if not consumed:
+                            ui.write_event(event)
+
+                    ui.syn()
+                except OSError:
+                    # Device déconnecté
+                    print(f"[ptt] clavier déconnecté: {dev.path}")
+                    try:
+                        dev.close()
+                    except OSError:
+                        pass
+                    devices.remove(dev)
+    finally:
+        # Ungrab + fermer proprement
+        for dev in devices:
+            try:
+                dev.ungrab()
+            except OSError:
+                pass
+            try:
+                dev.close()
+            except OSError:
+                pass
+        ui.close()
+
+
+# ─── Backend raw (fallback sans evdev) ──────────────────────────────
+
+def run_raw(ptt):
+    """Boucle principale raw /dev/input (fallback). La touche PTT fuit vers les apps."""
+    import struct
+    EVENT_SIZE = struct.calcsize("llHHi")
+    EVENT_FMT = "llHHi"
+
+    kbd_paths = find_keyboards_raw()
+    if not kbd_paths:
+        print("[ptt] aucun clavier détecté!", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[ptt] claviers: {kbd_paths}")
+    print("[ptt] ATTENTION: mode raw — la touche PTT fuit vers les applications", file=sys.stderr)
+
+    fds = []
+    for dev in kbd_paths:
+        try:
+            fds.append(open(dev, "rb", buffering=0))
+        except (PermissionError, FileNotFoundError) as e:
+            print(f"[ptt] impossible d'ouvrir {dev}: {e}", file=sys.stderr)
+
+    if not fds:
+        print("[ptt] aucun clavier accessible! (groupe 'input' requis)", file=sys.stderr)
+        sys.exit(1)
+
+    running = True
+    last_rescan = time.monotonic()
+
+    def on_signal(*_):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+
+    print("[ptt] en écoute (raw)...")
+
+    while running:
+        # Nettoyer fd morts
+        dead = [f for f in fds if f.closed]
+        for f in dead:
+            fds.remove(f)
+
+        # Hotplug
+        now_mono = time.monotonic()
+        if now_mono - last_rescan > RESCAN_INTERVAL:
+            last_rescan = now_mono
+            existing = {f.name for f in fds}
+            for dev in find_keyboards_raw():
+                if dev not in existing:
+                    try:
+                        fds.append(open(dev, "rb", buffering=0))
+                        print(f"[ptt] clavier ajouté: {dev}")
+                    except (PermissionError, FileNotFoundError):
+                        pass
+
+        if not fds:
+            time.sleep(1)
+            last_rescan = 0
+            continue
+
+        try:
+            ready, _, _ = select.select(fds, [], [], 1.0)
+        except (ValueError, OSError):
+            bad = []
+            for f in fds:
+                try:
+                    select.select([f], [], [], 0)
+                except (ValueError, OSError):
+                    bad.append(f)
+            for f in bad:
+                try:
+                    f.close()
+                except OSError:
+                    pass
+                fds.remove(f)
+            continue
+
+        for f in ready:
+            try:
+                data = f.read(EVENT_SIZE)
+            except OSError:
+                try:
+                    f.close()
+                except OSError:
+                    pass
+                continue
+            if len(data) < EVENT_SIZE:
+                continue
+
+            _sec, _usec, ev_type, code, value = struct.unpack(EVENT_FMT, data)
+            if ev_type != EV_KEY:
+                continue
+
+            ptt.handle_event(code, value)
+
+    for f in fds:
+        try:
+            f.close()
+        except OSError:
+            pass
+
+
+# ─── Main ───────────────────────────────────────────────────────────
 
 def main():
     global DICTEE_BIN
@@ -191,212 +561,15 @@ def main():
     print(f"[ptt] mode={mode} key={key_dictee} key_translate={key_translate}")
     print(f"[ptt] dictee={DICTEE_BIN}")
 
-    kbd_devs = find_keyboards()
-    if not kbd_devs:
-        print("[ptt] aucun clavier détecté!", file=sys.stderr)
-        sys.exit(1)
+    ptt = PttState(mode, key_dictee, key_translate)
 
-    print(f"[ptt] claviers: {kbd_devs}")
+    if HAS_EVDEV:
+        print("[ptt] backend: evdev (grab + uinput)")
+        run_evdev(ptt)
+    else:
+        print("[ptt] backend: raw (evdev non disponible)", file=sys.stderr)
+        run_raw(ptt)
 
-    fds = []
-    for dev in kbd_devs:
-        try:
-            fds.append(open(dev, "rb", buffering=0))
-        except (PermissionError, FileNotFoundError) as e:
-            print(f"[ptt] impossible d'ouvrir {dev}: {e}", file=sys.stderr)
-
-    if not fds:
-        print("[ptt] aucun clavier accessible! (groupe 'input' requis)", file=sys.stderr)
-        sys.exit(1)
-
-    running = True
-
-    def on_signal(*_):
-        nonlocal running
-        running = False
-
-    signal.signal(signal.SIGTERM, on_signal)
-    signal.signal(signal.SIGINT, on_signal)
-
-    recording = False
-    recording_translate = False
-    last_down_time = 0
-    last_stop_time = 0
-    keys_held = set()
-    last_rescan = time.monotonic()
-
-    print("[ptt] en écoute...")
-
-    while running:
-        # Nettoyer les fd morts (clavier débranché)
-        dead = [f for f in fds if f.closed]
-        if dead:
-            for f in dead:
-                fds.remove(f)
-                print(f"[ptt] clavier retiré: {f.name}")
-
-        # Hotplug : rescanner les claviers périodiquement
-        now_mono = time.monotonic()
-        if now_mono - last_rescan > RESCAN_INTERVAL:
-            last_rescan = now_mono
-            existing = {f.name for f in fds}
-            new_fds = open_keyboards(existing)
-            fds.extend(new_fds)
-
-        if not fds:
-            # Plus de clavier — attendre le rescan
-            time.sleep(1)
-            last_rescan = 0  # forcer rescan immédiat
-            continue
-
-        try:
-            ready, _, _ = select.select(fds, [], [], 1.0)
-        except (ValueError, OSError):
-            # fd invalide — nettoyer au prochain tour
-            bad = []
-            for f in fds:
-                try:
-                    select.select([f], [], [], 0)
-                except (ValueError, OSError):
-                    bad.append(f)
-            for f in bad:
-                print(f"[ptt] clavier perdu: {f.name}")
-                try:
-                    f.close()
-                except OSError:
-                    pass
-                fds.remove(f)
-            continue
-
-        for f in ready:
-            try:
-                data = f.read(EVENT_SIZE)
-            except OSError:
-                try:
-                    f.close()
-                except OSError:
-                    pass
-                continue
-            if len(data) < EVENT_SIZE:
-                continue
-
-            _sec, _usec, ev_type, code, value = struct.unpack(EVENT_FMT, data)
-
-            if ev_type != EV_KEY or value == KEY_REPEAT:
-                continue
-
-            # Déduplique multi-claviers
-            if value == KEY_DOWN:
-                if code in keys_held:
-                    continue
-                keys_held.add(code)
-            elif value == KEY_UP:
-                keys_held.discard(code)
-
-            now = time.monotonic()
-
-            # Resync : si recording=True mais PIDFILE absent depuis longtemps → reset
-            if (recording or recording_translate) and now - last_down_time > PIDFILE_TIMEOUT + 2:
-                if not sync_state():
-                    print("[ptt] resync: enregistrement terminé extérieurement")
-                    recording = False
-                    recording_translate = False
-                    last_stop_time = now
-
-            # --- ESC : annuler ---
-            if code == KEY_ESC and value == KEY_DOWN:
-                if recording or recording_translate:
-                    print("[ptt] ESC → cancel")
-                    run_dictee_async("--cancel")
-                    recording = False
-                    recording_translate = False
-                    last_stop_time = now
-                continue
-
-            # Empêcher dictée + traduction simultanées
-            if recording_translate and code == key_dictee:
-                continue
-            if recording and key_translate and code == key_translate:
-                continue
-
-            # --- Touche dictée ---
-            if code == key_dictee:
-                if mode == "hold":
-                    if value == KEY_DOWN and not recording:
-                        if now - last_down_time < DEBOUNCE:
-                            continue
-                        if now - last_stop_time < STOP_COOLDOWN:
-                            continue
-                        last_down_time = now
-                        print("[ptt] hold: start")
-                        run_dictee_async("--no-esc-listener", no_animation=True)
-                        recording = True
-                    elif value == KEY_UP and recording:
-                        if not os.path.isfile(PIDFILE):
-                            wait_pidfile()
-                        print("[ptt] hold: stop")
-                        run_dictee_async("--no-esc-listener")
-                        recording = False
-                        last_stop_time = now
-                else:  # toggle
-                    if value == KEY_DOWN:
-                        if now - last_down_time < DEBOUNCE:
-                            continue
-                        if now - last_stop_time < STOP_COOLDOWN:
-                            continue
-                        last_down_time = now
-                        if not recording:
-                            print("[ptt] toggle: start")
-                            run_dictee_async("--no-esc-listener")
-                            recording = True
-                        else:
-                            print("[ptt] toggle: stop")
-                            run_dictee_async("--no-esc-listener")
-                            recording = False
-                            last_stop_time = now
-                continue
-
-            # --- Touche traduction ---
-            if key_translate and code == key_translate:
-                if mode == "hold":
-                    if value == KEY_DOWN and not recording_translate:
-                        if now - last_down_time < DEBOUNCE:
-                            continue
-                        if now - last_stop_time < STOP_COOLDOWN:
-                            continue
-                        last_down_time = now
-                        print("[ptt] hold: start+translate")
-                        run_dictee_async("--no-esc-listener", "--translate", no_animation=True)
-                        recording_translate = True
-                    elif value == KEY_UP and recording_translate:
-                        if not os.path.isfile(PIDFILE):
-                            wait_pidfile()
-                        print("[ptt] hold: stop+translate")
-                        run_dictee_async("--no-esc-listener", "--translate")
-                        recording_translate = False
-                        last_stop_time = now
-                else:  # toggle
-                    if value == KEY_DOWN:
-                        if now - last_down_time < DEBOUNCE:
-                            continue
-                        if now - last_stop_time < STOP_COOLDOWN:
-                            continue
-                        last_down_time = now
-                        if not recording_translate:
-                            print("[ptt] toggle: start+translate")
-                            run_dictee_async("--no-esc-listener", "--translate")
-                            recording_translate = True
-                        else:
-                            print("[ptt] toggle: stop+translate")
-                            run_dictee_async("--no-esc-listener", "--translate")
-                            recording_translate = False
-                            last_stop_time = now
-
-    for f in fds:
-        try:
-            f.close()
-        except OSError:
-            pass
     try:
         os.unlink(OWN_PIDFILE)
     except OSError:

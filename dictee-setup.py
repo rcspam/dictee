@@ -87,6 +87,51 @@ DICTEE_COMMAND = "/usr/bin/dictee"
 DICTEE_TRANSLATE_COMMAND = "/usr/bin/dictee --translate"
 DICTEE_DESKTOP = "dictee.desktop"
 DICTEE_TRANSLATE_DESKTOP = "dictee-translate.desktop"
+
+# Mapping Qt key → Linux keycode (evdev) pour dictee-ptt
+QT_TO_LINUX_KEYCODE = {
+    0x01000030: 59,   # F1
+    0x01000031: 60,   # F2
+    0x01000032: 61,   # F3
+    0x01000033: 62,   # F4
+    0x01000034: 63,   # F5
+    0x01000035: 64,   # F6
+    0x01000036: 65,   # F7
+    0x01000037: 66,   # F8
+    0x01000038: 67,   # F9
+    0x01000039: 68,   # F10
+    0x0100003a: 87,   # F11
+    0x0100003b: 88,   # F12
+    0x01000000: 1,    # Escape
+    0x01000010: 110,  # Home
+    0x01000011: 107,  # End
+    0x01000016: 119,  # Delete
+    0x01000015: 118,  # Insert
+    0x01000017: 104,  # Pause/Break
+    0x01000009: 210,  # Print Screen (SysRq)
+    0x01000025: 14,   # Backspace — non, pas utile
+}
+
+LINUX_KEYCODE_NAMES = {
+    59: "F1", 60: "F2", 61: "F3", 62: "F4", 63: "F5", 64: "F6",
+    65: "F7", 66: "F8", 67: "F9", 68: "F10", 87: "F11", 88: "F12",
+    1: "Escape", 110: "Home", 107: "End", 119: "Delete", 118: "Insert",
+}
+
+
+def qt_key_to_linux_keycode(seq):
+    """Convertit une QKeySequence en keycode Linux evdev."""
+    if seq is None:
+        return 0
+    key_int = seq[0].toCombined() if hasattr(seq[0], 'toCombined') else int(seq[0])
+    # Masquer les modificateurs Qt (0x0e000000)
+    key_only = key_int & 0x01ffffff
+    return QT_TO_LINUX_KEYCODE.get(key_only, 0)
+
+
+def linux_keycode_name(code):
+    """Retourne le nom lisible d'un keycode Linux."""
+    return LINUX_KEYCODE_NAMES.get(code, f"Key {code}")
 ANIMATION_SPEECH_REPO = "rcspam/animation-speech"
 ANIMATION_SPEECH_BIN = "animation-speech-ctl"
 
@@ -127,7 +172,8 @@ def load_config():
 def save_config(backend, lang_source, lang_target, clipboard=True, animation="speech",
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, asr_backend="parakeet", whisper_model="small",
-                whisper_lang="", vosk_model="fr", audio_source=""):
+                whisper_lang="", vosk_model="fr", audio_source="",
+                ptt_mode="toggle", ptt_key=67, ptt_key_translate=0):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
     with open(CONF_PATH, "w") as f:
@@ -154,6 +200,11 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 f.write("OLLAMA_NUM_GPU=0\n")
         if audio_source:
             f.write(f"DICTEE_AUDIO_SOURCE={audio_source}\n")
+        # PTT (push-to-talk)
+        f.write(f"DICTEE_PTT_MODE={ptt_mode}\n")
+        f.write(f"DICTEE_PTT_KEY={ptt_key}\n")
+        if ptt_key_translate:
+            f.write(f"DICTEE_PTT_KEY_TRANSLATE={ptt_key_translate}\n")
 
 
 # === Raccourci KDE ===
@@ -369,6 +420,28 @@ def _activate_kde_shortcut_dbus(desktop_name, label, key_sequence):
             action_id,
             keys,
         ],
+        capture_output=True,
+    )
+
+
+def remove_kde_shortcut(desktop_name):
+    """Supprime un raccourci KDE global (désactive via D-Bus + nettoie kglobalshortcutsrc)."""
+    # Supprimer de kglobalshortcutsrc
+    subprocess.run(
+        ["kwriteconfig6", "--file", "kglobalshortcutsrc",
+         "--group", "services", "--group", desktop_name,
+         "--key", "_launch", "--delete"],
+        capture_output=True,
+    )
+    # Désactiver via D-Bus (touche vide = aucun raccourci)
+    action_id = f"['{desktop_name}', '_launch', '', '']"
+    keys = "[([0, 0, 0, 0],)]"
+    subprocess.run(
+        ["gdbus", "call", "--session",
+         "--dest", "org.kde.kglobalaccel",
+         "--object-path", "/kglobalaccel",
+         "--method", "org.kde.KGlobalAccel.setForeignShortcutKeys",
+         action_id, keys],
         capture_output=True,
     )
 
@@ -1619,60 +1692,72 @@ class DicteeSetupDialog(QDialog):
                 " QFrame#radioCard:hover { border: 1px solid #666; }")
 
     def _build_shortcut_section(self, lay_sc):
-        """Builds the keyboard shortcut widgets into the given layout."""
-        lbl_de = QLabel(_("Detected environment: <b>{name}</b>").format(name=self.de_name))
-        lay_sc.addWidget(lbl_de)
+        """Builds the PTT keyboard shortcut widgets into the given layout."""
+        # Mode hold / toggle
+        lbl_mode = QLabel(_("Activation mode") + " :")
+        lay_sc.addWidget(lbl_mode)
 
-        if self.de_type in ("kde", "gnome"):
-            lbl_dictee = QLabel(_("Voice dictation") + " :")
-            lay_sc.addWidget(lbl_dictee)
-            self.btn_capture = ShortcutButton()
-            self._dictee_existing_desktop = None
-            if self.de_type == "kde":
-                existing, desktop = find_kde_shortcut_for_command(DICTEE_COMMAND)
-                if existing:
-                    seq = QKeySequence.fromString(existing)
-                    self.btn_capture._sequence = seq
-                    self.btn_capture.setText(_("Shortcut: {label}").format(
-                        label=seq.toString(_NATIVE_TEXT)))
-                    self._dictee_existing_desktop = desktop
-            lay_sc.addWidget(self.btn_capture)
+        self.cmb_ptt_mode = QComboBox()
+        self.cmb_ptt_mode.addItem(_("Hold (push-to-talk) — hold key to record, release to transcribe"), "hold")
+        self.cmb_ptt_mode.addItem(_("Toggle — press to start, press again to stop"), "toggle")
+        existing_mode = self.conf.get("DICTEE_PTT_MODE", "toggle")
+        idx = self.cmb_ptt_mode.findData(existing_mode)
+        if idx >= 0:
+            self.cmb_ptt_mode.setCurrentIndex(idx)
+        lay_sc.addWidget(self.cmb_ptt_mode)
 
-            self.lbl_conflict = QLabel()
-            self.lbl_conflict.setVisible(False)
-            lay_sc.addWidget(self.lbl_conflict)
-            self.btn_capture.shortcutCaptured.connect(self._on_shortcut_captured)
+        lay_sc.addSpacing(8)
 
-            lay_sc.addSpacing(4)
-
-            lbl_translate = QLabel(_("Dictation + Translation") + " :")
-            lay_sc.addWidget(lbl_translate)
-            self.btn_capture_translate = ShortcutButton()
-            self._translate_existing_desktop = None
-            if self.de_type == "kde":
-                existing_tr, desktop_tr = find_kde_shortcut_for_command(DICTEE_TRANSLATE_COMMAND)
-                if existing_tr:
-                    seq_tr = QKeySequence.fromString(existing_tr)
-                    self.btn_capture_translate._sequence = seq_tr
-                    self.btn_capture_translate.setText(_("Shortcut: {label}").format(
-                        label=seq_tr.toString(_NATIVE_TEXT)))
-                    self._translate_existing_desktop = desktop_tr
-            lay_sc.addWidget(self.btn_capture_translate)
-
-            self.lbl_conflict_translate = QLabel()
-            self.lbl_conflict_translate.setVisible(False)
-            lay_sc.addWidget(self.lbl_conflict_translate)
-            self.btn_capture_translate.shortcutCaptured.connect(self._on_shortcut_translate_captured)
+        # Touche dictée
+        lbl_dictee = QLabel(_("Voice dictation key") + " :")
+        lay_sc.addWidget(lbl_dictee)
+        self.btn_capture = ShortcutButton()
+        existing_key = int(self.conf.get("DICTEE_PTT_KEY", 67))
+        if existing_key:
+            self.btn_capture.setText(_("Key: {name}").format(
+                name=linux_keycode_name(existing_key)))
+            self._ptt_key = existing_key
         else:
-            lbl_unsup = QLabel(
-                "<i>" + _(
-                    "Unsupported environment for automatic configuration.\n"
-                    "Configure the shortcut manually in your window manager:\n"
-                    "Command: <b>{cmd}</b>"
-                ).format(cmd=DICTEE_COMMAND).replace("\n", "<br>") + "</i>"
+            self._ptt_key = 67
+        lay_sc.addWidget(self.btn_capture)
+        self.btn_capture.shortcutCaptured.connect(self._on_ptt_key_captured)
+
+        self.lbl_ptt_warning = QLabel()
+        self.lbl_ptt_warning.setVisible(False)
+        self.lbl_ptt_warning.setWordWrap(True)
+        lay_sc.addWidget(self.lbl_ptt_warning)
+
+        lay_sc.addSpacing(4)
+
+        # Touche traduction
+        lbl_translate = QLabel(_("Dictation + Translation key") + " (" + _("optional") + ") :")
+        lay_sc.addWidget(lbl_translate)
+        self.btn_capture_translate = ShortcutButton()
+        existing_key_tr = int(self.conf.get("DICTEE_PTT_KEY_TRANSLATE", 0))
+        if existing_key_tr:
+            self.btn_capture_translate.setText(_("Key: {name}").format(
+                name=linux_keycode_name(existing_key_tr)))
+            self._ptt_key_translate = existing_key_tr
+        else:
+            self._ptt_key_translate = 0
+            self.btn_capture_translate.setText(_("Not configured"))
+        lay_sc.addWidget(self.btn_capture_translate)
+        self.btn_capture_translate.shortcutCaptured.connect(self._on_ptt_key_translate_captured)
+
+        lay_sc.addSpacing(8)
+
+        # Info groupe input
+        in_input_group = "input" in os.popen("groups").read().split()
+        if not in_input_group:
+            lbl_group = QLabel(
+                '<span style="color: orange;">⚠ ' +
+                _("Your user is not in the 'input' group. Run:") +
+                " <code>sudo usermod -aG input $USER</code> " +
+                _("then log out and log back in.") +
+                '</span>'
             )
-            lbl_unsup.setWordWrap(True)
-            lay_sc.addWidget(lbl_unsup)
+            lbl_group.setWordWrap(True)
+            lay_sc.addWidget(lbl_group)
 
     def _build_parakeet_options(self, parent_layout):
         """Build Parakeet model download widgets."""
@@ -2244,25 +2329,66 @@ class DicteeSetupDialog(QDialog):
 
     # -- Capture raccourci --
 
+    def _on_ptt_key_captured(self, seq):
+        code = qt_key_to_linux_keycode(seq)
+        if code:
+            self._ptt_key = code
+            self.btn_capture.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
+            self.btn_capture._changed = True
+            self._check_ptt_warning(code, self.lbl_ptt_warning)
+        else:
+            key_str = seq.toString() if seq else "?"
+            self.lbl_ptt_warning.setText(
+                '<span style="color: red;">⚠ ' +
+                _("Key '{key}' is not supported. Use a function key (F1-F12).").format(key=key_str) +
+                '</span>'
+            )
+            self.lbl_ptt_warning.setVisible(True)
+
+    def _on_ptt_key_translate_captured(self, seq):
+        code = qt_key_to_linux_keycode(seq)
+        if code:
+            self._ptt_key_translate = code
+            self.btn_capture_translate.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
+            self.btn_capture_translate._changed = True
+        else:
+            key_str = seq.toString() if seq else "?"
+            self.btn_capture_translate.setText(
+                _("Key '{key}' not supported").format(key=key_str))
+
+    def _check_ptt_warning(self, code, lbl):
+        """Avertit si la touche risque de poser problème."""
+        # Touches dangereuses : lettres, chiffres, espace, enter, tab
+        dangerous = {14, 15, 28, 57}  # backspace, tab, enter, space
+        dangerous.update(range(2, 12))  # 1-0
+        dangerous.update(range(16, 26))  # q-p
+        dangerous.update(range(30, 39))  # a-l
+        dangerous.update(range(44, 51))  # z-m
+        if code in dangerous:
+            lbl.setText(
+                '<span style="color: orange;">⚠ ' +
+                _("This key is used for typing. Prefer a function key (F1-F12) "
+                  "or a special key (Home, End, Insert, etc.).") +
+                '</span>'
+            )
+            lbl.setVisible(True)
+        elif code == 1:  # ESC
+            lbl.setText(
+                '<span style="color: orange;">⚠ ' +
+                _("Escape is used to cancel dictation. Choose another key.") +
+                '</span>'
+            )
+            lbl.setVisible(True)
+        else:
+            lbl.setVisible(False)
+
     def _on_shortcut_captured(self, seq):
-        self._check_conflict(seq, self.lbl_conflict)
+        """Legacy — redirige vers PTT."""
+        self._on_ptt_key_captured(seq)
 
     def _on_shortcut_translate_captured(self, seq):
-        self._check_conflict(seq, self.lbl_conflict_translate)
-
-    def _check_conflict(self, seq, lbl_conflict):
-        if self.de_type == "kde":
-            accel_kde = qt_key_to_kde(seq)
-            conflict = check_kde_conflict(accel_kde)
-            if conflict:
-                lbl_conflict.setText(
-                    '<span style="color: orange;">⚠ ' +
-                    _("Shortcut already used by '{name}'").format(name=conflict) +
-                    '</span>'
-                )
-                lbl_conflict.setVisible(True)
-            else:
-                lbl_conflict.setVisible(False)
+        """Legacy — redirige vers PTT."""
+        self._on_ptt_key_translate_captured(seq)
 
     # -- Animation-speech --
 
@@ -2612,12 +2738,19 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, 'cmb_audio_source') and self.cmb_audio_source.isEnabled():
             audio_source = self.cmb_audio_source.currentData() or ""
 
+        # PTT config
+        ptt_mode = self.cmb_ptt_mode.currentData() if hasattr(self, 'cmb_ptt_mode') else "toggle"
+        ptt_key = getattr(self, '_ptt_key', 67)
+        ptt_key_translate = getattr(self, '_ptt_key_translate', 0)
+
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port,
                     asr_backend, whisper_model, whisper_lang, vosk_model,
-                    audio_source=str(audio_source))
+                    audio_source=str(audio_source),
+                    ptt_mode=ptt_mode, ptt_key=ptt_key,
+                    ptt_key_translate=ptt_key_translate)
 
-        # Services systemd
+        # Services systemd — ASR
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
         active_svc = asr_services.get(asr_backend, "dictee")
         for svc_name in asr_services.values():
@@ -2633,29 +2766,20 @@ class DicteeSetupDialog(QDialog):
         action = "enable" if self.chk_tray.isChecked() else "disable"
         subprocess.run(["systemctl", "--user", action, "--now", "dictee-tray"], capture_output=True)
 
+        # PTT service — activer et (re)démarrer
+        subprocess.run(["systemctl", "--user", "enable", "dictee-ptt"], capture_output=True)
+        subprocess.run(["systemctl", "--user", "restart", "dictee-ptt"], capture_output=True)
+
+        # Supprimer les anciens raccourcis KDE/GNOME (dictee-ptt les remplace)
         shortcut_msg = ""
-        if self.de_type in ("kde", "gnome") and hasattr(self, "btn_capture"):
-            shortcuts = [
-                (self.btn_capture, self._dictee_existing_desktop or DICTEE_DESKTOP,
-                 DICTEE_COMMAND, _("Voice dictation")),
-                (self.btn_capture_translate, self._translate_existing_desktop or DICTEE_TRANSLATE_DESKTOP,
-                 DICTEE_TRANSLATE_COMMAND, _("Dictation + Translation")),
-            ]
-            for btn, desktop, cmd, label in shortcuts:
-                if not btn._changed:
-                    continue
-                captured = btn.sequence()
+        if self.de_type == "kde":
+            for desktop in (DICTEE_DESKTOP, DICTEE_TRANSLATE_DESKTOP):
                 try:
-                    if self.de_type == "kde":
-                        accel = qt_key_to_kde(captured)
-                        apply_kde_shortcut(accel, desktop, cmd, label, key_sequence=captured)
-                        shortcut_msg += "\n" + _("Shortcut applied: {key}").format(key=accel)
-                    else:
-                        accel = qt_key_to_gnome(captured)
-                        apply_gnome_shortcut(accel)
-                        shortcut_msg += "\n" + _("Shortcut applied: {key}").format(key=accel)
-                except Exception as e:
-                    shortcut_msg += "\n" + _("Shortcut error: {err}").format(err=e)
+                    remove_kde_shortcut(desktop)
+                except Exception:
+                    pass
+            shortcut_msg = "\n" + _("PTT key: {key} ({mode})").format(
+                key=linux_keycode_name(ptt_key), mode=ptt_mode)
 
         if not self.wizard_mode:
             QMessageBox.information(

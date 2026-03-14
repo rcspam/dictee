@@ -18,6 +18,7 @@ optdepends=(
     'wl-clipboard: clipboard copy'
     'libnotify: desktop notifications'
     'python-gobject: dictee-tray notification icon'
+    'python-evdev: dictee-ptt key grab (recommended)'
     'python-numpy: plasmoid audio visualization'
     'pulseaudio-utils: plasmoid audio visualization (parec)'
     'translate-shell: translation via Google/Bing'
