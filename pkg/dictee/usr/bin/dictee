@@ -1,29 +1,29 @@
 #!/bin/bash
 #
-# Dictée vocale - enregistre avec le micro, transcrit et tape le texte
-# Optionnellement traduit avant d'envoyer
+# Voice Dictation - records with mic, transcribes and types text
+# Optionally translates before typing
 #
-# Backends traduction: trans (défaut), ollama (translategemma)
-# Langues configurables via variables d'environnement :
-#   DICTEE_LANG_SOURCE (défaut: langue système), DICTEE_LANG_TARGET (défaut: en)
+# Translation backends: trans (default), ollama, libretranslate
+# Configurable via environment variables or dictee.conf:
+#   DICTEE_LANG_SOURCE (default: system language), DICTEE_LANG_TARGET (default: en)
 #
 # Usage: dictee [--translate] [--ollama] [--cancel] [--setup]
-#   dictee                      # transcrit et tape
-#   dictee --translate          # transcrit, traduit (trans), tape
-#   dictee --translate --ollama # traduit avec ollama/translategemma
-#   dictee --cancel             # annule l'enregistrement en cours
-#   dictee --setup              # ouvre l'interface de configuration
+#   dictee                      # transcribe and type
+#   dictee --translate          # transcribe, translate (trans), type
+#   dictee --translate --ollama # translate with ollama
+#   dictee --cancel             # cancel current recording
+#   dictee --setup              # open configuration interface
 #
-# Nécessite : transcribe-daemon (en cours), pw-record, dotool
-# Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
+# Requires: transcribe-daemon (running), pw-record, dotool
+# Optional: animation-speech-ctl
 
 # === CONFIGURATION ===
 
-# Charger la configuration (dictee-setup)
+# Load configuration (dictee-setup)
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 [ -f "$DICTEE_CONF" ] && source "$DICTEE_CONF"
 
-# Exporter OLLAMA_NUM_GPU si défini dans la config (mode CPU forcé)
+# Export OLLAMA_NUM_GPU if defined in config (forced CPU mode)
 [ -n "$OLLAMA_NUM_GPU" ] && export OLLAMA_NUM_GPU
 
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
@@ -32,7 +32,7 @@ LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
 
-# Détection du layout clavier pour dotool (localectl > setxkbmap > us)
+# Keyboard layout detection for dotool (localectl > setxkbmap > us)
 if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
     DOTOOL_XKB_LAYOUT=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
     [ -z "$DOTOOL_XKB_LAYOUT" ] && DOTOOL_XKB_LAYOUT=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
@@ -47,13 +47,12 @@ MUT_FILE="/tmp/mut_dictee"
 TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate"
 
-# Post-traitement du texte (commandes de dictée françaises)
+# Text post-processing (French dictation commands, can be extended)
 POINT_A_LA_LIGNE="| sed -E 's/[,.]?point à la ligne[,.]?/.\n/Ig' | sed -E 's/^\.?//g'"
 TROIS_PETITS_POINTS="| sed -E 's/(trois|3) petits points/\.\.\./Ig'"
 SUPPRIME="${POINT_A_LA_LIGNE} ${TROIS_PETITS_POINTS}"
 
-# Parse arguments — les valeurs de dictee.conf servent de défaut,
-# les arguments CLI les surchargent.
+# Parse arguments — dictee.conf values are defaults, CLI args override them.
 TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
 TRANSLATE="${DICTEE_TRANSLATE:-false}"
 CANCEL=false
@@ -79,17 +78,17 @@ for arg in "$@"; do
     esac
 done
 
-# === FONCTIONS ===
+# === FUNCTIONS ===
 
-# === ÉCOUTE ESCAPE (/dev/input) ===
+# === ESCAPE LISTENER (/dev/input) ===
 
 ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid"
 
 start_escape_listener() {
-    # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
-    # Écoute tous les claviers simultanément. Nécessite le groupe 'input'.
+    # Launches a background listener that reads /dev/input to detect ESC
+    # Listens to all keyboards simultaneously. Requires 'input' group.
     stop_escape_listener
-    # Trouver tous les claviers physiques (sysrq+kbd = vrai clavier, exclure virtuels)
+    # Find all physical keyboards (sysrq+kbd = real keyboard, exclude virtual)
     local kbd_devs
     kbd_devs=$(awk -f <(cat << 'AWKEOF'
 /^N:/ { name = $0 }
@@ -145,17 +144,17 @@ stop_escape_listener() {
     fi
 }
 
-# === DÉPENDANCES ===
+# === DEPENDENCIES ===
 
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
-    # wl-copy est optionnel (copie dans le presse-papier en bonus)
+    # wl-copy is optional (clipboard sync)
     command -v dotool >/dev/null || missing+=("dotool")
     command -v pactl >/dev/null || missing+=("pulseaudio-utils")
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
 
-    # Vérifier le backend de traduction si --translate
+    # Check translation backend if --translate
     if [ "$TRANSLATE" = true ]; then
         if [ "$TRANSLATE_BACKEND" = "trans" ]; then
             command -v trans >/dev/null || missing+=("translate-shell")
@@ -167,7 +166,7 @@ check_dependencies() {
     fi
 
     if [ ${#missing[@]} -gt 0 ]; then
-        echo "Dépendances manquantes: ${missing[*]}" >&2
+        echo "Missing dependencies: ${missing[*]}" >&2
         exit 1
     fi
 }
@@ -177,7 +176,7 @@ cleanup_on_error() {
 
     stop_escape_listener
 
-    # Tuer pw-record et ses enfants
+    # Kill pw-record and children
     if [ -f "$PIDFILE" ]; then
         local rec_pid=$(cat "$PIDFILE")
         kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
@@ -186,27 +185,27 @@ cleanup_on_error() {
         rm -f "$PIDFILE"
     fi
 
-    # Arrêter l'animation
+    # Stop animation
     if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
             animation-speech-ctl quit 2>/dev/null
         fi
     fi
 
-    # Tuer tous les processus enfants restants
+    # Kill remaining children
     pkill -P $$ 2>/dev/null
 
-    # Restaurer l'état audio
+    # Restore audio state
     pactl set-sink-mute @DEFAULT_SINK@ 0
     if [ -f "$MUT_FILE" ]; then
         [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
         rm -f "$MUT_FILE"
     fi
 
-    # Fermer la notification persistante
+    # Close persistent notification
     local id=$(cat "$ID_TMP_FILE" 2>/dev/null)
     if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement interrompu"
+        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Recording interrupted"
     fi
 
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
@@ -231,7 +230,7 @@ translate() {
     libretranslate)
         local port="${DICTEE_LIBRETRANSLATE_PORT:-5000}"
         local url="http://localhost:${port}/translate"
-        # Échapper le texte pour JSON
+        # Escape text for JSON
         local json_text
         json_text=$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
         local result
@@ -241,26 +240,26 @@ translate() {
         if echo "$result" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["translatedText"])' 2>/dev/null; then
             :
         else
-            echo "Erreur LibreTranslate: $result" >&2
+            echo "LibreTranslate Error: $result" >&2
             exit 1
         fi
         ;;
     ollama)
         local model="${DICTEE_OLLAMA_MODEL:-translategemma}"
-        # Vérifier si le modèle est déjà téléchargé
+        # Check if model is downloaded
         if ! ollama list 2>/dev/null | grep -q "${model%%:*}"; then
-            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle ${model}..." "Premier lancement, veuillez patienter"
+            notify-send -t 0 -i emblem-downloads -a Dictee "Downloading model ${model}..." "Initial launch, please wait"
         fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
 ${text}"
-        # Ajouter :latest seulement si pas de tag explicite
+        # Add :latest only if no explicit tag
         [[ "$model" == *:* ]] || model="${model}:latest"
         ollama run "$model" "$prompt" 2>/dev/null
         ;;
     *)
-        echo "Backend traduction inconnu: $backend" >&2
+        echo "Unknown translation backend: $backend" >&2
         exit 1
         ;;
     esac
@@ -271,38 +270,38 @@ ${text}"
 check_dependencies
 trap cleanup_on_error INT TERM HUP QUIT ERR
 
-# === ANNULATION ===
+# === CANCELLATION ===
 if [ "$CANCEL" = true ]; then
     if [ -f "$PIDFILE" ]; then
-        # Signaler immédiatement au plasmoid (avant toute autre action, évite race condition)
+        # Signal to plasmoid
         echo "cancelled" > /dev/shm/.dictee_state 2>/dev/null
 
         id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
         stop_escape_listener
 
-        # Arrêter l'animation
+        # Stop animation
         if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
             if command -v animation-speech-ctl >/dev/null 2>&1; then
                 animation-speech-ctl quit 2>/dev/null
             fi
         fi
 
-        # Restaurer l'état du micro
+        # Restore mic state
         if [ -f "$MUT_FILE" ]; then
             [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
             rm -f "$MUT_FILE"
         fi
         pactl set-sink-mute @DEFAULT_SINK@ 0
 
-        # Arrêter l'enregistrement
+        # Stop recording
         kill "$(cat "$PIDFILE")" 2>/dev/null
         rm -f "$PIDFILE"
 
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
+            notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Recording cancelled"
         else
-            notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
+            notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Recording cancelled"
         fi
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
     fi
@@ -310,11 +309,11 @@ if [ "$CANCEL" = true ]; then
 fi
 
 if [ -f "$PIDFILE" ]; then
-    # === ARRÊT DE L'ENREGISTREMENT ===
+    # === STOP RECORDING ===
 
     stop_escape_listener
 
-    # Récupérer les options utilisées au démarrage
+    # Retrieve options used at start
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
         TRANSLATE=true
     fi
@@ -324,44 +323,51 @@ if [ -f "$PIDFILE" ]; then
 
     id=$(cat "$ID_TMP_FILE" 2>/dev/null)
 
-    # Arrêter l'animation
+    # Stop animation
     if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
             animation-speech-ctl stop 2>/dev/null
         fi
     fi
 
-    # Restaurer l'état du micro
+    # Restore mic state
     if [ -f "$MUT_FILE" ]; then
         [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
         rm -f "$MUT_FILE"
     fi
-    # Démuter le son
+    # Unmute sound
     pactl set-sink-mute @DEFAULT_SINK@ 0
 
-    # Signaler au plasmoid
+    # Signal to plasmoid
     echo "transcribing" > /dev/shm/.dictee_state 2>/dev/null
 
-    # Arrêter l'enregistrement
+    # Stop recording
     kill "$(cat "$PIDFILE")" 2>/dev/null
     rm -f "$PIDFILE"
 
     if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
+        notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Recording stopped"
     fi
 
-    # Transcrire
+    # Transcribe
     transcribed=$(transcribe "$RECORDING_FILE")
 
     if [ "$TRANSLATE" = true ]; then
-        # Traduire et copier
+        # Translate and paste
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
+            notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Translation in progress..."
         fi
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$translated" | wl-copy
-        printf 'type %s' "$translated" | dotool 2>/dev/null
+        if [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null; then
+            echo "$translated" | wl-copy
+            # Small delay to ensure focus is back to target window
+            sleep 0.2
+            # Use Shift+Insert for reliable "Paste" across Terminals and GUI apps
+            printf 'key shift+insert' | dotool 2>/dev/null
+        else
+            printf 'type %s' "$translated" | dotool 2>/dev/null
+        fi
 
         if [ -n "$id" ]; then
             notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
@@ -369,14 +375,21 @@ if [ -f "$PIDFILE" ]; then
             notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         fi
     else
-        # Copier directement
-        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
-        printf 'type %s' "$transcribed" | dotool 2>/dev/null
+        # Copy directly
+        if [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null; then
+            echo "$transcribed" | wl-copy
+            # Small delay to ensure focus is back to target window
+            sleep 0.2
+            # Use Shift+Insert for reliable "Paste" across Terminals and GUI apps
+            printf 'key shift+insert' | dotool 2>/dev/null
+        else
+            printf 'type %s' "$transcribed" | dotool 2>/dev/null
+        fi
 
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Typed text:" "<i>\"$transcribed\"</i>"
         else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Typed text:" "<i>\"$transcribed\"</i>"
         fi
     fi
 
@@ -384,25 +397,25 @@ if [ -f "$PIDFILE" ]; then
     echo "idle" > /dev/shm/.dictee_state 2>/dev/null
 
 else
-    # === DÉMARRAGE DE L'ENREGISTREMENT ===
+    # === START RECORDING ===
 
     start_escape_listener
 
-    # Sauvegarder les options choisies
+    # Save chosen options
     if [ "$TRANSLATE" = true ]; then
         touch "$TRANSLATE_FLAG_FILE"
         echo "$TRANSLATE_BACKEND" >"$TRANSLATE_BACKEND_FILE"
     fi
 
-    # Vérifier si le micro est muté et le démuter
+    # Check if mic is muted and unmute
     if pactl get-source-mute @DEFAULT_SOURCE@ | grep -q -i -E 'oui|yes'; then
         pactl set-source-mute @DEFAULT_SOURCE@ 0
         echo "MUT=1" >"$MUT_FILE"
     fi
-    # Muter le son (pour éviter le feedback)
+    # Mute sound (avoid feedback)
     pactl set-sink-mute @DEFAULT_SINK@ 1
 
-    # Lancer l'animation (si mode speech ou both, et si disponible)
+    # Launch animation
     if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
             SCRIPT_PATH="$(readlink -f "$0")"
@@ -410,17 +423,17 @@ else
         fi
     fi
 
-    # Signaler au plasmoid que l'enregistrement démarre (avant pw-record pour réduire la latence)
+    # Signal to plasmoid
     echo "recording" > /dev/shm/.dictee_state 2>/dev/null
 
-    # Démarrer l'enregistrement
+    # Start recording
     pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
     echo $! >"$PIDFILE"
 
     # Notification
     if [ "$TRANSLATE" = true ]; then
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Recording $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
     else
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Recording started" >"$ID_TMP_FILE"
     fi
 fi

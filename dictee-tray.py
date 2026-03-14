@@ -11,9 +11,14 @@ import signal
 import subprocess
 import sys
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon, QAction
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+try:
+    from PyQt6.QtCore import Qt, QTimer
+    from PyQt6.QtGui import QIcon, QAction
+    from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+except ImportError:
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtGui import QIcon, QAction
+    from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 
 # === Configuration ===
