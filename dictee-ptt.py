@@ -335,7 +335,7 @@ def main():
                         if not os.path.isfile(PIDFILE):
                             wait_pidfile()
                         print("[ptt] hold: stop")
-                        run_dictee_async()
+                        run_dictee_async("--no-esc-listener")
                         recording = False
                         last_stop_time = now
                 else:  # toggle
@@ -347,11 +347,11 @@ def main():
                         last_down_time = now
                         if not recording:
                             print("[ptt] toggle: start")
-                            run_dictee_async()
+                            run_dictee_async("--no-esc-listener")
                             recording = True
                         else:
                             print("[ptt] toggle: stop")
-                            run_dictee_async()
+                            run_dictee_async("--no-esc-listener")
                             recording = False
                             last_stop_time = now
                 continue
@@ -372,7 +372,7 @@ def main():
                         if not os.path.isfile(PIDFILE):
                             wait_pidfile()
                         print("[ptt] hold: stop+translate")
-                        run_dictee_async("--translate")
+                        run_dictee_async("--no-esc-listener", "--translate")
                         recording_translate = False
                         last_stop_time = now
                 else:  # toggle
@@ -384,11 +384,11 @@ def main():
                         last_down_time = now
                         if not recording_translate:
                             print("[ptt] toggle: start+translate")
-                            run_dictee_async("--translate")
+                            run_dictee_async("--no-esc-listener", "--translate")
                             recording_translate = True
                         else:
                             print("[ptt] toggle: stop+translate")
-                            run_dictee_async("--translate")
+                            run_dictee_async("--no-esc-listener", "--translate")
                             recording_translate = False
                             last_stop_time = now
 
