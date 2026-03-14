@@ -8,8 +8,13 @@ En mode hold : key-down = start, key-up = stop+transcribe.
 En mode toggle : key-down = start/stop alternés.
 
 Usage:
-    dictee-ptt [--mode=toggle|hold] [--key=67] [--key-translate=0]
+    dictee-ptt [--mode=toggle|hold] [--key=67] [--key-translate=67] [--mod-translate=alt]
     dictee-ptt --help
+
+Exemples :
+    dictee-ptt --mode=hold --key=67                        # F9 hold
+    dictee-ptt --mode=hold --key=67 --key-translate=67 --mod-translate=alt  # F9 + Alt+F9
+    dictee-ptt --mode=toggle --key=67 --key-translate=68   # F9 / F10 séparés
 
 Nécessite : groupe 'input' pour /dev/input/* et /dev/uinput.
 
@@ -46,6 +51,19 @@ KEY_DOWN = 1
 KEY_UP = 0
 KEY_REPEAT = 2
 KEY_ESC = 1
+KEY_LEFTALT = 56
+KEY_RIGHTALT = 100
+KEY_LEFTCTRL = 29
+KEY_RIGHTCTRL = 97
+KEY_LEFTSHIFT = 42
+KEY_RIGHTSHIFT = 54
+
+# Modificateurs supportés : nom → (keycode gauche, keycode droit)
+MODIFIERS = {
+    "alt": (KEY_LEFTALT, KEY_RIGHTALT),
+    "ctrl": (KEY_LEFTCTRL, KEY_RIGHTCTRL),
+    "shift": (KEY_LEFTSHIFT, KEY_RIGHTSHIFT),
+}
 
 DEBOUNCE = 0.15       # 150ms anti-rebond
 STOP_COOLDOWN = 0.5   # 500ms — ignore KEY_DOWN parasites après stop
@@ -168,15 +186,31 @@ def sync_state():
 # ─── Logique PTT commune ───────────────────────────────────────────
 
 class PttState:
-    def __init__(self, mode, key_dictee, key_translate):
+    def __init__(self, mode, key_dictee, key_translate, mod_translate=""):
         self.mode = mode
         self.key_dictee = key_dictee
         self.key_translate = key_translate
+        # Modificateur pour traduction (ex: "alt" → Alt+F9)
+        self.mod_translate = mod_translate
         self.recording = False
         self.recording_translate = False
         self.last_down_time = 0
         self.last_stop_time = 0
         self.keys_held = set()
+
+    def _mod_held(self, mod_name):
+        """Vérifie si un modificateur est maintenu."""
+        if not mod_name or mod_name not in MODIFIERS:
+            return False
+        left, right = MODIFIERS[mod_name]
+        return left in self.keys_held or right in self.keys_held
+
+    def _any_mod_held(self):
+        """Vérifie si un modificateur quelconque est maintenu."""
+        for left, right in MODIFIERS.values():
+            if left in self.keys_held or right in self.keys_held:
+                return True
+        return False
 
     def handle_event(self, code, value):
         """Traite un événement clavier. Retourne True si l'événement est consommé."""
@@ -217,12 +251,23 @@ class PttState:
         if self.recording and self.key_translate and code == self.key_translate:
             return True
 
-        # Touche dictée
+        # Déterminer si c'est dictée ou traduction
         if code == self.key_dictee:
-            self._handle_dictee(value, now)
+            if self.mod_translate and self._mod_held(self.mod_translate):
+                # Même touche + modificateur → traduction
+                self._handle_translate(value, now)
+            elif self.key_translate and self.key_translate == self.key_dictee:
+                # Même touche, pas de modificateur → dictée normale
+                if not self._any_mod_held():
+                    self._handle_dictee(value, now)
+                else:
+                    return False  # modificateur inconnu, laisser passer
+            else:
+                # Touche dédiée dictée, pas de modificateur attendu
+                self._handle_dictee(value, now)
             return True  # consommer
 
-        # Touche traduction
+        # Touche traduction séparée (différente de key_dictee)
         if self.key_translate and code == self.key_translate:
             self._handle_translate(value, now)
             return True  # consommer
@@ -536,6 +581,7 @@ def main():
     mode = "toggle"
     key_dictee = 67   # F9
     key_translate = 0  # désactivé par défaut
+    mod_translate = ""  # modificateur traduction (alt, ctrl, shift)
     conf = load_config()
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
@@ -543,6 +589,7 @@ def main():
         key_dictee = int(conf["DICTEE_PTT_KEY"])
     if "DICTEE_PTT_KEY_TRANSLATE" in conf:
         key_translate = int(conf["DICTEE_PTT_KEY_TRANSLATE"])
+    mod_translate = conf.get("DICTEE_PTT_MOD_TRANSLATE", mod_translate)
 
     for arg in sys.argv[1:]:
         if arg.startswith("--mode="):
@@ -551,6 +598,8 @@ def main():
             key_dictee = int(arg.split("=", 1)[1])
         elif arg.startswith("--key-translate="):
             key_translate = int(arg.split("=", 1)[1])
+        elif arg.startswith("--mod-translate="):
+            mod_translate = arg.split("=", 1)[1]
         elif arg == "--help":
             print(__doc__)
             sys.exit(0)
@@ -558,10 +607,11 @@ def main():
     lock_file = acquire_lock()
     DICTEE_BIN = find_dictee_bin()
 
-    print(f"[ptt] mode={mode} key={key_dictee} key_translate={key_translate}")
+    mod_info = f" mod_translate={mod_translate}" if mod_translate else ""
+    print(f"[ptt] mode={mode} key={key_dictee} key_translate={key_translate}{mod_info}")
     print(f"[ptt] dictee={DICTEE_BIN}")
 
-    ptt = PttState(mode, key_dictee, key_translate)
+    ptt = PttState(mode, key_dictee, key_translate, mod_translate)
 
     if HAS_EVDEV:
         print("[ptt] backend: evdev (grab + uinput)")

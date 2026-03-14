@@ -173,7 +173,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, asr_backend="parakeet", whisper_model="small",
                 whisper_lang="", vosk_model="fr", audio_source="",
-                ptt_mode="toggle", ptt_key=67, ptt_key_translate=0):
+                ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
+                ptt_mod_translate=""):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
     with open(CONF_PATH, "w") as f:
@@ -205,6 +206,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         f.write(f"DICTEE_PTT_KEY={ptt_key}\n")
         if ptt_key_translate:
             f.write(f"DICTEE_PTT_KEY_TRANSLATE={ptt_key_translate}\n")
+        if ptt_mod_translate:
+            f.write(f"DICTEE_PTT_MOD_TRANSLATE={ptt_mod_translate}\n")
 
 
 # === Raccourci KDE ===
@@ -1729,20 +1732,54 @@ class DicteeSetupDialog(QDialog):
 
         lay_sc.addSpacing(4)
 
-        # Touche traduction
-        lbl_translate = QLabel(_("Dictation + Translation key") + " (" + _("optional") + ") :")
+        # Touche traduction : modificateur + même touche ou touche séparée
+        lay_sc.addSpacing(4)
+        lbl_translate = QLabel(_("Dictation + Translation") + " :")
         lay_sc.addWidget(lbl_translate)
-        self.btn_capture_translate = ShortcutButton()
+
+        # Choix : même touche + modificateur ou touche séparée
+        self.cmb_translate_mode = QComboBox()
+        self.cmb_translate_mode.addItem(_("Same key + Alt (e.g., Alt+F9)"), "same_alt")
+        self.cmb_translate_mode.addItem(_("Same key + Ctrl"), "same_ctrl")
+        self.cmb_translate_mode.addItem(_("Same key + Shift"), "same_shift")
+        self.cmb_translate_mode.addItem(_("Separate key"), "separate")
+        self.cmb_translate_mode.addItem(_("Disabled"), "disabled")
+
+        # Charger config existante
+        existing_mod = self.conf.get("DICTEE_PTT_MOD_TRANSLATE", "")
         existing_key_tr = int(self.conf.get("DICTEE_PTT_KEY_TRANSLATE", 0))
-        if existing_key_tr:
+        existing_key = int(self.conf.get("DICTEE_PTT_KEY", 67))
+
+        if not existing_key_tr:
+            self.cmb_translate_mode.setCurrentIndex(4)  # disabled
+        elif existing_mod == "alt":
+            self.cmb_translate_mode.setCurrentIndex(0)
+        elif existing_mod == "ctrl":
+            self.cmb_translate_mode.setCurrentIndex(1)
+        elif existing_mod == "shift":
+            self.cmb_translate_mode.setCurrentIndex(2)
+        elif existing_key_tr != existing_key:
+            self.cmb_translate_mode.setCurrentIndex(3)  # separate
+        else:
+            self.cmb_translate_mode.setCurrentIndex(0)  # default alt
+
+        lay_sc.addWidget(self.cmb_translate_mode)
+
+        # Bouton capture touche séparée (visible uniquement si "separate")
+        self.btn_capture_translate = ShortcutButton()
+        if existing_key_tr and existing_key_tr != existing_key:
             self.btn_capture_translate.setText(_("Key: {name}").format(
                 name=linux_keycode_name(existing_key_tr)))
             self._ptt_key_translate = existing_key_tr
         else:
             self._ptt_key_translate = 0
-            self.btn_capture_translate.setText(_("Not configured"))
+            self.btn_capture_translate.setText(_("Click to capture a shortcut…"))
+        self.btn_capture_translate.setVisible(
+            self.cmb_translate_mode.currentData() == "separate")
         lay_sc.addWidget(self.btn_capture_translate)
         self.btn_capture_translate.shortcutCaptured.connect(self._on_ptt_key_translate_captured)
+
+        self.cmb_translate_mode.currentIndexChanged.connect(self._on_translate_mode_changed)
 
         lay_sc.addSpacing(8)
 
@@ -2382,6 +2419,10 @@ class DicteeSetupDialog(QDialog):
         else:
             lbl.setVisible(False)
 
+    def _on_translate_mode_changed(self, _idx):
+        mode = self.cmb_translate_mode.currentData()
+        self.btn_capture_translate.setVisible(mode == "separate")
+
     def _on_shortcut_captured(self, seq):
         """Legacy — redirige vers PTT."""
         self._on_ptt_key_captured(seq)
@@ -2741,14 +2782,30 @@ class DicteeSetupDialog(QDialog):
         # PTT config
         ptt_mode = self.cmb_ptt_mode.currentData() if hasattr(self, 'cmb_ptt_mode') else "toggle"
         ptt_key = getattr(self, '_ptt_key', 67)
-        ptt_key_translate = getattr(self, '_ptt_key_translate', 0)
+        ptt_mod_translate = ""
+
+        translate_mode = self.cmb_translate_mode.currentData() if hasattr(self, 'cmb_translate_mode') else "disabled"
+        if translate_mode == "same_alt":
+            ptt_key_translate = ptt_key
+            ptt_mod_translate = "alt"
+        elif translate_mode == "same_ctrl":
+            ptt_key_translate = ptt_key
+            ptt_mod_translate = "ctrl"
+        elif translate_mode == "same_shift":
+            ptt_key_translate = ptt_key
+            ptt_mod_translate = "shift"
+        elif translate_mode == "separate":
+            ptt_key_translate = getattr(self, '_ptt_key_translate', 0)
+        else:  # disabled
+            ptt_key_translate = 0
 
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port,
                     asr_backend, whisper_model, whisper_lang, vosk_model,
                     audio_source=str(audio_source),
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
-                    ptt_key_translate=ptt_key_translate)
+                    ptt_key_translate=ptt_key_translate,
+                    ptt_mod_translate=ptt_mod_translate)
 
         # Services systemd — ASR
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
