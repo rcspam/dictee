@@ -139,6 +139,8 @@ Group:          Applications/Multimedia
 Requires:       (pipewire or pulseaudio-utils or alsa-utils)
 Requires:       curl
 Requires:       ffmpeg-free
+Requires:       python3-pyqt6
+Requires:       python3-qt6-multimedia
 Recommends:     nvidia-gpu-firmware
 Recommends:     wl-clipboard
 Recommends:     libnotify
@@ -217,6 +219,8 @@ Group:          Applications/Multimedia
 Requires:       (pipewire or pulseaudio-utils or alsa-utils)
 Requires:       curl
 Requires:       ffmpeg-free
+Requires:       python3-pyqt6
+Requires:       python3-qt6-multimedia
 Recommends:     wl-clipboard
 Recommends:     libnotify
 Recommends:     python3-gobject

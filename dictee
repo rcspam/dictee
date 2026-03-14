@@ -7,12 +7,13 @@
 # Langues configurables via variables d'environnement :
 #   DICTEE_LANG_SOURCE (défaut: langue système), DICTEE_LANG_TARGET (défaut: en)
 #
-# Usage: dictee [--translate] [--ollama] [--cancel] [--setup]
+# Usage: dictee [--translate] [--ollama] [--cancel] [--setup [--wizard]]
 #   dictee                      # transcrit et tape
 #   dictee --translate          # transcrit, traduit (trans), tape
 #   dictee --translate --ollama # traduit avec ollama/translategemma
 #   dictee --cancel             # annule l'enregistrement en cours
 #   dictee --setup              # ouvre l'interface de configuration
+#   dictee --setup --wizard     # ouvre l'assistant de configuration
 #
 # Nécessite : transcribe-daemon (en cours), pw-record, dotool
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
@@ -81,7 +82,11 @@ for arg in "$@"; do
         TRANSLATE_BACKEND="ollama"
         ;;
     --setup)
-        exec dictee-setup
+        shift
+        exec dictee-setup "$@"
+        ;;
+    --wizard)
+        exec dictee-setup --wizard
         ;;
     --help|-h)
         head -n 18 "$0" | grep '^#' | sed 's/^# \?//'

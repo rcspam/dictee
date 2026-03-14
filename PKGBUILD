@@ -11,6 +11,8 @@ depends=(
     'dotool'
     'ffmpeg'
     'curl'
+    'python-pyqt6'
+    'python-pyqt6-multimedia'
 )
 optdepends=(
     'wl-clipboard: clipboard copy'

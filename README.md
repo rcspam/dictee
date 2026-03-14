@@ -107,6 +107,8 @@ sudo ./install.sh
 | `dotool` | — (bundled) | `dotool` |
 | `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
 | `libnotify-bin` | `libnotify` | `libnotify` |
+| `python3-pyqt6` | `python3-pyqt6` | `python-pyqt6` |
+| `python3-pyqt6.qtmultimedia` | `python3-qt6-multimedia` | `python-pyqt6-multimedia` |
 | `python3-gi` | `python3-gobject` | `python-gobject` |
 | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` |
 

@@ -8,31 +8,38 @@ Supports PyQt6 (preferred) and PySide6 (fallback).
 """
 
 import gettext
+import math
 import os
 import re
 import shutil
+import struct
 import subprocess
+import sys
 import locale
 import tempfile
 
 try:
-    from PyQt6.QtCore import Qt, QThread, pyqtSignal as Signal
-    from PyQt6.QtGui import QKeySequence, QIcon
+    from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, pyqtSignal as Signal
+    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
-        QFrame, QScrollArea, QWidget,
+        QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
+        QToolTip,
     )
+    from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
-    from PySide6.QtCore import Qt, QThread, Signal
-    from PySide6.QtGui import QKeySequence, QIcon
+    from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, Signal
+    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
-        QFrame, QScrollArea, QWidget,
+        QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
+        QToolTip,
     )
+    from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
 # === i18n ===
 
@@ -120,7 +127,7 @@ def load_config():
 def save_config(backend, lang_source, lang_target, clipboard=True, animation="speech",
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, asr_backend="parakeet", whisper_model="small",
-                whisper_lang="", vosk_model="fr"):
+                whisper_lang="", vosk_model="fr", audio_source=""):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
     with open(CONF_PATH, "w") as f:
@@ -145,6 +152,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write(f"DICTEE_OLLAMA_MODEL={ollama_model}\n")
             if ollama_cpu:
                 f.write("OLLAMA_NUM_GPU=0\n")
+        if audio_source:
+            f.write(f"DICTEE_AUDIO_SOURCE={audio_source}\n")
 
 
 # === Raccourci KDE ===
@@ -947,27 +956,191 @@ class ShortcutButton(QPushButton):
         return self._sequence
 
 
+# === Audio sources ===
+
+
+
+
+class LevelMeter(QWidget):
+    """VU-mètre custom — rendu direct QPainter, très réactif."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._level = 0
+        self.setFixedHeight(14)
+        self.setMinimumWidth(60)
+
+    def setLevel(self, value):
+        self._level = max(0, min(100, value))
+        self.repaint()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        # Background
+        p.setBrush(QColor(26, 26, 46))
+        p.setPen(QColor(85, 85, 85))
+        p.drawRoundedRect(0, 0, w - 1, h - 1, 4, 4)
+        # Bar
+        bar_w = int((w - 4) * self._level / 100)
+        if bar_w > 0:
+            grad = QLinearGradient(2, 0, w - 2, 0)
+            grad.setColorAt(0.0, QColor(34, 204, 68))
+            grad.setColorAt(0.6, QColor(170, 204, 34))
+            grad.setColorAt(1.0, QColor(238, 68, 34))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(grad)
+            p.drawRoundedRect(2, 2, bar_w, h - 4, 3, 3)
+        p.end()
+
+
+class AudioLevelMonitor:
+    """VU-mètre via Qt Multimedia — QAudioSource + readyRead, zéro thread."""
+
+    def __init__(self, meter, device=None):
+        self._meter = meter
+        fmt = QAudioFormat()
+        fmt.setSampleRate(16000)
+        fmt.setChannelCount(1)
+        fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+        if device is None:
+            device = QMediaDevices.defaultAudioInput()
+        self._source = QAudioSource(device, fmt)
+        self._io = None
+
+    def start(self):
+        self._io = self._source.start()
+        if self._io:
+            self._io.readyRead.connect(self._on_data)
+
+    def stop(self):
+        self._source.stop()
+        self._io = None
+
+    def _on_data(self):
+        if not self._io:
+            return
+        data = self._io.readAll().data()
+        n = len(data) // 2
+        if n > 0:
+            samples = struct.unpack(f"<{n}h", data[:n * 2])
+            rms = math.sqrt(sum(s * s for s in samples) / n)
+            if rms > 1:
+                db = 20 * math.log10(rms / 32767)
+                level = max(0, min(100, int((db + 50) * 2)))
+            else:
+                level = 0
+            self._meter.setLevel(level)
+
+
+class TestDicteeThread(QThread):
+    """Enregistre le micro puis transcrit via transcribe-client <fichier>."""
+    result = Signal(str)
+
+    def __init__(self, duration=5, parent=None):
+        super().__init__(parent)
+        self._rec_proc = None
+        self._duration = duration
+        self._stopped = False
+
+    def stop(self):
+        self._stopped = True
+        if self._rec_proc and self._rec_proc.poll() is None:
+            self._rec_proc.terminate()
+            try:
+                self._rec_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._rec_proc.kill()
+
+    def run(self):
+        wav_path = os.path.join(tempfile.gettempdir(), "dictee_test.wav")
+        try:
+            # Enregistrer le micro
+            if shutil.which("pw-record"):
+                cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1",
+                       wav_path]
+            elif shutil.which("parecord"):
+                cmd = ["parecord", "--format=s16le", "--rate=16000", "--channels=1",
+                       "--file-format=wav", wav_path]
+            else:
+                self.result.emit(_("Error: ") + "pw-record / parecord not found")
+                return
+
+            self._rec_proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            # Attendre la durée demandée
+            try:
+                self._rec_proc.wait(timeout=self._duration)
+            except subprocess.TimeoutExpired:
+                self._rec_proc.terminate()
+                self._rec_proc.wait(timeout=3)
+
+            if self._stopped:
+                return
+
+            if not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
+                self.result.emit(_("Error: ") + _("No audio recorded."))
+                return
+
+            # Transcrire via transcribe-client <fichier>
+            r = subprocess.run(
+                ["transcribe-client", wav_path],
+                capture_output=True, text=True, timeout=15,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                self.result.emit(r.stdout.strip())
+            elif r.stderr.strip():
+                self.result.emit(_("Error: ") + r.stderr.strip())
+            else:
+                self.result.emit(_("No transcription result."))
+
+        except subprocess.TimeoutExpired:
+            self.result.emit(_("Timeout ({duration}s)").format(duration=self._duration))
+        except FileNotFoundError as e:
+            self.result.emit(_("Error: ") + str(e))
+        finally:
+            try:
+                os.remove(wav_path)
+            except OSError:
+                pass
+
+
 # === UI ===
 
 
 class DicteeSetupDialog(QDialog):
-    def __init__(self):
+    def __init__(self, wizard=False):
         super().__init__()
+        self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumWidth(620)
-        self.resize(700, 700)
+        self.setMinimumSize(710, 680)
+        self.resize(710, 700)
         self.setWindowIcon(QIcon.fromTheme("audio-input-microphone"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
+        self._model_widgets = {}
+        self._model_threads = {}
+        self._venv_threads = {}
+        self._audio_monitor = None
+        self._test_thread = None
 
         self.conf = load_config()
-        conf = self.conf
 
+        if self.wizard_mode:
+            self._build_wizard_ui()
+        else:
+            self._build_classic_ui()
+
+    # ── Classic mode ──────────────────────────────────────────────
+
+    def _build_classic_ui(self):
+        conf = self.conf
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
 
-        # -- Scroll area --
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -976,20 +1149,481 @@ class DicteeSetupDialog(QDialog):
         layout.setSpacing(16)
         layout.setContentsMargins(20, 20, 20, 16)
 
-        self._model_widgets = {}
-        self._model_threads = {}
+        # -- Section backend ASR --
+        grp_asr = QGroupBox(_("ASR backend"))
+        lay_asr = QVBoxLayout(grp_asr)
+        lay_asr.setSpacing(8)
+        lay_asr.setContentsMargins(16, 16, 16, 12)
+
+        current_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        self.cmb_asr_backend = QComboBox()
+        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
+        self.cmb_asr_backend.addItem("Vosk", "vosk")
+        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
+        lay_asr.addWidget(self.cmb_asr_backend)
+
+        self._build_parakeet_options(lay_asr)
+        self._build_vosk_options(lay_asr)
+        self._build_whisper_options(lay_asr)
+
+        def _on_asr_changed():
+            backend = self.cmb_asr_backend.currentData()
+            self.w_parakeet_options.setVisible(backend == "parakeet")
+            self.w_vosk_options.setVisible(backend == "vosk")
+            self.w_whisper_options.setVisible(backend == "whisper")
+        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
+        _on_asr_changed()
+
+        layout.addWidget(grp_asr)
 
         # -- Section raccourci --
         grp_shortcut = QGroupBox(_("Keyboard shortcut"))
         lay_sc = QVBoxLayout(grp_shortcut)
         lay_sc.setSpacing(8)
         lay_sc.setContentsMargins(16, 16, 16, 12)
+        self._build_shortcut_section(lay_sc)
+        layout.addWidget(grp_shortcut)
 
+        # -- Section retour visuel --
+        grp_visual = QGroupBox(_("Visual feedback"))
+        lay_vis = QVBoxLayout(grp_visual)
+        lay_vis.setSpacing(6)
+        lay_vis.setContentsMargins(16, 16, 16, 12)
+        self._build_visual_section(lay_vis, conf)
+        layout.addWidget(grp_visual)
+
+        # -- Section traduction --
+        grp_translate = QGroupBox()
+        lay_tr = QVBoxLayout(grp_translate)
+        lay_tr.setSpacing(6)
+        lay_tr.setContentsMargins(16, 16, 16, 12)
+        self._build_translation_section(lay_tr, conf)
+        layout.addWidget(grp_translate)
+
+        # -- Section microphone --
+        grp_mic = QGroupBox(_("Microphone"))
+        lay_mic = QVBoxLayout(grp_mic)
+        lay_mic.setSpacing(6)
+        lay_mic.setContentsMargins(16, 16, 16, 12)
+        self._build_mic_section(lay_mic, conf)
+        layout.addWidget(grp_mic)
+
+        # -- Section options --
+        grp_options = QGroupBox(_("Options"))
+        lay_opt = QVBoxLayout(grp_options)
+        lay_opt.setSpacing(6)
+        lay_opt.setContentsMargins(16, 16, 16, 12)
+        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        lay_opt.addWidget(self.chk_clipboard)
+        layout.addWidget(grp_options)
+
+        # -- Section services --
+        grp_services = QGroupBox(_("Startup services"))
+        lay_srv = QVBoxLayout(grp_services)
+        lay_srv.setSpacing(6)
+        lay_srv.setContentsMargins(16, 16, 16, 12)
+        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
+        self.chk_tray = QCheckBox(_("Show notification area icon"))
+        self.chk_daemon.setChecked(self._is_service_enabled("dictee"))
+        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
+        lay_srv.addWidget(self.chk_daemon)
+        lay_srv.addWidget(self.chk_tray)
+        layout.addWidget(grp_services)
+
+        layout.addStretch()
+        scroll.setWidget(content)
+        outer_layout.addWidget(scroll, 1)
+
+        # -- Boutons --
+        lay_buttons = QHBoxLayout()
+        lay_buttons.setContentsMargins(20, 8, 20, 16)
+
+        btn_wizard = QPushButton(_("Setup wizard"))
+        btn_wizard.clicked.connect(self._on_launch_wizard)
+        lay_buttons.addWidget(btn_wizard)
+
+        lay_buttons.addStretch()
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        lay_buttons.addWidget(btn_cancel)
+        lay_buttons.addSpacing(8)
+        btn_apply = QPushButton(_("Apply"))
+        btn_apply.clicked.connect(self._on_apply)
+        lay_buttons.addWidget(btn_apply)
+        lay_buttons.addSpacing(8)
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._on_ok)
+        lay_buttons.addWidget(btn_ok)
+
+        outer_layout.addLayout(lay_buttons)
+
+        content_h = content.sizeHint().height()
+        buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
+        self.setMaximumHeight(content_h + buttons_h + 10)
+
+    def _on_launch_wizard(self):
+        """Ferme le dialog et relance en mode wizard."""
+        self.reject()
+        exe = os.path.abspath(sys.argv[0])
+        os.execv(sys.executable, [sys.executable, exe, "--wizard"])
+
+    # ── Wizard mode ───────────────────────────────────────────────
+
+    def _build_wizard_ui(self):
+        conf = self.conf
+        self.setWindowTitle(_("Voice dictation configuration") + " — " + _("Setup wizard"))
+        self.resize(700, 600)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.stack = QStackedWidget()
+        outer.addWidget(self.stack, 1)
+
+        # Build 5 pages
+        self._build_wizard_page1(conf)
+        self._build_wizard_page2(conf)
+        self._build_wizard_page3(conf)
+        self._build_wizard_page4(conf)
+        self._build_wizard_page5(conf)
+
+        # Navigation bar
+        nav = QHBoxLayout()
+        nav.setContentsMargins(20, 8, 20, 16)
+
+        self.btn_prev = QPushButton(_("Previous"))
+        self.btn_prev.clicked.connect(self._wizard_prev)
+        nav.addWidget(self.btn_prev)
+
+        self.lbl_step = QLabel()
+        self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nav.addWidget(self.lbl_step, 1)
+
+        self.btn_next = QPushButton(_("Next"))
+        self.btn_next.clicked.connect(self._wizard_next)
+        nav.addWidget(self.btn_next)
+
+        outer.addLayout(nav)
+        self._update_wizard_nav()
+
+    def _update_wizard_nav(self):
+        idx = self.stack.currentIndex()
+        total = self.stack.count()
+        self.btn_prev.setEnabled(idx > 0)
+        self.lbl_step.setText(_("Step {n} of {total}").format(n=idx + 1, total=total))
+        if idx == total - 1:
+            self.btn_next.setText(_("Finish"))
+            self.btn_next.setStyleSheet("font-weight: bold; background: #4a4; color: white; padding: 8px 20px; border-radius: 4px;")
+        else:
+            self.btn_next.setText(_("Next"))
+            self.btn_next.setStyleSheet("")
+        # Start/stop audio level thread on page 4 (index 3)
+        if idx == 3:
+            self._start_audio_level()
+        else:
+            self._stop_audio_level()
+
+    def _wizard_prev(self):
+        idx = self.stack.currentIndex()
+        if idx > 0:
+            self.stack.setCurrentIndex(idx - 1)
+            self._update_wizard_nav()
+
+    def _wizard_next(self):
+        idx = self.stack.currentIndex()
+        if idx == self.stack.count() - 1:
+            self._on_apply()
+            self.accept()
+        else:
+            if not self._validate_wizard_page(idx):
+                return
+            self.stack.setCurrentIndex(idx + 1)
+            self._update_wizard_nav()
+            if idx + 1 == self.stack.count() - 1:
+                self._run_wizard_checks()
+
+    def _validate_wizard_page(self, idx):
+        """Valide la page courante avant d'avancer. Retourne True si OK."""
+        if idx == 0:
+            # Page ASR : vérifier qu'un modèle est installé pour le backend sélectionné
+            asr = self._wizard_asr
+            if asr == "parakeet":
+                for m in ASR_MODELS:
+                    if m["required"] and not model_is_installed(m):
+                        QMessageBox.warning(self, _("Model required"),
+                            _("Please download the required model before continuing."))
+                        return False
+        return True
+
+    # -- Wizard Page 1: ASR --
+
+    def _build_wizard_page1(self, conf):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setSpacing(16)
+        lay.setContentsMargins(24, 24, 24, 16)
+
+        lbl_welcome = QLabel("<h2>" + _("Welcome!") + "</h2>"
+                             "<p>" + _("This wizard will guide you through the initial configuration.") + "</p>")
+        lbl_welcome.setWordWrap(True)
+        lay.addWidget(lbl_welcome)
+
+        lbl_asr = QLabel("<b>" + _("Choose a speech recognition engine:") + "</b>")
+        lay.addWidget(lbl_asr)
+
+        self._wizard_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        self._asr_cards = {}
+
+        for backend_id, name, desc, size in [
+            ("parakeet", "Parakeet-TDT 0.6B", _("25 languages, ~2.5 GB, ~0.8s") + " — " + _("recommended"), "~2.5 Go"),
+            ("vosk", "Vosk", _("9+ languages, ~50 MB, ~1.5s") + " — " + _("lightweight"), "~50 Mo"),
+            ("whisper", "faster-whisper", _("99 languages, ~500 MB–3 GB, ~0.3s"), "~0.5–3 Go"),
+        ]:
+            card = self._make_radio_card(name, desc, backend_id == self._wizard_asr)
+            card.mousePressEvent = lambda e, bid=backend_id: self._select_asr_radio(bid)
+            self._asr_cards[backend_id] = card
+            lay.addWidget(card)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("QFrame { color: #444; }")
+        lay.addWidget(sep)
+
+        # Sub-options container
+        self.w_wizard_asr_sub = QWidget()
+        lay_sub = QVBoxLayout(self.w_wizard_asr_sub)
+        lay_sub.setContentsMargins(16, 0, 0, 0)
+        lay_sub.setSpacing(4)
+
+        # Parakeet models
+        self._build_parakeet_options(lay_sub)
+
+        # Vosk options
+        self._build_vosk_options(lay_sub)
+
+        # Whisper options
+        self._build_whisper_options(lay_sub)
+
+        lay.addWidget(self.w_wizard_asr_sub)
+        self._update_asr_sub_visibility()
+
+        lay.addStretch()
+        self.stack.addWidget(page)
+
+    def _update_asr_sub_visibility(self):
+        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
+        self.w_parakeet_options.setVisible(asr == "parakeet")
+        self.w_vosk_options.setVisible(asr == "vosk")
+        self.w_whisper_options.setVisible(asr == "whisper")
+
+    def _select_asr_radio(self, backend_id):
+        self._wizard_asr = backend_id
+        for bid, card in self._asr_cards.items():
+            card.setStyleSheet(self._card_style(bid == backend_id))
+        self._update_asr_sub_visibility()
+
+    # -- Wizard Page 2: Shortcuts --
+
+    def _build_wizard_page2(self, conf):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setSpacing(16)
+        lay.setContentsMargins(24, 24, 24, 16)
+
+        lbl = QLabel("<h2>" + _("Keyboard shortcuts") + "</h2>"
+                     "<p>" + _("Configure the keyboard shortcuts for voice dictation.") + "</p>")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        self._build_shortcut_section(lay)
+
+        lay.addStretch()
+        self.stack.addWidget(page)
+
+    # -- Wizard Page 3: Translation --
+
+    def _build_wizard_page3(self, conf):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setSpacing(16)
+        lay.setContentsMargins(24, 24, 24, 16)
+
+        lbl = QLabel("<h2>" + _("Translation") + "</h2>"
+                     "<p>" + _("Configure the translation backend (optional).") + "</p>")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        self._build_translation_section(lay, conf)
+
+        lay.addStretch()
+        self.stack.addWidget(page)
+
+    # -- Wizard Page 4: Mic, Visual, Services --
+
+    def _build_wizard_page4(self, conf):
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setSpacing(16)
+        lay.setContentsMargins(24, 24, 24, 16)
+
+        # Microphone
+        lbl = QLabel("<h2>" + _("Microphone, display and services") + "</h2>")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        grp_mic = QGroupBox(_("Microphone"))
+        lay_mic = QVBoxLayout(grp_mic)
+        lay_mic.setSpacing(6)
+        lay_mic.setContentsMargins(16, 16, 16, 12)
+        self._build_mic_section(lay_mic, conf)
+        lay.addWidget(grp_mic)
+
+        # Visual feedback
+        grp_vis = QGroupBox(_("Visual feedback"))
+        lay_vis = QVBoxLayout(grp_vis)
+        lay_vis.setSpacing(6)
+        lay_vis.setContentsMargins(16, 16, 16, 12)
+        self._build_visual_section(lay_vis, conf)
+        lay.addWidget(grp_vis)
+
+        # Services
+        grp_srv = QGroupBox(_("Startup services"))
+        lay_srv = QVBoxLayout(grp_srv)
+        lay_srv.setSpacing(6)
+        lay_srv.setContentsMargins(16, 16, 16, 12)
+        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
+        self.chk_tray = QCheckBox(_("Show notification area icon"))
+        self.chk_daemon.setChecked(self._is_service_enabled("dictee"))
+        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
+        lay_srv.addWidget(self.chk_daemon)
+        lay_srv.addWidget(self.chk_tray)
+        lay.addWidget(grp_srv)
+
+        # Options
+        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        lay.addWidget(self.chk_clipboard)
+
+        lay.addStretch()
+        scroll.setWidget(content)
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(0, 0, 0, 0)
+        page_lay.addWidget(scroll)
+        self.stack.addWidget(page)
+
+    # -- Wizard Page 5: Test --
+
+    def _build_wizard_page5(self, conf):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setSpacing(16)
+        lay.setContentsMargins(24, 24, 24, 16)
+
+        lbl = QLabel("<h2>" + _("Test") + "</h2>"
+                     "<p>" + _("Let's verify that everything works correctly.") + "</p>")
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        # Checks container
+        self.w_checks = QWidget()
+        lay_checks = QVBoxLayout(self.w_checks)
+        lay_checks.setSpacing(6)
+        lay_checks.setContentsMargins(0, 0, 0, 0)
+        self._check_labels = {}
+        for check_id, label in [
+            ("daemon", _("ASR daemon")),
+            ("model", _("ASR model")),
+            ("shortcut", _("Keyboard shortcut")),
+            ("audio", _("Audio (PipeWire/PulseAudio)")),
+            ("dotool", _("dotool")),
+        ]:
+            row = QHBoxLayout()
+            lbl_icon = QLabel("⏳")
+            lbl_icon.setFixedWidth(24)
+            lbl_name = QLabel(label)
+            lbl_status = QLabel()
+            row.addWidget(lbl_icon)
+            row.addWidget(lbl_name)
+            row.addWidget(lbl_status, 1)
+            lay_checks.addLayout(row)
+            self._check_labels[check_id] = (lbl_icon, lbl_status)
+        lay.addWidget(self.w_checks)
+
+        # Test dictée
+        grp_test = QGroupBox(_("Dictation test"))
+        lay_test = QVBoxLayout(grp_test)
+        lay_test.setSpacing(8)
+
+        lbl_test = QLabel(_("Click the button below and speak for a few seconds."))
+        lbl_test.setWordWrap(True)
+        lay_test.addWidget(lbl_test)
+
+        self.btn_test_dictee = QPushButton("🎤 " + _("Test dictation"))
+        self.btn_test_dictee.setMinimumHeight(40)
+        self.btn_test_dictee.clicked.connect(self._on_test_dictee)
+        lay_test.addWidget(self.btn_test_dictee)
+
+        self.txt_test_result = QTextEdit()
+        self.txt_test_result.setReadOnly(True)
+        self.txt_test_result.setMaximumHeight(80)
+        self.txt_test_result.setPlaceholderText(_("Result will appear here…"))
+        lay_test.addWidget(self.txt_test_result)
+
+        lay.addWidget(grp_test)
+
+        self.lbl_final = QLabel()
+        self.lbl_final.setWordWrap(True)
+        self.lbl_final.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(self.lbl_final)
+
+        lay.addStretch()
+        self.stack.addWidget(page)
+
+    # ── Shared widget builders ────────────────────────────────────
+
+    def _make_radio_card(self, title, description, selected=False):
+        card = QFrame()
+        card.setObjectName("radioCard")
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card.setStyleSheet(self._card_style(selected))
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(2)
+        lbl_title = QLabel(f"<b>{title}</b>")
+        lbl_desc = QLabel(f'<span style="font-size: 9pt; color: #aaa;">{description}</span>')
+        lbl_desc.setWordWrap(True)
+        lay.addWidget(lbl_title)
+        lay.addWidget(lbl_desc)
+        return card
+
+    @staticmethod
+    def _card_style(selected):
+        children = "QFrame#radioCard * { border: none; background: transparent; }"
+        if selected:
+            return (children +
+                    " QFrame#radioCard { border: 2px solid #5566ff; border-radius: 8px;"
+                    " background: #252545; padding: 4px; }")
+        return (children +
+                " QFrame#radioCard { border: 1px solid #444; border-radius: 8px;"
+                " background: #1a1a2e; padding: 4px; }"
+                " QFrame#radioCard:hover { border: 1px solid #666; }")
+
+    def _build_shortcut_section(self, lay_sc):
+        """Builds the keyboard shortcut widgets into the given layout."""
         lbl_de = QLabel(_("Detected environment: <b>{name}</b>").format(name=self.de_name))
         lay_sc.addWidget(lbl_de)
 
         if self.de_type in ("kde", "gnome"):
-            # Raccourci dictée
             lbl_dictee = QLabel(_("Voice dictation") + " :")
             lay_sc.addWidget(lbl_dictee)
             self.btn_capture = ShortcutButton()
@@ -1011,7 +1645,6 @@ class DicteeSetupDialog(QDialog):
 
             lay_sc.addSpacing(4)
 
-            # Raccourci traduction
             lbl_translate = QLabel(_("Dictation + Translation") + " :")
             lay_sc.addWidget(lbl_translate)
             self.btn_capture_translate = ShortcutButton()
@@ -1041,25 +1674,8 @@ class DicteeSetupDialog(QDialog):
             lbl_unsup.setWordWrap(True)
             lay_sc.addWidget(lbl_unsup)
 
-        # -- Section backend ASR --
-        grp_asr = QGroupBox(_("ASR backend"))
-        lay_asr = QVBoxLayout(grp_asr)
-        lay_asr.setSpacing(8)
-        lay_asr.setContentsMargins(16, 16, 16, 12)
-
-        current_asr = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
-
-        self._venv_threads = {}
-
-        # ComboBox backend ASR
-        self.cmb_asr_backend = QComboBox()
-        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
-        self.cmb_asr_backend.addItem("Vosk", "vosk")
-        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
-        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
-        lay_asr.addWidget(self.cmb_asr_backend)
-
-        # --- Sous-options Parakeet ---
+    def _build_parakeet_options(self, parent_layout):
+        """Build Parakeet model download widgets."""
         self.w_parakeet_options = QWidget()
         lay_parakeet = QVBoxLayout(self.w_parakeet_options)
         lay_parakeet.setContentsMargins(0, 4, 0, 0)
@@ -1086,13 +1702,19 @@ class DicteeSetupDialog(QDialog):
             btn_info.setFixedSize(24, 24)
             btn_info.setToolTip(model["help"])
             btn_info.setStyleSheet("font-weight: bold; border-radius: 12px;")
-            btn_info.clicked.connect(lambda checked, m=model: QMessageBox.information(
-                self, m["name"], m["help"]))
+            btn_info.clicked.connect(lambda checked, b=btn_info, m=model:
+                QToolTip.showText(b.mapToGlobal(b.rect().bottomLeft()), m["help"], b))
             row.addWidget(btn_info)
 
             btn = QPushButton(_("Download") if not installed else _("Installed"))
-            btn.setEnabled(not installed)
             btn.setFixedWidth(120)
+            # Sortformer requires TDT — disable if TDT not installed
+            tdt_installed = model_is_installed(ASR_MODELS[0])
+            if installed:
+                btn.setEnabled(False)
+            elif model["id"] == "sortformer" and not tdt_installed:
+                btn.setEnabled(False)
+                btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
             row.addWidget(btn)
 
             lay_parakeet.addLayout(row)
@@ -1105,9 +1727,10 @@ class DicteeSetupDialog(QDialog):
             self._model_widgets[model["id"]] = {"label": lbl, "button": btn, "progress": progress, "model": model}
             btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
 
-        lay_asr.addWidget(self.w_parakeet_options)
+        parent_layout.addWidget(self.w_parakeet_options)
 
-        # --- Sous-options Vosk ---
+    def _build_vosk_options(self, parent_layout):
+        """Build Vosk install + language widgets."""
         self.w_vosk_options = QWidget()
         vosk_outer = QVBoxLayout(self.w_vosk_options)
         vosk_outer.setContentsMargins(0, 4, 0, 0)
@@ -1135,16 +1758,17 @@ class DicteeSetupDialog(QDialog):
         row_vosk.addWidget(self.btn_install_vosk)
         vosk_outer.addLayout(row_vosk)
 
-        lay_asr.addWidget(self.w_vosk_options)
+        parent_layout.addWidget(self.w_vosk_options)
 
-        # --- Sous-options Whisper ---
+    def _build_whisper_options(self, parent_layout):
+        """Build Whisper install + model/language widgets."""
         self.w_whisper_options = QWidget()
         whisper_outer = QVBoxLayout(self.w_whisper_options)
         whisper_outer.setContentsMargins(0, 4, 0, 0)
         whisper_outer.setSpacing(4)
 
-        row_whisper_install = QHBoxLayout()
-        row_whisper_install.setContentsMargins(24, 0, 0, 0)
+        row = QHBoxLayout()
+        row.setContentsMargins(24, 0, 0, 0)
         whisper_installed = venv_is_installed(WHISPER_VENV)
         self.btn_install_whisper = QPushButton(_("Installed") if whisper_installed else _("Install"))
         self.btn_install_whisper.setEnabled(not whisper_installed)
@@ -1168,51 +1792,39 @@ class DicteeSetupDialog(QDialog):
         lbl_auto = QLabel(_("(empty = auto-detect)"))
         lbl_auto.setStyleSheet("color: gray;")
 
-        row_whisper_install.addWidget(lbl_wh_model)
-        row_whisper_install.addWidget(self.cmb_whisper_model)
-        row_whisper_install.addWidget(lbl_wh_lang)
-        row_whisper_install.addWidget(self.txt_whisper_lang)
-        row_whisper_install.addWidget(lbl_auto)
-        row_whisper_install.addStretch()
-        row_whisper_install.addWidget(self.btn_install_whisper)
-        whisper_outer.addLayout(row_whisper_install)
+        row.addWidget(lbl_wh_model)
+        row.addWidget(self.cmb_whisper_model)
+        row.addWidget(lbl_wh_lang)
+        row.addWidget(self.txt_whisper_lang)
+        row.addWidget(lbl_auto)
+        row.addStretch()
+        row.addWidget(self.btn_install_whisper)
+        whisper_outer.addLayout(row)
 
-        lay_asr.addWidget(self.w_whisper_options)
+        parent_layout.addWidget(self.w_whisper_options)
 
-        # Afficher/masquer les sous-options selon le backend sélectionné
-        def _on_asr_changed():
-            backend = self.cmb_asr_backend.currentData()
-            self.w_parakeet_options.setVisible(backend == "parakeet")
-            self.w_vosk_options.setVisible(backend == "vosk")
-            self.w_whisper_options.setVisible(backend == "whisper")
-        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
-        _on_asr_changed()
-
-        layout.addWidget(grp_asr)
-
-        layout.addWidget(grp_shortcut)
-
-        # -- Section retour visuel (déplacée ici, juste après les raccourcis) --
-        grp_visual = QGroupBox(_("Visual feedback"))
-        lay_vis = QVBoxLayout(grp_visual)
-        lay_vis.setSpacing(6)
-        lay_vis.setContentsMargins(16, 16, 16, 12)
-
+    def _build_visual_section(self, lay_vis, conf):
+        """Build visual feedback checkboxes and install button."""
         self.chk_anim_speech = QCheckBox(_("animation-speech (overlay)"))
         self.chk_plasmoid = QCheckBox(_("KDE Plasma widget (panel)"))
         self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
         self.chk_gnome_ext.setEnabled(False)
 
-        # Charger l'état depuis la config
         anim = conf.get("DICTEE_ANIMATION", "speech")
         self.chk_anim_speech.setChecked(anim in ("speech", "both"))
         self.chk_plasmoid.setChecked(anim in ("plasmoid", "both"))
+
+        # Smart pre-check based on desktop
+        if not os.path.exists(CONF_PATH):
+            if self.de_type == "kde":
+                self.chk_plasmoid.setChecked(True)
+            else:
+                self.chk_anim_speech.setChecked(True)
 
         lay_vis.addWidget(self.chk_anim_speech)
         lay_vis.addWidget(self.chk_plasmoid)
         lay_vis.addWidget(self.chk_gnome_ext)
 
-        # Status et installation
         self.lbl_anim_status = QLabel()
         self.lbl_anim_status.setWordWrap(True)
         lay_vis.addWidget(self.lbl_anim_status)
@@ -1229,10 +1841,8 @@ class DicteeSetupDialog(QDialog):
 
         self._check_animation_speech()
 
-        layout.addWidget(grp_visual)
-
-        # -- Section traduction --
-        grp_translate = QGroupBox()
+    def _build_translation_section(self, lay_tr, conf):
+        """Build translation backend selection, languages, sub-options."""
         lay_tr_title = QHBoxLayout()
         lay_tr_title.setContentsMargins(0, 0, 0, 0)
         lay_tr_title.setSpacing(6)
@@ -1249,13 +1859,9 @@ class DicteeSetupDialog(QDialog):
         )
         lay_tr_title.addWidget(btn_help_tr)
         lay_tr_title.addStretch()
-
-        lay_tr = QVBoxLayout(grp_translate)
-        lay_tr.setSpacing(6)
-        lay_tr.setContentsMargins(16, 16, 16, 12)
         lay_tr.addLayout(lay_tr_title)
 
-        # Langues
+        # Languages
         form_lang = QFormLayout()
         form_lang.setHorizontalSpacing(12)
         form_lang.setVerticalSpacing(8)
@@ -1274,7 +1880,6 @@ class DicteeSetupDialog(QDialog):
         form_lang.addRow(_("Source language:"), self.combo_src)
         form_lang.addRow(_("Target language:"), self.combo_tgt)
         lay_tr.addLayout(form_lang)
-
         lay_tr.addSpacing(4)
 
         # Backend ComboBox
@@ -1282,15 +1887,20 @@ class DicteeSetupDialog(QDialog):
         lay_tr.addWidget(lbl_backend)
 
         self.cmb_trans_backend = QComboBox()
-        self.cmb_trans_backend.addItem("Google Translate", "trans:google")
-        self.cmb_trans_backend.addItem("Bing", "trans:bing")
-        self.cmb_trans_backend.addItem("LibreTranslate", "libretranslate")
-        self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
+        # Local-first order in wizard
+        if self.wizard_mode:
+            self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
+            self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
+            self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
+            self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
+        else:
+            self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
+            self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
+            self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
+            self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
         lay_tr.addWidget(self.cmb_trans_backend)
 
-        # (translate-shell engine intégrée dans la ComboBox ci-dessus)
-
-        # LibreTranslate (Docker) widget
+        # LibreTranslate widget
         self.lt_widget = QFrame()
         lay_lt = QVBoxLayout(self.lt_widget)
         lay_lt.setContentsMargins(32, 4, 0, 0)
@@ -1320,22 +1930,18 @@ class DicteeSetupDialog(QDialog):
 
         lay_lt_buttons = QHBoxLayout()
         lay_lt_buttons.setSpacing(8)
-
         self.btn_lt_pull = QPushButton(_("Download image"))
         self.btn_lt_pull.setVisible(False)
         self.btn_lt_pull.clicked.connect(self._on_lt_pull)
         lay_lt_buttons.addWidget(self.btn_lt_pull)
-
         self.btn_lt_start = QPushButton(_("Start"))
         self.btn_lt_start.setVisible(False)
         self.btn_lt_start.clicked.connect(self._on_lt_start)
         lay_lt_buttons.addWidget(self.btn_lt_start)
-
         self.btn_lt_stop = QPushButton(_("Stop"))
         self.btn_lt_stop.setVisible(False)
         self.btn_lt_stop.clicked.connect(self._on_lt_stop)
         lay_lt_buttons.addWidget(self.btn_lt_stop)
-
         lay_lt_buttons.addStretch()
         lay_lt.addLayout(lay_lt_buttons)
 
@@ -1345,11 +1951,10 @@ class DicteeSetupDialog(QDialog):
         lay_lt.addWidget(self.progress_lt)
 
         lay_tr.addWidget(self.lt_widget)
-
         self.lt_widget.setVisible(False)
         self._docker_pull_thread = None
 
-        # Ollama model selection + status
+        # Ollama widget
         self.ollama_widget = QFrame()
         lay_ollama = QVBoxLayout(self.ollama_widget)
         lay_ollama.setContentsMargins(32, 4, 0, 0)
@@ -1372,7 +1977,6 @@ class DicteeSetupDialog(QDialog):
         lay_ollama.addWidget(self.lbl_ollama_status)
 
         self.chk_ollama_cpu = QCheckBox(_("Force CPU (OLLAMA_NUM_GPU=0)"))
-        self.chk_ollama_cpu.setVisible(False)
         self.chk_ollama_cpu.setChecked(conf.get("OLLAMA_NUM_GPU") == "0")
         self.chk_ollama_cpu.setToolTip(
             _("Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"))
@@ -1390,12 +1994,11 @@ class DicteeSetupDialog(QDialog):
 
         lay_tr.addWidget(self.ollama_widget)
 
-        # Connect signals
         self.combo_ollama_model.currentIndexChanged.connect(self._on_ollama_model_changed)
         self._ollama_pull_thread = None
 
-        # Sélectionner le backend sauvegardé dans la ComboBox
-        saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        # Restore saved backend
+        saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "")
         saved_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
         if saved_backend == "ollama":
             self._set_combo_by_data(self.cmb_trans_backend, "ollama", 0)
@@ -1403,10 +2006,13 @@ class DicteeSetupDialog(QDialog):
             self._set_combo_by_data(self.cmb_trans_backend, "libretranslate", 0)
         elif saved_backend == "trans" and saved_engine == "bing":
             self._set_combo_by_data(self.cmb_trans_backend, "trans:bing", 0)
-        else:
+        elif saved_backend == "trans":
             self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
+        else:
+            # Pas de config → wizard: libretranslate, classique: google
+            default = "libretranslate" if self.wizard_mode else "trans:google"
+            self._set_combo_by_data(self.cmb_trans_backend, default, 0)
 
-        # Afficher/masquer les sous-options selon le backend sélectionné
         def _on_trans_backend_changed():
             data = self.cmb_trans_backend.currentData()
             self.lt_widget.setVisible(data == "libretranslate")
@@ -1418,74 +2024,197 @@ class DicteeSetupDialog(QDialog):
         self.cmb_trans_backend.currentIndexChanged.connect(lambda: _on_trans_backend_changed())
         _on_trans_backend_changed()
 
-        layout.addWidget(grp_translate)
+    def _build_mic_section(self, lay_mic, conf):
+        """Build microphone source selection, volume slider, level meter."""
+        saved_src = conf.get("DICTEE_AUDIO_SOURCE", "")
 
-        # -- Section options --
-        grp_options = QGroupBox(_("Options"))
-        lay_opt = QVBoxLayout(grp_options)
-        lay_opt.setSpacing(6)
-        lay_opt.setContentsMargins(16, 16, 16, 12)
+        self._audio_devices = QMediaDevices.audioInputs()
+        self.cmb_audio_source = QComboBox()
+        self.cmb_audio_source.addItem(_("System default"), "")
+        for dev in self._audio_devices:
+            self.cmb_audio_source.addItem(dev.description(), dev.id().data().decode())
+        if saved_src:
+            idx = self.cmb_audio_source.findData(saved_src)
+            if idx >= 0:
+                self.cmb_audio_source.setCurrentIndex(idx)
+        self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
 
-        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
-        lay_opt.addWidget(self.chk_clipboard)
+        lay_mic.addWidget(QLabel(_("Audio source:")))
+        lay_mic.addWidget(self.cmb_audio_source)
 
-        layout.addWidget(grp_options)
+        # Volume slider
+        lay_vol = QHBoxLayout()
+        lay_vol.setSpacing(8)
+        lbl_vol = QLabel(_("Volume:"))
+        self.slider_volume = QSlider(Qt.Orientation.Horizontal)
+        self.slider_volume.setRange(0, 100)
+        self.slider_volume.setValue(30)
+        self.slider_volume.valueChanged.connect(self._on_volume_changed)
+        self.lbl_vol_pct = QLabel("30%")
+        lay_vol.addWidget(lbl_vol)
+        lay_vol.addWidget(self.slider_volume, 1)
+        lay_vol.addWidget(self.lbl_vol_pct)
+        lay_mic.addLayout(lay_vol)
 
-        # -- Section services --
-        grp_services = QGroupBox(_("Startup services"))
-        lay_srv = QVBoxLayout(grp_services)
-        lay_srv.setSpacing(6)
-        lay_srv.setContentsMargins(16, 16, 16, 12)
+        # Level meter (custom painted — instant repaint)
+        self.mic_level = LevelMeter()
+        lay_mic.addWidget(self.mic_level)
 
-        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        self.chk_tray = QCheckBox(_("Show notification area icon"))
+        # In wizard mode, start audio level only when page 4 becomes visible
+        if not self.wizard_mode:
+            self._start_audio_level()
 
-        # Lire l'état réel des services systemd
-        self.chk_daemon.setChecked(self._is_service_enabled("dictee"))
-        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
+    # ── Wizard checks (page 5) ───────────────────────────────────
 
-        lay_srv.addWidget(self.chk_daemon)
-        lay_srv.addWidget(self.chk_tray)
+    def _run_wizard_checks(self):
+        checks = {
+            "daemon": self._check_daemon_active,
+            "model": self._check_model_installed_fn,
+            "shortcut": self._check_shortcut_registered,
+            "audio": lambda: len(QMediaDevices.audioInputs()) > 0,
+            "dotool": lambda: shutil.which("dotool") is not None,
+        }
+        all_ok = True
+        for check_id, fn in checks.items():
+            lbl_icon, lbl_status = self._check_labels[check_id]
+            try:
+                ok = fn()
+            except Exception:
+                ok = False
+            if ok:
+                lbl_icon.setText('<span style="color: green;">✓</span>')
+                lbl_status.setText('<span style="color: green;">' + _("OK") + '</span>')
+            else:
+                lbl_icon.setText('<span style="color: red;">✗</span>')
+                lbl_status.setText('<span style="color: red;">' + _("Not found") + '</span>')
+                all_ok = False
 
-        layout.addWidget(grp_services)
+        if all_ok:
+            shortcut = "F9"
+            if hasattr(self, 'btn_capture') and self.btn_capture._sequence:
+                shortcut = self.btn_capture._sequence.toString(_NATIVE_TEXT)
+            self.lbl_final.setText(
+                '<div style="background: #1e2e1e; padding: 12px; border-radius: 8px;">'
+                '<span style="color: #afa; font-size: 14pt; font-weight: bold;">'
+                + _("Everything is ready!") + '</span><br>'
+                '<span style="color: #8a8;">'
+                + _("Press {key} anytime to dictate.").format(key=shortcut) +
+                '</span></div>'
+            )
 
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer_layout.addWidget(scroll, 1)
+    def _check_daemon_active(self):
+        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
+        svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}.get(asr, "dictee")
+        try:
+            r = subprocess.run(["systemctl", "--user", "is-active", svc],
+                               capture_output=True, text=True)
+            return r.stdout.strip() == "active"
+        except (FileNotFoundError, OSError):
+            return False
 
-        # -- Boutons (hors scroll) --
-        lay_buttons = QHBoxLayout()
-        lay_buttons.setContentsMargins(20, 8, 20, 16)
-        lay_buttons.addStretch()
+    def _check_model_installed_fn(self):
+        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
+        if asr == "parakeet":
+            return all(model_is_installed(m) for m in ASR_MODELS if m["required"])
+        elif asr == "vosk":
+            return venv_is_installed(VOSK_VENV)
+        elif asr == "whisper":
+            return venv_is_installed(WHISPER_VENV)
+        return True
 
-        btn_cancel = QPushButton(_("Cancel"))
-        btn_cancel.clicked.connect(self.reject)
-        lay_buttons.addWidget(btn_cancel)
+    def _check_shortcut_registered(self):
+        if self.de_type == "kde":
+            existing, _ = find_kde_shortcut_for_command(DICTEE_COMMAND)
+            return bool(existing)
+        return True
 
-        lay_buttons.addSpacing(8)
+    # ── Audio helpers ─────────────────────────────────────────────
 
-        btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply)
-        lay_buttons.addWidget(btn_apply)
+    def _on_volume_changed(self, value):
+        self.lbl_vol_pct.setText(f"{value}%")
+        # Debounce: apply volume after 50ms of inactivity
+        if not hasattr(self, '_vol_timer'):
+            self._vol_timer = QTimer(self)
+            self._vol_timer.setSingleShot(True)
+            self._vol_timer.timeout.connect(self._apply_volume)
+        self._vol_timer.start(50)
 
-        lay_buttons.addSpacing(8)
+    def _apply_volume(self):
+        value = self.slider_volume.value()
+        vol = value / 100.0
+        src = self.cmb_audio_source.currentData()
+        if shutil.which("wpctl"):
+            subprocess.Popen(["wpctl", "set-volume", str(src) if src else "@DEFAULT_SOURCE@",
+                              f"{vol:.2f}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif shutil.which("pactl"):
+            pct = f"{value}%"
+            subprocess.Popen(["pactl", "set-source-volume",
+                              str(src) if src else "@DEFAULT_SOURCE@", pct],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        btn_ok = QPushButton(_("OK"))
-        btn_ok.setDefault(True)
-        btn_ok.clicked.connect(self._on_ok)
-        lay_buttons.addWidget(btn_ok)
+    def _on_audio_source_changed(self, _index):
+        """Restart audio level thread on new source."""
+        self._stop_audio_level()
+        self._start_audio_level()
 
-        outer_layout.addLayout(lay_buttons)
+    def _start_audio_level(self):
+        if self._audio_monitor is not None:
+            return
+        idx = self.cmb_audio_source.currentIndex()
+        if idx > 0 and idx - 1 < len(self._audio_devices):
+            device = self._audio_devices[idx - 1]
+        else:
+            device = QMediaDevices.defaultAudioInput()
+        self._audio_monitor = AudioLevelMonitor(self.mic_level, device)
+        self._audio_monitor.start()
 
-        # Hauteur max = contenu complet + boutons (pas de scroll inutile)
-        content_h = content.sizeHint().height()
-        buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
-        self.setMaximumHeight(content_h + buttons_h + 10)
+    def _stop_audio_level(self):
+        if self._audio_monitor:
+            self._audio_monitor.stop()
+            self._audio_monitor = None
+
+    def closeEvent(self, event):
+        self._stop_audio_level()
+        super().closeEvent(event)
+
+    # ── Test dictation ────────────────────────────────────────────
+
+    def _on_test_dictee(self):
+        if self._test_thread and self._test_thread.isRunning():
+            self._test_thread.stop()
+            self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
+            self.btn_test_dictee.setEnabled(True)
+            if hasattr(self, '_test_timer'):
+                self._test_timer.stop()
+            return
+        self.txt_test_result.clear()
+        self._test_countdown = 5
+        self.btn_test_dictee.setText("⏹ " + _("Recording… {n}s").format(n=self._test_countdown))
+        self._test_timer = QTimer(self)
+        self._test_timer.timeout.connect(self._on_test_tick)
+        self._test_timer.start(1000)
+        self._test_thread = TestDicteeThread(duration=5)
+        self._test_thread.result.connect(self._on_test_result)
+        self._test_thread.start()
+
+    def _on_test_tick(self):
+        self._test_countdown -= 1
+        if self._test_countdown > 0:
+            self.btn_test_dictee.setText("⏹ " + _("Recording… {n}s").format(n=self._test_countdown))
+        else:
+            self.btn_test_dictee.setText("⏳ " + _("Transcribing…"))
+            self._test_timer.stop()
+
+    def _on_test_result(self, text):
+        if hasattr(self, '_test_timer'):
+            self._test_timer.stop()
+        self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
+        self.txt_test_result.setPlainText(text)
+
+    # ── Static helpers ────────────────────────────────────────────
 
     @staticmethod
     def _is_service_enabled(name):
-        """Vérifie si un service systemd user est enabled."""
         try:
             result = subprocess.run(
                 ["systemctl", "--user", "is-enabled", name],
@@ -1515,6 +2244,12 @@ class DicteeSetupDialog(QDialog):
 
     # -- Capture raccourci --
 
+    def _on_shortcut_captured(self, seq):
+        self._check_conflict(seq, self.lbl_conflict)
+
+    def _on_shortcut_translate_captured(self, seq):
+        self._check_conflict(seq, self.lbl_conflict_translate)
+
     def _check_conflict(self, seq, lbl_conflict):
         if self.de_type == "kde":
             accel_kde = qt_key_to_kde(seq)
@@ -1528,6 +2263,61 @@ class DicteeSetupDialog(QDialog):
                 lbl_conflict.setVisible(True)
             else:
                 lbl_conflict.setVisible(False)
+
+    # -- Animation-speech --
+
+    def _check_animation_speech(self):
+        parts = []
+        has_anim = shutil.which(ANIMATION_SPEECH_BIN)
+        if has_anim:
+            try:
+                result = subprocess.run(
+                    ["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
+                    capture_output=True, text=True,
+                )
+                v = result.stdout.strip() if result.returncode == 0 else ""
+                if v:
+                    parts.append('<span style="color: green;">' +
+                                 _("animation-speech {version} installed").format(version=v) +
+                                 '</span>')
+                else:
+                    parts.append('<span style="color: green;">' +
+                                 _("animation-speech installed") + '</span>')
+            except FileNotFoundError:
+                parts.append('<span style="color: green;">' +
+                             _("animation-speech installed") + '</span>')
+            self.btn_install_anim.setVisible(False)
+        else:
+            self.btn_install_anim.setVisible(True)
+
+        has_plasmoid = os.path.isdir(
+            os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
+        ) or os.path.isdir("/usr/share/plasma/plasmoids/com.github.rcspam.dictee")
+        if has_plasmoid:
+            parts.append('<span style="color: green;">' +
+                         _("Dictee plasmoid installed") + '</span>')
+
+        if parts:
+            self.lbl_anim_status.setText(" — ".join(parts))
+
+    def _on_install_animation(self):
+        self.btn_install_anim.setEnabled(False)
+        self.btn_install_anim.setText(_("Downloading…"))
+        self.progress_anim.setVisible(True)
+
+        self._install_thread = InstallThread()
+        self._install_thread.progress.connect(lambda text: self.btn_install_anim.setText(text))
+        self._install_thread.finished.connect(self._on_install_finished)
+        self._install_thread.start()
+
+    def _on_install_finished(self, success, message):
+        self.progress_anim.setVisible(False)
+        if success:
+            self._check_animation_speech()
+        else:
+            self.btn_install_anim.setText(_("Install animation-speech"))
+            self.btn_install_anim.setEnabled(True)
+            QMessageBox.critical(self, _("Installation error"), message)
 
     # -- Ollama backend --
 
@@ -1547,8 +2337,6 @@ class DicteeSetupDialog(QDialog):
             return
 
         model = self.combo_ollama_model.currentData()
-
-        # Trouver les seuils RAM/VRAM pour ce modèle
         min_ram = 8
         min_vram = 4
         for m_id, _label, m_ram, m_vram in OLLAMA_MODELS:
@@ -1556,7 +2344,6 @@ class DicteeSetupDialog(QDialog):
                 min_ram, min_vram = m_ram, m_vram
                 break
 
-        # Détecter la config système
         sys_ram = get_system_ram_gb()
         vram_total, vram_free = get_gpu_vram_gb()
         warnings = []
@@ -1568,7 +2355,6 @@ class DicteeSetupDialog(QDialog):
                 '</span>')
         vram_insufficient = False
         if vram_total:
-            # Comparer la VRAM libre (pas totale) — Parakeet occupe ~3 Go
             if vram_free < min_vram:
                 vram_insufficient = True
                 warnings.append(
@@ -1583,10 +2369,7 @@ class DicteeSetupDialog(QDialog):
                 _("No GPU detected — ollama will use CPU (slower).") +
                 '</i></small>')
 
-        # Proposer le mode CPU si VRAM insuffisante ou absente
-        self.chk_ollama_cpu.setVisible(vram_insufficient)
         if vram_insufficient and not vram_total:
-            # Pas de GPU → forcer CPU automatiquement
             self.chk_ollama_cpu.setChecked(True)
 
         hw_info = ""
@@ -1745,8 +2528,15 @@ class DicteeSetupDialog(QDialog):
         if success:
             w["button"].setText(_("Installed"))
             w["button"].setEnabled(False)
+            w["button"].setToolTip("")
             w["label"].setText(f'<span style="color: green;">✓</span> {model["name"]}<br>'
                                f'<span style="font-size: 9.5pt; color: gray;">{model["desc"]}</span>')
+            # If TDT just installed, enable Sortformer button
+            if mid == "tdt" and "sortformer" in self._model_widgets:
+                dep_w = self._model_widgets["sortformer"]
+                if not model_is_installed(dep_w["model"]):
+                    dep_w["button"].setEnabled(True)
+                    dep_w["button"].setToolTip("")
         else:
             w["button"].setText(_("Download"))
             w["button"].setEnabled(True)
@@ -1774,70 +2564,6 @@ class DicteeSetupDialog(QDialog):
             btn.setEnabled(True)
             QMessageBox.critical(self, _("Installation error"), message)
 
-    # -- Capture raccourci --
-
-    def _on_shortcut_captured(self, seq):
-        self._check_conflict(seq, self.lbl_conflict)
-
-    def _on_shortcut_translate_captured(self, seq):
-        self._check_conflict(seq, self.lbl_conflict_translate)
-
-    # -- Animation-speech --
-
-    def _check_animation_speech(self):
-        parts = []
-        has_anim = shutil.which(ANIMATION_SPEECH_BIN)
-        if has_anim:
-            try:
-                result = subprocess.run(
-                    ["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
-                    capture_output=True, text=True,
-                )
-                v = result.stdout.strip() if result.returncode == 0 else ""
-                if v:
-                    parts.append('<span style="color: green;">' +
-                                 _("animation-speech {version} installed").format(version=v) +
-                                 '</span>')
-                else:
-                    parts.append('<span style="color: green;">' +
-                                 _("animation-speech installed") + '</span>')
-            except FileNotFoundError:
-                parts.append('<span style="color: green;">' +
-                             _("animation-speech installed") + '</span>')
-            self.btn_install_anim.setVisible(False)
-        else:
-            self.btn_install_anim.setVisible(True)
-
-        # Vérifier le plasmoid
-        has_plasmoid = os.path.isdir(
-            os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
-        ) or os.path.isdir("/usr/share/plasma/plasmoids/com.github.rcspam.dictee")
-        if has_plasmoid:
-            parts.append('<span style="color: green;">' +
-                         _("Dictee plasmoid installed") + '</span>')
-
-        if parts:
-            self.lbl_anim_status.setText(" — ".join(parts))
-
-    def _on_install_animation(self):
-        self.btn_install_anim.setEnabled(False)
-        self.btn_install_anim.setText(_("Downloading…"))
-        self.progress_anim.setVisible(True)
-
-        self._install_thread = InstallThread()
-        self._install_thread.progress.connect(lambda text: self.btn_install_anim.setText(text))
-        self._install_thread.finished.connect(self._on_install_finished)
-        self._install_thread.start()
-
-    def _on_install_finished(self, success, message):
-        self.progress_anim.setVisible(False)
-        if success:
-            self._check_animation_speech()
-        else:
-            self.btn_install_anim.setText(_("Install animation-speech"))
-            self.btn_install_anim.setEnabled(True)
-            QMessageBox.critical(self, _("Installation error"), message)
-
     # -- Appliquer --
 
     def _on_apply(self):
@@ -1852,7 +2578,6 @@ class DicteeSetupDialog(QDialog):
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
 
-        # Déterminer le mode animation
         a_speech = self.chk_anim_speech.isChecked()
         a_plasmoid = self.chk_plasmoid.isChecked()
         if a_speech and a_plasmoid:
@@ -1866,29 +2591,38 @@ class DicteeSetupDialog(QDialog):
 
         ollama_model = self.combo_ollama_model.currentData()
         ollama_cpu = self.chk_ollama_cpu.isChecked()
-        # Dériver l'engine translate-shell depuis la ComboBox
         if trans_data and trans_data.startswith("trans:"):
             trans_engine = trans_data.split(":")[1]
         else:
             trans_engine = "google"
         lt_port = int(self.spin_lt_port.currentText()) if self.spin_lt_port.currentText().isdigit() else 5000
-        # Backend ASR
-        asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
+
+        # Backend ASR — wizard uses _wizard_asr, classic uses cmb_asr_backend
+        if self.wizard_mode and hasattr(self, '_wizard_asr'):
+            asr_backend = self._wizard_asr
+        else:
+            asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
+
         whisper_model = self.cmb_whisper_model.currentText()
         whisper_lang = self.txt_whisper_lang.currentText().strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
+        # Audio source
+        audio_source = ""
+        if hasattr(self, 'cmb_audio_source') and self.cmb_audio_source.isEnabled():
+            audio_source = self.cmb_audio_source.currentData() or ""
+
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port,
-                    asr_backend, whisper_model, whisper_lang, vosk_model)
+                    asr_backend, whisper_model, whisper_lang, vosk_model,
+                    audio_source=str(audio_source))
 
-        # Services systemd — activer le bon daemon ASR, désactiver les autres
+        # Services systemd
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
         active_svc = asr_services.get(asr_backend, "dictee")
         for svc_name in asr_services.values():
             action = "enable" if svc_name == active_svc else "disable"
             subprocess.run(["systemctl", "--user", action, svc_name], capture_output=True)
-        # Si le daemon actif a changé, redémarrer
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():
                 if svc_name != active_svc:
@@ -1923,11 +2657,12 @@ class DicteeSetupDialog(QDialog):
                 except Exception as e:
                     shortcut_msg += "\n" + _("Shortcut error: {err}").format(err=e)
 
-        QMessageBox.information(
-            self,
-            _("Configuration saved"),
-            _("File: {path}").format(path=CONF_PATH) + shortcut_msg,
-        )
+        if not self.wizard_mode:
+            QMessageBox.information(
+                self,
+                _("Configuration saved"),
+                _("File: {path}").format(path=CONF_PATH) + shortcut_msg,
+            )
 
     def _on_ok(self):
         self._on_apply()
@@ -1935,9 +2670,10 @@ class DicteeSetupDialog(QDialog):
 
 
 def main():
+    wizard_flag = "--wizard" in sys.argv
     app = QApplication([])
     app.setApplicationName("dictee-setup")
-    dialog = DicteeSetupDialog()
+    dialog = DicteeSetupDialog(wizard=wizard_flag)
     dialog.exec()
 
 
