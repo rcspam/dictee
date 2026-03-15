@@ -30,6 +30,9 @@ for lang in fr de es it uk pt; do
     msgfmt -o "po/$lang.mo" "po/$lang.po" 2>/dev/null || true
     mkdir -p "$PKG_DIR/usr/share/locale/$lang/LC_MESSAGES"
     cp "po/$lang.mo" "$PKG_DIR/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    # Copie interne (postinst les restaure si dpkg -r les a supprimées)
+    mkdir -p "$PKG_DIR/usr/share/dictee/locale/$lang/LC_MESSAGES"
+    cp "po/$lang.mo" "$PKG_DIR/usr/share/dictee/locale/$lang/LC_MESSAGES/dictee.mo"
 done
 
 # Build dotool (keyboard input tool)

@@ -103,6 +103,19 @@ for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR"; do
 done
 echo "Répertoire $MODEL_DIR prêt (écriture pour tous)"
 
+# Copier les traductions depuis le répertoire interne (fix dpkg -r qui les supprime)
+echo ""
+echo "=== Installation des traductions ==="
+for lang in fr de es it uk pt; do
+    src="/usr/share/dictee/locale/$lang/LC_MESSAGES/dictee.mo"
+    dest="/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    if [ -f "$src" ]; then
+        mkdir -p "$(dirname "$dest")"
+        cp -f "$src" "$dest"
+    fi
+done
+echo "Traductions installées"
+
 # Recharger les règles udev (dotool)
 echo ""
 echo "=== Configuration udev ==="
