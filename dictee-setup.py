@@ -174,7 +174,9 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 lt_port=5000, asr_backend="parakeet", whisper_model="small",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
-                ptt_mod_translate=""):
+                ptt_mod_translate="", postprocess=True,
+                llm_postprocess=False, llm_model="ministral:3b",
+                llm_timeout=10, llm_cpu=False):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
     with open(CONF_PATH, "w") as f:
@@ -208,6 +210,14 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write(f"DICTEE_PTT_KEY_TRANSLATE={ptt_key_translate}\n")
         if ptt_mod_translate:
             f.write(f"DICTEE_PTT_MOD_TRANSLATE={ptt_mod_translate}\n")
+        # Post-traitement
+        f.write(f"DICTEE_POSTPROCESS={'true' if postprocess else 'false'}\n")
+        if llm_postprocess:
+            f.write(f"DICTEE_LLM_POSTPROCESS=true\n")
+            f.write(f"DICTEE_LLM_MODEL={llm_model}\n")
+            f.write(f"DICTEE_LLM_TIMEOUT={llm_timeout}\n")
+            if llm_cpu:
+                f.write("DICTEE_LLM_CPU=true\n")
 
 
 # === Raccourci KDE ===
@@ -1310,6 +1320,14 @@ class DicteeSetupDialog(QDialog):
         self._build_translation_section(lay_tr, conf)
         layout.addWidget(grp_translate)
 
+        # -- Section post-traitement --
+        grp_postprocess = QGroupBox(_("Post-processing"))
+        lay_pp = QVBoxLayout(grp_postprocess)
+        lay_pp.setSpacing(6)
+        lay_pp.setContentsMargins(16, 16, 16, 12)
+        self._build_postprocess_section(lay_pp, conf)
+        layout.addWidget(grp_postprocess)
+
         # -- Section microphone --
         grp_mic = QGroupBox(_("Microphone"))
         lay_mic = QVBoxLayout(grp_mic)
@@ -1771,6 +1789,14 @@ class DicteeSetupDialog(QDialog):
         lay_mic.setContentsMargins(16, 16, 16, 12)
         self._build_mic_section(lay_mic, conf)
         lay.addWidget(grp_mic)
+
+        # Post-processing
+        grp_pp = QGroupBox(_("Post-processing"))
+        lay_pp = QVBoxLayout(grp_pp)
+        lay_pp.setSpacing(6)
+        lay_pp.setContentsMargins(16, 16, 16, 12)
+        self._build_postprocess_section(lay_pp, conf)
+        lay.addWidget(grp_pp)
 
         # Visual feedback
         grp_vis = QGroupBox(_("Visual feedback"))
@@ -2354,6 +2380,134 @@ class DicteeSetupDialog(QDialog):
                 self._check_ollama_status()
         self.cmb_trans_backend.currentIndexChanged.connect(lambda: _on_trans_backend_changed())
         _on_trans_backend_changed()
+
+    # -- Post-processing section --
+
+    def _build_postprocess_section(self, lay, conf):
+        """Build post-processing section: regex rules, dictionary, LLM."""
+        import os as _os
+
+        XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
+        rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
+        dict_path = _os.path.join(XDG_CFG, "dictee", "dictionary.conf")
+
+        # Checkbox activer
+        self.chk_postprocess = QCheckBox(_("Enable post-processing (regex rules + dictionary)"))
+        self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
+        lay.addWidget(self.chk_postprocess)
+
+        # Boutons règles + dictionnaire
+        row_btns = QHBoxLayout()
+        btn_rules = QPushButton(_("Edit regex rules…"))
+        btn_dict = QPushButton(_("Edit dictionary…"))
+        btn_defaults = QPushButton(_("Restore defaults"))
+        row_btns.addWidget(btn_rules)
+        row_btns.addWidget(btn_dict)
+        row_btns.addWidget(btn_defaults)
+        lay.addLayout(row_btns)
+
+        def _edit_file(path, title, default_content=""):
+            _os.makedirs(_os.path.dirname(path), exist_ok=True)
+            if not _os.path.isfile(path):
+                with open(path, "w") as f:
+                    f.write(default_content)
+            dlg = QDialog(self)
+            dlg.setWindowTitle(title)
+            dlg.resize(600, 400)
+            dl = QVBoxLayout(dlg)
+            editor = QTextEdit()
+            with open(path, encoding="utf-8") as f:
+                editor.setPlainText(f.read())
+            editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+            dl.addWidget(editor)
+            btns = QHBoxLayout()
+            btn_save = QPushButton(_("Save"))
+            btn_cancel = QPushButton(_("Cancel"))
+            btns.addStretch()
+            btns.addWidget(btn_cancel)
+            btns.addWidget(btn_save)
+            dl.addLayout(btns)
+            btn_cancel.clicked.connect(dlg.reject)
+            def _save():
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(editor.toPlainText())
+                dlg.accept()
+            btn_save.clicked.connect(_save)
+            dlg.exec()
+
+        btn_rules.clicked.connect(lambda: _edit_file(
+            rules_path, _("Regex rules"),
+            "# [lang] /PATTERN/REPLACEMENT/FLAGS\n# Example:\n# [fr] /point à la ligne/\\n/ig\n"))
+        btn_dict.clicked.connect(lambda: _edit_file(
+            dict_path, _("Personal dictionary"),
+            "# [lang] WORD=REPLACEMENT\n# Example:\n# [*] linux=Linux\n"))
+
+        def _restore_defaults():
+            for candidate in [
+                _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules.conf.default"),
+                "/usr/share/dictee/rules.conf.default",
+            ]:
+                if _os.path.isfile(candidate):
+                    import shutil
+                    _os.makedirs(_os.path.dirname(rules_path), exist_ok=True)
+                    shutil.copy2(candidate, rules_path)
+                    QMessageBox.information(self, "dictee", _("Default rules restored."))
+                    return
+            QMessageBox.warning(self, "dictee", _("Default rules file not found."))
+        btn_defaults.clicked.connect(_restore_defaults)
+
+        # Séparateur
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        lay.addWidget(sep)
+
+        # LLM correction
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
+        lay.addWidget(self.chk_llm)
+
+        # Sous-options LLM
+        self._llm_widget = QWidget()
+        llm_lay = QFormLayout(self._llm_widget)
+        llm_lay.setContentsMargins(20, 4, 0, 0)
+
+        self.cmb_llm_model = QComboBox()
+        saved_model = conf.get("DICTEE_LLM_MODEL", "ministral:3b")
+        self.cmb_llm_model.setEditable(True)
+        self.cmb_llm_model.addItem("ministral:3b")
+        self.cmb_llm_model.addItem("gemma3:4b")
+        self.cmb_llm_model.addItem("gemma3:1b")
+        # Détecter les modèles installés
+        try:
+            import subprocess as _sp
+            out = _sp.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
+            if out.returncode == 0:
+                for line in out.stdout.strip().splitlines()[1:]:
+                    name = line.split()[0] if line.split() else ""
+                    if name and self.cmb_llm_model.findText(name) < 0:
+                        self.cmb_llm_model.addItem(name)
+        except (FileNotFoundError, _sp.TimeoutExpired):
+            pass
+        idx = self.cmb_llm_model.findText(saved_model)
+        if idx >= 0:
+            self.cmb_llm_model.setCurrentIndex(idx)
+        else:
+            self.cmb_llm_model.setEditText(saved_model)
+        llm_lay.addRow(_("Model:"), self.cmb_llm_model)
+
+        self.chk_llm_cpu = QCheckBox(_("Force CPU (free GPU VRAM)"))
+        self.chk_llm_cpu.setChecked(conf.get("DICTEE_LLM_CPU", "false") == "true")
+        llm_lay.addRow("", self.chk_llm_cpu)
+
+        lbl_vram = QLabel(
+            "<i>" + _("~2 GB VRAM with Ministral 3B (+ ~2.5 GB Parakeet)") + "</i>")
+        lbl_vram.setStyleSheet("font-size: 11px; opacity: 0.6;")
+        llm_lay.addRow("", lbl_vram)
+
+        lay.addWidget(self._llm_widget)
+        self._llm_widget.setVisible(self.chk_llm.isChecked())
+        self.chk_llm.toggled.connect(self._llm_widget.setVisible)
 
     def _build_mic_section(self, lay_mic, conf):
         """Build microphone source selection, volume slider, level meter."""
@@ -3047,13 +3201,21 @@ class DicteeSetupDialog(QDialog):
         else:  # disabled
             ptt_key_translate = 0
 
+        # Post-processing
+        postprocess = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
+        llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
+        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "ministral:3b"
+        llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
+
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port,
                     asr_backend, whisper_model, whisper_lang, vosk_model,
                     audio_source=str(audio_source),
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
                     ptt_key_translate=ptt_key_translate,
-                    ptt_mod_translate=ptt_mod_translate)
+                    ptt_mod_translate=ptt_mod_translate,
+                    postprocess=postprocess, llm_postprocess=llm_postprocess,
+                    llm_model=llm_model, llm_cpu=llm_cpu)
 
         # Services systemd — recharger d'abord (nécessaire après première install .deb)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)

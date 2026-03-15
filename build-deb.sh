@@ -22,7 +22,11 @@ cp ./dictee "$PKG_DIR/usr/bin/dictee"
 cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
 cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt"
+cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess"
+
+# Copier les règles de post-traitement par défaut
+cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
 
 # Copier les assets (bannières SVG pour le wizard)
 echo "=== Copie des assets ==="

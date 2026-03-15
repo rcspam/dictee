@@ -1,0 +1,85 @@
+# Règles de post-traitement dictee — format : [lang] /PATTERN/REPLACEMENT/FLAGS
+# lang = code ISO 639-1 (fr, en, de, es, it, pt, uk) ou * (toutes langues)
+# FLAGS : i = insensible à la casse, g = global (toutes occurrences)
+# Lignes vides et commentaires (#) ignorés
+#
+# Les règles utilisateur dans ~/.config/dictee/rules.conf
+# s'appliquent APRÈS ces règles par défaut.
+
+# --- Français ---
+[fr] /[,.]?\s*point à la ligne\s*[,.]?/.\n/ig
+[fr] /(trois|3) petits points/.../ig
+[fr] /\s*à la ligne\s*/\n/ig
+[fr] /\s*nouvelle ligne\s*/\n/ig
+[fr] /\s*point d'interrogation\s*/?/ig
+[fr] /\s*point d'exclamation\s*/!/ig
+[fr] /\s*deux points\s*/:/ig
+[fr] /\s*point virgule\s*/;/ig
+[fr] /\s*virgule\s*/,/ig
+[fr] /\s*ouvrez les guillemets\s*/«/ig
+[fr] /\s*fermez les guillemets\s*/»/ig
+[fr] /\s*ouvrez la parenthèse\s*/(/ig
+[fr] /\s*fermez la parenthèse\s*/)/ig
+[fr] /\s*tabulation\s*/\t/ig
+
+# --- English ---
+[en] /\s*new line\s*/\n/ig
+[en] /\s*new paragraph\s*/\n\n/ig
+[en] /\s*period\s*/./ig
+[en] /\s*question mark\s*/?/ig
+[en] /\s*exclamation mark\s*/!/ig
+[en] /\s*colon\s*/:/ig
+[en] /\s*semicolon\s*/;/ig
+[en] /\s*comma\s*/,/ig
+[en] /\s*open quote\s*/"/ig
+[en] /\s*close quote\s*/"/ig
+[en] /\s*open parenthesis\s*/(/ig
+[en] /\s*close parenthesis\s*/)/ig
+[en] /\s*tab\s*/\t/ig
+
+# --- Deutsch ---
+[de] /\s*neue Zeile\s*/\n/ig
+[de] /\s*neuer Absatz\s*/\n\n/ig
+[de] /\s*Punkt\s*/./ig
+[de] /\s*Fragezeichen\s*/?/ig
+[de] /\s*Ausrufezeichen\s*/!/ig
+[de] /\s*Komma\s*/,/ig
+[de] /\s*Doppelpunkt\s*/:/ig
+[de] /\s*Semikolon\s*/;/ig
+
+# --- Español ---
+[es] /\s*nueva línea\s*/\n/ig
+[es] /\s*punto y aparte\s*/\n/ig
+[es] /\s*signo de interrogación\s*/?/ig
+[es] /\s*signo de exclamación\s*/!/ig
+[es] /\s*coma\s*/,/ig
+[es] /\s*dos puntos\s*/:/ig
+[es] /\s*punto y coma\s*/;/ig
+
+# --- Italiano ---
+[it] /\s*nuova riga\s*/\n/ig
+[it] /\s*a capo\s*/\n/ig
+[it] /\s*punto interrogativo\s*/?/ig
+[it] /\s*punto esclamativo\s*/!/ig
+[it] /\s*virgola\s*/,/ig
+[it] /\s*due punti\s*/:/ig
+[it] /\s*punto e virgola\s*/;/ig
+
+# --- Português ---
+[pt] /\s*nova linha\s*/\n/ig
+[pt] /\s*ponto de interrogação\s*/?/ig
+[pt] /\s*ponto de exclamação\s*/!/ig
+[pt] /\s*vírgula\s*/,/ig
+[pt] /\s*dois pontos\s*/:/ig
+[pt] /\s*ponto e vírgula\s*/;/ig
+
+# --- Українська ---
+[uk] /\s*новий рядок\s*/\n/ig
+[uk] /\s*знак питання\s*/?/ig
+[uk] /\s*знак оклику\s*/!/ig
+[uk] /\s*кома\s*/,/ig
+[uk] /\s*двокрапка\s*/:/ig
+[uk] /\s*крапка з комою\s*/;/ig
+
+# --- Toutes langues ---
+[*] /\s*\.\.\.\s*/.../g

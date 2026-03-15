@@ -59,10 +59,12 @@ write_state() {
     ) 200>"$STATE_LOCK"
 }
 
-# Post-traitement du texte (commandes de dictée françaises)
-POINT_A_LA_LIGNE="| sed -E 's/[,.]?point à la ligne[,.]?/.\n/Ig' | sed -E 's/^\.?//g'"
-TROIS_PETITS_POINTS="| sed -E 's/(trois|3) petits points/\.\.\./Ig'"
-SUPPRIME="${POINT_A_LA_LIGNE} ${TROIS_PETITS_POINTS}"
+# Post-traitement du texte (règles regex + dictionnaire + LLM optionnel)
+if [ "${DICTEE_POSTPROCESS:-true}" = "true" ] && command -v dictee-postprocess >/dev/null 2>&1; then
+    SUPPRIME="| dictee-postprocess"
+else
+    SUPPRIME=""
+fi
 
 # Parse arguments — les valeurs de dictee.conf servent de défaut,
 # les arguments CLI les surchargent.

@@ -39,6 +39,7 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee" "$PREFIX/bin/dictee"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-setup" "$PREFIX/bin/dictee-setup"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-tray" "$PREFIX/bin/dictee-tray"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-ptt" "$PREFIX/bin/dictee-ptt"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-postprocess" "$PREFIX/bin/dictee-postprocess"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
 
@@ -114,6 +115,11 @@ if [ -d "$SCRIPT_DIR/usr/share/dictee/assets/logos" ]; then
     for svg in "$SCRIPT_DIR/usr/share/dictee/assets/logos/"*.svg; do
         [ -f "$svg" ] && install -Dm644 "$svg" "$MODEL_DIR/assets/logos/$(basename "$svg")"
     done
+fi
+
+# Règles de post-traitement par défaut
+if [ -f "$SCRIPT_DIR/usr/share/dictee/rules.conf.default" ]; then
+    install -Dm644 "$SCRIPT_DIR/usr/share/dictee/rules.conf.default" "$MODEL_DIR/rules.conf.default"
 fi
 
 # Répertoire des modèles (accessible en écriture pour dictee-setup)

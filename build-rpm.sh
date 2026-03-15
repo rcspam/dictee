@@ -17,7 +17,8 @@ cp ./dictee "$PKG_DIR/usr/bin/dictee"
 cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
 cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt"
+cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -57,6 +58,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/dictee-setup" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-tray" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-ptt" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-postprocess" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$buildroot/usr/bin/"
@@ -106,9 +108,10 @@ prepare_buildroot() {
         cp ./assets/logos/*.svg "$buildroot/usr/share/dictee/assets/logos/"
     fi
 
-    # Plasmoid
+    # Plasmoid + rules
     mkdir -p "$buildroot/usr/share/dictee"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
+    cp ./rules.conf.default "$buildroot/usr/share/dictee/rules.conf.default"
 
     # Doc
     mkdir -p "$buildroot/usr/share/doc/dictee"
