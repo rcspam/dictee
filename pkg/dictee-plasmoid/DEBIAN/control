@@ -1,0 +1,14 @@
+Package: dictee-plasmoid
+Version: 1.1.0
+Section: kde
+Priority: optional
+Architecture: all
+Depends: dictee
+Recommends: python3-numpy, pulseaudio-utils
+Maintainer: rcspam <rcspams@gmail.com>
+Description: KDE Plasma 6 widget for dictee voice dictation
+ A native KDE Plasma 6 widget for dictee voice dictation.
+ Displays real-time audio visualization during recording, daemon status,
+ and provides quick controls (dictate, translate, cancel).
+ .
+ Five animation styles with configurable sensitivity and color gradients.
