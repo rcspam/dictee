@@ -1428,7 +1428,6 @@ class DicteeSetupDialog(QDialog):
     def _wizard_next(self):
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
-            self._on_apply()
             self.accept()
         else:
             if not self._validate_wizard_page(idx):
@@ -1436,6 +1435,8 @@ class DicteeSetupDialog(QDialog):
             self.stack.setCurrentIndex(idx + 1)
             self._update_wizard_nav()
             if idx + 1 == self.stack.count() - 1:
+                # Sauver la config et démarrer les services AVANT les checks
+                self._on_apply()
                 self._run_wizard_checks()
 
     def _validate_wizard_page(self, idx):
@@ -2254,12 +2255,18 @@ class DicteeSetupDialog(QDialog):
     def _check_daemon_active(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}.get(asr, "dictee")
-        try:
-            r = subprocess.run(["systemctl", "--user", "is-active", svc],
-                               capture_output=True, text=True)
-            return r.stdout.strip() == "active"
-        except (FileNotFoundError, OSError):
-            return False
+        # Le daemon peut mettre quelques secondes à démarrer (chargement modèle)
+        import time
+        for _ in range(10):
+            try:
+                r = subprocess.run(["systemctl", "--user", "is-active", svc],
+                                   capture_output=True, text=True)
+                if r.stdout.strip() == "active":
+                    return True
+            except (FileNotFoundError, OSError):
+                pass
+            time.sleep(0.5)
+        return False
 
     def _check_model_installed_fn(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
