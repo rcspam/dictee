@@ -109,6 +109,12 @@ install -d "$MODEL_DIR/assets"
 for svg in "$SCRIPT_DIR/usr/share/dictee/assets/"*.svg; do
     [ -f "$svg" ] && install -Dm644 "$svg" "$MODEL_DIR/assets/$(basename "$svg")"
 done
+if [ -d "$SCRIPT_DIR/usr/share/dictee/assets/logos" ]; then
+    install -d "$MODEL_DIR/assets/logos"
+    for svg in "$SCRIPT_DIR/usr/share/dictee/assets/logos/"*.svg; do
+        [ -f "$svg" ] && install -Dm644 "$svg" "$MODEL_DIR/assets/logos/$(basename "$svg")"
+    done
+fi
 
 # Répertoire des modèles (accessible en écriture pour dictee-setup)
 echo "→ Création du répertoire des modèles"

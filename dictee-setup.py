@@ -26,7 +26,7 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip,
+        QToolTip, QGridLayout,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -35,7 +35,7 @@ except ImportError:
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
-        QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
+        QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip,
     )
@@ -1514,6 +1514,79 @@ class DicteeSetupDialog(QDialog):
                         return False
         return True
 
+    # -- Project logos grid --
+
+    def _build_project_logos(self):
+        """Grille de logos des projets sous-jacents pour la page d'accueil."""
+        from PyQt6.QtCore import QByteArray
+        if not ASSETS_DIR:
+            return None
+        logos_dir = os.path.join(ASSETS_DIR, "logos")
+        if not os.path.isdir(logos_dir):
+            return None
+
+        projects = [
+            ("parakeet.svg", "Parakeet"),
+            ("kde-plasma.svg", "Plasma 6 plasmoid"),
+            ("libretranslate.svg", "LibreTranslate"),
+        ]
+
+        container = QWidget()
+        grid = QGridLayout(container)
+        grid.setSpacing(16)
+        grid.setContentsMargins(0, 0, 0, 0)
+
+        col = 0
+        row = 0
+        for fname, label_text in projects:
+            svg_path = os.path.join(logos_dir, fname)
+            if not os.path.isfile(svg_path):
+                continue
+
+            # Charger le SVG
+            with open(svg_path, "rb") as f:
+                svg_data = f.read()
+            img = QImage()
+            img.loadFromData(QByteArray(svg_data))
+            pix = QPixmap.fromImage(img)
+            pix = pix.scaledToWidth(64, Qt.TransformationMode.SmoothTransformation)
+
+            # Widget empilé : icône + nom
+            cell = QWidget()
+            cell_lay = QVBoxLayout(cell)
+            cell_lay.setSpacing(4)
+            cell_lay.setContentsMargins(8, 4, 8, 4)
+
+            lbl_icon = QLabel()
+            lbl_icon.setPixmap(pix)
+            lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cell_lay.addWidget(lbl_icon)
+
+            lbl_name = QLabel(label_text)
+            lbl_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_name.setStyleSheet("font-size: 13px; opacity: 0.7;")
+            cell_lay.addWidget(lbl_name)
+
+            grid.addWidget(cell, row, col)
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
+
+        # Centrer la rangée du bas (2 éléments sur 3 colonnes)
+        if row == 1 and col <= 2:
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(2, 1)
+
+        # Wrapper pour centrer horizontalement la grille
+        wrapper = QWidget()
+        wrapper_lay = QHBoxLayout(wrapper)
+        wrapper_lay.setContentsMargins(0, 0, 0, 0)
+        wrapper_lay.addStretch()
+        wrapper_lay.addWidget(container)
+        wrapper_lay.addStretch()
+        return wrapper
+
     # -- Wizard Page 0: Welcome / Logo --
 
     def _build_wizard_page0(self):
@@ -1524,10 +1597,10 @@ class DicteeSetupDialog(QDialog):
 
         lay.addStretch(2)
 
-        # Logo banner centré (grand)
+        # Logo banner à gauche (grand)
         lbl_logo = QLabel()
         lbl_logo.setPixmap(self._logo_pixmap(560))
-        lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_logo.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(lbl_logo)
 
         # Version
@@ -1536,7 +1609,14 @@ class DicteeSetupDialog(QDialog):
         lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
         lay.addWidget(lbl_ver)
 
-        lay.addSpacing(28)
+        lay.addSpacing(16)
+
+        # Grille de logos des projets sous-jacents
+        logos_widget = self._build_project_logos()
+        if logos_widget:
+            lay.addWidget(logos_widget)
+
+        lay.addSpacing(16)
 
         # Tagline — headline + subtitle
         lbl_headline = QLabel(

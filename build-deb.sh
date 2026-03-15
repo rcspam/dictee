@@ -28,6 +28,10 @@ chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/us
 echo "=== Copie des assets ==="
 mkdir -p "$PKG_DIR/usr/share/dictee/assets"
 cp ./assets/banner-dark.svg ./assets/banner-light.svg "$PKG_DIR/usr/share/dictee/assets/"
+if [ -d "./assets/logos" ]; then
+    mkdir -p "$PKG_DIR/usr/share/dictee/assets/logos"
+    cp ./assets/logos/*.svg "$PKG_DIR/usr/share/dictee/assets/logos/"
+fi
 
 # Compiler et copier les traductions
 echo "=== Compilation des traductions ==="
@@ -261,6 +265,10 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/share/dictee/assets"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$TARBALL_DIR/usr/share/dictee/" 2>/dev/null || true
     cp "$PKG_DIR/usr/share/dictee/assets/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/"
+    if [ -d "$PKG_DIR/usr/share/dictee/assets/logos" ]; then
+        mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/logos"
+        cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
+    fi
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"

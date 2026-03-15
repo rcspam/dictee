@@ -98,6 +98,14 @@ prepare_buildroot() {
     mkdir -p "$buildroot/usr/share/applications"
     cp "$PKG_DIR/usr/share/applications/"*.desktop "$buildroot/usr/share/applications/"
 
+    # Assets (bannières + logos)
+    mkdir -p "$buildroot/usr/share/dictee/assets"
+    cp ./assets/banner-dark.svg ./assets/banner-light.svg "$buildroot/usr/share/dictee/assets/"
+    if [ -d "./assets/logos" ]; then
+        mkdir -p "$buildroot/usr/share/dictee/assets/logos"
+        cp ./assets/logos/*.svg "$buildroot/usr/share/dictee/assets/logos/"
+    fi
+
     # Plasmoid
     mkdir -p "$buildroot/usr/share/dictee"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
