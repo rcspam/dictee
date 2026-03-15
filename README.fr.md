@@ -119,7 +119,7 @@ sudo ./install.sh
 Après installation, lancez `dictee --setup` pour tout configurer depuis une interface graphique :
 
 <p align="center">
-  <img src="assets/wizard-config.png" alt="dictee --setup" width="600">
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="600">
 </p>
 
 ### Backend ASR
