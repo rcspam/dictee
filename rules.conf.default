@@ -94,10 +94,16 @@
 [*] /:+/:/g
 # Espace après ponctuation de fin (sauf avant saut de ligne)
 [*] /([.!?…»\)])([A-ZÀ-Ü])/\1 \2/g
+# Espace avant guillemet/parenthèse ouvrante
+[*] /(\S)«/\1 «/g
+[*] /(\S)\(/\1 (/g
 # Espace après guillemet/parenthèse ouvrante
 [*] /«(\S)/« \1/g
 # Espace avant guillemet/parenthèse fermante
 [*] /(\S)»/\1 »/g
+# Espace après guillemet/parenthèse fermante + parenthèses
+[*] /»(\w)/» \1/g
+[*] /\)(\w)/) \1/g
 # Supprimer les espaces multiples
 [*] /  +/ /g
 # Supprimer espace avant ponctuation simple
