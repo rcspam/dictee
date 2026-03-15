@@ -451,14 +451,14 @@ else
     # Signaler au plasmoid que l'enregistrement démarre (avant pw-record pour réduire la latence)
     write_state "recording"
 
-    # Démarrer l'enregistrement
-    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
-    echo $! >"$PIDFILE"
-
-    # Notification
+    # Notification (avant pw-record pour que l'ID soit disponible au stop)
     if [ "$TRANSLATE" = true ]; then
         notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
     else
         notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
     fi
+
+    # Démarrer l'enregistrement
+    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    echo $! >"$PIDFILE"
 fi

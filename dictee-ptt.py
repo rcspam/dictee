@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -u
 """dictee-ptt — daemon push-to-talk / toggle pour dictee.
 
 Écoute les claviers physiques via evdev, capture exclusivement la touche
@@ -68,6 +68,7 @@ MODIFIERS = {
 DEBOUNCE = 0.15       # 150ms anti-rebond
 STOP_COOLDOWN = 0.5   # 500ms — ignore KEY_DOWN parasites après stop
 PIDFILE_TIMEOUT = 3.0  # attente max PIDFILE au key-up
+MIN_HOLD_DURATION = 0.3  # 300ms — en dessous, cancel au lieu de transcrire
 RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 
 
@@ -245,26 +246,44 @@ class PttState:
                 self.last_stop_time = now
             return False  # laisser ESC passer aux applications
 
-        # Empêcher dictée + traduction simultanées
-        if self.recording_translate and code == self.key_dictee:
-            return True
-        if self.recording and self.key_translate and code == self.key_translate:
-            return True
+        # Empêcher dictée + traduction simultanées (seulement si touches différentes)
+        if self.key_translate != self.key_dictee:
+            if self.recording_translate and code == self.key_dictee:
+                return True
+            if self.recording and code == self.key_translate:
+                return True
 
         # Déterminer si c'est dictée ou traduction
         if code == self.key_dictee:
-            if self.mod_translate and self._mod_held(self.mod_translate):
-                # Même touche + modificateur → traduction
-                self._handle_translate(value, now)
-            elif self.key_translate and self.key_translate == self.key_dictee:
-                # Même touche, pas de modificateur → dictée normale
-                if not self._any_mod_held():
-                    self._handle_dictee(value, now)
-                else:
-                    return False  # modificateur inconnu, laisser passer
+            if self.key_translate and self.key_translate == self.key_dictee:
+                # Même touche pour dictée et traduction — router selon l'état
+                if value == KEY_UP:
+                    # KEY_UP : router vers le handler actif, PAS selon le modificateur
+                    # (l'utilisateur peut relâcher Alt avant F9)
+                    if self.recording_translate:
+                        self._handle_translate(value, now)
+                    elif self.recording:
+                        self._handle_dictee(value, now)
+                elif value == KEY_DOWN:
+                    # KEY_DOWN : le modificateur détermine le mode
+                    if self.recording_translate:
+                        # Toggle : déjà en traduction → stopper
+                        self._handle_translate(value, now)
+                    elif self.recording:
+                        # Toggle : déjà en dictée → stopper
+                        self._handle_dictee(value, now)
+                    elif self.mod_translate and self._mod_held(self.mod_translate):
+                        self._handle_translate(value, now)
+                    elif not self._any_mod_held():
+                        self._handle_dictee(value, now)
+                    else:
+                        return False  # modificateur inconnu, laisser passer
             else:
-                # Touche dédiée dictée, pas de modificateur attendu
-                self._handle_dictee(value, now)
+                # Touches séparées — route directe
+                if self.mod_translate and self._mod_held(self.mod_translate):
+                    self._handle_translate(value, now)
+                else:
+                    self._handle_dictee(value, now)
             return True  # consommer
 
         # Touche traduction séparée (différente de key_dictee)
@@ -291,10 +310,18 @@ class PttState:
                 run_dictee_async(no_animation=True)
                 self.recording = True
             elif value == KEY_UP and self.recording:
-                if not os.path.isfile(PIDFILE):
-                    wait_pidfile()
-                print("[ptt] hold: stop")
-                run_dictee_async()
+                # Toujours attendre le PIDFILE avant d'agir
+                for _ in range(50):  # 1s max
+                    if os.path.isfile(PIDFILE):
+                        break
+                    time.sleep(0.02)
+                hold_duration = now - self.last_down_time
+                if hold_duration < MIN_HOLD_DURATION:
+                    print("[ptt] hold: cancel (trop court)")
+                    run_dictee_async("--cancel")
+                else:
+                    print("[ptt] hold: stop")
+                    run_dictee_async()
                 self.recording = False
                 self.last_stop_time = now
         else:  # toggle
@@ -322,10 +349,18 @@ class PttState:
                 run_dictee_async("--translate", no_animation=True)
                 self.recording_translate = True
             elif value == KEY_UP and self.recording_translate:
-                if not os.path.isfile(PIDFILE):
-                    wait_pidfile()
-                print("[ptt] hold: stop+translate")
-                run_dictee_async("--translate")
+                # Toujours attendre le PIDFILE avant d'agir
+                for _ in range(50):  # 1s max
+                    if os.path.isfile(PIDFILE):
+                        break
+                    time.sleep(0.02)
+                hold_duration = now - self.last_down_time
+                if hold_duration < MIN_HOLD_DURATION:
+                    print("[ptt] hold: cancel+translate (trop court)")
+                    run_dictee_async("--cancel")
+                else:
+                    print("[ptt] hold: stop+translate")
+                    run_dictee_async("--translate")
                 self.recording_translate = False
                 self.last_stop_time = now
         else:  # toggle
@@ -367,6 +402,14 @@ def run_evdev(ptt):
         except OSError as e:
             print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
 
+    # Vider les événements en buffer (évite de traiter des KEY_DOWN périmés au démarrage)
+    for dev in devices:
+        try:
+            while dev.read_one() is not None:
+                pass
+        except (OSError, BlockingIOError):
+            pass
+
     running = True
     last_rescan = time.monotonic()
 
@@ -378,6 +421,11 @@ def run_evdev(ptt):
     signal.signal(signal.SIGINT, on_signal)
 
     print("[ptt] en écoute (evdev grab)...")
+
+    # Grace period : ignorer les événements pendant 500ms après le démarrage
+    # pour éviter de traiter des KEY_DOWN empilés dans le noyau
+    startup_time = time.monotonic()
+    STARTUP_GRACE = 0.5
 
     try:
         while running:
@@ -436,6 +484,14 @@ def run_evdev(ptt):
             for dev in r:
                 try:
                     for event in dev.read():
+                        # Grace period : ré-émettre tout sans traiter pendant le démarrage
+                        if time.monotonic() - startup_time < STARTUP_GRACE:
+                            if event.type == EV_KEY:
+                                pass  # ignorer les KEY périmés
+                            else:
+                                ui.write_event(event)
+                            continue
+
                         if event.type != EV_KEY:
                             # Ré-émettre les événements non-clavier (SYN, MSC, etc.)
                             ui.write_event(event)
@@ -494,6 +550,13 @@ def run_raw(ptt):
     if not fds:
         print("[ptt] aucun clavier accessible! (groupe 'input' requis)", file=sys.stderr)
         sys.exit(1)
+
+    # Vider les événements en buffer (évite de traiter des KEY_DOWN périmés au démarrage)
+    for f in fds:
+        try:
+            os.read(f.fileno(), 65536)
+        except (OSError, BlockingIOError):
+            pass
 
     running = True
     last_rescan = time.monotonic()

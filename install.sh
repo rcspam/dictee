@@ -74,6 +74,7 @@ done
 # Desktop entry
 echo "→ Installation du fichier .desktop"
 install -Dm644 "$SCRIPT_DIR/usr/share/applications/dictee-setup.desktop" "$PREFIX/share/applications/dictee-setup.desktop"
+install -Dm644 "$SCRIPT_DIR/usr/share/applications/dictee-tray.desktop" "$PREFIX/share/applications/dictee-tray.desktop"
 
 # Icônes (dans le home de l'utilisateur réel)
 echo "→ Installation des icônes"

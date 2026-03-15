@@ -9,7 +9,6 @@ ExecStart=/usr/bin/dictee-ptt
 Restart=on-failure
 RestartSec=3
 EnvironmentFile=-%h/.config/dictee.conf
-SupplementaryGroups=input
 
 [Install]
 WantedBy=graphical-session.target

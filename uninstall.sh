@@ -49,6 +49,7 @@ done
 # Desktop entry
 echo "→ Suppression du fichier .desktop"
 rm -f "$PREFIX/share/applications/dictee-setup.desktop"
+rm -f "$PREFIX/share/applications/dictee-tray.desktop"
 
 # Services systemd
 echo "→ Suppression des services systemd"

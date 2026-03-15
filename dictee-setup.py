@@ -2205,23 +2205,34 @@ class DicteeSetupDialog(QDialog):
                 ok = False
             if ok:
                 lbl_icon.setText('<span style="color: green;">✓</span>')
-                lbl_status.setText('<span style="color: green;">' + _("OK") + '</span>')
+                if check_id == "shortcut":
+                    ptt_k = getattr(self, '_ptt_key', int(self.conf.get("DICTEE_PTT_KEY", 67)))
+                    lbl_status.setText('<span style="color: green;">'
+                                      + linux_keycode_name(ptt_k) + '</span>')
+                else:
+                    lbl_status.setText('<span style="color: green;">' + _("OK") + '</span>')
             else:
                 lbl_icon.setText('<span style="color: red;">✗</span>')
                 lbl_status.setText('<span style="color: red;">' + _("Not found") + '</span>')
                 all_ok = False
 
         if all_ok:
-            shortcut = "F9"
-            if hasattr(self, 'btn_capture') and self.btn_capture._sequence:
-                shortcut = self.btn_capture._sequence.toString(_NATIVE_TEXT)
+            ptt_key = getattr(self, '_ptt_key', int(self.conf.get("DICTEE_PTT_KEY", 67)))
+            shortcut = linux_keycode_name(ptt_key)
+            ptt_mode = ""
+            if hasattr(self, 'cmb_ptt_mode'):
+                ptt_mode = self.cmb_ptt_mode.currentData()
+            else:
+                ptt_mode = self.conf.get("DICTEE_PTT_MODE", "toggle")
+            mode_label = "hold" if ptt_mode == "hold" else "toggle"
             self.lbl_final.setText(
                 '<div style="background: #1e2e1e; padding: 12px; border-radius: 8px;">'
                 '<span style="color: #afa; font-size: 14pt; font-weight: bold;">'
                 + _("Everything is ready!") + '</span><br>'
                 '<span style="color: #8a8;">'
-                + _("Press {key} anytime to dictate.").format(key=shortcut) +
-                '</span></div>'
+                + _("Press {key} anytime to dictate.").format(key=shortcut)
+                + f' ({mode_label})'
+                + '</span></div>'
             )
 
     def _check_daemon_active(self):
@@ -2245,10 +2256,13 @@ class DicteeSetupDialog(QDialog):
         return True
 
     def _check_shortcut_registered(self):
-        if self.de_type == "kde":
-            existing, _ = find_kde_shortcut_for_command(DICTEE_COMMAND)
-            return bool(existing)
-        return True
+        """Vérifie qu'une touche PTT est configurée (wizard ou dictee.conf)."""
+        # Wizard en cours : on a _ptt_key défini
+        if hasattr(self, '_ptt_key') and self._ptt_key:
+            return True
+        # Sinon, vérifier la config existante
+        key = self.conf.get("DICTEE_PTT_KEY", "")
+        return bool(key and int(key) > 0)
 
     # ── Audio helpers ─────────────────────────────────────────────
 

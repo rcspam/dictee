@@ -108,6 +108,7 @@ package() {
 
     # Desktop entry
     install -Dm644 pkg/dictee/usr/share/applications/dictee-setup.desktop "$pkgdir/usr/share/applications/dictee-setup.desktop"
+    install -Dm644 pkg/dictee/usr/share/applications/dictee-tray.desktop "$pkgdir/usr/share/applications/dictee-tray.desktop"
 
     # Plasmoid
     if [ -f "dictee.plasmoid" ]; then
