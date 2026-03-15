@@ -26,9 +26,11 @@ XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 USER_RULES = os.path.join(XDG_CONFIG, "dictee", "rules.conf")
 USER_DICT = os.path.join(XDG_CONFIG, "dictee", "dictionary.conf")
 
+XDG_DATA = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
 SYSTEM_RULES_CANDIDATES = [
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "rules.conf.default"),
     "/usr/share/dictee/rules.conf.default",
+    os.path.join(XDG_DATA, "dictee", "rules.conf.default"),
 ]
 
 LANG = os.environ.get("DICTEE_LANG_SOURCE", "").lower()[:2]
