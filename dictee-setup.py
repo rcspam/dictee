@@ -20,7 +20,7 @@ import tempfile
 
 try:
     from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, pyqtSignal as Signal
-    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient
+    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -31,7 +31,7 @@ try:
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
     from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, Signal
-    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient
+    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -622,6 +622,23 @@ class OllamaPullThread(QThread):
 
 MODEL_DIR = "/usr/share/dictee"
 DICTEE_DATA_DIR = os.path.expanduser("~/.local/share/dictee")
+
+# === Logo SVG (fichiers assets/) ===
+
+def _find_assets_dir():
+    """Trouve le répertoire assets/ contenant les bannières SVG."""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets"),
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets"),
+        "/usr/share/dictee/assets",
+        os.path.expanduser("~/.local/share/dictee/assets"),
+    ]
+    for d in candidates:
+        if os.path.isfile(os.path.join(d, "banner-dark.svg")):
+            return d
+    return None
+
+ASSETS_DIR = _find_assets_dir()
 
 # === Backends ASR alternatifs (venvs) ===
 
@@ -1364,6 +1381,37 @@ class DicteeSetupDialog(QDialog):
 
     # ── Wizard mode ───────────────────────────────────────────────
 
+    @staticmethod
+    def _is_dark_theme():
+        """Détecte si le thème Qt courant est sombre."""
+        app = QApplication.instance()
+        if app:
+            bg = app.palette().color(app.palette().ColorRole.Window)
+            return bg.lightness() < 128
+        return True
+
+    def _logo_pixmap(self, width):
+        """Retourne un QPixmap du logo adapté au thème, à la largeur demandée."""
+        from PyQt6.QtCore import QByteArray
+        if not ASSETS_DIR:
+            return QPixmap()
+        fname = "banner-dark.svg" if self._is_dark_theme() else "banner-light.svg"
+        svg_path = os.path.join(ASSETS_DIR, fname)
+        with open(svg_path, "rb") as f:
+            svg_data = f.read()
+        img = QImage()
+        img.loadFromData(QByteArray(svg_data))
+        pix = QPixmap.fromImage(img)
+        return pix.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation)
+
+    def _make_logo_header(self):
+        """Crée un QLabel header avec le logo banner (200px de large)."""
+        lbl = QLabel()
+        lbl.setPixmap(self._logo_pixmap(200))
+        lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        lbl.setContentsMargins(24, 12, 24, 4)
+        return lbl
+
     def _build_wizard_ui(self):
         conf = self.conf
         self.setWindowTitle(_("Voice dictation configuration") + " — " + _("Setup wizard"))
@@ -1376,7 +1424,8 @@ class DicteeSetupDialog(QDialog):
         self.stack = QStackedWidget()
         outer.addWidget(self.stack, 1)
 
-        # Build 5 pages
+        # Build 6 pages (page 0 = welcome/logo)
+        self._build_wizard_page0()
         self._build_wizard_page1(conf)
         self._build_wizard_page2(conf)
         self._build_wizard_page3(conf)
@@ -1406,15 +1455,21 @@ class DicteeSetupDialog(QDialog):
         idx = self.stack.currentIndex()
         total = self.stack.count()
         self.btn_prev.setEnabled(idx > 0)
-        self.lbl_step.setText(_("Step {n} of {total}").format(n=idx + 1, total=total))
+        if idx == 0:
+            self.lbl_step.setText("")
+        else:
+            self.lbl_step.setText(_("Step {n} of {total}").format(n=idx, total=total - 1))
         if idx == total - 1:
             self.btn_next.setText(_("Finish"))
             self.btn_next.setStyleSheet("font-weight: bold; background: #4a4; color: white; padding: 8px 20px; border-radius: 4px;")
+        elif idx == 0:
+            self.btn_next.setText(_("Start configuration"))
+            self.btn_next.setStyleSheet("font-weight: bold; font-size: 15px; padding: 10px 28px;")
         else:
             self.btn_next.setText(_("Next"))
             self.btn_next.setStyleSheet("")
-        # Start/stop audio level thread on page 4 (index 3)
-        if idx == 3:
+        # Start/stop audio level thread on page 4 (index 4)
+        if idx == 4:
             self._start_audio_level()
         else:
             self._stop_audio_level()
@@ -1441,7 +1496,7 @@ class DicteeSetupDialog(QDialog):
 
     def _validate_wizard_page(self, idx):
         """Valide la page courante avant d'avancer. Retourne True si OK."""
-        if idx == 0:
+        if idx == 1:
             # Page ASR : vérifier qu'un modèle est installé pour le backend sélectionné
             asr = self._wizard_asr
             if asr == "parakeet":
@@ -1452,18 +1507,58 @@ class DicteeSetupDialog(QDialog):
                         return False
         return True
 
+    # -- Wizard Page 0: Welcome / Logo --
+
+    def _build_wizard_page0(self):
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setSpacing(20)
+        lay.setContentsMargins(32, 24, 32, 24)
+
+        lay.addStretch(2)
+
+        # Logo banner centré (grand)
+        lbl_logo = QLabel()
+        lbl_logo.setPixmap(self._logo_pixmap(560))
+        lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(lbl_logo)
+
+        # Version
+        lbl_ver = QLabel("v1.1.0")
+        lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
+        lay.addWidget(lbl_ver)
+
+        lay.addSpacing(28)
+
+        # Tagline — headline + subtitle
+        lbl_headline = QLabel(
+            "<p style='font-size: 22px; font-weight: bold;'>"
+            + _("Speak freely, type instantly") + "</p>")
+        lbl_headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(lbl_headline)
+
+        lbl_sub = QLabel(
+            "<p style='font-size: 17px;'>"
+            + _("100% local voice dictation for Linux with 25+ languages, "
+                "translation, and real-time visual feedback.") + "</p>")
+        lbl_sub.setWordWrap(True)
+        lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(lbl_sub)
+
+        lay.addStretch(3)
+        self.stack.addWidget(page)
+
     # -- Wizard Page 1: ASR --
 
     def _build_wizard_page1(self, conf):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay.setSpacing(12)
+        lay.setContentsMargins(24, 0, 24, 16)
 
-        lbl_welcome = QLabel("<h2>" + _("Welcome!") + "</h2>"
-                             "<p>" + _("This wizard will guide you through the initial configuration.") + "</p>")
-        lbl_welcome.setWordWrap(True)
-        lay.addWidget(lbl_welcome)
+        # Header logo compact
+        lay.addWidget(self._make_logo_header())
 
         lbl_asr = QLabel("<b>" + _("Choose a speech recognition engine:") + "</b>")
         lay.addWidget(lbl_asr)
@@ -1525,8 +1620,10 @@ class DicteeSetupDialog(QDialog):
     def _build_wizard_page2(self, conf):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay.setSpacing(12)
+        lay.setContentsMargins(24, 0, 24, 16)
+
+        lay.addWidget(self._make_logo_header())
 
         lbl = QLabel("<h2>" + _("Keyboard shortcuts") + "</h2>"
                      "<p>" + _("Configure the keyboard shortcuts for voice dictation.") + "</p>")
@@ -1543,8 +1640,10 @@ class DicteeSetupDialog(QDialog):
     def _build_wizard_page3(self, conf):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay.setSpacing(12)
+        lay.setContentsMargins(24, 0, 24, 16)
+
+        lay.addWidget(self._make_logo_header())
 
         lbl = QLabel("<h2>" + _("Translation") + "</h2>"
                      "<p>" + _("Configure the translation backend (optional).") + "</p>")
@@ -1560,13 +1659,19 @@ class DicteeSetupDialog(QDialog):
 
     def _build_wizard_page4(self, conf):
         page = QWidget()
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(0, 0, 0, 0)
+        page_lay.setSpacing(0)
+
+        page_lay.addWidget(self._make_logo_header())
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
         lay = QVBoxLayout(content)
         lay.setSpacing(16)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay.setContentsMargins(24, 8, 24, 16)
 
         # Microphone
         lbl = QLabel("<h2>" + _("Microphone, display and services") + "</h2>")
@@ -1609,8 +1714,6 @@ class DicteeSetupDialog(QDialog):
 
         lay.addStretch()
         scroll.setWidget(content)
-        page_lay = QVBoxLayout(page)
-        page_lay.setContentsMargins(0, 0, 0, 0)
         page_lay.addWidget(scroll)
         self.stack.addWidget(page)
 
@@ -1619,8 +1722,10 @@ class DicteeSetupDialog(QDialog):
     def _build_wizard_page5(self, conf):
         page = QWidget()
         lay = QVBoxLayout(page)
-        lay.setSpacing(16)
-        lay.setContentsMargins(24, 24, 24, 16)
+        lay.setSpacing(12)
+        lay.setContentsMargins(24, 0, 24, 16)
+
+        lay.addWidget(self._make_logo_header())
 
         lbl = QLabel("<h2>" + _("Test") + "</h2>"
                      "<p>" + _("Let's verify that everything works correctly.") + "</p>")

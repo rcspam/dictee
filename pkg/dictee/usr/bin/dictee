@@ -7,12 +7,13 @@
 # Langues configurables via variables d'environnement :
 #   DICTEE_LANG_SOURCE (défaut: langue système), DICTEE_LANG_TARGET (défaut: en)
 #
-# Usage: dictee [--translate] [--ollama] [--cancel] [--setup]
+# Usage: dictee [--translate] [--ollama] [--cancel] [--setup [--wizard]]
 #   dictee                      # transcrit et tape
 #   dictee --translate          # transcrit, traduit (trans), tape
 #   dictee --translate --ollama # traduit avec ollama/translategemma
 #   dictee --cancel             # annule l'enregistrement en cours
 #   dictee --setup              # ouvre l'interface de configuration
+#   dictee --setup --wizard     # ouvre l'assistant de configuration
 #
 # Nécessite : transcribe-daemon (en cours), pw-record, dotool
 # Optionnel : animation-speech-ctl (https://github.com/rcspam/animation-speech)
@@ -68,11 +69,15 @@ SUPPRIME="${POINT_A_LA_LIGNE} ${TROIS_PETITS_POINTS}"
 TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
 TRANSLATE="${DICTEE_TRANSLATE:-false}"
 CANCEL=false
+NO_ESC_LISTENER=false
 
 for arg in "$@"; do
     case "$arg" in
     --cancel)
         CANCEL=true
+        ;;
+    --no-esc-listener)
+        NO_ESC_LISTENER=true
         ;;
     --translate)
         TRANSLATE=true
@@ -81,7 +86,11 @@ for arg in "$@"; do
         TRANSLATE_BACKEND="ollama"
         ;;
     --setup)
-        exec dictee-setup
+        shift
+        exec dictee-setup "$@"
+        ;;
+    --wizard)
+        exec dictee-setup --wizard
         ;;
     --help|-h)
         head -n 18 "$0" | grep '^#' | sed 's/^# \?//'
@@ -156,12 +165,25 @@ stop_escape_listener() {
     fi
 }
 
+# === CLIPBOARD ===
+
+copy_to_clipboard() {
+    [ "$CLIPBOARD" = true ] || return 0
+    if command -v wl-copy >/dev/null 2>&1 && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+        echo "$1" | wl-copy
+    elif command -v xclip >/dev/null 2>&1; then
+        echo "$1" | xclip -selection clipboard
+    elif command -v xsel >/dev/null 2>&1; then
+        echo "$1" | xsel --clipboard --input
+    fi
+}
+
 # === DÉPENDANCES ===
 
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
-    # wl-copy est optionnel (copie dans le presse-papier en bonus)
+    # wl-copy / xclip / xsel est optionnel (copie dans le presse-papier en bonus)
     command -v dotool >/dev/null || missing+=("dotool")
     command -v pactl >/dev/null || missing+=("pulseaudio-utils")
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
@@ -376,7 +398,7 @@ if [ -f "$PIDFILE" ]; then
         fi
 
         translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$translated" | wl-copy
+        copy_to_clipboard "$translated"
         printf 'type %s' "$translated" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
@@ -386,7 +408,7 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         # Copier directement
-        [ "$CLIPBOARD" = true ] && command -v wl-copy >/dev/null && echo "$transcribed" | wl-copy
+        copy_to_clipboard "$transcribed"
         printf 'type %s' "$transcribed" | dotool 2>/dev/null
 
         if [ -n "$id" ]; then
@@ -402,7 +424,7 @@ if [ -f "$PIDFILE" ]; then
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
 
-    start_escape_listener
+    [ "$NO_ESC_LISTENER" = false ] && start_escape_listener
 
     # Sauvegarder les options choisies
     if [ "$TRANSLATE" = true ]; then
@@ -429,14 +451,14 @@ else
     # Signaler au plasmoid que l'enregistrement démarre (avant pw-record pour réduire la latence)
     write_state "recording"
 
-    # Démarrer l'enregistrement
-    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
-    echo $! >"$PIDFILE"
-
-    # Notification
+    # Notification (avant pw-record pour que l'ID soit disponible au stop)
     if [ "$TRANSLATE" = true ]; then
         notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
     else
         notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
     fi
+
+    # Démarrer l'enregistrement
+    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    echo $! >"$PIDFILE"
 fi

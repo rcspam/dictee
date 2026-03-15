@@ -103,6 +103,13 @@ for preset in "$SCRIPT_DIR/usr/lib/systemd/user-preset/"*.preset; do
     [ -f "$preset" ] && install -Dm644 "$preset" "$PRESET_DIR/$(basename "$preset")"
 done
 
+# Assets (bannières SVG pour le wizard)
+echo "→ Installation des assets"
+install -d "$MODEL_DIR/assets"
+for svg in "$SCRIPT_DIR/usr/share/dictee/assets/"*.svg; do
+    [ -f "$svg" ] && install -Dm644 "$svg" "$MODEL_DIR/assets/$(basename "$svg")"
+done
+
 # Répertoire des modèles (accessible en écriture pour dictee-setup)
 echo "→ Création du répertoire des modèles"
 for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemotron"; do

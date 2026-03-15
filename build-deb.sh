@@ -24,6 +24,11 @@ cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt"
 
+# Copier les assets (bannières SVG pour le wizard)
+echo "=== Copie des assets ==="
+mkdir -p "$PKG_DIR/usr/share/dictee/assets"
+cp ./assets/banner-dark.svg ./assets/banner-light.svg "$PKG_DIR/usr/share/dictee/assets/"
+
 # Compiler et copier les traductions
 echo "=== Compilation des traductions ==="
 for lang in fr de es it uk pt; do
@@ -252,9 +257,10 @@ build_tarball() {
     # Desktop entry
     cp "$PKG_DIR/usr/share/applications/"*.desktop "$TARBALL_DIR/usr/share/applications/"
 
-    # Plasmoid
-    mkdir -p "$TARBALL_DIR/usr/share/dictee"
+    # Plasmoid + assets
+    mkdir -p "$TARBALL_DIR/usr/share/dictee/assets"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$TARBALL_DIR/usr/share/dictee/" 2>/dev/null || true
+    cp "$PKG_DIR/usr/share/dictee/assets/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/"
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"
