@@ -775,18 +775,43 @@ class ModelDownloadThread(QThread):
         try:
             model_dir = self.model["dir"]
             os.makedirs(model_dir, exist_ok=True)
+            total_files = len([f for f in self.model["files"]
+                               if not os.path.isfile(os.path.join(model_dir, f[1]))])
+            done = 0
             for url, filename in self.model["files"]:
                 dest = os.path.join(model_dir, filename)
                 if os.path.isfile(dest):
                     continue
                 self.progress.emit(_("Downloading {name}…").format(name=filename))
-                result = subprocess.run(
+                proc = subprocess.Popen(
                     ["curl", "-L", "--progress-bar", "-o", dest, url],
-                    capture_output=True, text=True, timeout=1800,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                 )
-                if result.returncode != 0:
-                    self.finished.emit(False, result.stderr.strip() or _("Download failed."))
+                buf = b""
+                while True:
+                    chunk = proc.stderr.read(256)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    # curl progress-bar: "###  42.0%"
+                    for line in buf.replace(b"\r", b"\n").split(b"\n"):
+                        line = line.strip()
+                        if b"%" in line:
+                            try:
+                                pct = line.split(b"%")[0].strip().split()[-1]
+                                pct_str = pct.decode(errors="ignore")
+                                self.progress.emit(f"{filename}  {pct_str}%")
+                            except (IndexError, ValueError):
+                                pass
+                    buf = b""
+                ret = proc.wait(timeout=1800)
+                if ret != 0:
+                    self.finished.emit(False, _("Download failed."))
                     return
+                done += 1
+                if total_files > 1:
+                    self.progress.emit(_("Downloaded {done}/{total}").format(
+                        done=done, total=total_files))
             self.finished.emit(True, "")
         except subprocess.TimeoutExpired:
             self.finished.emit(False, _("Download timed out (30 min)."))
@@ -1579,7 +1604,8 @@ class DicteeSetupDialog(QDialog):
         lay_srv.setContentsMargins(16, 16, 16, 12)
         self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
         self.chk_tray = QCheckBox(_("Show notification area icon"))
-        self.chk_daemon.setChecked(self._is_service_enabled("dictee"))
+        # Dans le wizard, cocher par défaut (première install)
+        self.chk_daemon.setChecked(self._is_service_enabled("dictee") or self.wizard_mode)
         self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
         lay_srv.addWidget(self.chk_daemon)
         lay_srv.addWidget(self.chk_tray)
@@ -1842,7 +1868,7 @@ class DicteeSetupDialog(QDialog):
             lay_parakeet.addLayout(row)
 
             progress = QProgressBar()
-            progress.setRange(0, 0)
+            progress.setRange(0, 100)
             progress.setVisible(False)
             lay_parakeet.addWidget(progress)
 
@@ -2697,10 +2723,24 @@ class DicteeSetupDialog(QDialog):
         w["progress"].setVisible(True)
 
         thread = ModelDownloadThread(model)
-        thread.progress.connect(lambda text, _m=mid: self._model_widgets[_m]["button"].setText(text))
+        thread.progress.connect(lambda text, _m=mid: self._on_model_progress(_m, text))
         thread.finished.connect(lambda ok, msg, _m=mid: self._on_model_download_finished(_m, ok, msg))
         self._model_threads[mid] = thread
         thread.start()
+
+    def _on_model_progress(self, mid, text):
+        w = self._model_widgets[mid]
+        w["button"].setText(text)
+        # Extraire le pourcentage du texte ("filename  42.3%")
+        import re as _re
+        m = _re.search(r"([\d.]+)%", text)
+        if m:
+            try:
+                pct = int(float(m.group(1)))
+                w["progress"].setRange(0, 100)
+                w["progress"].setValue(pct)
+            except ValueError:
+                pass
 
     def _on_model_download_finished(self, mid, success, message):
         w = self._model_widgets[mid]
@@ -2821,17 +2861,22 @@ class DicteeSetupDialog(QDialog):
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate)
 
+        # Services systemd — recharger d'abord (nécessaire après première install .deb)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+
         # Services systemd — ASR
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
         active_svc = asr_services.get(asr_backend, "dictee")
-        for svc_name in asr_services.values():
-            action = "enable" if svc_name == active_svc else "disable"
-            subprocess.run(["systemctl", "--user", action, svc_name], capture_output=True)
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():
-                if svc_name != active_svc:
-                    subprocess.run(["systemctl", "--user", "stop", svc_name], capture_output=True)
-            subprocess.run(["systemctl", "--user", "restart", active_svc], capture_output=True)
+                if svc_name == active_svc:
+                    subprocess.run(["systemctl", "--user", "enable", "--now", svc_name], capture_output=True)
+                    subprocess.run(["systemctl", "--user", "restart", svc_name], capture_output=True)
+                else:
+                    subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
+        else:
+            for svc_name in asr_services.values():
+                subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
 
         # Tray
         action = "enable" if self.chk_tray.isChecked() else "disable"
