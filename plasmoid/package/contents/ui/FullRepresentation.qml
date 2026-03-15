@@ -91,6 +91,14 @@ ColumnLayout {
         }
 
         PlasmaComponents.ToolButton {
+            icon.name: "view-refresh"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            visible: fullRep.state !== "offline"
+            PlasmaComponents.ToolTip { text: i18n("Reset") }
+            onClicked: fullRep.actionRequested("reset")
+        }
+
+        PlasmaComponents.ToolButton {
             icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
             display: PlasmaComponents.AbstractButton.IconOnly
             PlasmaComponents.ToolTip {
@@ -124,7 +132,7 @@ ColumnLayout {
             icon.name: "translate"
             onClicked: fullRep.actionRequested("dictate-translate")
             Layout.fillWidth: true
-            enabled: fullRep.state === "idle"
+            enabled: fullRep.state === "idle" || fullRep.state === "recording"
         }
     }
 

@@ -73,10 +73,10 @@ PlasmoidItem {
             var stdout = data["stdout"].trim()
 
             if (source === daemonCheckCmd) {
-                // Polling lent : offline ou idle (seulement si pas en recording/transcribing)
-                if (stdout === "offline") {
+                // Polling lent : offline/idle — jamais pendant recording/transcribing
+                if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing") {
                     root.state = "offline"
-                } else if (root.state === "offline") {
+                } else if (stdout !== "offline" && root.state === "offline") {
                     root.state = "idle"
                 }
             } else if (source.indexOf("/dev/shm/.dictee_state") !== -1) {
@@ -179,23 +179,25 @@ PlasmoidItem {
     function parseState(output) {
         var newState = output.trim()
         if (newState === "cancelled") {
+            transcribingTimer.stop()
+            recordingTimer.stop()
             root.state = "idle"
             return
         }
-        // Le fichier d'état ne gère que les transitions actives
-        // offline/idle sont gérés exclusivement par daemonCheckCmd (systemctl)
         if (newState === "recording") {
             root.state = "recording"
+            recordingTimer.restart()
         } else if (newState === "transcribing" && root.state !== "transcribing") {
             root.state = "transcribing"
-            transcribingTimer.start()
-        } else if (newState === "idle" && root.state === "recording") {
-            root.state = "transcribing"
-            transcribingTimer.start()
-        } else if (newState === "idle" && root.state === "transcribing") {
-            // Transcription terminée — retour immédiat à idle
-            transcribingTimer.stop()
-            root.state = "idle"
+            recordingTimer.stop()
+            transcribingTimer.restart()
+        } else if (newState === "idle") {
+            // Retour à idle depuis n'importe quel état actif
+            if (root.state === "recording" || root.state === "transcribing") {
+                transcribingTimer.stop()
+                recordingTimer.stop()
+                root.state = "idle"
+            }
         }
     }
 
@@ -240,6 +242,19 @@ PlasmoidItem {
         }
     }
 
+    // Timer de sécurité pour recording (60s max — si le script crash)
+    Timer {
+        id: recordingTimer
+        interval: 60000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "recording") {
+                root.state = "idle"
+            }
+        }
+    }
+
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
         barColor: root.barColor
@@ -261,7 +276,7 @@ PlasmoidItem {
         switch (action) {
         case "dictate":
             if (root.state === "recording") {
-                root.expanded = false
+                if (!Plasmoid.configuration.pinPopup) root.expanded = false
                 root.state = "transcribing"
                 transcribingTimer.start()
             } else {
@@ -271,7 +286,7 @@ PlasmoidItem {
             break
         case "dictate-translate":
             if (root.state === "recording") {
-                root.expanded = false
+                if (!Plasmoid.configuration.pinPopup) root.expanded = false
                 root.state = "transcribing"
                 transcribingTimer.start()
             } else {
@@ -290,6 +305,12 @@ PlasmoidItem {
         case "stop-daemon":
             executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper; do systemctl --user stop $s 2>/dev/null; done'")
             root.state = "offline"
+            break
+        case "reset":
+            executable.run("bash -c 'echo idle > /dev/shm/.dictee_state; dictee --cancel 2>/dev/null'")
+            transcribingTimer.stop()
+            recordingTimer.stop()
+            root.state = "idle"
             break
         case "setup":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")

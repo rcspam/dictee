@@ -308,3 +308,7 @@ msgstr "Velocidade do salto (ms):"
 #: ui/configGeneral.qml
 msgid "Waveform settings"
 msgstr "Definições da forma de onda"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Reset"
+msgstr "Reset"

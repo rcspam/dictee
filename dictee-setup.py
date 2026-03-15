@@ -1233,6 +1233,7 @@ class DicteeSetupDialog(QDialog):
         self._venv_threads = {}
         self._audio_monitor = None
         self._test_thread = None
+        self._dirty = True  # config non enregistrée au départ
 
         self.conf = load_config()
 
@@ -1368,6 +1369,12 @@ class DicteeSetupDialog(QDialog):
         lay_buttons.addWidget(btn_ok)
 
         outer_layout.addLayout(lay_buttons)
+
+        # Marquer _dirty dès qu'un widget de config change
+        for w in content.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._mark_dirty)
+        for w in content.findChildren(QCheckBox):
+            w.toggled.connect(self._mark_dirty)
 
         content_h = content.sizeHint().height()
         buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
@@ -2514,6 +2521,7 @@ class DicteeSetupDialog(QDialog):
             self._ptt_key = code
             self.btn_capture.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture._changed = True
+            self._dirty = True
             self._check_ptt_warning(code, self.lbl_ptt_warning)
         else:
             key_str = seq.toString() if seq else "?"
@@ -2530,6 +2538,7 @@ class DicteeSetupDialog(QDialog):
             self._ptt_key_translate = code
             self.btn_capture_translate.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture_translate._changed = True
+            self._dirty = True
         else:
             key_str = seq.toString() if seq else "?"
             self.btn_capture_translate.setText(
@@ -2887,6 +2896,9 @@ class DicteeSetupDialog(QDialog):
             btn.setEnabled(True)
             QMessageBox.critical(self, _("Installation error"), message)
 
+    def _mark_dirty(self):
+        self._dirty = True
+
     # -- Appliquer --
 
     def _on_apply(self):
@@ -2999,6 +3011,8 @@ class DicteeSetupDialog(QDialog):
             shortcut_msg = "\n" + _("PTT key: {key} ({mode})").format(
                 key=linux_keycode_name(ptt_key), mode=ptt_mode)
 
+        self._dirty = False
+
         if not self.wizard_mode:
             QMessageBox.information(
                 self,
@@ -3007,7 +3021,8 @@ class DicteeSetupDialog(QDialog):
             )
 
     def _on_ok(self):
-        self._on_apply()
+        if self._dirty:
+            self._on_apply()
         self.accept()
 
 

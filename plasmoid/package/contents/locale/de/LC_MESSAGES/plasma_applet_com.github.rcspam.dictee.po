@@ -308,3 +308,7 @@ msgstr "Sprunggeschwindigkeit (ms):"
 #: ui/configGeneral.qml
 msgid "Waveform settings"
 msgstr "Wellenform-Einstellungen"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Reset"
+msgstr "Reset"

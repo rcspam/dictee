@@ -308,3 +308,7 @@ msgstr "Velocidad de rebote (ms):"
 #: ui/configGeneral.qml
 msgid "Waveform settings"
 msgstr "Ajustes de forma de onda"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Reset"
+msgstr "Reset"

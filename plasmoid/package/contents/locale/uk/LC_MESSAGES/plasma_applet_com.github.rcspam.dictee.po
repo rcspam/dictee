@@ -308,3 +308,7 @@ msgstr "Швидкість стрибка (мс):"
 #: ui/configGeneral.qml
 msgid "Waveform settings"
 msgstr "Налаштування хвильової форми"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Reset"
+msgstr "Скинути"
