@@ -772,6 +772,7 @@ class ModelDownloadThread(QThread):
         self.model = model
 
     def run(self):
+        import urllib.request
         try:
             model_dir = self.model["dir"]
             os.makedirs(model_dir, exist_ok=True)
@@ -783,38 +784,27 @@ class ModelDownloadThread(QThread):
                 if os.path.isfile(dest):
                     continue
                 self.progress.emit(_("Downloading {name}…").format(name=filename))
-                proc = subprocess.Popen(
-                    ["curl", "-L", "--progress-bar", "-o", dest, url],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                )
-                buf = b""
-                while True:
-                    chunk = proc.stderr.read(256)
-                    if not chunk:
-                        break
-                    buf += chunk
-                    # curl progress-bar: "###  42.0%"
-                    for line in buf.replace(b"\r", b"\n").split(b"\n"):
-                        line = line.strip()
-                        if b"%" in line:
-                            try:
-                                pct = line.split(b"%")[0].strip().split()[-1]
-                                pct_str = pct.decode(errors="ignore")
-                                self.progress.emit(f"{filename}  {pct_str}%")
-                            except (IndexError, ValueError):
-                                pass
-                    buf = b""
-                ret = proc.wait(timeout=1800)
-                if ret != 0:
-                    self.finished.emit(False, _("Download failed."))
-                    return
+                resp = urllib.request.urlopen(url, timeout=1800)
+                total_size = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(dest, "wb") as f:
+                    while True:
+                        chunk = resp.read(256 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            pct = int(downloaded * 100 / total_size)
+                            size_mb = downloaded / (1024 * 1024)
+                            total_mb = total_size / (1024 * 1024)
+                            self.progress.emit(
+                                f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
                 done += 1
                 if total_files > 1:
                     self.progress.emit(_("Downloaded {done}/{total}").format(
                         done=done, total=total_files))
             self.finished.emit(True, "")
-        except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Download timed out (30 min)."))
         except PermissionError:
             self.finished.emit(False, _("Permission denied. Run: sudo chmod 777 {dir}").format(
                 dir=self.model["dir"]))

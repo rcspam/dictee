@@ -24,6 +24,14 @@ cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt"
 
+# Compiler et copier les traductions
+echo "=== Compilation des traductions ==="
+for lang in fr de es it uk pt; do
+    msgfmt -o "po/$lang.mo" "po/$lang.po" 2>/dev/null || true
+    mkdir -p "$PKG_DIR/usr/share/locale/$lang/LC_MESSAGES"
+    cp "po/$lang.mo" "$PKG_DIR/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+done
+
 # Build dotool (keyboard input tool)
 build_dotool() {
     echo "=== Building dotool ==="
