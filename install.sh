@@ -103,9 +103,12 @@ for preset in "$SCRIPT_DIR/usr/lib/systemd/user-preset/"*.preset; do
     [ -f "$preset" ] && install -Dm644 "$preset" "$PRESET_DIR/$(basename "$preset")"
 done
 
-# Répertoire des modèles
+# Répertoire des modèles (accessible en écriture pour dictee-setup)
 echo "→ Création du répertoire des modèles"
-mkdir -p "$MODEL_DIR"
+for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemotron"; do
+    mkdir -p "$d"
+    chmod 777 "$d"
+done
 
 # Recharger les services systemd
 echo "→ Rechargement des services systemd"

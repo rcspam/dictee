@@ -94,6 +94,15 @@ if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
     echo "Lancez 'dictee-setup' pour télécharger les modèles."
 fi
 
+# Répertoire modèles — accessible en écriture pour dictee-setup (user)
+echo ""
+echo "=== Répertoire des modèles ==="
+for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR"; do
+    mkdir -p "$d"
+    chmod 777 "$d"
+done
+echo "Répertoire $MODEL_DIR prêt (écriture pour tous)"
+
 # Recharger les règles udev (dotool)
 echo ""
 echo "=== Configuration udev ==="
