@@ -265,7 +265,7 @@ dictee --cancel
 - Real-time streaming transcription with live text display
 - Built-in visual overlay (replace external `animation-speech`)
 - AppImage / Flatpak packaging
-- COSMIC Desktop applet
+- COSMIC / GNOME applet (contributions welcome!)
 
 ## Credits
 
