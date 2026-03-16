@@ -38,7 +38,7 @@
 - **3 ASR backends**: [Parakeet-TDT](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (25 languages, native punctuation), [Vosk](https://alphacephei.com/vosk/) (lightweight, ~50 MB), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (99 languages)
 - **Daemon mode**: model loaded once, near-instant transcriptions (~0.8s on CPU)
 - **Translation**: 4 backends — Google, Bing, LibreTranslate (local), ollama (local)
-- **Speaker diarization**: who said what, up to 4 speakers via Sortformer
+- **Speaker diarization**: who said what, up to 4 speakers via Sortformer (in progress)
 - **3 visual interfaces**: KDE Plasma widget, notification area icon, fullscreen animation
 
 <p align="center">
