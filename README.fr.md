@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>Parlez librement, tapez instantanément</b> — dictée vocale 100% locale pour Linux avec 25+ langues, traduction et retour visuel en temps réel. Le texte apparaît directement sous votre curseur.
+  <b>Parlez librement, tapez instantanément</b> — dictée vocale 100% locale pour Linux avec 25+ langues, traduction, diarisation et retour visuel en temps réel. Le texte apparaît directement sous votre curseur.
 </p>
 
 <p align="center">

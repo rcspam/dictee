@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, translation, and real-time visual feedback. Text appears right where your cursor is.
+  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, translation, speaker diarization, and real-time visual feedback. Text appears right where your cursor is.
 </p>
 
 <p align="center">
