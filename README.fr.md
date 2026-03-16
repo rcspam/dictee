@@ -27,7 +27,8 @@
   <a href="#configuration">Configuration</a> &bull;
   <a href="#interfaces-visuelles">Interfaces visuelles</a> &bull;
   <a href="#utilisation">Utilisation</a> &bull;
-  <a href="#pour-aller-plus-loin">Pour aller plus loin</a>
+  <a href="#pour-aller-plus-loin">Pour aller plus loin</a> &bull;
+  <a href="#feuille-de-route">Feuille de route</a>
 </p>
 
 ---

@@ -27,7 +27,8 @@
   <a href="#configuration">Configuration</a> &bull;
   <a href="#visual-interfaces">Visual interfaces</a> &bull;
   <a href="#usage">Usage</a> &bull;
-  <a href="#going-further">Going further</a>
+  <a href="#going-further">Going further</a> &bull;
+  <a href="#roadmap">Roadmap</a>
 </p>
 
 ---
