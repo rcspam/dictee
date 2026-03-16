@@ -258,6 +258,7 @@ dictee --cancel
 ## Roadmap
 
 - (v1.2) LLM correction before formatting rules (grammar, homophones)
+- CLI for speech-to-text (pipe audio, get text)
 - `dictee-ctl` coordinator — single entry point, eliminates race conditions
 - VAD (Voice Activity Detection) — hands-free dictation without push-to-talk
 - Real-time streaming transcription with live text display
