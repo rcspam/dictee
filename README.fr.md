@@ -262,6 +262,7 @@ dictee --cancel
 - CLI speech-to-text (pipe audio, récupère le texte)
 - Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions
 - VAD (Voice Activity Detection) — dictée mains libres sans push-to-talk
+- Diarisation dans la dictée vocale (qui a dit quoi)
 - Transcription streaming temps réel avec affichage en direct
 - Overlay visuel intégré (remplacer `animation-speech` externe)
 - Packaging AppImage / Flatpak
