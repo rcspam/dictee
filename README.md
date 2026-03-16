@@ -255,6 +255,16 @@ dictee --cancel
 
 ---
 
+## Roadmap
+
+- (v1.2) LLM correction before formatting rules (grammar, homophones)
+- `dictee-ctl` coordinator — single entry point, eliminates race conditions
+- VAD (Voice Activity Detection) — hands-free dictation without push-to-talk
+- Real-time streaming transcription with live text display
+- Built-in visual overlay (replace external `animation-speech`)
+- AppImage / Flatpak packaging
+- COSMIC Desktop applet
+
 ## Credits
 
 The transcription engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes), which provides the Rust library for NVIDIA Parakeet model inference via ONNX Runtime.

@@ -255,6 +255,16 @@ dictee --cancel
 
 ---
 
+## Feuille de route
+
+- (v1.2) Correction LLM avant les règles de formatage (grammaire, homophones)
+- Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions
+- VAD (Voice Activity Detection) — dictée mains libres sans push-to-talk
+- Transcription streaming temps réel avec affichage en direct
+- Overlay visuel intégré (remplacer `animation-speech` externe)
+- Packaging AppImage / Flatpak
+- Applet COSMIC Desktop
+
 ## Crédits
 
 Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes), qui fournit la bibliothèque Rust pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime.
