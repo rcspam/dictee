@@ -258,11 +258,11 @@ dictee --cancel
 
 ## Feuille de route
 
+- (en cours) Diarisation : qui a dit quoi, jusqu'à 4 locuteurs via Sortformer
 - (v1.2) Correction LLM avant les règles de formatage (grammaire, homophones)
 - CLI speech-to-text (pipe audio, récupère le texte)
 - Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions
 - VAD (Voice Activity Detection) — dictée mains libres sans push-to-talk
-- Diarisation dans la dictée vocale (qui a dit quoi)
 - Transcription streaming temps réel avec affichage en direct
 - Overlay visuel intégré (remplacer `animation-speech` externe)
 - Packaging AppImage / Flatpak

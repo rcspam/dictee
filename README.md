@@ -258,11 +258,11 @@ dictee --cancel
 
 ## Roadmap
 
+- (in progress) Speaker diarization: who said what, up to 4 speakers via Sortformer
 - (v1.2) LLM correction before formatting rules (grammar, homophones)
 - CLI for speech-to-text (pipe audio, get text)
 - `dictee-ctl` coordinator — single entry point, eliminates race conditions
 - VAD (Voice Activity Detection) — hands-free dictation without push-to-talk
-- Speaker diarization in voice dictation (who said what)
 - Real-time streaming transcription with live text display
 - Built-in visual overlay (replace external `animation-speech`)
 - AppImage / Flatpak packaging
