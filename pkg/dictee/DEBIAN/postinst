@@ -137,9 +137,10 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
             echo "✓ $REAL_USER déjà dans le groupe 'docker'"
         fi
     fi
-    GROUPS_CHANGED=true
-    echo ""
-    echo "⚠ Si des groupes ont été ajoutés, déconnectez-vous et reconnectez-vous."
+    if [ "$GROUPS_CHANGED" = "true" ]; then
+        echo ""
+        echo "⚠ Groupe(s) ajouté(s) — déconnectez-vous et reconnectez-vous pour activer les raccourcis clavier."
+    fi
 fi
 
 # Corriger la règle udev dotool (0620 → 0660, dpkg ne remplace pas les conffiles)
