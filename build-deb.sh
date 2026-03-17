@@ -116,8 +116,8 @@ Version: 1.1.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg, python3-pyqt6, python3-pyqt6.qtmultimedia
-Recommends: nvidia-cuda-toolkit, wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1, python3-numpy
+Depends: python3, pipewire | pulseaudio-utils | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia
+Recommends: nvidia-cuda-toolkit, python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -174,8 +174,8 @@ Version: 1.1.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: pipewire | pulseaudio-utils | alsa-utils, curl, ffmpeg, python3-pyqt6, python3-pyqt6.qtmultimedia
-Recommends: wl-clipboard, libnotify-bin, python3-gi, gir1.2-ayatanaappindicator3-0.1, python3-numpy
+Depends: python3, pipewire | pulseaudio-utils | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia
+Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>

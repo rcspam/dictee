@@ -1,110 +1,318 @@
-# Règles de post-traitement dictee — format : [lang] /PATTERN/REPLACEMENT/FLAGS
-# lang = code ISO 639-1 (fr, en, de, es, it, pt, uk) ou * (toutes langues)
-# FLAGS : i = insensible à la casse, g = global (toutes occurrences)
-# Lignes vides et commentaires (#) ignorés
+# Post-processing rules for dictee — format: [lang] /PATTERN/REPLACEMENT/FLAGS
+# lang = ISO 639-1 code (fr, en, de, es, it, pt, uk) or * (all languages)
+# FLAGS: i = case insensitive, g = global (all occurrences)
+# Blank lines and comments (#) are ignored
 #
-# Les règles utilisateur dans ~/.config/dictee/rules.conf
-# s'appliquent APRÈS ces règles par défaut.
+# User rules in ~/.config/dictee/rules.conf
+# are applied AFTER these default rules.
 #
-# Note : les ASR (Parakeet, Whisper) ajoutent souvent des virgules et points
-# autour des commandes vocales. Les patterns utilisent [,.\s]* pour les absorber.
+# Note: ASR engines (Parakeet, Whisper) often add commas and periods
+# around voice commands. Patterns use [,.\s]* to absorb them.
 
-# --- Français ---
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 1 — Non-speech annotations (Whisper/Parakeet)
+# ═══════════════════════════════════════════════════════════════════════
+[*] /\([^)]*\)//g
+[*] /\[[^\]]*\]//g
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 2 — Filler words / hesitations
+# ═══════════════════════════════════════════════════════════════════════
+[fr] /[,.\s]*\b(euh|euhm?|hum|hmm|ben|bah|hein)\b[,.\s]*/ /ig
+[en] /[,.\s]*\b(uh|um|hmm|mm|mhm|mmm)\b[,.\s]*/ /ig
+[de] /[,.\s]*\b(äh|ähm|hm|hmm)\b[,.\s]*/ /ig
+[es] /[,.\s]*\b(eh|ehm|este)\b[,.\s]*/ /ig
+[it] /[,.\s]*\b(ehm|uhm|cioè)\b[,.\s]*/ /ig
+[pt] /[,.\s]*\b(ãh|éh|hum)\b[,.\s]*/ /ig
+[uk] /[,.\s]*\b(ем|гм|ну)\b[,.\s]*/ /ig
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 3 — Voice commands
+# ═══════════════════════════════════════════════════════════════════════
+
+# ── French ───────────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline (BEFORE simple punctuation)
+# "à la ligne" alone is too ambiguous ("la pêche à la ligne" = fishing line)
+# Text form (ASR without native punctuation)
+[fr] /[,.\s]*point d'interrogation à la ligne[,.\s]*/?\n/ig
+[fr] /[,.\s]*point d'exclamation à la ligne[,.\s]*/!\n/ig
+[fr] /[,.\s]*points? de suspension à la ligne[,.\s]*/…\n/ig
+[fr] /[,.\s]*deux points à la ligne[,.\s]*/:\n/ig
+[fr] /[,.\s]*point virgule à la ligne[,.\s]*/;\n/ig
+[fr] /[,.\s]*virgule à la ligne[,.\s]*/,\n/ig
 [fr] /[,.\s]*point à la ligne[,.\s]*/.\n/ig
-[fr] /[,.\s]*(trois|3) petits points[,.\s]*/.../ig
-[fr] /[,.\s]*à la ligne[,.\s]*/\n/ig
-[fr] /[,.\s]*nouvelle ligne[,.\s]*/\n/ig
+# Symbol form (Parakeet converts punctuation natively)
+[fr] /\s*:\s*à la ligne[,.\s]*/:\n/ig
+[fr] /\s*;\s*à la ligne[,.\s]*/;\n/ig
+[fr] /\s*\?\s*à la ligne[,.\s]*/?\n/ig
+[fr] /\s*!\s*à la ligne[,.\s]*/!\n/ig
+[fr] /\s*,\s*à la ligne[,.\s]*/,\n/ig
+[fr] /\s*\.\s*à la ligne[,.\s]*/.\n/ig
+# "à la ligne" alone only at start of text/line (not mid-sentence)
+[fr] /^[,.\s]*[àÀaA] la ligne[,.\s]*/\n/igm
+# Parakeet misdetects "à la ligne" as Cyrillic on short audio
+# Broad pattern: Cyrillic text containing лин (most variants)
+[fr] /^[,.\s]*[А-Яа-я][-А-Яа-я]*лин[А-Яа-я]*[,.\s]*/\n/igm
+# Broad pattern: Cyrillic text containing ляни/линия
+[fr] /^[,.\s]*[А-Яа-я][-\s]*ля\s*линия[,.\s]*/\n/igm
+[fr] /^[,.\s]*[А-Яа-я][-А-Яа-я]*ляни[А-Яа-я]*[,.\s]*/\n/igm
+# Other Cyrillic misdetections (no лин)
+[fr] /^[,.\s]*[Рр]ави[нь]*я[,.\s]*/\n/igm
+[fr] /^[,.\s]*[Рр]ади[нь]*я[,.\s]*/\n/igm
+[fr] /^[,.\s]*[АаОо][-\s]*ля\s*[Вв]инни[,.\s]*/\n/igm
+[fr] /^[,.\s]*[АаОо]ляди\s*мне[,.\s]*/\n/igm
+[fr] /^[,.\s]*[Кк]арень[,.\s]*/\n/igm
+[fr] /^[,.\s]*[Аа]рови[ньн]*[яи]я?[,.\s]*/\n/igm
+[fr] /^[,.\s]*[Оо]лю[А-Яа-я]*[,.\s]*/\n/igm
+# French misdetections
+[fr] /^[,.\s]*[àÀaA] la vigne[,.\s]*/\n/igm
+[fr] /^[,.\s]*[Ll]a ligne[,.\s]*/\n/igm
+[fr] /^[,.\s]*[Aa]llez[,\s]*ligne[,.\s]*/\n/igm
+# 3b. Inline punctuation
+[fr] /[,.\s]*(trois|3) petits points[,.\s]*/…/ig
+[fr] /[,.\s]*points? de suspension[,.\s]*/…/ig
 [fr] /[,.\s]*point d'interrogation[,.\s]*/?/ig
 [fr] /[,.\s]*point d'exclamation[,.\s]*/!/ig
 [fr] /[,.\s]*deux points[,.\s]*/: /ig
 [fr] /[,.\s]*point virgule[,.\s]*/; /ig
 [fr] /[,.\s]*virgule[,.\s]*/, /ig
-[fr] /[,.\s]*ouvrez les guillemets[,.\s]*/«/ig
-[fr] /[,.\s]*fermez les guillemets[,.\s]*/»/ig
-[fr] /[,.\s]*ouvrez la parenthèse[,.\s]*/(/ig
-[fr] /[,.\s]*fermez la parenthèse[,.\s]*/)/ig
+[fr] /[,.\s]*[Vv]erg[üu]lle[,.\s]*/, /ig
+[fr] /[,.\s]*[Vv]irgul[,.\s]*/, /ig
+[fr] /^[,.\s]*[Вв]ер[гд][юу]л[яь][,.\s]*/, /igm
+[fr] /^[,.\s]*[Вв]ергуля[,.\s]*/, /igm
+# Quotes & parentheses (accept both imperative "ouvrez" and infinitive "ouvrir")
+[fr] /[,.\s]*ouvr(?:e|ez|ir) les guillemets[,.\s]*/« /ig
+[fr] /[,.\s]*ferm(?:e|ez|er) les guillemets[,.\s]*/ »/ig
+[fr] /[,.\s]*ouvr(?:e|ez|ir) la parenthèse[,.\s]*/ (/ig
+[fr] /[,.\s]*ferm(?:e|ez|er) la parenthèse[,.\s]*/) /ig
+# Miscellaneous
 [fr] /[,.\s]*tabulation[,.\s]*/\t/ig
+[fr] /[,.\s]*apostrophe[,.\s]*/'/ig
+[fr] /[,.\s]*tiret[,.\s]*/- /ig
+# 3c. Line breaks
+[fr] /[,.\s]*nouveau paragraphe[,.\s]*/\n\n/ig
+# 3d. Markdown — Parakeet may transcribe "dièse" as text, "dièz", or "#"
+# Repeated forms
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/### /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/## /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/# /ig
+# "double/triple dièse" forms (more natural to say, "espace" optional)
+[fr] /[,.\s]*triple[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:espace[,.\s]*)*/### /ig
+[fr] /[,.\s]*double[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:espace[,.\s]*)*/## /ig
 
-# --- English ---
-[en] /[,.\s]*new line[,.\s]*/\n/ig
-[en] /[,.\s]*new paragraph[,.\s]*/\n\n/ig
+# ── English ──────────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline (BEFORE simple punctuation)
+[en] /[,.\s]*question mark new line[,.\s]*/?\n/ig
+[en] /[,.\s]*exclamation mark new line[,.\s]*/!\n/ig
+[en] /[,.\s]*colon new line[,.\s]*/:\n/ig
+[en] /[,.\s]*semicolon new line[,.\s]*/;\n/ig
+[en] /[,.\s]*comma new line[,.\s]*/,\n/ig
+[en] /[,.\s]*period new line[,.\s]*/.\n/ig
+# Symbol forms
+[en] /\s*:\s*new line[,.\s]*/:\n/ig
+[en] /\s*;\s*new line[,.\s]*/;\n/ig
+[en] /\s*\?\s*new line[,.\s]*/?\n/ig
+[en] /\s*!\s*new line[,.\s]*/!\n/ig
+[en] /\s*,\s*new line[,.\s]*/,\n/ig
+[en] /\s*\.\s*new line[,.\s]*/.\n/ig
+# 3b. Compound commands BEFORE simple ones (semicolon before colon, etc.)
+[en] /[,.\s]*semicolon[,.\s]*/; /ig
+[en] /[,.\s]*ellipsis[,.\s]*/…/ig
 [en] /[,.\s]*period[,.\s]*/./ig
 [en] /[,.\s]*question mark[,.\s]*/?/ig
 [en] /[,.\s]*exclamation mark[,.\s]*/!/ig
 [en] /[,.\s]*colon[,.\s]*/: /ig
-[en] /[,.\s]*semicolon[,.\s]*/; /ig
 [en] /[,.\s]*comma[,.\s]*/, /ig
+# Quotes & parentheses
 [en] /[,.\s]*open quote[,.\s]*/"/ig
 [en] /[,.\s]*close quote[,.\s]*/"/ig
 [en] /[,.\s]*open parenthesis[,.\s]*/(/ig
 [en] /[,.\s]*close parenthesis[,.\s]*/)/ig
+# Miscellaneous
 [en] /[,.\s]*tab[,.\s]*/\t/ig
+[en] /[,.\s]*hyphen[,.\s]*/- /ig
+# 3c. Line breaks
+[en] /[,.\s]*new paragraph[,.\s]*/\n\n/ig
+[en] /[,.\s]*new line[,.\s]*/\n/ig
+# 3d. Markdown
+[en] /[,.\s]*hash hash hash space[,.\s]*/### /ig
+[en] /[,.\s]*hash hash space[,.\s]*/## /ig
+[en] /[,.\s]*hash space[,.\s]*/# /ig
 
-# --- Deutsch ---
-[de] /[,.\s]*neue Zeile[,.\s]*/\n/ig
-[de] /[,.\s]*neuer Absatz[,.\s]*/\n\n/ig
+# ── German ───────────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline
+[de] /[,.\s]*Fragezeichen neue Zeile[,.\s]*/?\n/ig
+[de] /[,.\s]*Ausrufezeichen neue Zeile[,.\s]*/!\n/ig
+[de] /[,.\s]*Doppelpunkt neue Zeile[,.\s]*/:\n/ig
+[de] /[,.\s]*Semikolon neue Zeile[,.\s]*/;\n/ig
+[de] /[,.\s]*Komma neue Zeile[,.\s]*/,\n/ig
+[de] /[,.\s]*Punkt neue Zeile[,.\s]*/.\n/ig
+# 3b. Compound commands BEFORE simple ones (Doppelpunkt/Semikolon before Punkt)
+[de] /[,.\s]*Doppelpunkt[,.\s]*/: /ig
+[de] /[,.\s]*Semikolon[,.\s]*/; /ig
 [de] /[,.\s]*Punkt[,.\s]*/./ig
 [de] /[,.\s]*Fragezeichen[,.\s]*/?/ig
 [de] /[,.\s]*Ausrufezeichen[,.\s]*/!/ig
 [de] /[,.\s]*Komma[,.\s]*/, /ig
-[de] /[,.\s]*Doppelpunkt[,.\s]*/: /ig
-[de] /[,.\s]*Semikolon[,.\s]*/; /ig
+# Quotes & parentheses
+[de] /[,.\s]*Anführungszeichen auf[,.\s]*/"/ig
+[de] /[,.\s]*Anführungszeichen zu[,.\s]*/"/ig
+[de] /[,.\s]*Klammer auf[,.\s]*/(/ig
+[de] /[,.\s]*Klammer zu[,.\s]*/)/ig
+# Miscellaneous
+[de] /[,.\s]*Tabulator[,.\s]*/\t/ig
+[de] /[,.\s]*Bindestrich[,.\s]*/- /ig
+# 3c. Line breaks
+[de] /[,.\s]*neuer Absatz[,.\s]*/\n\n/ig
+[de] /[,.\s]*neue Zeile[,.\s]*/\n/ig
 
-# --- Español ---
-[es] /[,.\s]*nueva línea[,.\s]*/\n/ig
-[es] /[,.\s]*punto y aparte[,.\s]*/\n/ig
+# ── Spanish ──────────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline
+[es] /[,.\s]*signo de interrogación nueva línea[,.\s]*/?\n/ig
+[es] /[,.\s]*signo de exclamación nueva línea[,.\s]*/!\n/ig
+[es] /[,.\s]*dos puntos nueva línea[,.\s]*/:\n/ig
+[es] /[,.\s]*punto y coma nueva línea[,.\s]*/;\n/ig
+[es] /[,.\s]*coma nueva línea[,.\s]*/,\n/ig
+# 3b. Compound commands BEFORE simple ones (punto y coma before coma)
+[es] /[,.\s]*punto y coma[,.\s]*/; /ig
+[es] /[,.\s]*puntos suspensivos[,.\s]*/…/ig
 [es] /[,.\s]*signo de interrogación[,.\s]*/?/ig
 [es] /[,.\s]*signo de exclamación[,.\s]*/!/ig
-[es] /[,.\s]*coma[,.\s]*/, /ig
 [es] /[,.\s]*dos puntos[,.\s]*/: /ig
-[es] /[,.\s]*punto y coma[,.\s]*/; /ig
+[es] /[,.\s]*coma[,.\s]*/, /ig
+# Quotes & parentheses
+[es] /[,.\s]*abrir comillas[,.\s]*/"/ig
+[es] /[,.\s]*cerrar comillas[,.\s]*/"/ig
+[es] /[,.\s]*abrir paréntesis[,.\s]*/(/ig
+[es] /[,.\s]*cerrar paréntesis[,.\s]*/)/ig
+# Miscellaneous
+[es] /[,.\s]*tabulación[,.\s]*/\t/ig
+[es] /[,.\s]*guión[,.\s]*/- /ig
+# 3c. Line breaks
+[es] /[,.\s]*nuevo párrafo[,.\s]*/\n\n/ig
+[es] /[,.\s]*punto y aparte[,.\s]*/\n/ig
+[es] /[,.\s]*nueva línea[,.\s]*/\n/ig
 
-# --- Italiano ---
-[it] /[,.\s]*nuova riga[,.\s]*/\n/ig
-[it] /[,.\s]*a capo[,.\s]*/\n/ig
+# ── Italian ──────────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline
+[it] /[,.\s]*punto interrogativo a capo[,.\s]*/?\n/ig
+[it] /[,.\s]*punto esclamativo a capo[,.\s]*/!\n/ig
+[it] /[,.\s]*due punti a capo[,.\s]*/:\n/ig
+[it] /[,.\s]*punto e virgola a capo[,.\s]*/;\n/ig
+[it] /[,.\s]*virgola a capo[,.\s]*/,\n/ig
+# 3b. Compound commands BEFORE simple ones (punto e virgola before virgola)
+[it] /[,.\s]*punto e virgola[,.\s]*/; /ig
+[it] /[,.\s]*puntini di sospensione[,.\s]*/…/ig
 [it] /[,.\s]*punto interrogativo[,.\s]*/?/ig
 [it] /[,.\s]*punto esclamativo[,.\s]*/!/ig
-[it] /[,.\s]*virgola[,.\s]*/, /ig
 [it] /[,.\s]*due punti[,.\s]*/: /ig
-[it] /[,.\s]*punto e virgola[,.\s]*/; /ig
+[it] /[,.\s]*virgola[,.\s]*/, /ig
+# Quotes & parentheses
+[it] /[,.\s]*apri virgolette[,.\s]*/"/ig
+[it] /[,.\s]*chiudi virgolette[,.\s]*/"/ig
+[it] /[,.\s]*apri parentesi[,.\s]*/(/ig
+[it] /[,.\s]*chiudi parentesi[,.\s]*/)/ig
+# Miscellaneous
+[it] /[,.\s]*tabulazione[,.\s]*/\t/ig
+[it] /[,.\s]*trattino[,.\s]*/- /ig
+# 3c. Line breaks
+[it] /[,.\s]*nuovo paragrafo[,.\s]*/\n\n/ig
+[it] /[,.\s]*nuova riga[,.\s]*/\n/ig
+[it] /[,.\s]*a capo[,.\s]*/\n/ig
 
-# --- Português ---
-[pt] /[,.\s]*nova linha[,.\s]*/\n/ig
+# ── Portuguese ───────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline
+[pt] /[,.\s]*ponto de interrogação nova linha[,.\s]*/?\n/ig
+[pt] /[,.\s]*ponto de exclamação nova linha[,.\s]*/!\n/ig
+[pt] /[,.\s]*dois pontos nova linha[,.\s]*/:\n/ig
+[pt] /[,.\s]*ponto e vírgula nova linha[,.\s]*/;\n/ig
+[pt] /[,.\s]*vírgula nova linha[,.\s]*/,\n/ig
+# 3b. Compound commands BEFORE simple ones (ponto e vírgula before vírgula)
+[pt] /[,.\s]*ponto e vírgula[,.\s]*/; /ig
+[pt] /[,.\s]*reticências[,.\s]*/…/ig
 [pt] /[,.\s]*ponto de interrogação[,.\s]*/?/ig
 [pt] /[,.\s]*ponto de exclamação[,.\s]*/!/ig
-[pt] /[,.\s]*vírgula[,.\s]*/, /ig
 [pt] /[,.\s]*dois pontos[,.\s]*/: /ig
-[pt] /[,.\s]*ponto e vírgula[,.\s]*/; /ig
+[pt] /[,.\s]*vírgula[,.\s]*/, /ig
+# Quotes & parentheses
+[pt] /[,.\s]*abrir aspas[,.\s]*/"/ig
+[pt] /[,.\s]*fechar aspas[,.\s]*/"/ig
+[pt] /[,.\s]*abrir parênteses[,.\s]*/(/ig
+[pt] /[,.\s]*fechar parênteses[,.\s]*/)/ig
+# Miscellaneous
+[pt] /[,.\s]*tabulação[,.\s]*/\t/ig
+[pt] /[,.\s]*hífen[,.\s]*/- /ig
+# 3c. Line breaks
+[pt] /[,.\s]*novo parágrafo[,.\s]*/\n\n/ig
+[pt] /[,.\s]*nova linha[,.\s]*/\n/ig
 
-# --- Українська ---
-[uk] /[,.\s]*новий рядок[,.\s]*/\n/ig
+# ── Ukrainian ────────────────────────────────────────────────────────
+# 3a. Combined punctuation+newline
+[uk] /[,.\s]*знак питання новий рядок[,.\s]*/?\n/ig
+[uk] /[,.\s]*знак оклику новий рядок[,.\s]*/!\n/ig
+[uk] /[,.\s]*двокрапка новий рядок[,.\s]*/:\n/ig
+[uk] /[,.\s]*крапка з комою новий рядок[,.\s]*/;\n/ig
+[uk] /[,.\s]*кома новий рядок[,.\s]*/,\n/ig
+# 3b. Compound commands BEFORE simple ones
+[uk] /[,.\s]*крапка з комою[,.\s]*/; /ig
+[uk] /[,.\s]*три крапки[,.\s]*/…/ig
 [uk] /[,.\s]*знак питання[,.\s]*/?/ig
 [uk] /[,.\s]*знак оклику[,.\s]*/!/ig
-[uk] /[,.\s]*кома[,.\s]*/, /ig
 [uk] /[,.\s]*двокрапка[,.\s]*/: /ig
-[uk] /[,.\s]*крапка з комою[,.\s]*/; /ig
+[uk] /[,.\s]*кома[,.\s]*/, /ig
+# Quotes & parentheses
+[uk] /[,.\s]*відкрити лапки[,.\s]*/"/ig
+[uk] /[,.\s]*закрити лапки[,.\s]*/"/ig
+[uk] /[,.\s]*відкрити дужки[,.\s]*/(/ig
+[uk] /[,.\s]*закрити дужки[,.\s]*/)/ig
+# Miscellaneous
+[uk] /[,.\s]*табуляція[,.\s]*/\t/ig
+[uk] /[,.\s]*дефіс[,.\s]*/- /ig
+# 3c. Line breaks
+[uk] /[,.\s]*новий абзац[,.\s]*/\n\n/ig
+[uk] /[,.\s]*новий рядок[,.\s]*/\n/ig
 
-# --- Nettoyage final (toutes langues) ---
-# Dédoublonner la ponctuation (Parakeet + commande vocale)
-[*] /\.\.+\./…/g
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 4 — Word deduplication (Parakeet bug: "je je" → "je")
+# ═══════════════════════════════════════════════════════════════════════
+[*] /\b(\w+)\s+\1\b/\1/ig
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 5 — Punctuation cleanup (deduplicate ASR + voice command doubles)
+# ═══════════════════════════════════════════════════════════════════════
+[*] /\.{3,}/…/g
 [*] /\?+/?/g
 [*] /!+/!/g
 [*] /,+/,/g
 [*] /;+/;/g
 [*] /:+/:/g
-# Espace après ponctuation de fin (sauf avant saut de ligne)
-[*] /([.!?…»\)])([A-ZÀ-Ü])/\1 \2/g
-# Espace avant guillemet/parenthèse ouvrante
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 6 — French elisions (remove space after apostrophe)
+# ═══════════════════════════════════════════════════════════════════════
+# Single-letter elision words
+[fr] /([ldnmtsjcLDNMTSJC]') +/\1/g
+# Multi-letter elision words
+[fr] /(qu'|jusqu'|lorsqu'|puisqu'|presqu'|quelqu') +/\1/ig
+# Special case: "si il" → "s'il"
+[fr] /\bsi (ils?)\b/s'\1/ig
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 9 — Final cleanup (all languages)
+# ═══════════════════════════════════════════════════════════════════════
+# Space after sentence-ending punctuation if glued to a letter
+[*] /([.!?…»\)])([A-Za-zÀ-ÿ])/\1 \2/g
+# Space before opening quote/parenthesis
 [*] /(\S)«/\1 «/g
 [*] /(\S)\(/\1 (/g
-# Espace après guillemet/parenthèse ouvrante
+# Space after opening quote
 [*] /«(\S)/« \1/g
-# Espace avant guillemet/parenthèse fermante
+# Space before closing quote/parenthesis
 [*] /(\S)»/\1 »/g
-# Espace après guillemet/parenthèse fermante + parenthèses
+# Space after closing quote/parenthesis
 [*] /»(\w)/» \1/g
 [*] /\)(\w)/) \1/g
-# Supprimer les espaces multiples
+# Collapse multiple spaces
 [*] /  +/ /g
-# Supprimer espace avant ponctuation simple
+# Remove space before simple punctuation
 [*] / ([.,;:!?])/\1/g

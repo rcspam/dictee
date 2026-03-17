@@ -116,6 +116,29 @@ for lang in fr de es it uk pt; do
 done
 echo "Traductions installées"
 
+# Ajouter l'utilisateur aux groupes nécessaires
+echo ""
+echo "=== Groupes utilisateur ==="
+REAL_USER="${SUDO_USER:-$(logname 2>/dev/null)}" || REAL_USER=""
+if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
+    if ! id -nG "$REAL_USER" | grep -qw input; then
+        usermod -aG input "$REAL_USER"
+        echo "✓ $REAL_USER ajouté au groupe 'input' (raccourcis clavier)"
+    else
+        echo "✓ $REAL_USER déjà dans le groupe 'input'"
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        if ! id -nG "$REAL_USER" | grep -qw docker; then
+            usermod -aG docker "$REAL_USER"
+            echo "✓ $REAL_USER ajouté au groupe 'docker' (LibreTranslate)"
+        else
+            echo "✓ $REAL_USER déjà dans le groupe 'docker'"
+        fi
+    fi
+    echo ""
+    echo "⚠ Si des groupes ont été ajoutés, déconnectez-vous et reconnectez-vous."
+fi
+
 # Recharger les règles udev (dotool)
 echo ""
 echo "=== Configuration udev ==="
@@ -133,8 +156,11 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
         $_run systemctl --user preset dictee dictee-ptt dictee-tray 2>/dev/null || true
-        # Redémarrer les services actifs après upgrade
-        for svc in dictee dictee-vosk dictee-whisper dictee-tray dictee-ptt; do
+        # Démarrer dictee-ptt immédiatement (raccourcis clavier)
+        $_run systemctl --user enable --now dictee-ptt 2>/dev/null || true
+        echo "  ↳ dictee-ptt démarré"
+        # Redémarrer les autres services actifs après upgrade
+        for svc in dictee dictee-vosk dictee-whisper dictee-tray; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 echo "  ↳ Redémarrage de $svc"
                 $_run systemctl --user restart "$svc" 2>/dev/null || true

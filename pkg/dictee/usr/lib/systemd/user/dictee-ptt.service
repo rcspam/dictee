@@ -1,7 +1,7 @@
 [Unit]
 Description=Dictee Push-to-Talk Daemon
-After=dictee.service
-BindsTo=graphical-session.target
+After=dictee.service graphical-session.target
+PartOf=graphical-session.target
 
 [Service]
 Type=simple
