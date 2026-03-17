@@ -356,11 +356,20 @@ class DicteeTray:
 
 
 def main():
+    import time
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName(APP_ID)
+    app.setDesktopFileName("dictee-tray")
+
+    # Sur GNOME, l'extension AppIndicator peut mettre quelques secondes
+    # à enregistrer le host SNI au démarrage de la session
+    retries = 10
+    while not QSystemTrayIcon.isSystemTrayAvailable() and retries > 0:
+        time.sleep(1)
+        retries -= 1
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
         print("Error: no system tray available", file=sys.stderr)
