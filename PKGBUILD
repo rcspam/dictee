@@ -1,27 +1,27 @@
 # Maintainer: rcspam <rcspams@gmail.com>
 pkgname=dictee
-pkgver=1.1.0
+pkgver=1.1.1
 pkgrel=1
 pkgdesc="Fast push-to-talk voice dictation for Linux with NVIDIA Parakeet, Vosk and faster-whisper"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
 license=('GPL-3.0-or-later')
 depends=(
+    'python'
     'pipewire'
     'dotool'
-    'ffmpeg'
-    'curl'
+    'libnotify'
     'python-pyqt6'
     'python-pyqt6-multimedia'
 )
 optdepends=(
-    'wl-clipboard: clipboard copy'
-    'libnotify: desktop notifications'
-    'python-gobject: dictee-tray notification icon'
     'python-evdev: dictee-ptt key grab (recommended)'
-    'python-numpy: plasmoid audio visualization'
-    'pulseaudio-utils: plasmoid audio visualization (parec)'
+    'wl-clipboard: clipboard copy (Wayland)'
+    'xclip: clipboard copy (X11)'
+    'curl: LibreTranslate translation'
     'translate-shell: translation via Google/Bing'
+    'python-numpy: plasmoid audio visualization'
+    'pulseaudio-utils: audio control (pactl)'
     'ollama: 100% local translation'
     'docker: LibreTranslate local translation'
 )

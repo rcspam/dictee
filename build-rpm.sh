@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -146,16 +146,19 @@ License:        GPL-3.0-or-later
 URL:            https://github.com/rcspam/dictee
 Group:          Applications/Multimedia
 
+Requires:       python3
 Requires:       (pipewire or pulseaudio-utils or alsa-utils)
-Requires:       curl
-Requires:       ffmpeg-free
+Requires:       libnotify
 Requires:       python3-pyqt6
 Requires:       python3-qt6-multimedia
 Recommends:     nvidia-gpu-firmware
+Recommends:     python3-evdev
 Recommends:     wl-clipboard
-Recommends:     libnotify
-Recommends:     python3-gobject
+Recommends:     xclip
+Recommends:     curl
+Recommends:     translate-shell
 Recommends:     python3-numpy
+Recommends:     moby-engine
 Conflicts:      dictee-cpu
 Provides:       dictee = $VERSION
 
@@ -226,15 +229,18 @@ License:        GPL-3.0-or-later
 URL:            https://github.com/rcspam/dictee
 Group:          Applications/Multimedia
 
+Requires:       python3
 Requires:       (pipewire or pulseaudio-utils or alsa-utils)
-Requires:       curl
-Requires:       ffmpeg-free
+Requires:       libnotify
 Requires:       python3-pyqt6
 Requires:       python3-qt6-multimedia
+Recommends:     python3-evdev
 Recommends:     wl-clipboard
-Recommends:     libnotify
-Recommends:     python3-gobject
+Recommends:     xclip
+Recommends:     curl
+Recommends:     translate-shell
 Recommends:     python3-numpy
+Recommends:     moby-engine
 Conflicts:      dictee-cuda
 Provides:       dictee = $VERSION
 
