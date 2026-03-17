@@ -2157,6 +2157,17 @@ class DicteeSetupDialog(QDialog):
         lay_vis.addWidget(self.chk_plasmoid)
         lay_vis.addWidget(self.chk_gnome_ext)
 
+        # Avertissement GNOME / compositors sans wlr-layer-shell
+        self.lbl_anim_warn = QLabel(
+            '<span style="color: orange;">⚠ '
+            + _("animation-speech requires a Wayland compositor with layer-shell support "
+                "(KDE, Sway, Hyprland…). It does not work on GNOME.")
+            + '</span>'
+        )
+        self.lbl_anim_warn.setWordWrap(True)
+        self.lbl_anim_warn.setVisible(self.de_type == "gnome")
+        lay_vis.addWidget(self.lbl_anim_warn)
+
         self.lbl_anim_status = QLabel()
         self.lbl_anim_status.setWordWrap(True)
         lay_vis.addWidget(self.lbl_anim_status)
