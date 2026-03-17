@@ -142,9 +142,14 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
     echo "⚠ Si des groupes ont été ajoutés, déconnectez-vous et reconnectez-vous."
 fi
 
-# Recharger les règles udev (dotool)
+# Corriger la règle udev dotool (0620 → 0660, dpkg ne remplace pas les conffiles)
 echo ""
 echo "=== Configuration udev ==="
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "$UDEV_RULE" ] && grep -q 'MODE="0620"' "$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "$UDEV_RULE"
+    echo "✓ Règle udev corrigée (0620 → 0660)"
+fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 echo "Règles udev rechargées (dotool/uinput)"
