@@ -130,6 +130,15 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
     else
         echo "✓ $user déjà dans le groupe 'input'"
     fi
+    if command -v docker >/dev/null 2>&1; then
+        if ! id -nG "$user" | grep -qw docker; then
+            usermod -aG docker "$user"
+            GROUPS_CHANGED=true
+            echo "✓ $user ajouté au groupe 'docker' (LibreTranslate)"
+        else
+            echo "✓ $user déjà dans le groupe 'docker'"
+        fi
+    fi
 done
 if [ "$GROUPS_CHANGED" = "true" ]; then
     echo ""
