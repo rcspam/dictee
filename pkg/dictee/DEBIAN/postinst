@@ -116,31 +116,32 @@ for lang in fr de es it uk pt; do
 done
 echo "Traductions installées"
 
-# Ajouter l'utilisateur aux groupes nécessaires
+# Ajouter les utilisateurs connectés aux groupes nécessaires
 echo ""
 echo "=== Groupes utilisateur ==="
 GROUPS_CHANGED=false
-REAL_USER="${SUDO_USER:-$(logname 2>/dev/null)}" || REAL_USER=""
-if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
-    if ! id -nG "$REAL_USER" | grep -qw input; then
-        usermod -aG input "$REAL_USER"
+for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    if ! id -nG "$user" | grep -qw input; then
+        usermod -aG input "$user"
         GROUPS_CHANGED=true
-        echo "✓ $REAL_USER ajouté au groupe 'input' (raccourcis clavier)"
+        echo "✓ $user ajouté au groupe 'input' (raccourcis clavier)"
     else
-        echo "✓ $REAL_USER déjà dans le groupe 'input'"
+        echo "✓ $user déjà dans le groupe 'input'"
     fi
     if command -v docker >/dev/null 2>&1; then
-        if ! id -nG "$REAL_USER" | grep -qw docker; then
-            usermod -aG docker "$REAL_USER"
-            echo "✓ $REAL_USER ajouté au groupe 'docker' (LibreTranslate)"
+        if ! id -nG "$user" | grep -qw docker; then
+            usermod -aG docker "$user"
+            echo "✓ $user ajouté au groupe 'docker' (LibreTranslate)"
         else
-            echo "✓ $REAL_USER déjà dans le groupe 'docker'"
+            echo "✓ $user déjà dans le groupe 'docker'"
         fi
     fi
-    if [ "$GROUPS_CHANGED" = "true" ]; then
-        echo ""
-        echo "⚠ Groupe(s) ajouté(s) — déconnectez-vous et reconnectez-vous pour activer les raccourcis clavier."
-    fi
+done
+if [ "$GROUPS_CHANGED" = "true" ]; then
+    echo ""
+    echo "⚠ Groupe(s) ajouté(s) — déconnectez-vous et reconnectez-vous pour activer les raccourcis clavier."
 fi
 
 # Corriger la règle udev dotool (0620 → 0660, dpkg ne remplace pas les conffiles)
