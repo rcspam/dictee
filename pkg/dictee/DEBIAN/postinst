@@ -155,9 +155,14 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
         _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
-        $_run systemctl --user preset dictee dictee-ptt dictee-tray 2>/dev/null || true
-        # Redémarrer les services actifs après upgrade
-        for svc in dictee dictee-vosk dictee-whisper dictee-tray dictee-ptt; do
+        $_run systemctl --user preset dictee dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        # Démarrer dotoold et dictee-ptt immédiatement
+        $_run systemctl --user enable --now dotoold 2>/dev/null || true
+        echo "  ↳ dotoold démarré"
+        $_run systemctl --user enable --now dictee-ptt 2>/dev/null || true
+        echo "  ↳ dictee-ptt démarré"
+        # Redémarrer les autres services actifs après upgrade
+        for svc in dictee dictee-vosk dictee-whisper dictee-tray; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 echo "  ↳ Redémarrage de $svc"
                 $_run systemctl --user restart "$svc" 2>/dev/null || true
