@@ -133,7 +133,16 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
 done
 if [ "$GROUPS_CHANGED" = "true" ]; then
     echo ""
-    echo "⚠ Groupe(s) ajouté(s) — déconnectez-vous et reconnectez-vous pour activer les raccourcis clavier."
+    echo "⚠ Groupe(s) ajouté(s) — redémarrez pour activer les raccourcis clavier."
+    # Notification desktop pour les installations graphiques
+    for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            notify-send -a "dictee" -i "dialog-information" \
+            "dictee installed" \
+            "Please reboot to activate keyboard shortcuts." 2>/dev/null || true
+    done
 fi
 
 # Corriger la règle udev dotool (0620 → 0660, dpkg ne remplace pas les conffiles)
