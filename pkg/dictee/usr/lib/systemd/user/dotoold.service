@@ -4,6 +4,7 @@ Documentation=https://git.sr.ht/~geb/dotool
 
 [Service]
 ExecStart=/usr/bin/dotoold
+SupplementaryGroups=input
 Restart=on-failure
 RestartSec=2
 

@@ -156,11 +156,18 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
         $_run systemctl --user preset dictee dictee-ptt dictee-tray dotoold 2>/dev/null || true
-        # Démarrer dotoold et dictee-ptt immédiatement
-        $_run systemctl --user enable --now dotoold 2>/dev/null || true
+        # Recharger les règles udev (permissions uinput pour dotoold)
+        udevadm trigger /dev/uinput 2>/dev/null || true
+        # Démarrer/redémarrer dotoold (avec SupplementaryGroups=input, pas besoin de re-login)
+        $_run systemctl --user enable dotoold 2>/dev/null || true
+        $_run systemctl --user restart dotoold 2>/dev/null || true
         echo "  ↳ dotoold démarré"
+        # Démarrer dictee-ptt
         $_run systemctl --user enable --now dictee-ptt 2>/dev/null || true
         echo "  ↳ dictee-ptt démarré"
+        # Démarrer le daemon ASR (Parakeet par défaut)
+        $_run systemctl --user enable --now dictee 2>/dev/null || true
+        echo "  ↳ dictee (daemon ASR) démarré"
         # Redémarrer les autres services actifs après upgrade
         for svc in dictee dictee-vosk dictee-whisper dictee-tray; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
