@@ -2166,6 +2166,9 @@ class DicteeSetupDialog(QDialog):
         )
         self.lbl_anim_warn.setWordWrap(True)
         self.lbl_anim_warn.setVisible(self.de_type == "gnome")
+        if self.de_type == "gnome":
+            self.chk_anim_speech.setEnabled(False)
+            self.chk_anim_speech.setChecked(False)
         lay_vis.addWidget(self.lbl_anim_warn)
 
         self.lbl_anim_status = QLabel()
@@ -2699,6 +2702,8 @@ class DicteeSetupDialog(QDialog):
             self.btn_install_anim.setVisible(False)
         else:
             self.btn_install_anim.setVisible(True)
+            if self.de_type == "gnome":
+                self.btn_install_anim.setEnabled(False)
 
         has_plasmoid = os.path.isdir(
             os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
