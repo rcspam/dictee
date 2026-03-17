@@ -6,6 +6,7 @@ BindsTo=graphical-session.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/dictee-ptt
+SupplementaryGroups=input
 Restart=on-failure
 RestartSec=3
 EnvironmentFile=-%h/.config/dictee.conf
