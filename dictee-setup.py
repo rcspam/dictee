@@ -981,7 +981,7 @@ class InstallThread(QThread):
             self.progress.emit(_("Installing…"))
             if pattern == ".deb":
                 result = subprocess.run(
-                    ["pkexec", "dpkg", "-i", dest],
+                    ["pkexec", "bash", "-c", f"dpkg -i '{dest}' && apt-get install -f -y"],
                     capture_output=True, text=True,
                 )
             elif pattern == ".rpm":
