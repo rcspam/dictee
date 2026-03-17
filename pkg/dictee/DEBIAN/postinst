@@ -119,10 +119,12 @@ echo "Traductions installées"
 # Ajouter l'utilisateur aux groupes nécessaires
 echo ""
 echo "=== Groupes utilisateur ==="
+GROUPS_CHANGED=false
 REAL_USER="${SUDO_USER:-$(logname 2>/dev/null)}" || REAL_USER=""
 if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
     if ! id -nG "$REAL_USER" | grep -qw input; then
         usermod -aG input "$REAL_USER"
+        GROUPS_CHANGED=true
         echo "✓ $REAL_USER ajouté au groupe 'input' (raccourcis clavier)"
     else
         echo "✓ $REAL_USER déjà dans le groupe 'input'"
@@ -135,6 +137,7 @@ if [ -n "$REAL_USER" ] && [ "$REAL_USER" != "root" ]; then
             echo "✓ $REAL_USER déjà dans le groupe 'docker'"
         fi
     fi
+    GROUPS_CHANGED=true
     echo ""
     echo "⚠ Si des groupes ont été ajoutés, déconnectez-vous et reconnectez-vous."
 fi
@@ -143,6 +146,7 @@ fi
 echo ""
 echo "=== Configuration udev ==="
 udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
 echo "Règles udev rechargées (dotool/uinput)"
 
 # Recharger les services systemd pour les utilisateurs connectés
@@ -156,18 +160,21 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
         $_run systemctl --user preset dictee dictee-ptt dictee-tray dotoold 2>/dev/null || true
-        # Recharger les règles udev (permissions uinput pour dotoold)
-        udevadm trigger /dev/uinput 2>/dev/null || true
-        # Démarrer/redémarrer dotoold (avec SupplementaryGroups=input, pas besoin de re-login)
-        $_run systemctl --user enable dotoold 2>/dev/null || true
-        $_run systemctl --user restart dotoold 2>/dev/null || true
-        echo "  ↳ dotoold démarré"
-        # Démarrer dictee-ptt
-        $_run systemctl --user enable --now dictee-ptt 2>/dev/null || true
-        echo "  ↳ dictee-ptt démarré"
-        # Démarrer le daemon ASR (Parakeet par défaut)
-        $_run systemctl --user enable --now dictee 2>/dev/null || true
+        # Activer tous les services essentiels
+        $_run systemctl --user enable dotoold dictee-ptt dictee 2>/dev/null || true
+        # Démarrer le daemon ASR (pas besoin du groupe input)
+        $_run systemctl --user start dictee 2>/dev/null || true
         echo "  ↳ dictee (daemon ASR) démarré"
+        # dotoold et dictee-ptt ont besoin du groupe input
+        # Si l'utilisateur vient d'être ajouté, ils ne pourront démarrer qu'après re-login
+        if [ "${GROUPS_CHANGED:-false}" = "false" ]; then
+            $_run systemctl --user restart dotoold 2>/dev/null || true
+            echo "  ↳ dotoold démarré"
+            $_run systemctl --user restart dictee-ptt 2>/dev/null || true
+            echo "  ↳ dictee-ptt démarré"
+        else
+            echo "  ⚠ dotoold et dictee-ptt démarreront après re-login (groupe input)"
+        fi
         # Redémarrer les autres services actifs après upgrade
         for svc in dictee dictee-vosk dictee-whisper dictee-tray; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
