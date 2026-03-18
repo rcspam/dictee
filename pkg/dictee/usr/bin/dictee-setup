@@ -26,7 +26,7 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip,
+        QToolTip, QGridLayout,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -35,7 +35,7 @@ except ImportError:
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
-        QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
+        QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip,
     )
@@ -941,56 +941,57 @@ class InstallThread(QThread):
     progress = Signal(str)
 
     def run(self):
+        import json
+        import urllib.request
+        import urllib.error
         try:
-            if not shutil.which("gh"):
-                self.finished.emit(
-                    False,
-                    _("The 'gh' tool (GitHub CLI) is required.\n"
-                      "Install it: sudo apt install gh && gh auth login"),
-                )
+            self.progress.emit(_("Checking latest release…"))
+            api_url = f"https://api.github.com/repos/{ANIMATION_SPEECH_REPO}/releases/latest"
+            req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    release = json.loads(resp.read().decode())
+            except urllib.error.URLError as e:
+                self.finished.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
+                return
+
+            assets = release.get("assets", [])
+            if not assets:
+                self.finished.emit(False, _("No assets found in the release."))
                 return
 
             tmp_dir = tempfile.mkdtemp(prefix="dictee-setup-")
-            is_deb = shutil.which("dpkg") is not None
+            if shutil.which("dpkg"):
+                pattern = ".deb"
+            elif shutil.which("rpm"):
+                pattern = ".rpm"
+            else:
+                pattern = ".tar.gz"
 
-            if is_deb:
+            asset = next((a for a in assets if a["name"].endswith(pattern)), None)
+            if not asset:
+                self.finished.emit(False,
+                    _("No {pat} found in the release.").format(pat=pattern))
+                return
+
+            self.progress.emit(_("Downloading…"))
+            dest = os.path.join(tmp_dir, asset["name"])
+            urllib.request.urlretrieve(asset["browser_download_url"], dest)
+
+            self.progress.emit(_("Installing…"))
+            if pattern == ".deb":
                 result = subprocess.run(
-                    ["gh", "release", "download", "--repo", ANIMATION_SPEECH_REPO,
-                     "--pattern", "*.deb", "--dir", tmp_dir],
+                    ["pkexec", "bash", "-c", f"dpkg -i '{dest}'; apt-get install -f -y"],
                     capture_output=True, text=True,
                 )
-                if result.returncode != 0:
-                    self.finished.emit(False, result.stderr.strip() or _("Download error (.deb)"))
-                    return
-
-                debs = [f for f in os.listdir(tmp_dir) if f.endswith(".deb")]
-                if not debs:
-                    self.finished.emit(False, _("No .deb found in the release."))
-                    return
-
-                self.progress.emit(_("Installing…"))
+            elif pattern == ".rpm":
                 result = subprocess.run(
-                    ["pkexec", "dpkg", "-i", os.path.join(tmp_dir, debs[0])],
+                    ["pkexec", "rpm", "-U", dest],
                     capture_output=True, text=True,
                 )
             else:
                 result = subprocess.run(
-                    ["gh", "release", "download", "--repo", ANIMATION_SPEECH_REPO,
-                     "--pattern", "*.tar.gz", "--dir", tmp_dir],
-                    capture_output=True, text=True,
-                )
-                if result.returncode != 0:
-                    self.finished.emit(False, result.stderr.strip() or _("Download error (.tar.gz)"))
-                    return
-
-                tarballs = [f for f in os.listdir(tmp_dir) if f.endswith(".tar.gz")]
-                if not tarballs:
-                    self.finished.emit(False, _("No .tar.gz found in the release."))
-                    return
-
-                self.progress.emit(_("Installing…"))
-                result = subprocess.run(
-                    ["pkexec", "tar", "xzf", os.path.join(tmp_dir, tarballs[0]), "-C", "/usr/local"],
+                    ["pkexec", "tar", "xzf", dest, "-C", "/usr/local"],
                     capture_output=True, text=True,
                 )
 
@@ -1225,7 +1226,7 @@ class DicteeSetupDialog(QDialog):
         self.setWindowTitle(_("Voice dictation configuration"))
         self.setMinimumSize(710, 680)
         self.resize(710, 700)
-        self.setWindowIcon(QIcon.fromTheme("audio-input-microphone"))
+        self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
         self._model_widgets = {}
@@ -1233,6 +1234,7 @@ class DicteeSetupDialog(QDialog):
         self._venv_threads = {}
         self._audio_monitor = None
         self._test_thread = None
+        self._dirty = True  # config non enregistrée au départ
 
         self.conf = load_config()
 
@@ -1368,6 +1370,12 @@ class DicteeSetupDialog(QDialog):
         lay_buttons.addWidget(btn_ok)
 
         outer_layout.addLayout(lay_buttons)
+
+        # Marquer _dirty dès qu'un widget de config change
+        for w in content.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._mark_dirty)
+        for w in content.findChildren(QCheckBox):
+            w.toggled.connect(self._mark_dirty)
 
         content_h = content.sizeHint().height()
         buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
@@ -1507,6 +1515,79 @@ class DicteeSetupDialog(QDialog):
                         return False
         return True
 
+    # -- Project logos grid --
+
+    def _build_project_logos(self):
+        """Grille de logos des projets sous-jacents pour la page d'accueil."""
+        from PyQt6.QtCore import QByteArray
+        if not ASSETS_DIR:
+            return None
+        logos_dir = os.path.join(ASSETS_DIR, "logos")
+        if not os.path.isdir(logos_dir):
+            return None
+
+        projects = [
+            ("parakeet.svg", "Parakeet"),
+            ("kde-plasma.svg", "Plasma 6 plasmoid"),
+            ("libretranslate.svg", "LibreTranslate"),
+        ]
+
+        container = QWidget()
+        grid = QGridLayout(container)
+        grid.setSpacing(16)
+        grid.setContentsMargins(0, 0, 0, 0)
+
+        col = 0
+        row = 0
+        for fname, label_text in projects:
+            svg_path = os.path.join(logos_dir, fname)
+            if not os.path.isfile(svg_path):
+                continue
+
+            # Charger le SVG
+            with open(svg_path, "rb") as f:
+                svg_data = f.read()
+            img = QImage()
+            img.loadFromData(QByteArray(svg_data))
+            pix = QPixmap.fromImage(img)
+            pix = pix.scaledToWidth(64, Qt.TransformationMode.SmoothTransformation)
+
+            # Widget empilé : icône + nom
+            cell = QWidget()
+            cell_lay = QVBoxLayout(cell)
+            cell_lay.setSpacing(4)
+            cell_lay.setContentsMargins(8, 4, 8, 4)
+
+            lbl_icon = QLabel()
+            lbl_icon.setPixmap(pix)
+            lbl_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cell_lay.addWidget(lbl_icon)
+
+            lbl_name = QLabel(label_text)
+            lbl_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_name.setStyleSheet("font-size: 13px; opacity: 0.7;")
+            cell_lay.addWidget(lbl_name)
+
+            grid.addWidget(cell, row, col)
+            col += 1
+            if col >= 3:
+                col = 0
+                row += 1
+
+        # Centrer la rangée du bas (2 éléments sur 3 colonnes)
+        if row == 1 and col <= 2:
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(2, 1)
+
+        # Wrapper pour centrer horizontalement la grille
+        wrapper = QWidget()
+        wrapper_lay = QHBoxLayout(wrapper)
+        wrapper_lay.setContentsMargins(0, 0, 0, 0)
+        wrapper_lay.addStretch()
+        wrapper_lay.addWidget(container)
+        wrapper_lay.addStretch()
+        return wrapper
+
     # -- Wizard Page 0: Welcome / Logo --
 
     def _build_wizard_page0(self):
@@ -1517,10 +1598,10 @@ class DicteeSetupDialog(QDialog):
 
         lay.addStretch(2)
 
-        # Logo banner centré (grand)
+        # Logo banner à gauche (grand)
         lbl_logo = QLabel()
         lbl_logo.setPixmap(self._logo_pixmap(560))
-        lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_logo.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(lbl_logo)
 
         # Version
@@ -1529,7 +1610,14 @@ class DicteeSetupDialog(QDialog):
         lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
         lay.addWidget(lbl_ver)
 
-        lay.addSpacing(28)
+        lay.addSpacing(16)
+
+        # Grille de logos des projets sous-jacents
+        logos_widget = self._build_project_logos()
+        if logos_widget:
+            lay.addWidget(logos_widget)
+
+        lay.addSpacing(16)
 
         # Tagline — headline + subtitle
         lbl_headline = QLabel(
@@ -1806,7 +1894,7 @@ class DicteeSetupDialog(QDialog):
 
     @staticmethod
     def _card_style(selected):
-        children = "QFrame#radioCard * { border: none; background: transparent; }"
+        children = "QFrame#radioCard * { border: none; background: transparent; color: #eee; }"
         if selected:
             return (children +
                     " QFrame#radioCard { border: 2px solid #5566ff; border-radius: 8px;"
@@ -2068,6 +2156,20 @@ class DicteeSetupDialog(QDialog):
         lay_vis.addWidget(self.chk_anim_speech)
         lay_vis.addWidget(self.chk_plasmoid)
         lay_vis.addWidget(self.chk_gnome_ext)
+
+        # Avertissement GNOME / compositors sans wlr-layer-shell
+        self.lbl_anim_warn = QLabel(
+            '<span style="color: orange;">⚠ '
+            + _("animation-speech requires a Wayland compositor with layer-shell support "
+                "(KDE, Sway, Hyprland…). It does not work on GNOME.")
+            + '</span>'
+        )
+        self.lbl_anim_warn.setWordWrap(True)
+        self.lbl_anim_warn.setVisible(self.de_type == "gnome")
+        if self.de_type == "gnome":
+            self.chk_anim_speech.setEnabled(False)
+            self.chk_anim_speech.setChecked(False)
+        lay_vis.addWidget(self.lbl_anim_warn)
 
         self.lbl_anim_status = QLabel()
         self.lbl_anim_status.setWordWrap(True)
@@ -2514,6 +2616,7 @@ class DicteeSetupDialog(QDialog):
             self._ptt_key = code
             self.btn_capture.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture._changed = True
+            self._dirty = True
             self._check_ptt_warning(code, self.lbl_ptt_warning)
         else:
             key_str = seq.toString() if seq else "?"
@@ -2530,6 +2633,7 @@ class DicteeSetupDialog(QDialog):
             self._ptt_key_translate = code
             self.btn_capture_translate.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture_translate._changed = True
+            self._dirty = True
         else:
             key_str = seq.toString() if seq else "?"
             self.btn_capture_translate.setText(
@@ -2598,6 +2702,8 @@ class DicteeSetupDialog(QDialog):
             self.btn_install_anim.setVisible(False)
         else:
             self.btn_install_anim.setVisible(True)
+            if self.de_type == "gnome":
+                self.btn_install_anim.setEnabled(False)
 
         has_plasmoid = os.path.isdir(
             os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
@@ -2887,6 +2993,9 @@ class DicteeSetupDialog(QDialog):
             btn.setEnabled(True)
             QMessageBox.critical(self, _("Installation error"), message)
 
+    def _mark_dirty(self):
+        self._dirty = True
+
     # -- Appliquer --
 
     def _on_apply(self):
@@ -2999,6 +3108,8 @@ class DicteeSetupDialog(QDialog):
             shortcut_msg = "\n" + _("PTT key: {key} ({mode})").format(
                 key=linux_keycode_name(ptt_key), mode=ptt_mode)
 
+        self._dirty = False
+
         if not self.wizard_mode:
             QMessageBox.information(
                 self,
@@ -3007,7 +3118,8 @@ class DicteeSetupDialog(QDialog):
             )
 
     def _on_ok(self):
-        self._on_apply()
+        if self._dirty:
+            self._on_apply()
         self.accept()
 
 
@@ -3015,6 +3127,8 @@ def main():
     wizard_flag = "--wizard" in sys.argv
     app = QApplication([])
     app.setApplicationName("dictee-setup")
+    app.setDesktopFileName("dictee-setup")
+    app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
     dialog = DicteeSetupDialog(wizard=wizard_flag)
     dialog.exec()
 

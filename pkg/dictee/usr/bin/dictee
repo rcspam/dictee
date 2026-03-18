@@ -185,7 +185,9 @@ check_dependencies() {
     command -v pw-record >/dev/null || missing+=("pipewire")
     # wl-copy / xclip / xsel est optionnel (copie dans le presse-papier en bonus)
     command -v dotool >/dev/null || missing+=("dotool")
-    command -v pactl >/dev/null || missing+=("pulseaudio-utils")
+    if ! command -v pactl >/dev/null; then
+        missing+=("pulseaudio-utils or pipewire-pulse")
+    fi
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
 
     # Vérifier le backend de traduction si --translate
@@ -244,6 +246,7 @@ cleanup_on_error() {
 
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
 
+    write_state "idle"
     exit $exit_code
 }
 
@@ -259,7 +262,7 @@ translate() {
     case "$backend" in
     trans)
         local engine="${DICTEE_TRANS_ENGINE:-google}"
-        echo "$text" | trans -b -e "$engine" "${LANG_SOURCE}:${LANG_TARGET}"
+        echo "$text" | timeout 15 trans -b -e "$engine" "${LANG_SOURCE}:${LANG_TARGET}"
         ;;
     libretranslate)
         local port="${DICTEE_LIBRETRANSLATE_PORT:-5000}"
@@ -290,7 +293,7 @@ Produce only the ${LANG_TARGET} translation, without any additional explanations
 ${text}"
         # Ajouter :latest seulement si pas de tag explicite
         [[ "$model" == *:* ]] || model="${model}:latest"
-        ollama run "$model" "$prompt" 2>/dev/null
+        timeout 30 ollama run "$model" "$prompt" 2>/dev/null
         ;;
     *)
         echo "Backend traduction inconnu: $backend" >&2
@@ -397,14 +400,26 @@ if [ -f "$PIDFILE" ]; then
             notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
         fi
 
-        translated=$(translate "$transcribed" "$TRANSLATE_BACKEND")
-        copy_to_clipboard "$translated"
-        printf 'type %s' "$translated" | dotool 2>/dev/null
+        translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>/dev/null) || translated=""
+        if [ -n "$translated" ]; then
+            copy_to_clipboard "$translated"
+            printf 'type %s' "$translated" | dotool 2>/dev/null
 
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            if [ -n "$id" ]; then
+                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            else
+                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            fi
         else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            # Traduction échouée — taper le texte original
+            copy_to_clipboard "$transcribed"
+            printf 'type %s' "$transcribed" | dotool 2>/dev/null
+
+            if [ -n "$id" ]; then
+                notify-send --replace-id="$id" -t 5000 -i dialog-warning-symbolic -a Dictee "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            else
+                notify-send -t 5000 -i dialog-warning-symbolic -a Dictee "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            fi
         fi
     else
         # Copier directement
