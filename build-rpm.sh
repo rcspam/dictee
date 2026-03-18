@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.1.0"
+VERSION="1.1.2"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -67,6 +67,19 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/transcribe-daemon-vosk" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$buildroot/usr/bin/"
     chmod 755 "$buildroot/usr/bin/"*
+
+    # Patcher shebangs pour packaging RPM (guidelines Fedora)
+    # /usr/bin/env python3 → /usr/bin/python3 pour utiliser le Python système
+    sed -i '1s|^#!/usr/bin/env python3|#!/usr/bin/python3|' \
+        "$buildroot/usr/bin/dictee-setup" \
+        "$buildroot/usr/bin/dictee-tray" \
+        "$buildroot/usr/bin/dictee-ptt" \
+        "$buildroot/usr/bin/dictee-postprocess" \
+        "$buildroot/usr/bin/transcribe-daemon-vosk" \
+        "$buildroot/usr/bin/transcribe-daemon-whisper" \
+        "$buildroot/usr/bin/dictee-plasmoid-level" \
+        "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \
+        "$buildroot/usr/bin/dictee-plasmoid-level-fft"
 
     # Udev
     mkdir -p "$buildroot/etc/udev/rules.d"
@@ -153,9 +166,9 @@ Requires:       python3
 Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
-Requires:       python3-pyqt6
-Requires:       python3-qt6-multimedia
-Requires:       python3-qt6-svg
+Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
+Recommends:     python3-qt6-PyQt6-Multimedia
+Recommends:     python3-qt6-PyQt6-sip
 Recommends:     nvidia-gpu-firmware
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
@@ -239,9 +252,9 @@ Requires:       python3
 Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
-Requires:       python3-pyqt6
-Requires:       python3-qt6-multimedia
-Requires:       python3-qt6-svg
+Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
+Recommends:     python3-qt6-PyQt6-Multimedia
+Recommends:     python3-qt6-PyQt6-sip
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
 Recommends:     xclip
