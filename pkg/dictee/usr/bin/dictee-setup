@@ -941,56 +941,57 @@ class InstallThread(QThread):
     progress = Signal(str)
 
     def run(self):
+        import json
+        import urllib.request
+        import urllib.error
         try:
-            if not shutil.which("gh"):
-                self.finished.emit(
-                    False,
-                    _("The 'gh' tool (GitHub CLI) is required.\n"
-                      "Install it: sudo apt install gh && gh auth login"),
-                )
+            self.progress.emit(_("Checking latest release…"))
+            api_url = f"https://api.github.com/repos/{ANIMATION_SPEECH_REPO}/releases/latest"
+            req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    release = json.loads(resp.read().decode())
+            except urllib.error.URLError as e:
+                self.finished.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
+                return
+
+            assets = release.get("assets", [])
+            if not assets:
+                self.finished.emit(False, _("No assets found in the release."))
                 return
 
             tmp_dir = tempfile.mkdtemp(prefix="dictee-setup-")
-            is_deb = shutil.which("dpkg") is not None
+            if shutil.which("dpkg"):
+                pattern = ".deb"
+            elif shutil.which("rpm"):
+                pattern = ".rpm"
+            else:
+                pattern = ".tar.gz"
 
-            if is_deb:
+            asset = next((a for a in assets if a["name"].endswith(pattern)), None)
+            if not asset:
+                self.finished.emit(False,
+                    _("No {pat} found in the release.").format(pat=pattern))
+                return
+
+            self.progress.emit(_("Downloading…"))
+            dest = os.path.join(tmp_dir, asset["name"])
+            urllib.request.urlretrieve(asset["browser_download_url"], dest)
+
+            self.progress.emit(_("Installing…"))
+            if pattern == ".deb":
                 result = subprocess.run(
-                    ["gh", "release", "download", "--repo", ANIMATION_SPEECH_REPO,
-                     "--pattern", "*.deb", "--dir", tmp_dir],
+                    ["pkexec", "bash", "-c", f"dpkg -i '{dest}'; apt-get install -f -y"],
                     capture_output=True, text=True,
                 )
-                if result.returncode != 0:
-                    self.finished.emit(False, result.stderr.strip() or _("Download error (.deb)"))
-                    return
-
-                debs = [f for f in os.listdir(tmp_dir) if f.endswith(".deb")]
-                if not debs:
-                    self.finished.emit(False, _("No .deb found in the release."))
-                    return
-
-                self.progress.emit(_("Installing…"))
+            elif pattern == ".rpm":
                 result = subprocess.run(
-                    ["pkexec", "dpkg", "-i", os.path.join(tmp_dir, debs[0])],
+                    ["pkexec", "rpm", "-U", dest],
                     capture_output=True, text=True,
                 )
             else:
                 result = subprocess.run(
-                    ["gh", "release", "download", "--repo", ANIMATION_SPEECH_REPO,
-                     "--pattern", "*.tar.gz", "--dir", tmp_dir],
-                    capture_output=True, text=True,
-                )
-                if result.returncode != 0:
-                    self.finished.emit(False, result.stderr.strip() or _("Download error (.tar.gz)"))
-                    return
-
-                tarballs = [f for f in os.listdir(tmp_dir) if f.endswith(".tar.gz")]
-                if not tarballs:
-                    self.finished.emit(False, _("No .tar.gz found in the release."))
-                    return
-
-                self.progress.emit(_("Installing…"))
-                result = subprocess.run(
-                    ["pkexec", "tar", "xzf", os.path.join(tmp_dir, tarballs[0]), "-C", "/usr/local"],
+                    ["pkexec", "tar", "xzf", dest, "-C", "/usr/local"],
                     capture_output=True, text=True,
                 )
 
@@ -1225,7 +1226,7 @@ class DicteeSetupDialog(QDialog):
         self.setWindowTitle(_("Voice dictation configuration"))
         self.setMinimumSize(710, 680)
         self.resize(710, 700)
-        self.setWindowIcon(QIcon.fromTheme("audio-input-microphone"))
+        self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
         self._model_widgets = {}
@@ -1893,7 +1894,7 @@ class DicteeSetupDialog(QDialog):
 
     @staticmethod
     def _card_style(selected):
-        children = "QFrame#radioCard * { border: none; background: transparent; }"
+        children = "QFrame#radioCard * { border: none; background: transparent; color: #eee; }"
         if selected:
             return (children +
                     " QFrame#radioCard { border: 2px solid #5566ff; border-radius: 8px;"
@@ -2155,6 +2156,20 @@ class DicteeSetupDialog(QDialog):
         lay_vis.addWidget(self.chk_anim_speech)
         lay_vis.addWidget(self.chk_plasmoid)
         lay_vis.addWidget(self.chk_gnome_ext)
+
+        # Avertissement GNOME / compositors sans wlr-layer-shell
+        self.lbl_anim_warn = QLabel(
+            '<span style="color: orange;">⚠ '
+            + _("animation-speech requires a Wayland compositor with layer-shell support "
+                "(KDE, Sway, Hyprland…). It does not work on GNOME.")
+            + '</span>'
+        )
+        self.lbl_anim_warn.setWordWrap(True)
+        self.lbl_anim_warn.setVisible(self.de_type == "gnome")
+        if self.de_type == "gnome":
+            self.chk_anim_speech.setEnabled(False)
+            self.chk_anim_speech.setChecked(False)
+        lay_vis.addWidget(self.lbl_anim_warn)
 
         self.lbl_anim_status = QLabel()
         self.lbl_anim_status.setWordWrap(True)
@@ -2687,6 +2702,8 @@ class DicteeSetupDialog(QDialog):
             self.btn_install_anim.setVisible(False)
         else:
             self.btn_install_anim.setVisible(True)
+            if self.de_type == "gnome":
+                self.btn_install_anim.setEnabled(False)
 
         has_plasmoid = os.path.isdir(
             os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
@@ -3110,6 +3127,8 @@ def main():
     wizard_flag = "--wizard" in sys.argv
     app = QApplication([])
     app.setApplicationName("dictee-setup")
+    app.setDesktopFileName("dictee-setup")
+    app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
     dialog = DicteeSetupDialog(wizard=wizard_flag)
     dialog.exec()
 

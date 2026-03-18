@@ -1289,48 +1289,57 @@ class InstallThread(QThread):
     progress = Signal(str)
 
     def run(self):
-        from urllib.request import urlopen, Request
-        import json as _json
+        import json
+        import urllib.request
+        import urllib.error
         try:
-            tmp_dir = tempfile.mkdtemp(prefix="dictee-setup-")
-            is_deb = shutil.which("dpkg") is not None
-
-            # Récupérer l'URL du dernier release via l'API GitHub (pas besoin de gh)
-            self.progress.emit(_("Fetching latest release…"))
+            self.progress.emit(_("Checking latest release…"))
             api_url = f"https://api.github.com/repos/{ANIMATION_SPEECH_REPO}/releases/latest"
-            req = Request(api_url, headers={"Accept": "application/vnd.github+json"})
-            with urlopen(req, timeout=15) as resp:
-                release = _json.loads(resp.read())
-
-            ext = ".deb" if is_deb else ".tar.gz"
-            asset_url = None
-            asset_name = None
-            for asset in release.get("assets", []):
-                if asset["name"].endswith(ext):
-                    asset_url = asset["browser_download_url"]
-                    asset_name = asset["name"]
-                    break
-
-            if not asset_url:
-                self.finished.emit(False, _("No {ext} found in the release.").format(ext=ext))
+            req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    release = json.loads(resp.read().decode())
+            except urllib.error.URLError as e:
+                self.finished.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
                 return
 
-            # Télécharger le fichier
-            self.progress.emit(_("Downloading {name}…").format(name=asset_name))
-            local_path = os.path.join(tmp_dir, asset_name)
-            from urllib.request import urlretrieve
-            urlretrieve(asset_url, local_path)
+            assets = release.get("assets", [])
+            if not assets:
+                self.finished.emit(False, _("No assets found in the release."))
+                return
 
-            # Installer
+            tmp_dir = tempfile.mkdtemp(prefix="dictee-setup-")
+            if shutil.which("dpkg"):
+                pattern = ".deb"
+            elif shutil.which("rpm"):
+                pattern = ".rpm"
+            else:
+                pattern = ".tar.gz"
+
+            asset = next((a for a in assets if a["name"].endswith(pattern)), None)
+            if not asset:
+                self.finished.emit(False,
+                    _("No {pat} found in the release.").format(pat=pattern))
+                return
+
+            self.progress.emit(_("Downloading…"))
+            dest = os.path.join(tmp_dir, asset["name"])
+            urllib.request.urlretrieve(asset["browser_download_url"], dest)
+
             self.progress.emit(_("Installing…"))
-            if is_deb:
+            if pattern == ".deb":
                 result = subprocess.run(
-                    ["pkexec", "dpkg", "-i", local_path],
+                    ["pkexec", "bash", "-c", f"dpkg -i '{dest}'; apt-get install -f -y"],
+                    capture_output=True, text=True,
+                )
+            elif pattern == ".rpm":
+                result = subprocess.run(
+                    ["pkexec", "rpm", "-U", dest],
                     capture_output=True, text=True,
                 )
             else:
                 result = subprocess.run(
-                    ["pkexec", "tar", "xzf", local_path, "-C", "/usr/local"],
+                    ["pkexec", "tar", "xzf", dest, "-C", "/usr/local"],
                     capture_output=True, text=True,
                 )
 
@@ -1581,9 +1590,9 @@ class DicteeSetupDialog(QDialog):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumSize(790, 680)
-        self.resize(790, 700)
-        self.setWindowIcon(QIcon.fromTheme("audio-input-microphone"))
+        self.setMinimumSize(710, 680)
+        self.resize(710, 700)
+        self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
         self._model_widgets = {}
@@ -2276,33 +2285,17 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(lbl_desc)
         return card
 
-    def _card_style(self, selected):
-        # Utiliser la palette Qt pour supporter thème clair et sombre
-        palette = self.palette() if hasattr(self, 'palette') else None
-        if palette:
-            base = palette.base().color()
-            is_dark = base.lightness() < 128
-        else:
-            is_dark = True
-        children = "QFrame#radioCard * { border: none; background: transparent; }"
+    @staticmethod
+    def _card_style(selected):
+        children = "QFrame#radioCard * { border: none; background: transparent; color: #eee; }"
         if selected:
-            if is_dark:
-                return (children +
-                        " QFrame#radioCard { border: 2px solid #5566ff; border-radius: 8px;"
-                        " background: #252545; padding: 4px; }")
-            else:
-                return (children +
-                        " QFrame#radioCard { border: 2px solid #3355cc; border-radius: 8px;"
-                        " background: #dde0f8; padding: 4px; }")
-        if is_dark:
             return (children +
-                    " QFrame#radioCard { border: 1px solid #444; border-radius: 8px;"
-                    " background: #1a1a2e; padding: 4px; }"
-                    " QFrame#radioCard:hover { border: 1px solid #666; }")
+                    " QFrame#radioCard { border: 2px solid #5566ff; border-radius: 8px;"
+                    " background: #252545; padding: 4px; }")
         return (children +
-                " QFrame#radioCard { border: 1px solid #bbb; border-radius: 8px;"
-                " background: #f0f0f5; padding: 4px; }"
-                " QFrame#radioCard:hover { border: 1px solid #888; }")
+                " QFrame#radioCard { border: 1px solid #444; border-radius: 8px;"
+                " background: #1a1a2e; padding: 4px; }"
+                " QFrame#radioCard:hover { border: 1px solid #666; }")
 
     def _build_shortcut_section(self, lay_sc):
         """Builds the PTT keyboard shortcut widgets into the given layout."""
@@ -2661,6 +2654,20 @@ class DicteeSetupDialog(QDialog):
         lay_vis.addWidget(self.chk_anim_speech)
         lay_vis.addWidget(self.chk_plasmoid)
         lay_vis.addWidget(self.chk_gnome_ext)
+
+        # Avertissement GNOME / compositors sans wlr-layer-shell
+        self.lbl_anim_warn = QLabel(
+            '<span style="color: orange;">⚠ '
+            + _("animation-speech requires a Wayland compositor with layer-shell support "
+                "(KDE, Sway, Hyprland…). It does not work on GNOME.")
+            + '</span>'
+        )
+        self.lbl_anim_warn.setWordWrap(True)
+        self.lbl_anim_warn.setVisible(self.de_type == "gnome")
+        if self.de_type == "gnome":
+            self.chk_anim_speech.setEnabled(False)
+            self.chk_anim_speech.setChecked(False)
+        lay_vis.addWidget(self.lbl_anim_warn)
 
         self.lbl_anim_status = QLabel()
         self.lbl_anim_status.setWordWrap(True)
@@ -3479,6 +3486,8 @@ class DicteeSetupDialog(QDialog):
             self.btn_install_anim.setVisible(False)
         else:
             self.btn_install_anim.setVisible(True)
+            if self.de_type == "gnome":
+                self.btn_install_anim.setEnabled(False)
 
         has_plasmoid = os.path.isdir(
             os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
@@ -4184,6 +4193,8 @@ def main():
     wizard_flag = "--wizard" in sys.argv
     app = QApplication([])
     app.setApplicationName("dictee-setup")
+    app.setDesktopFileName("dictee-setup")
+    app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
     dialog = DicteeSetupDialog(wizard=wizard_flag)
     dialog.exec()
 

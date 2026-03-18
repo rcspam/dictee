@@ -185,7 +185,9 @@ check_dependencies() {
     command -v pw-record >/dev/null || missing+=("pipewire")
     # wl-copy / xclip / xsel est optionnel (copie dans le presse-papier en bonus)
     command -v dotool >/dev/null || missing+=("dotool")
-    command -v pactl >/dev/null || missing+=("pulseaudio-utils")
+    if ! command -v pactl >/dev/null; then
+        missing+=("pulseaudio-utils or pipewire-pulse")
+    fi
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
 
     # Vérifier le backend de traduction si --translate

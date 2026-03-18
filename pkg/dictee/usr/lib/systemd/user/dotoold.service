@@ -1,0 +1,11 @@
+[Unit]
+Description=dotool daemon (virtual keyboard input)
+Documentation=https://git.sr.ht/~geb/dotool
+
+[Service]
+ExecStart=/usr/bin/dotoold
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
