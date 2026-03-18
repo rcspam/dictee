@@ -11,8 +11,10 @@ depends=(
     'pipewire'
     'dotool'
     'libnotify'
+    'libpulse'
     'python-pyqt6'
     'python-pyqt6-multimedia'
+    'python-pyqt6-svg'
 )
 optdepends=(
     'python-evdev: dictee-ptt key grab (recommended)'
@@ -21,9 +23,9 @@ optdepends=(
     'curl: LibreTranslate translation'
     'translate-shell: translation via Google/Bing'
     'python-numpy: plasmoid audio visualization'
-    'pulseaudio-utils: audio control (pactl)'
     'ollama: 100% local translation'
     'docker: LibreTranslate local translation'
+    'libayatana-appindicator: GNOME tray icon support'
 )
 makedepends=('rust' 'cargo' 'go' 'scdoc' 'libxkbcommon' 'git')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v$pkgver.tar.gz")

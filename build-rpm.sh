@@ -147,10 +147,12 @@ URL:            https://github.com/rcspam/dictee
 Group:          Applications/Multimedia
 
 Requires:       python3
-Requires:       (pipewire or pulseaudio-utils or alsa-utils)
+Requires:       pulseaudio-utils
+Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       python3-pyqt6
 Requires:       python3-qt6-multimedia
+Requires:       python3-qt6-svg
 Recommends:     nvidia-gpu-firmware
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
@@ -159,6 +161,7 @@ Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
+Recommends:     libayatana-appindicator-gtk3
 Conflicts:      dictee-cpu
 Provides:       dictee = $VERSION
 
@@ -230,10 +233,12 @@ URL:            https://github.com/rcspam/dictee
 Group:          Applications/Multimedia
 
 Requires:       python3
-Requires:       (pipewire or pulseaudio-utils or alsa-utils)
+Requires:       pulseaudio-utils
+Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       python3-pyqt6
 Requires:       python3-qt6-multimedia
+Requires:       python3-qt6-svg
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
 Recommends:     xclip
@@ -241,6 +246,7 @@ Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
+Recommends:     libayatana-appindicator-gtk3
 Conflicts:      dictee-cuda
 Provides:       dictee = $VERSION
 
