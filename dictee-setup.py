@@ -1226,7 +1226,7 @@ class DicteeSetupDialog(QDialog):
         self.setWindowTitle(_("Voice dictation configuration"))
         self.setMinimumSize(710, 680)
         self.resize(710, 700)
-        self.setWindowIcon(QIcon.fromTheme("dictee"))
+        self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
         self._model_widgets = {}
@@ -3128,7 +3128,7 @@ def main():
     app = QApplication([])
     app.setApplicationName("dictee-setup")
     app.setDesktopFileName("dictee-setup")
-    app.setWindowIcon(QIcon.fromTheme("dictee"))
+    app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
     dialog = DicteeSetupDialog(wizard=wizard_flag)
     dialog.exec()
 
