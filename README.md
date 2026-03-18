@@ -54,10 +54,10 @@ Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
 # GPU version (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_1.1.0_amd64.deb
+sudo dpkg -i dictee-cuda_1.1.2_amd64.deb
 
 # CPU version (any computer)
-sudo dpkg -i dictee-cpu_1.1.0_amd64.deb
+sudo dpkg -i dictee-cpu_1.1.2_amd64.deb
 
 # Install missing dependencies
 sudo apt-get install -f
@@ -67,10 +67,10 @@ sudo apt-get install -f
 
 ```bash
 # GPU version (NVIDIA CUDA)
-sudo dnf install ./dictee-cuda-1.1.0-1.x86_64.rpm
+sudo dnf install ./dictee-cuda-1.1.2-1.x86_64.rpm
 
 # CPU version (any computer)
-sudo dnf install ./dictee-cpu-1.1.0-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.1.2-1.x86_64.rpm
 ```
 
 **Arch Linux (AUR):**
@@ -84,16 +84,16 @@ Pre-built packages are x86_64 only. On aarch64 (Raspberry Pi 5, Ampere, etc.), b
 **Other distributions (.tar.gz):**
 
 ```bash
-tar xzf dictee-1.1.0_amd64.tar.gz
-cd dictee-1.1.0
+tar xzf dictee-1.1.2_amd64.tar.gz
+cd dictee-1.1.2
 sudo ./install.sh
 ```
 
 **From source:**
 
 ```bash
-tar xzf dictee-1.1.0-source.tar.gz
-cd dictee-1.1.0-source
+tar xzf dictee-1.1.2-source.tar.gz
+cd dictee-1.1.2-source
 cargo build --release --features sortformer
 sudo ./install.sh
 ```
