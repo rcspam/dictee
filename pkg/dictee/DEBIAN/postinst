@@ -154,6 +154,14 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
     done
 fi
 
+# Rafraîchir le cache d'icônes (nécessaire sur GNOME)
+echo ""
+echo "=== Cache d'icônes ==="
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    echo "Cache d'icônes mis à jour"
+fi
+
 # Corriger la règle udev dotool (0620 → 0660, dpkg ne remplace pas les conffiles)
 echo ""
 echo "=== Configuration udev ==="
