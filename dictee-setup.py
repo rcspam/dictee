@@ -3364,7 +3364,7 @@ class DicteeSetupDialog(QDialog):
 
     def _load_dict_form(self):
         """Vide et reconstruit le formulaire dictionnaire (fichier unique)."""
-        # Vider le layout — détacher immédiatement
+        # Vider le layout — détacher immédiatement puis supprimer
         layout = self._dict_layout
         while layout.count():
             item = layout.takeAt(0)
@@ -3372,10 +3372,11 @@ class DicteeSetupDialog(QDialog):
             if w:
                 w.setParent(None)
                 w.deleteLater()
-            elif item.spacerItem():
-                pass  # les spacers sont supprimés par takeAt
 
         self._dict_rows.clear()
+
+        # Forcer le nettoyage visuel avant de reconstruire
+        QApplication.processEvents()
 
         # Collecter toutes les langues pour le filtre
         all_langs = set()
