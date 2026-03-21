@@ -65,6 +65,14 @@ SYSTEM_DICT_CANDIDATES = [
     os.path.join(XDG_DATA, "dictee", "dictionary.conf.default"),
 ]
 
+SYSTEM_CONT_CANDIDATES = [
+    os.path.join(_SCRIPT_DIR, "continuation.conf.default"),
+    "/usr/share/dictee/continuation.conf.default",
+    os.path.join(XDG_DATA, "dictee", "continuation.conf.default"),
+]
+
+USER_CONT = os.path.join(XDG_CONFIG, "dictee", "continuation.conf")
+
 LANG = os.environ.get("DICTEE_LANG_SOURCE", "").lower()[:2]
 
 
@@ -152,6 +160,54 @@ def apply_rules(text, rules):
     for pattern, replacement in rules:
         text = pattern.sub(replacement, text)
     return text
+
+
+# ── Continuation (suppression points erronés après mots de classe fermée) ──
+
+_CONT_LINE_RE = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+)$")
+
+def _parse_continuation(path):
+    words = set()
+    if not os.path.isfile(path):
+        return words
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = _CONT_LINE_RE.match(line)
+            if not m:
+                continue
+            lang_tag, word_list = m.groups()
+            if lang_tag != "*" and LANG and lang_tag != LANG:
+                continue
+            for w in word_list.split():
+                words.add(w.lower())
+    return words
+
+def load_continuation():
+    words = set()
+    for candidate in SYSTEM_CONT_CANDIDATES:
+        if os.path.isfile(candidate):
+            words.update(_parse_continuation(candidate))
+            break
+    words.update(_parse_continuation(USER_CONT))
+    return words
+
+def fix_continuation(text, continuation_words):
+    """Supprime les points erronés après un mot de continuation.
+    Préserve la casse du mot suivant (noms propres)."""
+    if not continuation_words:
+        return text
+
+    def _fix(m):
+        word = m.group(1)
+        after_char = m.group(2)
+        if word.lower() in continuation_words:
+            return word + " " + after_char
+        return m.group(0)
+
+    return re.sub(r"(\w+)\.[ \t]+([A-Za-zÀ-ÿ])", _fix, text)
 
 
 # ── Élisions françaises avancées ─────────────────────────────────────
@@ -480,6 +536,11 @@ def main():
             if LANG in _CYRILLIC_LANGS and ratio < 0.2:
                 sys.stdout.write("")
                 return
+
+    # 5c. Continuation (suppression points erronés après mots de classe fermée)
+    continuation_words = load_continuation()
+    if continuation_words:
+        text = fix_continuation(text, continuation_words)
 
     # 6. Élisions françaises avancées (avec h aspirés)
     if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):

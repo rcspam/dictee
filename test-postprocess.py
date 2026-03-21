@@ -1249,6 +1249,78 @@ if [ -f "$LAST_WORD_FILE" ]; then cat "$LAST_WORD_FILE"; else echo "DELETED"; fi
         self.assertEqual(self._run("Oui"), "_:Oui")
 
 
+class TestFixContinuationPython(unittest.TestCase):
+    """Tests pour fix_continuation() dans dictee-postprocess.py."""
+
+    def _load(self, lang="fr"):
+        import importlib
+        spec = importlib.util.spec_from_file_location(
+            "dictee_postprocess", POSTPROCESS)
+        pp = importlib.util.module_from_spec(spec)
+        old_lang = os.environ.get("DICTEE_LANG_SOURCE", "")
+        os.environ["DICTEE_LANG_SOURCE"] = lang
+        try:
+            spec.loader.exec_module(pp)
+        finally:
+            if old_lang:
+                os.environ["DICTEE_LANG_SOURCE"] = old_lang
+            else:
+                os.environ.pop("DICTEE_LANG_SOURCE", None)
+        self.pp = pp
+        return pp.load_continuation()
+
+    def test_removes_period_after_closed_class(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis dans. le bureau", words),
+            "je suis dans le bureau")
+
+    def test_keeps_period_after_open_class(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis parti. Il est venu", words),
+            "je suis parti. Il est venu")
+
+    def test_case_insensitive_matching(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("Je suis Dans. le bureau", words),
+            "Je suis Dans le bureau")
+
+    def test_preserves_proper_nouns_after_continuation(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("avec. Paul", words),
+            "avec Paul")
+
+    def test_empty_words_no_change(self):
+        self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis dans. le bureau", set()),
+            "je suis dans. le bureau")
+
+    def test_lang_filter_en(self):
+        words = self._load("en")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis dans. le bureau", words),
+            "je suis dans. le bureau")
+        self.assertEqual(
+            self.pp.fix_continuation("I saw the. dog", words),
+            "I saw the dog")
+
+    def test_load_continuation_parses_file(self):
+        words = self._load("fr")
+        self.assertIn("le", words)
+        self.assertIn("dans", words)
+        self.assertIn("et", words)
+
+    def test_comma_untouched(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("bonjour, le monde", words),
+            "bonjour, le monde")
+
+
 class TestApplyContinuation(unittest.TestCase):
     """Tests pour apply_continuation (buffer inter-appuis)."""
 
