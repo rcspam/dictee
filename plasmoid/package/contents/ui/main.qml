@@ -315,6 +315,9 @@ PlasmoidItem {
         case "setup":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")
             break
+        case "postprocess":
+            executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup --postprocess")
+            break
         }
     }
 
