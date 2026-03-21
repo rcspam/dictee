@@ -3138,7 +3138,6 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(info)
 
         self._rules_editor = QTextEdit()
-        self._rules_editor.setStyleSheet("font-family: monospace;")
         self._rules_editor.setFont(self._monospace_font())
         self._rules_editor.setPlaceholderText(
             "# [lang] /PATTERN/REPLACEMENT/FLAGS\n"
@@ -3286,7 +3285,6 @@ class DicteeSetupDialog(QDialog):
         adv_lay.setSpacing(4)
 
         self._dict_adv_editor = QTextEdit()
-        self._dict_adv_editor.setStyleSheet("font-family: monospace;")
         self._dict_adv_editor.setFont(self._monospace_font())
         self._dict_adv_editor.setPlaceholderText(
             "# [lang] WORD=REPLACEMENT\n"
@@ -3816,7 +3814,6 @@ class DicteeSetupDialog(QDialog):
         adv_lay.setContentsMargins(0, 0, 0, 0)
 
         self._cont_adv_editor = QTextEdit()
-        self._cont_adv_editor.setStyleSheet("font-family: monospace;")
         self._cont_adv_editor.setFont(self._monospace_font())
         self._cont_adv_editor.setPlaceholderText(
             "# [lang] word1 word2 word3 ...\n"
@@ -3858,11 +3855,12 @@ class DicteeSetupDialog(QDialog):
         """Vide et reconstruit les accordéons de l'onglet Continuation."""
         layout = self._cont_form_layout
 
-        # Vider le layout existant
+        # Vider le layout existant — détacher immédiatement
         while layout.count():
             item = layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
             elif item.layout():
                 sub = item.layout()
@@ -3870,7 +3868,10 @@ class DicteeSetupDialog(QDialog):
                     si = sub.takeAt(0)
                     sw = si.widget()
                     if sw:
+                        sw.setParent(None)
                         sw.deleteLater()
+
+        QApplication.processEvents()
 
         # Charger les mots système
         sys_cats = {}
