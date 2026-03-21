@@ -1586,7 +1586,7 @@ class ScrollGuardFilter(QObject):
 
 
 class DicteeSetupDialog(QDialog):
-    def __init__(self, wizard=False):
+    def __init__(self, wizard=False, open_postprocess=False):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
@@ -1601,6 +1601,7 @@ class DicteeSetupDialog(QDialog):
         self._audio_monitor = None
         self._test_thread = None
         self._dirty = True  # config non enregistrée au départ
+        self._open_postprocess = open_postprocess
 
         self.conf = load_config()
 
@@ -1615,6 +1616,12 @@ class DicteeSetupDialog(QDialog):
             w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             w.installEventFilter(self._scroll_guard)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, '_open_postprocess', False):
+            self._open_postprocess = False
+            QTimer.singleShot(100, lambda: self._main_scroll.ensureWidgetVisible(self._grp_postprocess))
+
     # ── Classic mode ──────────────────────────────────────────────
 
     def _build_classic_ui(self):
@@ -1626,6 +1633,7 @@ class DicteeSetupDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._main_scroll = scroll
         content = QWidget()
         layout = QVBoxLayout(content)
         layout.setSpacing(16)
@@ -1700,6 +1708,7 @@ class DicteeSetupDialog(QDialog):
         lay_pp.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay_pp, conf)
         layout.addWidget(grp_postprocess)
+        self._grp_postprocess = grp_postprocess
 
         # -- Section options --
         grp_options = QGroupBox(_("Options"))
@@ -4191,11 +4200,12 @@ class DicteeSetupDialog(QDialog):
 
 def main():
     wizard_flag = "--wizard" in sys.argv
+    postprocess_flag = "--postprocess" in sys.argv
     app = QApplication([])
     app.setApplicationName("dictee-setup")
     app.setDesktopFileName("dictee-setup")
     app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
-    dialog = DicteeSetupDialog(wizard=wizard_flag)
+    dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag)
     dialog.exec()
 
 
