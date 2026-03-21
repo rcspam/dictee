@@ -3371,6 +3371,7 @@ class DicteeSetupDialog(QDialog):
                     container.setEnabled(False)
                     container.setProperty("dict_lang", lang)
                     container.setProperty("dict_word", word)
+                    container.setProperty("dict_repl", repl)
                     group_lay.addWidget(container)
 
                 sys_layout.addWidget(group)
@@ -3510,10 +3511,11 @@ class DicteeSetupDialog(QDialog):
                         continue
                     c_lang = child.property("dict_lang") or ""
                     c_word = child.property("dict_word") or ""
+                    c_repl = child.property("dict_repl") or ""
                     visible = True
                     if lang_filter and c_lang != "*" and c_lang != lang_filter:
                         visible = False
-                    if search and search not in c_word.lower():
+                    if search and search not in c_word.lower() and search not in c_repl.lower():
                         visible = False
                     child.setVisible(visible)
                     if visible:
@@ -3528,10 +3530,12 @@ class DicteeSetupDialog(QDialog):
                 continue
             r_lang = cmb.currentText()
             r_word = edt.text().lower()
+            edt_r = row.property("dict_repl_edt")
+            r_repl = edt_r.text().lower() if edt_r else ""
             visible = True
             if lang_filter and r_lang != "*" and r_lang != lang_filter:
                 visible = False
-            if search and search not in r_word:
+            if search and search not in r_word and search not in r_repl:
                 visible = False
             row.setVisible(visible)
 
