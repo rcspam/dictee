@@ -3316,20 +3316,24 @@ class DicteeSetupDialog(QDialog):
 
     def _load_dict_form(self):
         """Vide et reconstruit le formulaire dictionnaire."""
-        # Vider le layout système (scrollable)
+        # Vider le layout système (scrollable) — détacher immédiatement
         sys_layout = self._dict_sys_layout
         while sys_layout.count():
             item = sys_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
+            elif item.spacerItem():
+                pass  # les spacers sont supprimés par takeAt
 
-        # Vider le layout personnel (fixe)
+        # Vider le layout personnel (fixe) — détacher immédiatement
         perso_layout = self._dict_personal_layout
         while perso_layout.count():
             item = perso_layout.takeAt(0)
             w = item.widget()
             if w:
+                w.setParent(None)
                 w.deleteLater()
 
         self._dict_personal_rows.clear()
@@ -3447,6 +3451,7 @@ class DicteeSetupDialog(QDialog):
         """Crée une ligne éditable pour une entrée dictionnaire personnelle."""
         # Supprimer le label vide si présent
         if hasattr(self, '_dict_empty_label') and self._dict_empty_label is not None:
+            self._dict_empty_label.setParent(None)
             self._dict_empty_label.deleteLater()
             self._dict_empty_label = None
 
@@ -3503,6 +3508,7 @@ class DicteeSetupDialog(QDialog):
         """Supprime une entrée personnelle du dictionnaire et sauvegarde."""
         if entry in self._dict_personal_rows:
             self._dict_personal_rows.remove(entry)
+        entry.setParent(None)
         entry.deleteLater()
 
         if not self._dict_personal_rows:
@@ -3635,6 +3641,7 @@ class DicteeSetupDialog(QDialog):
         for row in empty_rows:
             if row in self._dict_personal_rows:
                 self._dict_personal_rows.remove(row)
+            row.setParent(None)
             row.deleteLater()
 
         _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
