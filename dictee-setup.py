@@ -3344,12 +3344,31 @@ class DicteeSetupDialog(QDialog):
                 for lang, _w, _r in entries:
                     if lang != "*":
                         all_langs.add(lang)
-                group = QGroupBox(f"{cat_name} ({len(entries)} " + (_("entries") if len(entries) > 1 else _("entry")) + ")")
-                group.setCheckable(True)
-                group.setChecked(False)
-                group_lay = QVBoxLayout(group)
-                group_lay.setSpacing(2)
-                group_lay.setContentsMargins(8, 4, 8, 4)
+                # Bouton titre repliable (pas de checkbox)
+                n_entries = len(entries)
+                entry_lbl = _("entries") if n_entries > 1 else _("entry")
+                btn_title = f"\u25b8 {cat_name} ({n_entries} {entry_lbl})"
+                btn_toggle = QPushButton(btn_title)
+                btn_toggle.setFlat(True)
+                btn_toggle.setStyleSheet("text-align: left; font-weight: bold; padding: 4px;")
+                sys_layout.addWidget(btn_toggle)
+
+                # Contenu caché par défaut
+                content_w = QWidget()
+                content_w.setVisible(False)
+                content_lay = QVBoxLayout(content_w)
+                content_lay.setSpacing(2)
+                content_lay.setContentsMargins(16, 0, 0, 4)
+
+                def _make_toggle(btn, cw, cn=cat_name, ne=n_entries):
+                    def _toggle():
+                        vis = not cw.isVisible()
+                        cw.setVisible(vis)
+                        arrow = "\u25be" if vis else "\u25b8"
+                        el = _("entries") if ne > 1 else _("entry")
+                        btn.setText(f"{arrow} {cn} ({ne} {el})")
+                    return _toggle
+                btn_toggle.clicked.connect(_make_toggle(btn_toggle, content_w))
 
                 for lang, word, repl in entries:
                     row = QHBoxLayout()
@@ -3372,9 +3391,9 @@ class DicteeSetupDialog(QDialog):
                     container.setProperty("dict_lang", lang)
                     container.setProperty("dict_word", word)
                     container.setProperty("dict_repl", repl)
-                    group_lay.addWidget(container)
+                    content_lay.addWidget(container)
 
-                sys_layout.addWidget(group)
+                sys_layout.addWidget(content_w)
 
         sys_layout.addStretch()
 
@@ -3488,39 +3507,55 @@ class DicteeSetupDialog(QDialog):
         search = self._dict_search.currentText().lower()
         lang_filter = self._dict_lang_filter.currentData() or ""
 
-        # Filtrer les groupes système
+        # Filtrer les groupes système (paires btn_toggle + content_w)
         layout = self._dict_sys_layout
-        for i in range(layout.count()):
+        # Parcourir par paires : QPushButton titre, QWidget contenu
+        i = 0
+        while i < layout.count():
             item = layout.itemAt(i)
             if item is None:
+                i += 1
                 continue
-            w = item.widget()
-            if w is None:
+            btn = item.widget()
+            # Chercher le content_w suivant
+            if btn is None or not isinstance(btn, QPushButton):
+                i += 1
                 continue
-            if isinstance(w, QGroupBox):
-                any_visible = False
-                group_lay = w.layout()
-                if group_lay is None:
+            i += 1
+            if i >= layout.count():
+                break
+            content_item = layout.itemAt(i)
+            content_w = content_item.widget() if content_item else None
+            if content_w is None:
+                i += 1
+                continue
+            i += 1
+            # Filtrer les enfants du content_w
+            content_lay = content_w.layout()
+            if content_lay is None:
+                continue
+            any_visible = False
+            for j in range(content_lay.count()):
+                child_item = content_lay.itemAt(j)
+                if child_item is None:
                     continue
-                for j in range(group_lay.count()):
-                    child_item = group_lay.itemAt(j)
-                    if child_item is None:
-                        continue
-                    child = child_item.widget()
-                    if child is None:
-                        continue
-                    c_lang = child.property("dict_lang") or ""
-                    c_word = child.property("dict_word") or ""
-                    c_repl = child.property("dict_repl") or ""
-                    visible = True
-                    if lang_filter and c_lang != "*" and c_lang != lang_filter:
-                        visible = False
-                    if search and search not in c_word.lower() and search not in c_repl.lower():
-                        visible = False
-                    child.setVisible(visible)
-                    if visible:
-                        any_visible = True
-                w.setVisible(any_visible)
+                child = child_item.widget()
+                if child is None:
+                    continue
+                c_lang = child.property("dict_lang") or ""
+                c_word = child.property("dict_word") or ""
+                c_repl = child.property("dict_repl") or ""
+                visible = True
+                if lang_filter and c_lang != "*" and c_lang != lang_filter:
+                    visible = False
+                if search and search not in c_word.lower() and search not in c_repl.lower():
+                    visible = False
+                child.setVisible(visible)
+                if visible:
+                    any_visible = True
+            # Cacher le bouton titre + contenu si aucune entrée visible
+            btn.setVisible(any_visible)
+            content_w.setVisible(any_visible and content_w.isVisible())
 
         # Filtrer les entrées perso
         for row in self._dict_personal_rows:
@@ -3808,12 +3843,25 @@ class DicteeSetupDialog(QDialog):
             name = self._LANG_FULLNAMES.get(lang, lang.upper())
             title = f"{flag} {name} ({total} " + (_("words") if total != 1 else _("word")) + ")"
 
-            group = QGroupBox(title)
-            group.setCheckable(True)
-            group.setChecked(lang == active_lang)
+            # Bouton titre repliable
+            btn_lang = QPushButton(("\u25be " if lang == active_lang else "\u25b8 ") + title)
+            btn_lang.setFlat(True)
+            btn_lang.setStyleSheet("text-align: left; font-weight: bold; padding: 4px;")
+            layout.addWidget(btn_lang)
+
+            group = QWidget()
+            group.setVisible(lang == active_lang)
             group_lay = QVBoxLayout(group)
             group_lay.setSpacing(4)
-            group_lay.setContentsMargins(8, 8, 8, 8)
+            group_lay.setContentsMargins(16, 4, 0, 8)
+
+            def _make_lang_toggle(btn, w, t=title):
+                def _toggle():
+                    vis = not w.isVisible()
+                    w.setVisible(vis)
+                    btn.setText(("\u25be " if vis else "\u25b8 ") + t)
+                return _toggle
+            btn_lang.clicked.connect(_make_lang_toggle(btn_lang, group))
 
             # --- Mots système par sous-catégorie ---
             for subcat, words in sys_subcats:
