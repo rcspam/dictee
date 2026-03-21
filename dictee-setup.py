@@ -3307,11 +3307,12 @@ class DicteeSetupDialog(QDialog):
         zoom_lay.addWidget(btn_zoom_in)
         zoom_lay.addStretch()
         btn_cancel_adv = QPushButton(_("Cancel"))
-        btn_cancel_adv.clicked.connect(lambda: (
+        btn_cancel_adv.clicked.connect(lambda: self._btn_advanced.setChecked(False))
+        btn_save_adv = QPushButton(_("Save"))
+        btn_save_adv.clicked.connect(lambda: (
+            self._save_dict_advanced(),
             self._btn_advanced.setChecked(False),
         ))
-        btn_save_adv = QPushButton(_("Save"))
-        btn_save_adv.clicked.connect(self._save_dict_advanced)
         zoom_lay.addWidget(btn_cancel_adv)
         zoom_lay.addWidget(btn_save_adv)
         adv_lay.addLayout(zoom_lay)
@@ -3671,7 +3672,7 @@ class DicteeSetupDialog(QDialog):
         QMessageBox.warning(self, "dictee", _("Default dictionary file not found."))
 
     def _save_dict_advanced(self):
-        """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
+        """Sauvegarde le contenu du mode avancé dans le fichier (sans basculer le mode)."""
         import os as _os
 
         _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
@@ -3680,9 +3681,6 @@ class DicteeSetupDialog(QDialog):
             text += "\n"
         with open(self._dict_path, "w", encoding="utf-8") as f:
             f.write(text)
-
-        self._btn_advanced.setChecked(False)
-        QMessageBox.information(self, "dictee", _("Dictionary saved."))
 
     # ── Continuation tab ────────────────────────────────────────
 
@@ -3835,11 +3833,12 @@ class DicteeSetupDialog(QDialog):
         btns_adv.addWidget(btn_zoom_in)
         btns_adv.addStretch()
         btn_cancel_adv = QPushButton(_("Cancel"))
-        btn_cancel_adv.clicked.connect(lambda: (
+        btn_cancel_adv.clicked.connect(lambda: self._btn_advanced.setChecked(False))
+        btn_save_adv = QPushButton(_("Save"))
+        btn_save_adv.clicked.connect(lambda: (
+            self._save_cont_advanced(),
             self._btn_advanced.setChecked(False),
         ))
-        btn_save_adv = QPushButton(_("Save"))
-        btn_save_adv.clicked.connect(self._save_cont_advanced)
         btns_adv.addWidget(btn_cancel_adv)
         btns_adv.addWidget(btn_save_adv)
         adv_lay.addLayout(btns_adv)
@@ -4060,38 +4059,45 @@ class DicteeSetupDialog(QDialog):
         QMessageBox.information(self, "dictee", _("Continuation words saved."))
 
     def _save_cont_advanced(self):
-        """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
+        """Sauvegarde le contenu du mode avancé dans le fichier (sans basculer le mode)."""
         import os as _os
 
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
         with open(self._cont_path, "w", encoding="utf-8") as f:
             f.write(self._cont_adv_editor.toPlainText())
 
-        self._btn_advanced.setChecked(False)
-        QMessageBox.information(self, "dictee", _("Continuation words saved."))
-
     def _toggle_advanced_mode(self, checked):
-        """Bascule formulaire ↔ éditeur texte pour l'onglet actif."""
+        """Bascule formulaire ↔ éditeur texte pour l'onglet actif.
+
+        Formulaire → Avancé : sauvegarder le formulaire, charger le fichier dans l'éditeur.
+        Avancé → Formulaire : sauvegarder l'éditeur, recharger le formulaire.
+        Les deux modes éditent le même fichier.
+        """
         idx = self._pp_tabs.currentIndex()
         if idx == 1:  # Dictionnaire
             if checked:
-                # Charger le fichier unique (éditable)
+                # Formulaire → Avancé : sauvegarder le formulaire, charger dans l'éditeur
+                self._save_dict()
                 if os.path.isfile(self._dict_path):
                     with open(self._dict_path, encoding="utf-8") as f:
                         self._dict_adv_editor.setPlainText(f.read())
                 else:
                     self._dict_adv_editor.clear()
             else:
+                # Avancé → Formulaire : juste recharger (Save ou Cancel gère la sauvegarde)
                 self._load_dict_form()
             self._dict_stack.setCurrentIndex(1 if checked else 0)
         elif idx == 2:  # Continuation
             if checked:
+                # Formulaire → Avancé : sauvegarder le formulaire, charger dans l'éditeur
+                self._save_cont_personal()
                 if os.path.isfile(self._cont_path):
                     with open(self._cont_path, encoding="utf-8") as f:
                         self._cont_adv_editor.setPlainText(f.read())
                 else:
                     self._cont_adv_editor.clear()
             else:
+                # Avancé → Formulaire : juste recharger
                 self._load_cont_form()
             self._cont_stack.setCurrentIndex(1 if checked else 0)
 
