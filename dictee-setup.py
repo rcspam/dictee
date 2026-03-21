@@ -1632,9 +1632,8 @@ class DicteeSetupDialog(QDialog):
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
-        dlg = QDialog()
-        dlg.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint |
-                           Qt.WindowType.WindowMinMaxButtonsHint)
+        dlg = QDialog(self)
+        dlg.setWindowFlag(Qt.WindowType.Window)
         dlg.setWindowTitle(_("Post-processing"))
         dlg.resize(1000, 700)
         dlg.setMinimumSize(800, 500)
