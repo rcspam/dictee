@@ -1634,9 +1634,14 @@ class DicteeSetupDialog(QDialog):
             return
         # Fenêtre indépendante (pas un QDialog enfant — KDE Plasma traite
         # les QDialog enfants comme des utilitaires qui passent derrière le panel)
-        dlg = QDialog(self)
+        # QDialog SANS parent Qt (sinon KDE met la fenêtre derrière le panel)
+        # mais avec transientParent au niveau window manager (pour le bouton fermer)
+        dlg = QDialog()
         dlg.setModal(False)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        dlg.winId()  # forcer la création de la fenêtre native
+        if self.windowHandle() and dlg.windowHandle():
+            dlg.windowHandle().setTransientParent(self.windowHandle())
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1000, 700)
