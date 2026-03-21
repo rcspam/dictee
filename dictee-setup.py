@@ -1590,8 +1590,8 @@ class DicteeSetupDialog(QDialog):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumSize(800, 700)
-        self.resize(800, 720)
+        self.setMinimumSize(1050, 700)
+        self.resize(1050, 720)
         self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
@@ -2979,7 +2979,7 @@ class DicteeSetupDialog(QDialog):
 
         # --- Sous-onglets d'édition ---
         self._pp_tabs = QTabWidget()
-        self._pp_tabs.setMinimumHeight(350)
+        self._pp_tabs.setMinimumHeight(500)
 
         # Couleurs d'accentuation pour les onglets
         accent = self.palette().color(self.palette().ColorRole.Highlight)
