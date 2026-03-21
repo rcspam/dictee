@@ -3389,10 +3389,21 @@ class DicteeSetupDialog(QDialog):
         self._dict_personal_layout.setContentsMargins(0, 0, 0, 0)
         self._dict_personal_layout.setSpacing(4)
 
+        # Collecter les mots système pour éviter les doublons
+        sys_words = set()
+        if self._dict_sys_path:
+            for _cat, entries in self._parse_dict_with_categories(self._dict_sys_path):
+                for lang, word, _r in entries:
+                    sys_words.add((lang, word.lower()))
+                    sys_words.add(("*", word.lower()))  # [*] matche toutes les langues
+
         user_cats = self._parse_dict_with_categories(self._dict_path)
         has_entries = False
         for _cat, entries in user_cats:
             for lang, word, repl in entries:
+                # Ne pas afficher si déjà dans le système (même mot, même lang ou *)
+                if (lang, word.lower()) in sys_words:
+                    continue
                 self._add_dict_entry(lang, word, repl)
                 if lang != "*":
                     all_langs.add(lang)
