@@ -3476,13 +3476,15 @@ class DicteeSetupDialog(QDialog):
         if is_new:
             # Nouvelle entrée : ✓ pour valider (sauvegarde + recharge)
             btn_ok = QPushButton("\u2713")
-            btn_ok.setToolTip(_("Save"))
+            btn_ok.setToolTip(_("Confirm this entry"))
             btn_ok.setFixedWidth(30)
             btn_ok.setStyleSheet("color: green; font-weight: bold;")
-            btn_ok.clicked.connect(lambda: self._save_dict(reload=True))
+            def _confirm_entry(bk=btn_ok):
+                """Confirme cette entrée (retire le ✓). La sauvegarde se fait via le bouton Sauvegarder."""
+                bk.setParent(None)
+                bk.deleteLater()
+            btn_ok.clicked.connect(_confirm_entry)
             row_lay.addWidget(btn_ok)
-            # Stocker la référence pour pouvoir le cacher après validation
-            row_widget.setProperty("dict_btn_ok", btn_ok)
 
         # Toujours : ✕ pour supprimer
         btn_del = QPushButton("\u2715")
