@@ -1620,7 +1620,9 @@ class DicteeSetupDialog(QDialog):
         super().showEvent(event)
         if getattr(self, '_open_postprocess', False):
             self._open_postprocess = False
-            QTimer.singleShot(100, lambda: self._main_scroll.ensureWidgetVisible(self._grp_postprocess))
+            # Maximiser le panneau post-traitement en réduisant le panneau config
+            if hasattr(self, '_splitter'):
+                QTimer.singleShot(100, lambda: self._splitter.setSizes([50, self.height() - 150]))
 
     # ── Classic mode ──────────────────────────────────────────────
 
@@ -1724,18 +1726,31 @@ class DicteeSetupDialog(QDialog):
         lay_srv.addWidget(self.chk_tray)
         layout.addWidget(grp_services)
 
-        # -- Section post-traitement (dernière, la plus volumineuse) --
+        layout.addStretch()
+        scroll.setWidget(content)
+
+        # -- Section post-traitement (panneau bas, séparé par QSplitter) --
         grp_postprocess = QGroupBox(_("Post-processing"))
         lay_pp = QVBoxLayout(grp_postprocess)
         lay_pp.setSpacing(6)
         lay_pp.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay_pp, conf)
-        layout.addWidget(grp_postprocess)
         self._grp_postprocess = grp_postprocess
 
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer_layout.addWidget(scroll, 1)
+        try:
+            from PyQt6.QtWidgets import QSplitter
+        except ImportError:
+            from PySide6.QtWidgets import QSplitter
+
+        self._splitter = splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(scroll)
+        splitter.addWidget(grp_postprocess)
+        # Répartition initiale : ~40% config, ~60% post-traitement
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setChildrenCollapsible(False)
+
+        outer_layout.addWidget(splitter, 1)
 
         # -- Boutons --
         lay_buttons = QHBoxLayout()
@@ -2979,7 +2994,6 @@ class DicteeSetupDialog(QDialog):
 
         # --- Sous-onglets d'édition ---
         self._pp_tabs = QTabWidget()
-        self._pp_tabs.setMinimumHeight(500)
 
         # Couleurs d'accentuation pour les onglets
         accent = self.palette().color(self.palette().ColorRole.Highlight)
