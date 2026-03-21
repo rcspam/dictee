@@ -3210,19 +3210,29 @@ class DicteeSetupDialog(QDialog):
         toolbar.addStretch()
         form_top_lay.addLayout(toolbar)
 
-        # Zone scrollable
+        # Zone scrollable (accordéons système uniquement)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll_content = QWidget()
-        self._dict_form_layout = QVBoxLayout(scroll_content)
-        self._dict_form_layout.setContentsMargins(4, 4, 4, 4)
-        self._dict_form_layout.setSpacing(6)
+        self._dict_sys_layout = QVBoxLayout(scroll_content)
+        self._dict_sys_layout.setContentsMargins(4, 4, 4, 4)
+        self._dict_sys_layout.setSpacing(6)
         scroll.setWidget(scroll_content)
-        form_top_lay.addWidget(scroll)
+        form_top_lay.addWidget(scroll, 3)
 
-        # Boutons formulaire
+        # Zone personnelle (fixe, ne scrolle pas avec le système)
+        self._dict_personal_container = QWidget()
+        self._dict_personal_layout = QVBoxLayout(self._dict_personal_container)
+        self._dict_personal_layout.setContentsMargins(4, 4, 4, 4)
+        self._dict_personal_layout.setSpacing(4)
+        form_top_lay.addWidget(self._dict_personal_container, 0)
+
+        # Bouton ajouter + Appliquer/Annuler
         btns_form = QHBoxLayout()
+        self._btn_dict_add = QPushButton("+ " + _("Add"))
+        self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
+        btns_form.addWidget(self._btn_dict_add)
         btns_form.addStretch()
         btn_cancel_form = QPushButton(_("Cancel"))
         btn_cancel_form.clicked.connect(self._load_dict_form)
@@ -3306,28 +3316,28 @@ class DicteeSetupDialog(QDialog):
 
     def _load_dict_form(self):
         """Vide et reconstruit le formulaire dictionnaire."""
-        layout = self._dict_form_layout
-        # Vider le layout
-        while layout.count():
-            item = layout.takeAt(0)
+        # Vider le layout système (scrollable)
+        sys_layout = self._dict_sys_layout
+        while sys_layout.count():
+            item = sys_layout.takeAt(0)
             w = item.widget()
             if w:
                 w.deleteLater()
-            elif item.layout():
-                # Supprimer récursivement
-                sub = item.layout()
-                while sub.count():
-                    si = sub.takeAt(0)
-                    sw = si.widget()
-                    if sw:
-                        sw.deleteLater()
+
+        # Vider le layout personnel (fixe)
+        perso_layout = self._dict_personal_layout
+        while perso_layout.count():
+            item = perso_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
 
         self._dict_personal_rows.clear()
 
         # Collecter toutes les langues pour le filtre
         all_langs = set()
 
-        # --- Catégories système ---
+        # --- Catégories système (dans le scroll) ---
         if self._dict_sys_path:
             sys_cats = self._parse_dict_with_categories(self._dict_sys_path)
             for cat_name, entries in sys_cats:
@@ -3363,31 +3373,15 @@ class DicteeSetupDialog(QDialog):
                     container.setProperty("dict_word", word)
                     group_lay.addWidget(container)
 
-                layout.addWidget(group)
+                sys_layout.addWidget(group)
 
-        # --- Séparateur ---
-        sep_lay = QHBoxLayout()
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.Shape.HLine)
-        line1.setFrameShadow(QFrame.Shadow.Sunken)
+        sys_layout.addStretch()
+
+        # --- Entrées personnelles (zone fixe) ---
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         sep_lbl = QLabel(f"<b style='color:{accent};'>" + _("YOUR PERSONAL ENTRIES") + "</b>")
         sep_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.Shape.HLine)
-        line2.setFrameShadow(QFrame.Shadow.Sunken)
-        sep_lay.addWidget(line1, 1)
-        sep_lay.addWidget(sep_lbl, 0)
-        sep_lay.addWidget(line2, 1)
-        sep_container = QWidget()
-        sep_container.setLayout(sep_lay)
-        layout.addWidget(sep_container)
-
-        # --- Entrées personnelles ---
-        self._dict_personal_container = QWidget()
-        self._dict_personal_layout = QVBoxLayout(self._dict_personal_container)
-        self._dict_personal_layout.setContentsMargins(0, 0, 0, 0)
-        self._dict_personal_layout.setSpacing(4)
+        perso_layout.addWidget(sep_lbl)
 
         # Collecter les mots système pour éviter les doublons
         sys_words = set()
@@ -3395,13 +3389,12 @@ class DicteeSetupDialog(QDialog):
             for _cat, entries in self._parse_dict_with_categories(self._dict_sys_path):
                 for lang, word, _r in entries:
                     sys_words.add((lang, word.lower()))
-                    sys_words.add(("*", word.lower()))  # [*] matche toutes les langues
+                    sys_words.add(("*", word.lower()))
 
         user_cats = self._parse_dict_with_categories(self._dict_path)
         has_entries = False
         for _cat, entries in user_cats:
             for lang, word, repl in entries:
-                # Ne pas afficher si déjà dans le système (même mot, même lang ou *)
                 if (lang, word.lower()) in sys_words:
                     continue
                 self._add_dict_entry(lang, word, repl)
@@ -3413,18 +3406,9 @@ class DicteeSetupDialog(QDialog):
             self._dict_empty_label = QLabel(
                 "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
             self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._dict_personal_layout.addWidget(self._dict_empty_label)
+            perso_layout.addWidget(self._dict_empty_label)
         else:
             self._dict_empty_label = None
-
-        layout.addWidget(self._dict_personal_container)
-
-        # Bouton "+ Ajouter" sous les entrées perso
-        btn_add = QPushButton("+ " + _("Add"))
-        btn_add.clicked.connect(lambda: self._add_dict_entry())
-        layout.addWidget(btn_add)
-
-        layout.addStretch()
 
         # Mettre à jour le filtre de langue
         self._dict_lang_filter.blockSignals(True)
