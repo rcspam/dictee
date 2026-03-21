@@ -3827,14 +3827,8 @@ class DicteeSetupDialog(QDialog):
         return True, ""
 
     def _dict_cancel_advanced(self):
-        """Discard en mode avancé : annuler les modifs texte, revenir au .tmp d'avant la bascule."""
-        # Dépiler le snapshot empilé lors de la bascule vers le mode avancé
-        if self._dict_undo_stack:
-            content = self._dict_undo_stack.pop()
-            os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
-            with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            self._dict_update_undo_buttons()
+        """Discard : recharger depuis le dernier fichier officiel enregistré."""
+        self._dict_init_tmp()
         self._load_dict_form()
         self._btn_advanced.blockSignals(True)
         self._btn_advanced.setChecked(False)
