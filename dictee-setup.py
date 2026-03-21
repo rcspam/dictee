@@ -3259,6 +3259,21 @@ class DicteeSetupDialog(QDialog):
         btns_bottom.addWidget(btn_restore)
 
         btns_bottom.addStretch()
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.setToolTip(_("Discard changes and reload from file"))
+        btn_cancel.clicked.connect(self._load_dict_form)
+        btns_bottom.addWidget(btn_cancel)
+
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        btn_save = QPushButton(_("Save"))
+        btn_save.setToolTip(_("Save all changes"))
+        btn_save.setStyleSheet(
+            f"font-weight: bold; background-color: {accent}; color: white; "
+            f"padding: 4px 16px; border-radius: 4px;")
+        btn_save.clicked.connect(lambda: self._save_dict(reload=True))
+        btns_bottom.addWidget(btn_save)
+
         form_top_lay.addLayout(btns_bottom)
 
         self._dict_stack.addWidget(form_page)
