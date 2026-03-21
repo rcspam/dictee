@@ -3120,6 +3120,31 @@ class DicteeSetupDialog(QDialog):
     # ── Post-processing tabs ────────────────────────────────────
 
     @staticmethod
+    def _add_zoom_overlay(editor):
+        """Ajoute des boutons zoom −/+ flottants en haut à droite d'un QTextEdit."""
+        style = (
+            "QPushButton { background: palette(window); border: 1px solid palette(mid); "
+            "border-radius: 4px; font-size: 16px; font-weight: bold; }"
+            "QPushButton:hover { background: palette(midlight); }")
+        bm = QPushButton("\u2212", editor)
+        bm.setFixedSize(28, 28)
+        bm.setStyleSheet(style)
+        bm.clicked.connect(lambda: editor.zoomOut(2))
+        bp = QPushButton("+", editor)
+        bp.setFixedSize(28, 28)
+        bp.setStyleSheet(style)
+        bp.clicked.connect(lambda: editor.zoomIn(2))
+
+        def _reposition(event, ed=editor, zm=bm, zp=bp):
+            w = ed.viewport().width()
+            zp.move(w - 32, 4)
+            zm.move(w - 64, 4)
+            type(ed).resizeEvent(ed, event)
+        editor.resizeEvent = _reposition
+        bp.move(200, 4)
+        bm.move(168, 4)
+
+    @staticmethod
     def _monospace_font():
         """Retourne une police monospace à 12pt pour les éditeurs avancés."""
         try:
@@ -3151,17 +3176,9 @@ class DicteeSetupDialog(QDialog):
         self._load_rules_file()
         lay.addWidget(self._rules_editor)
 
+        self._add_zoom_overlay(self._rules_editor)
+
         btns = QHBoxLayout()
-        btn_zoom_out = QPushButton("\u2212")
-        btn_zoom_out.setFixedWidth(30)
-        btn_zoom_out.setToolTip(_("Zoom out"))
-        btn_zoom_out.clicked.connect(lambda: self._rules_editor.zoomOut(2))
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(30)
-        btn_zoom_in.setToolTip(_("Zoom in"))
-        btn_zoom_in.clicked.connect(lambda: self._rules_editor.zoomIn(2))
-        btns.addWidget(btn_zoom_out)
-        btns.addWidget(btn_zoom_in)
         btns.addStretch()
         btn_restore = QPushButton(_("Restore defaults"))
         btn_save = QPushButton(_("Save"))
@@ -3277,21 +3294,7 @@ class DicteeSetupDialog(QDialog):
             "# [fr] sncf=SNCF\n"
             "# [*] api=API\n")
         adv_lay.addWidget(self._dict_adv_editor)
-
-        # Zoom
-        zoom_lay = QHBoxLayout()
-        btn_zoom_out = QPushButton("\u2212")  # −
-        btn_zoom_out.setFixedWidth(30)
-        btn_zoom_out.setToolTip(_("Zoom out"))
-        btn_zoom_out.clicked.connect(lambda: self._dict_adv_editor.zoomOut(2))
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(30)
-        btn_zoom_in.setToolTip(_("Zoom in"))
-        btn_zoom_in.clicked.connect(lambda: self._dict_adv_editor.zoomIn(2))
-        zoom_lay.addWidget(btn_zoom_out)
-        zoom_lay.addWidget(btn_zoom_in)
-        zoom_lay.addStretch()
-        adv_lay.addLayout(zoom_lay)
+        self._add_zoom_overlay(self._dict_adv_editor)
 
         self._dict_stack.addWidget(adv_page)
 
@@ -4023,17 +4026,9 @@ class DicteeSetupDialog(QDialog):
             "# [en] however moreover\n")
         adv_lay.addWidget(self._cont_adv_editor)
 
+        self._add_zoom_overlay(self._cont_adv_editor)
+
         btns_adv = QHBoxLayout()
-        btn_zoom_out = QPushButton("\u2212")
-        btn_zoom_out.setFixedWidth(30)
-        btn_zoom_out.setToolTip(_("Zoom out"))
-        btn_zoom_out.clicked.connect(lambda: self._cont_adv_editor.zoomOut(2))
-        btn_zoom_in = QPushButton("+")
-        btn_zoom_in.setFixedWidth(30)
-        btn_zoom_in.setToolTip(_("Zoom in"))
-        btn_zoom_in.clicked.connect(lambda: self._cont_adv_editor.zoomIn(2))
-        btns_adv.addWidget(btn_zoom_out)
-        btns_adv.addWidget(btn_zoom_in)
         btns_adv.addStretch()
         btn_cancel_adv = QPushButton(_("Cancel"))
         btn_cancel_adv.clicked.connect(lambda: self._btn_advanced.setChecked(False))
