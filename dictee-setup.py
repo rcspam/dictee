@@ -3136,9 +3136,19 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._rules_editor)
 
         btns = QHBoxLayout()
-        btn_save = QPushButton(_("Save"))
-        btn_restore = QPushButton(_("Restore defaults"))
+        btn_zoom_out = QPushButton("\u2212")
+        btn_zoom_out.setFixedWidth(30)
+        btn_zoom_out.setToolTip(_("Zoom out"))
+        btn_zoom_out.clicked.connect(lambda: self._rules_editor.zoomOut(2))
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedWidth(30)
+        btn_zoom_in.setToolTip(_("Zoom in"))
+        btn_zoom_in.clicked.connect(lambda: self._rules_editor.zoomIn(2))
+        btns.addWidget(btn_zoom_out)
+        btns.addWidget(btn_zoom_in)
         btns.addStretch()
+        btn_restore = QPushButton(_("Restore defaults"))
+        btn_save = QPushButton(_("Save"))
         btns.addWidget(btn_restore)
         btns.addWidget(btn_save)
         lay.addLayout(btns)
@@ -3214,15 +3224,6 @@ class DicteeSetupDialog(QDialog):
         toolbar.addWidget(self._dict_lang_filter)
 
         toolbar.addStretch()
-
-        self._btn_dict_add = QPushButton("+ " + _("Add"))
-        self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
-        toolbar.addWidget(self._btn_dict_add)
-
-        btn_restore = QPushButton(_("Restore defaults"))
-        btn_restore.clicked.connect(self._restore_dict_defaults)
-        toolbar.addWidget(btn_restore)
-
         form_top_lay.addLayout(toolbar)
 
         # Zone scrollable unique (toutes les entrées)
@@ -3235,6 +3236,17 @@ class DicteeSetupDialog(QDialog):
         self._dict_layout.setSpacing(6)
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
+
+        # Boutons en bas
+        btns_bottom = QHBoxLayout()
+        self._btn_dict_add = QPushButton("+ " + _("Add"))
+        self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
+        btns_bottom.addWidget(self._btn_dict_add)
+        btns_bottom.addStretch()
+        btn_restore = QPushButton(_("Restore defaults"))
+        btn_restore.clicked.connect(self._restore_dict_defaults)
+        btns_bottom.addWidget(btn_restore)
+        form_top_lay.addLayout(btns_bottom)
 
         self._dict_stack.addWidget(form_page)
 
@@ -3253,17 +3265,28 @@ class DicteeSetupDialog(QDialog):
             "# [*] api=API\n")
         adv_lay.addWidget(self._dict_adv_editor)
 
-        btns_adv = QHBoxLayout()
-        btns_adv.addStretch()
+        # Zoom
+        zoom_lay = QHBoxLayout()
+        btn_zoom_out = QPushButton("\u2212")  # −
+        btn_zoom_out.setFixedWidth(30)
+        btn_zoom_out.setToolTip(_("Zoom out"))
+        btn_zoom_out.clicked.connect(lambda: self._dict_adv_editor.zoomOut(2))
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedWidth(30)
+        btn_zoom_in.setToolTip(_("Zoom in"))
+        btn_zoom_in.clicked.connect(lambda: self._dict_adv_editor.zoomIn(2))
+        zoom_lay.addWidget(btn_zoom_out)
+        zoom_lay.addWidget(btn_zoom_in)
+        zoom_lay.addStretch()
         btn_cancel_adv = QPushButton(_("Cancel"))
         btn_cancel_adv.clicked.connect(lambda: (
             self._btn_advanced.setChecked(False),
         ))
         btn_save_adv = QPushButton(_("Save"))
         btn_save_adv.clicked.connect(self._save_dict_advanced)
-        btns_adv.addWidget(btn_cancel_adv)
-        btns_adv.addWidget(btn_save_adv)
-        adv_lay.addLayout(btns_adv)
+        zoom_lay.addWidget(btn_cancel_adv)
+        zoom_lay.addWidget(btn_save_adv)
+        adv_lay.addLayout(zoom_lay)
 
         self._dict_stack.addWidget(adv_page)
 
@@ -3762,6 +3785,16 @@ class DicteeSetupDialog(QDialog):
         adv_lay.addWidget(self._cont_adv_editor)
 
         btns_adv = QHBoxLayout()
+        btn_zoom_out = QPushButton("\u2212")
+        btn_zoom_out.setFixedWidth(30)
+        btn_zoom_out.setToolTip(_("Zoom out"))
+        btn_zoom_out.clicked.connect(lambda: self._cont_adv_editor.zoomOut(2))
+        btn_zoom_in = QPushButton("+")
+        btn_zoom_in.setFixedWidth(30)
+        btn_zoom_in.setToolTip(_("Zoom in"))
+        btn_zoom_in.clicked.connect(lambda: self._cont_adv_editor.zoomIn(2))
+        btns_adv.addWidget(btn_zoom_out)
+        btns_adv.addWidget(btn_zoom_in)
         btns_adv.addStretch()
         btn_cancel_adv = QPushButton(_("Cancel"))
         btn_cancel_adv.clicked.connect(lambda: (
