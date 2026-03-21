@@ -3668,7 +3668,11 @@ class DicteeSetupDialog(QDialog):
                 f.write("\n")
 
         if reload:
+            # Sauvegarder la position du scroll avant de recharger
+            scroll_pos = self._dict_scroll.verticalScrollBar().value()
             self._load_dict_form()
+            # Restaurer la position du scroll après reconstruction
+            QTimer.singleShot(50, lambda: self._dict_scroll.verticalScrollBar().setValue(scroll_pos))
 
     def _restore_dict_defaults(self):
         """Restaure le dictionnaire par défaut."""
