@@ -3730,9 +3730,6 @@ class DicteeSetupDialog(QDialog):
             row.setParent(None)
             row.deleteLater()
 
-        # Empiler l'état actuel du .tmp avant d'écrire
-        self._dict_push_undo()
-
         text = self._dict_entries_to_text(cat_entries)
         os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
         with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
@@ -3826,7 +3823,7 @@ class DicteeSetupDialog(QDialog):
         QMessageBox.warning(self, "dictee", _("Default dictionary file not found."))
 
     def _save_dict_advanced(self):
-        """Sauvegarde le contenu du mode avancé dans .tmp, valide, copie vers officiel, bascule vers normal."""
+        """Sauvegarde le contenu du mode avancé dans .tmp (brouillon uniquement)."""
         text = self._dict_adv_editor.toPlainText()
         if not text.endswith("\n"):
             text += "\n"
@@ -3844,13 +3841,6 @@ class DicteeSetupDialog(QDialog):
         self._dict_push_undo()
         with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
             f.write(text)
-
-        # Copier .tmp → officiel
-        shutil.copy2(self._dict_tmp_path, self._dict_path)
-        self._dict_saved = True
-        self._dict_undo_stack.clear()
-        if hasattr(self, '_btn_dict_undo'):
-            self._btn_dict_undo.setEnabled(False)
 
     # ── Continuation tab ────────────────────────────────────────
 
@@ -4243,7 +4233,8 @@ class DicteeSetupDialog(QDialog):
         """
         idx = self._pp_tabs.currentIndex()
         if idx == 1:  # Dictionnaire
-            if checked:
+            currently_advanced = self._dict_stack.currentIndex() == 1
+            if checked and not currently_advanced:
                 # Formulaire → Avancé : écrire le formulaire dans .tmp, charger dans l'éditeur
                 self._save_dict_to_tmp(reload=False)
                 if os.path.isfile(self._dict_tmp_path):
@@ -4254,7 +4245,8 @@ class DicteeSetupDialog(QDialog):
                         self._dict_adv_editor.setPlainText(f.read())
                 else:
                     self._dict_adv_editor.clear()
-            else:
+                self._dict_stack.setCurrentIndex(1)
+            elif not checked and currently_advanced:
                 # Avancé → Formulaire : valider syntaxe avant de basculer
                 text = self._dict_adv_editor.toPlainText()
                 if not text.endswith("\n"):
@@ -4273,7 +4265,7 @@ class DicteeSetupDialog(QDialog):
                 with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
                     f.write(text)
                 self._load_dict_form()
-            self._dict_stack.setCurrentIndex(1 if checked else 0)
+                self._dict_stack.setCurrentIndex(0)
         elif idx == 2:  # Continuation
             if checked:
                 # Formulaire → Avancé : sauvegarder le formulaire, charger dans l'éditeur
