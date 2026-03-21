@@ -3328,13 +3328,6 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
         common_btns.addWidget(self._btn_dict_undo)
 
-        btn_revert = QPushButton(_("Revert to saved"))
-        btn_revert.setToolTip(_("Discard all unsaved changes and reload the last saved version"))
-        btn_revert.clicked.connect(self._dict_revert_to_saved)
-        common_btns.addWidget(btn_revert)
-
-        common_btns.addStretch()
-
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
         btn_save.setToolTip(_("Save all changes to disk"))
@@ -3345,6 +3338,11 @@ class DicteeSetupDialog(QDialog):
         common_btns.addWidget(btn_save)
 
         common_btns.addStretch()
+
+        btn_revert = QPushButton(_("Revert to saved"))
+        btn_revert.setToolTip(_("Discard all unsaved changes and reload the last saved version"))
+        btn_revert.clicked.connect(self._dict_revert_to_saved)
+        common_btns.addWidget(btn_revert)
 
         btn_factory = QPushButton(_("Factory reset"))
         btn_factory.setToolTip(_("Restore factory defaults"))
