@@ -1,0 +1,125 @@
+# Continuation words per language — dictee
+#
+# Words that NEVER end a sentence. If the ASR puts a period after one of them,
+# it is an error: the period is removed and the sentence continues.
+#
+# Format: [lang] word1 word2 word3 ...
+# One [lang] per line. Multiple lines per language allowed (cumulative).
+#
+# User customization: copy to ~/.config/dictee/continuation.conf
+# The user file SUPPLEMENTS the system file (no replacement).
+
+# ── French ───────────────────────────────────────────────────────────
+# Articles & contractions
+[fr] le la les un une des du au aux
+# Prepositions
+[fr] de à en dans sur sous pour par avec sans vers chez entre contre
+# Conjunctions
+[fr] et ou mais car ni que qui dont où quand si comme lorsque puisque
+# Subject pronouns
+[fr] je tu il elle on nous vous ils elles
+# Object / reflexive pronouns
+[fr] me te se lui leur
+# Demonstratives
+[fr] ce ça cet cette ces
+# Possessives
+[fr] mon ton son ma ta sa mes tes ses notre votre nos vos leurs
+# Auxiliaries & common verbs
+[fr] suis es est sommes êtes sont ai as a avons avez ont
+[fr] était avait sera serait avoir être fait fais vais vas va vont
+
+# ── English ──────────────────────────────────────────────────────────
+# Articles
+[en] the a an
+# Prepositions
+[en] of to in on at by for with from into about through between
+[en] against during without before after under over above below around among
+# Conjunctions
+[en] and or but nor so yet if when while because since although unless until
+[en] whether though
+# Auxiliaries & modals
+[en] is are was were am be been being have has had do does
+[en] did will would shall should can could may might must
+
+# ── German ───────────────────────────────────────────────────────────
+# Articles
+[de] der die das den dem des ein eine einem einen einer
+# Subject pronouns
+[de] ich du er sie es wir
+# Object pronouns
+[de] mich mir dich dir ihn ihm uns euch ihnen
+# Possessives
+[de] mein dein sein ihr unser euer meine meinem meinen meiner
+[de] deine deinem deinen deiner seine seiner seinem seinen
+[de] ihre ihrem ihren ihrer unsere unserem unseren unserer
+[de] eure eurem euren eurer
+# Prepositions
+[de] in an auf von mit zu für über unter nach vor bei aus
+[de] zwischen ohne durch um gegen
+# Conjunctions
+[de] und oder aber denn dass wenn weil ob als wie
+# Auxiliaries & modals
+[de] bin bist ist sind seid habe hast hat haben habt hatte hatten war
+[de] waren wird wirst werden werde würde kann kannst können
+[de] muss musst müssen soll sollen darf dürfen
+
+# ── Spanish ──────────────────────────────────────────────────────────
+# Articles & contractions
+[es] el la los las un una unos unas del al
+# Prepositions
+[es] de a en por para con sin sobre entre hacia desde hasta contra
+# Conjunctions
+[es] que si cuando porque como aunque mientras ni
+# Object / reflexive pronouns
+[es] lo le nos les me te se
+# Possessives
+[es] mi tu su mis tus sus nuestro nuestra
+# Auxiliaries & common verbs
+[es] soy eres es somos son estoy está estamos
+[es] he has ha hemos fui fue era había tengo tiene tenemos será sería
+
+# ── Italian ──────────────────────────────────────────────────────────
+# Articles & compound prepositions
+[it] il lo la i gli le un uno una del dello della dei degli delle
+[it] al allo alla ai agli alle nel nello nella nei negli nelle
+# Object / reflexive pronouns
+[it] mi ti ci vi si me te ce ve se ne
+# Possessives
+[it] mio tuo suo nostro vostro mia tua sua nostra vostra
+# Prepositions
+[it] di a da in con su per tra fra verso senza dopo prima contro
+# Conjunctions
+[it] che se quando perché come dove mentre né
+# Auxiliaries
+[it] sono sei è siamo siete ho hai ha abbiamo avete hanno
+[it] ero era avevo aveva sarà
+
+# ── Portuguese ───────────────────────────────────────────────────────
+# Articles & compound prepositions
+[pt] o a os as um uma uns umas do da dos das no na nos nas ao à aos às
+# Prepositions
+[pt] de em por para com sem sobre entre até desde contra
+# Conjunctions
+[pt] que se quando porque como embora nem
+# Object / reflexive pronouns
+[pt] me te se lhe
+# Possessives
+[pt] meu teu seu minha tua sua nosso
+# Auxiliaries & common verbs
+[pt] sou és é somos são estou está tenho tem fui foi era tinha será seria
+
+# ── Ukrainian ────────────────────────────────────────────────────────
+# Subject pronouns
+[uk] я ти він вона воно ми ви вони
+# Object pronouns
+[uk] мене тебе його її нас вас їх мені тобі йому їй нам вам їм
+# Possessives
+[uk] мій твій наш ваш моя твоя наша ваша
+# Demonstratives
+[uk] цей той ця та це ці
+# Prepositions
+[uk] в на з до від за для про під над між через біля після перед без у із
+# Conjunctions
+[uk] і й та або чи але а що як коли бо якщо
+# Auxiliaries & common verbs
+[uk] є був була було були буде має мав мала

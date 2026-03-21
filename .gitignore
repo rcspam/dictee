@@ -24,3 +24,5 @@ DOC.md
 ETAT_PROJET.md
 PROMOTION.md
 *.tar.gz
+.worktrees/
+.superpowers/

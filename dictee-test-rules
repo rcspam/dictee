@@ -1,0 +1,138 @@
+#!/bin/bash
+# dictee-test-rules — Test what Parakeet hears and how rules transform it
+# Usage: dictee-test-rules [--loop] [--wav file.wav]
+#   No args:  record once (Enter to stop), show raw + processed
+#   --loop:   record repeatedly (Enter to stop each, Ctrl+C to quit)
+#   --wav:    skip recording, transcribe an existing WAV file
+
+set -euo pipefail
+
+# ── Config ──────────────────────────────────────────────────────────────
+CONF="$HOME/.config/dictee.conf"
+if [ -f "$CONF" ]; then
+    # shellcheck disable=SC1090
+    source "$CONF"
+fi
+LANG_SOURCE="${DICTEE_LANG_SOURCE:-fr}"
+TMPWAV="/tmp/dictee-test-recording.wav"
+
+# ── Colors ──────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Helpers ─────────────────────────────────────────────────────────────
+cleanup() {
+    rm -f "$TMPWAV"
+    # Kill pw-record if still running
+    if [ -n "${PW_PID:-}" ] && kill -0 "$PW_PID" 2>/dev/null; then
+        kill "$PW_PID" 2>/dev/null
+        wait "$PW_PID" 2>/dev/null
+    fi
+}
+trap cleanup EXIT
+
+record_audio() {
+    echo -e "${DIM}Appuyez sur Entrée pour commencer l'enregistrement...${NC}"
+    read -r
+    pw-record --rate 16000 --channels 1 --format s16 "$TMPWAV" &
+    PW_PID=$!
+    sleep 0.3
+    echo -e "${RED}● Parlez maintenant...${NC} ${DIM}(Entrée pour arrêter)${NC}"
+    read -r
+    kill "$PW_PID" 2>/dev/null
+    wait "$PW_PID" 2>/dev/null || true
+    PW_PID=
+}
+
+transcribe() {
+    local wav="$1"
+    transcribe-client "$wav" 2>/dev/null
+}
+
+postprocess() {
+    local raw="$1"
+    echo "$raw" | DICTEE_LANG_SOURCE="$LANG_SOURCE" dictee-postprocess 2>/dev/null
+}
+
+show_result() {
+    local raw="$1"
+    local processed="$2"
+
+    echo -e "${CYAN}──────────────────────────────────────${NC}"
+    echo -e "${YELLOW}RAW${NC}        ${BOLD}$raw${NC}"
+
+    # If raw contains non-latin characters, show a ready-to-use rule
+    if echo "$raw" | grep -qP '[А-Яа-яЁё]'; then
+        # Escape regex special chars and strip trailing punctuation for the pattern
+        local pattern
+        pattern=$(echo "$raw" | sed 's/[.?!,]*$//' | sed 's/[]\/$*.^[]/\\&/g')
+        echo -e "${RED}CYRILLIQUE${NC} ${DIM}Parakeet a détecté du cyrillique au lieu du français${NC}"
+        echo -e "${DIM}Règle prête à copier dans rules.conf :${NC}"
+        echo -e "${GREEN}[fr] /^[,.\\s]*${pattern}[,.\\s]*/\\n/igm${NC}"
+    fi
+
+    # Show processed with visible control chars
+    local display
+    display=$(printf '%s' "$processed" | sed ':a;N;$!ba;s/\n/\\n/g;s/\t/\\t/g')
+    if [ "$raw" = "$processed" ]; then
+        echo -e "${BLUE}PROCESSED${NC}  ${DIM}(inchangé)${NC}"
+    else
+        echo -e "${GREEN}PROCESSED${NC}  ${BOLD}$display${NC}"
+    fi
+    echo
+}
+
+# ── Main ────────────────────────────────────────────────────────────────
+echo -e "${BOLD}dictee-test-rules${NC} — Langue: ${CYAN}$LANG_SOURCE${NC}"
+echo -e "${DIM}Testez ce que Parakeet détecte et comment les règles le transforment.${NC}"
+echo
+
+LOOP=false
+WAV_FILE=
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --loop) LOOP=true; shift ;;
+        --wav)  WAV_FILE="$2"; shift 2 ;;
+        *)      echo "Usage: $0 [--loop] [--wav file.wav]"; exit 1 ;;
+    esac
+done
+
+if [ -n "$WAV_FILE" ]; then
+    # Single file mode
+    raw=$(transcribe "$WAV_FILE")
+    processed=$(postprocess "$raw")
+    show_result "$raw" "$processed"
+    exit 0
+fi
+
+while true; do
+    record_audio
+
+    if [ ! -f "$TMPWAV" ]; then
+        echo -e "${RED}Pas d'audio enregistré.${NC}"
+        continue
+    fi
+
+    raw=$(transcribe "$TMPWAV")
+    if [ -z "$raw" ]; then
+        echo -e "${DIM}(silence détecté)${NC}"
+        echo
+    else
+        processed=$(postprocess "$raw")
+        show_result "$raw" "$processed"
+    fi
+
+    rm -f "$TMPWAV"
+
+    if [ "$LOOP" = false ]; then
+        break
+    fi
+    echo -e "${DIM}Prêt pour le prochain enregistrement... (Ctrl+C pour quitter)${NC}"
+done

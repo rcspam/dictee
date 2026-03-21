@@ -1,0 +1,59 @@
+# Dictionary for dictee — format: [lang] WORD=REPLACEMENT
+# lang = ISO 639-1 code (fr, en, de, es, it, pt, uk) or * (all languages)
+#
+# User dictionary in ~/.config/dictee/dictionary.conf
+# is applied AFTER this default dictionary.
+#
+# Case is preserved automatically:
+#   "LINUX" → "LINUX", "Linux" → "Linux", "linux" → "Linux"
+
+# ── Tech acronyms (all languages) ───────────────────────────────────
+[*] api=API
+[*] url=URL
+[*] html=HTML
+[*] css=CSS
+[*] pdf=PDF
+[*] gpu=GPU
+[*] cpu=CPU
+[*] ram=RAM
+[*] ssd=SSD
+[*] usb=USB
+[*] wifi=WiFi
+[*] sql=SQL
+[*] ssh=SSH
+[*] http=HTTP
+[*] https=HTTPS
+[*] json=JSON
+[*] xml=XML
+[*] php=PHP
+[*] ip=IP
+[*] dns=DNS
+[*] vpn=VPN
+[*] ia=IA
+[en] ai=AI
+
+# ── Tech brand names (all languages) ────────────────────────────────
+[*] linux=Linux
+[*] python=Python
+[*] javascript=JavaScript
+[*] typescript=TypeScript
+[*] firefox=Firefox
+[*] chrome=Chrome
+[*] google=Google
+[*] github=GitHub
+[*] youtube=YouTube
+[*] android=Android
+[*] iphone=iPhone
+[*] microsoft=Microsoft
+[*] windows=Windows
+[*] ubuntu=Ubuntu
+[*] debian=Debian
+
+# ── French acronyms ─────────────────────────────────────────────────
+[fr] sncf=SNCF
+[fr] ratp=RATP
+[fr] onu=ONU
+[fr] otan=OTAN
+[fr] ovni=OVNI
+[fr] bac=BAC
+[fr] tvа=TVA
