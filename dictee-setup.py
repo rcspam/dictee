@@ -3114,6 +3114,17 @@ class DicteeSetupDialog(QDialog):
 
     # ── Post-processing tabs ────────────────────────────────────
 
+    @staticmethod
+    def _monospace_font():
+        """Retourne une police monospace à 12pt pour les éditeurs avancés."""
+        try:
+            from PyQt6.QtGui import QFont
+        except ImportError:
+            from PySide6.QtGui import QFont
+        font = QFont("monospace", 12)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        return font
+
     def _build_rules_tab(self, lay):
         """Onglet Règles : éditeur texte monospace."""
         import os as _os
@@ -3127,7 +3138,8 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(info)
 
         self._rules_editor = QTextEdit()
-        self._rules_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+        self._rules_editor.setStyleSheet("font-family: monospace;")
+        self._rules_editor.setFont(self._monospace_font())
         self._rules_editor.setPlaceholderText(
             "# [lang] /PATTERN/REPLACEMENT/FLAGS\n"
             "# Example:\n"
@@ -3274,7 +3286,8 @@ class DicteeSetupDialog(QDialog):
         adv_lay.setSpacing(4)
 
         self._dict_adv_editor = QTextEdit()
-        self._dict_adv_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+        self._dict_adv_editor.setStyleSheet("font-family: monospace;")
+        self._dict_adv_editor.setFont(self._monospace_font())
         self._dict_adv_editor.setPlaceholderText(
             "# [lang] WORD=REPLACEMENT\n"
             "# Example:\n"
@@ -3437,6 +3450,8 @@ class DicteeSetupDialog(QDialog):
 
         cmb_lang = QComboBox()
         cmb_lang.setFixedWidth(60)
+        cmb_lang.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        cmb_lang.installEventFilter(self._scroll_guard)
         cmb_lang.addItem("*")
         for code, _name in LANGUAGES:
             cmb_lang.addItem(code)
@@ -3510,6 +3525,12 @@ class DicteeSetupDialog(QDialog):
             layout.insertWidget(stretch_idx, row_widget)
         else:
             layout.addWidget(row_widget)
+
+        # Scroller vers la nouvelle entrée et donner le focus au champ mot
+        QTimer.singleShot(50, lambda: (
+            self._dict_scroll.ensureWidgetVisible(row_widget),
+            row_widget.property("dict_word_edt").setFocus(),
+        ))
 
     def _remove_dict_entry(self, entry):
         """Supprime une entrée visuellement (pas de sauvegarde tant qu'on n'applique pas)."""
@@ -3792,7 +3813,8 @@ class DicteeSetupDialog(QDialog):
         adv_lay.setContentsMargins(0, 0, 0, 0)
 
         self._cont_adv_editor = QTextEdit()
-        self._cont_adv_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+        self._cont_adv_editor.setStyleSheet("font-family: monospace;")
+        self._cont_adv_editor.setFont(self._monospace_font())
         self._cont_adv_editor.setPlaceholderText(
             "# [lang] word1 word2 word3 ...\n"
             "# Example:\n"
