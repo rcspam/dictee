@@ -3500,7 +3500,10 @@ class DicteeSetupDialog(QDialog):
             btn_ok.setToolTip(_("Confirm this entry"))
             btn_ok.setFixedWidth(30)
             btn_ok.setStyleSheet("color: green; font-weight: bold;")
-            btn_ok.clicked.connect(lambda: self._save_dict_to_tmp(reload=True))
+            def _on_confirm():
+                self._dict_push_undo()
+                self._save_dict_to_tmp(reload=True)
+            btn_ok.clicked.connect(_on_confirm)
             row_lay.addWidget(btn_ok)
 
         # ✕ pour supprimer
@@ -3545,6 +3548,10 @@ class DicteeSetupDialog(QDialog):
         else:
             layout.addWidget(row_widget)
 
+        # Sauvegarder dans .tmp (avec undo)
+        self._dict_push_undo()
+        self._save_dict_to_tmp()
+
         # Scroller vers la nouvelle entrée et donner le focus au champ mot
         QTimer.singleShot(50, lambda: (
             self._dict_scroll.ensureWidgetVisible(row_widget),
@@ -3553,6 +3560,7 @@ class DicteeSetupDialog(QDialog):
 
     def _remove_dict_entry(self, entry):
         """Supprime une entrée du dictionnaire et écrit dans .tmp."""
+        self._dict_push_undo()
         if entry in self._dict_rows:
             self._dict_rows.remove(entry)
         entry.setParent(None)
