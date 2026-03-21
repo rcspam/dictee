@@ -1623,8 +1623,9 @@ class DicteeSetupDialog(QDialog):
             QTimer.singleShot(100, self._open_postprocess_dialog)
 
     def _open_postprocess_dialog(self):
-        """Ouvre la fenêtre post-traitement dans un dialogue séparé."""
+        """Ouvre la fenêtre post-traitement dans un dialogue séparé (réutilisé)."""
         if hasattr(self, '_pp_dialog') and self._pp_dialog is not None:
+            self._pp_dialog.show()
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
@@ -1636,7 +1637,6 @@ class DicteeSetupDialog(QDialog):
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
-        dlg.finished.connect(lambda: setattr(self, '_pp_dialog', None))
         self._pp_dialog = dlg
         dlg.show()
 
