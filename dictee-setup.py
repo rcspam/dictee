@@ -3176,21 +3176,22 @@ class DicteeSetupDialog(QDialog):
         QMessageBox.warning(self, "dictee", _("Default rules file not found."))
 
     def _build_dictionary_tab(self, lay):
-        """Onglet Dictionnaire : vue formulaire avec accordéons + mode avancé."""
+        """Onglet Dictionnaire : fichier unique local, vue formulaire avec accordéons + mode avancé."""
         import os as _os
 
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._dict_path = _os.path.join(XDG_CFG, "dictee", "dictionary.conf")
 
-        # Chercher le fichier système
-        self._dict_sys_path = None
-        for candidate in [
-            _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dictionary.conf.default"),
-            "/usr/share/dictee/dictionary.conf.default",
-        ]:
-            if _os.path.isfile(candidate):
-                self._dict_sys_path = candidate
-                break
+        # Premier lancement : copier le fichier système vers le local
+        if not _os.path.isfile(self._dict_path):
+            for candidate in [
+                _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dictionary.conf.default"),
+                "/usr/share/dictee/dictionary.conf.default",
+            ]:
+                if _os.path.isfile(candidate):
+                    _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
+                    shutil.copy2(candidate, self._dict_path)
+                    break
 
         self._dict_stack = QStackedWidget()
 
@@ -3213,39 +3214,27 @@ class DicteeSetupDialog(QDialog):
         toolbar.addWidget(self._dict_lang_filter)
 
         toolbar.addStretch()
-        form_top_lay.addLayout(toolbar)
 
-        # Zone scrollable (accordéons système uniquement)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_content = QWidget()
-        self._dict_sys_layout = QVBoxLayout(scroll_content)
-        self._dict_sys_layout.setContentsMargins(4, 4, 4, 4)
-        self._dict_sys_layout.setSpacing(6)
-        scroll.setWidget(scroll_content)
-        form_top_lay.addWidget(scroll, 3)
-
-        # Zone personnelle (fixe, ne scrolle pas avec le système)
-        self._dict_personal_container = QWidget()
-        self._dict_personal_layout = QVBoxLayout(self._dict_personal_container)
-        self._dict_personal_layout.setContentsMargins(4, 4, 4, 4)
-        self._dict_personal_layout.setSpacing(4)
-        form_top_lay.addWidget(self._dict_personal_container, 0)
-
-        # Bouton ajouter + Appliquer/Annuler
-        btns_form = QHBoxLayout()
         self._btn_dict_add = QPushButton("+ " + _("Add"))
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
-        btns_form.addWidget(self._btn_dict_add)
-        btns_form.addStretch()
-        btn_cancel_form = QPushButton(_("Cancel"))
-        btn_cancel_form.clicked.connect(self._load_dict_form)
-        btn_apply_form = QPushButton(_("Apply"))
-        btn_apply_form.clicked.connect(self._save_dict_personal)
-        btns_form.addWidget(btn_cancel_form)
-        btns_form.addWidget(btn_apply_form)
-        form_top_lay.addLayout(btns_form)
+        toolbar.addWidget(self._btn_dict_add)
+
+        btn_restore = QPushButton(_("Restore defaults"))
+        btn_restore.clicked.connect(self._restore_dict_defaults)
+        toolbar.addWidget(btn_restore)
+
+        form_top_lay.addLayout(toolbar)
+
+        # Zone scrollable unique (toutes les entrées)
+        self._dict_scroll = QScrollArea()
+        self._dict_scroll.setWidgetResizable(True)
+        self._dict_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        self._dict_layout = QVBoxLayout(scroll_content)
+        self._dict_layout.setContentsMargins(4, 4, 4, 4)
+        self._dict_layout.setSpacing(6)
+        self._dict_scroll.setWidget(scroll_content)
+        form_top_lay.addWidget(self._dict_scroll, 1)
 
         self._dict_stack.addWidget(form_page)
 
@@ -3255,18 +3244,6 @@ class DicteeSetupDialog(QDialog):
         adv_lay.setContentsMargins(0, 0, 0, 0)
         adv_lay.setSpacing(4)
 
-        # Fichier système (lecture seule)
-        adv_lay.addWidget(QLabel("<b>" + _("System dictionary (read-only):") + "</b>"))
-        self._dict_adv_sys = QTextEdit()
-        self._dict_adv_sys.setReadOnly(True)
-        self._dict_adv_sys.setStyleSheet(
-            "font-family: monospace; font-size: 12px; background-color: palette(midlight); color: palette(mid);")
-        self._dict_adv_sys.setMaximumHeight(150)
-        adv_lay.addWidget(self._dict_adv_sys)
-
-        # Fichier personnel (éditable)
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        adv_lay.addWidget(QLabel(f"<b style='color:{accent};'>" + _("Your dictionary (editable):") + "</b>"))
         self._dict_adv_editor = QTextEdit()
         self._dict_adv_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
         self._dict_adv_editor.setPlaceholderText(
@@ -3292,8 +3269,8 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(self._dict_stack)
 
-        # Données personnelles
-        self._dict_personal_rows = []
+        # Données
+        self._dict_rows = []
 
         # Connecter recherche et filtre
         self._dict_search.editTextChanged.connect(self._filter_dict_entries)
@@ -3333,11 +3310,11 @@ class DicteeSetupDialog(QDialog):
         return categories
 
     def _load_dict_form(self):
-        """Vide et reconstruit le formulaire dictionnaire."""
-        # Vider le layout système (scrollable) — détacher immédiatement
-        sys_layout = self._dict_sys_layout
-        while sys_layout.count():
-            item = sys_layout.takeAt(0)
+        """Vide et reconstruit le formulaire dictionnaire (fichier unique)."""
+        # Vider le layout — détacher immédiatement
+        layout = self._dict_layout
+        while layout.count():
+            item = layout.takeAt(0)
             w = item.widget()
             if w:
                 w.setParent(None)
@@ -3345,39 +3322,37 @@ class DicteeSetupDialog(QDialog):
             elif item.spacerItem():
                 pass  # les spacers sont supprimés par takeAt
 
-        # Vider le layout personnel (fixe) — détacher immédiatement
-        perso_layout = self._dict_personal_layout
-        while perso_layout.count():
-            item = perso_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-                w.deleteLater()
-
-        self._dict_personal_rows.clear()
+        self._dict_rows.clear()
 
         # Collecter toutes les langues pour le filtre
         all_langs = set()
 
-        # --- Catégories système (dans le scroll) ---
-        if self._dict_sys_path:
-            sys_cats = self._parse_dict_with_categories(self._dict_sys_path)
-            for cat_name, entries in sys_cats:
+        # Parser le fichier unique
+        categories = self._parse_dict_with_categories(self._dict_path)
+
+        if not categories:
+            self._dict_empty_label = QLabel(
+                "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
+            self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(self._dict_empty_label)
+        else:
+            self._dict_empty_label = None
+            for cat_name, entries in categories:
                 for lang, _w, _r in entries:
                     if lang != "*":
                         all_langs.add(lang)
-                # Bouton titre repliable (pas de checkbox)
+
                 n_entries = len(entries)
                 entry_lbl = _("entries") if n_entries > 1 else _("entry")
-                btn_title = f"\u25b8 {cat_name} ({n_entries} {entry_lbl})"
+                # Bouton titre repliable — DÉPLIÉ par défaut
+                btn_title = f"\u25be {cat_name} ({n_entries} {entry_lbl})"
                 btn_toggle = QPushButton(btn_title)
                 btn_toggle.setFlat(True)
                 btn_toggle.setStyleSheet("text-align: left; font-weight: bold; padding: 4px;")
-                sys_layout.addWidget(btn_toggle)
+                layout.addWidget(btn_toggle)
 
-                # Contenu caché par défaut
                 content_w = QWidget()
-                content_w.setVisible(False)
+                content_w.setVisible(True)
                 content_lay = QVBoxLayout(content_w)
                 content_lay.setSpacing(2)
                 content_lay.setContentsMargins(16, 0, 0, 4)
@@ -3393,64 +3368,12 @@ class DicteeSetupDialog(QDialog):
                 btn_toggle.clicked.connect(_make_toggle(btn_toggle, content_w))
 
                 for lang, word, repl in entries:
-                    row = QHBoxLayout()
-                    lbl_lang = QLabel(f"[{lang}]")
-                    lbl_lang.setFixedWidth(40)
-                    lbl_word = QLabel(word)
-                    lbl_arrow = QLabel("\u2192")
-                    lbl_arrow.setFixedWidth(20)
-                    lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    lbl_repl = QLabel(repl)
-                    row.addWidget(lbl_lang)
-                    row.addWidget(lbl_word)
-                    row.addWidget(lbl_arrow)
-                    row.addWidget(lbl_repl)
-                    row.addStretch()
+                    row_widget = self._make_dict_row(lang, word, repl, cat_name)
+                    content_lay.addWidget(row_widget)
 
-                    container = QWidget()
-                    container.setLayout(row)
-                    container.setEnabled(False)
-                    container.setProperty("dict_lang", lang)
-                    container.setProperty("dict_word", word)
-                    container.setProperty("dict_repl", repl)
-                    content_lay.addWidget(container)
+                layout.addWidget(content_w)
 
-                sys_layout.addWidget(content_w)
-
-        sys_layout.addStretch()
-
-        # --- Entrées personnelles (zone fixe) ---
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        sep_lbl = QLabel(f"<b style='color:{accent};'>" + _("YOUR PERSONAL ENTRIES") + "</b>")
-        sep_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        perso_layout.addWidget(sep_lbl)
-
-        # Collecter les mots système pour éviter les doublons
-        sys_words = set()
-        if self._dict_sys_path:
-            for _cat, entries in self._parse_dict_with_categories(self._dict_sys_path):
-                for lang, word, _r in entries:
-                    sys_words.add((lang, word.lower()))
-                    sys_words.add(("*", word.lower()))
-
-        user_cats = self._parse_dict_with_categories(self._dict_path)
-        has_entries = False
-        for _cat, entries in user_cats:
-            for lang, word, repl in entries:
-                if (lang, word.lower()) in sys_words:
-                    continue
-                self._add_dict_entry(lang, word, repl)
-                if lang != "*":
-                    all_langs.add(lang)
-                has_entries = True
-
-        if not has_entries:
-            self._dict_empty_label = QLabel(
-                "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
-            self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            perso_layout.addWidget(self._dict_empty_label)
-        else:
-            self._dict_empty_label = None
+        layout.addStretch()
 
         # Mettre à jour le filtre de langue
         self._dict_lang_filter.blockSignals(True)
@@ -3465,14 +3388,8 @@ class DicteeSetupDialog(QDialog):
             self._dict_lang_filter.setCurrentIndex(idx)
         self._dict_lang_filter.blockSignals(False)
 
-    def _add_dict_entry(self, lang="*", word="", repl=""):
-        """Crée une ligne éditable pour une entrée dictionnaire personnelle."""
-        # Supprimer le label vide si présent
-        if hasattr(self, '_dict_empty_label') and self._dict_empty_label is not None:
-            self._dict_empty_label.setParent(None)
-            self._dict_empty_label.deleteLater()
-            self._dict_empty_label = None
-
+    def _make_dict_row(self, lang="*", word="", repl="", category=""):
+        """Crée une ligne éditable pour une entrée dictionnaire."""
         row_widget = QWidget()
         row_lay = QHBoxLayout(row_widget)
         row_lay.setContentsMargins(0, 0, 0, 0)
@@ -3505,7 +3422,7 @@ class DicteeSetupDialog(QDialog):
         btn_ok.setToolTip(_("Save"))
         btn_ok.setFixedWidth(30)
         btn_ok.setStyleSheet("color: green; font-weight: bold;")
-        btn_ok.clicked.connect(lambda: self._save_dict_personal())
+        btn_ok.clicked.connect(lambda: self._save_dict())
         row_lay.addWidget(btn_ok)
 
         btn_del = QPushButton("\u2715")
@@ -3518,34 +3435,54 @@ class DicteeSetupDialog(QDialog):
         row_widget.setProperty("dict_lang_cmb", cmb_lang)
         row_widget.setProperty("dict_word_edt", edt_word)
         row_widget.setProperty("dict_repl_edt", edt_repl)
+        row_widget.setProperty("dict_category", category)
 
-        self._dict_personal_layout.addWidget(row_widget)
-        self._dict_personal_rows.append(row_widget)
+        self._dict_rows.append(row_widget)
+        return row_widget
+
+    def _add_dict_entry(self, lang="*", word="", repl=""):
+        """Ajoute une nouvelle entrée au dictionnaire (dans la dernière catégorie ou 'Other')."""
+        # Supprimer le label vide si présent
+        if hasattr(self, '_dict_empty_label') and self._dict_empty_label is not None:
+            self._dict_empty_label.setParent(None)
+            self._dict_empty_label.deleteLater()
+            self._dict_empty_label = None
+
+        # Déterminer la catégorie — utiliser la dernière catégorie existante ou "Other"
+        category = _("Other")
+        if self._dict_rows:
+            last_cat = self._dict_rows[-1].property("dict_category")
+            if last_cat:
+                category = last_cat
+
+        row_widget = self._make_dict_row(lang, word, repl, category)
+
+        # Ajouter dans le layout : avant le stretch final
+        layout = self._dict_layout
+        # Insérer avant le stretch (dernier item)
+        stretch_idx = layout.count() - 1
+        if stretch_idx >= 0:
+            layout.insertWidget(stretch_idx, row_widget)
+        else:
+            layout.addWidget(row_widget)
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée personnelle du dictionnaire et sauvegarde."""
-        if entry in self._dict_personal_rows:
-            self._dict_personal_rows.remove(entry)
+        """Supprime une entrée du dictionnaire, sauvegarde et recharge."""
+        if entry in self._dict_rows:
+            self._dict_rows.remove(entry)
         entry.setParent(None)
         entry.deleteLater()
 
-        if not self._dict_personal_rows:
-            self._dict_empty_label = QLabel(
-                "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
-            self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._dict_personal_layout.addWidget(self._dict_empty_label)
-
-        # Sauvegarder immédiatement (sans re-nettoyer les vides pour éviter la récursion)
-        self._save_dict_personal(auto=True)
+        # Sauvegarder immédiatement puis recharger pour rafraîchir
+        self._save_dict(reload=True)
 
     def _filter_dict_entries(self):
         """Filtre les entrées visibles selon recherche et langue."""
         search = self._dict_search.currentText().lower()
         lang_filter = self._dict_lang_filter.currentData() or ""
 
-        # Filtrer les groupes système (paires btn_toggle + content_w)
-        layout = self._dict_sys_layout
-        # Parcourir par paires : QPushButton titre, QWidget contenu
+        # Parcourir les catégories (paires btn_toggle + content_w)
+        layout = self._dict_layout
         i = 0
         while i < layout.count():
             item = layout.itemAt(i)
@@ -3553,7 +3490,6 @@ class DicteeSetupDialog(QDialog):
                 i += 1
                 continue
             btn = item.widget()
-            # Chercher le content_w suivant
             if btn is None or not isinstance(btn, QPushButton):
                 i += 1
                 continue
@@ -3566,7 +3502,7 @@ class DicteeSetupDialog(QDialog):
                 i += 1
                 continue
             i += 1
-            # Filtrer les enfants du content_w
+            # Filtrer les enfants du content_w (lignes éditables)
             content_lay = content_w.layout()
             if content_lay is None:
                 continue
@@ -3578,53 +3514,42 @@ class DicteeSetupDialog(QDialog):
                 child = child_item.widget()
                 if child is None:
                     continue
-                c_lang = child.property("dict_lang") or ""
-                c_word = child.property("dict_word") or ""
-                c_repl = child.property("dict_repl") or ""
+                cmb = child.property("dict_lang_cmb")
+                edt_w = child.property("dict_word_edt")
+                edt_r = child.property("dict_repl_edt")
+                if cmb is None or edt_w is None:
+                    continue
+                c_lang = cmb.currentText()
+                c_word = edt_w.text().lower()
+                c_repl = edt_r.text().lower() if edt_r else ""
                 visible = True
                 if lang_filter and c_lang != "*" and c_lang != lang_filter:
                     visible = False
-                if search and search not in c_word.lower() and search not in c_repl.lower():
+                if search and search not in c_word and search not in c_repl:
                     visible = False
                 child.setVisible(visible)
                 if visible:
                     any_visible = True
             # Cacher le bouton titre + contenu si aucune entrée visible
             btn.setVisible(any_visible)
-            # Si recherche/filtre actif et des entrées visibles : ouvrir l'accordéon
             if (search or lang_filter) and any_visible:
                 content_w.setVisible(True)
             elif not any_visible:
                 content_w.setVisible(False)
-            # Si pas de filtre, ne pas modifier la visibilité du contenu (laisser l'état toggle)
 
-        # Filtrer les entrées perso
-        for row in self._dict_personal_rows:
-            cmb = row.property("dict_lang_cmb")
-            edt = row.property("dict_word_edt")
-            if cmb is None or edt is None:
-                continue
-            r_lang = cmb.currentText()
-            r_word = edt.text().lower()
-            edt_r = row.property("dict_repl_edt")
-            r_repl = edt_r.text().lower() if edt_r else ""
-            visible = True
-            if lang_filter and r_lang != "*" and r_lang != lang_filter:
-                visible = False
-            if search and search not in r_word and search not in r_repl:
-                visible = False
-            row.setVisible(visible)
-
-    def _save_dict_personal(self, auto=False):
-        """Valide et sauvegarde les entrées personnelles du dictionnaire."""
+    def _save_dict(self, reload=False):
+        """Valide et sauvegarde toutes les entrées du dictionnaire."""
         import os as _os
+        from collections import OrderedDict
 
-        entries = []
+        # Collecter les entrées groupées par catégorie
+        cat_entries = OrderedDict()
         empty_rows = []
-        for row in self._dict_personal_rows:
+        for row in self._dict_rows:
             cmb = row.property("dict_lang_cmb")
             edt_w = row.property("dict_word_edt")
             edt_r = row.property("dict_repl_edt")
+            category = row.property("dict_category") or _("Other")
             if cmb is None or edt_w is None or edt_r is None:
                 continue
             lang = cmb.currentText()
@@ -3632,54 +3557,65 @@ class DicteeSetupDialog(QDialog):
             repl = edt_r.text().strip()
 
             if not word and not repl:
-                # Ligne vide — la supprimer visuellement (sauf en mode auto)
-                if not auto:
-                    empty_rows.append(row)
+                empty_rows.append(row)
                 continue
             if not word:
-                if not auto:
-                    QMessageBox.warning(self, "dictee",
-                        _("Word cannot be empty."))
-                    return
                 continue
             if "=" in word:
                 QMessageBox.warning(self, "dictee",
                     _("Word cannot contain '=': {word}").format(word=word))
                 return
-            # Doublon lang+mot
-            for prev_lang, prev_word, _pr in entries:
-                if prev_lang == lang and prev_word.lower() == word.lower():
-                    QMessageBox.warning(self, "dictee",
-                        _("Duplicate entry: [{lang}] {word}").format(lang=lang, word=word))
-                    return
-            entries.append((lang, word, repl))
+            if category not in cat_entries:
+                cat_entries[category] = []
+            cat_entries[category].append((lang, word, repl))
 
-        # Supprimer les lignes vides de l'UI (sans passer par _remove_dict_entry
-        # pour éviter la récursion → _remove_dict_entry appelle _save_dict_personal)
+        # Supprimer les lignes vides de l'UI
         for row in empty_rows:
-            if row in self._dict_personal_rows:
-                self._dict_personal_rows.remove(row)
+            if row in self._dict_rows:
+                self._dict_rows.remove(row)
             row.setParent(None)
             row.deleteLater()
 
         _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
         with open(self._dict_path, "w", encoding="utf-8") as f:
-            f.write("# User dictionary for dictee\n")
+            f.write("# dictee dictionary\n")
             f.write("# Format: [lang] WORD=REPLACEMENT\n\n")
-            for lang, word, repl in entries:
-                f.write(f"[{lang}] {word}={repl}\n")
+            for cat_name, entries in cat_entries.items():
+                f.write(f"# \u2500\u2500 {cat_name} \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n")
+                for lang, word, repl in entries:
+                    f.write(f"[{lang}] {word}={repl}\n")
+                f.write("\n")
 
-        # Recharger le formulaire pour filtrer les doublons système
-        if not auto:
+        if reload:
             self._load_dict_form()
+
+    def _restore_dict_defaults(self):
+        """Restaure le dictionnaire par défaut."""
+        reply = QMessageBox.question(self, "dictee",
+            _("Restore default dictionary? Your changes will be lost."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for candidate in [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "dictionary.conf.default"),
+            "/usr/share/dictee/dictionary.conf.default",
+        ]:
+            if os.path.isfile(candidate):
+                shutil.copy2(candidate, self._dict_path)
+                self._load_dict_form()
+                return
+        QMessageBox.warning(self, "dictee", _("Default dictionary file not found."))
 
     def _save_dict_advanced(self):
         """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
         import os as _os
 
         _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
+        text = self._dict_adv_editor.toPlainText()
+        if not text.endswith("\n"):
+            text += "\n"
         with open(self._dict_path, "w", encoding="utf-8") as f:
-            f.write(self._dict_adv_editor.toPlainText())
+            f.write(text)
 
         self._btn_advanced.setChecked(False)
         QMessageBox.information(self, "dictee", _("Dictionary saved."))
@@ -4061,13 +3997,7 @@ class DicteeSetupDialog(QDialog):
         idx = self._pp_tabs.currentIndex()
         if idx == 1:  # Dictionnaire
             if checked:
-                # Charger le fichier système (lecture seule)
-                if self._dict_sys_path and os.path.isfile(self._dict_sys_path):
-                    with open(self._dict_sys_path, encoding="utf-8") as f:
-                        self._dict_adv_sys.setPlainText(f.read())
-                else:
-                    self._dict_adv_sys.setPlainText(_("(system file not found)"))
-                # Charger le fichier personnel (éditable)
+                # Charger le fichier unique (éditable)
                 if os.path.isfile(self._dict_path):
                     with open(self._dict_path, encoding="utf-8") as f:
                         self._dict_adv_editor.setPlainText(f.read())

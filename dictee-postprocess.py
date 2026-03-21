@@ -145,14 +145,14 @@ def _parse_rules(path):
 
 
 def load_rules():
-    """Charge les règles système puis utilisateur."""
-    rules = []
+    """Charge les règles utilisateur (ou le système par défaut)."""
+    if os.path.isfile(USER_RULES):
+        return _parse_rules(USER_RULES)
+    # Fallback : fichier système
     for candidate in SYSTEM_RULES_CANDIDATES:
         if os.path.isfile(candidate):
-            rules.extend(_parse_rules(candidate))
-            break
-    rules.extend(_parse_rules(USER_RULES))
-    return rules
+            return _parse_rules(candidate)
+    return []
 
 
 def apply_rules(text, rules):
@@ -186,13 +186,14 @@ def _parse_continuation(path):
     return words
 
 def load_continuation():
-    words = set()
+    """Charge les mots de continuation utilisateur (ou le système par défaut)."""
+    if os.path.isfile(USER_CONT):
+        return _parse_continuation(USER_CONT)
+    # Fallback : fichier système
     for candidate in SYSTEM_CONT_CANDIDATES:
         if os.path.isfile(candidate):
-            words.update(_parse_continuation(candidate))
-            break
-    words.update(_parse_continuation(USER_CONT))
-    return words
+            return _parse_continuation(candidate)
+    return set()
 
 def fix_continuation(text, continuation_words):
     """Supprime les points erronés après un mot de continuation.
@@ -353,14 +354,14 @@ def _parse_dictionary(path):
 
 
 def load_dictionary():
-    """Charge le dictionnaire système puis utilisateur."""
-    entries = []
+    """Charge le dictionnaire utilisateur (ou le système par défaut)."""
+    if os.path.isfile(USER_DICT):
+        return _parse_dictionary(USER_DICT)
+    # Fallback : fichier système
     for candidate in SYSTEM_DICT_CANDIDATES:
         if os.path.isfile(candidate):
-            entries.extend(_parse_dictionary(candidate))
-            break
-    entries.extend(_parse_dictionary(USER_DICT))
-    return entries
+            return _parse_dictionary(candidate)
+    return []
 
 
 # Import optionnel jellyfish pour matching phonétique
