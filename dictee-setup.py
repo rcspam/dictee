@@ -3259,7 +3259,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
 
-        # Boutons en bas
+        # Boutons spécifiques au mode normal
         btns_bottom = QHBoxLayout()
         self._btn_dict_add = QPushButton("+ " + _("Add"))
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
@@ -3270,22 +3270,6 @@ class DicteeSetupDialog(QDialog):
         btns_bottom.addWidget(btn_restore)
 
         btns_bottom.addStretch()
-
-        self._btn_dict_undo = QPushButton(_("Undo"))
-        self._btn_dict_undo.setToolTip(_("Undo last change"))
-        self._btn_dict_undo.setEnabled(False)
-        self._btn_dict_undo.clicked.connect(self._dict_undo)
-        btns_bottom.addWidget(self._btn_dict_undo)
-
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        btn_save = QPushButton(_("Save"))
-        btn_save.setToolTip(_("Save all changes"))
-        btn_save.setStyleSheet(
-            f"font-weight: bold; background-color: {accent}; color: white; "
-            f"padding: 4px 16px; border-radius: 4px;")
-        btn_save.clicked.connect(self._save_dict_official)
-        btns_bottom.addWidget(btn_save)
-
         form_top_lay.addLayout(btns_bottom)
 
         self._dict_stack.addWidget(form_page)
@@ -3317,25 +3301,38 @@ class DicteeSetupDialog(QDialog):
         btn_zoom_in.clicked.connect(lambda: self._dict_adv_editor.zoomIn(2))
         zoom_lay.addWidget(btn_zoom_out)
         zoom_lay.addWidget(btn_zoom_in)
-
-        self._btn_dict_adv_undo = QPushButton(_("Undo"))
-        self._btn_dict_adv_undo.clicked.connect(self._dict_undo_in_advanced)
-        self._btn_dict_adv_undo.setEnabled(False)
-        zoom_lay.addWidget(self._btn_dict_adv_undo)
-
         zoom_lay.addStretch()
-        btn_cancel_adv = QPushButton(_("Discard"))
-        btn_cancel_adv.setToolTip(_("Discard changes and return to normal mode"))
-        btn_cancel_adv.clicked.connect(self._dict_cancel_advanced)
-        btn_save_adv = QPushButton(_("Save"))
-        btn_save_adv.clicked.connect(self._dict_save_advanced_and_switch)
-        zoom_lay.addWidget(btn_cancel_adv)
-        zoom_lay.addWidget(btn_save_adv)
+        btn_discard_adv = QPushButton(_("Discard"))
+        btn_discard_adv.setToolTip(_("Discard changes and return to normal mode"))
+        btn_discard_adv.clicked.connect(self._dict_cancel_advanced)
+        zoom_lay.addWidget(btn_discard_adv)
         adv_lay.addLayout(zoom_lay)
 
         self._dict_stack.addWidget(adv_page)
 
         lay.addWidget(self._dict_stack)
+
+        # --- Barre commune Undo / Enregistrer (sous le QStackedWidget, visible dans les 2 modes) ---
+        common_btns = QHBoxLayout()
+
+        self._btn_dict_undo = QPushButton(_("Undo"))
+        self._btn_dict_undo.setToolTip(_("Undo last change"))
+        self._btn_dict_undo.setEnabled(False)
+        self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
+        common_btns.addWidget(self._btn_dict_undo)
+
+        common_btns.addStretch()
+
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        btn_save = QPushButton(_("Save"))
+        btn_save.setToolTip(_("Save all changes"))
+        btn_save.setStyleSheet(
+            f"font-weight: bold; background-color: {accent}; color: white; "
+            f"padding: 4px 16px; border-radius: 4px;")
+        btn_save.clicked.connect(self._dict_save_smart)
+        common_btns.addWidget(btn_save)
+
+        lay.addLayout(common_btns)
 
         # Données
         self._dict_rows = []
@@ -3716,13 +3713,41 @@ class DicteeSetupDialog(QDialog):
         self._dict_adv_editor.setPlainText(content)
         self._dict_update_undo_buttons()
 
+    def _dict_undo_smart(self):
+        """Undo qui fonctionne dans les deux modes."""
+        if self._dict_stack.currentIndex() == 1:
+            self._dict_undo_in_advanced()
+        else:
+            self._dict_undo()
+
+    def _dict_save_smart(self):
+        """Enregistrer qui fonctionne dans les deux modes."""
+        if self._dict_stack.currentIndex() == 1:
+            # En mode avancé : valider syntaxe, écrire .tmp, copier vers officiel, basculer
+            text = self._dict_adv_editor.toPlainText()
+            if not text.endswith("\n"):
+                text += "\n"
+            ok, err = self._validate_dict_syntax(text)
+            if not ok:
+                QMessageBox.warning(self, "dictee", err)
+                return
+            self._save_dict_advanced()
+            self._save_dict_official()
+            self._btn_advanced.blockSignals(True)
+            self._btn_advanced.setChecked(False)
+            self._btn_advanced.blockSignals(False)
+            self._load_dict_form()
+            self._dict_stack.setCurrentIndex(0)
+        else:
+            # En mode normal : écrire .tmp puis copier vers officiel
+            self._save_dict_to_tmp()
+            self._save_dict_official()
+
     def _dict_update_undo_buttons(self):
         """Synchronise l'état enabled des boutons undo (mode normal + avancé)."""
         has_undo = bool(self._dict_undo_stack)
         if hasattr(self, '_btn_dict_undo'):
             self._btn_dict_undo.setEnabled(has_undo)
-        if hasattr(self, '_btn_dict_adv_undo'):
-            self._btn_dict_adv_undo.setEnabled(has_undo)
 
     def _dict_init_tmp(self):
         """Copie le fichier officiel vers .tmp et vide le stack undo."""
