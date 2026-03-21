@@ -1745,8 +1745,8 @@ class DicteeSetupDialog(QDialog):
         self._splitter = splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(scroll)
         splitter.addWidget(grp_postprocess)
-        # Répartition initiale : ~40% config, ~60% post-traitement
-        splitter.setStretchFactor(0, 2)
+        # Répartition initiale : ~70% config, ~30% post-traitement
+        splitter.setStretchFactor(0, 7)
         splitter.setStretchFactor(1, 3)
         splitter.setChildrenCollapsible(False)
 
