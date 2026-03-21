@@ -1634,6 +1634,16 @@ class DicteeSetupDialog(QDialog):
             return
         dlg = QDialog(self)
         dlg.setModal(False)
+        # Forcer le type Window pour que KDE Plasma traite cette fenêtre
+        # comme une fenêtre normale (pas un dialogue utilitaire qui passe
+        # derrière le panel/dock). Garder les boutons titre standard.
+        dlg.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1000, 700)
