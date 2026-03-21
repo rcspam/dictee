@@ -3548,9 +3548,11 @@ class DicteeSetupDialog(QDialog):
         else:
             layout.addWidget(row_widget)
 
-        # Sauvegarder dans .tmp (avec undo)
-        self._dict_push_undo()
-        self._save_dict_to_tmp()
+        # Sauvegarder dans .tmp seulement si la ligne a du contenu
+        # (sinon la ligne vide serait supprimée immédiatement par _save_dict_to_tmp)
+        if word and repl:
+            self._dict_push_undo()
+            self._save_dict_to_tmp()
 
         # Scroller vers la nouvelle entrée et donner le focus au champ mot
         QTimer.singleShot(50, lambda: (
