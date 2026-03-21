@@ -3248,7 +3248,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
 
-        # Boutons en bas
+        # Boutons en bas (sauvegarde immédiate — pas de Cancel/Save)
         btns_bottom = QHBoxLayout()
         self._btn_dict_add = QPushButton("+ " + _("Add"))
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
@@ -3259,21 +3259,6 @@ class DicteeSetupDialog(QDialog):
         btns_bottom.addWidget(btn_restore)
 
         btns_bottom.addStretch()
-
-        btn_cancel = QPushButton(_("Cancel"))
-        btn_cancel.setToolTip(_("Discard changes and reload from file"))
-        btn_cancel.clicked.connect(self._load_dict_form)
-        btns_bottom.addWidget(btn_cancel)
-
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        btn_save_all = QPushButton(_("Save"))
-        btn_save_all.setToolTip(_("Save all changes"))
-        btn_save_all.setStyleSheet(
-            f"font-weight: bold; background-color: {accent}; color: white; "
-            f"padding: 4px 16px; border-radius: 4px;")
-        btn_save_all.clicked.connect(lambda: self._save_dict(reload=True))
-        btns_bottom.addWidget(btn_save_all)
-
         form_top_lay.addLayout(btns_bottom)
 
         self._dict_stack.addWidget(form_page)
@@ -3442,7 +3427,13 @@ class DicteeSetupDialog(QDialog):
         self._dict_lang_filter.blockSignals(False)
 
     def _make_dict_row(self, lang="*", word="", repl="", category="", is_new=False):
-        """Crée une ligne éditable pour une entrée dictionnaire."""
+        """Crée une ligne éditable pour une entrée dictionnaire.
+
+        is_new=False : ligne existante dans le fichier — editingFinished sauvegarde immédiatement.
+        is_new=True  : ligne ajoutée par l'utilisateur, pas encore dans le fichier.
+                       Le ✓ sauvegarde tout le fichier (y compris cette ligne) et recharge.
+                       Le ✕ retire juste la ligne de l'UI sans sauvegarder.
+        """
         row_widget = QWidget()
         row_lay = QHBoxLayout(row_widget)
         row_lay.setContentsMargins(0, 0, 0, 0)
@@ -3473,20 +3464,38 @@ class DicteeSetupDialog(QDialog):
         edt_repl.setPlaceholderText(_("Replacement"))
         row_lay.addWidget(edt_repl)
 
+        # Marquer la ligne comme nouvelle (pas encore dans le fichier)
+        row_widget.setProperty("dict_is_new", is_new)
+
         if is_new:
-            # Nouvelle entrée : ✓ pour valider (sauvegarde + recharge)
+            # Nouvelle entrée : ✓ sauvegarde tout le fichier et recharge
             btn_ok = QPushButton("\u2713")
             btn_ok.setToolTip(_("Confirm this entry"))
             btn_ok.setFixedWidth(30)
             btn_ok.setStyleSheet("color: green; font-weight: bold;")
-            def _confirm_entry(bk=btn_ok):
-                """Confirme cette entrée (retire le ✓). La sauvegarde se fait via le bouton Sauvegarder."""
-                bk.setParent(None)
-                bk.deleteLater()
-            btn_ok.clicked.connect(_confirm_entry)
+            btn_ok.clicked.connect(lambda: self._save_dict(reload=True))
             row_lay.addWidget(btn_ok)
+        else:
+            # Ligne existante : sauvegarde automatique à la fin de l'édition.
+            # Garder les valeurs initiales pour éviter des sauvegardes inutiles.
+            row_widget.setProperty("dict_orig_lang", lang)
+            row_widget.setProperty("dict_orig_word", word)
+            row_widget.setProperty("dict_orig_repl", repl)
 
-        # Toujours : ✕ pour supprimer
+            def _on_editing_finished(rw=row_widget):
+                cl = rw.property("dict_lang_cmb")
+                ew = rw.property("dict_word_edt")
+                er = rw.property("dict_repl_edt")
+                if (cl.currentText() != rw.property("dict_orig_lang")
+                        or ew.text() != rw.property("dict_orig_word")
+                        or er.text() != rw.property("dict_orig_repl")):
+                    self._save_dict(reload=True)
+
+            edt_word.editingFinished.connect(_on_editing_finished)
+            edt_repl.editingFinished.connect(_on_editing_finished)
+            cmb_lang.currentIndexChanged.connect(lambda idx, rw=row_widget: self._save_dict(reload=True))
+
+        # ✕ pour supprimer
         btn_del = QPushButton("\u2715")
         btn_del.setToolTip(_("Remove"))
         btn_del.setFixedWidth(30)
@@ -3535,11 +3544,18 @@ class DicteeSetupDialog(QDialog):
         ))
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée visuellement (pas de sauvegarde tant qu'on n'applique pas)."""
+        """Supprime une entrée du dictionnaire.
+
+        Ligne nouvelle (non sauvegardée) : retirée de l'UI uniquement.
+        Ligne existante : sauvegarde le fichier sans cette ligne, puis recharge.
+        """
+        is_new = entry.property("dict_is_new")
         if entry in self._dict_rows:
             self._dict_rows.remove(entry)
         entry.setParent(None)
         entry.deleteLater()
+        if not is_new:
+            self._save_dict(reload=True)
 
     def _filter_dict_entries(self):
         """Filtre les entrées visibles selon recherche et langue."""
@@ -3761,6 +3777,11 @@ class DicteeSetupDialog(QDialog):
                 self._cont_sys_path = candidate
                 break
 
+        # Premier lancement : copier le fichier système vers le local
+        if not _os.path.isfile(self._cont_path) and self._cont_sys_path:
+            _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
+            shutil.copy2(self._cont_sys_path, self._cont_path)
+
         # Mots perso par langue : {lang: set()}
         self._cont_personal_words = {}
 
@@ -3793,16 +3814,7 @@ class DicteeSetupDialog(QDialog):
         scroll.setWidget(self._cont_scroll_content)
         form_top_lay.addWidget(scroll)
 
-        # Boutons formulaire
-        btns_form = QHBoxLayout()
-        btns_form.addStretch()
-        btn_cancel = QPushButton(_("Cancel"))
-        btn_cancel.clicked.connect(self._load_cont_form)
-        btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._save_cont_personal)
-        btns_form.addWidget(btn_cancel)
-        btns_form.addWidget(btn_apply)
-        form_top_lay.addLayout(btns_form)
+        # Pas de boutons Cancel/Apply : chaque ajout/suppression sauvegarde immédiatement
 
         self._cont_stack.addWidget(form_page)
 
@@ -4018,7 +4030,7 @@ class DicteeSetupDialog(QDialog):
         return lay
 
     def _add_cont_word(self, lang, line_edit):
-        """Ajoute un mot perso à la langue donnée et reconstruit le formulaire."""
+        """Ajoute un mot perso, sauvegarde le fichier immédiatement, recharge."""
         word = line_edit.text().strip().lower()
         if not word:
             return
@@ -4035,12 +4047,14 @@ class DicteeSetupDialog(QDialog):
                         _("'{word}' is already in the system list.").format(word=word))
                     return
         self._cont_personal_words[lang].add(word)
+        self._save_cont_personal()
         self._load_cont_form()
 
     def _remove_cont_word(self, lang, word):
-        """Supprime un mot perso et reconstruit le formulaire."""
+        """Supprime un mot perso, sauvegarde le fichier immédiatement, recharge."""
         if lang in self._cont_personal_words:
             self._cont_personal_words[lang].discard(word)
+        self._save_cont_personal()
         self._load_cont_form()
 
     def _save_cont_personal(self):
@@ -4056,8 +4070,6 @@ class DicteeSetupDialog(QDialog):
                 if words:
                     f.write(f"[{lang}] {' '.join(words)}\n")
 
-        QMessageBox.information(self, "dictee", _("Continuation words saved."))
-
     def _save_cont_advanced(self):
         """Sauvegarde le contenu du mode avancé dans le fichier (sans basculer le mode)."""
         import os as _os
@@ -4069,9 +4081,11 @@ class DicteeSetupDialog(QDialog):
     def _toggle_advanced_mode(self, checked):
         """Bascule formulaire ↔ éditeur texte pour l'onglet actif.
 
-        Formulaire → Avancé : sauvegarder le formulaire, charger le fichier dans l'éditeur.
-        Avancé → Formulaire : sauvegarder l'éditeur, recharger le formulaire.
-        Les deux modes éditent le même fichier.
+        Formulaire → Avancé : le formulaire est déjà synchronisé avec le fichier,
+                               charger le fichier dans l'éditeur.
+        Avancé → Formulaire : recharger depuis le fichier (Cancel = annule les modifs texte).
+                               Le bouton Save en mode avancé écrit d'abord le fichier
+                               avant de déclencher cette bascule.
         """
         idx = self._pp_tabs.currentIndex()
         if idx == 1:  # Dictionnaire
