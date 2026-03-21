@@ -3328,6 +3328,12 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
         common_btns.addWidget(self._btn_dict_undo)
 
+        self._btn_dict_redo = QPushButton(_("Redo"))
+        self._btn_dict_redo.setToolTip(_("Redo last undone change"))
+        self._btn_dict_redo.setEnabled(False)
+        self._btn_dict_redo.clicked.connect(self._dict_redo_smart)
+        common_btns.addWidget(self._btn_dict_redo)
+
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
         btn_save.setToolTip(_("Save all changes to disk"))
@@ -3704,29 +3710,68 @@ class DicteeSetupDialog(QDialog):
         self._dict_undo_stack.append(content)
         if len(self._dict_undo_stack) > 20:
             self._dict_undo_stack = self._dict_undo_stack[-20:]
+        # Nouvelle action → vider le redo (l'historique futur est invalidé)
+        self._dict_redo_stack.clear()
         self._dict_update_undo_buttons()
 
-    def _dict_undo(self):
-        """Dépile le dernier snapshot, l'écrit dans .tmp, recharge l'UI (mode normal)."""
-        if not self._dict_undo_stack:
-            return
-        content = self._dict_undo_stack.pop()
+    def _dict_read_tmp(self):
+        """Lit le contenu actuel du .tmp (ou officiel en fallback)."""
+        if os.path.isfile(self._dict_tmp_path):
+            with open(self._dict_tmp_path, encoding="utf-8") as f:
+                return f.read()
+        if os.path.isfile(self._dict_path):
+            with open(self._dict_path, encoding="utf-8") as f:
+                return f.read()
+        return ""
+
+    def _dict_write_tmp(self, content):
+        """Écrit du contenu dans le .tmp."""
         os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
         with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
             f.write(content)
+
+    def _dict_undo(self):
+        """Undo en mode normal."""
+        if not self._dict_undo_stack:
+            return
+        # Empiler l'état actuel dans le redo
+        self._dict_redo_stack.append(self._dict_read_tmp())
+        content = self._dict_undo_stack.pop()
+        self._dict_write_tmp(content)
         scroll_pos = self._dict_scroll.verticalScrollBar().value()
         self._load_dict_form()
         QTimer.singleShot(50, lambda: self._dict_scroll.verticalScrollBar().setValue(scroll_pos))
         self._dict_update_undo_buttons()
 
     def _dict_undo_in_advanced(self):
-        """Dépile le dernier snapshot et le charge dans l'éditeur avancé (même stack)."""
+        """Undo en mode avancé."""
         if not self._dict_undo_stack:
             return
+        self._dict_redo_stack.append(self._dict_read_tmp())
         content = self._dict_undo_stack.pop()
-        os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
-        with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        self._dict_write_tmp(content)
+        self._dict_adv_editor.setPlainText(content)
+        self._dict_update_undo_buttons()
+
+    def _dict_redo(self):
+        """Redo en mode normal."""
+        if not self._dict_redo_stack:
+            return
+        self._dict_undo_stack.append(self._dict_read_tmp())
+        content = self._dict_redo_stack.pop()
+        self._dict_write_tmp(content)
+        scroll_pos = self._dict_scroll.verticalScrollBar().value()
+        self._load_dict_form()
+        QTimer.singleShot(50, lambda: self._dict_scroll.verticalScrollBar().setValue(scroll_pos))
+        self._dict_update_undo_buttons()
+
+    def _dict_redo_in_advanced(self):
+        """Redo en mode avancé."""
+        if not self._dict_redo_stack:
+            return
+        self._dict_undo_stack.append(self._dict_read_tmp())
+        content = self._dict_redo_stack.pop()
+        self._dict_write_tmp(content)
         self._dict_adv_editor.setPlainText(content)
         self._dict_update_undo_buttons()
 
@@ -3736,6 +3781,13 @@ class DicteeSetupDialog(QDialog):
             self._dict_undo_in_advanced()
         else:
             self._dict_undo()
+
+    def _dict_redo_smart(self):
+        """Redo qui fonctionne dans les deux modes."""
+        if self._dict_stack.currentIndex() == 1:
+            self._dict_redo_in_advanced()
+        else:
+            self._dict_redo()
 
     def _dict_save_smart(self):
         """Enregistrer qui fonctionne dans les deux modes."""
@@ -3764,14 +3816,16 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.information(self, "dictee", _("Dictionary saved."))
 
     def _dict_update_undo_buttons(self):
-        """Synchronise l'état enabled des boutons undo (mode normal + avancé)."""
-        has_undo = bool(self._dict_undo_stack)
+        """Synchronise l'état enabled des boutons undo/redo."""
         if hasattr(self, '_btn_dict_undo'):
-            self._btn_dict_undo.setEnabled(has_undo)
+            self._btn_dict_undo.setEnabled(bool(self._dict_undo_stack))
+        if hasattr(self, '_btn_dict_redo'):
+            self._btn_dict_redo.setEnabled(bool(self._dict_redo_stack))
 
     def _dict_init_tmp(self):
-        """Copie le fichier officiel vers .tmp et vide le stack undo."""
+        """Copie le fichier officiel vers .tmp et vide les stacks undo/redo."""
         self._dict_undo_stack = []
+        self._dict_redo_stack = []
         self._dict_saved = False
         self._dict_update_undo_buttons()
         os.makedirs(os.path.dirname(self._dict_path), exist_ok=True)
