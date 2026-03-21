@@ -1634,20 +1634,7 @@ class DicteeSetupDialog(QDialog):
             return
         # Fenêtre indépendante (pas un QDialog enfant — KDE Plasma traite
         # les QDialog enfants comme des utilitaires qui passent derrière le panel)
-        cleanup = self._dict_cleanup_tmp
-
-        class _PPWindow(QWidget):
-            def closeEvent(self_, event):
-                cleanup()
-                super().closeEvent(event)
-
-            def keyPressEvent(self_, event):
-                if event.key() == Qt.Key.Key_Escape:
-                    self_.close()
-                else:
-                    super().keyPressEvent(event)
-
-        dlg = _PPWindow()
+        dlg = QWidget()
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1000, 700)
@@ -1655,15 +1642,8 @@ class DicteeSetupDialog(QDialog):
         lay = QVBoxLayout(dlg)
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
-
-        # Bouton retour en haut
-        btn_back = QPushButton("\u2190 " + _("Back"))
-        btn_back.setMaximumWidth(100)
-        btn_back.clicked.connect(dlg.close)
-        lay.addWidget(btn_back)
-
         self._build_postprocess_section(lay, self.conf)
-        self._pp_dialog = dlg  # garder la référence (évite le GC)
+        self._pp_dialog = dlg
         dlg.show()
 
     # ── Classic mode ──────────────────────────────────────────────
