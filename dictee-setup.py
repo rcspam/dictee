@@ -3330,11 +3330,6 @@ class DicteeSetupDialog(QDialog):
 
         common_btns.addStretch()
 
-        btn_factory = QPushButton(_("Factory reset"))
-        btn_factory.setToolTip(_("Restore factory defaults"))
-        btn_factory.clicked.connect(self._restore_dict_defaults)
-        common_btns.addWidget(btn_factory)
-
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
         btn_save.setToolTip(_("Save all changes to disk"))
@@ -3343,6 +3338,13 @@ class DicteeSetupDialog(QDialog):
             f"padding: 4px 16px; border-radius: 4px;")
         btn_save.clicked.connect(self._dict_save_smart)
         common_btns.addWidget(btn_save)
+
+        common_btns.addStretch()
+
+        btn_factory = QPushButton(_("Factory reset"))
+        btn_factory.setToolTip(_("Restore factory defaults"))
+        btn_factory.clicked.connect(self._restore_dict_defaults)
+        common_btns.addWidget(btn_factory)
 
         lay.addLayout(common_btns)
 
