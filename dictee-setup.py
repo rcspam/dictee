@@ -19,7 +19,7 @@ import locale
 import tempfile
 
 try:
-    from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, pyqtSignal as Signal
+    from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, pyqtSignal as Signal
     from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
@@ -30,7 +30,7 @@ try:
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
-    from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, Signal
+    from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, Signal
     from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
@@ -3021,6 +3021,13 @@ class DicteeSetupDialog(QDialog):
 
         pp_lay.addWidget(self._pp_tabs)
 
+        # --- Panneau de test ---
+        grp_test = QGroupBox(_("Test"))
+        test_lay = QVBoxLayout(grp_test)
+        test_lay.setSpacing(6)
+        self._build_test_panel(test_lay)
+        pp_lay.addWidget(grp_test)
+
         # LLM correction
         self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
@@ -4811,6 +4818,247 @@ class DicteeSetupDialog(QDialog):
 
     def _mark_dirty(self):
         self._dirty = True
+
+    # -- Panneau de test post-traitement --
+
+    def _build_test_panel(self, lay):
+        """Panneau de test : entrée texte + micro, résultat, détails pipeline."""
+        # Ligne d'en-tête avec bouton micro
+        header = QHBoxLayout()
+        header.addStretch()
+        self._btn_record = QPushButton(_("Record"))
+        self._btn_record.setStyleSheet("font-weight: bold;")
+        header.addWidget(self._btn_record)
+        lay.addLayout(header)
+
+        # Entrée / Sortie côte à côte
+        io_lay = QHBoxLayout()
+
+        in_grp = QVBoxLayout()
+        in_grp.addWidget(QLabel(_("Input (raw ASR)")))
+        self._test_input = QTextEdit()
+        self._test_input.setMaximumHeight(80)
+        self._test_input.setPlaceholderText(_("Type text or record..."))
+        in_grp.addWidget(self._test_input)
+        io_lay.addLayout(in_grp)
+
+        out_grp = QVBoxLayout()
+        out_grp.addWidget(QLabel(_("Output (processed)")))
+        self._test_output = QTextEdit()
+        self._test_output.setMaximumHeight(80)
+        self._test_output.setReadOnly(True)
+        out_grp.addWidget(self._test_output)
+        io_lay.addLayout(out_grp)
+
+        lay.addLayout(io_lay)
+
+        # Détails pipeline (replié)
+        self._test_details = QGroupBox(_("Pipeline details"))
+        self._test_details.setCheckable(True)
+        self._test_details.setChecked(False)
+        details_lay = QVBoxLayout(self._test_details)
+        self._test_details_label = QLabel("")
+        self._test_details_label.setWordWrap(True)
+        self._test_details_label.setStyleSheet("font-family: monospace; font-size: 11px;")
+        details_lay.addWidget(self._test_details_label)
+        lay.addWidget(self._test_details)
+
+        # Connecter
+        self._test_input.textChanged.connect(self._schedule_test_run)
+        self._btn_record.clicked.connect(self._toggle_recording)
+
+        # Timer debounce
+        self._test_timer = QTimer()
+        self._test_timer.setSingleShot(True)
+        self._test_timer.setInterval(300)
+        self._test_timer.timeout.connect(self._run_test_pipeline)
+
+        # État enregistrement
+        self._recording_process = None
+
+    def _schedule_test_run(self):
+        self._test_timer.start()
+
+    def _run_test_pipeline(self):
+        """Exécute le pipeline de postprocess étape par étape."""
+        text = self._test_input.toPlainText()
+        if not text.strip():
+            self._test_output.clear()
+            self._test_details_label.setText("")
+            return
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        try:
+            import importlib.util
+            lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+            os.environ["DICTEE_LANG_SOURCE"] = lang
+
+            spec = importlib.util.spec_from_file_location(
+                "dictee_postprocess",
+                os.path.join(script_dir, "dictee-postprocess.py"))
+            pp = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(pp)
+
+            steps = []
+            current = text
+
+            # 1. Règles regex
+            rules = pp.load_rules()
+            if rules:
+                new = pp.apply_rules(current, rules).strip()
+                steps.append((_("Rules"), current, new))
+                current = new
+
+            # 2. Rejet mauvaise langue
+            _LATIN = {"fr", "en", "de", "es", "it", "pt", "nl", "pl", "ro",
+                       "cs", "sv", "da", "no", "fi", "hu", "tr"}
+            _CYRILLIC = {"ru", "uk", "bg", "sr", "mk", "be"}
+            letters = [c for c in current if c.isalpha()]
+            if letters and lang:
+                cyrillic = sum(1 for c in letters if '\u0400' <= c <= '\u04ff')
+                ratio = cyrillic / len(letters)
+                if lang in _LATIN and ratio > 0.5:
+                    self._test_output.setPlainText(
+                        _("Rejected: ASR detected Cyrillic instead of {lang}").format(lang=lang))
+                    self._test_details_label.setText("")
+                    return
+                if lang in _CYRILLIC and ratio < 0.2:
+                    self._test_output.setPlainText(
+                        _("Rejected: ASR detected Latin instead of {lang}").format(lang=lang))
+                    self._test_details_label.setText("")
+                    return
+
+            # 3. Continuation
+            cont_words = pp.load_continuation()
+            if cont_words:
+                new = pp.fix_continuation(current, cont_words)
+                steps.append((_("Continuation"), current, new))
+                current = new
+
+            # 4. Élisions (FR)
+            if lang == "fr":
+                new = pp.fix_elisions(current)
+                steps.append((_("Elisions"), current, new))
+                current = new
+
+            # 5. Nombres
+            new = pp.convert_numbers(current)
+            steps.append((_("Numbers"), current, new))
+            current = new
+
+            # 6. Typographie (FR)
+            if lang == "fr":
+                new = pp.fix_french_typography(current)
+                steps.append((_("Typography"), current, new))
+                current = new
+
+            # 7. Dictionnaire
+            dictionary = pp.load_dictionary()
+            if dictionary:
+                new = pp.apply_dictionary(current, dictionary, fuzzy=True)
+                steps.append((_("Dictionary"), current, new))
+                current = new
+
+            # 8. Capitalisation
+            new = pp.fix_capitalization(current)
+            steps.append((_("Capitalization"), current, new))
+            current = new
+
+            self._test_output.setPlainText(current)
+
+            # Détails
+            lines = []
+            for i, (name, before, after) in enumerate(steps, 1):
+                changed = before != after
+                marker = " \u2190 " + _("changed") if changed else ""
+                display = after.replace("\n", "\\n").replace("\t", "\\t")
+                if len(display) > 100:
+                    display = display[:100] + "\u2026"
+                lines.append(f"{i}. {name} \u2192 {display}{marker}")
+            self._test_details_label.setText("\n".join(lines))
+
+        except Exception as e:
+            self._test_output.setPlainText(f"Error: {e}")
+
+    def _toggle_recording(self):
+        """Démarre/arrête l'enregistrement micro."""
+        if self._recording_process is not None:
+            self._recording_process.terminate()
+            self._recording_process.waitForFinished(2000)
+            self._recording_process = None
+            self._btn_record.setText(_("Record"))
+            self._transcribe_recorded()
+            return
+
+        # Vérifier daemon
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service"]
+        active = False
+        for svc in services:
+            try:
+                r = subprocess.run(["systemctl", "--user", "is-active", svc],
+                                   capture_output=True, text=True, timeout=3)
+                if r.stdout.strip() == "active":
+                    active = True
+                    break
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+        if not active:
+            reply = QMessageBox.question(
+                self, "dictee",
+                _("No ASR service is running. Start the default service?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
+                svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
+                           "whisper": "dictee-whisper.service"}
+                subprocess.Popen(["systemctl", "--user", "start",
+                                  svc_map.get(backend, "dictee.service")])
+            else:
+                return
+
+        # Démarrer enregistrement
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        self._tmp_wav = os.path.join(runtime_dir, "dictee-test-recording.wav")
+        self._recording_process = QProcess(self)
+        self._recording_process.start("pw-record", [
+            "--rate", "16000", "--channels", "1", "--format", "s16",
+            self._tmp_wav])
+        self._btn_record.setText(_("Stop"))
+
+    def _transcribe_recorded(self):
+        """Envoie le WAV enregistré au daemon via socket Unix."""
+        import socket as _socket
+        wav_path = getattr(self, '_tmp_wav', None)
+        if not wav_path or not os.path.isfile(wav_path):
+            return
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        sock_path = os.path.join(runtime_dir, "dictee", "transcribe.sock")
+        if not os.path.exists(sock_path):
+            sock_path = "/tmp/transcribe.sock"
+        try:
+            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            s.settimeout(30)
+            s.connect(sock_path)
+            s.sendall((wav_path + "\n").encode())
+            data = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            s.close()
+            text = data.decode("utf-8").strip()
+            if text:
+                self._test_input.setPlainText(text)
+        except (_socket.error, OSError) as e:
+            QMessageBox.warning(self, "dictee",
+                                _("Cannot connect to ASR daemon: {err}").format(err=str(e)))
+        finally:
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
 
     # -- Appliquer --
 
