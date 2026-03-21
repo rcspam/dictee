@@ -1590,8 +1590,8 @@ class DicteeSetupDialog(QDialog):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumSize(1050, 700)
-        self.resize(1050, 720)
+        self.setMinimumSize(710, 680)
+        self.resize(710, 700)
         self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
@@ -1620,9 +1620,25 @@ class DicteeSetupDialog(QDialog):
         super().showEvent(event)
         if getattr(self, '_open_postprocess', False):
             self._open_postprocess = False
-            # Maximiser le panneau post-traitement en réduisant le panneau config
-            if hasattr(self, '_splitter'):
-                QTimer.singleShot(100, lambda: self._splitter.setSizes([50, self.height() - 150]))
+            QTimer.singleShot(100, self._open_postprocess_dialog)
+
+    def _open_postprocess_dialog(self):
+        """Ouvre la fenêtre post-traitement dans un dialogue séparé."""
+        if hasattr(self, '_pp_dialog') and self._pp_dialog is not None:
+            self._pp_dialog.raise_()
+            self._pp_dialog.activateWindow()
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(_("Post-processing"))
+        dlg.resize(1000, 700)
+        dlg.setMinimumSize(800, 500)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(6)
+        lay.setContentsMargins(16, 16, 16, 12)
+        self._build_postprocess_section(lay, self.conf)
+        dlg.finished.connect(lambda: setattr(self, '_pp_dialog', None))
+        self._pp_dialog = dlg
+        dlg.show()
 
     # ── Classic mode ──────────────────────────────────────────────
 
@@ -1726,31 +1742,17 @@ class DicteeSetupDialog(QDialog):
         lay_srv.addWidget(self.chk_tray)
         layout.addWidget(grp_services)
 
+        # -- Bouton post-traitement --
+        btn_postprocess = QPushButton(_("Post-processing..."))
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        btn_postprocess.setStyleSheet(
+            f"font-weight: bold; padding: 8px 16px; font-size: 13px;")
+        btn_postprocess.clicked.connect(self._open_postprocess_dialog)
+        layout.addWidget(btn_postprocess)
+
         layout.addStretch()
         scroll.setWidget(content)
-
-        # -- Section post-traitement (panneau bas, séparé par QSplitter) --
-        grp_postprocess = QGroupBox(_("Post-processing"))
-        lay_pp = QVBoxLayout(grp_postprocess)
-        lay_pp.setSpacing(6)
-        lay_pp.setContentsMargins(16, 16, 16, 12)
-        self._build_postprocess_section(lay_pp, conf)
-        self._grp_postprocess = grp_postprocess
-
-        try:
-            from PyQt6.QtWidgets import QSplitter
-        except ImportError:
-            from PySide6.QtWidgets import QSplitter
-
-        self._splitter = splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(scroll)
-        splitter.addWidget(grp_postprocess)
-        # Répartition initiale : ~70% config, ~30% post-traitement
-        splitter.setStretchFactor(0, 7)
-        splitter.setStretchFactor(1, 3)
-        splitter.setChildrenCollapsible(False)
-
-        outer_layout.addWidget(splitter, 1)
+        outer_layout.addWidget(scroll, 1)
 
         # -- Boutons --
         lay_buttons = QHBoxLayout()
