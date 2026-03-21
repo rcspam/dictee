@@ -3478,7 +3478,8 @@ class DicteeSetupDialog(QDialog):
         edt_repl.setPlaceholderText(_("Replacement"))
         row_lay.addWidget(edt_repl)
 
-        btn_del = QPushButton("\U0001f5d1")
+        btn_del = QPushButton("\u2715")
+        btn_del.setToolTip(_("Remove"))
         btn_del.setFixedWidth(30)
         btn_del.clicked.connect(lambda: self._remove_dict_entry(row_widget))
         row_lay.addWidget(btn_del)
