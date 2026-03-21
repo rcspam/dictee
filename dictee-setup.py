@@ -26,7 +26,7 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout,
+        QToolTip, QGridLayout, QTabWidget,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -37,7 +37,7 @@ except ImportError:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip,
+        QToolTip, QTabWidget,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
@@ -2923,13 +2923,6 @@ class DicteeSetupDialog(QDialog):
 
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
-        import os as _os
-
-        XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
-        rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
-        dict_path = _os.path.join(XDG_CFG, "dictee", "dictionary.conf")
-        continuation_path = _os.path.join(XDG_CFG, "dictee", "continuation.conf")
-
         # Checkbox activer
         self.chk_postprocess = QCheckBox(_("Enable post-processing (regex rules + dictionary)"))
         self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
@@ -2984,82 +2977,49 @@ class DicteeSetupDialog(QDialog):
         self._lang_pp_widgets = [lbl_lang, self.chk_pp_elisions, self.chk_pp_typography]
         pp_lay.addLayout(grid_lang)
 
-        # --- Configuration files ---
-        row_btns1 = QHBoxLayout()
-        btn_rules = QPushButton(_("Edit regex rules…"))
-        btn_dict = QPushButton(_("Edit dictionary…"))
-        btn_continuation = QPushButton(_("Edit continuation words…"))
-        row_btns1.addWidget(btn_rules)
-        row_btns1.addWidget(btn_dict)
-        row_btns1.addWidget(btn_continuation)
-        pp_lay.addLayout(row_btns1)
-        row_btns2 = QHBoxLayout()
-        btn_defaults = QPushButton(_("Restore defaults"))
-        row_btns2.addWidget(btn_defaults)
-        row_btns2.addStretch()
-        pp_lay.addLayout(row_btns2)
+        # --- Sous-onglets d'édition ---
+        self._pp_tabs = QTabWidget()
 
-        def _edit_file(path, title, default_content=""):
-            _os.makedirs(_os.path.dirname(path), exist_ok=True)
-            if not _os.path.isfile(path):
-                with open(path, "w") as f:
-                    f.write(default_content)
-            dlg = QDialog(self)
-            dlg.setWindowTitle(title)
-            dlg.resize(600, 400)
-            dl = QVBoxLayout(dlg)
-            editor = QTextEdit()
-            with open(path, encoding="utf-8") as f:
-                editor.setPlainText(f.read())
-            editor.setStyleSheet("font-family: monospace; font-size: 12px;")
-            dl.addWidget(editor)
-            btns = QHBoxLayout()
-            btn_save = QPushButton(_("Save"))
-            btn_cancel = QPushButton(_("Cancel"))
-            btns.addStretch()
-            btns.addWidget(btn_cancel)
-            btns.addWidget(btn_save)
-            dl.addLayout(btns)
-            btn_cancel.clicked.connect(dlg.reject)
-            def _save():
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(editor.toPlainText())
-                dlg.accept()
-            btn_save.clicked.connect(_save)
-            dlg.exec()
+        # Onglet Règles
+        tab_rules = QWidget()
+        tab_rules_lay = QVBoxLayout(tab_rules)
+        tab_rules_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_rules_tab(tab_rules_lay)
+        self._pp_tabs.addTab(tab_rules, _("Regex rules"))
 
-        btn_rules.clicked.connect(lambda: _edit_file(
-            rules_path, _("Regex rules"),
-            "# [lang] /PATTERN/REPLACEMENT/FLAGS\n# Example:\n# [fr] /point à la ligne/\\n/ig\n"))
-        btn_dict.clicked.connect(lambda: _edit_file(
-            dict_path, _("Personal dictionary"),
-            "# [lang] WORD=REPLACEMENT\n# Example:\n# [*] linux=Linux\n"))
-        btn_continuation.clicked.connect(lambda: _edit_file(
-            continuation_path, _("Continuation words"),
-            "# Continuation words — supplements the system defaults\n"
-            "# Format: [lang] word1 word2 word3 ...\n"
-            "# Example:\n"
-            "# [fr] monsieur madame\n"))
+        # Onglet Dictionnaire
+        tab_dict = QWidget()
+        tab_dict_lay = QVBoxLayout(tab_dict)
+        tab_dict_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_dictionary_tab(tab_dict_lay)
+        self._pp_tabs.addTab(tab_dict, _("Dictionary"))
 
-        def _restore_defaults():
-            for candidate in [
-                _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules.conf.default"),
-                "/usr/share/dictee/rules.conf.default",
-            ]:
-                if _os.path.isfile(candidate):
-                    import shutil
-                    _os.makedirs(_os.path.dirname(rules_path), exist_ok=True)
-                    shutil.copy2(candidate, rules_path)
-                    QMessageBox.information(self, "dictee", _("Default rules restored."))
-                    return
-            QMessageBox.warning(self, "dictee", _("Default rules file not found."))
-        btn_defaults.clicked.connect(_restore_defaults)
+        # Onglet Continuation
+        tab_cont = QWidget()
+        tab_cont_lay = QVBoxLayout(tab_cont)
+        tab_cont_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_continuation_tab(tab_cont_lay)
+        self._pp_tabs.addTab(tab_cont, _("Continuation"))
 
-        # Séparateur
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        pp_lay.addWidget(sep)
+        # Bouton Mode avancé (masqué pour l'onglet Règles)
+        self._btn_advanced = QPushButton(_("Advanced mode"))
+        self._btn_advanced.setCheckable(True)
+        self._btn_advanced.setMaximumWidth(150)
+        corner = QWidget()
+        corner_lay = QHBoxLayout(corner)
+        corner_lay.setContentsMargins(0, 0, 4, 0)
+        corner_lay.addWidget(self._btn_advanced)
+        self._pp_tabs.setCornerWidget(corner)
+
+        def _on_tab_changed(idx):
+            self._btn_advanced.setVisible(idx != 0)
+            self._btn_advanced.setChecked(False)
+            self._toggle_advanced_mode(False)
+        self._pp_tabs.currentChanged.connect(_on_tab_changed)
+        self._btn_advanced.toggled.connect(self._toggle_advanced_mode)
+        _on_tab_changed(0)
+
+        pp_lay.addWidget(self._pp_tabs)
 
         # LLM correction
         self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
@@ -3112,6 +3072,81 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._pp_content)
         self._pp_content.setEnabled(self.chk_postprocess.isChecked())
         self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+
+    # ── Post-processing tabs ────────────────────────────────────
+
+    def _build_rules_tab(self, lay):
+        """Onglet Règles : éditeur texte monospace."""
+        import os as _os
+        XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
+        self._rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
+
+        info = QLabel(
+            "<i>" + _("User rules in {path} — applied after system rules.").format(
+                path="~/.config/dictee/rules.conf") + "</i>")
+        info.setWordWrap(True)
+        lay.addWidget(info)
+
+        self._rules_editor = QTextEdit()
+        self._rules_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+        self._rules_editor.setPlaceholderText(
+            "# [lang] /PATTERN/REPLACEMENT/FLAGS\n"
+            "# Example:\n"
+            "# [fr] /point à la ligne/\\n/ig\n")
+        self._load_rules_file()
+        lay.addWidget(self._rules_editor)
+
+        btns = QHBoxLayout()
+        btn_save = QPushButton(_("Save"))
+        btn_restore = QPushButton(_("Restore defaults"))
+        btns.addStretch()
+        btns.addWidget(btn_restore)
+        btns.addWidget(btn_save)
+        lay.addLayout(btns)
+
+        btn_save.clicked.connect(self._save_rules_file)
+        btn_restore.clicked.connect(self._restore_rules_defaults)
+
+    def _load_rules_file(self):
+        import os as _os
+        _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
+        if _os.path.isfile(self._rules_path):
+            with open(self._rules_path, encoding="utf-8") as f:
+                self._rules_editor.setPlainText(f.read())
+        else:
+            self._rules_editor.clear()
+
+    def _save_rules_file(self):
+        import os as _os
+        _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
+        with open(self._rules_path, "w", encoding="utf-8") as f:
+            f.write(self._rules_editor.toPlainText())
+        QMessageBox.information(self, "dictee", _("Rules saved."))
+
+    def _restore_rules_defaults(self):
+        import os as _os
+        for candidate in [
+            _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules.conf.default"),
+            "/usr/share/dictee/rules.conf.default",
+        ]:
+            if _os.path.isfile(candidate):
+                shutil.copy2(candidate, self._rules_path)
+                self._load_rules_file()
+                QMessageBox.information(self, "dictee", _("Default rules restored."))
+                return
+        QMessageBox.warning(self, "dictee", _("Default rules file not found."))
+
+    def _build_dictionary_tab(self, lay):
+        """Placeholder — sera implémenté dans la prochaine task."""
+        lay.addWidget(QLabel(_("Dictionary editor — coming soon")))
+
+    def _build_continuation_tab(self, lay):
+        """Placeholder — sera implémenté dans la prochaine task."""
+        lay.addWidget(QLabel(_("Continuation editor — coming soon")))
+
+    def _toggle_advanced_mode(self, checked):
+        """Bascule formulaire ↔ éditeur texte pour l'onglet actif."""
+        pass  # Sera implémenté avec les onglets Dictionnaire et Continuation
 
     def _build_mic_section(self, lay_mic, conf):
         """Build microphone source selection, volume slider, level meter."""
