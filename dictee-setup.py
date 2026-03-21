@@ -3551,9 +3551,360 @@ class DicteeSetupDialog(QDialog):
         self._btn_advanced.setChecked(False)
         QMessageBox.information(self, "dictee", _("Dictionary saved."))
 
+    # ── Continuation tab ────────────────────────────────────────
+
+    _LANG_FLAGS = {
+        "fr": "\U0001f1eb\U0001f1f7", "en": "\U0001f1ec\U0001f1e7",
+        "de": "\U0001f1e9\U0001f1ea", "es": "\U0001f1ea\U0001f1f8",
+        "it": "\U0001f1ee\U0001f1f9", "pt": "\U0001f1f5\U0001f1f9",
+        "uk": "\U0001f1fa\U0001f1e6",
+    }
+
+    _LANG_FULLNAMES = {
+        "fr": "Français", "en": "English", "de": "Deutsch",
+        "es": "Español", "it": "Italiano", "pt": "Português",
+        "uk": "Українська",
+    }
+
+    def _parse_cont_with_categories(self, path):
+        """Parse un fichier continuation, retourne {lang: [(subcategory, [mot, ...])]}.
+
+        Catégories principales : commentaires ``# ── Langue ─``
+        Sous-catégories : commentaires ``# Sous-titre`` (sans ──)
+        Entrées : ``[lang] mot1 mot2 ...``
+        """
+        result = {}  # lang -> [(subcat, [words])]
+        current_lang = None
+        current_subcat = _("Other")
+        entry_re = re.compile(r"^\s*\[([a-z]{2})\]\s+(.+)$")
+        lang_re = re.compile(r"^#\s*──\s*(.+?)\s*─")
+        subcat_re = re.compile(r"^#\s+(.+)$")
+
+        if not os.path.isfile(path):
+            return result
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line_s = line.strip()
+                if not line_s:
+                    continue
+                # Lang header  # ── French ──
+                m_lang = lang_re.match(line_s)
+                if m_lang:
+                    current_subcat = _("Other")
+                    continue
+                # Sub-category  # Articles
+                if line_s.startswith("#"):
+                    m_sub = subcat_re.match(line_s)
+                    if m_sub and "──" not in line_s:
+                        current_subcat = m_sub.group(1).strip()
+                    continue
+                # Entry  [fr] le la les ...
+                m = entry_re.match(line_s)
+                if m:
+                    lang = m.group(1)
+                    words = m.group(2).split()
+                    current_lang = lang
+                    if lang not in result:
+                        result[lang] = []
+                    # Merge into existing subcat or create new
+                    if result[lang] and result[lang][-1][0] == current_subcat:
+                        result[lang][-1][1].extend(words)
+                    else:
+                        result[lang].append((current_subcat, list(words)))
+        return result
+
     def _build_continuation_tab(self, lay):
-        """Placeholder — sera implémenté dans la prochaine task."""
-        lay.addWidget(QLabel(_("Continuation editor — coming soon")))
+        """Onglet Continuation : accordéons par langue avec chips + mode avancé."""
+        import os as _os
+
+        XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
+        self._cont_path = _os.path.join(XDG_CFG, "dictee", "continuation.conf")
+
+        # Chercher le fichier système
+        self._cont_sys_path = None
+        for candidate in [
+            _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "continuation.conf.default"),
+            "/usr/share/dictee/continuation.conf.default",
+        ]:
+            if _os.path.isfile(candidate):
+                self._cont_sys_path = candidate
+                break
+
+        # Mots perso par langue : {lang: set()}
+        self._cont_personal_words = {}
+
+        self._cont_stack = QStackedWidget()
+
+        # --- Page 0 : Vue formulaire ---
+        form_page = QWidget()
+        form_top_lay = QVBoxLayout(form_page)
+        form_top_lay.setContentsMargins(0, 0, 0, 0)
+
+        # Info label
+        info = QLabel(_(
+            "Words that never end a sentence. "
+            "If the ASR puts a period after one, it is removed."
+        ))
+        info.setWordWrap(True)
+        font = info.font()
+        font.setItalic(True)
+        info.setFont(font)
+        form_top_lay.addWidget(info)
+
+        # Zone scrollable pour les accordéons
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._cont_scroll_content = QWidget()
+        self._cont_form_layout = QVBoxLayout(self._cont_scroll_content)
+        self._cont_form_layout.setContentsMargins(4, 4, 4, 4)
+        self._cont_form_layout.setSpacing(6)
+        scroll.setWidget(self._cont_scroll_content)
+        form_top_lay.addWidget(scroll)
+
+        # Boutons formulaire
+        btns_form = QHBoxLayout()
+        btns_form.addStretch()
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self._load_cont_form)
+        btn_apply = QPushButton(_("Apply"))
+        btn_apply.clicked.connect(self._save_cont_personal)
+        btns_form.addWidget(btn_cancel)
+        btns_form.addWidget(btn_apply)
+        form_top_lay.addLayout(btns_form)
+
+        self._cont_stack.addWidget(form_page)
+
+        # --- Page 1 : Mode avancé ---
+        adv_page = QWidget()
+        adv_lay = QVBoxLayout(adv_page)
+        adv_lay.setContentsMargins(0, 0, 0, 0)
+
+        self._cont_adv_editor = QTextEdit()
+        self._cont_adv_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+        self._cont_adv_editor.setPlaceholderText(
+            "# [lang] word1 word2 word3 ...\n"
+            "# Example:\n"
+            "# [fr] donc alors\n"
+            "# [en] however moreover\n")
+        adv_lay.addWidget(self._cont_adv_editor)
+
+        btns_adv = QHBoxLayout()
+        btns_adv.addStretch()
+        btn_cancel_adv = QPushButton(_("Cancel"))
+        btn_cancel_adv.clicked.connect(lambda: (
+            self._btn_advanced.setChecked(False),
+        ))
+        btn_save_adv = QPushButton(_("Save"))
+        btn_save_adv.clicked.connect(self._save_cont_advanced)
+        btns_adv.addWidget(btn_cancel_adv)
+        btns_adv.addWidget(btn_save_adv)
+        adv_lay.addLayout(btns_adv)
+
+        self._cont_stack.addWidget(adv_page)
+
+        lay.addWidget(self._cont_stack)
+
+        # Charger le formulaire
+        self._load_cont_form()
+
+    def _load_cont_form(self):
+        """Vide et reconstruit les accordéons de l'onglet Continuation."""
+        layout = self._cont_form_layout
+
+        # Vider le layout existant
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+            elif item.layout():
+                sub = item.layout()
+                while sub.count():
+                    si = sub.takeAt(0)
+                    sw = si.widget()
+                    if sw:
+                        sw.deleteLater()
+
+        # Charger les mots système
+        sys_cats = {}
+        if self._cont_sys_path:
+            sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
+
+        # Charger les mots perso
+        user_cats = self._parse_cont_with_categories(self._cont_path)
+        self._cont_personal_words.clear()
+        for lang, subcats in user_cats.items():
+            words_set = set()
+            for _, words in subcats:
+                words_set.update(words)
+            self._cont_personal_words[lang] = words_set
+
+        # Déterminer la langue active
+        active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+
+        # Collecter toutes les langues (système + perso)
+        all_langs = sorted(set(list(sys_cats.keys()) + list(self._cont_personal_words.keys())))
+
+        # Construire un accordéon par langue
+        for lang in all_langs:
+            sys_words_all = []
+            sys_subcats = sys_cats.get(lang, [])
+            for _, words in sys_subcats:
+                sys_words_all.extend(words)
+
+            perso_words = self._cont_personal_words.get(lang, set())
+            total = len(sys_words_all) + len(perso_words)
+
+            flag = self._LANG_FLAGS.get(lang, "")
+            name = self._LANG_FULLNAMES.get(lang, lang.upper())
+            title = f"{flag} {name} ({total} " + (_("words") if total != 1 else _("word")) + ")"
+
+            group = QGroupBox(title)
+            group.setCheckable(True)
+            group.setChecked(lang == active_lang)
+            group_lay = QVBoxLayout(group)
+            group_lay.setSpacing(4)
+            group_lay.setContentsMargins(8, 8, 8, 8)
+
+            # --- Mots système par sous-catégorie ---
+            for subcat, words in sys_subcats:
+                # Sous-titre
+                lbl_sub = QLabel(f"<b>{subcat}</b>")
+                group_lay.addWidget(lbl_sub)
+
+                # Chips grisés (HTML inline)
+                chips_html = " ".join(
+                    f'<span style="background:#ddd;color:#555;border-radius:10px;'
+                    f'padding:2px 8px;margin:2px;display:inline-block;font-size:11px;">'
+                    f'{word}</span>'
+                    for word in words
+                )
+                lbl_chips = QLabel(chips_html)
+                lbl_chips.setWordWrap(True)
+                lbl_chips.setTextFormat(Qt.TextFormat.RichText)
+                group_lay.addWidget(lbl_chips)
+
+            # --- Séparateur dashed ---
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("border: 1px dashed #999;")
+            group_lay.addWidget(sep)
+
+            lbl_yours = QLabel("<i>" + _("Your additions:") + "</i>")
+            group_lay.addWidget(lbl_yours)
+
+            # --- Chips perso (QPushButtons cliquables) ---
+            perso_container = QWidget()
+            perso_container.setProperty("cont_lang", lang)
+            perso_flow = QHBoxLayout(perso_container)
+            perso_flow.setContentsMargins(0, 0, 0, 0)
+            perso_flow.setSpacing(4)
+
+            # Wrap dans un widget qui gère le wrapping
+            perso_wrap = QWidget()
+            perso_wrap_lay = self._make_flow_layout(perso_wrap)
+            perso_wrap.setProperty("cont_lang", lang)
+            perso_wrap.setProperty("is_perso_wrap", True)
+
+            hl_color = self.palette().color(self.palette().ColorRole.Highlight)
+            hl_text = self.palette().color(self.palette().ColorRole.HighlightedText)
+            hl_hex = hl_color.name()
+            hl_text_hex = hl_text.name()
+
+            for word in sorted(perso_words):
+                btn = QPushButton(f"{word} \u2715")
+                btn.setFlat(True)
+                btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn.setStyleSheet(
+                    f"QPushButton {{ background:{hl_hex}; color:{hl_text_hex}; "
+                    f"border-radius:10px; padding:2px 8px; font-size:11px; }}"
+                    f"QPushButton:hover {{ background:{hl_color.darker(120).name()}; }}"
+                )
+                btn.clicked.connect(lambda checked, w=word, l=lang: self._remove_cont_word(l, w))
+                perso_wrap_lay.addWidget(btn)
+
+            group_lay.addWidget(perso_wrap)
+
+            # --- QLineEdit pour ajouter ---
+            add_edit = QLineEdit()
+            add_edit.setPlaceholderText(_("Add a word..."))
+            add_edit.returnPressed.connect(
+                lambda le=add_edit, l=lang: self._add_cont_word(l, le)
+            )
+            group_lay.addWidget(add_edit)
+
+            layout.addWidget(group)
+
+        layout.addStretch()
+
+    def _make_flow_layout(self, parent):
+        """Crée un layout horizontal avec wrapping simulé via QHBoxLayout.
+
+        Note : un vrai FlowLayout serait idéal, mais QHBoxLayout + word-wrap
+        sur le conteneur parent suffit ici car les chips sont petits.
+        On utilise un simple QVBoxLayout contenant des QHBoxLayouts pour simuler.
+        Retourne le layout (on ajoute directement les widgets).
+        """
+        # Utiliser un simple layout wrap-friendly
+        from PyQt6.QtWidgets import QLayout
+        lay = QHBoxLayout(parent)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        lay.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+        return lay
+
+    def _add_cont_word(self, lang, line_edit):
+        """Ajoute un mot perso à la langue donnée et reconstruit le formulaire."""
+        word = line_edit.text().strip().lower()
+        if not word:
+            return
+        if lang not in self._cont_personal_words:
+            self._cont_personal_words[lang] = set()
+        if word in self._cont_personal_words[lang]:
+            return  # déjà présent
+        # Vérifier qu'il n'est pas déjà dans le système
+        if self._cont_sys_path:
+            sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
+            for _, words in sys_cats.get(lang, []):
+                if word in words:
+                    QMessageBox.information(self, "dictee",
+                        _("'{word}' is already in the system list.").format(word=word))
+                    return
+        self._cont_personal_words[lang].add(word)
+        self._load_cont_form()
+
+    def _remove_cont_word(self, lang, word):
+        """Supprime un mot perso et reconstruit le formulaire."""
+        if lang in self._cont_personal_words:
+            self._cont_personal_words[lang].discard(word)
+        self._load_cont_form()
+
+    def _save_cont_personal(self):
+        """Sauvegarde les mots perso dans ~/.config/dictee/continuation.conf."""
+        import os as _os
+
+        _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
+        with open(self._cont_path, "w", encoding="utf-8") as f:
+            f.write("# User continuation words for dictee\n")
+            f.write("# Format: [lang] word1 word2 ...\n\n")
+            for lang in sorted(self._cont_personal_words.keys()):
+                words = sorted(self._cont_personal_words[lang])
+                if words:
+                    f.write(f"[{lang}] {' '.join(words)}\n")
+
+        QMessageBox.information(self, "dictee", _("Continuation words saved."))
+
+    def _save_cont_advanced(self):
+        """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
+        import os as _os
+
+        _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
+        with open(self._cont_path, "w", encoding="utf-8") as f:
+            f.write(self._cont_adv_editor.toPlainText())
+
+        self._btn_advanced.setChecked(False)
+        QMessageBox.information(self, "dictee", _("Continuation words saved."))
 
     def _toggle_advanced_mode(self, checked):
         """Bascule formulaire ↔ éditeur texte pour l'onglet actif."""
@@ -3568,8 +3919,16 @@ class DicteeSetupDialog(QDialog):
             else:
                 self._load_dict_form()
             self._dict_stack.setCurrentIndex(1 if checked else 0)
-        elif idx == 2:  # Continuation (sera implémenté dans la task suivante)
-            pass
+        elif idx == 2:  # Continuation
+            if checked:
+                if os.path.isfile(self._cont_path):
+                    with open(self._cont_path, encoding="utf-8") as f:
+                        self._cont_adv_editor.setPlainText(f.read())
+                else:
+                    self._cont_adv_editor.clear()
+            else:
+                self._load_cont_form()
+            self._cont_stack.setCurrentIndex(1 if checked else 0)
 
     def _build_mic_section(self, lay_mic, conf):
         """Build microphone source selection, volume slider, level meter."""
