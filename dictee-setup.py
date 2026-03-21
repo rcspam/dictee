@@ -3032,6 +3032,11 @@ class DicteeSetupDialog(QDialog):
         self._btn_advanced = QPushButton(_("Advanced mode"))
         self._btn_advanced.setCheckable(True)
         self._btn_advanced.setMaximumWidth(150)
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        self._btn_advanced.setStyleSheet(
+            f"QPushButton {{ font-weight: bold; }}"
+            f"QPushButton:checked {{ background-color: {accent}; color: white; border-radius: 4px; padding: 2px 8px; }}"
+        )
         corner = QWidget()
         corner_lay = QHBoxLayout(corner)
         corner_lay.setContentsMargins(0, 0, 4, 0)
@@ -3248,7 +3253,20 @@ class DicteeSetupDialog(QDialog):
         adv_page = QWidget()
         adv_lay = QVBoxLayout(adv_page)
         adv_lay.setContentsMargins(0, 0, 0, 0)
+        adv_lay.setSpacing(4)
 
+        # Fichier système (lecture seule)
+        adv_lay.addWidget(QLabel("<b>" + _("System dictionary (read-only):") + "</b>"))
+        self._dict_adv_sys = QTextEdit()
+        self._dict_adv_sys.setReadOnly(True)
+        self._dict_adv_sys.setStyleSheet(
+            "font-family: monospace; font-size: 12px; background-color: palette(midlight); color: palette(mid);")
+        self._dict_adv_sys.setMaximumHeight(150)
+        adv_lay.addWidget(self._dict_adv_sys)
+
+        # Fichier personnel (éditable)
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        adv_lay.addWidget(QLabel(f"<b style='color:{accent};'>" + _("Your dictionary (editable):") + "</b>"))
         self._dict_adv_editor = QTextEdit()
         self._dict_adv_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
         self._dict_adv_editor.setPlaceholderText(
@@ -4043,6 +4061,13 @@ class DicteeSetupDialog(QDialog):
         idx = self._pp_tabs.currentIndex()
         if idx == 1:  # Dictionnaire
             if checked:
+                # Charger le fichier système (lecture seule)
+                if self._dict_sys_path and os.path.isfile(self._dict_sys_path):
+                    with open(self._dict_sys_path, encoding="utf-8") as f:
+                        self._dict_adv_sys.setPlainText(f.read())
+                else:
+                    self._dict_adv_sys.setPlainText(_("(system file not found)"))
+                # Charger le fichier personnel (éditable)
                 if os.path.isfile(self._dict_path):
                     with open(self._dict_path, encoding="utf-8") as f:
                         self._dict_adv_editor.setPlainText(f.read())
