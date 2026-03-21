@@ -1632,18 +1632,23 @@ class DicteeSetupDialog(QDialog):
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
-        dlg = QDialog(self)
-        dlg.setWindowFlag(Qt.WindowType.Window)
+        dlg = QWidget()
         dlg.setWindowTitle(_("Post-processing"))
+        dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1000, 700)
         dlg.setMinimumSize(800, 500)
+        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
         self._pp_dialog = dlg
         # Nettoyage du .tmp à la fermeture du dialogue
-        dlg.finished.connect(self._dict_cleanup_tmp)
+        # Nettoyage du .tmp à la fermeture
+        def _on_close(event, cleanup=self._dict_cleanup_tmp):
+            cleanup()
+            event.accept()
+        dlg.closeEvent = _on_close
         dlg.show()
 
     # ── Classic mode ──────────────────────────────────────────────
