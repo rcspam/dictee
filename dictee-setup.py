@@ -1634,12 +1634,7 @@ class DicteeSetupDialog(QDialog):
             return
         # Fenêtre indépendante (pas un QDialog enfant — KDE Plasma traite
         # les QDialog enfants comme des utilitaires qui passent derrière le panel)
-        # QDialog non-modal avec parent=None pour être une fenêtre indépendante
-        # (parent=self causerait des problèmes avec le panel KDE car
-        # KWin traite les dialogues enfants comme des utilitaires)
-        # QDialog (pas QWidget) car QWidget ne reçoit pas les close events
-        # quand la fenêtre principale est en exec() modal.
-        dlg = QDialog()
+        dlg = QDialog(self)
         dlg.setModal(False)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         dlg.setWindowTitle(_("Post-processing"))
@@ -5715,7 +5710,8 @@ def main():
     app.setDesktopFileName("dictee-setup")
     app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
     dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag)
-    dialog.exec()
+    dialog.show()
+    app.exec()
 
 
 if __name__ == "__main__":
