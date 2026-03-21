@@ -1701,15 +1701,6 @@ class DicteeSetupDialog(QDialog):
         self._build_mic_section(lay_mic, conf)
         layout.addWidget(grp_mic)
 
-        # -- Section post-traitement --
-        grp_postprocess = QGroupBox(_("Post-processing"))
-        lay_pp = QVBoxLayout(grp_postprocess)
-        lay_pp.setSpacing(6)
-        lay_pp.setContentsMargins(16, 16, 16, 12)
-        self._build_postprocess_section(lay_pp, conf)
-        layout.addWidget(grp_postprocess)
-        self._grp_postprocess = grp_postprocess
-
         # -- Section options --
         grp_options = QGroupBox(_("Options"))
         lay_opt = QVBoxLayout(grp_options)
@@ -1732,6 +1723,15 @@ class DicteeSetupDialog(QDialog):
         lay_srv.addWidget(self.chk_daemon)
         lay_srv.addWidget(self.chk_tray)
         layout.addWidget(grp_services)
+
+        # -- Section post-traitement (dernière, la plus volumineuse) --
+        grp_postprocess = QGroupBox(_("Post-processing"))
+        lay_pp = QVBoxLayout(grp_postprocess)
+        lay_pp.setSpacing(6)
+        lay_pp.setContentsMargins(16, 16, 16, 12)
+        self._build_postprocess_section(lay_pp, conf)
+        layout.addWidget(grp_postprocess)
+        self._grp_postprocess = grp_postprocess
 
         layout.addStretch()
         scroll.setWidget(content)
@@ -2979,6 +2979,17 @@ class DicteeSetupDialog(QDialog):
 
         # --- Sous-onglets d'édition ---
         self._pp_tabs = QTabWidget()
+        self._pp_tabs.setMinimumHeight(350)
+
+        # Couleurs d'accentuation pour les onglets
+        accent = self.palette().color(self.palette().ColorRole.Highlight)
+        accent_hex = accent.name()
+        self._pp_tabs.setStyleSheet(f"""
+            QTabBar::tab:selected {{
+                color: {accent_hex};
+                font-weight: bold;
+            }}
+        """)
 
         # Onglet Règles
         tab_rules = QWidget()
@@ -3343,7 +3354,8 @@ class DicteeSetupDialog(QDialog):
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
         line1.setFrameShadow(QFrame.Shadow.Sunken)
-        sep_lbl = QLabel("<b>" + _("YOUR PERSONAL ENTRIES") + "</b>")
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        sep_lbl = QLabel(f"<b style='color:{accent};'>" + _("YOUR PERSONAL ENTRIES") + "</b>")
         sep_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
@@ -3812,7 +3824,8 @@ class DicteeSetupDialog(QDialog):
             sep.setStyleSheet("border: 1px dashed #999;")
             group_lay.addWidget(sep)
 
-            lbl_yours = QLabel("<i>" + _("Your additions:") + "</i>")
+            acc = self.palette().color(self.palette().ColorRole.Highlight).name()
+            lbl_yours = QLabel(f"<i style='color:{acc};'>" + _("Your additions:") + "</i>")
             group_lay.addWidget(lbl_yours)
 
             # --- Chips perso (QPushButtons cliquables) ---
@@ -4841,7 +4854,8 @@ class DicteeSetupDialog(QDialog):
         header = QHBoxLayout()
         header.addStretch()
         self._btn_record = QPushButton(_("Record"))
-        self._btn_record.setStyleSheet("font-weight: bold;")
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        self._btn_record.setStyleSheet(f"font-weight: bold; background-color: {accent}; color: white; padding: 4px 12px; border-radius: 4px;")
         header.addWidget(self._btn_record)
         lay.addLayout(header)
 
