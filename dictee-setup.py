@@ -3488,7 +3488,7 @@ class DicteeSetupDialog(QDialog):
         lang_filter = self._dict_lang_filter.currentData() or ""
 
         # Filtrer les groupes système
-        layout = self._dict_form_layout
+        layout = self._dict_sys_layout
         for i in range(layout.count()):
             item = layout.itemAt(i)
             if item is None:
