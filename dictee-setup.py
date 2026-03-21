@@ -3242,10 +3242,27 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_add = QPushButton("+ " + _("Add"))
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
         btns_bottom.addWidget(self._btn_dict_add)
-        btns_bottom.addStretch()
+
         btn_restore = QPushButton(_("Restore defaults"))
         btn_restore.clicked.connect(self._restore_dict_defaults)
         btns_bottom.addWidget(btn_restore)
+
+        btns_bottom.addStretch()
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.setToolTip(_("Discard changes and reload from file"))
+        btn_cancel.clicked.connect(self._load_dict_form)
+        btns_bottom.addWidget(btn_cancel)
+
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        btn_save_all = QPushButton(_("Save"))
+        btn_save_all.setToolTip(_("Save all changes"))
+        btn_save_all.setStyleSheet(
+            f"font-weight: bold; background-color: {accent}; color: white; "
+            f"padding: 4px 16px; border-radius: 4px;")
+        btn_save_all.clicked.connect(lambda: self._save_dict(reload=True))
+        btns_bottom.addWidget(btn_save_all)
+
         form_top_lay.addLayout(btns_bottom)
 
         self._dict_stack.addWidget(form_page)
@@ -3449,6 +3466,8 @@ class DicteeSetupDialog(QDialog):
             btn_ok.setStyleSheet("color: green; font-weight: bold;")
             btn_ok.clicked.connect(lambda: self._save_dict(reload=True))
             row_lay.addWidget(btn_ok)
+            # Stocker la référence pour pouvoir le cacher après validation
+            row_widget.setProperty("dict_btn_ok", btn_ok)
 
         # Toujours : ✕ pour supprimer
         btn_del = QPushButton("\u2715")
@@ -3493,14 +3512,11 @@ class DicteeSetupDialog(QDialog):
             layout.addWidget(row_widget)
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée du dictionnaire, sauvegarde et recharge."""
+        """Supprime une entrée visuellement (pas de sauvegarde tant qu'on n'applique pas)."""
         if entry in self._dict_rows:
             self._dict_rows.remove(entry)
         entry.setParent(None)
         entry.deleteLater()
-
-        # Sauvegarder immédiatement puis recharger pour rafraîchir
-        self._save_dict(reload=True)
 
     def _filter_dict_entries(self):
         """Filtre les entrées visibles selon recherche et langue."""
