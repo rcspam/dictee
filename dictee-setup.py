@@ -3567,7 +3567,12 @@ class DicteeSetupDialog(QDialog):
                     any_visible = True
             # Cacher le bouton titre + contenu si aucune entrée visible
             btn.setVisible(any_visible)
-            content_w.setVisible(any_visible and content_w.isVisible())
+            # Si recherche/filtre actif et des entrées visibles : ouvrir l'accordéon
+            if (search or lang_filter) and any_visible:
+                content_w.setVisible(True)
+            elif not any_visible:
+                content_w.setVisible(False)
+            # Si pas de filtre, ne pas modifier la visibilité du contenu (laisser l'état toggle)
 
         # Filtrer les entrées perso
         for row in self._dict_personal_rows:
@@ -3625,9 +3630,12 @@ class DicteeSetupDialog(QDialog):
                     return
             entries.append((lang, word, repl))
 
-        # Supprimer les lignes vides de l'UI
+        # Supprimer les lignes vides de l'UI (sans passer par _remove_dict_entry
+        # pour éviter la récursion → _remove_dict_entry appelle _save_dict_personal)
         for row in empty_rows:
-            self._remove_dict_entry(row)
+            if row in self._dict_personal_rows:
+                self._dict_personal_rows.remove(row)
+            row.deleteLater()
 
         _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
         with open(self._dict_path, "w", encoding="utf-8") as f:
@@ -3635,6 +3643,10 @@ class DicteeSetupDialog(QDialog):
             f.write("# Format: [lang] WORD=REPLACEMENT\n\n")
             for lang, word, repl in entries:
                 f.write(f"[{lang}] {word}={repl}\n")
+
+        # Recharger le formulaire pour filtrer les doublons système
+        if not auto:
+            self._load_dict_form()
 
     def _save_dict_advanced(self):
         """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
