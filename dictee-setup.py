@@ -3259,18 +3259,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
 
-        # Boutons spécifiques au mode normal
-        btns_bottom = QHBoxLayout()
-        self._btn_dict_add = QPushButton("+ " + _("Add"))
-        self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
-        btns_bottom.addWidget(self._btn_dict_add)
-
-        btn_restore = QPushButton(_("Restore defaults"))
-        btn_restore.clicked.connect(self._restore_dict_defaults)
-        btns_bottom.addWidget(btn_restore)
-
-        btns_bottom.addStretch()
-        form_top_lay.addLayout(btns_bottom)
+        form_top_lay.addStretch()
 
         self._dict_stack.addWidget(form_page)
 
@@ -3302,18 +3291,18 @@ class DicteeSetupDialog(QDialog):
         zoom_lay.addWidget(btn_zoom_out)
         zoom_lay.addWidget(btn_zoom_in)
         zoom_lay.addStretch()
-        btn_discard_adv = QPushButton(_("Discard"))
-        btn_discard_adv.setToolTip(_("Discard changes and return to normal mode"))
-        btn_discard_adv.clicked.connect(self._dict_cancel_advanced)
-        zoom_lay.addWidget(btn_discard_adv)
         adv_lay.addLayout(zoom_lay)
 
         self._dict_stack.addWidget(adv_page)
 
         lay.addWidget(self._dict_stack)
 
-        # --- Barre commune Undo / Enregistrer (sous le QStackedWidget, visible dans les 2 modes) ---
+        # --- Barre commune (sous le QStackedWidget, visible dans les 2 modes) ---
         common_btns = QHBoxLayout()
+
+        self._btn_dict_add = QPushButton("+ " + _("Add"))
+        self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
+        common_btns.addWidget(self._btn_dict_add)
 
         self._btn_dict_undo = QPushButton(_("Undo"))
         self._btn_dict_undo.setToolTip(_("Undo last change"))
@@ -3321,11 +3310,16 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
         common_btns.addWidget(self._btn_dict_undo)
 
+        btn_factory = QPushButton(_("Factory reset"))
+        btn_factory.setToolTip(_("Restore factory defaults"))
+        btn_factory.clicked.connect(self._restore_dict_defaults)
+        common_btns.addWidget(btn_factory)
+
         common_btns.addStretch()
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
-        btn_save.setToolTip(_("Save all changes"))
+        btn_save.setToolTip(_("Save all changes to disk"))
         btn_save.setStyleSheet(
             f"font-weight: bold; background-color: {accent}; color: white; "
             f"padding: 4px 16px; border-radius: 4px;")
@@ -3729,10 +3723,12 @@ class DicteeSetupDialog(QDialog):
                 text += "\n"
             ok, err = self._validate_dict_syntax(text)
             if not ok:
-                QMessageBox.warning(self, "dictee", err)
+                QMessageBox.warning(self, "dictee",
+                    _("Cannot save — syntax error:\n\n{err}").format(err=err))
                 return
             self._save_dict_advanced()
             self._save_dict_official()
+            QMessageBox.information(self, "dictee", _("Dictionary saved."))
             self._btn_advanced.blockSignals(True)
             self._btn_advanced.setChecked(False)
             self._btn_advanced.blockSignals(False)
@@ -3742,6 +3738,7 @@ class DicteeSetupDialog(QDialog):
             # En mode normal : écrire .tmp puis copier vers officiel
             self._save_dict_to_tmp()
             self._save_dict_official()
+            QMessageBox.information(self, "dictee", _("Dictionary saved."))
 
     def _dict_update_undo_buttons(self):
         """Synchronise l'état enabled des boutons undo (mode normal + avancé)."""
@@ -3853,9 +3850,11 @@ class DicteeSetupDialog(QDialog):
         self._dict_stack.setCurrentIndex(0)
 
     def _restore_dict_defaults(self):
-        """Restaure le dictionnaire par défaut dans le brouillon .tmp."""
+        """Restaure le dictionnaire usine dans le brouillon .tmp."""
         reply = QMessageBox.question(self, "dictee",
-            _("Restore default dictionary? Your changes will be lost."),
+            _("Restore factory defaults?\n\n"
+              "This will replace ALL your dictionary entries with the original defaults.\n"
+              "Click Save afterwards to make it permanent."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
