@@ -3328,12 +3328,12 @@ class DicteeSetupDialog(QDialog):
         btn_revert.clicked.connect(self._dict_revert_to_saved)
         common_btns.addWidget(btn_revert)
 
+        common_btns.addStretch()
+
         btn_factory = QPushButton(_("Factory reset"))
         btn_factory.setToolTip(_("Restore factory defaults"))
         btn_factory.clicked.connect(self._restore_dict_defaults)
         common_btns.addWidget(btn_factory)
-
-        common_btns.addStretch()
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
