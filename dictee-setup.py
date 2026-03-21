@@ -3309,7 +3309,7 @@ class DicteeSetupDialog(QDialog):
         if self._dict_sys_path:
             sys_cats = self._parse_dict_with_categories(self._dict_sys_path)
             for cat_name, entries in sys_cats:
-                for lang, _, _ in entries:
+                for lang, _w, _r in entries:
                     if lang != "*":
                         all_langs.add(lang)
                 group = QGroupBox(f"{cat_name} ({len(entries)} " + (_("entries") if len(entries) > 1 else _("entry")) + ")")
@@ -3368,7 +3368,7 @@ class DicteeSetupDialog(QDialog):
 
         user_cats = self._parse_dict_with_categories(self._dict_path)
         has_entries = False
-        for _, entries in user_cats:
+        for _cat, entries in user_cats:
             for lang, word, repl in entries:
                 self._add_dict_entry(lang, word, repl)
                 if lang != "*":
@@ -3531,7 +3531,7 @@ class DicteeSetupDialog(QDialog):
                     _("Word cannot contain '=': {word}").format(word=word))
                 return
             # Doublon lang+mot
-            for prev_lang, prev_word, _ in entries:
+            for prev_lang, prev_word, _pr in entries:
                 if prev_lang == lang and prev_word.lower() == word.lower():
                     QMessageBox.warning(self, "dictee",
                         _("Duplicate entry: [{lang}] {word}").format(lang=lang, word=word))
@@ -3743,7 +3743,7 @@ class DicteeSetupDialog(QDialog):
         self._cont_personal_words.clear()
         for lang, subcats in user_cats.items():
             words_set = set()
-            for _, words in subcats:
+            for _sc, words in subcats:
                 words_set.update(words)
             self._cont_personal_words[lang] = words_set
 
@@ -3757,7 +3757,7 @@ class DicteeSetupDialog(QDialog):
         for lang in all_langs:
             sys_words_all = []
             sys_subcats = sys_cats.get(lang, [])
-            for _, words in sys_subcats:
+            for _sc, words in sys_subcats:
                 sys_words_all.extend(words)
 
             perso_words = self._cont_personal_words.get(lang, set())
@@ -3873,7 +3873,7 @@ class DicteeSetupDialog(QDialog):
         # Vérifier qu'il n'est pas déjà dans le système
         if self._cont_sys_path:
             sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
-            for _, words in sys_cats.get(lang, []):
+            for _sc, words in sys_cats.get(lang, []):
                 if word in words:
                     QMessageBox.information(self, "dictee",
                         _("'{word}' is already in the system list.").format(word=word))
