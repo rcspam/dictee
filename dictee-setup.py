@@ -3478,9 +3478,17 @@ class DicteeSetupDialog(QDialog):
         edt_repl.setPlaceholderText(_("Replacement"))
         row_lay.addWidget(edt_repl)
 
+        btn_ok = QPushButton("\u2713")
+        btn_ok.setToolTip(_("Save"))
+        btn_ok.setFixedWidth(30)
+        btn_ok.setStyleSheet("color: green; font-weight: bold;")
+        btn_ok.clicked.connect(lambda: self._save_dict_personal())
+        row_lay.addWidget(btn_ok)
+
         btn_del = QPushButton("\u2715")
         btn_del.setToolTip(_("Remove"))
         btn_del.setFixedWidth(30)
+        btn_del.setStyleSheet("color: red;")
         btn_del.clicked.connect(lambda: self._remove_dict_entry(row_widget))
         row_lay.addWidget(btn_del)
 
@@ -3492,7 +3500,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_personal_rows.append(row_widget)
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée personnelle du dictionnaire."""
+        """Supprime une entrée personnelle du dictionnaire et sauvegarde."""
         if entry in self._dict_personal_rows:
             self._dict_personal_rows.remove(entry)
         entry.deleteLater()
@@ -3502,6 +3510,9 @@ class DicteeSetupDialog(QDialog):
                 "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
             self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self._dict_personal_layout.addWidget(self._dict_empty_label)
+
+        # Sauvegarder immédiatement (sans re-nettoyer les vides pour éviter la récursion)
+        self._save_dict_personal(auto=True)
 
     def _filter_dict_entries(self):
         """Filtre les entrées visibles selon recherche et langue."""
@@ -3575,7 +3586,7 @@ class DicteeSetupDialog(QDialog):
                 visible = False
             row.setVisible(visible)
 
-    def _save_dict_personal(self):
+    def _save_dict_personal(self, auto=False):
         """Valide et sauvegarde les entrées personnelles du dictionnaire."""
         import os as _os
 
@@ -3592,13 +3603,16 @@ class DicteeSetupDialog(QDialog):
             repl = edt_r.text().strip()
 
             if not word and not repl:
-                # Ligne vide — la supprimer visuellement
-                empty_rows.append(row)
+                # Ligne vide — la supprimer visuellement (sauf en mode auto)
+                if not auto:
+                    empty_rows.append(row)
                 continue
             if not word:
-                QMessageBox.warning(self, "dictee",
-                    _("Word cannot be empty."))
-                return
+                if not auto:
+                    QMessageBox.warning(self, "dictee",
+                        _("Word cannot be empty."))
+                    return
+                continue
             if "=" in word:
                 QMessageBox.warning(self, "dictee",
                     _("Word cannot contain '=': {word}").format(word=word))
@@ -3621,8 +3635,6 @@ class DicteeSetupDialog(QDialog):
             f.write("# Format: [lang] WORD=REPLACEMENT\n\n")
             for lang, word, repl in entries:
                 f.write(f"[{lang}] {word}={repl}\n")
-
-        QMessageBox.information(self, "dictee", _("Dictionary saved."))
 
     def _save_dict_advanced(self):
         """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
