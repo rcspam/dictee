@@ -1590,8 +1590,8 @@ class DicteeSetupDialog(QDialog):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumSize(710, 680)
-        self.resize(710, 700)
+        self.setMinimumSize(800, 700)
+        self.resize(800, 720)
         self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
@@ -3413,8 +3413,10 @@ class DicteeSetupDialog(QDialog):
         row_lay.setSpacing(4)
 
         cmb_lang = QComboBox()
-        cmb_lang.setFixedWidth(50)
-        cmb_lang.addItems(["*", "fr", "en", "de", "es", "it", "pt", "uk"])
+        cmb_lang.setFixedWidth(60)
+        cmb_lang.addItem("*")
+        for code, _name in LANGUAGES:
+            cmb_lang.addItem(code)
         idx = cmb_lang.findText(lang)
         if idx >= 0:
             cmb_lang.setCurrentIndex(idx)
@@ -3515,6 +3517,7 @@ class DicteeSetupDialog(QDialog):
         import os as _os
 
         entries = []
+        empty_rows = []
         for row in self._dict_personal_rows:
             cmb = row.property("dict_lang_cmb")
             edt_w = row.property("dict_word_edt")
@@ -3525,8 +3528,14 @@ class DicteeSetupDialog(QDialog):
             word = edt_w.text().strip()
             repl = edt_r.text().strip()
 
-            if not word:
+            if not word and not repl:
+                # Ligne vide — la supprimer visuellement
+                empty_rows.append(row)
                 continue
+            if not word:
+                QMessageBox.warning(self, "dictee",
+                    _("Word cannot be empty."))
+                return
             if "=" in word:
                 QMessageBox.warning(self, "dictee",
                     _("Word cannot contain '=': {word}").format(word=word))
@@ -3538,6 +3547,10 @@ class DicteeSetupDialog(QDialog):
                         _("Duplicate entry: [{lang}] {word}").format(lang=lang, word=word))
                     return
             entries.append((lang, word, repl))
+
+        # Supprimer les lignes vides de l'UI
+        for row in empty_rows:
+            self._remove_dict_entry(row)
 
         _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
         with open(self._dict_path, "w", encoding="utf-8") as f:
