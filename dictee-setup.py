@@ -1588,6 +1588,8 @@ class ScrollGuardFilter(QObject):
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False):
         super().__init__()
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint |
+                            Qt.WindowType.WindowMinMaxButtonsHint)
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
         self.setMinimumSize(710, 680)
