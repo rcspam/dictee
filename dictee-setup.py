@@ -3181,11 +3181,6 @@ class DicteeSetupDialog(QDialog):
         toolbar.addWidget(self._dict_lang_filter)
 
         toolbar.addStretch()
-
-        btn_add = QPushButton("+ " + _("Add"))
-        btn_add.clicked.connect(lambda: self._add_dict_entry())
-        toolbar.addWidget(btn_add)
-
         form_top_lay.addLayout(toolbar)
 
         # Zone scrollable
@@ -3384,6 +3379,12 @@ class DicteeSetupDialog(QDialog):
             self._dict_empty_label = None
 
         layout.addWidget(self._dict_personal_container)
+
+        # Bouton "+ Ajouter" sous les entrées perso
+        btn_add = QPushButton("+ " + _("Add"))
+        btn_add.clicked.connect(lambda: self._add_dict_entry())
+        layout.addWidget(btn_add)
+
         layout.addStretch()
 
         # Mettre à jour le filtre de langue
