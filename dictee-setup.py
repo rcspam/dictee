@@ -1632,18 +1632,16 @@ class DicteeSetupDialog(QDialog):
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
-        dlg = QDialog(self)
-        dlg.setModal(False)
-        # Forcer le type Window pour que KDE Plasma traite cette fenêtre
-        # comme une fenêtre normale (pas un dialogue utilitaire qui passe
-        # derrière le panel/dock). Garder les boutons titre standard.
-        dlg.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowTitleHint
-            | Qt.WindowType.WindowSystemMenuHint
-            | Qt.WindowType.WindowMinMaxButtonsHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
+        # Fenêtre indépendante (pas un QDialog enfant — KDE Plasma traite
+        # les QDialog enfants comme des utilitaires qui passent derrière le panel)
+        cleanup = self._dict_cleanup_tmp
+
+        class _PPWindow(QWidget):
+            def closeEvent(self_, event):
+                cleanup()
+                super().closeEvent(event)
+
+        dlg = _PPWindow()
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1000, 700)
@@ -1652,8 +1650,7 @@ class DicteeSetupDialog(QDialog):
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
-        self._pp_dialog = dlg
-        dlg.finished.connect(self._dict_cleanup_tmp)
+        self._pp_dialog = dlg  # garder la référence (évite le GC)
         dlg.show()
 
     # ── Classic mode ──────────────────────────────────────────────
