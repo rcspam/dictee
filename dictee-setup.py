@@ -3896,7 +3896,10 @@ class DicteeSetupDialog(QDialog):
         Retourne le layout (on ajoute directement les widgets).
         """
         # Utiliser un simple layout wrap-friendly
-        from PyQt6.QtWidgets import QLayout
+        try:
+            from PyQt6.QtWidgets import QLayout
+        except ImportError:
+            from PySide6.QtWidgets import QLayout
         lay = QHBoxLayout(parent)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
@@ -4947,6 +4950,13 @@ class DicteeSetupDialog(QDialog):
             steps = []
             current = text
 
+            # Lire l'état des toggles (protégé si widgets pas encore créés)
+            do_numbers = self.chk_pp_numbers.isChecked() if hasattr(self, 'chk_pp_numbers') else True
+            do_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
+            do_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
+            do_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
+            do_fuzzy_dict = self.chk_pp_fuzzy_dict.isChecked() if hasattr(self, 'chk_pp_fuzzy_dict') else True
+
             # 1. Règles regex
             rules = pp.load_rules()
             if rules:
@@ -4981,18 +4991,19 @@ class DicteeSetupDialog(QDialog):
                 current = new
 
             # 4. Élisions (FR)
-            if lang == "fr":
+            if lang == "fr" and do_elisions:
                 new = pp.fix_elisions(current)
                 steps.append((_("Elisions"), current, new))
                 current = new
 
             # 5. Nombres
-            new = pp.convert_numbers(current)
-            steps.append((_("Numbers"), current, new))
-            current = new
+            if do_numbers:
+                new = pp.convert_numbers(current)
+                steps.append((_("Numbers"), current, new))
+                current = new
 
             # 6. Typographie (FR)
-            if lang == "fr":
+            if lang == "fr" and do_typography:
                 new = pp.fix_french_typography(current)
                 steps.append((_("Typography"), current, new))
                 current = new
@@ -5000,14 +5011,15 @@ class DicteeSetupDialog(QDialog):
             # 7. Dictionnaire
             dictionary = pp.load_dictionary()
             if dictionary:
-                new = pp.apply_dictionary(current, dictionary, fuzzy=True)
+                new = pp.apply_dictionary(current, dictionary, fuzzy=do_fuzzy_dict)
                 steps.append((_("Dictionary"), current, new))
                 current = new
 
             # 8. Capitalisation
-            new = pp.fix_capitalization(current)
-            steps.append((_("Capitalization"), current, new))
-            current = new
+            if do_capitalization:
+                new = pp.fix_capitalization(current)
+                steps.append((_("Capitalization"), current, new))
+                current = new
 
             self._test_output.setText(current)
 
@@ -5031,7 +5043,7 @@ class DicteeSetupDialog(QDialog):
             self._recording_process.terminate()
             self._recording_process.waitForFinished(2000)
             self._recording_process = None
-            self._btn_record.setText(_("Record"))
+            self._btn_record.setText("\U0001f3a4")
             self._transcribe_recorded()
             return
 
