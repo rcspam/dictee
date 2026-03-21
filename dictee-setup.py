@@ -3827,9 +3827,14 @@ class DicteeSetupDialog(QDialog):
         return True, ""
 
     def _dict_cancel_advanced(self):
-        """Cancel en mode avancé : supprimer .tmp, recharger depuis l'officiel, basculer vers normal."""
-        # Réinitialiser .tmp depuis l'officiel
-        self._dict_init_tmp()
+        """Discard en mode avancé : annuler les modifs texte, revenir au .tmp d'avant la bascule."""
+        # Dépiler le snapshot empilé lors de la bascule vers le mode avancé
+        if self._dict_undo_stack:
+            content = self._dict_undo_stack.pop()
+            os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+            with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._dict_update_undo_buttons()
         self._load_dict_form()
         self._btn_advanced.blockSignals(True)
         self._btn_advanced.setChecked(False)
@@ -4284,7 +4289,8 @@ class DicteeSetupDialog(QDialog):
         if idx == 1:  # Dictionnaire
             currently_advanced = self._dict_stack.currentIndex() == 1
             if checked and not currently_advanced:
-                # Formulaire → Avancé : écrire le formulaire dans .tmp, charger dans l'éditeur
+                # Formulaire → Avancé : empiler l'état actuel (Discard pourra le restaurer)
+                self._dict_push_undo()
                 self._save_dict_to_tmp(reload=False)
                 if os.path.isfile(self._dict_tmp_path):
                     with open(self._dict_tmp_path, encoding="utf-8") as f:
