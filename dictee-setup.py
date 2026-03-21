@@ -26,7 +26,7 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout, QTabWidget,
+        QToolTip, QGridLayout, QTabWidget, QLineEdit,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -37,7 +37,7 @@ except ImportError:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QTabWidget,
+        QToolTip, QTabWidget, QLineEdit,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
@@ -3137,8 +3137,419 @@ class DicteeSetupDialog(QDialog):
         QMessageBox.warning(self, "dictee", _("Default rules file not found."))
 
     def _build_dictionary_tab(self, lay):
-        """Placeholder — sera implémenté dans la prochaine task."""
-        lay.addWidget(QLabel(_("Dictionary editor — coming soon")))
+        """Onglet Dictionnaire : vue formulaire avec accordéons + mode avancé."""
+        import os as _os
+
+        XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
+        self._dict_path = _os.path.join(XDG_CFG, "dictee", "dictionary.conf")
+
+        # Chercher le fichier système
+        self._dict_sys_path = None
+        for candidate in [
+            _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dictionary.conf.default"),
+            "/usr/share/dictee/dictionary.conf.default",
+        ]:
+            if _os.path.isfile(candidate):
+                self._dict_sys_path = candidate
+                break
+
+        self._dict_stack = QStackedWidget()
+
+        # --- Page 0 : Vue formulaire ---
+        form_page = QWidget()
+        form_top_lay = QVBoxLayout(form_page)
+        form_top_lay.setContentsMargins(0, 0, 0, 0)
+
+        # Barre d'outils
+        toolbar = QHBoxLayout()
+        self._dict_search = QComboBox()
+        self._dict_search.setEditable(True)
+        self._dict_search.setPlaceholderText("Search...")
+        self._dict_search.setMinimumWidth(180)
+        self._dict_search.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        toolbar.addWidget(self._dict_search)
+
+        self._dict_lang_filter = QComboBox()
+        self._dict_lang_filter.addItem(_("All languages"), "")
+        toolbar.addWidget(self._dict_lang_filter)
+
+        toolbar.addStretch()
+
+        btn_add = QPushButton("+ " + _("Add"))
+        btn_add.clicked.connect(lambda: self._add_dict_entry())
+        toolbar.addWidget(btn_add)
+
+        form_top_lay.addLayout(toolbar)
+
+        # Zone scrollable
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_content = QWidget()
+        self._dict_form_layout = QVBoxLayout(scroll_content)
+        self._dict_form_layout.setContentsMargins(4, 4, 4, 4)
+        self._dict_form_layout.setSpacing(6)
+        scroll.setWidget(scroll_content)
+        form_top_lay.addWidget(scroll)
+
+        # Boutons formulaire
+        btns_form = QHBoxLayout()
+        btns_form.addStretch()
+        btn_cancel_form = QPushButton(_("Cancel"))
+        btn_cancel_form.clicked.connect(self._load_dict_form)
+        btn_apply_form = QPushButton(_("Apply"))
+        btn_apply_form.clicked.connect(self._save_dict_personal)
+        btns_form.addWidget(btn_cancel_form)
+        btns_form.addWidget(btn_apply_form)
+        form_top_lay.addLayout(btns_form)
+
+        self._dict_stack.addWidget(form_page)
+
+        # --- Page 1 : Mode avancé ---
+        adv_page = QWidget()
+        adv_lay = QVBoxLayout(adv_page)
+        adv_lay.setContentsMargins(0, 0, 0, 0)
+
+        self._dict_adv_editor = QTextEdit()
+        self._dict_adv_editor.setStyleSheet("font-family: monospace; font-size: 12px;")
+        self._dict_adv_editor.setPlaceholderText(
+            "# [lang] WORD=REPLACEMENT\n"
+            "# Example:\n"
+            "# [fr] sncf=SNCF\n"
+            "# [*] api=API\n")
+        adv_lay.addWidget(self._dict_adv_editor)
+
+        btns_adv = QHBoxLayout()
+        btns_adv.addStretch()
+        btn_cancel_adv = QPushButton(_("Cancel"))
+        btn_cancel_adv.clicked.connect(lambda: (
+            self._btn_advanced.setChecked(False),
+        ))
+        btn_save_adv = QPushButton(_("Save"))
+        btn_save_adv.clicked.connect(self._save_dict_advanced)
+        btns_adv.addWidget(btn_cancel_adv)
+        btns_adv.addWidget(btn_save_adv)
+        adv_lay.addLayout(btns_adv)
+
+        self._dict_stack.addWidget(adv_page)
+
+        lay.addWidget(self._dict_stack)
+
+        # Données personnelles
+        self._dict_personal_rows = []
+
+        # Connecter recherche et filtre
+        self._dict_search.editTextChanged.connect(self._filter_dict_entries)
+        self._dict_lang_filter.currentIndexChanged.connect(self._filter_dict_entries)
+
+        # Charger le formulaire
+        self._load_dict_form()
+
+    def _parse_dict_with_categories(self, path):
+        """Parse un fichier dictionnaire, retourne [(category, [(lang, word, replacement)])]."""
+        categories = []
+        current_cat = _("Other")
+        current_entries = []
+        cat_re = re.compile(r"^#\s*──\s*(.+?)\s*─")
+        entry_re = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+?)=(.+?)\s*$")
+        if not os.path.isfile(path):
+            return categories
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line_s = line.strip()
+                if not line_s:
+                    continue
+                m_cat = cat_re.match(line_s)
+                if m_cat:
+                    if current_entries:
+                        categories.append((current_cat, current_entries))
+                    current_cat = m_cat.group(1).strip()
+                    current_entries = []
+                    continue
+                if line_s.startswith("#"):
+                    continue
+                m = entry_re.match(line_s)
+                if m:
+                    current_entries.append((m.group(1), m.group(2).strip(), m.group(3).strip()))
+        if current_entries:
+            categories.append((current_cat, current_entries))
+        return categories
+
+    def _load_dict_form(self):
+        """Vide et reconstruit le formulaire dictionnaire."""
+        layout = self._dict_form_layout
+        # Vider le layout
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+            elif item.layout():
+                # Supprimer récursivement
+                sub = item.layout()
+                while sub.count():
+                    si = sub.takeAt(0)
+                    sw = si.widget()
+                    if sw:
+                        sw.deleteLater()
+
+        self._dict_personal_rows.clear()
+
+        # Collecter toutes les langues pour le filtre
+        all_langs = set()
+
+        # --- Catégories système ---
+        if self._dict_sys_path:
+            sys_cats = self._parse_dict_with_categories(self._dict_sys_path)
+            for cat_name, entries in sys_cats:
+                for lang, _, _ in entries:
+                    if lang != "*":
+                        all_langs.add(lang)
+                group = QGroupBox(f"{cat_name} ({len(entries)} " + (_("entries") if len(entries) > 1 else _("entry")) + ")")
+                group.setCheckable(True)
+                group.setChecked(False)
+                group_lay = QVBoxLayout(group)
+                group_lay.setSpacing(2)
+                group_lay.setContentsMargins(8, 4, 8, 4)
+
+                for lang, word, repl in entries:
+                    row = QHBoxLayout()
+                    lbl_lang = QLabel(f"[{lang}]")
+                    lbl_lang.setFixedWidth(40)
+                    lbl_word = QLabel(word)
+                    lbl_arrow = QLabel("\u2192")
+                    lbl_arrow.setFixedWidth(20)
+                    lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    lbl_repl = QLabel(repl)
+                    row.addWidget(lbl_lang)
+                    row.addWidget(lbl_word)
+                    row.addWidget(lbl_arrow)
+                    row.addWidget(lbl_repl)
+                    row.addStretch()
+
+                    container = QWidget()
+                    container.setLayout(row)
+                    container.setEnabled(False)
+                    container.setProperty("dict_lang", lang)
+                    container.setProperty("dict_word", word)
+                    group_lay.addWidget(container)
+
+                layout.addWidget(group)
+
+        # --- Séparateur ---
+        sep_lay = QHBoxLayout()
+        line1 = QFrame()
+        line1.setFrameShape(QFrame.Shape.HLine)
+        line1.setFrameShadow(QFrame.Shadow.Sunken)
+        sep_lbl = QLabel("<b>" + _("YOUR PERSONAL ENTRIES") + "</b>")
+        sep_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.Shape.HLine)
+        line2.setFrameShadow(QFrame.Shadow.Sunken)
+        sep_lay.addWidget(line1, 1)
+        sep_lay.addWidget(sep_lbl, 0)
+        sep_lay.addWidget(line2, 1)
+        sep_container = QWidget()
+        sep_container.setLayout(sep_lay)
+        layout.addWidget(sep_container)
+
+        # --- Entrées personnelles ---
+        self._dict_personal_container = QWidget()
+        self._dict_personal_layout = QVBoxLayout(self._dict_personal_container)
+        self._dict_personal_layout.setContentsMargins(0, 0, 0, 0)
+        self._dict_personal_layout.setSpacing(4)
+
+        user_cats = self._parse_dict_with_categories(self._dict_path)
+        has_entries = False
+        for _, entries in user_cats:
+            for lang, word, repl in entries:
+                self._add_dict_entry(lang, word, repl)
+                if lang != "*":
+                    all_langs.add(lang)
+                has_entries = True
+
+        if not has_entries:
+            self._dict_empty_label = QLabel(
+                "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
+            self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._dict_personal_layout.addWidget(self._dict_empty_label)
+        else:
+            self._dict_empty_label = None
+
+        layout.addWidget(self._dict_personal_container)
+        layout.addStretch()
+
+        # Mettre à jour le filtre de langue
+        self._dict_lang_filter.blockSignals(True)
+        current = self._dict_lang_filter.currentData()
+        self._dict_lang_filter.clear()
+        self._dict_lang_filter.addItem(_("All languages"), "")
+        for lang in sorted(all_langs):
+            self._dict_lang_filter.addItem(lang, lang)
+        # Restaurer la sélection
+        idx = self._dict_lang_filter.findData(current)
+        if idx >= 0:
+            self._dict_lang_filter.setCurrentIndex(idx)
+        self._dict_lang_filter.blockSignals(False)
+
+    def _add_dict_entry(self, lang="*", word="", repl=""):
+        """Crée une ligne éditable pour une entrée dictionnaire personnelle."""
+        # Supprimer le label vide si présent
+        if hasattr(self, '_dict_empty_label') and self._dict_empty_label is not None:
+            self._dict_empty_label.deleteLater()
+            self._dict_empty_label = None
+
+        row_widget = QWidget()
+        row_lay = QHBoxLayout(row_widget)
+        row_lay.setContentsMargins(0, 0, 0, 0)
+        row_lay.setSpacing(4)
+
+        cmb_lang = QComboBox()
+        cmb_lang.setFixedWidth(50)
+        cmb_lang.addItems(["*", "fr", "en", "de", "es", "it", "pt", "uk"])
+        idx = cmb_lang.findText(lang)
+        if idx >= 0:
+            cmb_lang.setCurrentIndex(idx)
+        row_lay.addWidget(cmb_lang)
+
+        edt_word = QLineEdit(word)
+        edt_word.setPlaceholderText(_("Word"))
+        row_lay.addWidget(edt_word)
+
+        lbl_arrow = QLabel("\u2192")
+        lbl_arrow.setFixedWidth(20)
+        lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row_lay.addWidget(lbl_arrow)
+
+        edt_repl = QLineEdit(repl)
+        edt_repl.setPlaceholderText(_("Replacement"))
+        row_lay.addWidget(edt_repl)
+
+        btn_del = QPushButton("\U0001f5d1")
+        btn_del.setFixedWidth(30)
+        btn_del.clicked.connect(lambda: self._remove_dict_entry(row_widget))
+        row_lay.addWidget(btn_del)
+
+        row_widget.setProperty("dict_lang_cmb", cmb_lang)
+        row_widget.setProperty("dict_word_edt", edt_word)
+        row_widget.setProperty("dict_repl_edt", edt_repl)
+
+        self._dict_personal_layout.addWidget(row_widget)
+        self._dict_personal_rows.append(row_widget)
+
+    def _remove_dict_entry(self, entry):
+        """Supprime une entrée personnelle du dictionnaire."""
+        if entry in self._dict_personal_rows:
+            self._dict_personal_rows.remove(entry)
+        entry.deleteLater()
+
+        if not self._dict_personal_rows:
+            self._dict_empty_label = QLabel(
+                "<i>" + _("Add words that the ASR transcribes incorrectly.") + "</i>")
+            self._dict_empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._dict_personal_layout.addWidget(self._dict_empty_label)
+
+    def _filter_dict_entries(self):
+        """Filtre les entrées visibles selon recherche et langue."""
+        search = self._dict_search.currentText().lower()
+        lang_filter = self._dict_lang_filter.currentData() or ""
+
+        # Filtrer les groupes système
+        layout = self._dict_form_layout
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item is None:
+                continue
+            w = item.widget()
+            if w is None:
+                continue
+            if isinstance(w, QGroupBox):
+                any_visible = False
+                group_lay = w.layout()
+                if group_lay is None:
+                    continue
+                for j in range(group_lay.count()):
+                    child_item = group_lay.itemAt(j)
+                    if child_item is None:
+                        continue
+                    child = child_item.widget()
+                    if child is None:
+                        continue
+                    c_lang = child.property("dict_lang") or ""
+                    c_word = child.property("dict_word") or ""
+                    visible = True
+                    if lang_filter and c_lang != "*" and c_lang != lang_filter:
+                        visible = False
+                    if search and search not in c_word.lower():
+                        visible = False
+                    child.setVisible(visible)
+                    if visible:
+                        any_visible = True
+                w.setVisible(any_visible)
+
+        # Filtrer les entrées perso
+        for row in self._dict_personal_rows:
+            cmb = row.property("dict_lang_cmb")
+            edt = row.property("dict_word_edt")
+            if cmb is None or edt is None:
+                continue
+            r_lang = cmb.currentText()
+            r_word = edt.text().lower()
+            visible = True
+            if lang_filter and r_lang != "*" and r_lang != lang_filter:
+                visible = False
+            if search and search not in r_word:
+                visible = False
+            row.setVisible(visible)
+
+    def _save_dict_personal(self):
+        """Valide et sauvegarde les entrées personnelles du dictionnaire."""
+        import os as _os
+
+        entries = []
+        for row in self._dict_personal_rows:
+            cmb = row.property("dict_lang_cmb")
+            edt_w = row.property("dict_word_edt")
+            edt_r = row.property("dict_repl_edt")
+            if cmb is None or edt_w is None or edt_r is None:
+                continue
+            lang = cmb.currentText()
+            word = edt_w.text().strip()
+            repl = edt_r.text().strip()
+
+            if not word:
+                continue
+            if "=" in word:
+                QMessageBox.warning(self, "dictee",
+                    _("Word cannot contain '=': {word}").format(word=word))
+                return
+            # Doublon lang+mot
+            for prev_lang, prev_word, _ in entries:
+                if prev_lang == lang and prev_word.lower() == word.lower():
+                    QMessageBox.warning(self, "dictee",
+                        _("Duplicate entry: [{lang}] {word}").format(lang=lang, word=word))
+                    return
+            entries.append((lang, word, repl))
+
+        _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
+        with open(self._dict_path, "w", encoding="utf-8") as f:
+            f.write("# User dictionary for dictee\n")
+            f.write("# Format: [lang] WORD=REPLACEMENT\n\n")
+            for lang, word, repl in entries:
+                f.write(f"[{lang}] {word}={repl}\n")
+
+        QMessageBox.information(self, "dictee", _("Dictionary saved."))
+
+    def _save_dict_advanced(self):
+        """Sauvegarde le contenu du mode avancé et rebascule en vue formulaire."""
+        import os as _os
+
+        _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
+        with open(self._dict_path, "w", encoding="utf-8") as f:
+            f.write(self._dict_adv_editor.toPlainText())
+
+        self._btn_advanced.setChecked(False)
+        QMessageBox.information(self, "dictee", _("Dictionary saved."))
 
     def _build_continuation_tab(self, lay):
         """Placeholder — sera implémenté dans la prochaine task."""
@@ -3146,7 +3557,19 @@ class DicteeSetupDialog(QDialog):
 
     def _toggle_advanced_mode(self, checked):
         """Bascule formulaire ↔ éditeur texte pour l'onglet actif."""
-        pass  # Sera implémenté avec les onglets Dictionnaire et Continuation
+        idx = self._pp_tabs.currentIndex()
+        if idx == 1:  # Dictionnaire
+            if checked:
+                if os.path.isfile(self._dict_path):
+                    with open(self._dict_path, encoding="utf-8") as f:
+                        self._dict_adv_editor.setPlainText(f.read())
+                else:
+                    self._dict_adv_editor.clear()
+            else:
+                self._load_dict_form()
+            self._dict_stack.setCurrentIndex(1 if checked else 0)
+        elif idx == 2:  # Continuation (sera implémenté dans la task suivante)
+            pass
 
     def _build_mic_section(self, lay_mic, conf):
         """Build microphone source selection, volume slider, level meter."""
