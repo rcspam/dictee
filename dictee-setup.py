@@ -3388,7 +3388,7 @@ class DicteeSetupDialog(QDialog):
             self._dict_lang_filter.setCurrentIndex(idx)
         self._dict_lang_filter.blockSignals(False)
 
-    def _make_dict_row(self, lang="*", word="", repl="", category=""):
+    def _make_dict_row(self, lang="*", word="", repl="", category="", is_new=False):
         """Crée une ligne éditable pour une entrée dictionnaire."""
         row_widget = QWidget()
         row_lay = QHBoxLayout(row_widget)
@@ -3418,13 +3418,16 @@ class DicteeSetupDialog(QDialog):
         edt_repl.setPlaceholderText(_("Replacement"))
         row_lay.addWidget(edt_repl)
 
-        btn_ok = QPushButton("\u2713")
-        btn_ok.setToolTip(_("Save"))
-        btn_ok.setFixedWidth(30)
-        btn_ok.setStyleSheet("color: green; font-weight: bold;")
-        btn_ok.clicked.connect(lambda: self._save_dict())
-        row_lay.addWidget(btn_ok)
+        if is_new:
+            # Nouvelle entrée : ✓ pour valider (sauvegarde + recharge)
+            btn_ok = QPushButton("\u2713")
+            btn_ok.setToolTip(_("Save"))
+            btn_ok.setFixedWidth(30)
+            btn_ok.setStyleSheet("color: green; font-weight: bold;")
+            btn_ok.clicked.connect(lambda: self._save_dict(reload=True))
+            row_lay.addWidget(btn_ok)
 
+        # Toujours : ✕ pour supprimer
         btn_del = QPushButton("\u2715")
         btn_del.setToolTip(_("Remove"))
         btn_del.setFixedWidth(30)
@@ -3455,7 +3458,7 @@ class DicteeSetupDialog(QDialog):
             if last_cat:
                 category = last_cat
 
-        row_widget = self._make_dict_row(lang, word, repl, category)
+        row_widget = self._make_dict_row(lang, word, repl, category, is_new=True)
 
         # Ajouter dans le layout : avant le stretch final
         layout = self._dict_layout
