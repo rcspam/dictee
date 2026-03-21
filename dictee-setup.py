@@ -4865,47 +4865,49 @@ class DicteeSetupDialog(QDialog):
     # -- Panneau de test post-traitement --
 
     def _build_test_panel(self, lay):
-        """Panneau de test : entrée texte + micro, résultat, détails pipeline."""
-        # Ligne d'en-tête avec bouton micro
-        header = QHBoxLayout()
-        header.addStretch()
-        self._btn_record = QPushButton(_("Record"))
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        self._btn_record.setStyleSheet(f"font-weight: bold; background-color: {accent}; color: white; padding: 4px 12px; border-radius: 4px;")
-        header.addWidget(self._btn_record)
-        lay.addLayout(header)
+        """Panneau de test compact : entrée → sortie sur une ligne + micro."""
+        # Ligne unique : [input] → [output] [🎤]
+        row = QHBoxLayout()
+        row.setSpacing(4)
 
-        # Entrée / Sortie côte à côte
-        io_lay = QHBoxLayout()
-
-        in_grp = QVBoxLayout()
-        in_grp.addWidget(QLabel(_("Input (raw ASR)")))
-        self._test_input = QTextEdit()
-        self._test_input.setMaximumHeight(80)
+        self._test_input = QLineEdit()
         self._test_input.setPlaceholderText(_("Type text or record..."))
-        in_grp.addWidget(self._test_input)
-        io_lay.addLayout(in_grp)
+        row.addWidget(self._test_input, 3)
 
-        out_grp = QVBoxLayout()
-        out_grp.addWidget(QLabel(_("Output (processed)")))
-        self._test_output = QTextEdit()
-        self._test_output.setMaximumHeight(80)
+        lbl_arrow = QLabel("\u2192")
+        lbl_arrow.setFixedWidth(20)
+        lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(lbl_arrow)
+
+        self._test_output = QLineEdit()
         self._test_output.setReadOnly(True)
-        out_grp.addWidget(self._test_output)
-        io_lay.addLayout(out_grp)
+        self._test_output.setPlaceholderText(_("Output"))
+        row.addWidget(self._test_output, 3)
 
-        lay.addLayout(io_lay)
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        self._btn_record = QPushButton("\U0001f3a4")
+        self._btn_record.setFixedWidth(36)
+        self._btn_record.setToolTip(_("Record"))
+        self._btn_record.setStyleSheet(
+            f"font-size: 16px; background-color: {accent}; color: white; border-radius: 4px;")
+        row.addWidget(self._btn_record)
 
-        # Détails pipeline (replié)
-        self._test_details = QGroupBox(_("Pipeline details"))
-        self._test_details.setCheckable(True)
-        self._test_details.setChecked(False)
-        details_lay = QVBoxLayout(self._test_details)
+        btn_details = QPushButton("\u2026")
+        btn_details.setFixedWidth(28)
+        btn_details.setToolTip(_("Pipeline details"))
+        btn_details.setCheckable(True)
+        row.addWidget(btn_details)
+
+        lay.addLayout(row)
+
+        # Détails pipeline (caché par défaut)
         self._test_details_label = QLabel("")
         self._test_details_label.setWordWrap(True)
-        self._test_details_label.setStyleSheet("font-family: monospace; font-size: 11px;")
-        details_lay.addWidget(self._test_details_label)
-        lay.addWidget(self._test_details)
+        self._test_details_label.setStyleSheet("font-family: monospace; font-size: 10px;")
+        self._test_details_label.setVisible(False)
+        lay.addWidget(self._test_details_label)
+
+        btn_details.toggled.connect(self._test_details_label.setVisible)
 
         # Connecter
         self._test_input.textChanged.connect(self._schedule_test_run)
@@ -4925,9 +4927,9 @@ class DicteeSetupDialog(QDialog):
 
     def _run_test_pipeline(self):
         """Exécute le pipeline de postprocess étape par étape."""
-        text = self._test_input.toPlainText()
+        text = self._test_input.text()
         if not text.strip():
-            self._test_output.clear()
+            self._test_output.setText("")
             self._test_details_label.setText("")
             return
 
@@ -4962,12 +4964,12 @@ class DicteeSetupDialog(QDialog):
                 cyrillic = sum(1 for c in letters if '\u0400' <= c <= '\u04ff')
                 ratio = cyrillic / len(letters)
                 if lang in _LATIN and ratio > 0.5:
-                    self._test_output.setPlainText(
+                    self._test_output.setText(
                         _("Rejected: ASR detected Cyrillic instead of {lang}").format(lang=lang))
                     self._test_details_label.setText("")
                     return
                 if lang in _CYRILLIC and ratio < 0.2:
-                    self._test_output.setPlainText(
+                    self._test_output.setText(
                         _("Rejected: ASR detected Latin instead of {lang}").format(lang=lang))
                     self._test_details_label.setText("")
                     return
@@ -5008,7 +5010,7 @@ class DicteeSetupDialog(QDialog):
             steps.append((_("Capitalization"), current, new))
             current = new
 
-            self._test_output.setPlainText(current)
+            self._test_output.setText(current)
 
             # Détails
             lines = []
@@ -5022,7 +5024,7 @@ class DicteeSetupDialog(QDialog):
             self._test_details_label.setText("\n".join(lines))
 
         except Exception as e:
-            self._test_output.setPlainText(f"Error: {e}")
+            self._test_output.setText(f"Error: {e}")
 
     def _toggle_recording(self):
         """Démarre/arrête l'enregistrement micro."""
@@ -5094,7 +5096,7 @@ class DicteeSetupDialog(QDialog):
             s.close()
             text = data.decode("utf-8").strip()
             if text:
-                self._test_input.setPlainText(text)
+                self._test_input.setText(text)
         except (_socket.error, OSError) as e:
             QMessageBox.warning(self, "dictee",
                                 _("Cannot connect to ASR daemon: {err}").format(err=str(e)))
