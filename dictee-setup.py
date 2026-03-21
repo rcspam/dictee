@@ -3317,8 +3317,15 @@ class DicteeSetupDialog(QDialog):
         btn_zoom_in.clicked.connect(lambda: self._dict_adv_editor.zoomIn(2))
         zoom_lay.addWidget(btn_zoom_out)
         zoom_lay.addWidget(btn_zoom_in)
+
+        self._btn_dict_adv_undo = QPushButton(_("Undo"))
+        self._btn_dict_adv_undo.clicked.connect(self._dict_undo_in_advanced)
+        self._btn_dict_adv_undo.setEnabled(False)
+        zoom_lay.addWidget(self._btn_dict_adv_undo)
+
         zoom_lay.addStretch()
-        btn_cancel_adv = QPushButton(_("Cancel"))
+        btn_cancel_adv = QPushButton(_("Discard"))
+        btn_cancel_adv.setToolTip(_("Discard changes and return to normal mode"))
         btn_cancel_adv.clicked.connect(self._dict_cancel_advanced)
         btn_save_adv = QPushButton(_("Save"))
         btn_save_adv.clicked.connect(self._dict_save_advanced_and_switch)
@@ -3683,11 +3690,10 @@ class DicteeSetupDialog(QDialog):
         self._dict_undo_stack.append(content)
         if len(self._dict_undo_stack) > 20:
             self._dict_undo_stack = self._dict_undo_stack[-20:]
-        if hasattr(self, '_btn_dict_undo'):
-            self._btn_dict_undo.setEnabled(True)
+        self._dict_update_undo_buttons()
 
     def _dict_undo(self):
-        """Dépile le dernier snapshot, l'écrit dans .tmp, recharge l'UI."""
+        """Dépile le dernier snapshot, l'écrit dans .tmp, recharge l'UI (mode normal)."""
         if not self._dict_undo_stack:
             return
         content = self._dict_undo_stack.pop()
@@ -3697,15 +3703,32 @@ class DicteeSetupDialog(QDialog):
         scroll_pos = self._dict_scroll.verticalScrollBar().value()
         self._load_dict_form()
         QTimer.singleShot(50, lambda: self._dict_scroll.verticalScrollBar().setValue(scroll_pos))
+        self._dict_update_undo_buttons()
+
+    def _dict_undo_in_advanced(self):
+        """Dépile le dernier snapshot et le charge dans l'éditeur avancé (même stack)."""
+        if not self._dict_undo_stack:
+            return
+        content = self._dict_undo_stack.pop()
+        os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+        with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        self._dict_adv_editor.setPlainText(content)
+        self._dict_update_undo_buttons()
+
+    def _dict_update_undo_buttons(self):
+        """Synchronise l'état enabled des boutons undo (mode normal + avancé)."""
+        has_undo = bool(self._dict_undo_stack)
         if hasattr(self, '_btn_dict_undo'):
-            self._btn_dict_undo.setEnabled(bool(self._dict_undo_stack))
+            self._btn_dict_undo.setEnabled(has_undo)
+        if hasattr(self, '_btn_dict_adv_undo'):
+            self._btn_dict_adv_undo.setEnabled(has_undo)
 
     def _dict_init_tmp(self):
         """Copie le fichier officiel vers .tmp et vide le stack undo."""
         self._dict_undo_stack = []
         self._dict_saved = False
-        if hasattr(self, '_btn_dict_undo'):
-            self._btn_dict_undo.setEnabled(False)
+        self._dict_update_undo_buttons()
         os.makedirs(os.path.dirname(self._dict_path), exist_ok=True)
         if os.path.isfile(self._dict_path):
             shutil.copy2(self._dict_path, self._dict_tmp_path)
@@ -3765,8 +3788,7 @@ class DicteeSetupDialog(QDialog):
         shutil.copy2(self._dict_tmp_path, self._dict_path)
         self._dict_saved = True
         self._dict_undo_stack.clear()
-        if hasattr(self, '_btn_dict_undo'):
-            self._btn_dict_undo.setEnabled(False)
+        self._dict_update_undo_buttons()
 
     def _validate_dict_syntax(self, text):
         """Valide la syntaxe du dictionnaire. Retourne (ok, erreur_msg)."""
