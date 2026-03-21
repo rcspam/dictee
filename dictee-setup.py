@@ -1625,6 +1625,9 @@ class DicteeSetupDialog(QDialog):
     def _open_postprocess_dialog(self):
         """Ouvre la fenêtre post-traitement dans un dialogue séparé (réutilisé)."""
         if hasattr(self, '_pp_dialog') and self._pp_dialog is not None:
+            # Réinitialiser le brouillon dictionnaire à chaque ouverture
+            self._dict_init_tmp()
+            self._load_dict_form()
             self._pp_dialog.show()
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
@@ -1638,6 +1641,8 @@ class DicteeSetupDialog(QDialog):
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
         self._pp_dialog = dlg
+        # Nettoyage du .tmp à la fermeture du dialogue
+        dlg.finished.connect(self._dict_cleanup_tmp)
         dlg.show()
 
     # ── Classic mode ──────────────────────────────────────────────
@@ -3202,6 +3207,7 @@ class DicteeSetupDialog(QDialog):
 
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._dict_path = _os.path.join(XDG_CFG, "dictee", "dictionary.conf")
+        self._dict_tmp_path = self._dict_path + ".tmp"
 
         # Premier lancement : copier le fichier système vers le local
         if not _os.path.isfile(self._dict_path):
@@ -3213,6 +3219,11 @@ class DicteeSetupDialog(QDialog):
                     _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
                     shutil.copy2(candidate, self._dict_path)
                     break
+
+        # Undo stack et brouillon
+        self._dict_undo_stack = []  # liste de contenus texte du fichier .tmp
+        self._dict_saved = False  # True si l'utilisateur a fait "Enregistrer"
+        self._dict_init_tmp()
 
         self._dict_stack = QStackedWidget()
 
@@ -3248,7 +3259,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
 
-        # Boutons en bas (sauvegarde immédiate — pas de Cancel/Save)
+        # Boutons en bas
         btns_bottom = QHBoxLayout()
         self._btn_dict_add = QPushButton("+ " + _("Add"))
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
@@ -3260,10 +3271,11 @@ class DicteeSetupDialog(QDialog):
 
         btns_bottom.addStretch()
 
-        btn_cancel = QPushButton(_("Cancel"))
-        btn_cancel.setToolTip(_("Discard changes and reload from file"))
-        btn_cancel.clicked.connect(self._load_dict_form)
-        btns_bottom.addWidget(btn_cancel)
+        self._btn_dict_undo = QPushButton(_("Undo"))
+        self._btn_dict_undo.setToolTip(_("Undo last change"))
+        self._btn_dict_undo.setEnabled(False)
+        self._btn_dict_undo.clicked.connect(self._dict_undo)
+        btns_bottom.addWidget(self._btn_dict_undo)
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
@@ -3271,7 +3283,7 @@ class DicteeSetupDialog(QDialog):
         btn_save.setStyleSheet(
             f"font-weight: bold; background-color: {accent}; color: white; "
             f"padding: 4px 16px; border-radius: 4px;")
-        btn_save.clicked.connect(lambda: self._save_dict(reload=True))
+        btn_save.clicked.connect(self._save_dict_official)
         btns_bottom.addWidget(btn_save)
 
         form_top_lay.addLayout(btns_bottom)
@@ -3307,12 +3319,9 @@ class DicteeSetupDialog(QDialog):
         zoom_lay.addWidget(btn_zoom_in)
         zoom_lay.addStretch()
         btn_cancel_adv = QPushButton(_("Cancel"))
-        btn_cancel_adv.clicked.connect(lambda: self._btn_advanced.setChecked(False))
+        btn_cancel_adv.clicked.connect(self._dict_cancel_advanced)
         btn_save_adv = QPushButton(_("Save"))
-        btn_save_adv.clicked.connect(lambda: (
-            self._save_dict_advanced(),
-            self._btn_advanced.setChecked(False),
-        ))
+        btn_save_adv.clicked.connect(self._dict_save_advanced_and_switch)
         zoom_lay.addWidget(btn_cancel_adv)
         zoom_lay.addWidget(btn_save_adv)
         adv_lay.addLayout(zoom_lay)
@@ -3380,8 +3389,9 @@ class DicteeSetupDialog(QDialog):
         # Collecter toutes les langues pour le filtre
         all_langs = set()
 
-        # Parser le fichier unique
-        categories = self._parse_dict_with_categories(self._dict_path)
+        # Parser le fichier brouillon (.tmp)
+        source = self._dict_tmp_path if os.path.isfile(self._dict_tmp_path) else self._dict_path
+        categories = self._parse_dict_with_categories(source)
 
         if not categories:
             self._dict_empty_label = QLabel(
@@ -3444,10 +3454,12 @@ class DicteeSetupDialog(QDialog):
     def _make_dict_row(self, lang="*", word="", repl="", category="", is_new=False):
         """Crée une ligne éditable pour une entrée dictionnaire.
 
-        is_new=False : ligne existante dans le fichier — editingFinished sauvegarde immédiatement.
-        is_new=True  : ligne ajoutée par l'utilisateur, pas encore dans le fichier.
-                       Le ✓ sauvegarde tout le fichier (y compris cette ligne) et recharge.
-                       Le ✕ retire juste la ligne de l'UI sans sauvegarder.
+        is_new=False : ligne existante dans le fichier.
+        is_new=True  : ligne ajoutée par l'utilisateur, pas encore confirmée.
+                       Le ✓ écrit dans .tmp et recharge (retire le ✓).
+                       Le ✕ retire juste la ligne de l'UI et écrit dans .tmp.
+        Pas de sauvegarde automatique via editingFinished — les modifs sont
+        écrites dans .tmp uniquement via actions explicites (✓, ✕, Save, bascule mode).
         """
         row_widget = QWidget()
         row_lay = QHBoxLayout(row_widget)
@@ -3483,32 +3495,13 @@ class DicteeSetupDialog(QDialog):
         row_widget.setProperty("dict_is_new", is_new)
 
         if is_new:
-            # Nouvelle entrée : ✓ sauvegarde tout le fichier et recharge
+            # Nouvelle entrée : ✓ confirme la ligne, écrit dans .tmp et recharge
             btn_ok = QPushButton("\u2713")
             btn_ok.setToolTip(_("Confirm this entry"))
             btn_ok.setFixedWidth(30)
             btn_ok.setStyleSheet("color: green; font-weight: bold;")
-            btn_ok.clicked.connect(lambda: self._save_dict(reload=True))
+            btn_ok.clicked.connect(lambda: self._save_dict_to_tmp(reload=True))
             row_lay.addWidget(btn_ok)
-        else:
-            # Ligne existante : sauvegarde automatique à la fin de l'édition.
-            # Garder les valeurs initiales pour éviter des sauvegardes inutiles.
-            row_widget.setProperty("dict_orig_lang", lang)
-            row_widget.setProperty("dict_orig_word", word)
-            row_widget.setProperty("dict_orig_repl", repl)
-
-            def _on_editing_finished(rw=row_widget):
-                cl = rw.property("dict_lang_cmb")
-                ew = rw.property("dict_word_edt")
-                er = rw.property("dict_repl_edt")
-                if (cl.currentText() != rw.property("dict_orig_lang")
-                        or ew.text() != rw.property("dict_orig_word")
-                        or er.text() != rw.property("dict_orig_repl")):
-                    self._save_dict(reload=True)
-
-            edt_word.editingFinished.connect(_on_editing_finished)
-            edt_repl.editingFinished.connect(_on_editing_finished)
-            cmb_lang.currentIndexChanged.connect(lambda idx, rw=row_widget: self._save_dict(reload=True))
 
         # ✕ pour supprimer
         btn_del = QPushButton("\u2715")
@@ -3559,18 +3552,12 @@ class DicteeSetupDialog(QDialog):
         ))
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée du dictionnaire.
-
-        Ligne nouvelle (non sauvegardée) : retirée de l'UI uniquement.
-        Ligne existante : sauvegarde le fichier sans cette ligne, puis recharge.
-        """
-        is_new = entry.property("dict_is_new")
+        """Supprime une entrée du dictionnaire et écrit dans .tmp."""
         if entry in self._dict_rows:
             self._dict_rows.remove(entry)
         entry.setParent(None)
         entry.deleteLater()
-        if not is_new:
-            self._save_dict(reload=True)
+        self._save_dict_to_tmp(reload=False)
 
     def _filter_dict_entries(self):
         """Filtre les entrées visibles selon recherche et langue."""
@@ -3633,12 +3620,9 @@ class DicteeSetupDialog(QDialog):
             elif not any_visible:
                 content_w.setVisible(False)
 
-    def _save_dict(self, reload=False):
-        """Valide et sauvegarde toutes les entrées du dictionnaire."""
-        import os as _os
+    def _dict_collect_entries(self):
+        """Collecte les entrées du formulaire, retourne (cat_entries OrderedDict, empty_rows list) ou None si erreur."""
         from collections import OrderedDict
-
-        # Collecter les entrées groupées par catégorie
         cat_entries = OrderedDict()
         empty_rows = []
         for row in self._dict_rows:
@@ -3660,10 +3644,76 @@ class DicteeSetupDialog(QDialog):
             if "=" in word:
                 QMessageBox.warning(self, "dictee",
                     _("Word cannot contain '=': {word}").format(word=word))
-                return
+                return None
             if category not in cat_entries:
                 cat_entries[category] = []
             cat_entries[category].append((lang, word, repl))
+        return cat_entries, empty_rows
+
+    def _dict_entries_to_text(self, cat_entries):
+        """Sérialise les entrées en texte pour le fichier dictionnaire."""
+        lines = ["# dictee dictionary\n", "# Format: [lang] WORD=REPLACEMENT\n\n"]
+        for cat_name, entries in cat_entries.items():
+            lines.append(f"# \u2500\u2500 {cat_name} \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n")
+            for lang, word, repl in entries:
+                lines.append(f"[{lang}] {word}={repl}\n")
+            lines.append("\n")
+        return "".join(lines)
+
+    def _dict_push_undo(self):
+        """Empile le contenu actuel du .tmp dans le stack undo (max 20)."""
+        if os.path.isfile(self._dict_tmp_path):
+            with open(self._dict_tmp_path, encoding="utf-8") as f:
+                content = f.read()
+        elif os.path.isfile(self._dict_path):
+            with open(self._dict_path, encoding="utf-8") as f:
+                content = f.read()
+        else:
+            content = ""
+        self._dict_undo_stack.append(content)
+        if len(self._dict_undo_stack) > 20:
+            self._dict_undo_stack = self._dict_undo_stack[-20:]
+        if hasattr(self, '_btn_dict_undo'):
+            self._btn_dict_undo.setEnabled(True)
+
+    def _dict_undo(self):
+        """Dépile le dernier snapshot, l'écrit dans .tmp, recharge l'UI."""
+        if not self._dict_undo_stack:
+            return
+        content = self._dict_undo_stack.pop()
+        os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+        with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        scroll_pos = self._dict_scroll.verticalScrollBar().value()
+        self._load_dict_form()
+        QTimer.singleShot(50, lambda: self._dict_scroll.verticalScrollBar().setValue(scroll_pos))
+        if hasattr(self, '_btn_dict_undo'):
+            self._btn_dict_undo.setEnabled(bool(self._dict_undo_stack))
+
+    def _dict_init_tmp(self):
+        """Copie le fichier officiel vers .tmp et vide le stack undo."""
+        self._dict_undo_stack = []
+        self._dict_saved = False
+        if hasattr(self, '_btn_dict_undo'):
+            self._btn_dict_undo.setEnabled(False)
+        os.makedirs(os.path.dirname(self._dict_path), exist_ok=True)
+        if os.path.isfile(self._dict_path):
+            shutil.copy2(self._dict_path, self._dict_tmp_path)
+        elif os.path.isfile(self._dict_tmp_path):
+            os.remove(self._dict_tmp_path)
+
+    def _dict_cleanup_tmp(self):
+        """Supprime le .tmp si l'utilisateur n'a pas enregistré."""
+        if not self._dict_saved:
+            if os.path.isfile(self._dict_tmp_path):
+                os.remove(self._dict_tmp_path)
+
+    def _save_dict_to_tmp(self, reload=False):
+        """Écrit les entrées du formulaire dans le fichier brouillon .tmp."""
+        result = self._dict_collect_entries()
+        if result is None:
+            return
+        cat_entries, empty_rows = result
 
         # Supprimer les lignes vides de l'UI
         for row in empty_rows:
@@ -3672,25 +3722,85 @@ class DicteeSetupDialog(QDialog):
             row.setParent(None)
             row.deleteLater()
 
-        _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
-        with open(self._dict_path, "w", encoding="utf-8") as f:
-            f.write("# dictee dictionary\n")
-            f.write("# Format: [lang] WORD=REPLACEMENT\n\n")
-            for cat_name, entries in cat_entries.items():
-                f.write(f"# \u2500\u2500 {cat_name} \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n")
-                for lang, word, repl in entries:
-                    f.write(f"[{lang}] {word}={repl}\n")
-                f.write("\n")
+        # Empiler l'état actuel du .tmp avant d'écrire
+        self._dict_push_undo()
+
+        text = self._dict_entries_to_text(cat_entries)
+        os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+        with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
+            f.write(text)
 
         if reload:
-            # Sauvegarder la position du scroll avant de recharger
             scroll_pos = self._dict_scroll.verticalScrollBar().value()
             self._load_dict_form()
-            # Restaurer la position du scroll après reconstruction
             QTimer.singleShot(50, lambda: self._dict_scroll.verticalScrollBar().setValue(scroll_pos))
 
+    def _save_dict_official(self):
+        """Copie .tmp → officiel (bouton Enregistrer)."""
+        result = self._dict_collect_entries()
+        if result is None:
+            return
+        cat_entries, empty_rows = result
+
+        # Supprimer les lignes vides de l'UI
+        for row in empty_rows:
+            if row in self._dict_rows:
+                self._dict_rows.remove(row)
+            row.setParent(None)
+            row.deleteLater()
+
+        text = self._dict_entries_to_text(cat_entries)
+        os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+        with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+        # Copier .tmp → officiel
+        shutil.copy2(self._dict_tmp_path, self._dict_path)
+        self._dict_saved = True
+        self._dict_undo_stack.clear()
+        if hasattr(self, '_btn_dict_undo'):
+            self._btn_dict_undo.setEnabled(False)
+
+    def _validate_dict_syntax(self, text):
+        """Valide la syntaxe du dictionnaire. Retourne (ok, erreur_msg)."""
+        entry_re = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*.+=.+\s*$")
+        for i, line in enumerate(text.splitlines(), 1):
+            line_s = line.strip()
+            if not line_s or line_s.startswith("#"):
+                continue
+            if not entry_re.match(line_s):
+                return False, _("Line {n}: invalid syntax: {line}").format(n=i, line=line_s)
+        return True, ""
+
+    def _dict_cancel_advanced(self):
+        """Cancel en mode avancé : supprimer .tmp, recharger depuis l'officiel, basculer vers normal."""
+        # Réinitialiser .tmp depuis l'officiel
+        self._dict_init_tmp()
+        self._load_dict_form()
+        self._btn_advanced.blockSignals(True)
+        self._btn_advanced.setChecked(False)
+        self._btn_advanced.blockSignals(False)
+        self._dict_stack.setCurrentIndex(0)
+
+    def _dict_save_advanced_and_switch(self):
+        """Save en mode avancé : valider, écrire .tmp → officiel, basculer vers normal."""
+        text = self._dict_adv_editor.toPlainText()
+        if not text.endswith("\n"):
+            text += "\n"
+        ok, err = self._validate_dict_syntax(text)
+        if not ok:
+            QMessageBox.warning(self, "dictee", err)
+            return
+        # Validation OK : écrire et basculer
+        self._save_dict_advanced()
+        self._btn_advanced.blockSignals(True)
+        self._btn_advanced.setChecked(False)
+        self._btn_advanced.blockSignals(False)
+        self._load_dict_form()
+        self._dict_stack.setCurrentIndex(0)
+
     def _restore_dict_defaults(self):
-        """Restaure le dictionnaire par défaut."""
+        """Restaure le dictionnaire par défaut dans le brouillon .tmp."""
         reply = QMessageBox.question(self, "dictee",
             _("Restore default dictionary? Your changes will be lost."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -3701,21 +3811,38 @@ class DicteeSetupDialog(QDialog):
             "/usr/share/dictee/dictionary.conf.default",
         ]:
             if os.path.isfile(candidate):
-                shutil.copy2(candidate, self._dict_path)
+                self._dict_push_undo()
+                shutil.copy2(candidate, self._dict_tmp_path)
                 self._load_dict_form()
                 return
         QMessageBox.warning(self, "dictee", _("Default dictionary file not found."))
 
     def _save_dict_advanced(self):
-        """Sauvegarde le contenu du mode avancé dans le fichier (sans basculer le mode)."""
-        import os as _os
-
-        _os.makedirs(_os.path.dirname(self._dict_path), exist_ok=True)
+        """Sauvegarde le contenu du mode avancé dans .tmp, valide, copie vers officiel, bascule vers normal."""
         text = self._dict_adv_editor.toPlainText()
         if not text.endswith("\n"):
             text += "\n"
-        with open(self._dict_path, "w", encoding="utf-8") as f:
+
+        ok, err = self._validate_dict_syntax(text)
+        if not ok:
+            QMessageBox.warning(self, "dictee", err)
+            # Rester en mode avancé
+            self._btn_advanced.blockSignals(True)
+            self._btn_advanced.setChecked(True)
+            self._btn_advanced.blockSignals(False)
+            return
+
+        os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+        self._dict_push_undo()
+        with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
             f.write(text)
+
+        # Copier .tmp → officiel
+        shutil.copy2(self._dict_tmp_path, self._dict_path)
+        self._dict_saved = True
+        self._dict_undo_stack.clear()
+        if hasattr(self, '_btn_dict_undo'):
+            self._btn_dict_undo.setEnabled(False)
 
     # ── Continuation tab ────────────────────────────────────────
 
@@ -4109,15 +4236,34 @@ class DicteeSetupDialog(QDialog):
         idx = self._pp_tabs.currentIndex()
         if idx == 1:  # Dictionnaire
             if checked:
-                # Formulaire → Avancé : sauvegarder le formulaire, charger dans l'éditeur
-                self._save_dict()
-                if os.path.isfile(self._dict_path):
+                # Formulaire → Avancé : écrire le formulaire dans .tmp, charger dans l'éditeur
+                self._save_dict_to_tmp(reload=False)
+                if os.path.isfile(self._dict_tmp_path):
+                    with open(self._dict_tmp_path, encoding="utf-8") as f:
+                        self._dict_adv_editor.setPlainText(f.read())
+                elif os.path.isfile(self._dict_path):
                     with open(self._dict_path, encoding="utf-8") as f:
                         self._dict_adv_editor.setPlainText(f.read())
                 else:
                     self._dict_adv_editor.clear()
             else:
-                # Avancé → Formulaire : juste recharger (Save ou Cancel gère la sauvegarde)
+                # Avancé → Formulaire : valider syntaxe avant de basculer
+                text = self._dict_adv_editor.toPlainText()
+                if not text.endswith("\n"):
+                    text += "\n"
+                ok, err = self._validate_dict_syntax(text)
+                if not ok:
+                    QMessageBox.warning(self, "dictee", err)
+                    # Rester en mode avancé
+                    self._btn_advanced.blockSignals(True)
+                    self._btn_advanced.setChecked(True)
+                    self._btn_advanced.blockSignals(False)
+                    return
+                # Écrire le texte validé dans .tmp et recharger le formulaire
+                self._dict_push_undo()
+                os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
+                with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
+                    f.write(text)
                 self._load_dict_form()
             self._dict_stack.setCurrentIndex(1 if checked else 0)
         elif idx == 2:  # Continuation
