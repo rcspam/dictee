@@ -3121,28 +3121,38 @@ class DicteeSetupDialog(QDialog):
 
     @staticmethod
     def _add_zoom_overlay(editor):
-        """Ajoute des boutons zoom −/+ flottants en haut à droite d'un QTextEdit."""
+        """Ajoute des boutons zoom −/+ flottants en haut à droite d'un QTextEdit + Ctrl+/Ctrl-."""
         style = (
             "QPushButton { background: palette(window); border: 1px solid palette(mid); "
-            "border-radius: 4px; font-size: 16px; font-weight: bold; }"
+            "border-radius: 6px; font-size: 20px; font-weight: bold; "
+            "padding: 0px; min-width: 36px; min-height: 36px; }"
             "QPushButton:hover { background: palette(midlight); }")
         bm = QPushButton("\u2212", editor)
-        bm.setFixedSize(28, 28)
+        bm.setFixedSize(36, 36)
         bm.setStyleSheet(style)
         bm.clicked.connect(lambda: editor.zoomOut(2))
         bp = QPushButton("+", editor)
-        bp.setFixedSize(28, 28)
+        bp.setFixedSize(36, 36)
         bp.setStyleSheet(style)
         bp.clicked.connect(lambda: editor.zoomIn(2))
 
         def _reposition(event, ed=editor, zm=bm, zp=bp):
             w = ed.viewport().width()
-            zp.move(w - 32, 4)
-            zm.move(w - 64, 4)
+            zp.move(w - 44, 8)
+            zm.move(w - 84, 8)
             type(ed).resizeEvent(ed, event)
         editor.resizeEvent = _reposition
-        bp.move(200, 4)
-        bm.move(168, 4)
+        bp.move(200, 8)
+        bm.move(160, 8)
+
+        # Raccourcis Ctrl++ et Ctrl+- pour le zoom
+        try:
+            from PyQt6.QtGui import QShortcut, QKeySequence
+        except ImportError:
+            from PySide6.QtGui import QShortcut, QKeySequence
+        QShortcut(QKeySequence("Ctrl++"), editor).activated.connect(lambda: editor.zoomIn(2))
+        QShortcut(QKeySequence("Ctrl+="), editor).activated.connect(lambda: editor.zoomIn(2))
+        QShortcut(QKeySequence("Ctrl+-"), editor).activated.connect(lambda: editor.zoomOut(2))
 
     @staticmethod
     def _monospace_font():
@@ -3312,6 +3322,11 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_undo.setEnabled(False)
         self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
         common_btns.addWidget(self._btn_dict_undo)
+
+        btn_revert = QPushButton(_("Revert to saved"))
+        btn_revert.setToolTip(_("Discard all unsaved changes and reload the last saved version"))
+        btn_revert.clicked.connect(self._dict_revert_to_saved)
+        common_btns.addWidget(btn_revert)
 
         btn_factory = QPushButton(_("Factory reset"))
         btn_factory.setToolTip(_("Restore factory defaults"))
@@ -3825,6 +3840,26 @@ class DicteeSetupDialog(QDialog):
             if not entry_re.match(line_s):
                 return False, _("Line {n}: invalid syntax: {line}").format(n=i, line=line_s)
         return True, ""
+
+    def _dict_revert_to_saved(self):
+        """Annule toutes les modifications depuis le dernier enregistrement."""
+        reply = QMessageBox.question(self, "dictee",
+            _("Revert to the last saved version?\n\n"
+              "All unsaved changes will be lost."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._dict_init_tmp()
+        self._load_dict_form()
+        # Si on était en mode avancé, revenir au mode normal
+        if self._dict_stack.currentIndex() == 1:
+            if os.path.isfile(self._dict_tmp_path):
+                with open(self._dict_tmp_path, encoding="utf-8") as f:
+                    self._dict_adv_editor.setPlainText(f.read())
+            self._btn_advanced.blockSignals(True)
+            self._btn_advanced.setChecked(False)
+            self._btn_advanced.blockSignals(False)
+            self._dict_stack.setCurrentIndex(0)
 
     def _dict_cancel_advanced(self):
         """Discard : recharger depuis le dernier fichier officiel enregistré."""
