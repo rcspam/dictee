@@ -1,36 +1,35 @@
 #!/usr/bin/env python3
-"""dictee-postprocess — filtre post-traitement pour la dictée vocale.
+"""dictee-postprocess — post-processing filter for voice dictation.
 
-Lit le texte transcrit sur stdin, applique séquentiellement :
-  1.  Règles regex (annotations, hésitations, commandes vocales, dédup, ponctuation, élisions)
-  2.  Élisions françaises avancées (avec h aspirés)
-  3.  Conversion nombres en chiffres (text2num, optionnel)
-  4.  Typographie française (espaces insécables)
-  5.  Dictionnaire (système + personnel, avec matching phonétique jellyfish)
-  6.  Capitalisation
-  7.  Correction LLM optionnelle (ollama)
+Reads transcribed text from stdin, applies sequentially:
+  1.  Regex rules (annotations, hesitations, voice commands, dedup, punctuation)
+  2.  Language-specific rules (elisions, contractions, typography)
+  3.  Number conversion (text2num, optional)
+  4.  Dictionary (system + personal, with jellyfish phonetic matching)
+  5.  Capitalization
+  6.  Optional LLM correction (ollama)
 
-Écrit le résultat sur stdout.
+Writes result to stdout.
 
-Configuration via variables d'environnement :
-  DICTEE_LANG_SOURCE       — langue source (fr, en, de, ...) pour filtrer les règles
-  DICTEE_PP_ELISIONS       — true/false (défaut: true)  — élisions françaises (h aspirés)
-  DICTEE_PP_ELISIONS_IT    — true/false (défaut: true)  — élisions + contractions italiennes
-  DICTEE_PP_SPANISH        — true/false (défaut: true)  — contractions al/del + ¿¡ espagnol
-  DICTEE_PP_PORTUGUESE     — true/false (défaut: true)  — contractions portugaises (do, na, pelo...)
-  DICTEE_PP_GERMAN         — true/false (défaut: true)  — contractions allemandes (am, im...) + „"
-  DICTEE_PP_DUTCH          — true/false (défaut: true)  — contractions néerlandaises ('t, 'n, 's)
-  DICTEE_PP_ROMANIAN       — true/false (défaut: true)  — contractions roumaines (n-am, într-o) + „"
-  DICTEE_PP_NUMBERS        — true/false (défaut: true)  — conversion nombres→chiffres
-  DICTEE_PP_TYPOGRAPHY     — true/false (défaut: true)  — typographie française
-  DICTEE_PP_CAPITALIZATION — true/false (défaut: true)  — capitalisation automatique
-  DICTEE_PP_RULES          — true/false (défaut: true)  — règles regex
-  DICTEE_PP_DICT           — true/false (défaut: true)  — dictionnaire
-  DICTEE_PP_FUZZY_DICT     — true/false (défaut: true)  — matching souple jellyfish
-  DICTEE_PP_CONTINUATION   — true/false (défaut: true)  — continuation
-  DICTEE_LLM_POSTPROCESS   — true/false (défaut: false) — correction LLM
-  DICTEE_LLM_MODEL         — modèle ollama (défaut: gemma3:4b)
-  DICTEE_LLM_TIMEOUT       — timeout en secondes (défaut: 10)
+Environment variables:
+  DICTEE_LANG_SOURCE       — source language (fr, en, de, ...) for rule filtering
+  DICTEE_PP_ELISIONS       — true/false (default: true)  — French elisions (aspirated h)
+  DICTEE_PP_ELISIONS_IT    — true/false (default: true)  — Italian elisions + contractions
+  DICTEE_PP_SPANISH        — true/false (default: true)  — Spanish contractions al/del + ¿¡
+  DICTEE_PP_PORTUGUESE     — true/false (default: true)  — Portuguese contractions (do, na, pelo...)
+  DICTEE_PP_GERMAN         — true/false (default: true)  — German contractions (am, im...) + „"
+  DICTEE_PP_DUTCH          — true/false (default: true)  — Dutch contractions ('t, 'n, 's)
+  DICTEE_PP_ROMANIAN       — true/false (default: true)  — Romanian contractions (n-am, într-o) + „"
+  DICTEE_PP_NUMBERS        — true/false (default: true)  — number→digit conversion
+  DICTEE_PP_TYPOGRAPHY     — true/false (default: true)  — French typography
+  DICTEE_PP_CAPITALIZATION — true/false (default: true)  — auto-capitalization
+  DICTEE_PP_RULES          — true/false (default: true)  — regex rules
+  DICTEE_PP_DICT           — true/false (default: true)  — dictionary
+  DICTEE_PP_FUZZY_DICT     — true/false (default: true)  — fuzzy matching (jellyfish)
+  DICTEE_PP_CONTINUATION   — true/false (default: true)  — continuation
+  DICTEE_LLM_POSTPROCESS   — true/false (default: false) — LLM correction
+  DICTEE_LLM_MODEL         — ollama model (default: gemma3:4b)
+  DICTEE_LLM_TIMEOUT       — timeout in seconds (default: 10)
 """
 
 import os
@@ -86,24 +85,24 @@ LANG = os.environ.get("DICTEE_LANG_SOURCE", "").lower()[:2]
 
 
 def _env_bool(var, default="true"):
-    """Lit une variable d'environnement booléenne."""
+    """Reads a boolean environment variable."""
     return os.environ.get(var, default).lower() == "true"
 
 
-# ── Chargement des règles regex ──────────────────────────────────────
+# ── Loading regex rules ──────────────────────────────────────
 
 _RULE_RE = re.compile(
     r"^\s*\[([a-z]{2}|\*)\]\s*/(.+)/(.+)/([igm]*)\s*$"
 )
 
-# Règles avec remplacement vide : /PATTERN//FLAGS
+# Rules with empty replacement : /PATTERN//FLAGS
 _RULE_EMPTY_RE = re.compile(
     r"^\s*\[([a-z]{2}|\*)\]\s*/(.+)//([igm]*)\s*$"
 )
 
 
 def _parse_rules(path):
-    """Parse un fichier de règles, retourne [(pattern_compiled, replacement)]."""
+    """Parses a rules file, returns [(pattern_compiled, replacement)]."""
     rules = []
     if not os.path.isfile(path):
         return rules
@@ -130,8 +129,8 @@ def _parse_rules(path):
                 flags |= re.IGNORECASE
             if "m" in flags_str:
                 flags |= re.MULTILINE
-            # \s dans les classes [,.\s] ne doit pas manger les \n produits par d'autres règles
-            # Remplacer \s par \t  (espace + tab) dans les classes de caractères
+            # \s in [,.\s] classes must not consume \n produced by other rules
+            # Replace \s with \t  (space + tab) in character classes
             pattern = re.sub(r'\[([^\]]*?)\\s([^\]]*?)\]',
                              lambda m: '[' + m.group(1) + r' \t' + m.group(2) + ']',
                              pattern)
@@ -139,7 +138,7 @@ def _parse_rules(path):
                 compiled = re.compile(pattern, flags)
             except re.error:
                 continue
-            # Convertir les séquences d'échappement dans le remplacement
+            # Convert escape sequences in replacement
             replacement = (replacement
                            .replace("\\n", "\n")
                            .replace("\\t", "\t")
@@ -154,10 +153,10 @@ def _parse_rules(path):
 
 
 def load_rules():
-    """Charge les règles utilisateur (ou le système par défaut)."""
+    """Loads user rules (or system defaults)."""
     if os.path.isfile(USER_RULES):
         return _parse_rules(USER_RULES)
-    # Fallback : fichier système
+    # Fallback: system file
     for candidate in SYSTEM_RULES_CANDIDATES:
         if os.path.isfile(candidate):
             return _parse_rules(candidate)
@@ -165,13 +164,13 @@ def load_rules():
 
 
 def apply_rules(text, rules):
-    """Applique les règles regex séquentiellement."""
+    """Applies regex rules sequentially."""
     for pattern, replacement in rules:
         text = pattern.sub(replacement, text)
     return text
 
 
-# ── Continuation (suppression points erronés après mots de classe fermée) ──
+# ── Continuation (remove erroneous periods after closed-class words) ──
 
 _CONT_LINE_RE = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+)$")
 
@@ -195,18 +194,18 @@ def _parse_continuation(path):
     return words
 
 def load_continuation():
-    """Charge les mots de continuation utilisateur (ou le système par défaut)."""
+    """Loads user continuation words (or system defaults)."""
     if os.path.isfile(USER_CONT):
         return _parse_continuation(USER_CONT)
-    # Fallback : fichier système
+    # Fallback: system file
     for candidate in SYSTEM_CONT_CANDIDATES:
         if os.path.isfile(candidate):
             return _parse_continuation(candidate)
     return set()
 
 def fix_continuation(text, continuation_words):
-    """Supprime les points erronés après un mot de continuation.
-    Préserve la casse du mot suivant (noms propres)."""
+    """Removes erroneous periods after a continuation word.
+    Preserves the case of the following word (proper nouns)."""
     if not continuation_words:
         return text
 
@@ -220,9 +219,9 @@ def fix_continuation(text, continuation_words):
     return re.sub(r"(\w+)\.[ \t]+([A-Za-zÀ-ÿ])", _fix, text)
 
 
-# ── Élisions françaises avancées ─────────────────────────────────────
+# ── Advanced French elisions ─────────────────────────────────────
 
-# Mots commençant par h aspiré (PAS d'élision)
+# Words starting with aspirated h (NO elision)
 H_ASPIRE = frozenset({
     'hache', 'haie', 'haine', 'hall', 'halte', 'halo',
     'hamac', 'hameau', 'hamster', 'hanche', 'handicap', 'hangar',
@@ -245,15 +244,15 @@ ELISION_WORDS = {
 
 _VOWELS = 'aeiouyàâäéèêëîïôöùûüÿæœ'
 _VOWEL_PATTERN = f'[{_VOWELS}{_VOWELS.upper()}]'
-# h muet suivi de voyelle (mais PAS h aspiré)
+# Mute h followed by vowel (but NOT aspirated h)
 _H_MUET_VOWEL = f'[hH]{_VOWEL_PATTERN}'
 
-# Pré-compiler les patterns d'élision
+# Pre-compile elision patterns
 _H_ASPIRE_SORTED = sorted(H_ASPIRE, key=len, reverse=True)
 _H_ASPIRE_RE = '|'.join(re.escape(h) for h in _H_ASPIRE_SORTED)
 _ELISION_PATTERNS = []
 for _word, _elided in ELISION_WORDS.items():
-    # Matche : mot + espace + (voyelle OU h muet), sauf h aspiré
+    # Matches: word + space + (vowel OR mute h), except aspirated h
     _pat = re.compile(
         rf'\b{re.escape(_word)}\s+(?!(?:{_H_ASPIRE_RE})\b)({_VOWEL_PATTERN}\w*|{_H_MUET_VOWEL}\w*)',
         re.IGNORECASE
@@ -264,19 +263,19 @@ _SI_IL_RE = re.compile(r'\bsi\s+(ils?)\b', re.IGNORECASE)
 
 
 def fix_elisions(text):
-    """Corrige les élisions manquantes (je ai → j'ai) avec h aspirés."""
+    """Fixes missing elisions (je ai → j'ai) with aspirated h handling."""
     for pattern, elided in _ELISION_PATTERNS:
         def _elide(m, e=elided):
             rest = m.group(1)
-            # Préserver la casse : si le mot original commençait par majuscule
-            # et l'élision est en début de phrase, garder la majuscule sur l'élision
+            # Preserve case : if original word started with uppercase
+            # and elision is at sentence start, keep uppercase on elision
             return e + rest.lower() if rest[0].isupper() and len(rest) > 1 and rest[1:] == rest[1:].lower() else e + rest
         text = pattern.sub(_elide, text)
     text = _SI_IL_RE.sub(r"s'\1", text)
     return text
 
 
-# ── Élisions italiennes ──────────────────────────────────────────────
+# ── Italian elisions ──────────────────────────────────────────────
 
 IT_ELISION_WORDS = {
     'lo': "l'", 'la': "l'",
@@ -300,7 +299,7 @@ for _w, _e in {**IT_ELISION_WORDS, **IT_ELISION_EXTENDED}.items():
         re.IGNORECASE)
     _IT_ELISION_PATTERNS.append((_pat, _e))
 
-# Contractions prépositionnelles : di + il → del, a + lo → allo, etc.
+# Prepositional contractions : di + il → del, a + lo → allo, etc.
 _IT_PREP_CONTRACTIONS = [
     (re.compile(r'\bdi\s+il\b', re.I), 'del'),
     (re.compile(r'\bdi\s+lo\b', re.I), 'dello'),
@@ -336,7 +335,7 @@ _IT_PREP_CONTRACTIONS = [
 
 
 def _case_aware_replace(match, replacement):
-    """Remplace en préservant la casse du texte original."""
+    """Replaces while preserving the case of the original text."""
     original = match.group(0)
     if original.isupper():
         return replacement.upper()
@@ -346,8 +345,8 @@ def _case_aware_replace(match, replacement):
 
 
 def fix_italian_elisions(text):
-    """Corrige les contractions et élisions italiennes."""
-    # Contractions d'abord (di il → del) avant les élisions (di → d')
+    """Fixes Italian contractions and elisions."""
+    # Contractions first (di il → del) before elisions (di → d')
     for pattern, contraction in _IT_PREP_CONTRACTIONS:
         text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
     for pattern, elided in _IT_ELISION_PATTERNS:
@@ -360,14 +359,14 @@ def fix_italian_elisions(text):
     return text
 
 
-# ── Contractions espagnoles + ponctuation inversée ───────────────────
+# ── Spanish contractions + inverted punctuation ───────────────────
 
 _ES_AL = re.compile(r'\b[Aa]\s+[Ee]l\b(?!\s+[A-ZÁ-Ú])')
 _ES_DEL = re.compile(r'\b[Dd]e\s+[Ee]l\b(?!\s+[A-ZÁ-Ú])')
-# Ponctuation inversée : ajouter ¿ / ¡ en début de phrase
+# Inverted punctuation: add ¿ / ¡ at sentence start
 _ES_QUESTION = re.compile(r'(?:^|(?<=[.!?\n]\s))([^?]*\?)')
 _ES_EXCLAIM = re.compile(r'(?:^|(?<=[.!?\n]\s))([^!]*!)')
-# Mots interrogatifs (aident à localiser le début de la question)
+# Question words (help locate the start of the question)
 _ES_QW = re.compile(
     r'(?:^|(?<=[\s,;]))((?:qué|quién|quiénes|cómo|cuándo|dónde|'
     r'por qué|cuál|cuáles|cuánto|cuánta|cuántos|cuántas)\b[^?]*\?)',
@@ -375,11 +374,11 @@ _ES_QW = re.compile(
 
 
 def fix_spanish(text):
-    """Contractions al/del et ponctuation inversée ¿¡."""
+    """Contractions al/del and inverted punctuation ¿¡."""
     # Contractions (sauf noms propres : "de El Salvador")
     text = _ES_AL.sub('al', text)
     text = _ES_DEL.sub('del', text)
-    # Ponctuation inversée — mots interrogatifs d'abord
+    # Inverted punctuation — question words first
     def _add_inv_q(m):
         s = m.group(1)
         if s.startswith('¿'):
@@ -396,7 +395,7 @@ def fix_spanish(text):
     return text
 
 
-# ── Contractions portugaises ─────────────────────────────────────────
+# ── Portuguese contractions ─────────────────────────────────────────
 
 _PT_CONTRACTIONS = [
     # de + articles
@@ -446,13 +445,13 @@ _PT_CONTRACTIONS = [
 
 
 def fix_portuguese(text):
-    """Corrige les contractions portugaises (de o → do, em a → na, etc.)."""
+    """Fixes Portuguese contractions (de o → do, em a → na, etc.)."""
     for pattern, contraction in _PT_CONTRACTIONS:
         text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
     return text
 
 
-# ── Contractions allemandes ──────────────────────────────────────────
+# ── German contractions ──────────────────────────────────────────
 
 _DE_CONTRACTIONS = [
     (re.compile(r'\ban\s+dem\b', re.I), 'am'),
@@ -470,15 +469,15 @@ _DE_TYPO_QUOTES = re.compile(r'"([^"]*)"')
 
 
 def fix_german(text):
-    """Contractions allemandes (an dem → am, etc.) et guillemets „..."."""
+    """German contractions (an dem → am, etc.) et quotes „..."."""
     for pattern, contraction in _DE_CONTRACTIONS:
         text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
-    # Guillemets anglais → allemands
+    # English quotes → German
     text = _DE_TYPO_QUOTES.sub('\u201e\\1\u201c', text)
     return text
 
 
-# ── Contractions néerlandaises ────────────────────────────────────────
+# ── Dutch contractions ────────────────────────────────────────
 
 # Expressions fixes avec apostrophe
 _NL_CONTRACTIONS = [
@@ -487,7 +486,7 @@ _NL_CONTRACTIONS = [
     # een → 'n (seulement devant minuscule — pas devant nom propre)
     (re.compile(r'\b[Ee]en\b(?=\s+[a-zà-ÿ])'), "'n"),
 ]
-# Expressions temporelles fixes
+# Fixed time expressions
 _NL_TIME_EXPRS = [
     (re.compile(r"\bin de morgens?\b", re.I), "'s morgens"),
     (re.compile(r"\bin de avonds?\b", re.I), "'s avonds"),
@@ -497,7 +496,7 @@ _NL_TIME_EXPRS = [
 
 
 def fix_dutch(text):
-    """Contractions néerlandaises ('t, 'n, 's morgens, etc.)."""
+    """Dutch contractions ('t, 'n, 's morgens, etc.)."""
     for pattern, replacement in _NL_TIME_EXPRS:
         text = pattern.sub(replacement, text)
     for pattern, replacement in _NL_CONTRACTIONS:
@@ -505,16 +504,16 @@ def fix_dutch(text):
     return text
 
 
-# ── Contractions roumaines ───────────────────────────────────────────
+# ── Romanian contractions ───────────────────────────────────────────
 
 _RO_CONTRACTIONS = [
-    # Négation contractée
+    # Negation contractions
     (re.compile(r'\bnu\s+am\b', re.I), "n-am"),
     (re.compile(r'\bnu\s+ai\b', re.I), "n-ai"),
     (re.compile(r'\bnu\s+a\b', re.I), "n-a"),
     (re.compile(r'\bnu\s+au\b', re.I), "n-au"),
     (re.compile(r'\bnu\s+o\b', re.I), "n-o"),
-    # Prépositions contractées
+    # Prepositional contractions
     (re.compile(r'\bîntr\s+o\b', re.I), "într-o"),
     (re.compile(r'\bîntr\s+un\b', re.I), "într-un"),
     (re.compile(r'\bdintr\s+o\b', re.I), "dintr-o"),
@@ -527,10 +526,10 @@ _RO_TYPO_QUOTES = re.compile(r'"([^"]*)"')
 
 
 def fix_romanian(text):
-    """Contractions roumaines (n-am, într-o, etc.) et guillemets „..."."""
+    """Romanian contractions (n-am, într-o, etc.) and quotes „..."."""
     for pattern, contraction in _RO_CONTRACTIONS:
         text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
-    # Guillemets anglais → roumains (même style que l'allemand)
+    # English quotes → Romanian (same style as German)
     text = _RO_TYPO_QUOTES.sub('\u201e\\1\u201c', text)
     return text
 
@@ -556,30 +555,30 @@ def convert_numbers(text):
         return text
 
 
-# ── Typographie française ────────────────────────────────────────────
+# ── French typography ────────────────────────────────────────────
 
-_NBSP = '\u00a0'     # espace insécable (avant :, après «, avant »)
-_NNBSP = '\u202f'    # espace fine insécable (avant ; ? !)
+_NBSP = '\u00a0'     # non-breaking space (before :, after «, before »)
+_NNBSP = '\u202f'    # narrow non-breaking space (before ; ? !)
 
-# Pré-compiler les patterns de typographie
-_TYPO_BEFORE_THIN = re.compile(r'(?<=\S)\s*([;!?])') # espace fine insécable avant ; ! ? (sauf début de ligne)
-_TYPO_BEFORE_COLON = re.compile(r'(?<=\S)\s*(:)')   # espace insécable avant : (sauf début de ligne)
-_TYPO_AFTER_LGUILL = re.compile(r'«\s*')           # espace après «
+# Pre-compile typography patterns
+_TYPO_BEFORE_THIN = re.compile(r'(?<=\S)\s*([;!?])') # narrow non-breaking space before ; ! ? (except at line start)
+_TYPO_BEFORE_COLON = re.compile(r'(?<=\S)\s*(:)')   # non-breaking space before : (except at line start)
+_TYPO_AFTER_LGUILL = re.compile(r'«\s*')           # space after «
 _TYPO_BEFORE_RGUILL = re.compile(r'\s*»')          # espace avant »
 _TYPO_ELLIPSIS = re.compile(r'\.{3,}')             # ... → …
 _TYPO_EN_QUOTES = re.compile(r'"([^"]+)"')         # "x" → « x »
 
 
 def fix_french_typography(text):
-    """Applique les règles typographiques françaises."""
+    """Applies French typographic rules."""
     # Points de suspension
     text = _TYPO_ELLIPSIS.sub('\u2026', text)
-    # Guillemets anglais → français
+    # English quotes → French
     text = _TYPO_EN_QUOTES.sub(f'\u00ab{_NBSP}\\1{_NBSP}\u00bb', text)
-    # Espaces insécables avant ponctuation haute
+    # Non-breaking spaces before high punctuation
     text = _TYPO_BEFORE_THIN.sub(f'{_NNBSP}\\1', text)
     text = _TYPO_BEFORE_COLON.sub(f'{_NBSP}\\1', text)
-    # Espaces autour des guillemets
+    # Espaces autour des quotes
     text = _TYPO_AFTER_LGUILL.sub(f'\u00ab{_NBSP}', text)
     text = _TYPO_BEFORE_RGUILL.sub(f'{_NBSP}\u00bb', text)
     return text
@@ -622,17 +621,17 @@ def _parse_dictionary(path):
 
 
 def load_dictionary():
-    """Charge le dictionnaire utilisateur (ou le système par défaut)."""
+    """Loads user dictionary (or system defaults)."""
     if os.path.isfile(USER_DICT):
         return _parse_dictionary(USER_DICT)
-    # Fallback : fichier système
+    # Fallback: system file
     for candidate in SYSTEM_DICT_CANDIDATES:
         if os.path.isfile(candidate):
             return _parse_dictionary(candidate)
     return []
 
 
-# Import optionnel jellyfish pour matching phonétique
+# Optional jellyfish import for phonetic matching
 try:
     import jellyfish
     _HAS_JELLYFISH = True
@@ -643,7 +642,7 @@ _FUZZY_THRESHOLD = 0.85
 
 
 def apply_dictionary(text, entries, fuzzy=True):
-    """Applique le dictionnaire avec préservation de casse + fallback phonétique."""
+    """Applies dictionary with case preservation + phonetic fallback."""
     # Phase 1 : remplacement exact par regex (rapide)
     matched_spans = set()
     for word, word_re, replacement in entries:
@@ -657,7 +656,7 @@ def apply_dictionary(text, entries, fuzzy=True):
             return repl
         text = word_re.sub(_replace, text)
 
-    # Phase 2 : matching phonétique jellyfish (si activé)
+    # Phase 2: jellyfish phonetic matching (if enabled)
     if not fuzzy or not _HAS_JELLYFISH or not entries:
         return text
 
@@ -665,7 +664,7 @@ def apply_dictionary(text, entries, fuzzy=True):
     if not words_in_text:
         return text
 
-    # Construire un index des clés du dictionnaire
+    # Build dictionary key index
     dict_keys = [(w.lower(), replacement) for w, _, replacement in entries]
 
     for text_word in set(words_in_text):
@@ -674,7 +673,7 @@ def apply_dictionary(text, entries, fuzzy=True):
         best_replacement = None
         for dict_word, replacement in dict_keys:
             if dict_word == text_word_lower:
-                break  # déjà matché en phase 1
+                break  # already matched in phase 1
             score = jellyfish.jaro_winkler_similarity(text_word_lower, dict_word)
             if score > best_score and score >= _FUZZY_THRESHOLD:
                 best_score = score
@@ -702,16 +701,16 @@ _CAP_AFTER_NEWLINE = re.compile(r'(\n\s*)([a-zà-ÿ])')
 
 
 def fix_capitalization(text):
-    """Capitalise après ponctuation de fin et en début de texte."""
+    """Capitalizes after sentence-ending punctuation and at text start."""
     if not text:
         return text
-    # Début du texte
+    # Start of text
     if text[0].islower():
         text = text[0].upper() + text[1:]
-    # Après . ! ? … — préserver les sauts de ligne
+    # After . ! ? … — preserve line breaks
     text = _CAP_AFTER_PUNCT.sub(
         lambda m: m.group(1) + m.group(2) + m.group(3).upper(), text)
-    # Après saut de ligne
+    # After line break
     text = _CAP_AFTER_NEWLINE.sub(
         lambda m: m.group(1) + m.group(2).upper(), text)
     return text
@@ -747,7 +746,7 @@ def _load_prompt():
 
 
 def llm_postprocess(text):
-    """Envoie le texte à ollama pour correction grammaticale."""
+    """Sends text to ollama for grammar correction."""
     model = os.environ.get("DICTEE_LLM_MODEL", "gemma3:4b")
     timeout = int(os.environ.get("DICTEE_LLM_TIMEOUT", "10"))
 
@@ -763,35 +762,35 @@ def llm_postprocess(text):
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         pass
-    return text  # fallback : texte inchangé
+    return text  # fallback: text unchanged
 
 
 # ── Main ─────────────────────────────────────────────────────────────
 
 def main():
     text = sys.stdin.read()
-    # Supprimer le \n ajouté par echo (mais garder les \n intentionnels)
+    # Remove \n added by echo (but keep intentional \n)
     if text.endswith('\n'):
         text = text[:-1]
     if not text.strip():
         sys.stdout.write(text)
         return
 
-    # 0. Détection de mauvaise langue (ASR multilingue confus sur audio court)
-    # Les règles tentent d'abord de récupérer les commandes vocales connues
-    # (ex: cyrillique "А линия" → \n pour "à la ligne").
-    # Si après les règles le texte est toujours dans le mauvais script, on le rejette.
+    # 0. Bad language detection (multilingual ASR confused on short audio)
+    # Rules first try to recover known voice commands
+    # (e.g., Cyrillic "А линия" → \n for "à la ligne").
+    # If after rules the text is still in the wrong script, reject it.
 
-    # 1-5. Règles regex (annotations, hésitations, commandes vocales,
-    #       dédup, ponctuation, élisions basiques, nettoyage)
+    # 1-5. Regex rules (annotations, hesitations, voice commands,
+    #       dedup, punctuation, basic elisions, cleanup)
     rules = load_rules()
     if _env_bool("DICTEE_PP_RULES") and rules:
         text = apply_rules(text, rules)
-    # Nettoyer les espaces en début (hésitations/annotations supprimées)
-    # mais préserver les \n de fin (commandes vocales "à la ligne")
+    # Clean leading spaces (hesitations/annotations removed)
+    # but preserve trailing \n (voice commands)
     text = text.lstrip(' \t').rstrip(' \t')
 
-    # 5b. Rejet mauvaise langue (après les règles, qui ont pu convertir les commandes connues)
+    # 5b. Bad language rejection (after rules, which may have converted known commands)
     if LANG:
         _LATIN_LANGS = {"fr", "en", "de", "es", "it", "pt", "nl", "pl", "ro", "cs", "sv", "da", "no", "fi", "hu", "tr"}
         _CYRILLIC_LANGS = {"ru", "uk", "bg", "sr", "mk", "be"}
@@ -806,12 +805,12 @@ def main():
                 sys.stdout.write("")
                 return
 
-    # 5c. Continuation (suppression points erronés après mots de classe fermée)
+    # 5c. Continuation (remove erroneous periods after closed-class words)
     continuation_words = load_continuation()
     if _env_bool("DICTEE_PP_CONTINUATION") and continuation_words:
         text = fix_continuation(text, continuation_words)
 
-    # 6. Règles spécifiques à la langue
+    # 6. Language-specific rules
     if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
         text = fix_elisions(text)
     if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
@@ -831,13 +830,13 @@ def main():
     if _env_bool("DICTEE_PP_NUMBERS"):
         text = convert_numbers(text)
 
-    # 8. Typographie française (espaces insécables)
+    # 8. French typography (non-breaking spaces)
     if LANG == "fr" and _env_bool("DICTEE_PP_TYPOGRAPHY"):
         text = fix_french_typography(text)
 
-    # 9. (nettoyage final déjà dans les règles regex étape 5)
+    # 9. (final cleanup already in regex rules step 5)
 
-    # 10. Dictionnaire (système + personnel, avec matching phonétique)
+    # 10. Dictionary (system + personal, with phonetic matching)
     dictionary = load_dictionary()
     if _env_bool("DICTEE_PP_DICT") and dictionary:
         text = apply_dictionary(

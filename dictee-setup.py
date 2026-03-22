@@ -99,8 +99,8 @@ LANGUAGES = [
     ("ar", "العربية"),
 ]
 
-# Langues supportées par chaque backend ASR (pour filtrer la langue source)
-# Parakeet TDT 0.6B v3 : 25 langues européennes (source: NVIDIA HuggingFace)
+# Languages supported by each ASR backend (pour filtrer la langue source)
+# Parakeet TDT 0.6B v3: 25 European languages (source: NVIDIA HuggingFace)
 PARAKEET_LANGUAGES = {
     "bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr",
     "hr", "hu", "it", "lt", "lv", "mt", "nl", "pl", "pt", "ro",
@@ -112,13 +112,13 @@ ASR_LANGUAGES = {
     "whisper": None,   # None = toutes
 }
 
-# Langues supportées par chaque backend de traduction (pour filtrer la langue cible)
-# None = toutes, set() = limité
+# Languages supported by each translation backend (pour filtrer la langue cible)
+# None = all, set() = limited
 TRANSLATE_LANGUAGES = {
     "trans:google": None,
     "trans:bing": None,
     "ollama": None,
-    "libretranslate": None,  # Dynamique — filtré via les langues installées
+    "libretranslate": None,  # Dynamic — filtered via installed languages
 }
 
 DICTEE_COMMAND = "/usr/bin/dictee"
@@ -173,7 +173,7 @@ def linux_keycode_name(code):
 ANIMATION_SPEECH_REPO = "rcspam/animation-speech"
 ANIMATION_SPEECH_BIN = "animation-speech-ctl"
 
-# === Détection DE ===
+# === DE detection ===
 
 
 def detect_desktop():
@@ -431,7 +431,7 @@ def apply_kde_shortcut(accel_kde, desktop_name, command, label, key_sequence=Non
         f.write("Type=Application\n")
         f.write("X-KDE-GlobalAccel-CommandShortcut=true\n")
 
-    # Écrire le raccourci dans kglobalshortcutsrc (persistance au reboot)
+    # Write shortcut to kglobalshortcutsrc (persists across reboots)
     subprocess.run(
         [
             "kwriteconfig6",
@@ -455,7 +455,7 @@ def apply_kde_shortcut(accel_kde, desktop_name, command, label, key_sequence=Non
         check=True,
     )
 
-    # Activer immédiatement via D-Bus kglobalaccel
+    # Activate immediately via D-Bus kglobalaccel
     if key_sequence is not None:
         _activate_kde_shortcut_dbus(desktop_name, label, key_sequence)
 
@@ -474,7 +474,7 @@ def _activate_kde_shortcut_dbus(desktop_name, label, key_sequence):
         # PyQt6 : QKeyCombination → .toCombined() → int
         if hasattr(combined, "toCombined"):
             qt_key_int = combined.toCombined()
-        # PySide6 : déjà int ou enum avec .value
+        # PySide6: already int or enum with .value
         elif hasattr(combined, "value"):
             qt_key_int = combined.value
         else:
@@ -520,7 +520,7 @@ def remove_kde_shortcut(desktop_name):
          "--key", "_launch", "--delete"],
         capture_output=True,
     )
-    # Désactiver via D-Bus (touche vide = aucun raccourci)
+    # Disable via D-Bus (empty key = no shortcut)
     action_id = f"['{desktop_name}', '_launch', '', '']"
     keys = "[([0, 0, 0, 0],)]"
     subprocess.run(
@@ -702,7 +702,7 @@ class OllamaPullThread(QThread):
             self.finished.emit(False, str(e))
 
 
-# === Modèles ASR ===
+# === ASR models ===
 
 MODEL_DIR = "/usr/share/dictee"
 DICTEE_DATA_DIR = os.path.expanduser("~/.local/share/dictee")
@@ -999,7 +999,7 @@ def libretranslate_available_languages(port=LIBRETRANSLATE_PORT, max_age=5):
 def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de"):
     """Démarre le container LibreTranslate. Recrée si les langues ont changé."""
     if docker_container_exists():
-        # Vérifier si les langues du conteneur existant correspondent
+        # Check if existing container languages match
         needs_recreate = False
         try:
             result = subprocess.run(
@@ -1010,7 +1010,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
             if f"--load-only {languages}" not in current_args:
                 needs_recreate = True
         except Exception:
-            needs_recreate = True  # En cas de doute, recréer
+            needs_recreate = True  # When in doubt, recreate
         if needs_recreate:
             subprocess.run(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                            capture_output=True, timeout=10)
@@ -1173,7 +1173,7 @@ class _DockerActionThread(QThread):
         self.progress.emit(_("Starting server…"))
         consecutive_dead = 0
         for i in range(90):
-            # 1. Vérifier si le conteneur tourne encore
+            # 1. Check if container is still running
             try:
                 state = subprocess.run(
                     ["docker", "inspect", "-f", "{{.State.Running}}", LIBRETRANSLATE_CONTAINER],
@@ -1193,7 +1193,7 @@ class _DockerActionThread(QThread):
             else:
                 consecutive_dead = 0
 
-            # 2. Tester si l'API répond
+            # 2. Test if API responds
             try:
                 with urllib.request.urlopen(url, timeout=3):
                     self.progress.emit(_("Ready!"))
@@ -1202,18 +1202,18 @@ class _DockerActionThread(QThread):
                 pass
 
             # 3. Analyser les logs Docker pour afficher un message clair
-            # LibreTranslate écrit les téléchargements sur stdout et le serveur sur stderr
+            # LibreTranslate writes downloads to stdout and server to stderr
             try:
                 result = subprocess.run(
                     ["docker", "logs", "--tail", "15", LIBRETRANSLATE_CONTAINER],
                     capture_output=True, text=True, timeout=3)
-                # Combiner stdout (téléchargements) + stderr (serveur)
+                # Combine stdout (downloads) + stderr (server)
                 log_stdout = result.stdout.strip()
                 log_stderr = result.stderr.strip()
                 log_combined = (log_stdout + "\n" + log_stderr).strip()
                 if log_combined:
                     log_lower = log_combined.lower()
-                    # Détecter les erreurs réseau
+                    # Detect network errors
                     if any(err in log_lower for err in [
                         "connectionerror", "connection refused", "network is unreachable",
                         "name resolution", "temporary failure", "no route to host",
@@ -1224,7 +1224,7 @@ class _DockerActionThread(QThread):
                             _("Network error while downloading language models.") +
                             "\n" + last_line +
                             "\n\n" + _("Check your network connection and retry."))
-                    # Priorité stdout (téléchargements) puis stderr (serveur)
+                    # Priority: stdout (downloads) then stderr (server)
                     msg = self._parse_lt_log(
                         log_stdout if log_stdout else log_stderr, i * 2)
                     self.progress.emit(msg)
@@ -1241,7 +1241,7 @@ class _DockerActionThread(QThread):
     def _parse_lt_log(log_text, elapsed_s):
         """Analyse les logs LibreTranslate et retourne un message utilisateur clair."""
         import re
-        # Parcourir les lignes de la plus récente à la plus ancienne
+        # Iterate lines from most recent to oldest
         lines = log_text.strip().split("\n")
         for line in reversed(lines):
             ll = line.lower().strip()
@@ -1295,7 +1295,7 @@ class _DockerActionThread(QThread):
                 capture_output=True, text=True, timeout=3)
             log = result.stderr.strip() or result.stdout.strip()
             if log:
-                # Garder les 3 dernières lignes pertinentes
+                # Keep last 3 relevant lines
                 lines = [l for l in log.split("\n") if l.strip()][-3:]
                 return "\n".join(lines)
         except Exception:
@@ -1420,7 +1420,7 @@ class ShortcutButton(QPushButton):
             return
 
         modifiers = event.modifiers()
-        # PyQt6 : .value pour convertir en int, PySide6 : déjà int
+        # PyQt6: .value to convert to int, PySide6: already int
         key_int = key.value if hasattr(key, "value") else int(key)
         mod_int = modifiers.value if hasattr(modifiers, "value") else int(modifiers)
         seq = QKeySequence(mod_int | key_int)
@@ -1550,7 +1550,7 @@ class TestDicteeThread(QThread):
             self._rec_proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            # Attendre la durée demandée
+            # Wait for requested duration
             try:
                 self._rec_proc.wait(timeout=self._duration)
             except subprocess.TimeoutExpired:
@@ -1622,7 +1622,7 @@ class DicteeSetupDialog(QDialog):
         self._venv_threads = {}
         self._audio_monitor = None
         self._test_thread = None
-        self._dirty = True  # config non enregistrée au départ
+        self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
 
         self.conf = load_config()
@@ -1632,7 +1632,7 @@ class DicteeSetupDialog(QDialog):
         else:
             self._build_classic_ui()
 
-        # Empêcher le scroll accidentel sur les widgets interactifs
+        # Prevent accidental scroll on interactive widgets
         self._scroll_guard = ScrollGuardFilter(self)
         for w in self.findChildren((QComboBox, QSlider)):
             w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1647,23 +1647,23 @@ class DicteeSetupDialog(QDialog):
 
     @property
     def _pp_parent(self):
-        """Retourne la fenêtre parent pour les popups post-traitement."""
+        """Returns parent window for post-processing popups."""
         if hasattr(self, '_pp_dialog') and self._pp_dialog is not None and self._pp_dialog.isVisible():
             return self._pp_dialog
         return self
 
     def _open_postprocess_dialog(self):
-        """Ouvre la fenêtre post-traitement dans un dialogue séparé (réutilisé)."""
+        """Opens post-processing window in a separate dialog (reused)."""
         if hasattr(self, '_pp_dialog') and self._pp_dialog is not None:
-            # Réinitialiser le brouillon dictionnaire à chaque ouverture
+            # Reset dictionary draft on each open
             self._dict_init_tmp()
             self._load_dict_form()
             self._pp_dialog.show()
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
-        # Fenêtre indépendante (pas un QDialog enfant — KDE Plasma traite
-        # les QDialog enfants comme des utilitaires qui passent derrière le panel)
+        # Independent window (pas un QDialog enfant — KDE Plasma traite
+        # QDialog children as utilities that go behind the panel)
         # QDialog sans parent — conforme KDE Plasma panel/dock + bouton fermer
         dlg = QDialog()
         dlg.setModal(False)
@@ -1753,7 +1753,7 @@ class DicteeSetupDialog(QDialog):
         self._build_translation_section(lay_tr, conf)
         layout.addWidget(grp_translate)
 
-        # -- Section microphone --
+        # -- Microphone section --
         grp_mic = QGroupBox(_("Microphone"))
         lay_mic = QVBoxLayout(grp_mic)
         lay_mic.setSpacing(6)
@@ -1761,7 +1761,7 @@ class DicteeSetupDialog(QDialog):
         self._build_mic_section(lay_mic, conf)
         layout.addWidget(grp_mic)
 
-        # -- Section options --
+        # -- Options section --
         grp_options = QGroupBox(_("Options"))
         lay_opt = QVBoxLayout(grp_options)
         lay_opt.setSpacing(6)
@@ -1771,7 +1771,7 @@ class DicteeSetupDialog(QDialog):
         lay_opt.addWidget(self.chk_clipboard)
         layout.addWidget(grp_options)
 
-        # -- Section services --
+        # -- Services section --
         grp_services = QGroupBox(_("Startup services"))
         lay_srv = QVBoxLayout(grp_services)
         lay_srv.setSpacing(6)
@@ -1784,7 +1784,7 @@ class DicteeSetupDialog(QDialog):
         lay_srv.addWidget(self.chk_tray)
         layout.addWidget(grp_services)
 
-        # -- Bouton post-traitement --
+        # -- Post-processing button --
         btn_postprocess = QPushButton(_("Post-processing..."))
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_postprocess.setStyleSheet(
@@ -1821,7 +1821,7 @@ class DicteeSetupDialog(QDialog):
 
         outer_layout.addLayout(lay_buttons)
 
-        # Marquer _dirty dès qu'un widget de config change
+        # Mark _dirty when any config widget changes
         for w in content.findChildren(QComboBox):
             w.currentIndexChanged.connect(self._mark_dirty)
         for w in content.findChildren(QCheckBox):
@@ -1948,14 +1948,14 @@ class DicteeSetupDialog(QDialog):
             self.stack.setCurrentIndex(idx + 1)
             self._update_wizard_nav()
             if idx + 1 == self.stack.count() - 1:
-                # Sauver la config et démarrer les services AVANT les checks
+                # Save config and start services BEFORE checks
                 self._on_apply()
                 self._run_wizard_checks()
 
     def _validate_wizard_page(self, idx):
         """Valide la page courante avant d'avancer. Retourne True si OK."""
         if idx == 1:
-            # Page ASR : vérifier qu'un modèle est installé pour le backend sélectionné
+            # ASR page: verify a model is installed for selected backend
             asr = self._wizard_asr
             if asr == "parakeet":
                 for m in ASR_MODELS:
@@ -2002,7 +2002,7 @@ class DicteeSetupDialog(QDialog):
             pix = QPixmap.fromImage(img)
             pix = pix.scaledToWidth(64, Qt.TransformationMode.SmoothTransformation)
 
-            # Widget empilé : icône + nom
+            # Stacked widget: icon + name
             cell = QWidget()
             cell_lay = QVBoxLayout(cell)
             cell_lay.setSpacing(4)
@@ -2024,7 +2024,7 @@ class DicteeSetupDialog(QDialog):
                 col = 0
                 row += 1
 
-        # Centrer la rangée du bas (2 éléments sur 3 colonnes)
+        # Center the bottom row (2 éléments sur 3 colonnes)
         if row == 1 and col <= 2:
             grid.setColumnStretch(0, 1)
             grid.setColumnStretch(2, 1)
@@ -2248,7 +2248,7 @@ class DicteeSetupDialog(QDialog):
         lay_srv.setContentsMargins(16, 16, 16, 12)
         self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
         self.chk_tray = QCheckBox(_("Show notification area icon"))
-        # Dans le wizard, cocher par défaut (première install)
+        # In wizard, check by default (first install)
         self.chk_daemon.setChecked(self._is_service_enabled("dictee") or self.wizard_mode)
         self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
         lay_srv.addWidget(self.chk_daemon)
@@ -2718,7 +2718,7 @@ class DicteeSetupDialog(QDialog):
         lay_vis.addWidget(self.chk_plasmoid)
         lay_vis.addWidget(self.chk_gnome_ext)
 
-        # Avertissement GNOME / compositors sans wlr-layer-shell
+        # GNOME / compositors without wlr-layer-shell warning
         self.lbl_anim_warn = QLabel(
             '<span style="color: orange;">⚠ '
             + _("animation-speech requires a Wayland compositor with layer-shell support "
@@ -3006,7 +3006,7 @@ class DicteeSetupDialog(QDialog):
                 self._popup.hide()
 
     def _pp_checkbox_with_help(self, checkbox, help_text):
-        """Ajoute un ? avec popup au survol à côté de la checkbox."""
+        """Adds a ? with hover popup next to checkbox."""
         container = QWidget()
         h = QHBoxLayout(container)
         h.setContentsMargins(0, 0, 0, 0)
@@ -3018,18 +3018,18 @@ class DicteeSetupDialog(QDialog):
 
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
-        # Checkbox activer
+        # Enable checkbox
         self.chk_postprocess = QCheckBox(_("Enable post-processing (regex rules + dictionary)"))
         self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
         lay.addWidget(self.chk_postprocess)
 
-        # Conteneur pour tout le contenu PP (grisé si désactivé)
+        # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
         pp_lay = QVBoxLayout(self._pp_content)
         pp_lay.setContentsMargins(0, 0, 0, 0)
         pp_lay.setSpacing(6)
 
-        # --- Pipeline toggles — général ---
+        # --- Pipeline toggles — general ---
         grid_gen = QGridLayout()
         grid_gen.setContentsMargins(20, 0, 0, 0)
 
@@ -3078,10 +3078,10 @@ class DicteeSetupDialog(QDialog):
 
         pp_lay.addLayout(grid_gen)
 
-        # --- Sous-onglets d'édition ---
+        # --- Editing sub-tabs ---
         self._pp_tabs = QTabWidget()
 
-        # Couleurs d'accentuation pour les onglets
+        # Accent colors for tabs
         accent = self.palette().color(self.palette().ColorRole.Highlight)
         accent_hex = accent.name()
         self._pp_tabs.setStyleSheet(f"""
@@ -3091,35 +3091,35 @@ class DicteeSetupDialog(QDialog):
             }}
         """)
 
-        # Onglet Dictionnaire (index 0)
+        # Dictionary tab (index 0)
         tab_dict = QWidget()
         tab_dict_lay = QVBoxLayout(tab_dict)
         tab_dict_lay.setContentsMargins(8, 8, 8, 8)
         self._build_dictionary_tab(tab_dict_lay)
         self._pp_tabs.addTab(tab_dict, _("Dictionary"))
 
-        # Onglet Règles (index 1)
+        # Rules tab (index 1)
         tab_rules = QWidget()
         tab_rules_lay = QVBoxLayout(tab_rules)
         tab_rules_lay.setContentsMargins(8, 8, 8, 8)
         self._build_rules_tab(tab_rules_lay)
         self._pp_tabs.addTab(tab_rules, _("Regex rules"))
 
-        # Onglet Continuation (index 2)
+        # Continuation tab (index 2)
         tab_cont = QWidget()
         tab_cont_lay = QVBoxLayout(tab_cont)
         tab_cont_lay.setContentsMargins(8, 8, 8, 8)
         self._build_continuation_tab(tab_cont_lay)
         self._pp_tabs.addTab(tab_cont, _("Continuation"))
 
-        # Onglet Language rules (index 3)
+        # Language rules tab (index 3)
         tab_lang = QWidget()
         tab_lang_lay = QVBoxLayout(tab_lang)
         tab_lang_lay.setContentsMargins(8, 8, 8, 8)
         self._build_language_rules_tab(tab_lang_lay, conf)
         self._pp_tabs.addTab(tab_lang, _("Language rules"))
 
-        # Griser les onglets quand la checkbox correspondante est décochée
+        # Gray out tabs when corresponding checkbox is unchecked
         def _on_dict_toggled(on):
             self._pp_tabs.setTabEnabled(0, on)
             self.chk_pp_fuzzy_dict.setEnabled(on)
@@ -3131,7 +3131,7 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.setTabEnabled(1, self.chk_pp_rules.isChecked())
         self._pp_tabs.setTabEnabled(2, self.chk_pp_continuation.isChecked())
 
-        # Bouton Mode avancé (masqué pour l'onglet Règles)
+        # Edit mode button (masqué pour l'onglet Règles)
         self._btn_advanced = QPushButton(_("Edit mode"))
         self._btn_advanced.setCheckable(True)
         self._btn_advanced.setMaximumWidth(150)
@@ -3147,7 +3147,7 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.setCornerWidget(corner)
 
         def _on_tab_changed(idx):
-            self._btn_advanced.setVisible(idx not in (1, 3))  # masqué pour Règles et Languages
+            self._btn_advanced.setVisible(idx not in (1, 3))  # hidden for Rules and Languages
             self._btn_advanced.setChecked(False)
             self._toggle_advanced_mode(False)
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
@@ -3156,7 +3156,7 @@ class DicteeSetupDialog(QDialog):
 
         pp_lay.addWidget(self._pp_tabs)
 
-        # --- Panneau de test ---
+        # --- Test panel ---
         grp_test = QGroupBox(_("Test"))
         test_lay = QVBoxLayout(grp_test)
         test_lay.setSpacing(6)
@@ -3168,7 +3168,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
         pp_lay.addWidget(self.chk_llm)
 
-        # Sous-options LLM
+        # LLM sub-options
         self._llm_widget = QWidget()
         llm_lay = QFormLayout(self._llm_widget)
         llm_lay.setContentsMargins(20, 4, 0, 0)
@@ -3385,7 +3385,7 @@ class DicteeSetupDialog(QDialog):
             self.setGeometry(cr.left(), cr.top(), self.width(), cr.height())
 
     def _build_language_rules_tab(self, lay, conf):
-        """Onglet Language rules : options spécifiques par langue."""
+        """Language rules tab: language-specific options."""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -3524,12 +3524,12 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(scroll)
 
     def _build_rules_tab(self, lay):
-        """Onglet Règles : créateur de règle + éditeur texte monospace."""
+        """Rules tab: rule creator + monospace text editor."""
         import os as _os
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
 
-        # --- Avertissement ---
+        # --- Warning ---
         warn = QLabel(
             '<span style="color: red; font-weight: bold;">⚠ ' +
             _("Advanced — Incorrect rules can break transcription output. "
@@ -3539,7 +3539,7 @@ class DicteeSetupDialog(QDialog):
         warn.setWordWrap(True)
         lay.addWidget(warn)
 
-        # --- Créateur de règle ---
+        # --- Rule creator ---
         add_grp = QGroupBox(_("Add a rule"))
         add_grp_lay = QVBoxLayout(add_grp)
         add_lay = QHBoxLayout()
@@ -3575,7 +3575,7 @@ class DicteeSetupDialog(QDialog):
         self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
         add_lay.addWidget(self._rule_flags)
 
-        # Choix de la section et position d'insertion
+        # Section and position selection
         add_row2 = QHBoxLayout()
         add_row2.setSpacing(6)
         add_row2.addWidget(QLabel(_("Insert in:")))
@@ -3603,7 +3603,7 @@ class DicteeSetupDialog(QDialog):
         self._btn_record_rule.clicked.connect(self._record_for_rule)
         add_row2.addWidget(self._btn_record_rule)
 
-        # Label pour afficher RAW/PROCESSED après enregistrement
+        # Label to show RAW/PROCESSED after recording
         self._rule_preview = QLabel()
         self._rule_preview.setWordWrap(True)
         self._rule_preview.setVisible(False)
@@ -3614,7 +3614,7 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(add_grp)
 
-        # --- Éditeur texte ---
+        # --- Text editor ---
         info = QLabel(
             "<i>" + _("User rules in {path} — applied after system rules.").format(
                 path="~/.config/dictee/rules.conf") + "</i>")
@@ -3628,13 +3628,13 @@ class DicteeSetupDialog(QDialog):
             "# Example:\n"
             "# [fr] /point à la ligne/\\n/ig\n")
 
-        # Coloration syntaxique
+        # Syntax highlighting
         self._rules_highlighter = self._RulesHighlighter(self._rules_editor.document())
 
-        # Numéros de ligne
+        # Line numbers
         self._rules_line_numbers = self._LineNumberArea(self._rules_editor)
 
-        # Compteur de règles
+        # Rule counter
         self._rules_count_label = QLabel()
         self._rules_count_label.setStyleSheet("color: gray; font-size: 11px;")
         self._rules_editor.textChanged.connect(self._update_rules_count)
@@ -3676,7 +3676,7 @@ class DicteeSetupDialog(QDialog):
         search_lay.addWidget(btn_close)
         lay.addWidget(self._rules_search_bar)
 
-        # Raccourcis Ctrl+F et Escape
+        # Shortcuts Ctrl+F and Escape
         from PyQt6.QtGui import QShortcut, QKeySequence
         shortcut_find = QShortcut(QKeySequence("Ctrl+F"), self._rules_editor)
         shortcut_find.activated.connect(self._rules_show_search)
@@ -3705,7 +3705,7 @@ class DicteeSetupDialog(QDialog):
         btn_restore.clicked.connect(self._restore_rules_defaults)
 
     def _add_rule_to_editor(self):
-        """Ajoute la règle dans la section choisie de l'éditeur."""
+        """Adds rule in the chosen section of the editor."""
         lang = self._rule_lang.currentText()
         pattern = self._rule_pattern.text().strip()
         replacement = self._rule_replacement.text()
@@ -3855,13 +3855,13 @@ class DicteeSetupDialog(QDialog):
                     insert_line = insert_at + 2
 
         self._rules_editor.setPlainText("\n".join(lines))
-        # Positionner le curseur sur la ligne insérée
+        # Position cursor on inserted line
         cursor = self._rules_editor.textCursor()
         block = self._rules_editor.document().findBlockByNumber(insert_line)
         cursor.setPosition(block.position())
         self._rules_editor.setTextCursor(cursor)
         self._rules_editor.ensureCursorVisible()
-        # Rafraîchir les sections et vider les champs
+        # Refresh sections and clear fields
         self._refresh_rule_sections()
         self._rule_pattern.clear()
         self._rule_replacement.clear()
@@ -3869,7 +3869,7 @@ class DicteeSetupDialog(QDialog):
         self._rule_pattern.setFocus()
 
     def _record_for_rule(self):
-        """Enregistre ou arrête l'enregistrement audio."""
+        """Starts or stops audio recording."""
         import subprocess
         tmpwav = "/tmp/dictee-test-rule.wav"
 
@@ -3890,7 +3890,7 @@ class DicteeSetupDialog(QDialog):
             self._rule_transcribe_thread.start()
             return
 
-        # Démarrer l'enregistrement
+        # Start recording
         self._rule_recording = True
         self._btn_record_rule.setText("\u23f9 " + _("Stop"))
         self._btn_record_rule.setStyleSheet("color: red; font-weight: bold;")
@@ -3984,7 +3984,7 @@ class DicteeSetupDialog(QDialog):
         self._refresh_rule_sections()
 
     def _refresh_rule_sections(self):
-        """Met à jour le combo des sections depuis le contenu de l'éditeur."""
+        """Updates section combo from editor content."""
         import re
         self._rule_section.blockSignals(True)
         current = self._rule_section.currentText()
@@ -4000,7 +4000,7 @@ class DicteeSetupDialog(QDialog):
         self._rule_section.addItem(_("End of file"), "eof")
         for s in sections:
             self._rule_section.addItem(s, "section")
-        # Restaurer la sélection
+        # Restore selection
         idx = self._rule_section.findText(current)
         if idx >= 0:
             self._rule_section.setCurrentIndex(idx)
@@ -4142,7 +4142,7 @@ class DicteeSetupDialog(QDialog):
             f"{active + commented} {_('rules')} ({active} {_('active')}, {commented} {_('commented')})")
 
     def _rules_show_search(self):
-        """Bascule la barre de recherche."""
+        """Toggles the search bar."""
         if self._rules_search_bar.isVisible():
             self._rules_search_bar.setVisible(False)
             self._restore_palette(self._rules_editor)
@@ -4222,7 +4222,7 @@ class DicteeSetupDialog(QDialog):
         self._update_search_count(self._rules_search_count, current, total, text)
 
     def _dict_adv_show_search(self):
-        """Bascule la barre de recherche du mode avancé dictionnaire."""
+        """Toggles the advanced mode dictionary search bar."""
         if self._dict_adv_search_bar.isVisible():
             self._dict_adv_search_bar.setVisible(False)
             self._restore_palette(self._dict_adv_editor)
@@ -4245,14 +4245,14 @@ class DicteeSetupDialog(QDialog):
         self._update_search_count(self._dict_adv_search_count, current, total, text)
 
     def _build_dictionary_tab(self, lay):
-        """Onglet Dictionnaire : fichier unique local, vue formulaire avec accordéons + mode avancé."""
+        """Dictionary tab: single local file, form view with accordions + edit mode."""
         import os as _os
 
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._dict_path = _os.path.join(XDG_CFG, "dictee", "dictionary.conf")
         self._dict_tmp_path = self._dict_path + ".tmp"
 
-        # Premier lancement : copier le fichier système vers le local
+        # First launch: copy system file to local
         if not _os.path.isfile(self._dict_path):
             for candidate in [
                 _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dictionary.conf.default"),
@@ -4263,19 +4263,19 @@ class DicteeSetupDialog(QDialog):
                     shutil.copy2(candidate, self._dict_path)
                     break
 
-        # Undo stack et brouillon
+        # Undo stack and draft
         self._dict_undo_stack = []  # liste de contenus texte du fichier .tmp
         self._dict_saved = False  # True si l'utilisateur a fait "Enregistrer"
         self._dict_init_tmp()
 
         self._dict_stack = QStackedWidget()
 
-        # --- Page 0 : Vue formulaire ---
+        # --- Page 0: Form view ---
         form_page = QWidget()
         form_top_lay = QVBoxLayout(form_page)
         form_top_lay.setContentsMargins(0, 0, 0, 0)
 
-        # Barre d'outils
+        # Toolbar
         toolbar = QHBoxLayout()
         self._dict_search = QComboBox()
         self._dict_search.setEditable(True)
@@ -4292,7 +4292,7 @@ class DicteeSetupDialog(QDialog):
         toolbar.addStretch()
         form_top_lay.addLayout(toolbar)
 
-        # Zone scrollable unique (toutes les entrées)
+        # Single scroll area (toutes les entrées)
         self._dict_scroll = QScrollArea()
         self._dict_scroll.setWidgetResizable(True)
         self._dict_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -4303,7 +4303,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
 
-        # Zone pour les nouvelles entrées (hors scroll, en bas)
+        # Area for new entries (outside scroll, at bottom)
         self._dict_new_entries = QVBoxLayout()
         self._dict_new_entries.setSpacing(2)
         self._dict_new_entries.setContentsMargins(4, 4, 4, 0)
@@ -4311,7 +4311,7 @@ class DicteeSetupDialog(QDialog):
 
         self._dict_stack.addWidget(form_page)
 
-        # --- Page 1 : Mode avancé ---
+        # --- Page 1: Advanced mode ---
         adv_page = QWidget()
         adv_lay = QVBoxLayout(adv_page)
         adv_lay.setContentsMargins(0, 0, 0, 0)
@@ -4327,7 +4327,7 @@ class DicteeSetupDialog(QDialog):
         adv_lay.addWidget(self._dict_adv_editor)
         self._add_zoom_overlay(self._dict_adv_editor)
 
-        # Barre de recherche (Ctrl+F) pour le mode avancé
+        # Search bar (Ctrl+F) pour le mode avancé
         self._dict_adv_search_bar = QWidget()
         self._dict_adv_search_bar.setVisible(False)
         dsearch_lay = QHBoxLayout(self._dict_adv_search_bar)
@@ -4359,7 +4359,7 @@ class DicteeSetupDialog(QDialog):
         dsearch_lay.addWidget(btn_dclose)
         adv_lay.addWidget(self._dict_adv_search_bar)
 
-        # Raccourcis Ctrl+F et Escape pour le mode avancé
+        # Shortcuts Ctrl+F and Escape pour le mode avancé
         from PyQt6.QtGui import QShortcut, QKeySequence
         shortcut_dfind = QShortcut(QKeySequence("Ctrl+F"), self._dict_adv_editor)
         shortcut_dfind.activated.connect(self._dict_adv_show_search)
@@ -4370,7 +4370,7 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(self._dict_stack)
 
-        # --- Barre commune (sous le QStackedWidget, visible dans les 2 modes) ---
+        # --- Common toolbar (sous le QStackedWidget, visible dans les 2 modes) ---
         common_btns = QHBoxLayout()
 
         btn_dict_find = QPushButton(QIcon.fromTheme("edit-find"), "")
@@ -4418,14 +4418,14 @@ class DicteeSetupDialog(QDialog):
 
         lay.addLayout(common_btns)
 
-        # Données
+        # Data
         self._dict_rows = []
 
-        # Connecter recherche et filtre
+        # Connect recherche et filtre
         self._dict_search.editTextChanged.connect(self._filter_dict_entries)
         self._dict_lang_filter.currentIndexChanged.connect(self._filter_dict_entries)
 
-        # Charger le formulaire
+        # Load the form
         self._load_dict_form()
 
     def _parse_dict_with_categories(self, path):
@@ -4461,8 +4461,8 @@ class DicteeSetupDialog(QDialog):
         return categories
 
     def _load_dict_form(self):
-        """Vide et reconstruit le formulaire dictionnaire (fichier unique)."""
-        # Vider le layout — détacher immédiatement puis supprimer
+        """Clears and rebuilds the dictionary form (single file)."""
+        # Clear layout — detach immediately then delete
         layout = self._dict_layout
         while layout.count():
             item = layout.takeAt(0)
@@ -4473,13 +4473,13 @@ class DicteeSetupDialog(QDialog):
 
         self._dict_rows.clear()
 
-        # Forcer le nettoyage visuel avant de reconstruire
+        # Force visual cleanup before rebuilding
         QApplication.processEvents()
 
-        # Collecter toutes les langues pour le filtre
+        # Collect all languages for filter
         all_langs = set()
 
-        # Parser le fichier brouillon (.tmp)
+        # Parse draft file (.tmp)
         source = self._dict_tmp_path if os.path.isfile(self._dict_tmp_path) else self._dict_path
         categories = self._parse_dict_with_categories(source)
 
@@ -4497,7 +4497,7 @@ class DicteeSetupDialog(QDialog):
 
                 n_entries = len(entries)
                 entry_lbl = _("entries") if n_entries > 1 else _("entry")
-                # Bouton titre repliable — DÉPLIÉ par défaut
+                # Collapsible title button — EXPANDED by default
                 btn_title = f"\u25be {cat_name} ({n_entries} {entry_lbl})"
                 btn_toggle = QPushButton(btn_title)
                 btn_toggle.setFlat(True)
@@ -4528,23 +4528,23 @@ class DicteeSetupDialog(QDialog):
 
         layout.addStretch()
 
-        # Mettre à jour le filtre de langue
+        # Update language filter
         self._dict_lang_filter.blockSignals(True)
         current = self._dict_lang_filter.currentData()
         self._dict_lang_filter.clear()
         self._dict_lang_filter.addItem(_("All languages"), "")
         for lang in sorted(all_langs):
             self._dict_lang_filter.addItem(lang, lang)
-        # Restaurer la sélection
+        # Restore selection
         idx = self._dict_lang_filter.findData(current)
         if idx >= 0:
             self._dict_lang_filter.setCurrentIndex(idx)
         self._dict_lang_filter.blockSignals(False)
 
-        # Ré-appliquer le filtre de recherche actif
+        # Re-apply active search filter
         self._filter_dict_entries()
 
-        # Re-enregistrer les nouvelles entrées en cours (hors scroll) dans _dict_rows
+        # Re-register in-progress new entries (hors scroll) dans _dict_rows
         if hasattr(self, '_dict_new_entries'):
             for i in range(self._dict_new_entries.count()):
                 item = self._dict_new_entries.itemAt(i)
@@ -4553,14 +4553,14 @@ class DicteeSetupDialog(QDialog):
                     self._dict_rows.append(w)
 
     def _make_dict_row(self, lang="*", word="", repl="", category="", is_new=False):
-        """Crée une ligne éditable pour une entrée dictionnaire.
+        """Creates an editable row for a dictionary entry.
 
-        is_new=False : ligne existante dans le fichier.
-        is_new=True  : ligne ajoutée par l'utilisateur, pas encore confirmée.
-                       Le ✓ écrit dans .tmp et recharge (retire le ✓).
-                       Le ✕ retire juste la ligne de l'UI et écrit dans .tmp.
-        Pas de sauvegarde automatique via editingFinished — les modifs sont
-        écrites dans .tmp uniquement via actions explicites (✓, ✕, Save, bascule mode).
+        is_new=False: existing line in file.
+        is_new=True: user-added line, not yet confirmed.
+                       ✓ writes to .tmp and reloads (removes ✓).
+                       ✕ just removes line from UI and writes to .tmp.
+        No auto-save via editingFinished — changes are
+        written to .tmp only via explicit actions (✓, ✕, Save, mode switch).
         """
         row_widget = QWidget()
         row_lay = QHBoxLayout(row_widget)
@@ -4592,10 +4592,10 @@ class DicteeSetupDialog(QDialog):
         edt_repl.setPlaceholderText(_("Replacement"))
         row_lay.addWidget(edt_repl)
 
-        # Marquer la ligne comme nouvelle (pas encore dans le fichier)
+        # Mark line as new (not yet in file)
         row_widget.setProperty("dict_is_new", is_new)
 
-        # ✓ confirme — visible d'emblée pour les nouvelles, caché pour les existantes
+        # ✓ confirm — visible for new entries, hidden for existing
         btn_ok = QPushButton("\u2713")
         btn_ok.setToolTip(_("Confirm this entry"))
         btn_ok.setFixedWidth(30)
@@ -4606,24 +4606,24 @@ class DicteeSetupDialog(QDialog):
             repl = rw.property("dict_repl_edt").text().strip()
             if not word or not repl:
                 return
-            # Marquer comme confirmée et mettre la catégorie selon la langue choisie
+            # Mark as confirmed and set category based on chosen language
             lang = rw.property("dict_lang_cmb").currentText()
             rw.setProperty("dict_is_new", False)
             rw.setProperty("dict_category", f"Dictionary [{lang}]")
-            # Sauvegarder d'abord (la ligne est encore dans _dict_rows)
+            # Save first (line is still in _dict_rows)
             self._dict_push_undo()
             self._save_dict_to_tmp(reload=False)
-            # Retirer cette ligne de _dict_new_entries
+            # Remove this line from _dict_new_entries
             if rw in self._dict_rows:
                 self._dict_rows.remove(rw)
             rw.setParent(None)
             rw.deleteLater()
-            # Recharger le scroll depuis le .tmp
+            # Reload scroll from .tmp
             self._load_dict_form()
         btn_ok.clicked.connect(_on_confirm)
         row_lay.addWidget(btn_ok)
 
-        # Pour les lignes existantes : afficher ✓ dès qu'on modifie quelque chose
+        # For existing entries: show ✓ when anything is modified
         if not is_new:
             def _on_modified():
                 btn_ok.setVisible(True)
@@ -4631,7 +4631,7 @@ class DicteeSetupDialog(QDialog):
             edt_repl.textChanged.connect(_on_modified)
             cmb_lang.currentIndexChanged.connect(_on_modified)
 
-        # ✕ pour supprimer
+        # ✕ to delete
         btn_del = QPushButton("\u2715")
         btn_del.setToolTip(_("Remove"))
         btn_del.setFixedWidth(30)
@@ -4648,8 +4648,8 @@ class DicteeSetupDialog(QDialog):
         return row_widget
 
     def _add_dict_entry(self, lang="*", word="", repl=""):
-        """Ajoute une nouvelle entrée en bas du formulaire (non filtrée tant que non validée)."""
-        # Supprimer le label vide si présent
+        """Adds a new entry at the bottom of the form (not filtered until confirmed)."""
+        # Remove empty label if present
         if hasattr(self, '_dict_empty_label') and self._dict_empty_label is not None:
             self._dict_empty_label.setParent(None)
             self._dict_empty_label.deleteLater()
@@ -4657,20 +4657,20 @@ class DicteeSetupDialog(QDialog):
 
         row_widget = self._make_dict_row(lang, word, repl, f"Dictionary [{lang}]", is_new=True)
 
-        # En bas de la fenêtre, hors du scroll
+        # At bottom of window, outside scroll
         self._dict_new_entries.addWidget(row_widget)
 
-        # Sauvegarder dans .tmp seulement si la ligne a du contenu
+        # Save to .tmp only if line has content
         # (sinon la ligne vide serait supprimée immédiatement par _save_dict_to_tmp)
         if word and repl:
             self._dict_push_undo()
             self._save_dict_to_tmp()
 
-        # Donner le focus au champ mot
+        # Focus the word field
         QTimer.singleShot(50, lambda: row_widget.property("dict_word_edt").setFocus())
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée du dictionnaire."""
+        """Deletes a dictionary entry."""
         is_new = entry.property("dict_is_new")
         if not is_new:
             self._dict_push_undo()
@@ -4683,7 +4683,7 @@ class DicteeSetupDialog(QDialog):
             self._load_dict_form()
 
     def _filter_dict_entries(self):
-        """Filtre les entrées visibles selon recherche et langue."""
+        """Filters visible entries by search and language."""
         search = self._dict_search.currentText().lower()
         lang_filter = self._dict_lang_filter.currentData() or ""
 
@@ -4708,7 +4708,7 @@ class DicteeSetupDialog(QDialog):
                 i += 1
                 continue
             i += 1
-            # Filtrer les enfants du content_w (lignes éditables)
+            # Filter children of content_w (editable rows)
             content_lay = content_w.layout()
             if content_lay is None:
                 continue
@@ -4736,7 +4736,7 @@ class DicteeSetupDialog(QDialog):
                 child.setVisible(visible)
                 if visible:
                     any_visible = True
-            # Cacher le bouton titre + contenu si aucune entrée visible
+            # Hide title button + content if no visible entries
             btn.setVisible(any_visible)
             if (search or lang_filter) and any_visible:
                 content_w.setVisible(True)
@@ -4744,7 +4744,7 @@ class DicteeSetupDialog(QDialog):
                 content_w.setVisible(False)
 
     def _dict_collect_entries(self):
-        """Collecte les entrées du formulaire, retourne (cat_entries OrderedDict, empty_rows list) ou None si erreur."""
+        """Collects form entries, returns (cat_entries OrderedDict, empty_rows list) or None on error."""
         from collections import OrderedDict
         cat_entries = OrderedDict()
         empty_rows = []
@@ -4759,7 +4759,7 @@ class DicteeSetupDialog(QDialog):
             word = edt_w.text().strip()
             repl = edt_r.text().strip()
 
-            # Nouvelles entrées (non confirmées) : toujours les ignorer
+            # New entries (unconfirmed): always ignore
             if row.property("dict_is_new"):
                 continue
             else:
@@ -4781,7 +4781,7 @@ class DicteeSetupDialog(QDialog):
         return cat_entries, empty_rows
 
     def _dict_entries_to_text(self, cat_entries):
-        """Sérialise les entrées en texte pour le fichier dictionnaire."""
+        """Serializes entries to text for the dictionary file."""
         lines = ["# dictee dictionary\n", "# Format: [lang] WORD=REPLACEMENT\n\n"]
         for cat_name, entries in cat_entries.items():
             lines.append(f"# \u2500\u2500 {cat_name} \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n\n")
@@ -4791,7 +4791,7 @@ class DicteeSetupDialog(QDialog):
         return "".join(lines)
 
     def _dict_push_undo(self):
-        """Empile le contenu actuel du .tmp dans le stack undo (max 20)."""
+        """Pushes current .tmp content to undo stack (max 20)."""
         if os.path.isfile(self._dict_tmp_path):
             with open(self._dict_tmp_path, encoding="utf-8") as f:
                 content = f.read()
@@ -4803,12 +4803,12 @@ class DicteeSetupDialog(QDialog):
         self._dict_undo_stack.append(content)
         if len(self._dict_undo_stack) > 20:
             self._dict_undo_stack = self._dict_undo_stack[-20:]
-        # Nouvelle action → vider le redo (l'historique futur est invalidé)
+        # New action → clear redo (future history is invalidated)
         self._dict_redo_stack.clear()
         self._dict_update_undo_buttons()
 
     def _dict_read_tmp(self):
-        """Lit le contenu actuel du .tmp (ou officiel en fallback)."""
+        """Reads current .tmp content (or official as fallback)."""
         if os.path.isfile(self._dict_tmp_path):
             with open(self._dict_tmp_path, encoding="utf-8") as f:
                 return f.read()
@@ -4818,13 +4818,13 @@ class DicteeSetupDialog(QDialog):
         return ""
 
     def _dict_write_tmp(self, content):
-        """Écrit du contenu dans le .tmp."""
+        """Writes content to .tmp."""
         os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
         with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
             f.write(content)
 
     def _dict_undo(self):
-        """Undo en mode normal."""
+        """Undo in normal mode."""
         if not self._dict_undo_stack:
             return
         # Empiler l'état actuel dans le redo
@@ -4837,7 +4837,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_update_undo_buttons()
 
     def _dict_undo_in_advanced(self):
-        """Undo en mode avancé."""
+        """Undo in advanced mode."""
         if not self._dict_undo_stack:
             return
         self._dict_redo_stack.append(self._dict_read_tmp())
@@ -4847,7 +4847,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_update_undo_buttons()
 
     def _dict_redo(self):
-        """Redo en mode normal."""
+        """Redo in normal mode."""
         if not self._dict_redo_stack:
             return
         self._dict_undo_stack.append(self._dict_read_tmp())
@@ -4859,7 +4859,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_update_undo_buttons()
 
     def _dict_redo_in_advanced(self):
-        """Redo en mode avancé."""
+        """Redo in advanced mode."""
         if not self._dict_redo_stack:
             return
         self._dict_undo_stack.append(self._dict_read_tmp())
@@ -4869,21 +4869,21 @@ class DicteeSetupDialog(QDialog):
         self._dict_update_undo_buttons()
 
     def _dict_undo_smart(self):
-        """Undo qui fonctionne dans les deux modes."""
+        """Undo that works in both modes."""
         if self._dict_stack.currentIndex() == 1:
             self._dict_undo_in_advanced()
         else:
             self._dict_undo()
 
     def _dict_redo_smart(self):
-        """Redo qui fonctionne dans les deux modes."""
+        """Redo that works in both modes."""
         if self._dict_stack.currentIndex() == 1:
             self._dict_redo_in_advanced()
         else:
             self._dict_redo()
 
     def _dict_save_smart(self):
-        """Enregistrer qui fonctionne dans les deux modes."""
+        """Save that works in both modes."""
         if self._dict_stack.currentIndex() == 1:
             # En mode avancé : valider syntaxe, écrire .tmp, copier vers officiel, basculer
             text = self._dict_adv_editor.toPlainText()
@@ -4940,7 +4940,7 @@ class DicteeSetupDialog(QDialog):
             return
         cat_entries, empty_rows = result
 
-        # Supprimer les lignes vides de l'UI
+        # Remove empty rows from UI
         for row in empty_rows:
             if row in self._dict_rows:
                 self._dict_rows.remove(row)
@@ -4964,7 +4964,7 @@ class DicteeSetupDialog(QDialog):
             return
         cat_entries, empty_rows = result
 
-        # Supprimer les lignes vides de l'UI
+        # Remove empty rows from UI
         for row in empty_rows:
             if row in self._dict_rows:
                 self._dict_rows.remove(row)
@@ -4976,14 +4976,14 @@ class DicteeSetupDialog(QDialog):
         with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
             f.write(text)
 
-        # Copier .tmp → officiel
+        # Copy .tmp → official
         shutil.copy2(self._dict_tmp_path, self._dict_path)
         self._dict_saved = True
         self._dict_undo_stack.clear()
         self._dict_update_undo_buttons()
 
     def _validate_dict_syntax(self, text):
-        """Valide la syntaxe du dictionnaire. Retourne (ok, erreur_msg)."""
+        """Validates dictionary syntax. Returns (ok, error_msg)."""
         entry_re = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*.+=.+\s*$")
         for i, line in enumerate(text.splitlines(), 1):
             line_s = line.strip()
@@ -4994,7 +4994,7 @@ class DicteeSetupDialog(QDialog):
         return True, ""
 
     def _dict_revert_to_saved(self):
-        """Annule toutes les modifications depuis le dernier enregistrement."""
+        """Discards all changes since last save."""
         reply = QMessageBox.question(self._pp_parent, "dictee",
             _("Revert to the last saved version?\n\n"
               "All unsaved changes will be lost."),
@@ -5031,7 +5031,7 @@ class DicteeSetupDialog(QDialog):
         if not ok:
             QMessageBox.warning(self._pp_parent, "dictee", err)
             return
-        # Validation OK : écrire et basculer
+        # Validation OK: write and switch
         self._save_dict_advanced()
         self._btn_advanced.blockSignals(True)
         self._btn_advanced.setChecked(False)
@@ -5040,7 +5040,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_stack.setCurrentIndex(0)
 
     def _restore_dict_defaults(self):
-        """Restaure le dictionnaire usine dans le brouillon .tmp."""
+        """Restores factory dictionary to draft .tmp."""
         reply = QMessageBox.question(self._pp_parent, "dictee",
             _("Restore factory defaults?\n\n"
               "This will replace ALL your dictionary entries with the original defaults.\n"
@@ -5060,11 +5060,11 @@ class DicteeSetupDialog(QDialog):
         QMessageBox.warning(self._pp_parent, "dictee", _("Default dictionary file not found."))
 
     def _dict_reorganize(self, text):
-        """Réorganise les entrées orphelines du dictionnaire.
+        """Reorganizes orphan dictionary entries.
 
-        Les entrées écrites hors d'une catégorie (avant le premier ── header)
-        sont placées dans une section 'Dictionary [lang]'.
-        Les entrées déjà dans une catégorie restent en place.
+        Entries written outside a category (before the first ── header)
+        are placed in a 'Dictionary [lang]' section.
+        Entries already in a category stay in place.
         """
         from collections import OrderedDict
         cat_re = re.compile(r"^#\s*──\s*(.+?)\s*─")
@@ -5111,7 +5111,7 @@ class DicteeSetupDialog(QDialog):
         return self._dict_entries_to_text(reorg)
 
     def _save_dict_advanced(self):
-        """Sauvegarde le contenu du mode avancé dans .tmp (brouillon uniquement)."""
+        """Saves advanced mode content to .tmp (draft only)."""
         text = self._dict_adv_editor.toPlainText()
         if not text.endswith("\n"):
             text += "\n"
@@ -5119,13 +5119,13 @@ class DicteeSetupDialog(QDialog):
         ok, err = self._validate_dict_syntax(text)
         if not ok:
             QMessageBox.warning(self._pp_parent, "dictee", err)
-            # Rester en mode avancé
+            # Stay in advanced mode
             self._btn_advanced.blockSignals(True)
             self._btn_advanced.setChecked(True)
             self._btn_advanced.blockSignals(False)
             return
 
-        # Réorganiser les entrées dans les bonnes catégories
+        # Reorganize entries into correct categories
         text = self._dict_reorganize(text)
 
         os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
@@ -5196,13 +5196,13 @@ class DicteeSetupDialog(QDialog):
         return result
 
     def _build_continuation_tab(self, lay):
-        """Onglet Continuation : accordéons par langue avec chips + mode avancé."""
+        """Continuation tab: accordions per language with chips + edit mode."""
         import os as _os
 
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._cont_path = _os.path.join(XDG_CFG, "dictee", "continuation.conf")
 
-        # Chercher le fichier système
+        # Find system file
         self._cont_sys_path = None
         for candidate in [
             _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "continuation.conf.default"),
@@ -5212,19 +5212,19 @@ class DicteeSetupDialog(QDialog):
                 self._cont_sys_path = candidate
                 break
 
-        # Premier lancement : créer un fichier perso vide (les mots système sont lus séparément)
+        # First launch: create empty personal file (les mots système sont lus séparément)
         if not _os.path.isfile(self._cont_path):
             _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
             with open(self._cont_path, "w", encoding="utf-8") as f:
                 f.write("# User continuation words for dictee\n"
                         "# Format: [lang] word1 word2 ...\n\n")
 
-        # Mots perso par langue : {lang: set()}
+        # Personal words per language : {lang: set()}
         self._cont_personal_words = {}
 
         self._cont_stack = QStackedWidget()
 
-        # --- Page 0 : Vue formulaire ---
+        # --- Page 0: Form view ---
         form_page = QWidget()
         form_top_lay = QVBoxLayout(form_page)
         form_top_lay.setContentsMargins(0, 0, 0, 0)
@@ -5245,7 +5245,7 @@ class DicteeSetupDialog(QDialog):
         info.setFont(font)
         form_top_lay.addWidget(info)
 
-        # Barre de recherche
+        # Search bar
         self._cont_search = QLineEdit()
         self._cont_search.addAction(
             QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
@@ -5253,7 +5253,7 @@ class DicteeSetupDialog(QDialog):
         self._cont_search.textChanged.connect(self._filter_cont_words)
         form_top_lay.addWidget(self._cont_search)
 
-        # Zone scrollable pour les accordéons
+        # Scrollable area for accordions
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -5264,11 +5264,11 @@ class DicteeSetupDialog(QDialog):
         scroll.setWidget(self._cont_scroll_content)
         form_top_lay.addWidget(scroll)
 
-        # Pas de boutons Cancel/Apply : chaque ajout/suppression sauvegarde immédiatement
+        # No Cancel/Apply buttons : chaque ajout/suppression sauvegarde immédiatement
 
         self._cont_stack.addWidget(form_page)
 
-        # --- Page 1 : Mode avancé ---
+        # --- Page 1: Advanced mode ---
         adv_page = QWidget()
         adv_lay = QVBoxLayout(adv_page)
         adv_lay.setContentsMargins(0, 0, 0, 0)
@@ -5288,7 +5288,7 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(self._cont_stack)
 
-        # --- Barre commune ---
+        # --- Common toolbar ---
         common_btns = QHBoxLayout()
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
@@ -5314,17 +5314,17 @@ class DicteeSetupDialog(QDialog):
 
         lay.addLayout(common_btns)
 
-        # Sauvegarder l'état initial pour Revert
+        # Save initial state for Revert
         self._cont_saved_state = None
         if os.path.isfile(self._cont_path):
             with open(self._cont_path, encoding="utf-8") as f:
                 self._cont_saved_state = f.read()
 
-        # Charger le formulaire
+        # Load the form
         self._load_cont_form()
 
     def _load_cont_form(self):
-        """Vide et reconstruit les accordéons de l'onglet Continuation."""
+        """Clears and rebuilds the Continuation tab accordions."""
         layout = self._cont_form_layout
 
         # Vider le layout existant — détacher immédiatement
@@ -5345,13 +5345,13 @@ class DicteeSetupDialog(QDialog):
 
         QApplication.processEvents()
 
-        # Charger les mots système
+        # Load system words
         sys_cats = {}
         if self._cont_sys_path:
             sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
 
-        # Charger les mots perso depuis le fichier seulement au premier chargement
-        # ou après un revert/factory reset (_cont_force_reload)
+        # Load personal words from file only on first load
+        # or after a revert/factory reset (_cont_force_reload)
         if not self._cont_personal_words or getattr(self, '_cont_force_reload', False):
             self._cont_personal_words.clear()
             self._cont_force_reload = False
@@ -5362,13 +5362,13 @@ class DicteeSetupDialog(QDialog):
                     words_set.update(words)
                 self._cont_personal_words[lang] = words_set
 
-        # Déterminer la langue active
+        # Determine active language
         active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
 
-        # Collecter toutes les langues (système + perso)
+        # Collect all languages (system + personal)
         all_langs = sorted(set(list(sys_cats.keys()) + list(self._cont_personal_words.keys())))
 
-        # Construire un accordéon par langue
+        # Build one accordion per language
         for lang in all_langs:
             sys_words_all = []
             sys_subcats = sys_cats.get(lang, [])
@@ -5402,17 +5402,17 @@ class DicteeSetupDialog(QDialog):
                 return _toggle
             btn_lang.clicked.connect(_make_lang_toggle(btn_lang, group))
 
-            # --- Mots ---
+            # --- Words ---
             hl_color = self.palette().color(self.palette().ColorRole.Highlight)
             hl_hex = hl_color.name()
             hl_text_hex = self.palette().color(self.palette().ColorRole.HighlightedText).name()
 
-            # Collecter tous les mots système
+            # Collect all system words
             sys_all = set()
             for _sc, words in sys_subcats:
                 sys_all.update(words)
 
-            # Toggle pour mots système (en haut)
+            # System words toggle (on top)
             sys_count = len(sys_all)
             btn_show_sys = QPushButton(
                 f"\u25b8 {_('System words')} ({sys_count})")
@@ -5420,7 +5420,7 @@ class DicteeSetupDialog(QDialog):
             btn_show_sys.setStyleSheet("text-align: left; color: gray; padding: 2px;")
             group_lay.addWidget(btn_show_sys)
 
-            # Chips système (cachés par défaut)
+            # System chips (hidden by default)
             sys_w = QWidget()
             sys_lay = self._FlowLayout(sys_w, spacing=8)
             for word in sorted(sys_all, key=locale.strxfrm):
@@ -5440,7 +5440,7 @@ class DicteeSetupDialog(QDialog):
                 btn.setText(f"{arrow} {_('System words')} ({n})")
             btn_show_sys.clicked.connect(_toggle_sys)
 
-            # Chips perso (toujours visibles, après system)
+            # Personal chips (always visible, after system)
             lbl_yours = QLabel(f"<b>{_('Your words:')}</b>")
             group_lay.addWidget(lbl_yours)
             if perso_words:
@@ -5460,7 +5460,7 @@ class DicteeSetupDialog(QDialog):
                 lbl_none = QLabel("<i>" + _("(none)") + "</i>")
                 group_lay.addWidget(lbl_none)
 
-            # --- Champ pour ajouter ---
+            # --- Add field ---
             add_row = QHBoxLayout()
             add_edit = QLineEdit()
             add_edit.setPlaceholderText(_("Add a word..."))
@@ -5548,7 +5548,7 @@ class DicteeSetupDialog(QDialog):
         return lay
 
     def _add_cont_word(self, lang, line_edit):
-        """Ajoute un mot perso en mémoire (pas de sauvegarde sur disque)."""
+        """Adds a personal word in memory (no disk write)."""
         word = line_edit.text().strip().lower()
         if not word:
             return
@@ -5569,20 +5569,20 @@ class DicteeSetupDialog(QDialog):
         self._load_cont_form()
 
     def _on_cont_chip_clicked(self, link):
-        """Gère le clic sur un chip perso (remove:lang:word)."""
+        """Handles click on personal chip (remove:lang:word)."""
         if link.startswith("remove:"):
             parts = link.split(":", 2)
             if len(parts) == 3:
                 self._remove_cont_word(parts[1], parts[2])
 
     def _remove_cont_word(self, lang, word):
-        """Supprime un mot perso en mémoire (pas de sauvegarde sur disque)."""
+        """Removes a personal word from memory (no disk write)."""
         if lang in self._cont_personal_words:
             self._cont_personal_words[lang].discard(word)
         self._load_cont_form()
 
     def _filter_cont_words(self):
-        """Filtre les chips visibles selon la recherche."""
+        """Filters visible chips by search."""
         search = self._cont_search.text().lower().strip() if hasattr(self, '_cont_search') else ""
         active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
         layout = self._cont_form_layout
@@ -5661,7 +5661,7 @@ class DicteeSetupDialog(QDialog):
                 i += 1
 
     def _save_cont_personal(self):
-        """Sauvegarde les mots perso dans ~/.config/dictee/continuation.conf."""
+        """Saves personal words to ~/.config/dictee/continuation.conf."""
         import os as _os
 
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
@@ -5674,7 +5674,7 @@ class DicteeSetupDialog(QDialog):
                     f.write(f"[{lang}] {' '.join(words)}\n")
 
     def _cont_save_smart(self):
-        """Enregistrer (mode normal ou avancé)."""
+        """Save (normal or advanced mode)."""
         if self._cont_stack.currentIndex() == 1:
             self._save_cont_advanced()
             self._btn_advanced.blockSignals(True)
@@ -5685,21 +5685,21 @@ class DicteeSetupDialog(QDialog):
             self._cont_stack.setCurrentIndex(0)
         else:
             self._save_cont_personal()
-        # Mettre à jour l'état sauvegardé
+        # Update saved state
         if os.path.isfile(self._cont_path):
             with open(self._cont_path, encoding="utf-8") as f:
                 self._cont_saved_state = f.read()
         QMessageBox.information(self._pp_parent, "dictee", _("Continuation words saved."))
 
     def _cont_revert(self):
-        """Annule les modifications — revient à l'état de l'ouverture."""
+        """Discards changes — reverts to state at open time."""
         reply = QMessageBox.question(self._pp_parent, "dictee",
             _("Revert to the last saved version?\n\n"
               "All unsaved changes will be lost."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply != QMessageBox.StandardButton.Yes:
             return
-        # Restaurer le fichier tel qu'il était à l'ouverture
+        # Restore file as it was at open time
         os.makedirs(os.path.dirname(self._cont_path), exist_ok=True)
         with open(self._cont_path, "w", encoding="utf-8") as f:
             f.write(self._cont_saved_state or "")
@@ -5712,7 +5712,7 @@ class DicteeSetupDialog(QDialog):
             self._cont_stack.setCurrentIndex(0)
 
     def _cont_factory_reset(self):
-        """Restaure le fichier système par défaut."""
+        """Restores system file defaults."""
         reply = QMessageBox.question(self._pp_parent, "dictee",
             _("Remove all your custom continuation words?\n\n"
               "System words will remain unchanged."),
@@ -5724,7 +5724,7 @@ class DicteeSetupDialog(QDialog):
         self._load_cont_form()
 
     def _save_cont_advanced(self):
-        """Sauvegarde le contenu du mode avancé dans le fichier (sans basculer le mode)."""
+        """Saves advanced mode content to file (without switching mode)."""
         import os as _os
 
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
@@ -5732,19 +5732,19 @@ class DicteeSetupDialog(QDialog):
             f.write(self._cont_adv_editor.toPlainText())
 
     def _toggle_advanced_mode(self, checked):
-        """Bascule formulaire ↔ éditeur texte pour l'onglet actif.
+        """Toggles form ↔ text editor for the active tab.
 
-        Formulaire → Avancé : le formulaire est déjà synchronisé avec le fichier,
-                               charger le fichier dans l'éditeur.
-        Avancé → Formulaire : recharger depuis le fichier (Cancel = annule les modifs texte).
-                               Le bouton Save en mode avancé écrit d'abord le fichier
-                               avant de déclencher cette bascule.
+        Form → Advanced: form is already synced with file,
+                               load file into editor.
+        Advanced → Form: reload from file (Cancel = discard text edits).
+                               The Save button in advanced mode writes the file first
+                               before triggering this switch.
         """
         idx = self._pp_tabs.currentIndex()
-        if idx == 0:  # Dictionnaire
+        if idx == 0:  # Dictionary
             currently_advanced = self._dict_stack.currentIndex() == 1
             if checked and not currently_advanced:
-                # Formulaire → Avancé : empiler l'état actuel (Discard pourra le restaurer)
+                # Form → Advanced : push current state (Discard can restore it)
                 self._dict_push_undo()
                 self._save_dict_to_tmp(reload=False)
                 if os.path.isfile(self._dict_tmp_path):
@@ -5757,19 +5757,19 @@ class DicteeSetupDialog(QDialog):
                     self._dict_adv_editor.clear()
                 self._dict_stack.setCurrentIndex(1)
             elif not checked and currently_advanced:
-                # Avancé → Formulaire : valider syntaxe avant de basculer
+                # Advanced → Form : validate syntax before switching
                 text = self._dict_adv_editor.toPlainText()
                 if not text.endswith("\n"):
                     text += "\n"
                 ok, err = self._validate_dict_syntax(text)
                 if not ok:
                     QMessageBox.warning(self._pp_parent, "dictee", err)
-                    # Rester en mode avancé
+                    # Stay in advanced mode
                     self._btn_advanced.blockSignals(True)
                     self._btn_advanced.setChecked(True)
                     self._btn_advanced.blockSignals(False)
                     return
-                # Réorganiser, écrire dans .tmp et recharger le formulaire
+                # Reorganize, write to .tmp and reload form
                 text = self._dict_reorganize(text)
                 self._dict_push_undo()
                 os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
@@ -5779,7 +5779,7 @@ class DicteeSetupDialog(QDialog):
                 self._dict_stack.setCurrentIndex(0)
         elif idx == 2:  # Continuation
             if checked:
-                # Formulaire → Avancé : sauvegarder le formulaire, charger dans l'éditeur
+                # Form → Advanced : sauvegarder le formulaire, charger dans l'éditeur
                 self._save_cont_personal()
                 if os.path.isfile(self._cont_path):
                     with open(self._cont_path, encoding="utf-8") as f:
@@ -5787,7 +5787,7 @@ class DicteeSetupDialog(QDialog):
                 else:
                     self._cont_adv_editor.clear()
             else:
-                # Avancé → Formulaire : recharger depuis le fichier
+                # Advanced → Form : recharger depuis le fichier
                 self._cont_force_reload = True
                 self._load_cont_form()
             self._cont_stack.setCurrentIndex(1 if checked else 0)
@@ -6043,7 +6043,7 @@ class DicteeSetupDialog(QDialog):
             if allowed_codes is None or code in allowed_codes:
                 combo.addItem(f"{code} — {name}", code)
         combo.blockSignals(False)
-        # Restaurer la sélection précédente si toujours disponible
+        # Restore selection précédente si toujours disponible
         idx = combo.findData(current)
         if idx >= 0:
             combo.setCurrentIndex(idx)
@@ -6688,7 +6688,7 @@ class DicteeSetupDialog(QDialog):
             return False
 
     def _build_test_panel(self, lay):
-        """Panneau de test : entrée → sortie multilignes + micro."""
+        """Test panel: input → multiline output + mic."""
         row = QHBoxLayout()
         row.setSpacing(4)
 
@@ -6731,7 +6731,7 @@ class DicteeSetupDialog(QDialog):
 
         lay.addLayout(row)
 
-        # Détails pipeline (caché par défaut)
+        # Pipeline details (hidden by default)
         self._test_details_label = QLabel("")
         self._test_details_label.setWordWrap(True)
         self._test_details_label.setStyleSheet("font-family: monospace; font-size: 10px;")
@@ -6740,24 +6740,24 @@ class DicteeSetupDialog(QDialog):
 
         btn_details.toggled.connect(self._test_details_label.setVisible)
 
-        # Connecter
+        # Connect
         self._test_input.textChanged.connect(self._schedule_test_run)
         self._btn_record.clicked.connect(self._toggle_recording)
 
-        # Timer debounce
+        # Debounce timer
         self._test_timer = QTimer()
         self._test_timer.setSingleShot(True)
         self._test_timer.setInterval(300)
         self._test_timer.timeout.connect(self._run_test_pipeline)
 
-        # État enregistrement
+        # Recording state
         self._recording_process = None
 
     def _schedule_test_run(self):
         self._test_timer.start()
 
     def _run_test_pipeline(self):
-        """Exécute le pipeline de postprocess étape par étape."""
+        """Runs the postprocess pipeline step by step."""
         text = self._test_input.toPlainText()
         if not text.strip():
             self._test_output.setPlainText("")
@@ -6779,7 +6779,7 @@ class DicteeSetupDialog(QDialog):
             steps = []
             current = text
 
-            # Lire l'état des toggles (protégé si widgets pas encore créés)
+            # Read toggle states (protected if widgets not yet created)
             do_numbers = self.chk_pp_numbers.isChecked() if hasattr(self, 'chk_pp_numbers') else True
             do_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
             do_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
@@ -6884,18 +6884,18 @@ class DicteeSetupDialog(QDialog):
                 steps.append((_("Capitalization"), current, new))
                 current = new
 
-            # Afficher les caractères spéciaux avec des symboles visibles
+            # Display special characters with visible symbols
             display_output = current
             display_output = display_output.replace("\n", "↵\n")
             display_output = display_output.replace("\t", "⇥\t")
             if display_output.endswith(" "):
                 display_output = display_output.rstrip(" ") + "␣"
-            # Si le résultat ne contient que des caractères spéciaux, afficher les symboles seuls
+            # If result contains only special characters, show symbols only
             if not display_output.strip() and current.strip():
                 display_output = current.replace("\n", "↵").replace("\t", "⇥")
             self._test_output.setPlainText(display_output)
 
-            # Détails
+            # Details
             lines = []
             for i, (name, before, after) in enumerate(steps, 1):
                 changed = before != after
@@ -6910,7 +6910,7 @@ class DicteeSetupDialog(QDialog):
             self._test_output.setPlainText(f"Error: {e}")
 
     def _toggle_recording(self):
-        """Démarre/arrête l'enregistrement micro."""
+        """Starts/stops microphone recording."""
         if self._recording_process is not None:
             self._recording_process.terminate()
             self._recording_process.waitForFinished(2000)
@@ -6919,7 +6919,7 @@ class DicteeSetupDialog(QDialog):
             self._transcribe_recorded()
             return
 
-        # Vérifier daemon
+        # Check daemon
         services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service"]
         active = False
         for svc in services:
@@ -6946,7 +6946,7 @@ class DicteeSetupDialog(QDialog):
             else:
                 return
 
-        # Démarrer enregistrement
+        # Start recording
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
         self._tmp_wav = os.path.join(runtime_dir, "dictee-test-recording.wav")
         self._recording_process = QProcess(self)
@@ -6956,7 +6956,7 @@ class DicteeSetupDialog(QDialog):
         self._btn_record.setText(_("Stop"))
 
     def _transcribe_recorded(self):
-        """Envoie le WAV enregistré au daemon via socket Unix."""
+        """Sends recorded WAV to daemon via Unix socket."""
         import socket as _socket
         wav_path = getattr(self, '_tmp_wav', None)
         if not wav_path or not os.path.isfile(wav_path):
@@ -7098,10 +7098,10 @@ class DicteeSetupDialog(QDialog):
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu)
 
-        # Services systemd — recharger d'abord (nécessaire après première install .deb)
+        # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
-        # Services systemd — ASR
+        # Systemd services — ASR
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
         active_svc = asr_services.get(asr_backend, "dictee")
         if self.chk_daemon.isChecked():
