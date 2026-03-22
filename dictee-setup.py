@@ -1876,7 +1876,7 @@ class DicteeSetupDialog(QDialog):
     def _build_wizard_ui(self):
         conf = self.conf
         self.setWindowTitle(_("Voice dictation configuration") + " — " + _("Setup wizard"))
-        self.resize(700, 600)
+        self.resize(1050, 900)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
