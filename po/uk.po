@@ -237,7 +237,7 @@ msgstr "Отримання останньої версії…"
 #: dictee-setup.py:1325
 #, python-brace-format
 msgid "Cannot reach GitHub: {err}"
-msgstr ""
+msgstr "Не вдалося зв'язатися з GitHub: {err}"
 
 #: dictee-setup.py:1330
 #, fuzzy
@@ -398,9 +398,7 @@ msgid ""
 "real-time visual feedback."
 msgstr ""
 "100% локальне голосове введення для Linux з 25+ мовами, перекладом та "
-"візуальним зворотним зв'язком у реальному часі.100% локальне голосове "
-"введення для Linux з 25+ мовами, перекладом та візуальним зворотним зв'язком "
-"у реальному часі."
+"візуальним зворотним зв'язком у реальному часі."
 
 #: dictee-setup.py:2101
 msgid "Choose a speech recognition engine:"
@@ -537,6 +535,7 @@ msgstr "Вимкнено"
 msgid ""
 "Your user is not in the 'input' group (required for keyboard shortcuts)."
 msgstr ""
+"Ваш користувач не входить до групи 'input' (необхідна для комбінацій клавіш)."
 
 #: dictee-setup.py:2467
 msgid "Fix (requires password)"
@@ -615,6 +614,8 @@ msgid ""
 "animation-speech requires a Wayland compositor with layer-shell support "
 "(KDE, Sway, Hyprland…). It does not work on GNOME."
 msgstr ""
+"animation-speech потребує Wayland-композитор з підтримкою layer-shell "
+"(KDE, Sway, Hyprland…). Не працює на GNOME."
 
 #: dictee-setup.py:2739 dictee-setup.py:6205
 msgid "Install animation-speech"
@@ -713,6 +714,8 @@ msgid ""
 "Converts spoken numbers to digits.\n"
 "Example: \"vingt-trois\" → \"23\""
 msgstr ""
+"Перетворює вимовлені числа на цифри.\n"
+"Приклад: \"vingt-trois\" → \"23\""
 
 #: dictee-setup.py:3042
 msgid "Auto-capitalization"
@@ -726,6 +729,11 @@ msgid ""
 "this ensures correct capitalization afterwards.\n"
 "Essential for Vosk/Whisper backends."
 msgstr ""
+"Робить великою першу літеру після розділових знаків\n"
+"кінця речення (. ! ?). Parakeet робить це нативно,\n"
+"але правила постобробки можуть змінити текст —\n"
+"це забезпечує правильну капіталізацію після них.\n"
+"Необхідно для бекендів Vosk/Whisper."
 
 #: dictee-setup.py:3051 dictee-setup.py:3099 dictee-setup.py:6878
 #, fuzzy
@@ -737,10 +745,12 @@ msgid ""
 "Replaces words using the dictionary.\n"
 "Exact matching on word boundaries."
 msgstr ""
+"Замінює слова за допомогою словника.\n"
+"Точний збіг на межах слів."
 
 #: dictee-setup.py:3057
 msgid "Fuzzy matching (jellyfish)"
-msgstr ""
+msgstr "Нечіткий збіг (jellyfish)"
 
 #: dictee-setup.py:3060
 msgid ""
@@ -749,6 +759,10 @@ msgid ""
 "Requires the jellyfish Python library.\n"
 "Example: \"Gogle\" → \"Google\""
 msgstr ""
+"Допускає невеликі орфографічні варіації від ASR\n"
+"за допомогою подібності рядків Jaro-Winkler (поріг 0.85).\n"
+"Потребує бібліотеку Python jellyfish.\n"
+"Приклад: \"Gogle\" → \"Google\""
 
 #: dictee-setup.py:3065 dictee-setup.py:3106
 msgid "Regex rules"
@@ -760,6 +774,9 @@ msgid ""
 "common ASR errors (voice commands,\n"
 "punctuation, formatting)."
 msgstr ""
+"Застосовує правила підстановки regex для виправлення\n"
+"типових помилок ASR (голосові команди,\n"
+"пунктуація, форматування)."
 
 #: dictee-setup.py:3072 dictee-setup.py:3113 dictee-setup.py:6822
 #, fuzzy
@@ -772,14 +789,17 @@ msgid ""
 "(conjunctions, adverbs, etc.) to keep\n"
 "sentences flowing naturally."
 msgstr ""
+"Видаляє розрив рядка перед словами продовження\n"
+"(сполучники, прислівники тощо), щоб речення\n"
+"звучали природно."
 
 #: dictee-setup.py:3120
 msgid "Language rules"
-msgstr ""
+msgstr "Мовні правила"
 
 #: dictee-setup.py:3135
 msgid "Edit mode"
-msgstr ""
+msgstr "Режим редагування"
 
 #: dictee-setup.py:3167
 msgid "LLM grammar correction (ollama)"
@@ -800,6 +820,9 @@ msgid ""
 "source language only. Currently: <b>{lang}</b>. Only the rules matching your "
 "source language will be active."
 msgstr ""
+"Мовні правила (елізії, скорочення, типографіка), що застосовуються лише до "
+"мови джерела. Поточна: <b>{lang}</b>. Активними будуть лише правила для вашої "
+"мови джерела."
 
 #: dictee-setup.py:3410
 msgid "Elisions"
@@ -811,6 +834,9 @@ msgid ""
 "Example: \"le arbre\" → \"l'arbre\",\n"
 "\"de eau\" → \"d'eau\""
 msgstr ""
+"Застосовує правила французьких елізій.\n"
+"Приклад: \"le arbre\" → \"l'arbre\",\n"
+"\"de eau\" → \"d'eau\""
 
 #: dictee-setup.py:3417
 msgid "Typography (non-breaking spaces)"
@@ -822,16 +848,21 @@ msgid ""
 "punctuation marks (: ; ! ? « »)\n"
 "as required by French typography rules."
 msgstr ""
+"Вставляє нерозривні пробіли перед французькими\n"
+"розділовими знаками (: ; ! ? « »)\n"
+"відповідно до правил французької типографіки."
 
 #: dictee-setup.py:3430
 msgid ""
 "No specific rules needed. Contractions (don't, I'm, can't) are handled "
 "natively by the ASR engine."
 msgstr ""
+"Спеціальні правила не потрібні. Скорочення (don't, I'm, can't) обробляються "
+"нативно рушієм ASR."
 
 #: dictee-setup.py:3441
 msgid "Elisions & contractions"
-msgstr ""
+msgstr "Елізії та скорочення"
 
 #: dictee-setup.py:3444
 msgid ""
@@ -840,10 +871,14 @@ msgid ""
 "Contractions: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
 "\"in il\" → \"nel\", \"su la\" → \"sulla\""
 msgstr ""
+"Італійські елізії та прийменникові скорочення.\n"
+"Елізії: \"lo uomo\" → \"l'uomo\", \"di accordo\" → \"d'accordo\"\n"
+"Скорочення: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
+"\"in il\" → \"nel\", \"su la\" → \"sulla\""
 
 #: dictee-setup.py:3456
 msgid "Contractions & inverted punctuation"
-msgstr ""
+msgstr "Скорочення та перевернута пунктуація"
 
 #: dictee-setup.py:3459
 msgid ""
@@ -851,10 +886,13 @@ msgid ""
 "Contractions: \"a el\" → \"al\", \"de el\" → \"del\"\n"
 "Punctuation: adds ¿ before questions and ¡ before exclamations."
 msgstr ""
+"Іспанські скорочення та перевернута пунктуація.\n"
+"Скорочення: \"a el\" → \"al\", \"de el\" → \"del\"\n"
+"Пунктуація: додає ¿ перед питаннями та ¡ перед окличними реченнями."
 
 #: dictee-setup.py:3470 dictee-setup.py:3499
 msgid "Contractions"
-msgstr ""
+msgstr "Скорочення"
 
 #: dictee-setup.py:3473
 msgid ""
@@ -862,10 +900,13 @@ msgid ""
 "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
 "\"de este\" → \"deste\", \"em ele\" → \"nele\""
 msgstr ""
+"Португальські злиті скорочення.\n"
+"\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
+"\"de este\" → \"deste\", \"em ele\" → \"nele\""
 
 #: dictee-setup.py:3484 dictee-setup.py:3513
 msgid "Contractions & typography"
-msgstr ""
+msgstr "Скорочення та типографіка"
 
 #: dictee-setup.py:3487
 msgid ""
@@ -874,6 +915,10 @@ msgid ""
 "\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (German quotes)"
 msgstr ""
+"Німецькі скорочення та типографіка.\n"
+"Скорочення: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
+"\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
+"Типографіка: \"text\" → \\u201etext\\u201c (німецькі лапки)"
 
 #: dictee-setup.py:3502
 msgid ""
@@ -881,6 +926,9 @@ msgid ""
 "\"het\" → \"'t\", \"een\" → \"'n\"\n"
 "\"in de morgens\" → \"'s morgens\""
 msgstr ""
+"Нідерландські скорочення та вирази часу.\n"
+"\"het\" → \"'t\", \"een\" → \"'n\"\n"
+"\"in de morgens\" → \"'s morgens\""
 
 #: dictee-setup.py:3516
 msgid ""
@@ -888,6 +936,9 @@ msgid ""
 "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (Romanian quotes)"
 msgstr ""
+"Румунські скорочення та типографіка.\n"
+"\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
+"Типографіка: \"text\" → \\u201etext\\u201c (румунські лапки)"
 
 #: dictee-setup.py:3535
 msgid ""
@@ -895,38 +946,41 @@ msgid ""
 "in order: a misplaced or wrong pattern may silently delete or corrupt text. "
 "Use the test panel below to verify."
 msgstr ""
+"Розширене — Некоректні правила можуть зіпсувати результат транскрипції. "
+"Правила застосовуються по порядку: помилковий шаблон може мовчки видалити або "
+"пошкодити текст. Використовуйте панель тестування нижче для перевірки."
 
 #: dictee-setup.py:3543
 msgid "Add a rule"
-msgstr ""
+msgstr "Додати правило"
 
 #: dictee-setup.py:3561
 msgid "Pattern (what the ASR says)"
-msgstr ""
+msgstr "Шаблон (що каже ASR)"
 
 #: dictee-setup.py:3567
 msgid "Replacement (\\n = newline)"
-msgstr ""
+msgstr "Заміна (\\n = новий рядок)"
 
 #: dictee-setup.py:3575
 msgid "i = case-insensitive, g = global, m = multiline"
-msgstr ""
+msgstr "i = без урахування регістру, g = глобально, m = багаторядковий"
 
 #: dictee-setup.py:3581
 msgid "Insert in:"
-msgstr ""
+msgstr "Вставити в:"
 
 #: dictee-setup.py:3587
 msgid "at end"
-msgstr ""
+msgstr "в кінець"
 
 #: dictee-setup.py:3588
 msgid "at beginning"
-msgstr ""
+msgstr "на початок"
 
 #: dictee-setup.py:3597 dictee-setup.py:4382 dictee-setup.py:5471
 msgid "Add"
-msgstr ""
+msgstr "Додати"
 
 #: dictee-setup.py:3601 dictee-setup.py:3904 dictee-setup.py:3927
 #: dictee-setup.py:3928 dictee-setup.py:6720
@@ -936,20 +990,20 @@ msgstr "Запис…"
 
 #: dictee-setup.py:3602
 msgid "Record audio, transcribe, and fill the pattern field"
-msgstr ""
+msgstr "Записати аудіо, транскрибувати та заповнити поле шаблону"
 
 #: dictee-setup.py:3619
 #, python-brace-format
 msgid "User rules in {path} — applied after system rules."
-msgstr ""
+msgstr "Правила користувача в {path} — застосовуються після системних правил."
 
 #: dictee-setup.py:3689 dictee-setup.py:4378
 msgid "Search (Ctrl+F)"
-msgstr ""
+msgstr "Пошук (Ctrl+F)"
 
 #: dictee-setup.py:3693
 msgid "Send current line to the test panel"
-msgstr ""
+msgstr "Надіслати поточний рядок до панелі тестування"
 
 #: dictee-setup.py:3698
 msgid "Restore defaults"
@@ -964,32 +1018,34 @@ msgid ""
 "Voice commands are language-specific.\n"
 "Please select a language instead of *."
 msgstr ""
+"Голосові команди залежать від мови.\n"
+"Будь ласка, оберіть мову замість *."
 
 #: dictee-setup.py:3879
 msgid "Transcribing..."
-msgstr ""
+msgstr "Транскрипція..."
 
 #: dictee-setup.py:3903
 msgid "pw-record not found."
-msgstr ""
+msgstr "pw-record не знайдено."
 
 #: dictee-setup.py:3999
 msgid "At cursor"
-msgstr ""
+msgstr "На позиції курсора"
 
 #: dictee-setup.py:4000
 msgid "End of file"
-msgstr ""
+msgstr "Кінець файлу"
 
 #: dictee-setup.py:4021 dictee-setup.py:4993
 #, python-brace-format
 msgid "Line {n}: invalid syntax: {line}"
-msgstr ""
+msgstr "Рядок {n}: неправильний синтаксис: {line}"
 
 #: dictee-setup.py:4027
 #, python-brace-format
 msgid "Line {n}: invalid regex: {err}"
-msgstr ""
+msgstr "Рядок {n}: неправильний regex: {err}"
 
 #: dictee-setup.py:4037 dictee-setup.py:4895
 #, python-brace-format
@@ -998,10 +1054,13 @@ msgid ""
 "\n"
 "{err}"
 msgstr ""
+"Неможливо зберегти — синтаксична помилка:\n"
+"\n"
+"{err}"
 
 #: dictee-setup.py:4042
 msgid "Rules saved."
-msgstr ""
+msgstr "Правила збережено."
 
 #: dictee-setup.py:4053
 msgid "Default rules restored."
@@ -1018,72 +1077,72 @@ msgstr "Мова:"
 
 #: dictee-setup.py:4386
 msgid "Undo"
-msgstr ""
+msgstr "Скасувати"
 
 #: dictee-setup.py:4387
 msgid "Undo last change"
-msgstr ""
+msgstr "Скасувати останню зміну"
 
 #: dictee-setup.py:4392
 msgid "Redo"
-msgstr ""
+msgstr "Повторити"
 
 #: dictee-setup.py:4393
 msgid "Redo last undone change"
-msgstr ""
+msgstr "Повторити останню скасовану зміну"
 
 #: dictee-setup.py:4400
 msgid "Save all changes to disk"
-msgstr ""
+msgstr "Зберегти всі зміни на диск"
 
 #: dictee-setup.py:4409 dictee-setup.py:5305
 msgid "Revert to saved"
-msgstr ""
+msgstr "Повернути до збереженого"
 
 #: dictee-setup.py:4410
 msgid "Discard all unsaved changes and reload the last saved version"
-msgstr ""
+msgstr "Відкинути всі незбережені зміни та перезавантажити останню збережену версію"
 
 #: dictee-setup.py:4414 dictee-setup.py:5310
 msgid "Factory reset"
-msgstr ""
+msgstr "Скидання до заводських"
 
 #: dictee-setup.py:4415 dictee-setup.py:5311
 msgid "Restore factory defaults"
-msgstr ""
+msgstr "Відновити заводські налаштування"
 
 #: dictee-setup.py:4488
 msgid "Add words that the ASR transcribes incorrectly."
-msgstr ""
+msgstr "Додайте слова, які ASR транскрибує неправильно."
 
 #: dictee-setup.py:4499 dictee-setup.py:4518
 msgid "entries"
-msgstr ""
+msgstr "записів"
 
 #: dictee-setup.py:4499 dictee-setup.py:4518
 msgid "entry"
-msgstr ""
+msgstr "запис"
 
 #: dictee-setup.py:4583
 msgid "Word"
-msgstr ""
+msgstr "Слово"
 
 #: dictee-setup.py:4592
 msgid "Replacement"
-msgstr ""
+msgstr "Заміна"
 
 #: dictee-setup.py:4600
 msgid "Confirm this entry"
-msgstr ""
+msgstr "Підтвердити цей запис"
 
 #: dictee-setup.py:4636
 msgid "Remove"
-msgstr ""
+msgstr "Видалити"
 
 #: dictee-setup.py:4773
 #, python-brace-format
 msgid "Word cannot contain '=': {word}"
-msgstr ""
+msgstr "Слово не може містити '=': {word}"
 
 #: dictee-setup.py:4899 dictee-setup.py:4909
 #, fuzzy
@@ -1096,6 +1155,9 @@ msgid ""
 "\n"
 "All unsaved changes will be lost."
 msgstr ""
+"Повернути до останньої збереженої версії?\n"
+"\n"
+"Всі незбережені зміни будуть втрачені."
 
 #: dictee-setup.py:5045
 msgid ""
@@ -1104,14 +1166,18 @@ msgid ""
 "This will replace ALL your dictionary entries with the original defaults.\n"
 "Click Save afterwards to make it permanent."
 msgstr ""
+"Відновити заводські налаштування?\n"
+"\n"
+"Це замінить ВСІ ваші записи словника на оригінальні.\n"
+"Натисніть Зберегти після цього для остаточного збереження."
 
 #: dictee-setup.py:5060
 msgid "Default dictionary file not found."
-msgstr ""
+msgstr "Файл словника за замовчуванням не знайдено."
 
 #: dictee-setup.py:5160 dictee-setup.py:5175
 msgid "Other"
-msgstr ""
+msgstr "Інші"
 
 #: dictee-setup.py:5234
 msgid ""
@@ -1124,43 +1190,51 @@ msgid ""
 "System words are built-in and cannot be modified. You can add your own words "
 "per language below."
 msgstr ""
+"Слова продовження — це слова, які ніколи не закінчують речення (артиклі, "
+"прийменники, сполучники, займенники, допоміжні дієслова...).\n"
+"Коли ASR помилково ставить крапку після одного з цих слів, крапка видаляється "
+"і наступне речення приєднується.\n"
+"Приклад: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n"
+"\n"
+"Системні слова вбудовані і не можуть бути змінені. Ви можете додати власні "
+"слова для кожної мови нижче."
 
 #: dictee-setup.py:5296
 msgid "Save continuation words to disk"
-msgstr ""
+msgstr "Зберегти слова продовження на диск"
 
 #: dictee-setup.py:5306
 msgid "Discard all unsaved changes"
-msgstr ""
+msgstr "Відкинути всі незбережені зміни"
 
 #: dictee-setup.py:5383
 msgid "words"
-msgstr ""
+msgstr "слів"
 
 #: dictee-setup.py:5383
 msgid "word"
-msgstr ""
+msgstr "слово"
 
 #: dictee-setup.py:5460
 msgid "(none)"
-msgstr ""
+msgstr "(немає)"
 
 #: dictee-setup.py:5466
 msgid "Add a word..."
-msgstr ""
+msgstr "Додати слово..."
 
 #: dictee-setup.py:5565
 #, python-brace-format
 msgid "'{word}' is already in the system list."
-msgstr ""
+msgstr "'{word}' вже є у системному списку."
 
 #: dictee-setup.py:5627 dictee-setup.py:5642 dictee-setup.py:5648
 msgid "System words"
-msgstr ""
+msgstr "Системні слова"
 
 #: dictee-setup.py:5648
 msgid "Your words"
-msgstr ""
+msgstr "Ваші слова"
 
 #: dictee-setup.py:5692
 #, fuzzy
@@ -1173,6 +1247,9 @@ msgid ""
 "\n"
 "System words will remain unchanged."
 msgstr ""
+"Видалити всі ваші власні слова продовження?\n"
+"\n"
+"Системні слова залишаться незмінними."
 
 #: dictee-setup.py:5801
 msgid "System default"
@@ -1349,15 +1426,15 @@ msgstr "Встановити"
 
 #: dictee-setup.py:6696
 msgid "Type text or record..."
-msgstr ""
+msgstr "Введіть текст або запишіть..."
 
 #: dictee-setup.py:6711
 msgid "Output"
-msgstr ""
+msgstr "Результат"
 
 #: dictee-setup.py:6728
 msgid "Pipeline details"
-msgstr ""
+msgstr "Деталі конвеєра"
 
 #: dictee-setup.py:6796
 #, fuzzy
@@ -1367,48 +1444,48 @@ msgstr "Правила regex"
 #: dictee-setup.py:6809
 #, python-brace-format
 msgid "Rejected: ASR detected Cyrillic instead of {lang}"
-msgstr ""
+msgstr "Відхилено: ASR виявив кирилицю замість {lang}"
 
 #: dictee-setup.py:6814
 #, python-brace-format
 msgid "Rejected: ASR detected Latin instead of {lang}"
-msgstr ""
+msgstr "Відхилено: ASR виявив латиницю замість {lang}"
 
 #: dictee-setup.py:6835
 msgid "Elisions [fr]"
-msgstr ""
+msgstr "Елізії [fr]"
 
 #: dictee-setup.py:6839
 msgid "Elisions [it]"
-msgstr ""
+msgstr "Елізії [it]"
 
 #: dictee-setup.py:6843
 msgid "Spanish [es]"
-msgstr ""
+msgstr "Іспанська [es]"
 
 #: dictee-setup.py:6847
 msgid "Contractions [pt]"
-msgstr ""
+msgstr "Скорочення [pt]"
 
 #: dictee-setup.py:6851
 msgid "German [de]"
-msgstr ""
+msgstr "Німецька [de]"
 
 #: dictee-setup.py:6855
 msgid "Dutch [nl]"
-msgstr ""
+msgstr "Нідерландська [nl]"
 
 #: dictee-setup.py:6859
 msgid "Romanian [ro]"
-msgstr ""
+msgstr "Румунська [ro]"
 
 #: dictee-setup.py:6865
 msgid "Numbers"
-msgstr ""
+msgstr "Числа"
 
 #: dictee-setup.py:6871
 msgid "Typography"
-msgstr ""
+msgstr "Типографіка"
 
 #: dictee-setup.py:6884
 #, fuzzy
@@ -1417,16 +1494,16 @@ msgstr "Автоматична капіталізація"
 
 #: dictee-setup.py:6902
 msgid "changed"
-msgstr ""
+msgstr "змінено"
 
 #: dictee-setup.py:6938
 msgid "No ASR service is running. Start the default service?"
-msgstr ""
+msgstr "Жодна служба ASR не запущена. Запустити службу за замовчуванням?"
 
 #: dictee-setup.py:6987
 #, python-brace-format
 msgid "Cannot connect to ASR daemon: {err}"
-msgstr ""
+msgstr "Не вдалося підключитися до daemon ASR: {err}"
 
 #: dictee-setup.py:7134
 #, python-brace-format

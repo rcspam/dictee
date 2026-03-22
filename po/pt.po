@@ -234,7 +234,7 @@ msgstr "A obter a última versão…"
 #: dictee-setup.py:1325
 #, python-brace-format
 msgid "Cannot reach GitHub: {err}"
-msgstr ""
+msgstr "Não foi possível contactar o GitHub: {err}"
 
 #: dictee-setup.py:1330
 #, fuzzy
@@ -395,8 +395,7 @@ msgid ""
 "real-time visual feedback."
 msgstr ""
 "Ditado por voz 100% local para Linux com 25+ idiomas, tradução e feedback "
-"visual em tempo real.Ditado por voz 100% local para Linux com 25+ idiomas, "
-"tradução e feedback visual em tempo real."
+"visual em tempo real."
 
 #: dictee-setup.py:2101
 msgid "Choose a speech recognition engine:"
@@ -533,6 +532,8 @@ msgstr "Desativado"
 msgid ""
 "Your user is not in the 'input' group (required for keyboard shortcuts)."
 msgstr ""
+"O seu utilizador não está no grupo 'input' (necessário para atalhos de "
+"teclado)."
 
 #: dictee-setup.py:2467
 msgid "Fix (requires password)"
@@ -612,6 +613,8 @@ msgid ""
 "animation-speech requires a Wayland compositor with layer-shell support "
 "(KDE, Sway, Hyprland…). It does not work on GNOME."
 msgstr ""
+"animation-speech requer um compositor Wayland com suporte layer-shell "
+"(KDE, Sway, Hyprland…). Não funciona no GNOME."
 
 #: dictee-setup.py:2739 dictee-setup.py:6205
 msgid "Install animation-speech"
@@ -696,8 +699,8 @@ msgstr "Forçar CPU (OLLAMA_NUM_GPU=0)"
 #: dictee-setup.py:2919
 msgid "Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"
 msgstr ""
-"Usar CPU em vez de GPU para ollama (mais lento, mas sem VRAM necessária)Usar "
-"CPU em vez de GPU para inferência ollama (mais lento mas sem VRAM)"
+"Usar CPU em vez de GPU para inferência ollama (mais lento mas sem VRAM "
+"necessária)"
 
 #: dictee-setup.py:3022
 msgid "Enable post-processing (regex rules + dictionary)"
@@ -712,6 +715,8 @@ msgid ""
 "Converts spoken numbers to digits.\n"
 "Example: \"vingt-trois\" → \"23\""
 msgstr ""
+"Converte números falados em dígitos.\n"
+"Exemplo: \"vingt-trois\" → \"23\""
 
 #: dictee-setup.py:3042
 msgid "Auto-capitalization"
@@ -725,6 +730,11 @@ msgid ""
 "this ensures correct capitalization afterwards.\n"
 "Essential for Vosk/Whisper backends."
 msgstr ""
+"Coloca em maiúscula a primeira letra após pontuação\n"
+"de fim de frase (. ! ?). O Parakeet faz isto nativamente,\n"
+"mas as regras de pós-processamento podem alterar o texto —\n"
+"isto garante a capitalização correta depois.\n"
+"Essencial para os backends Vosk/Whisper."
 
 #: dictee-setup.py:3051 dictee-setup.py:3099 dictee-setup.py:6878
 #, fuzzy
@@ -736,10 +746,12 @@ msgid ""
 "Replaces words using the dictionary.\n"
 "Exact matching on word boundaries."
 msgstr ""
+"Substitui palavras usando o dicionário.\n"
+"Correspondência exata nos limites das palavras."
 
 #: dictee-setup.py:3057
 msgid "Fuzzy matching (jellyfish)"
-msgstr ""
+msgstr "Correspondência aproximada (jellyfish)"
 
 #: dictee-setup.py:3060
 msgid ""
@@ -748,6 +760,10 @@ msgid ""
 "Requires the jellyfish Python library.\n"
 "Example: \"Gogle\" → \"Google\""
 msgstr ""
+"Tolera pequenas variações ortográficas do ASR\n"
+"usando a similaridade de cadeia Jaro-Winkler (limiar 0,85).\n"
+"Requer a biblioteca Python jellyfish.\n"
+"Exemplo: \"Gogle\" → \"Google\""
 
 #: dictee-setup.py:3065 dictee-setup.py:3106
 msgid "Regex rules"
@@ -759,6 +775,9 @@ msgid ""
 "common ASR errors (voice commands,\n"
 "punctuation, formatting)."
 msgstr ""
+"Aplica regras de substituição regex para corrigir\n"
+"erros comuns do ASR (comandos de voz,\n"
+"pontuação, formatação)."
 
 #: dictee-setup.py:3072 dictee-setup.py:3113 dictee-setup.py:6822
 #, fuzzy
@@ -771,14 +790,17 @@ msgid ""
 "(conjunctions, adverbs, etc.) to keep\n"
 "sentences flowing naturally."
 msgstr ""
+"Remove a quebra de linha antes de palavras de continuação\n"
+"(conjunções, advérbios, etc.) para manter\n"
+"as frases fluindo naturalmente."
 
 #: dictee-setup.py:3120
 msgid "Language rules"
-msgstr ""
+msgstr "Regras de idioma"
 
 #: dictee-setup.py:3135
 msgid "Edit mode"
-msgstr ""
+msgstr "Modo de edição"
 
 #: dictee-setup.py:3167
 msgid "LLM grammar correction (ollama)"
@@ -799,6 +821,9 @@ msgid ""
 "source language only. Currently: <b>{lang}</b>. Only the rules matching your "
 "source language will be active."
 msgstr ""
+"Regras específicas do idioma (elisões, contrações, tipografia) aplicadas "
+"apenas ao idioma de origem. Atualmente: <b>{lang}</b>. Apenas as regras "
+"correspondentes ao seu idioma de origem estarão ativas."
 
 #: dictee-setup.py:3410
 msgid "Elisions"
@@ -810,6 +835,9 @@ msgid ""
 "Example: \"le arbre\" → \"l'arbre\",\n"
 "\"de eau\" → \"d'eau\""
 msgstr ""
+"Aplica regras de elisão francesas.\n"
+"Exemplo: \"le arbre\" → \"l'arbre\",\n"
+"\"de eau\" → \"d'eau\""
 
 #: dictee-setup.py:3417
 msgid "Typography (non-breaking spaces)"
@@ -821,16 +849,21 @@ msgid ""
 "punctuation marks (: ; ! ? « »)\n"
 "as required by French typography rules."
 msgstr ""
+"Insere espaços inquebráveis antes dos sinais de\n"
+"pontuação franceses (: ; ! ? « »)\n"
+"conforme exigido pelas regras tipográficas francesas."
 
 #: dictee-setup.py:3430
 msgid ""
 "No specific rules needed. Contractions (don't, I'm, can't) are handled "
 "natively by the ASR engine."
 msgstr ""
+"Sem regras específicas necessárias. As contrações (don't, I'm, can't) são "
+"tratadas nativamente pelo motor ASR."
 
 #: dictee-setup.py:3441
 msgid "Elisions & contractions"
-msgstr ""
+msgstr "Elisões e contrações"
 
 #: dictee-setup.py:3444
 msgid ""
@@ -839,10 +872,14 @@ msgid ""
 "Contractions: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
 "\"in il\" → \"nel\", \"su la\" → \"sulla\""
 msgstr ""
+"Elisões e contrações preposicionais italianas.\n"
+"Elisões: \"lo uomo\" → \"l'uomo\", \"di accordo\" → \"d'accordo\"\n"
+"Contrações: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
+"\"in il\" → \"nel\", \"su la\" → \"sulla\""
 
 #: dictee-setup.py:3456
 msgid "Contractions & inverted punctuation"
-msgstr ""
+msgstr "Contrações e pontuação invertida"
 
 #: dictee-setup.py:3459
 msgid ""
@@ -850,10 +887,13 @@ msgid ""
 "Contractions: \"a el\" → \"al\", \"de el\" → \"del\"\n"
 "Punctuation: adds ¿ before questions and ¡ before exclamations."
 msgstr ""
+"Contrações e pontuação invertida espanholas.\n"
+"Contrações: \"a el\" → \"al\", \"de el\" → \"del\"\n"
+"Pontuação: adiciona ¿ antes de perguntas e ¡ antes de exclamações."
 
 #: dictee-setup.py:3470 dictee-setup.py:3499
 msgid "Contractions"
-msgstr ""
+msgstr "Contrações"
 
 #: dictee-setup.py:3473
 msgid ""
@@ -861,10 +901,13 @@ msgid ""
 "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
 "\"de este\" → \"deste\", \"em ele\" → \"nele\""
 msgstr ""
+"Contrações fundidas portuguesas.\n"
+"\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
+"\"de este\" → \"deste\", \"em ele\" → \"nele\""
 
 #: dictee-setup.py:3484 dictee-setup.py:3513
 msgid "Contractions & typography"
-msgstr ""
+msgstr "Contrações e tipografia"
 
 #: dictee-setup.py:3487
 msgid ""
@@ -873,6 +916,10 @@ msgid ""
 "\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (German quotes)"
 msgstr ""
+"Contrações e tipografia alemãs.\n"
+"Contrações: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
+"\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
+"Tipografia: \"text\" → \\u201etext\\u201c (aspas alemãs)"
 
 #: dictee-setup.py:3502
 msgid ""
@@ -880,6 +927,9 @@ msgid ""
 "\"het\" → \"'t\", \"een\" → \"'n\"\n"
 "\"in de morgens\" → \"'s morgens\""
 msgstr ""
+"Contrações e expressões temporais neerlandesas.\n"
+"\"het\" → \"'t\", \"een\" → \"'n\"\n"
+"\"in de morgens\" → \"'s morgens\""
 
 #: dictee-setup.py:3516
 msgid ""
@@ -887,6 +937,9 @@ msgid ""
 "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (Romanian quotes)"
 msgstr ""
+"Contrações e tipografia romenas.\n"
+"\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
+"Tipografia: \"text\" → \\u201etext\\u201c (aspas romenas)"
 
 #: dictee-setup.py:3535
 msgid ""
@@ -894,38 +947,42 @@ msgid ""
 "in order: a misplaced or wrong pattern may silently delete or corrupt text. "
 "Use the test panel below to verify."
 msgstr ""
+"Avançado — Regras incorretas podem danificar a saída da transcrição. As "
+"regras são aplicadas por ordem: um padrão mal colocado ou errado pode "
+"eliminar ou corromper texto silenciosamente. Use o painel de teste abaixo "
+"para verificar."
 
 #: dictee-setup.py:3543
 msgid "Add a rule"
-msgstr ""
+msgstr "Adicionar uma regra"
 
 #: dictee-setup.py:3561
 msgid "Pattern (what the ASR says)"
-msgstr ""
+msgstr "Padrão (o que o ASR diz)"
 
 #: dictee-setup.py:3567
 msgid "Replacement (\\n = newline)"
-msgstr ""
+msgstr "Substituição (\\n = nova linha)"
 
 #: dictee-setup.py:3575
 msgid "i = case-insensitive, g = global, m = multiline"
-msgstr ""
+msgstr "i = insensível a maiúsculas, g = global, m = multilinha"
 
 #: dictee-setup.py:3581
 msgid "Insert in:"
-msgstr ""
+msgstr "Inserir em:"
 
 #: dictee-setup.py:3587
 msgid "at end"
-msgstr ""
+msgstr "no final"
 
 #: dictee-setup.py:3588
 msgid "at beginning"
-msgstr ""
+msgstr "no início"
 
 #: dictee-setup.py:3597 dictee-setup.py:4382 dictee-setup.py:5471
 msgid "Add"
-msgstr ""
+msgstr "Adicionar"
 
 #: dictee-setup.py:3601 dictee-setup.py:3904 dictee-setup.py:3927
 #: dictee-setup.py:3928 dictee-setup.py:6720
@@ -935,20 +992,20 @@ msgstr "Gravando…"
 
 #: dictee-setup.py:3602
 msgid "Record audio, transcribe, and fill the pattern field"
-msgstr ""
+msgstr "Gravar áudio, transcrever e preencher o campo de padrão"
 
 #: dictee-setup.py:3619
 #, python-brace-format
 msgid "User rules in {path} — applied after system rules."
-msgstr ""
+msgstr "Regras do utilizador em {path} — aplicadas após as regras do sistema."
 
 #: dictee-setup.py:3689 dictee-setup.py:4378
 msgid "Search (Ctrl+F)"
-msgstr ""
+msgstr "Pesquisar (Ctrl+F)"
 
 #: dictee-setup.py:3693
 msgid "Send current line to the test panel"
-msgstr ""
+msgstr "Enviar a linha atual para o painel de teste"
 
 #: dictee-setup.py:3698
 msgid "Restore defaults"
@@ -963,32 +1020,34 @@ msgid ""
 "Voice commands are language-specific.\n"
 "Please select a language instead of *."
 msgstr ""
+"Os comandos de voz são específicos do idioma.\n"
+"Selecione um idioma em vez de *."
 
 #: dictee-setup.py:3879
 msgid "Transcribing..."
-msgstr ""
+msgstr "A transcrever..."
 
 #: dictee-setup.py:3903
 msgid "pw-record not found."
-msgstr ""
+msgstr "pw-record não encontrado."
 
 #: dictee-setup.py:3999
 msgid "At cursor"
-msgstr ""
+msgstr "Na posição do cursor"
 
 #: dictee-setup.py:4000
 msgid "End of file"
-msgstr ""
+msgstr "Fim do ficheiro"
 
 #: dictee-setup.py:4021 dictee-setup.py:4993
 #, python-brace-format
 msgid "Line {n}: invalid syntax: {line}"
-msgstr ""
+msgstr "Linha {n}: sintaxe inválida: {line}"
 
 #: dictee-setup.py:4027
 #, python-brace-format
 msgid "Line {n}: invalid regex: {err}"
-msgstr ""
+msgstr "Linha {n}: regex inválido: {err}"
 
 #: dictee-setup.py:4037 dictee-setup.py:4895
 #, python-brace-format
@@ -997,10 +1056,13 @@ msgid ""
 "\n"
 "{err}"
 msgstr ""
+"Não é possível guardar — erro de sintaxe:\n"
+"\n"
+"{err}"
 
 #: dictee-setup.py:4042
 msgid "Rules saved."
-msgstr ""
+msgstr "Regras guardadas."
 
 #: dictee-setup.py:4053
 msgid "Default rules restored."
@@ -1017,72 +1079,72 @@ msgstr "Idioma:"
 
 #: dictee-setup.py:4386
 msgid "Undo"
-msgstr ""
+msgstr "Desfazer"
 
 #: dictee-setup.py:4387
 msgid "Undo last change"
-msgstr ""
+msgstr "Desfazer última alteração"
 
 #: dictee-setup.py:4392
 msgid "Redo"
-msgstr ""
+msgstr "Refazer"
 
 #: dictee-setup.py:4393
 msgid "Redo last undone change"
-msgstr ""
+msgstr "Refazer última alteração desfeita"
 
 #: dictee-setup.py:4400
 msgid "Save all changes to disk"
-msgstr ""
+msgstr "Guardar todas as alterações no disco"
 
 #: dictee-setup.py:4409 dictee-setup.py:5305
 msgid "Revert to saved"
-msgstr ""
+msgstr "Reverter para a versão guardada"
 
 #: dictee-setup.py:4410
 msgid "Discard all unsaved changes and reload the last saved version"
-msgstr ""
+msgstr "Descartar todas as alterações não guardadas e recarregar a última versão guardada"
 
 #: dictee-setup.py:4414 dictee-setup.py:5310
 msgid "Factory reset"
-msgstr ""
+msgstr "Restaurar predefinições"
 
 #: dictee-setup.py:4415 dictee-setup.py:5311
 msgid "Restore factory defaults"
-msgstr ""
+msgstr "Restaurar os valores predefinidos de fábrica"
 
 #: dictee-setup.py:4488
 msgid "Add words that the ASR transcribes incorrectly."
-msgstr ""
+msgstr "Adicione palavras que o ASR transcreve incorretamente."
 
 #: dictee-setup.py:4499 dictee-setup.py:4518
 msgid "entries"
-msgstr ""
+msgstr "entradas"
 
 #: dictee-setup.py:4499 dictee-setup.py:4518
 msgid "entry"
-msgstr ""
+msgstr "entrada"
 
 #: dictee-setup.py:4583
 msgid "Word"
-msgstr ""
+msgstr "Palavra"
 
 #: dictee-setup.py:4592
 msgid "Replacement"
-msgstr ""
+msgstr "Substituição"
 
 #: dictee-setup.py:4600
 msgid "Confirm this entry"
-msgstr ""
+msgstr "Confirmar esta entrada"
 
 #: dictee-setup.py:4636
 msgid "Remove"
-msgstr ""
+msgstr "Remover"
 
 #: dictee-setup.py:4773
 #, python-brace-format
 msgid "Word cannot contain '=': {word}"
-msgstr ""
+msgstr "A palavra não pode conter '=': {word}"
 
 #: dictee-setup.py:4899 dictee-setup.py:4909
 #, fuzzy
@@ -1095,6 +1157,9 @@ msgid ""
 "\n"
 "All unsaved changes will be lost."
 msgstr ""
+"Reverter para a última versão guardada?\n"
+"\n"
+"Todas as alterações não guardadas serão perdidas."
 
 #: dictee-setup.py:5045
 msgid ""
@@ -1103,14 +1168,19 @@ msgid ""
 "This will replace ALL your dictionary entries with the original defaults.\n"
 "Click Save afterwards to make it permanent."
 msgstr ""
+"Restaurar os valores predefinidos de fábrica?\n"
+"\n"
+"Isto irá substituir TODAS as suas entradas do dicionário pelas predefinições "
+"originais.\n"
+"Clique em Guardar depois para tornar permanente."
 
 #: dictee-setup.py:5060
 msgid "Default dictionary file not found."
-msgstr ""
+msgstr "Ficheiro de dicionário predefinido não encontrado."
 
 #: dictee-setup.py:5160 dictee-setup.py:5175
 msgid "Other"
-msgstr ""
+msgstr "Outro"
 
 #: dictee-setup.py:5234
 msgid ""
@@ -1123,43 +1193,51 @@ msgid ""
 "System words are built-in and cannot be modified. You can add your own words "
 "per language below."
 msgstr ""
+"As palavras de continuação são palavras que nunca terminam uma frase "
+"(artigos, preposições, conjunções, pronomes, auxiliares...).\n"
+"Quando o ASR coloca incorretamente um ponto após uma destas palavras, o "
+"ponto é removido e a frase seguinte é unida.\n"
+"Exemplo: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n"
+"\n"
+"As palavras do sistema são integradas e não podem ser modificadas. Pode "
+"adicionar as suas próprias palavras por idioma abaixo."
 
 #: dictee-setup.py:5296
 msgid "Save continuation words to disk"
-msgstr ""
+msgstr "Guardar palavras de continuação no disco"
 
 #: dictee-setup.py:5306
 msgid "Discard all unsaved changes"
-msgstr ""
+msgstr "Descartar todas as alterações não guardadas"
 
 #: dictee-setup.py:5383
 msgid "words"
-msgstr ""
+msgstr "palavras"
 
 #: dictee-setup.py:5383
 msgid "word"
-msgstr ""
+msgstr "palavra"
 
 #: dictee-setup.py:5460
 msgid "(none)"
-msgstr ""
+msgstr "(nenhum)"
 
 #: dictee-setup.py:5466
 msgid "Add a word..."
-msgstr ""
+msgstr "Adicionar uma palavra..."
 
 #: dictee-setup.py:5565
 #, python-brace-format
 msgid "'{word}' is already in the system list."
-msgstr ""
+msgstr "'{word}' já está na lista do sistema."
 
 #: dictee-setup.py:5627 dictee-setup.py:5642 dictee-setup.py:5648
 msgid "System words"
-msgstr ""
+msgstr "Palavras do sistema"
 
 #: dictee-setup.py:5648
 msgid "Your words"
-msgstr ""
+msgstr "As suas palavras"
 
 #: dictee-setup.py:5692
 #, fuzzy
@@ -1172,6 +1250,9 @@ msgid ""
 "\n"
 "System words will remain unchanged."
 msgstr ""
+"Remover todas as suas palavras de continuação personalizadas?\n"
+"\n"
+"As palavras do sistema permanecerão inalteradas."
 
 #: dictee-setup.py:5801
 msgid "System default"
@@ -1345,15 +1426,15 @@ msgstr "Instalar"
 
 #: dictee-setup.py:6696
 msgid "Type text or record..."
-msgstr ""
+msgstr "Escreva texto ou grave..."
 
 #: dictee-setup.py:6711
 msgid "Output"
-msgstr ""
+msgstr "Saída"
 
 #: dictee-setup.py:6728
 msgid "Pipeline details"
-msgstr ""
+msgstr "Detalhes do pipeline"
 
 #: dictee-setup.py:6796
 #, fuzzy
@@ -1363,48 +1444,48 @@ msgstr "Regras regex"
 #: dictee-setup.py:6809
 #, python-brace-format
 msgid "Rejected: ASR detected Cyrillic instead of {lang}"
-msgstr ""
+msgstr "Rejeitado: ASR detetou cirílico em vez de {lang}"
 
 #: dictee-setup.py:6814
 #, python-brace-format
 msgid "Rejected: ASR detected Latin instead of {lang}"
-msgstr ""
+msgstr "Rejeitado: ASR detetou latim em vez de {lang}"
 
 #: dictee-setup.py:6835
 msgid "Elisions [fr]"
-msgstr ""
+msgstr "Elisões [fr]"
 
 #: dictee-setup.py:6839
 msgid "Elisions [it]"
-msgstr ""
+msgstr "Elisões [it]"
 
 #: dictee-setup.py:6843
 msgid "Spanish [es]"
-msgstr ""
+msgstr "Espanhol [es]"
 
 #: dictee-setup.py:6847
 msgid "Contractions [pt]"
-msgstr ""
+msgstr "Contrações [pt]"
 
 #: dictee-setup.py:6851
 msgid "German [de]"
-msgstr ""
+msgstr "Alemão [de]"
 
 #: dictee-setup.py:6855
 msgid "Dutch [nl]"
-msgstr ""
+msgstr "Neerlandês [nl]"
 
 #: dictee-setup.py:6859
 msgid "Romanian [ro]"
-msgstr ""
+msgstr "Romeno [ro]"
 
 #: dictee-setup.py:6865
 msgid "Numbers"
-msgstr ""
+msgstr "Números"
 
 #: dictee-setup.py:6871
 msgid "Typography"
-msgstr ""
+msgstr "Tipografia"
 
 #: dictee-setup.py:6884
 #, fuzzy
@@ -1413,16 +1494,16 @@ msgstr "Capitalização automática"
 
 #: dictee-setup.py:6902
 msgid "changed"
-msgstr ""
+msgstr "alterado"
 
 #: dictee-setup.py:6938
 msgid "No ASR service is running. Start the default service?"
-msgstr ""
+msgstr "Nenhum serviço ASR está em execução. Iniciar o serviço predefinido?"
 
 #: dictee-setup.py:6987
 #, python-brace-format
 msgid "Cannot connect to ASR daemon: {err}"
-msgstr ""
+msgstr "Não foi possível ligar ao daemon ASR: {err}"
 
 #: dictee-setup.py:7134
 #, python-brace-format

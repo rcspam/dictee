@@ -902,10 +902,13 @@ msgid ""
 "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
 "\"de este\" → \"deste\", \"em ele\" → \"nele\""
 msgstr ""
+"Contracciones fusionadas portuguesas.\n"
+"\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
+"\"de este\" → \"deste\", \"em ele\" → \"nele\""
 
 #: dictee-setup.py:3484 dictee-setup.py:3513
 msgid "Contractions & typography"
-msgstr ""
+msgstr "Contracciones y tipografía"
 
 #: dictee-setup.py:3487
 msgid ""
@@ -914,6 +917,10 @@ msgid ""
 "\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (German quotes)"
 msgstr ""
+"Contracciones y tipografía alemanas.\n"
+"Contracciones: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
+"\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
+"Tipografía: \"text\" → \\u201etext\\u201c (comillas alemanas)"
 
 #: dictee-setup.py:3502
 msgid ""
@@ -921,6 +928,9 @@ msgid ""
 "\"het\" → \"'t\", \"een\" → \"'n\"\n"
 "\"in de morgens\" → \"'s morgens\""
 msgstr ""
+"Contracciones y expresiones temporales neerlandesas.\n"
+"\"het\" → \"'t\", \"een\" → \"'n\"\n"
+"\"in de morgens\" → \"'s morgens\""
 
 #: dictee-setup.py:3516
 msgid ""
@@ -928,6 +938,9 @@ msgid ""
 "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (Romanian quotes)"
 msgstr ""
+"Contracciones y tipografía rumanas.\n"
+"\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
+"Tipografía: \"text\" → \\u201etext\\u201c (comillas rumanas)"
 
 #: dictee-setup.py:3535
 msgid ""
@@ -935,38 +948,41 @@ msgid ""
 "in order: a misplaced or wrong pattern may silently delete or corrupt text. "
 "Use the test panel below to verify."
 msgstr ""
+"Avanzado — Las reglas incorrectas pueden romper la transcripción. Las reglas "
+"se aplican en orden: un patrón mal colocado o incorrecto puede eliminar o "
+"corromper texto silenciosamente. Use el panel de prueba para verificar."
 
 #: dictee-setup.py:3543
 msgid "Add a rule"
-msgstr ""
+msgstr "Añadir una regla"
 
 #: dictee-setup.py:3561
 msgid "Pattern (what the ASR says)"
-msgstr ""
+msgstr "Patrón (lo que dice el ASR)"
 
 #: dictee-setup.py:3567
 msgid "Replacement (\\n = newline)"
-msgstr ""
+msgstr "Reemplazo (\\n = nueva línea)"
 
 #: dictee-setup.py:3575
 msgid "i = case-insensitive, g = global, m = multiline"
-msgstr ""
+msgstr "i = sin distinción de mayúsculas, g = global, m = multilínea"
 
 #: dictee-setup.py:3581
 msgid "Insert in:"
-msgstr ""
+msgstr "Insertar en:"
 
 #: dictee-setup.py:3587
 msgid "at end"
-msgstr ""
+msgstr "al final"
 
 #: dictee-setup.py:3588
 msgid "at beginning"
-msgstr ""
+msgstr "al principio"
 
 #: dictee-setup.py:3597 dictee-setup.py:4382 dictee-setup.py:5471
 msgid "Add"
-msgstr ""
+msgstr "Añadir"
 
 #: dictee-setup.py:3601 dictee-setup.py:3904 dictee-setup.py:3927
 #: dictee-setup.py:3928 dictee-setup.py:6720
@@ -976,20 +992,20 @@ msgstr "Grabando…"
 
 #: dictee-setup.py:3602
 msgid "Record audio, transcribe, and fill the pattern field"
-msgstr ""
+msgstr "Grabar audio, transcribir y rellenar el campo de patrón"
 
 #: dictee-setup.py:3619
 #, python-brace-format
 msgid "User rules in {path} — applied after system rules."
-msgstr ""
+msgstr "Reglas de usuario en {path} — aplicadas después de las reglas del sistema."
 
 #: dictee-setup.py:3689 dictee-setup.py:4378
 msgid "Search (Ctrl+F)"
-msgstr ""
+msgstr "Buscar (Ctrl+F)"
 
 #: dictee-setup.py:3693
 msgid "Send current line to the test panel"
-msgstr ""
+msgstr "Enviar la línea actual al panel de prueba"
 
 #: dictee-setup.py:3698
 msgid "Restore defaults"
@@ -1004,32 +1020,34 @@ msgid ""
 "Voice commands are language-specific.\n"
 "Please select a language instead of *."
 msgstr ""
+"Los comandos de voz son específicos del idioma.\n"
+"Seleccione un idioma en lugar de *."
 
 #: dictee-setup.py:3879
 msgid "Transcribing..."
-msgstr ""
+msgstr "Transcribiendo..."
 
 #: dictee-setup.py:3903
 msgid "pw-record not found."
-msgstr ""
+msgstr "pw-record no encontrado."
 
 #: dictee-setup.py:3999
 msgid "At cursor"
-msgstr ""
+msgstr "En el cursor"
 
 #: dictee-setup.py:4000
 msgid "End of file"
-msgstr ""
+msgstr "Final del archivo"
 
 #: dictee-setup.py:4021 dictee-setup.py:4993
 #, python-brace-format
 msgid "Line {n}: invalid syntax: {line}"
-msgstr ""
+msgstr "Línea {n}: sintaxis inválida: {line}"
 
 #: dictee-setup.py:4027
 #, python-brace-format
 msgid "Line {n}: invalid regex: {err}"
-msgstr ""
+msgstr "Línea {n}: regex inválida: {err}"
 
 #: dictee-setup.py:4037 dictee-setup.py:4895
 #, python-brace-format
@@ -1038,10 +1056,13 @@ msgid ""
 "\n"
 "{err}"
 msgstr ""
+"No se puede guardar — error de sintaxis:\n"
+"\n"
+"{err}"
 
 #: dictee-setup.py:4042
 msgid "Rules saved."
-msgstr ""
+msgstr "Reglas guardadas."
 
 #: dictee-setup.py:4053
 msgid "Default rules restored."
@@ -1058,72 +1079,72 @@ msgstr "Idioma:"
 
 #: dictee-setup.py:4386
 msgid "Undo"
-msgstr ""
+msgstr "Deshacer"
 
 #: dictee-setup.py:4387
 msgid "Undo last change"
-msgstr ""
+msgstr "Deshacer el último cambio"
 
 #: dictee-setup.py:4392
 msgid "Redo"
-msgstr ""
+msgstr "Rehacer"
 
 #: dictee-setup.py:4393
 msgid "Redo last undone change"
-msgstr ""
+msgstr "Rehacer el último cambio deshecho"
 
 #: dictee-setup.py:4400
 msgid "Save all changes to disk"
-msgstr ""
+msgstr "Guardar todos los cambios en disco"
 
 #: dictee-setup.py:4409 dictee-setup.py:5305
 msgid "Revert to saved"
-msgstr ""
+msgstr "Volver a la versión guardada"
 
 #: dictee-setup.py:4410
 msgid "Discard all unsaved changes and reload the last saved version"
-msgstr ""
+msgstr "Descartar todos los cambios no guardados y recargar la última versión guardada"
 
 #: dictee-setup.py:4414 dictee-setup.py:5310
 msgid "Factory reset"
-msgstr ""
+msgstr "Restaurar valores de fábrica"
 
 #: dictee-setup.py:4415 dictee-setup.py:5311
 msgid "Restore factory defaults"
-msgstr ""
+msgstr "Restaurar los valores de fábrica"
 
 #: dictee-setup.py:4488
 msgid "Add words that the ASR transcribes incorrectly."
-msgstr ""
+msgstr "Añada palabras que el ASR transcribe incorrectamente."
 
 #: dictee-setup.py:4499 dictee-setup.py:4518
 msgid "entries"
-msgstr ""
+msgstr "entradas"
 
 #: dictee-setup.py:4499 dictee-setup.py:4518
 msgid "entry"
-msgstr ""
+msgstr "entrada"
 
 #: dictee-setup.py:4583
 msgid "Word"
-msgstr ""
+msgstr "Palabra"
 
 #: dictee-setup.py:4592
 msgid "Replacement"
-msgstr ""
+msgstr "Reemplazo"
 
 #: dictee-setup.py:4600
 msgid "Confirm this entry"
-msgstr ""
+msgstr "Confirmar esta entrada"
 
 #: dictee-setup.py:4636
 msgid "Remove"
-msgstr ""
+msgstr "Eliminar"
 
 #: dictee-setup.py:4773
 #, python-brace-format
 msgid "Word cannot contain '=': {word}"
-msgstr ""
+msgstr "La palabra no puede contener '=': {word}"
 
 #: dictee-setup.py:4899 dictee-setup.py:4909
 #, fuzzy
@@ -1136,6 +1157,9 @@ msgid ""
 "\n"
 "All unsaved changes will be lost."
 msgstr ""
+"¿Volver a la última versión guardada?\n"
+"\n"
+"Se perderán todos los cambios no guardados."
 
 #: dictee-setup.py:5045
 msgid ""
@@ -1144,14 +1168,19 @@ msgid ""
 "This will replace ALL your dictionary entries with the original defaults.\n"
 "Click Save afterwards to make it permanent."
 msgstr ""
+"¿Restaurar los valores de fábrica?\n"
+"\n"
+"Esto reemplazará TODAS sus entradas del diccionario con los valores "
+"originales.\n"
+"Haga clic en Guardar después para hacerlo permanente."
 
 #: dictee-setup.py:5060
 msgid "Default dictionary file not found."
-msgstr ""
+msgstr "Archivo de diccionario predeterminado no encontrado."
 
 #: dictee-setup.py:5160 dictee-setup.py:5175
 msgid "Other"
-msgstr ""
+msgstr "Otros"
 
 #: dictee-setup.py:5234
 msgid ""
@@ -1164,43 +1193,51 @@ msgid ""
 "System words are built-in and cannot be modified. You can add your own words "
 "per language below."
 msgstr ""
+"Las palabras de continuación son palabras que nunca terminan una frase "
+"(artículos, preposiciones, conjunciones, pronombres, auxiliares...).\n"
+"Cuando el ASR coloca incorrectamente un punto después de una de estas "
+"palabras, el punto se elimina y la siguiente frase se une.\n"
+"Ejemplo: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n"
+"\n"
+"Las palabras del sistema son integradas y no se pueden modificar. Puede "
+"añadir sus propias palabras por idioma a continuación."
 
 #: dictee-setup.py:5296
 msgid "Save continuation words to disk"
-msgstr ""
+msgstr "Guardar palabras de continuación en disco"
 
 #: dictee-setup.py:5306
 msgid "Discard all unsaved changes"
-msgstr ""
+msgstr "Descartar todos los cambios no guardados"
 
 #: dictee-setup.py:5383
 msgid "words"
-msgstr ""
+msgstr "palabras"
 
 #: dictee-setup.py:5383
 msgid "word"
-msgstr ""
+msgstr "palabra"
 
 #: dictee-setup.py:5460
 msgid "(none)"
-msgstr ""
+msgstr "(ninguno)"
 
 #: dictee-setup.py:5466
 msgid "Add a word..."
-msgstr ""
+msgstr "Añadir una palabra..."
 
 #: dictee-setup.py:5565
 #, python-brace-format
 msgid "'{word}' is already in the system list."
-msgstr ""
+msgstr "'{word}' ya está en la lista del sistema."
 
 #: dictee-setup.py:5627 dictee-setup.py:5642 dictee-setup.py:5648
 msgid "System words"
-msgstr ""
+msgstr "Palabras del sistema"
 
 #: dictee-setup.py:5648
 msgid "Your words"
-msgstr ""
+msgstr "Sus palabras"
 
 #: dictee-setup.py:5692
 #, fuzzy
@@ -1213,6 +1250,9 @@ msgid ""
 "\n"
 "System words will remain unchanged."
 msgstr ""
+"¿Eliminar todas sus palabras de continuación personalizadas?\n"
+"\n"
+"Las palabras del sistema permanecerán sin cambios."
 
 #: dictee-setup.py:5801
 msgid "System default"
@@ -1386,15 +1426,15 @@ msgstr "Instalar"
 
 #: dictee-setup.py:6696
 msgid "Type text or record..."
-msgstr ""
+msgstr "Escriba texto o grabe..."
 
 #: dictee-setup.py:6711
 msgid "Output"
-msgstr ""
+msgstr "Salida"
 
 #: dictee-setup.py:6728
 msgid "Pipeline details"
-msgstr ""
+msgstr "Detalles del pipeline"
 
 #: dictee-setup.py:6796
 #, fuzzy
@@ -1404,48 +1444,48 @@ msgstr "Reglas regex"
 #: dictee-setup.py:6809
 #, python-brace-format
 msgid "Rejected: ASR detected Cyrillic instead of {lang}"
-msgstr ""
+msgstr "Rechazado: el ASR detectó cirílico en lugar de {lang}"
 
 #: dictee-setup.py:6814
 #, python-brace-format
 msgid "Rejected: ASR detected Latin instead of {lang}"
-msgstr ""
+msgstr "Rechazado: el ASR detectó latín en lugar de {lang}"
 
 #: dictee-setup.py:6835
 msgid "Elisions [fr]"
-msgstr ""
+msgstr "Elisiones [fr]"
 
 #: dictee-setup.py:6839
 msgid "Elisions [it]"
-msgstr ""
+msgstr "Elisiones [it]"
 
 #: dictee-setup.py:6843
 msgid "Spanish [es]"
-msgstr ""
+msgstr "Español [es]"
 
 #: dictee-setup.py:6847
 msgid "Contractions [pt]"
-msgstr ""
+msgstr "Contracciones [pt]"
 
 #: dictee-setup.py:6851
 msgid "German [de]"
-msgstr ""
+msgstr "Alemán [de]"
 
 #: dictee-setup.py:6855
 msgid "Dutch [nl]"
-msgstr ""
+msgstr "Neerlandés [nl]"
 
 #: dictee-setup.py:6859
 msgid "Romanian [ro]"
-msgstr ""
+msgstr "Rumano [ro]"
 
 #: dictee-setup.py:6865
 msgid "Numbers"
-msgstr ""
+msgstr "Números"
 
 #: dictee-setup.py:6871
 msgid "Typography"
-msgstr ""
+msgstr "Tipografía"
 
 #: dictee-setup.py:6884
 #, fuzzy
@@ -1454,16 +1494,16 @@ msgstr "Capitalización automática"
 
 #: dictee-setup.py:6902
 msgid "changed"
-msgstr ""
+msgstr "modificado"
 
 #: dictee-setup.py:6938
 msgid "No ASR service is running. Start the default service?"
-msgstr ""
+msgstr "No hay ningún servicio ASR en ejecución. ¿Iniciar el servicio predeterminado?"
 
 #: dictee-setup.py:6987
 #, python-brace-format
 msgid "Cannot connect to ASR daemon: {err}"
-msgstr ""
+msgstr "No se puede conectar al daemon ASR: {err}"
 
 #: dictee-setup.py:7134
 #, python-brace-format
