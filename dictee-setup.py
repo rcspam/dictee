@@ -2228,13 +2228,7 @@ class DicteeSetupDialog(QDialog):
         self._build_mic_section(lay_mic, conf)
         lay.addWidget(grp_mic)
 
-        # Post-processing
-        grp_pp = QGroupBox(_("Post-processing"))
-        lay_pp = QVBoxLayout(grp_pp)
-        lay_pp.setSpacing(6)
-        lay_pp.setContentsMargins(16, 16, 16, 12)
-        self._build_postprocess_section(lay_pp, conf)
-        lay.addWidget(grp_pp)
+        # Post-processing: not in wizard (accessible via main config after setup)
 
         # Visual feedback
         grp_vis = QGroupBox(_("Visual feedback"))
