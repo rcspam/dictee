@@ -235,7 +235,7 @@ msgstr "Obteniendo la última versión…"
 #: dictee-setup.py:1325
 #, python-brace-format
 msgid "Cannot reach GitHub: {err}"
-msgstr ""
+msgstr "No se puede contactar con GitHub: {err}"
 
 #: dictee-setup.py:1330
 #, fuzzy
@@ -534,6 +534,7 @@ msgstr "Desactivado"
 msgid ""
 "Your user is not in the 'input' group (required for keyboard shortcuts)."
 msgstr ""
+"Su usuario no está en el grupo 'input' (necesario para los atajos de teclado)."
 
 #: dictee-setup.py:2467
 msgid "Fix (requires password)"
@@ -613,6 +614,8 @@ msgid ""
 "animation-speech requires a Wayland compositor with layer-shell support "
 "(KDE, Sway, Hyprland…). It does not work on GNOME."
 msgstr ""
+"animation-speech requiere un compositor Wayland con soporte layer-shell "
+"(KDE, Sway, Hyprland…). No funciona en GNOME."
 
 #: dictee-setup.py:2739 dictee-setup.py:6205
 msgid "Install animation-speech"
@@ -713,6 +716,8 @@ msgid ""
 "Converts spoken numbers to digits.\n"
 "Example: \"vingt-trois\" → \"23\""
 msgstr ""
+"Convierte números hablados en dígitos.\n"
+"Ejemplo: \"vingt-trois\" → \"23\""
 
 #: dictee-setup.py:3042
 msgid "Auto-capitalization"
@@ -726,6 +731,11 @@ msgid ""
 "this ensures correct capitalization afterwards.\n"
 "Essential for Vosk/Whisper backends."
 msgstr ""
+"Pone en mayúscula la primera letra después de la puntuación\n"
+"de fin de frase (. ! ?). Parakeet lo hace de forma nativa,\n"
+"pero las reglas de post-procesamiento pueden alterar el texto —\n"
+"esto asegura la correcta capitalización después.\n"
+"Esencial para los backends Vosk/Whisper."
 
 #: dictee-setup.py:3051 dictee-setup.py:3099 dictee-setup.py:6878
 #, fuzzy
@@ -737,10 +747,12 @@ msgid ""
 "Replaces words using the dictionary.\n"
 "Exact matching on word boundaries."
 msgstr ""
+"Reemplaza palabras usando el diccionario.\n"
+"Coincidencia exacta en los límites de palabra."
 
 #: dictee-setup.py:3057
 msgid "Fuzzy matching (jellyfish)"
-msgstr ""
+msgstr "Coincidencia aproximada (jellyfish)"
 
 #: dictee-setup.py:3060
 msgid ""
@@ -749,6 +761,10 @@ msgid ""
 "Requires the jellyfish Python library.\n"
 "Example: \"Gogle\" → \"Google\""
 msgstr ""
+"Tolera pequeñas variaciones ortográficas del ASR\n"
+"usando la similitud Jaro-Winkler (umbral 0.85).\n"
+"Requiere la biblioteca Python jellyfish.\n"
+"Ejemplo: \"Gogle\" → \"Google\""
 
 #: dictee-setup.py:3065 dictee-setup.py:3106
 msgid "Regex rules"
@@ -760,6 +776,9 @@ msgid ""
 "common ASR errors (voice commands,\n"
 "punctuation, formatting)."
 msgstr ""
+"Aplica reglas de sustitución regex para corregir\n"
+"errores ASR comunes (comandos de voz,\n"
+"puntuación, formato)."
 
 #: dictee-setup.py:3072 dictee-setup.py:3113 dictee-setup.py:6822
 #, fuzzy
@@ -772,14 +791,17 @@ msgid ""
 "(conjunctions, adverbs, etc.) to keep\n"
 "sentences flowing naturally."
 msgstr ""
+"Elimina el salto de línea antes de palabras de continuación\n"
+"(conjunciones, adverbios, etc.) para mantener\n"
+"las frases fluidas de forma natural."
 
 #: dictee-setup.py:3120
 msgid "Language rules"
-msgstr ""
+msgstr "Reglas de idioma"
 
 #: dictee-setup.py:3135
 msgid "Edit mode"
-msgstr ""
+msgstr "Modo edición"
 
 #: dictee-setup.py:3167
 msgid "LLM grammar correction (ollama)"
@@ -800,6 +822,9 @@ msgid ""
 "source language only. Currently: <b>{lang}</b>. Only the rules matching your "
 "source language will be active."
 msgstr ""
+"Reglas específicas del idioma (elisiones, contracciones, tipografía) "
+"aplicadas solo al idioma de origen. Actualmente: <b>{lang}</b>. Solo las "
+"reglas que coincidan con su idioma de origen estarán activas."
 
 #: dictee-setup.py:3410
 msgid "Elisions"
@@ -811,6 +836,9 @@ msgid ""
 "Example: \"le arbre\" → \"l'arbre\",\n"
 "\"de eau\" → \"d'eau\""
 msgstr ""
+"Aplica reglas de elisión francesas.\n"
+"Ejemplo: \"le arbre\" → \"l'arbre\",\n"
+"\"de eau\" → \"d'eau\""
 
 #: dictee-setup.py:3417
 msgid "Typography (non-breaking spaces)"
@@ -822,16 +850,21 @@ msgid ""
 "punctuation marks (: ; ! ? « »)\n"
 "as required by French typography rules."
 msgstr ""
+"Inserta espacios irrompibles antes de los signos\n"
+"de puntuación franceses (: ; ! ? « »)\n"
+"según las reglas tipográficas francesas."
 
 #: dictee-setup.py:3430
 msgid ""
 "No specific rules needed. Contractions (don't, I'm, can't) are handled "
 "natively by the ASR engine."
 msgstr ""
+"No se necesitan reglas específicas. Las contracciones (don't, I'm, can't) "
+"se gestionan de forma nativa por el motor ASR."
 
 #: dictee-setup.py:3441
 msgid "Elisions & contractions"
-msgstr ""
+msgstr "Elisiones y contracciones"
 
 #: dictee-setup.py:3444
 msgid ""
@@ -840,10 +873,14 @@ msgid ""
 "Contractions: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
 "\"in il\" → \"nel\", \"su la\" → \"sulla\""
 msgstr ""
+"Elisiones y contracciones preposicionales italianas.\n"
+"Elisiones: \"lo uomo\" → \"l'uomo\", \"di accordo\" → \"d'accordo\"\n"
+"Contracciones: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
+"\"in il\" → \"nel\", \"su la\" → \"sulla\""
 
 #: dictee-setup.py:3456
 msgid "Contractions & inverted punctuation"
-msgstr ""
+msgstr "Contracciones y puntuación invertida"
 
 #: dictee-setup.py:3459
 msgid ""
@@ -851,10 +888,13 @@ msgid ""
 "Contractions: \"a el\" → \"al\", \"de el\" → \"del\"\n"
 "Punctuation: adds ¿ before questions and ¡ before exclamations."
 msgstr ""
+"Contracciones y puntuación invertida españolas.\n"
+"Contracciones: \"a el\" → \"al\", \"de el\" → \"del\"\n"
+"Puntuación: añade ¿ antes de preguntas y ¡ antes de exclamaciones."
 
 #: dictee-setup.py:3470 dictee-setup.py:3499
 msgid "Contractions"
-msgstr ""
+msgstr "Contracciones"
 
 #: dictee-setup.py:3473
 msgid ""

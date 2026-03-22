@@ -1462,39 +1462,39 @@ msgstr "Abgelehnt: ASR hat Latein statt {lang} erkannt"
 
 #: dictee-setup.py:6835
 msgid "Elisions [fr]"
-msgstr ""
+msgstr "Elisionen [fr]"
 
 #: dictee-setup.py:6839
 msgid "Elisions [it]"
-msgstr ""
+msgstr "Elisionen [it]"
 
 #: dictee-setup.py:6843
 msgid "Spanish [es]"
-msgstr ""
+msgstr "Spanisch [es]"
 
 #: dictee-setup.py:6847
 msgid "Contractions [pt]"
-msgstr ""
+msgstr "Kontraktionen [pt]"
 
 #: dictee-setup.py:6851
 msgid "German [de]"
-msgstr ""
+msgstr "Deutsch [de]"
 
 #: dictee-setup.py:6855
 msgid "Dutch [nl]"
-msgstr ""
+msgstr "Niederländisch [nl]"
 
 #: dictee-setup.py:6859
 msgid "Romanian [ro]"
-msgstr ""
+msgstr "Rumänisch [ro]"
 
 #: dictee-setup.py:6865
 msgid "Numbers"
-msgstr ""
+msgstr "Zahlen"
 
 #: dictee-setup.py:6871
 msgid "Typography"
-msgstr ""
+msgstr "Typografie"
 
 #: dictee-setup.py:6884
 #, fuzzy
@@ -1503,16 +1503,16 @@ msgstr "Automatische Großschreibung"
 
 #: dictee-setup.py:6902
 msgid "changed"
-msgstr ""
+msgstr "geändert"
 
 #: dictee-setup.py:6938
 msgid "No ASR service is running. Start the default service?"
-msgstr ""
+msgstr "Kein ASR-Dienst läuft. Standarddienst starten?"
 
 #: dictee-setup.py:6987
 #, python-brace-format
 msgid "Cannot connect to ASR daemon: {err}"
-msgstr ""
+msgstr "Verbindung zum ASR-Daemon nicht möglich: {err}"
 
 #: dictee-setup.py:7134
 #, python-brace-format
