@@ -14,11 +14,20 @@ Lit le texte transcrit sur stdin, applique séquentiellement :
 
 Configuration via variables d'environnement :
   DICTEE_LANG_SOURCE       — langue source (fr, en, de, ...) pour filtrer les règles
-  DICTEE_PP_ELISIONS       — true/false (défaut: true)  — élisions françaises avancées
+  DICTEE_PP_ELISIONS       — true/false (défaut: true)  — élisions françaises (h aspirés)
+  DICTEE_PP_ELISIONS_IT    — true/false (défaut: true)  — élisions + contractions italiennes
+  DICTEE_PP_SPANISH        — true/false (défaut: true)  — contractions al/del + ¿¡ espagnol
+  DICTEE_PP_PORTUGUESE     — true/false (défaut: true)  — contractions portugaises (do, na, pelo...)
+  DICTEE_PP_GERMAN         — true/false (défaut: true)  — contractions allemandes (am, im...) + „"
+  DICTEE_PP_DUTCH          — true/false (défaut: true)  — contractions néerlandaises ('t, 'n, 's)
+  DICTEE_PP_ROMANIAN       — true/false (défaut: true)  — contractions roumaines (n-am, într-o) + „"
   DICTEE_PP_NUMBERS        — true/false (défaut: true)  — conversion nombres→chiffres
   DICTEE_PP_TYPOGRAPHY     — true/false (défaut: true)  — typographie française
   DICTEE_PP_CAPITALIZATION — true/false (défaut: true)  — capitalisation automatique
-  DICTEE_PP_FUZZY_DICT     — true/false (défaut: true)  — matching phonétique dictionnaire
+  DICTEE_PP_RULES          — true/false (défaut: true)  — règles regex
+  DICTEE_PP_DICT           — true/false (défaut: true)  — dictionnaire
+  DICTEE_PP_FUZZY_DICT     — true/false (défaut: true)  — matching souple jellyfish
+  DICTEE_PP_CONTINUATION   — true/false (défaut: true)  — continuation
   DICTEE_LLM_POSTPROCESS   — true/false (défaut: false) — correction LLM
   DICTEE_LLM_MODEL         — modèle ollama (défaut: gemma3:4b)
   DICTEE_LLM_TIMEOUT       — timeout en secondes (défaut: 10)
@@ -264,6 +273,265 @@ def fix_elisions(text):
             return e + rest.lower() if rest[0].isupper() and len(rest) > 1 and rest[1:] == rest[1:].lower() else e + rest
         text = pattern.sub(_elide, text)
     text = _SI_IL_RE.sub(r"s'\1", text)
+    return text
+
+
+# ── Élisions italiennes ──────────────────────────────────────────────
+
+IT_ELISION_WORDS = {
+    'lo': "l'", 'la': "l'",
+    'una': "un'",
+    'di': "d'", 'ci': "c'",
+}
+
+IT_ELISION_EXTENDED = {
+    'quello': "quell'", 'quella': "quell'",
+    'questo': "quest'", 'questa': "quest'",
+    'bello': "bell'", 'bella': "bell'",
+    'come': "com'", 'dove': "dov'",
+}
+
+_IT_VOWELS = 'aeiouyàèéìòóùAEIOUYÀÈÉÌÒÓÙ'
+_IT_VOWEL_PAT = f'[{_IT_VOWELS}]'
+_IT_ELISION_PATTERNS = []
+for _w, _e in {**IT_ELISION_WORDS, **IT_ELISION_EXTENDED}.items():
+    _pat = re.compile(
+        rf'\b{re.escape(_w)}\s+({_IT_VOWEL_PAT}\w*|[hH]{_IT_VOWEL_PAT}\w*)',
+        re.IGNORECASE)
+    _IT_ELISION_PATTERNS.append((_pat, _e))
+
+# Contractions prépositionnelles : di + il → del, a + lo → allo, etc.
+_IT_PREP_CONTRACTIONS = [
+    (re.compile(r'\bdi\s+il\b', re.I), 'del'),
+    (re.compile(r'\bdi\s+lo\b', re.I), 'dello'),
+    (re.compile(r'\bdi\s+la\b', re.I), 'della'),
+    (re.compile(r'\bdi\s+i\b', re.I), 'dei'),
+    (re.compile(r'\bdi\s+gli\b', re.I), 'degli'),
+    (re.compile(r'\bdi\s+le\b', re.I), 'delle'),
+    (re.compile(r'\ba\s+il\b', re.I), 'al'),
+    (re.compile(r'\ba\s+lo\b', re.I), 'allo'),
+    (re.compile(r'\ba\s+la\b', re.I), 'alla'),
+    (re.compile(r'\ba\s+i\b', re.I), 'ai'),
+    (re.compile(r'\ba\s+gli\b', re.I), 'agli'),
+    (re.compile(r'\ba\s+le\b', re.I), 'alle'),
+    (re.compile(r'\bda\s+il\b', re.I), 'dal'),
+    (re.compile(r'\bda\s+lo\b', re.I), 'dallo'),
+    (re.compile(r'\bda\s+la\b', re.I), 'dalla'),
+    (re.compile(r'\bda\s+i\b', re.I), 'dai'),
+    (re.compile(r'\bda\s+gli\b', re.I), 'dagli'),
+    (re.compile(r'\bda\s+le\b', re.I), 'dalle'),
+    (re.compile(r'\bin\s+il\b', re.I), 'nel'),
+    (re.compile(r'\bin\s+lo\b', re.I), 'nello'),
+    (re.compile(r'\bin\s+la\b', re.I), 'nella'),
+    (re.compile(r'\bin\s+i\b', re.I), 'nei'),
+    (re.compile(r'\bin\s+gli\b', re.I), 'negli'),
+    (re.compile(r'\bin\s+le\b', re.I), 'nelle'),
+    (re.compile(r'\bsu\s+il\b', re.I), 'sul'),
+    (re.compile(r'\bsu\s+lo\b', re.I), 'sullo'),
+    (re.compile(r'\bsu\s+la\b', re.I), 'sulla'),
+    (re.compile(r'\bsu\s+i\b', re.I), 'sui'),
+    (re.compile(r'\bsu\s+gli\b', re.I), 'sugli'),
+    (re.compile(r'\bsu\s+le\b', re.I), 'sulle'),
+]
+
+
+def _case_aware_replace(match, replacement):
+    """Remplace en préservant la casse du texte original."""
+    original = match.group(0)
+    if original.isupper():
+        return replacement.upper()
+    if original[0].isupper():
+        return replacement[0].upper() + replacement[1:]
+    return replacement
+
+
+def fix_italian_elisions(text):
+    """Corrige les contractions et élisions italiennes."""
+    # Contractions d'abord (di il → del) avant les élisions (di → d')
+    for pattern, contraction in _IT_PREP_CONTRACTIONS:
+        text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
+    for pattern, elided in _IT_ELISION_PATTERNS:
+        def _elide(m, e=elided):
+            rest = m.group(1)
+            if m.group(0)[0].isupper():
+                return e[0].upper() + e[1:] + rest
+            return e + rest
+        text = pattern.sub(_elide, text)
+    return text
+
+
+# ── Contractions espagnoles + ponctuation inversée ───────────────────
+
+_ES_AL = re.compile(r'\b[Aa]\s+[Ee]l\b(?!\s+[A-ZÁ-Ú])')
+_ES_DEL = re.compile(r'\b[Dd]e\s+[Ee]l\b(?!\s+[A-ZÁ-Ú])')
+# Ponctuation inversée : ajouter ¿ / ¡ en début de phrase
+_ES_QUESTION = re.compile(r'(?:^|(?<=[.!?\n]\s))([^?]*\?)')
+_ES_EXCLAIM = re.compile(r'(?:^|(?<=[.!?\n]\s))([^!]*!)')
+# Mots interrogatifs (aident à localiser le début de la question)
+_ES_QW = re.compile(
+    r'(?:^|(?<=[\s,;]))((?:qué|quién|quiénes|cómo|cuándo|dónde|'
+    r'por qué|cuál|cuáles|cuánto|cuánta|cuántos|cuántas)\b[^?]*\?)',
+    re.IGNORECASE)
+
+
+def fix_spanish(text):
+    """Contractions al/del et ponctuation inversée ¿¡."""
+    # Contractions (sauf noms propres : "de El Salvador")
+    text = _ES_AL.sub('al', text)
+    text = _ES_DEL.sub('del', text)
+    # Ponctuation inversée — mots interrogatifs d'abord
+    def _add_inv_q(m):
+        s = m.group(1)
+        if s.startswith('¿'):
+            return s
+        return '¿' + s
+    text = _ES_QW.sub(_add_inv_q, text)
+    # Exclamations
+    def _add_inv_e(m):
+        s = m.group(1)
+        if s.startswith('¡'):
+            return s
+        return '¡' + s.lstrip()
+    text = _ES_EXCLAIM.sub(_add_inv_e, text)
+    return text
+
+
+# ── Contractions portugaises ─────────────────────────────────────────
+
+_PT_CONTRACTIONS = [
+    # de + articles
+    (re.compile(r'\bde\s+o\b', re.I), 'do'),
+    (re.compile(r'\bde\s+a\b', re.I), 'da'),
+    (re.compile(r'\bde\s+os\b', re.I), 'dos'),
+    (re.compile(r'\bde\s+as\b', re.I), 'das'),
+    # em + articles
+    (re.compile(r'\bem\s+o\b', re.I), 'no'),
+    (re.compile(r'\bem\s+a\b', re.I), 'na'),
+    (re.compile(r'\bem\s+os\b', re.I), 'nos'),
+    (re.compile(r'\bem\s+as\b', re.I), 'nas'),
+    (re.compile(r'\bem\s+um\b', re.I), 'num'),
+    (re.compile(r'\bem\s+uma\b', re.I), 'numa'),
+    # por + articles
+    (re.compile(r'\bpor\s+o\b', re.I), 'pelo'),
+    (re.compile(r'\bpor\s+a\b', re.I), 'pela'),
+    (re.compile(r'\bpor\s+os\b', re.I), 'pelos'),
+    (re.compile(r'\bpor\s+as\b', re.I), 'pelas'),
+    # de + demonstrativos
+    (re.compile(r'\bde\s+este\b', re.I), 'deste'),
+    (re.compile(r'\bde\s+esta\b', re.I), 'desta'),
+    (re.compile(r'\bde\s+esse\b', re.I), 'desse'),
+    (re.compile(r'\bde\s+essa\b', re.I), 'dessa'),
+    (re.compile(r'\bde\s+aquele\b', re.I), 'daquele'),
+    (re.compile(r'\bde\s+aquela\b', re.I), 'daquela'),
+    (re.compile(r'\bde\s+isto\b', re.I), 'disto'),
+    (re.compile(r'\bde\s+isso\b', re.I), 'disso'),
+    (re.compile(r'\bde\s+aquilo\b', re.I), 'daquilo'),
+    # em + demonstrativos
+    (re.compile(r'\bem\s+este\b', re.I), 'neste'),
+    (re.compile(r'\bem\s+esta\b', re.I), 'nesta'),
+    (re.compile(r'\bem\s+esse\b', re.I), 'nesse'),
+    (re.compile(r'\bem\s+essa\b', re.I), 'nessa'),
+    (re.compile(r'\bem\s+aquele\b', re.I), 'naquele'),
+    (re.compile(r'\bem\s+aquela\b', re.I), 'naquela'),
+    # de/em + pronoms
+    (re.compile(r'\bde\s+ele\b', re.I), 'dele'),
+    (re.compile(r'\bde\s+ela\b', re.I), 'dela'),
+    (re.compile(r'\bde\s+eles\b', re.I), 'deles'),
+    (re.compile(r'\bde\s+elas\b', re.I), 'delas'),
+    (re.compile(r'\bem\s+ele\b', re.I), 'nele'),
+    (re.compile(r'\bem\s+ela\b', re.I), 'nela'),
+    (re.compile(r'\bem\s+eles\b', re.I), 'neles'),
+    (re.compile(r'\bem\s+elas\b', re.I), 'nelas'),
+]
+
+
+def fix_portuguese(text):
+    """Corrige les contractions portugaises (de o → do, em a → na, etc.)."""
+    for pattern, contraction in _PT_CONTRACTIONS:
+        text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
+    return text
+
+
+# ── Contractions allemandes ──────────────────────────────────────────
+
+_DE_CONTRACTIONS = [
+    (re.compile(r'\ban\s+dem\b', re.I), 'am'),
+    (re.compile(r'\ban\s+das\b', re.I), 'ans'),
+    (re.compile(r'\bauf\s+das\b', re.I), 'aufs'),
+    (re.compile(r'\bbei\s+dem\b', re.I), 'beim'),
+    (re.compile(r'\bin\s+dem\b', re.I), 'im'),
+    (re.compile(r'\bin\s+das\b', re.I), 'ins'),
+    (re.compile(r'\bvon\s+dem\b', re.I), 'vom'),
+    (re.compile(r'\bzu\s+dem\b', re.I), 'zum'),
+    (re.compile(r'\bzu\s+der\b', re.I), 'zur'),
+]
+
+_DE_TYPO_QUOTES = re.compile(r'"([^"]*)"')
+
+
+def fix_german(text):
+    """Contractions allemandes (an dem → am, etc.) et guillemets „..."."""
+    for pattern, contraction in _DE_CONTRACTIONS:
+        text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
+    # Guillemets anglais → allemands
+    text = _DE_TYPO_QUOTES.sub('\u201e\\1\u201c', text)
+    return text
+
+
+# ── Contractions néerlandaises ────────────────────────────────────────
+
+# Expressions fixes avec apostrophe
+_NL_CONTRACTIONS = [
+    # het → 't
+    (re.compile(r'\b[Hh]et\b'), "'t"),
+    # een → 'n (seulement devant minuscule — pas devant nom propre)
+    (re.compile(r'\b[Ee]en\b(?=\s+[a-zà-ÿ])'), "'n"),
+]
+# Expressions temporelles fixes
+_NL_TIME_EXPRS = [
+    (re.compile(r"\bin de morgens?\b", re.I), "'s morgens"),
+    (re.compile(r"\bin de avonds?\b", re.I), "'s avonds"),
+    (re.compile(r"\bin de nachts?\b", re.I), "'s nachts"),
+    (re.compile(r"\bin de middags?\b", re.I), "'s middags"),
+]
+
+
+def fix_dutch(text):
+    """Contractions néerlandaises ('t, 'n, 's morgens, etc.)."""
+    for pattern, replacement in _NL_TIME_EXPRS:
+        text = pattern.sub(replacement, text)
+    for pattern, replacement in _NL_CONTRACTIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+# ── Contractions roumaines ───────────────────────────────────────────
+
+_RO_CONTRACTIONS = [
+    # Négation contractée
+    (re.compile(r'\bnu\s+am\b', re.I), "n-am"),
+    (re.compile(r'\bnu\s+ai\b', re.I), "n-ai"),
+    (re.compile(r'\bnu\s+a\b', re.I), "n-a"),
+    (re.compile(r'\bnu\s+au\b', re.I), "n-au"),
+    (re.compile(r'\bnu\s+o\b', re.I), "n-o"),
+    # Prépositions contractées
+    (re.compile(r'\bîntr\s+o\b', re.I), "într-o"),
+    (re.compile(r'\bîntr\s+un\b', re.I), "într-un"),
+    (re.compile(r'\bdintr\s+o\b', re.I), "dintr-o"),
+    (re.compile(r'\bdintr\s+un\b', re.I), "dintr-un"),
+    (re.compile(r'\bprintr\s+o\b', re.I), "printr-o"),
+    (re.compile(r'\bprintr\s+un\b', re.I), "printr-un"),
+]
+
+_RO_TYPO_QUOTES = re.compile(r'"([^"]*)"')
+
+
+def fix_romanian(text):
+    """Contractions roumaines (n-am, într-o, etc.) et guillemets „..."."""
+    for pattern, contraction in _RO_CONTRACTIONS:
+        text = pattern.sub(lambda m: _case_aware_replace(m, contraction), text)
+    # Guillemets anglais → roumains (même style que l'allemand)
+    text = _RO_TYPO_QUOTES.sub('\u201e\\1\u201c', text)
     return text
 
 
@@ -517,7 +785,7 @@ def main():
     # 1-5. Règles regex (annotations, hésitations, commandes vocales,
     #       dédup, ponctuation, élisions basiques, nettoyage)
     rules = load_rules()
-    if rules:
+    if _env_bool("DICTEE_PP_RULES") and rules:
         text = apply_rules(text, rules)
     # Nettoyer les espaces en début (hésitations/annotations supprimées)
     # mais préserver les \n de fin (commandes vocales "à la ligne")
@@ -540,12 +808,24 @@ def main():
 
     # 5c. Continuation (suppression points erronés après mots de classe fermée)
     continuation_words = load_continuation()
-    if continuation_words:
+    if _env_bool("DICTEE_PP_CONTINUATION") and continuation_words:
         text = fix_continuation(text, continuation_words)
 
-    # 6. Élisions françaises avancées (avec h aspirés)
+    # 6. Règles spécifiques à la langue
     if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
         text = fix_elisions(text)
+    if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
+        text = fix_italian_elisions(text)
+    if LANG == "es" and _env_bool("DICTEE_PP_SPANISH"):
+        text = fix_spanish(text)
+    if LANG == "pt" and _env_bool("DICTEE_PP_PORTUGUESE"):
+        text = fix_portuguese(text)
+    if LANG == "de" and _env_bool("DICTEE_PP_GERMAN"):
+        text = fix_german(text)
+    if LANG == "nl" and _env_bool("DICTEE_PP_DUTCH"):
+        text = fix_dutch(text)
+    if LANG == "ro" and _env_bool("DICTEE_PP_ROMANIAN"):
+        text = fix_romanian(text)
 
     # 7. Conversion nombres → chiffres
     if _env_bool("DICTEE_PP_NUMBERS"):
@@ -559,7 +839,7 @@ def main():
 
     # 10. Dictionnaire (système + personnel, avec matching phonétique)
     dictionary = load_dictionary()
-    if dictionary:
+    if _env_bool("DICTEE_PP_DICT") and dictionary:
         text = apply_dictionary(
             text, dictionary,
             fuzzy=_env_bool("DICTEE_PP_FUZZY_DICT"),

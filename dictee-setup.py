@@ -19,25 +19,25 @@ import locale
 import tempfile
 
 try:
-    from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, pyqtSignal as Signal
-    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap
+    from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, pyqtSignal as Signal
+    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout, QTabWidget, QLineEdit,
+        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
-    from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, Signal
-    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap
+    from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, Signal
+    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QTabWidget, QLineEdit,
+        QToolTip, QTabWidget, QLineEdit, QLayout,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
@@ -213,8 +213,12 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
                 ptt_mod_translate="", postprocess=True,
-                pp_elisions=True, pp_numbers=True, pp_typography=True,
-                pp_capitalization=True, pp_fuzzy_dict=True,
+                pp_elisions=True, pp_elisions_it=True,
+                pp_spanish=True, pp_portuguese=True, pp_german=True,
+                pp_dutch=True, pp_romanian=True,
+                pp_numbers=True, pp_typography=True,
+                pp_capitalization=True, pp_dict=True, pp_fuzzy_dict=True,
+                pp_rules=True, pp_continuation=True,
                 llm_postprocess=False, llm_model="ministral:3b",
                 llm_timeout=10, llm_cpu=False):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
@@ -256,14 +260,32 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         f.write(f"DICTEE_POSTPROCESS={'true' if postprocess else 'false'}\n")
         if not pp_elisions:
             f.write("DICTEE_PP_ELISIONS=false\n")
+        if not pp_elisions_it:
+            f.write("DICTEE_PP_ELISIONS_IT=false\n")
+        if not pp_spanish:
+            f.write("DICTEE_PP_SPANISH=false\n")
+        if not pp_portuguese:
+            f.write("DICTEE_PP_PORTUGUESE=false\n")
+        if not pp_german:
+            f.write("DICTEE_PP_GERMAN=false\n")
+        if not pp_dutch:
+            f.write("DICTEE_PP_DUTCH=false\n")
+        if not pp_romanian:
+            f.write("DICTEE_PP_ROMANIAN=false\n")
         if not pp_numbers:
             f.write("DICTEE_PP_NUMBERS=false\n")
         if not pp_typography:
             f.write("DICTEE_PP_TYPOGRAPHY=false\n")
         if not pp_capitalization:
             f.write("DICTEE_PP_CAPITALIZATION=false\n")
+        if not pp_dict:
+            f.write("DICTEE_PP_DICT=false\n")
         if not pp_fuzzy_dict:
             f.write("DICTEE_PP_FUZZY_DICT=false\n")
+        if not pp_rules:
+            f.write("DICTEE_PP_RULES=false\n")
+        if not pp_continuation:
+            f.write("DICTEE_PP_CONTINUATION=false\n")
         if llm_postprocess:
             f.write(f"DICTEE_LLM_POSTPROCESS=true\n")
             f.write(f"DICTEE_LLM_MODEL={llm_model}\n")
@@ -1620,7 +1642,15 @@ class DicteeSetupDialog(QDialog):
         super().showEvent(event)
         if getattr(self, '_open_postprocess', False):
             self._open_postprocess = False
-            QTimer.singleShot(100, self._open_postprocess_dialog)
+            self.hide()
+            QTimer.singleShot(50, self._open_postprocess_dialog)
+
+    @property
+    def _pp_parent(self):
+        """Retourne la fenêtre parent pour les popups post-traitement."""
+        if hasattr(self, '_pp_dialog') and self._pp_dialog is not None and self._pp_dialog.isVisible():
+            return self._pp_dialog
+        return self
 
     def _open_postprocess_dialog(self):
         """Ouvre la fenêtre post-traitement dans un dialogue séparé (réutilisé)."""
@@ -1640,14 +1670,16 @@ class DicteeSetupDialog(QDialog):
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
-        dlg.resize(1000, 700)
-        dlg.setMinimumSize(800, 500)
+        dlg.resize(1150, 950)
+        dlg.setMinimumSize(900, 600)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
         self._pp_dialog = dlg
         dlg.finished.connect(self._dict_cleanup_tmp)
+        if self.isHidden():
+            dlg.finished.connect(self.close)
         dlg.show()
 
     # ── Classic mode ──────────────────────────────────────────────
@@ -2483,12 +2515,7 @@ class DicteeSetupDialog(QDialog):
             lbl.setWordWrap(True)
             row.addWidget(lbl, 1)
 
-            btn_info = QPushButton("?")
-            btn_info.setFixedSize(24, 24)
-            btn_info.setToolTip(model["help"])
-            btn_info.setStyleSheet("font-weight: bold; border-radius: 12px;")
-            btn_info.clicked.connect(lambda checked, b=btn_info, m=model:
-                QToolTip.showText(b.mapToGlobal(b.rect().bottomLeft()), m["help"], b))
+            btn_info = self._HelpLabel(model["help"])
             row.addWidget(btn_info)
 
             btn = QPushButton(_("Download") if not installed else _("Installed"))
@@ -2728,9 +2755,7 @@ class DicteeSetupDialog(QDialog):
         lay_tr_title.setSpacing(6)
         lbl_tr_title = QLabel("<b>" + _("Translation") + "</b>")
         lay_tr_title.addWidget(lbl_tr_title)
-        btn_help_tr = QPushButton("?")
-        btn_help_tr.setFixedSize(22, 22)
-        btn_help_tr.setToolTip(
+        btn_help_tr = self._HelpLabel(
             _("How to translate:") + "\n\n"
             + _("• Keyboard shortcut: configure above (Dictation + Translation)") + "\n"
             + _("• Plasmoid: long press or translation button") + "\n"
@@ -2948,6 +2973,49 @@ class DicteeSetupDialog(QDialog):
 
     # -- Post-processing section --
 
+    class _HelpLabel(QLabel):
+        """QLabel '?' qui affiche un popup flottant au survol."""
+
+        def __init__(self, help_text, parent=None):
+            super().__init__(" ? ", parent)
+            self._help_text = help_text
+            self._popup = None
+            self.setStyleSheet(
+                "QLabel { border: 1px solid palette(mid); border-radius: 10px;"
+                " font-size: 13px; font-weight: bold; color: palette(text);"
+                " padding: 1px 4px; }")
+            self.setMouseTracking(True)
+
+        def enterEvent(self, event):
+            super().enterEvent(event)
+            if self._popup is None:
+                self._popup = QLabel(self._help_text, self.window())
+                self._popup.setWindowFlags(
+                    Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+                self._popup.setStyleSheet(
+                    "QLabel { background: palette(highlight); color: palette(highlighted-text);"
+                    " border: 1px solid palette(dark); border-radius: 4px;"
+                    " padding: 6px; }")
+            pos = self.mapToGlobal(self.rect().bottomLeft())
+            self._popup.move(pos)
+            self._popup.show()
+
+        def leaveEvent(self, event):
+            super().leaveEvent(event)
+            if self._popup is not None:
+                self._popup.hide()
+
+    def _pp_checkbox_with_help(self, checkbox, help_text):
+        """Ajoute un ? avec popup au survol à côté de la checkbox."""
+        container = QWidget()
+        h = QHBoxLayout(container)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(4)
+        h.addWidget(checkbox)
+        h.addWidget(self._HelpLabel(help_text))
+        h.addStretch()
+        return container
+
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
         # Checkbox activer
@@ -2967,42 +3035,48 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
         self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
-        grid_gen.addWidget(self.chk_pp_numbers, 0, 0)
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
+            _("Converts spoken numbers to digits.\n"
+              "Example: \"vingt-trois\" → \"23\"")), 0, 0)
 
         self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
         self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
-        grid_gen.addWidget(self.chk_pp_capitalization, 0, 1)
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
+            _("Capitalizes the first letter after sentence-ending\n"
+              "punctuation (. ! ?). Parakeet does this natively,\n"
+              "but post-processing rules may alter the text —\n"
+              "this ensures correct capitalization afterwards.\n"
+              "Essential for Vosk/Whisper backends.")), 0, 1)
 
-        self.chk_pp_fuzzy_dict = QCheckBox(_("Fuzzy dictionary matching"))
+        self.chk_pp_dict = QCheckBox(_("Dictionary"))
+        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
+            _("Replaces words using the dictionary.\n"
+              "Exact matching on word boundaries.")), 1, 1)
+
+        self.chk_pp_fuzzy_dict = QCheckBox(_("Fuzzy matching (jellyfish)"))
         self.chk_pp_fuzzy_dict.setChecked(conf.get("DICTEE_PP_FUZZY_DICT", "true") == "true")
-        grid_gen.addWidget(self.chk_pp_fuzzy_dict, 1, 0)
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_fuzzy_dict,
+            _("Tolerates small spelling variations from the ASR\n"
+              "using Jaro-Winkler string similarity (threshold 0.85).\n"
+              "Requires the jellyfish Python library.\n"
+              "Example: \"Gogle\" → \"Google\"")), 1, 0)
+
+        self.chk_pp_rules = QCheckBox(_("Regex rules"))
+        self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
+            _("Applies regex substitution rules to fix\n"
+              "common ASR errors (voice commands,\n"
+              "punctuation, formatting).")), 2, 0)
+
+        self.chk_pp_continuation = QCheckBox(_("Continuation"))
+        self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_continuation,
+            _("Removes line break before continuation words\n"
+              "(conjunctions, adverbs, etc.) to keep\n"
+              "sentences flowing naturally.")), 2, 1)
 
         pp_lay.addLayout(grid_gen)
-
-        # --- Pipeline toggles — spécifiques à la langue ---
-        lang_src = conf.get("DICTEE_LANG_SOURCE", "fr")
-        is_fr = lang_src == "fr"
-
-        lbl_lang = QLabel("<b>" + _("French-specific:") + "</b>")
-        lbl_lang.setContentsMargins(20, 4, 0, 0)
-        lbl_lang.setVisible(is_fr)
-        pp_lay.addWidget(lbl_lang)
-
-        grid_lang = QGridLayout()
-        grid_lang.setContentsMargins(20, 0, 0, 0)
-
-        self.chk_pp_elisions = QCheckBox(_("Elisions"))
-        self.chk_pp_elisions.setChecked(conf.get("DICTEE_PP_ELISIONS", "true") == "true")
-        self.chk_pp_elisions.setVisible(is_fr)
-        grid_lang.addWidget(self.chk_pp_elisions, 0, 0)
-
-        self.chk_pp_typography = QCheckBox(_("Typography (non-breaking spaces)"))
-        self.chk_pp_typography.setChecked(conf.get("DICTEE_PP_TYPOGRAPHY", "true") == "true")
-        self.chk_pp_typography.setVisible(is_fr)
-        grid_lang.addWidget(self.chk_pp_typography, 0, 1)
-
-        self._lang_pp_widgets = [lbl_lang, self.chk_pp_elisions, self.chk_pp_typography]
-        pp_lay.addLayout(grid_lang)
 
         # --- Sous-onglets d'édition ---
         self._pp_tabs = QTabWidget()
@@ -3017,29 +3091,48 @@ class DicteeSetupDialog(QDialog):
             }}
         """)
 
-        # Onglet Règles
-        tab_rules = QWidget()
-        tab_rules_lay = QVBoxLayout(tab_rules)
-        tab_rules_lay.setContentsMargins(8, 8, 8, 8)
-        self._build_rules_tab(tab_rules_lay)
-        self._pp_tabs.addTab(tab_rules, _("Regex rules"))
-
-        # Onglet Dictionnaire
+        # Onglet Dictionnaire (index 0)
         tab_dict = QWidget()
         tab_dict_lay = QVBoxLayout(tab_dict)
         tab_dict_lay.setContentsMargins(8, 8, 8, 8)
         self._build_dictionary_tab(tab_dict_lay)
         self._pp_tabs.addTab(tab_dict, _("Dictionary"))
 
-        # Onglet Continuation
+        # Onglet Règles (index 1)
+        tab_rules = QWidget()
+        tab_rules_lay = QVBoxLayout(tab_rules)
+        tab_rules_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_rules_tab(tab_rules_lay)
+        self._pp_tabs.addTab(tab_rules, _("Regex rules"))
+
+        # Onglet Continuation (index 2)
         tab_cont = QWidget()
         tab_cont_lay = QVBoxLayout(tab_cont)
         tab_cont_lay.setContentsMargins(8, 8, 8, 8)
         self._build_continuation_tab(tab_cont_lay)
         self._pp_tabs.addTab(tab_cont, _("Continuation"))
 
+        # Onglet Language rules (index 3)
+        tab_lang = QWidget()
+        tab_lang_lay = QVBoxLayout(tab_lang)
+        tab_lang_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_language_rules_tab(tab_lang_lay, conf)
+        self._pp_tabs.addTab(tab_lang, _("Language rules"))
+
+        # Griser les onglets quand la checkbox correspondante est décochée
+        def _on_dict_toggled(on):
+            self._pp_tabs.setTabEnabled(0, on)
+            self.chk_pp_fuzzy_dict.setEnabled(on)
+        self.chk_pp_dict.toggled.connect(_on_dict_toggled)
+        self.chk_pp_rules.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(1, on))
+        self.chk_pp_continuation.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(2, on))
+        self._pp_tabs.setTabEnabled(0, self.chk_pp_dict.isChecked())
+        self.chk_pp_fuzzy_dict.setEnabled(self.chk_pp_dict.isChecked())
+        self._pp_tabs.setTabEnabled(1, self.chk_pp_rules.isChecked())
+        self._pp_tabs.setTabEnabled(2, self.chk_pp_continuation.isChecked())
+
         # Bouton Mode avancé (masqué pour l'onglet Règles)
-        self._btn_advanced = QPushButton(_("Advanced mode"))
+        self._btn_advanced = QPushButton(_("Edit mode"))
         self._btn_advanced.setCheckable(True)
         self._btn_advanced.setMaximumWidth(150)
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
@@ -3054,7 +3147,7 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.setCornerWidget(corner)
 
         def _on_tab_changed(idx):
-            self._btn_advanced.setVisible(idx != 0)
+            self._btn_advanced.setVisible(idx not in (1, 3))  # masqué pour Règles et Languages
             self._btn_advanced.setChecked(False)
             self._toggle_advanced_mode(False)
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
@@ -3170,12 +3263,358 @@ class DicteeSetupDialog(QDialog):
         font.setStyleHint(QFont.StyleHint.Monospace)
         return font
 
+    # ── Coloration syntaxique + numéros de ligne pour l'éditeur regex ──
+
+    class _RulesHighlighter(QSyntaxHighlighter):
+        """Coloration syntaxique pour les fichiers de règles dictee."""
+
+        def __init__(self, document):
+            super().__init__(document)
+            from PyQt6.QtGui import QTextCharFormat, QColor
+            # Commentaires
+            self._fmt_comment = QTextCharFormat()
+            self._fmt_comment.setForeground(QColor("#808080"))
+            # Section headers ═══
+            self._fmt_header = QTextCharFormat()
+            self._fmt_header.setForeground(QColor("#B8860B"))
+            self._fmt_header.setFontWeight(700)
+            # [lang]
+            self._fmt_lang = QTextCharFormat()
+            self._fmt_lang.setForeground(QColor("#5DADE2"))
+            self._fmt_lang.setFontWeight(700)
+            # /pattern/
+            self._fmt_pattern = QTextCharFormat()
+            self._fmt_pattern.setForeground(QColor("#E67E22"))
+            # /replacement/
+            self._fmt_replacement = QTextCharFormat()
+            self._fmt_replacement.setForeground(QColor("#2ECC71"))
+            # flags
+            self._fmt_flags = QTextCharFormat()
+            self._fmt_flags.setForeground(QColor("#AF7AC5"))
+
+        def highlightBlock(self, text):
+            import re
+            s = text.strip()
+            if not s:
+                return
+            # Commentaires
+            if s.startswith("#"):
+                if "═" in s or "──" in s:
+                    self.setFormat(0, len(text), self._fmt_header)
+                else:
+                    self.setFormat(0, len(text), self._fmt_comment)
+                return
+            # Règle : [lang] /pattern/replacement/flags
+            m = re.match(r'^(\[[^\]]*\])\s*(/(.*?)/(.*?)/(.*))$', text)
+            if m:
+                # [lang]
+                self.setFormat(0, len(m.group(1)), self._fmt_lang)
+                # Trouver le début du /pattern/replacement/flags
+                rest_start = m.start(2)
+                rest = m.group(2)
+                # Parser les / manuellement
+                parts = rest.split("/")
+                # parts[0] = "" (avant le premier /), parts[1] = pattern, parts[2] = replacement, parts[3] = flags
+                if len(parts) >= 4:
+                    pos = rest_start
+                    pos += 1  # premier /
+                    # pattern
+                    self.setFormat(pos, len(parts[1]), self._fmt_pattern)
+                    pos += len(parts[1]) + 1  # + /
+                    # replacement
+                    self.setFormat(pos, len(parts[2]), self._fmt_replacement)
+                    pos += len(parts[2]) + 1  # + /
+                    # flags
+                    self.setFormat(pos, len(parts[3]), self._fmt_flags)
+
+    class _LineNumberArea(QWidget):
+        """Widget affichant les numéros de ligne à gauche d'un QTextEdit."""
+
+        def __init__(self, editor):
+            super().__init__(editor)
+            self._editor = editor
+            self._editor.document().blockCountChanged.connect(self._update_width)
+            self._editor.verticalScrollBar().valueChanged.connect(self.update)
+            self._editor.textChanged.connect(self.update)
+            self._editor.installEventFilter(self)
+            self._update_width()
+
+        def eventFilter(self, obj, event):
+            if obj is self._editor and event.type() == event.Type.Resize:
+                cr = self._editor.contentsRect()
+                self.setGeometry(cr.left(), cr.top(), self.width(), cr.height())
+            return False
+
+        def _update_width(self):
+            digits = len(str(max(1, self._editor.document().blockCount())))
+            width = self._editor.fontMetrics().horizontalAdvance("9") * (digits + 2) + 8
+            self._editor.setViewportMargins(width, 0, 0, 0)
+            self.setFixedWidth(width)
+
+        def paintEvent(self, event):
+            from PyQt6.QtGui import QPainter, QColor
+            from PyQt6.QtCore import QRect
+            painter = QPainter(self)
+            painter.fillRect(event.rect(), self._editor.palette().color(
+                self._editor.palette().ColorRole.AlternateBase))
+            painter.setPen(QColor("#808080"))
+            font = self._editor.font()
+            painter.setFont(font)
+
+            block = self._editor.document().begin()
+            top = self._editor.document().documentLayout().blockBoundingRect(
+                block).translated(0, -self._editor.verticalScrollBar().value()).top()
+            fm = self._editor.fontMetrics()
+
+            while block.isValid():
+                rect = self._editor.document().documentLayout().blockBoundingRect(block)
+                y = rect.translated(0, -self._editor.verticalScrollBar().value()).top()
+                if y > event.rect().bottom():
+                    break
+                if y + rect.height() >= event.rect().top():
+                    painter.drawText(
+                        QRect(0, int(y), self.width() - 4, int(rect.height())),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        str(block.blockNumber() + 1))
+                block = block.next()
+            painter.end()
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            cr = self._editor.contentsRect()
+            self.setGeometry(cr.left(), cr.top(), self.width(), cr.height())
+
+    def _build_language_rules_tab(self, lay, conf):
+        """Onglet Language rules : options spécifiques par langue."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+        content_lay.setSpacing(8)
+
+        lang_src = conf.get("DICTEE_LANG_SOURCE", "fr")
+        info = QLabel(
+            "<i>" + _("Language-specific rules (elisions, contractions, typography) "
+                      "applied to the source language only. Currently: <b>{lang}</b>. "
+                      "Only the rules matching your source language will be active."
+                      ).format(lang=lang_src) + "</i>")
+        info.setWordWrap(True)
+        content_lay.addWidget(info)
+
+        # ── Français ──
+        grp_fr = QGroupBox("Français [fr]")
+        grp_fr_lay = QVBoxLayout(grp_fr)
+        grp_fr_lay.setSpacing(4)
+
+        self.chk_pp_elisions = QCheckBox(_("Elisions"))
+        self.chk_pp_elisions.setChecked(conf.get("DICTEE_PP_ELISIONS", "true") == "true")
+        grp_fr_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_elisions,
+            _("Applies French elision rules.\n"
+              "Example: \"le arbre\" → \"l'arbre\",\n"
+              "\"de eau\" → \"d'eau\"")))
+
+        self.chk_pp_typography = QCheckBox(_("Typography (non-breaking spaces)"))
+        self.chk_pp_typography.setChecked(conf.get("DICTEE_PP_TYPOGRAPHY", "true") == "true")
+        grp_fr_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_typography,
+            _("Inserts non-breaking spaces before French\n"
+              "punctuation marks (: ; ! ? « »)\n"
+              "as required by French typography rules.")))
+
+        content_lay.addWidget(grp_fr)
+
+        # ── English ──
+        grp_en = QGroupBox("English [en]")
+        grp_en_lay = QVBoxLayout(grp_en)
+        grp_en_lay.setSpacing(4)
+        lbl_en = QLabel("<i>" + _("No specific rules needed. Contractions (don't, I'm, can't) "
+                                   "are handled natively by the ASR engine.") + "</i>")
+        lbl_en.setWordWrap(True)
+        grp_en_lay.addWidget(lbl_en)
+        content_lay.addWidget(grp_en)
+
+        # ── Italiano ──
+        grp_it = QGroupBox("Italiano [it]")
+        grp_it_lay = QVBoxLayout(grp_it)
+        grp_it_lay.setSpacing(4)
+
+        self.chk_pp_elisions_it = QCheckBox(_("Elisions & contractions"))
+        self.chk_pp_elisions_it.setChecked(conf.get("DICTEE_PP_ELISIONS_IT", "true") == "true")
+        grp_it_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_elisions_it,
+            _("Italian elisions and prepositional contractions.\n"
+              "Elisions: \"lo uomo\" → \"l'uomo\", \"di accordo\" → \"d'accordo\"\n"
+              "Contractions: \"di il\" → \"del\", \"a la\" → \"alla\",\n"
+              "\"in il\" → \"nel\", \"su la\" → \"sulla\"")))
+
+        content_lay.addWidget(grp_it)
+
+        # ── Español ──
+        grp_es = QGroupBox("Español [es]")
+        grp_es_lay = QVBoxLayout(grp_es)
+        grp_es_lay.setSpacing(4)
+
+        self.chk_pp_spanish = QCheckBox(_("Contractions & inverted punctuation"))
+        self.chk_pp_spanish.setChecked(conf.get("DICTEE_PP_SPANISH", "true") == "true")
+        grp_es_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_spanish,
+            _("Spanish contractions and inverted punctuation.\n"
+              "Contractions: \"a el\" → \"al\", \"de el\" → \"del\"\n"
+              "Punctuation: adds ¿ before questions and ¡ before exclamations.")))
+
+        content_lay.addWidget(grp_es)
+
+        # ── Português ──
+        grp_pt = QGroupBox("Português [pt]")
+        grp_pt_lay = QVBoxLayout(grp_pt)
+        grp_pt_lay.setSpacing(4)
+
+        self.chk_pp_portuguese = QCheckBox(_("Contractions"))
+        self.chk_pp_portuguese.setChecked(conf.get("DICTEE_PP_PORTUGUESE", "true") == "true")
+        grp_pt_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_portuguese,
+            _("Portuguese fused contractions.\n"
+              "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
+              "\"de este\" → \"deste\", \"em ele\" → \"nele\"")))
+
+        content_lay.addWidget(grp_pt)
+
+        # ── Deutsch ──
+        grp_de = QGroupBox("Deutsch [de]")
+        grp_de_lay = QVBoxLayout(grp_de)
+        grp_de_lay.setSpacing(4)
+
+        self.chk_pp_german = QCheckBox(_("Contractions & typography"))
+        self.chk_pp_german.setChecked(conf.get("DICTEE_PP_GERMAN", "true") == "true")
+        grp_de_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_german,
+            _("German contractions and typography.\n"
+              "Contractions: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
+              "\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
+              "Typography: \"text\" → \u201etext\u201c (German quotes)")))
+
+        content_lay.addWidget(grp_de)
+
+        # ── Nederlands ──
+        grp_nl = QGroupBox("Nederlands [nl]")
+        grp_nl_lay = QVBoxLayout(grp_nl)
+        grp_nl_lay.setSpacing(4)
+
+        self.chk_pp_dutch = QCheckBox(_("Contractions"))
+        self.chk_pp_dutch.setChecked(conf.get("DICTEE_PP_DUTCH", "true") == "true")
+        grp_nl_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_dutch,
+            _("Dutch contractions and time expressions.\n"
+              "\"het\" → \"'t\", \"een\" → \"'n\"\n"
+              "\"in de morgens\" → \"'s morgens\"")))
+
+        content_lay.addWidget(grp_nl)
+
+        # ── Română ──
+        grp_ro = QGroupBox("Română [ro]")
+        grp_ro_lay = QVBoxLayout(grp_ro)
+        grp_ro_lay.setSpacing(4)
+
+        self.chk_pp_romanian = QCheckBox(_("Contractions & typography"))
+        self.chk_pp_romanian.setChecked(conf.get("DICTEE_PP_ROMANIAN", "true") == "true")
+        grp_ro_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_romanian,
+            _("Romanian contractions and typography.\n"
+              "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
+              "Typography: \"text\" → \u201etext\u201c (Romanian quotes)")))
+
+        content_lay.addWidget(grp_ro)
+
+        content_lay.addStretch()
+        scroll.setWidget(content)
+        lay.addWidget(scroll)
+
     def _build_rules_tab(self, lay):
-        """Onglet Règles : éditeur texte monospace."""
+        """Onglet Règles : créateur de règle + éditeur texte monospace."""
         import os as _os
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
 
+        # --- Avertissement ---
+        warn = QLabel(
+            '<span style="color: red; font-weight: bold;">⚠ ' +
+            _("Advanced — Incorrect rules can break transcription output. "
+              "Rules are applied in order: a misplaced or wrong pattern "
+              "may silently delete or corrupt text. Use the test panel below to verify.") +
+            '</span>')
+        warn.setWordWrap(True)
+        lay.addWidget(warn)
+
+        # --- Créateur de règle ---
+        add_grp = QGroupBox(_("Add a rule"))
+        add_grp_lay = QVBoxLayout(add_grp)
+        add_lay = QHBoxLayout()
+        add_lay.setSpacing(6)
+
+        self._rule_lang = QComboBox()
+        self._rule_lang.setFixedWidth(60)
+        self._rule_lang.addItem("*")
+        for code, _name in LANGUAGES:
+            self._rule_lang.addItem(code)
+        lang_src = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        idx = self._rule_lang.findText(lang_src)
+        if idx >= 0:
+            self._rule_lang.setCurrentIndex(idx)
+        add_lay.addWidget(self._rule_lang)
+
+        add_lay.addWidget(QLabel("/"))
+        self._rule_pattern = QLineEdit()
+        self._rule_pattern.setPlaceholderText(_("Pattern (what the ASR says)"))
+        self._rule_pattern.setFont(self._monospace_font())
+        add_lay.addWidget(self._rule_pattern, 2)
+
+        add_lay.addWidget(QLabel("/"))
+        self._rule_replacement = QLineEdit()
+        self._rule_replacement.setPlaceholderText(_("Replacement (\\n = newline)"))
+        self._rule_replacement.setFont(self._monospace_font())
+        add_lay.addWidget(self._rule_replacement, 2)
+
+        add_lay.addWidget(QLabel("/"))
+        self._rule_flags = QLineEdit("ig")
+        self._rule_flags.setFixedWidth(40)
+        self._rule_flags.setFont(self._monospace_font())
+        self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
+        add_lay.addWidget(self._rule_flags)
+
+        # Choix de la section et position d'insertion
+        add_row2 = QHBoxLayout()
+        add_row2.setSpacing(6)
+        add_row2.addWidget(QLabel(_("Insert in:")))
+        self._rule_section = QComboBox()
+        self._rule_section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        add_row2.addWidget(self._rule_section, 1)
+
+        self._rule_position = QComboBox()
+        self._rule_position.addItem(_("at end"), "end")
+        self._rule_position.addItem(_("at beginning"), "begin")
+        self._rule_position.setFixedWidth(120)
+        self._rule_position.setEnabled(False)
+        add_row2.addWidget(self._rule_position)
+
+        self._rule_section.currentIndexChanged.connect(
+            lambda: self._rule_position.setEnabled(
+                self._rule_section.currentData() == "section"))
+
+        btn_add_rule = QPushButton("+ " + _("Add"))
+        btn_add_rule.clicked.connect(self._add_rule_to_editor)
+        add_row2.addWidget(btn_add_rule)
+
+        self._btn_record_rule = QPushButton(QIcon.fromTheme("audio-input-microphone"), _("Record"))
+        self._btn_record_rule.setToolTip(_("Record audio, transcribe, and fill the pattern field"))
+        self._btn_record_rule.clicked.connect(self._record_for_rule)
+        add_row2.addWidget(self._btn_record_rule)
+
+        # Label pour afficher RAW/PROCESSED après enregistrement
+        self._rule_preview = QLabel()
+        self._rule_preview.setWordWrap(True)
+        self._rule_preview.setVisible(False)
+
+        add_grp_lay.addLayout(add_lay)
+        add_grp_lay.addLayout(add_row2)
+        add_grp_lay.addWidget(self._rule_preview)
+
+        lay.addWidget(add_grp)
+
+        # --- Éditeur texte ---
         info = QLabel(
             "<i>" + _("User rules in {path} — applied after system rules.").format(
                 path="~/.config/dictee/rules.conf") + "</i>")
@@ -3188,12 +3627,73 @@ class DicteeSetupDialog(QDialog):
             "# [lang] /PATTERN/REPLACEMENT/FLAGS\n"
             "# Example:\n"
             "# [fr] /point à la ligne/\\n/ig\n")
+
+        # Coloration syntaxique
+        self._rules_highlighter = self._RulesHighlighter(self._rules_editor.document())
+
+        # Numéros de ligne
+        self._rules_line_numbers = self._LineNumberArea(self._rules_editor)
+
+        # Compteur de règles
+        self._rules_count_label = QLabel()
+        self._rules_count_label.setStyleSheet("color: gray; font-size: 11px;")
+        self._rules_editor.textChanged.connect(self._update_rules_count)
+
         self._load_rules_file()
         lay.addWidget(self._rules_editor)
 
         self._add_zoom_overlay(self._rules_editor)
 
+        # --- Barre de recherche (Ctrl+F) ---
+        self._rules_search_bar = QWidget()
+        self._rules_search_bar.setVisible(False)
+        search_lay = QHBoxLayout(self._rules_search_bar)
+        search_lay.setContentsMargins(0, 2, 0, 2)
+        search_lay.setSpacing(4)
+        self._rules_search_input = QLineEdit()
+        self._rules_search_input.addAction(
+            QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
+        self._rules_search_input.returnPressed.connect(lambda: self._rules_find(forward=True))
+        self._rules_search_input.textChanged.connect(lambda: self._rules_find(forward=True))
+        search_lay.addWidget(self._rules_search_input, 1)
+        self._rules_search_count = QLabel()
+        self._rules_search_count.setStyleSheet("color: gray; font-size: 11px;")
+        self._rules_search_count.setFixedWidth(50)
+        search_lay.addWidget(self._rules_search_count)
+        btn_prev = QPushButton("\u25b2")
+        btn_prev.setFixedWidth(28)
+        btn_prev.setToolTip(_("Previous"))
+        btn_prev.clicked.connect(lambda: self._rules_find(forward=False))
+        search_lay.addWidget(btn_prev)
+        btn_next = QPushButton("\u25bc")
+        btn_next.setFixedWidth(28)
+        btn_next.setToolTip(_("Next"))
+        btn_next.clicked.connect(lambda: self._rules_find(forward=True))
+        search_lay.addWidget(btn_next)
+        btn_close = QPushButton("\u2715")
+        btn_close.setFixedWidth(28)
+        btn_close.clicked.connect(self._rules_show_search)
+        search_lay.addWidget(btn_close)
+        lay.addWidget(self._rules_search_bar)
+
+        # Raccourcis Ctrl+F et Escape
+        from PyQt6.QtGui import QShortcut, QKeySequence
+        shortcut_find = QShortcut(QKeySequence("Ctrl+F"), self._rules_editor)
+        shortcut_find.activated.connect(self._rules_show_search)
+        shortcut_esc = QShortcut(QKeySequence("Escape"), self._rules_search_input)
+        shortcut_esc.activated.connect(self._rules_show_search)
+
         btns = QHBoxLayout()
+        btn_find = QPushButton(QIcon.fromTheme("edit-find"), "")
+        btn_find.setFixedWidth(30)
+        btn_find.setToolTip(_("Search (Ctrl+F)"))
+        btn_find.clicked.connect(self._rules_show_search)
+        btns.addWidget(btn_find)
+        btn_send_test = QPushButton("\u2193 " + _("Test"))
+        btn_send_test.setToolTip(_("Send current line to the test panel"))
+        btn_send_test.clicked.connect(self._send_rule_to_test)
+        btns.addWidget(btn_send_test)
+        btns.addWidget(self._rules_count_label)
         btns.addStretch()
         btn_restore = QPushButton(_("Restore defaults"))
         btn_save = QPushButton(_("Save"))
@@ -3204,6 +3704,275 @@ class DicteeSetupDialog(QDialog):
         btn_save.clicked.connect(self._save_rules_file)
         btn_restore.clicked.connect(self._restore_rules_defaults)
 
+    def _add_rule_to_editor(self):
+        """Ajoute la règle dans la section choisie de l'éditeur."""
+        lang = self._rule_lang.currentText()
+        pattern = self._rule_pattern.text().strip()
+        replacement = self._rule_replacement.text()
+        flags = self._rule_flags.text().strip()
+        if not pattern:
+            return
+        # Bloquer [*] dans Voice commands (les commandes vocales sont spécifiques à chaque langue)
+        section = self._rule_section.currentText()
+        section_data = self._rule_section.currentData()
+        if lang == "*" and section_data == "section" and "Voice commands" in section:
+            QMessageBox.warning(self._pp_parent, "dictee",
+                _("Voice commands are language-specific.\n"
+                  "Please select a language instead of *."))
+            return
+        rule = f"[{lang}] /{pattern}/{replacement}/{flags}"
+        text = self._rules_editor.toPlainText()
+        lines = text.split("\n")
+        position = self._rule_position.currentData()
+
+        if section_data == "cursor":
+            cursor = self._rules_editor.textCursor()
+            cursor.movePosition(cursor.MoveOperation.EndOfBlock)
+            block_text = cursor.block().text().strip()
+            if block_text:
+                cursor.insertText("\n" + rule)
+            else:
+                cursor.insertText(rule)
+            self._rules_editor.setTextCursor(cursor)
+            self._rules_editor.ensureCursorVisible()
+            self._refresh_rule_sections()
+            self._rule_pattern.clear()
+            self._rule_replacement.clear()
+            self._rule_preview.setVisible(False)
+            self._rule_pattern.setFocus()
+            return
+
+        if section_data == "eof":
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines.append(rule)
+            insert_line = len(lines) - 1
+        else:
+            # Trouver la section STEP dans le texte
+            section_idx = -1
+            for i, line in enumerate(lines):
+                if section in line:
+                    section_idx = i
+                    break
+
+            if section_idx < 0:
+                while lines and not lines[-1].strip():
+                    lines.pop()
+                lines.append(rule)
+                insert_line = len(lines) - 1
+            else:
+                # Trouver les bornes de la section STEP (sauter la barre ═══ de fermeture du header)
+                step_end = section_idx + 1
+                # Sauter la barre ═══ qui ferme le header
+                if step_end < len(lines) and lines[step_end].strip().startswith("# ═"):
+                    step_end += 1
+                # Chercher le prochain header ═══ (début de la section suivante)
+                while step_end < len(lines):
+                    if lines[step_end].strip().startswith("# ═"):
+                        break
+                    step_end += 1
+
+                # [*] : pas de sous-section langue, insérer directement
+                if lang == "*":
+                    if position == "begin":
+                        begin_idx = section_idx + 1
+                        # Sauter la barre ═══ de fermeture + lignes vides/commentaires
+                        if begin_idx < step_end and lines[begin_idx].strip().startswith("# ═"):
+                            begin_idx += 1
+                        while begin_idx < step_end:
+                            s = lines[begin_idx].strip()
+                            if s and not s.startswith("#"):
+                                break
+                            if s.startswith("# \u2500\u2500"):
+                                break
+                            begin_idx += 1
+                        lines.insert(begin_idx, rule)
+                        insert_line = begin_idx
+                    else:
+                        insert_at = step_end
+                        while insert_at > section_idx + 1 and not lines[insert_at - 1].strip():
+                            insert_at -= 1
+                        lines.insert(insert_at, rule)
+                        insert_line = insert_at
+
+                    self._rules_editor.setPlainText("\n".join(lines))
+                    cursor = self._rules_editor.textCursor()
+                    block = self._rules_editor.document().findBlockByNumber(insert_line)
+                    cursor.setPosition(block.position())
+                    self._rules_editor.setTextCursor(cursor)
+                    self._rules_editor.ensureCursorVisible()
+                    self._refresh_rule_sections()
+                    self._rule_pattern.clear()
+                    self._rule_replacement.clear()
+                    self._rule_preview.setVisible(False)
+                    self._rule_pattern.setFocus()
+                    return
+
+                # Chercher la sous-section langue (# ── French ──)
+                lang_name = dict(LANGUAGES).get(lang, lang)
+                subsection_header = f"# \u2500\u2500 {lang_name} "
+                lang_sub_idx = -1
+                for i in range(section_idx + 1, step_end):
+                    if subsection_header in lines[i]:
+                        lang_sub_idx = i
+                        break
+
+                if lang_sub_idx >= 0:
+                    # Sous-section trouvée
+                    if position == "begin":
+                        # Après le header de sous-section, avant la prochaine
+                        begin_idx = lang_sub_idx + 1
+                        while begin_idx < step_end:
+                            s = lines[begin_idx].strip()
+                            if s and not s.startswith("#"):
+                                break
+                            if s.startswith("# \u2500\u2500") or s.startswith("# ═"):
+                                break
+                            begin_idx += 1
+                        lines.insert(begin_idx, rule)
+                        insert_line = begin_idx
+                    else:
+                        # Fin de la sous-section (prochaine sous-section ── ou fin de STEP)
+                        sub_end = lang_sub_idx + 1
+                        while sub_end < step_end:
+                            s = lines[sub_end].strip()
+                            if s.startswith("# \u2500\u2500") or s.startswith("# ═"):
+                                break
+                            sub_end += 1
+                        while sub_end > lang_sub_idx + 1 and not lines[sub_end - 1].strip():
+                            sub_end -= 1
+                        lines.insert(sub_end, rule)
+                        insert_line = sub_end
+                else:
+                    # Créer la sous-section langue à la fin de la section STEP
+                    sub_header = f"# \u2500\u2500 {lang_name} " + "\u2500" * (60 - len(lang_name))
+                    insert_at = step_end
+                    while insert_at > section_idx + 1 and not lines[insert_at - 1].strip():
+                        insert_at -= 1
+                    lines.insert(insert_at, "")
+                    lines.insert(insert_at + 1, sub_header)
+                    lines.insert(insert_at + 2, rule)
+                    insert_line = insert_at + 2
+
+        self._rules_editor.setPlainText("\n".join(lines))
+        # Positionner le curseur sur la ligne insérée
+        cursor = self._rules_editor.textCursor()
+        block = self._rules_editor.document().findBlockByNumber(insert_line)
+        cursor.setPosition(block.position())
+        self._rules_editor.setTextCursor(cursor)
+        self._rules_editor.ensureCursorVisible()
+        # Rafraîchir les sections et vider les champs
+        self._refresh_rule_sections()
+        self._rule_pattern.clear()
+        self._rule_replacement.clear()
+        self._rule_preview.setVisible(False)
+        self._rule_pattern.setFocus()
+
+    def _record_for_rule(self):
+        """Enregistre ou arrête l'enregistrement audio."""
+        import subprocess
+        tmpwav = "/tmp/dictee-test-rule.wav"
+
+        # Si déjà en enregistrement → stopper et transcrire
+        if getattr(self, '_rule_recording', False):
+            self._rule_recording = False
+            self._btn_record_rule.setText(_("Transcribing..."))
+            self._btn_record_rule.setEnabled(False)
+            # Arrêter l'enregistrement
+            if hasattr(self, '_pw_proc') and self._pw_proc.poll() is None:
+                self._pw_proc.terminate()
+                self._pw_proc.wait()
+            # Transcrire dans un thread pour ne pas bloquer l'UI
+            self._rule_transcribe_thread = QThread()
+            self._rule_transcribe_thread.run = lambda: self._rule_transcribe_worker(tmpwav)
+            self._rule_transcribe_thread.finished.connect(
+                lambda: self._rule_transcribe_done(tmpwav))
+            self._rule_transcribe_thread.start()
+            return
+
+        # Démarrer l'enregistrement
+        self._rule_recording = True
+        self._btn_record_rule.setText("\u23f9 " + _("Stop"))
+        self._btn_record_rule.setStyleSheet("color: red; font-weight: bold;")
+
+        try:
+            self._pw_proc = subprocess.Popen(
+                ["pw-record", "--rate", "16000", "--channels", "1", "--format", "s16", tmpwav],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            QMessageBox.warning(self._pp_parent, "dictee", _("pw-record not found."))
+            self._btn_record_rule.setText("\U0001f3a4 " + _("Record"))
+            self._btn_record_rule.setStyleSheet("font-weight: normal;")
+            self._rule_recording = False
+
+    def _rule_transcribe_worker(self, tmpwav):
+        """Thread worker : transcrit le WAV (appelé hors UI)."""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["transcribe-client", tmpwav],
+                capture_output=True, text=True, timeout=30)
+            self._rule_transcribe_result = result.stdout.strip()
+        except Exception:
+            self._rule_transcribe_result = ""
+
+    def _rule_transcribe_done(self, tmpwav):
+        """Callback UI : traite le résultat de la transcription."""
+        import re as _re
+        # Nettoyer le WAV
+        if os.path.isfile(tmpwav):
+            os.remove(tmpwav)
+        # Restaurer le bouton
+        self._btn_record_rule.setText(
+            QIcon.fromTheme("audio-input-microphone").name() or "\U0001f3a4 " + _("Record"))
+        self._btn_record_rule.setText("\U0001f3a4 " + _("Record"))
+        self._btn_record_rule.setStyleSheet("font-weight: normal;")
+        self._btn_record_rule.setEnabled(True)
+
+        raw = getattr(self, '_rule_transcribe_result', '')
+        if raw:
+            cyrillic_chars = [c for c in raw if '\u0400' <= c <= '\u04ff']
+            if cyrillic_chars:
+                word = _re.sub(r'[.,!?\s]+$', '', raw).strip()
+                word = _re.sub(r'^[.,!?\s]+', '', word).strip()
+                self._rule_pattern.setText(f"^[,.\\s]*{word}[,.\\s]*")
+                self._rule_replacement.setText("\\n")
+                self._rule_flags.setText("igm")
+                for i in range(self._rule_section.count()):
+                    if "STEP 3" in self._rule_section.itemText(i):
+                        self._rule_section.setCurrentIndex(i)
+                        break
+                self._rule_preview.setText(
+                    f"<b>RAW:</b> {raw}<br>"
+                    f"<span style='color: red;'>⚠ {_('Cyrillic detected — rule pre-filled for voice command replacement.')}</span>")
+            else:
+                self._rule_pattern.setText(raw)
+                try:
+                    import subprocess as _sp
+                    lang = self._rule_lang.currentText()
+                    env = dict(os.environ, DICTEE_LANG_SOURCE=lang)
+                    proc = _sp.run(["dictee-postprocess"],
+                        input=raw, capture_output=True, text=True,
+                        timeout=10, env=env)
+                    processed = proc.stdout.strip()
+                except Exception:
+                    processed = raw
+                if processed == raw:
+                    self._rule_preview.setText(
+                        f"<b>RAW:</b> {raw}<br>"
+                        f"<span style='color: orange;'>⚠ {_('No rule matched — a new rule is needed.')}</span>")
+                else:
+                    self._rule_preview.setText(
+                        f"<b>RAW:</b> {raw}<br>"
+                        f"<b>PROCESSED:</b> {processed}<br>"
+                        f"<span style='color: green;'>✓ {_('Existing rules already transform this text.')}</span>")
+            self._rule_preview.setVisible(True)
+            self._rule_replacement.setFocus()
+        else:
+            self._rule_preview.setText(
+                f"<span style='color: gray;'>{_('(no speech detected)')}</span>")
+            self._rule_preview.setVisible(True)
+
     def _load_rules_file(self):
         import os as _os
         _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
@@ -3212,13 +3981,65 @@ class DicteeSetupDialog(QDialog):
                 self._rules_editor.setPlainText(f.read())
         else:
             self._rules_editor.clear()
+        self._refresh_rule_sections()
+
+    def _refresh_rule_sections(self):
+        """Met à jour le combo des sections depuis le contenu de l'éditeur."""
+        import re
+        self._rule_section.blockSignals(True)
+        current = self._rule_section.currentText()
+        self._rule_section.clear()
+        section_re = re.compile(r"^#\s*(STEP\s+\d+\s*[—–-]\s*.+)")
+        text = self._rules_editor.toPlainText()
+        sections = []
+        for line in text.splitlines():
+            m = section_re.match(line.strip())
+            if m and m.group(1):
+                sections.append(m.group(1).strip())
+        self._rule_section.addItem(_("At cursor"), "cursor")
+        self._rule_section.addItem(_("End of file"), "eof")
+        for s in sections:
+            self._rule_section.addItem(s, "section")
+        # Restaurer la sélection
+        idx = self._rule_section.findText(current)
+        if idx >= 0:
+            self._rule_section.setCurrentIndex(idx)
+        self._rule_section.blockSignals(False)
+        # Sync _rule_position (le signal était bloqué)
+        self._rule_position.setEnabled(self._rule_section.currentData() == "section")
+
+    def _validate_rules_syntax(self, text):
+        """Valide la syntaxe des règles. Retourne (ok, erreur_msg)."""
+        import re
+        entry_re = re.compile(r'^\s*\[([a-z]{2}|\*)\]\s*/(.+)/(.*)/([a-z]*)$')
+        for i, line in enumerate(text.splitlines(), 1):
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            m = entry_re.match(s)
+            if not m:
+                return False, _("Line {n}: invalid syntax: {line}").format(n=i, line=s)
+            # Vérifier que le pattern regex compile
+            pattern = m.group(2)
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                return False, _("Line {n}: invalid regex: {err}").format(n=i, err=str(e))
+        return True, ""
 
     def _save_rules_file(self):
         import os as _os
+        text = self._rules_editor.toPlainText()
+        # Valider la syntaxe avant de sauvegarder
+        ok, err = self._validate_rules_syntax(text)
+        if not ok:
+            QMessageBox.warning(self._pp_parent, "dictee",
+                _("Cannot save — syntax error:\n\n{err}").format(err=err))
+            return
         _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
         with open(self._rules_path, "w", encoding="utf-8") as f:
-            f.write(self._rules_editor.toPlainText())
-        QMessageBox.information(self, "dictee", _("Rules saved."))
+            f.write(text)
+        QMessageBox.information(self._pp_parent, "dictee", _("Rules saved."))
 
     def _restore_rules_defaults(self):
         import os as _os
@@ -3229,9 +4050,199 @@ class DicteeSetupDialog(QDialog):
             if _os.path.isfile(candidate):
                 shutil.copy2(candidate, self._rules_path)
                 self._load_rules_file()
-                QMessageBox.information(self, "dictee", _("Default rules restored."))
+                QMessageBox.information(self._pp_parent, "dictee", _("Default rules restored."))
                 return
-        QMessageBox.warning(self, "dictee", _("Default rules file not found."))
+        QMessageBox.warning(self._pp_parent, "dictee", _("Default rules file not found."))
+
+    def _regex_to_sample(self, pattern):
+        """Génère un exemple de texte qui matcherait le pattern regex."""
+        import re
+        text = pattern
+
+        # 1. Retirer ancres et word boundaries
+        text = re.sub(r'\^|\$|\\b', '', text)
+
+        # 2. Classes de caractères → contenu exemple
+        # [,.\s]* → "" (ponctuation optionnelle, on l'ignore)
+        text = re.sub(r'\[,\.\\\s?\]\*?', '', text)
+        text = re.sub(r'\[,\s\.\\\s?\]\*?', '', text)
+        # [^)]* → "texte" (tout sauf parenthèse fermante)
+        text = re.sub(r'\[\^[^\]]*\][\*+]?', 'texte', text)
+        # [А-Яа-я] → "Было" (exemple cyrillique)
+        text = re.sub(r'\[А-Яа-я\][\-А-Яа-я]*[\*+]?', 'Было', text)
+        # Classes simples [Ll] [Aa] → premier caractère
+        def _first_char_class(m):
+            content = m.group(1)
+            return content[0] if content else ''
+        text = re.sub(r'\[([A-Za-zÀ-ÿА-Яа-я]{2,4})\]', _first_char_class, text)
+        # Autres classes restantes → ""
+        text = re.sub(r'\[[^\]]*\][\*+?]*', '', text)
+
+        # 3. Séquences d'échappement
+        text = re.sub(r'\\n', '\n', text)
+        text = re.sub(r'\\t', '\t', text)
+        text = re.sub(r'\\s[\*+]?', ' ', text)
+        text = re.sub(r'\\([\[\](){}|.*+?/])', r'\1', text)  # \( → (
+
+        # 4. Alternations : prendre la première option
+        # (?:a|b|c) → a
+        def _first_alt(m):
+            content = m.group(1)
+            return content.split('|')[0]
+        text = re.sub(r'\(\?:([^)]+)\)', _first_alt, text)
+        text = re.sub(r'\(([^)]*\|[^)]*)\)', _first_alt, text)
+
+        # 5. Quantificateurs restants
+        text = re.sub(r'([^\\])[*+?]', r'\1', text)
+        text = re.sub(r'^\*|^\+|^\?', '', text)
+
+        # 6. Nettoyage
+        text = re.sub(r'\s{2,}', ' ', text)
+        text = text.strip()
+
+        return text if text else pattern
+
+    def _send_rule_to_test(self):
+        """Envoie le pattern de la ligne courante de l'éditeur regex vers le champ test."""
+        import re
+        cursor = self._rules_editor.textCursor()
+        line = cursor.block().text().strip()
+        if not line or line.startswith("#"):
+            return
+        # Extraire le pattern : [lang] /PATTERN/REPLACEMENT/FLAGS
+        m = re.match(r'^\[.*?\]\s*/(.*?)/(.*?)/([a-z]*)$', line)
+        if m:
+            pattern = m.group(1)
+            # Générer un exemple de texte qui matche le pattern
+            text = self._regex_to_sample(pattern)
+            if text and hasattr(self, '_test_input'):
+                self._test_input.setPlainText(text)
+                self._test_input.setFocus()
+        elif hasattr(self, '_test_input'):
+            self._test_input.setPlainText(line)
+            self._test_input.setFocus()
+
+    def _update_rules_count(self):
+        """Met à jour le compteur de règles."""
+        import re
+        text = self._rules_editor.toPlainText()
+        active = 0
+        commented = 0
+        for line in text.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith("#"):
+                # Règle commentée (pas un header ni un commentaire normal)
+                if re.match(r'^#\s*\[', s):
+                    commented += 1
+            elif re.match(r'^\[', s):
+                active += 1
+        self._rules_count_label.setText(
+            f"{active + commented} {_('rules')} ({active} {_('active')}, {commented} {_('commented')})")
+
+    def _rules_show_search(self):
+        """Bascule la barre de recherche."""
+        if self._rules_search_bar.isVisible():
+            self._rules_search_bar.setVisible(False)
+            self._restore_palette(self._rules_editor)
+            self._rules_editor.setFocus()
+        else:
+            self._rules_search_bar.setVisible(True)
+            self._rules_search_input.setFocus()
+            self._rules_search_input.selectAll()
+
+    def _set_search_palette(self, editor):
+        """Change la palette de sélection d'un éditeur en jaune foncé."""
+        from PyQt6.QtGui import QColor, QPalette
+        pal = editor.palette()
+        pal.setColor(QPalette.ColorRole.Highlight, QColor("#B8860B"))
+        pal.setColor(QPalette.ColorRole.HighlightedText, QColor("white"))
+        editor.setPalette(pal)
+
+    def _restore_palette(self, editor):
+        """Restaure la palette de sélection par défaut."""
+        editor.setPalette(self.palette())
+
+    def _count_matches(self, editor, text):
+        """Compte le nombre d'occurrences et l'index courant."""
+        if not text:
+            return 0, 0
+        content = editor.toPlainText().lower()
+        search = text.lower()
+        total = content.count(search)
+        if total == 0:
+            return 0, 0
+        cursor_pos = editor.textCursor().position()
+        current = content[:cursor_pos].count(search)
+        return current, total
+
+    def _update_search_count(self, count_label, current, total, search_text=""):
+        """Met à jour le label de compteur de recherche."""
+        if total > 0:
+            count_label.setText(f"{current}/{total}")
+        elif search_text:
+            count_label.setText("0")
+        else:
+            count_label.setText("")
+
+    def _find_in_editor(self, editor, text, forward=True):
+        """Cherche dans un QTextEdit avec wrap circulaire."""
+        from PyQt6.QtGui import QTextDocument
+        saved_pos = editor.textCursor().position()
+        if not forward:
+            found = editor.find(text, QTextDocument.FindFlag.FindBackward)
+        else:
+            found = editor.find(text)
+        if not found:
+            cursor = editor.textCursor()
+            if forward:
+                cursor.movePosition(cursor.MoveOperation.Start)
+            else:
+                cursor.movePosition(cursor.MoveOperation.End)
+            editor.setTextCursor(cursor)
+            if not forward:
+                found = editor.find(text, QTextDocument.FindFlag.FindBackward)
+            else:
+                found = editor.find(text)
+            # Si on retombe sur la même position, ne pas bouger
+            if found and editor.textCursor().position() == saved_pos:
+                return
+
+    def _rules_find(self, forward=True):
+        """Cherche le texte dans l'éditeur de règles."""
+        text = self._rules_search_input.text()
+        if not text:
+            self._restore_palette(self._rules_editor)
+            self._update_search_count(self._rules_search_count, 0, 0)
+            return
+        self._set_search_palette(self._rules_editor)
+        self._find_in_editor(self._rules_editor, text, forward)
+        current, total = self._count_matches(self._rules_editor, text)
+        self._update_search_count(self._rules_search_count, current, total, text)
+
+    def _dict_adv_show_search(self):
+        """Bascule la barre de recherche du mode avancé dictionnaire."""
+        if self._dict_adv_search_bar.isVisible():
+            self._dict_adv_search_bar.setVisible(False)
+            self._restore_palette(self._dict_adv_editor)
+            self._dict_adv_editor.setFocus()
+        else:
+            self._dict_adv_search_bar.setVisible(True)
+            self._dict_adv_search_input.setFocus()
+            self._dict_adv_search_input.selectAll()
+
+    def _dict_adv_find(self, forward=True):
+        """Cherche le texte dans l'éditeur avancé du dictionnaire."""
+        text = self._dict_adv_search_input.text()
+        if not text:
+            self._restore_palette(self._dict_adv_editor)
+            self._update_search_count(self._dict_adv_search_count, 0, 0)
+            return
+        self._set_search_palette(self._dict_adv_editor)
+        self._find_in_editor(self._dict_adv_editor, text, forward)
+        current, total = self._count_matches(self._dict_adv_editor, text)
+        self._update_search_count(self._dict_adv_search_count, current, total, text)
 
     def _build_dictionary_tab(self, lay):
         """Onglet Dictionnaire : fichier unique local, vue formulaire avec accordéons + mode avancé."""
@@ -3268,7 +4279,8 @@ class DicteeSetupDialog(QDialog):
         toolbar = QHBoxLayout()
         self._dict_search = QComboBox()
         self._dict_search.setEditable(True)
-        self._dict_search.setPlaceholderText("Search...")
+        self._dict_search.lineEdit().addAction(
+            QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
         self._dict_search.setMinimumWidth(180)
         self._dict_search.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         toolbar.addWidget(self._dict_search)
@@ -3291,7 +4303,11 @@ class DicteeSetupDialog(QDialog):
         self._dict_scroll.setWidget(scroll_content)
         form_top_lay.addWidget(self._dict_scroll, 1)
 
-        form_top_lay.addStretch()
+        # Zone pour les nouvelles entrées (hors scroll, en bas)
+        self._dict_new_entries = QVBoxLayout()
+        self._dict_new_entries.setSpacing(2)
+        self._dict_new_entries.setContentsMargins(4, 4, 4, 0)
+        form_top_lay.addLayout(self._dict_new_entries)
 
         self._dict_stack.addWidget(form_page)
 
@@ -3311,12 +4327,57 @@ class DicteeSetupDialog(QDialog):
         adv_lay.addWidget(self._dict_adv_editor)
         self._add_zoom_overlay(self._dict_adv_editor)
 
+        # Barre de recherche (Ctrl+F) pour le mode avancé
+        self._dict_adv_search_bar = QWidget()
+        self._dict_adv_search_bar.setVisible(False)
+        dsearch_lay = QHBoxLayout(self._dict_adv_search_bar)
+        dsearch_lay.setContentsMargins(0, 2, 0, 2)
+        dsearch_lay.setSpacing(4)
+        self._dict_adv_search_input = QLineEdit()
+        self._dict_adv_search_input.addAction(
+            QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
+        self._dict_adv_search_input.returnPressed.connect(lambda: self._dict_adv_find(forward=True))
+        self._dict_adv_search_input.textChanged.connect(lambda: self._dict_adv_find(forward=True))
+        dsearch_lay.addWidget(self._dict_adv_search_input, 1)
+        self._dict_adv_search_count = QLabel()
+        self._dict_adv_search_count.setStyleSheet("color: gray; font-size: 11px;")
+        self._dict_adv_search_count.setFixedWidth(50)
+        dsearch_lay.addWidget(self._dict_adv_search_count)
+        btn_dprev = QPushButton("\u25b2")
+        btn_dprev.setFixedWidth(28)
+        btn_dprev.setToolTip(_("Previous"))
+        btn_dprev.clicked.connect(lambda: self._dict_adv_find(forward=False))
+        dsearch_lay.addWidget(btn_dprev)
+        btn_dnext = QPushButton("\u25bc")
+        btn_dnext.setFixedWidth(28)
+        btn_dnext.setToolTip(_("Next"))
+        btn_dnext.clicked.connect(lambda: self._dict_adv_find(forward=True))
+        dsearch_lay.addWidget(btn_dnext)
+        btn_dclose = QPushButton("\u2715")
+        btn_dclose.setFixedWidth(28)
+        btn_dclose.clicked.connect(self._dict_adv_show_search)
+        dsearch_lay.addWidget(btn_dclose)
+        adv_lay.addWidget(self._dict_adv_search_bar)
+
+        # Raccourcis Ctrl+F et Escape pour le mode avancé
+        from PyQt6.QtGui import QShortcut, QKeySequence
+        shortcut_dfind = QShortcut(QKeySequence("Ctrl+F"), self._dict_adv_editor)
+        shortcut_dfind.activated.connect(self._dict_adv_show_search)
+        shortcut_desc = QShortcut(QKeySequence("Escape"), self._dict_adv_search_input)
+        shortcut_desc.activated.connect(self._dict_adv_show_search)
+
         self._dict_stack.addWidget(adv_page)
 
         lay.addWidget(self._dict_stack)
 
         # --- Barre commune (sous le QStackedWidget, visible dans les 2 modes) ---
         common_btns = QHBoxLayout()
+
+        btn_dict_find = QPushButton(QIcon.fromTheme("edit-find"), "")
+        btn_dict_find.setFixedWidth(30)
+        btn_dict_find.setToolTip(_("Search (Ctrl+F)"))
+        btn_dict_find.clicked.connect(self._dict_adv_show_search)
+        common_btns.addWidget(btn_dict_find)
 
         self._btn_dict_add = QPushButton("+ " + _("Add"))
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
@@ -3370,7 +4431,7 @@ class DicteeSetupDialog(QDialog):
     def _parse_dict_with_categories(self, path):
         """Parse un fichier dictionnaire, retourne [(category, [(lang, word, replacement)])]."""
         categories = []
-        current_cat = _("Other")
+        current_cat = None
         current_entries = []
         cat_re = re.compile(r"^#\s*──\s*(.+?)\s*─")
         entry_re = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+?)=(.+?)\s*$")
@@ -3384,7 +4445,8 @@ class DicteeSetupDialog(QDialog):
                 m_cat = cat_re.match(line_s)
                 if m_cat:
                     if current_entries:
-                        categories.append((current_cat, current_entries))
+                        cat_name = current_cat or f"Dictionary [{current_entries[0][0]}]"
+                        categories.append((cat_name, current_entries))
                     current_cat = m_cat.group(1).strip()
                     current_entries = []
                     continue
@@ -3394,7 +4456,8 @@ class DicteeSetupDialog(QDialog):
                 if m:
                     current_entries.append((m.group(1), m.group(2).strip(), m.group(3).strip()))
         if current_entries:
-            categories.append((current_cat, current_entries))
+            cat_name = current_cat or f"Dictionary [{current_entries[0][0]}]"
+            categories.append((cat_name, current_entries))
         return categories
 
     def _load_dict_form(self):
@@ -3478,6 +4541,17 @@ class DicteeSetupDialog(QDialog):
             self._dict_lang_filter.setCurrentIndex(idx)
         self._dict_lang_filter.blockSignals(False)
 
+        # Ré-appliquer le filtre de recherche actif
+        self._filter_dict_entries()
+
+        # Re-enregistrer les nouvelles entrées en cours (hors scroll) dans _dict_rows
+        if hasattr(self, '_dict_new_entries'):
+            for i in range(self._dict_new_entries.count()):
+                item = self._dict_new_entries.itemAt(i)
+                w = item.widget() if item else None
+                if w is not None and w not in self._dict_rows:
+                    self._dict_rows.append(w)
+
     def _make_dict_row(self, lang="*", word="", repl="", category="", is_new=False):
         """Crée une ligne éditable pour une entrée dictionnaire.
 
@@ -3521,17 +4595,41 @@ class DicteeSetupDialog(QDialog):
         # Marquer la ligne comme nouvelle (pas encore dans le fichier)
         row_widget.setProperty("dict_is_new", is_new)
 
-        if is_new:
-            # Nouvelle entrée : ✓ confirme la ligne, écrit dans .tmp et recharge
-            btn_ok = QPushButton("\u2713")
-            btn_ok.setToolTip(_("Confirm this entry"))
-            btn_ok.setFixedWidth(30)
-            btn_ok.setStyleSheet("color: green; font-weight: bold;")
-            def _on_confirm():
-                self._dict_push_undo()
-                self._save_dict_to_tmp(reload=True)
-            btn_ok.clicked.connect(_on_confirm)
-            row_lay.addWidget(btn_ok)
+        # ✓ confirme — visible d'emblée pour les nouvelles, caché pour les existantes
+        btn_ok = QPushButton("\u2713")
+        btn_ok.setToolTip(_("Confirm this entry"))
+        btn_ok.setFixedWidth(30)
+        btn_ok.setStyleSheet("color: green; font-weight: bold;")
+        btn_ok.setVisible(is_new)
+        def _on_confirm(_checked=None, rw=row_widget):
+            word = rw.property("dict_word_edt").text().strip()
+            repl = rw.property("dict_repl_edt").text().strip()
+            if not word or not repl:
+                return
+            # Marquer comme confirmée et mettre la catégorie selon la langue choisie
+            lang = rw.property("dict_lang_cmb").currentText()
+            rw.setProperty("dict_is_new", False)
+            rw.setProperty("dict_category", f"Dictionary [{lang}]")
+            # Sauvegarder d'abord (la ligne est encore dans _dict_rows)
+            self._dict_push_undo()
+            self._save_dict_to_tmp(reload=False)
+            # Retirer cette ligne de _dict_new_entries
+            if rw in self._dict_rows:
+                self._dict_rows.remove(rw)
+            rw.setParent(None)
+            rw.deleteLater()
+            # Recharger le scroll depuis le .tmp
+            self._load_dict_form()
+        btn_ok.clicked.connect(_on_confirm)
+        row_lay.addWidget(btn_ok)
+
+        # Pour les lignes existantes : afficher ✓ dès qu'on modifie quelque chose
+        if not is_new:
+            def _on_modified():
+                btn_ok.setVisible(True)
+            edt_word.textChanged.connect(_on_modified)
+            edt_repl.textChanged.connect(_on_modified)
+            cmb_lang.currentIndexChanged.connect(_on_modified)
 
         # ✕ pour supprimer
         btn_del = QPushButton("\u2715")
@@ -3550,30 +4648,17 @@ class DicteeSetupDialog(QDialog):
         return row_widget
 
     def _add_dict_entry(self, lang="*", word="", repl=""):
-        """Ajoute une nouvelle entrée au dictionnaire (dans la dernière catégorie ou 'Other')."""
+        """Ajoute une nouvelle entrée en bas du formulaire (non filtrée tant que non validée)."""
         # Supprimer le label vide si présent
         if hasattr(self, '_dict_empty_label') and self._dict_empty_label is not None:
             self._dict_empty_label.setParent(None)
             self._dict_empty_label.deleteLater()
             self._dict_empty_label = None
 
-        # Déterminer la catégorie — utiliser la dernière catégorie existante ou "Other"
-        category = _("Other")
-        if self._dict_rows:
-            last_cat = self._dict_rows[-1].property("dict_category")
-            if last_cat:
-                category = last_cat
+        row_widget = self._make_dict_row(lang, word, repl, f"Dictionary [{lang}]", is_new=True)
 
-        row_widget = self._make_dict_row(lang, word, repl, category, is_new=True)
-
-        # Ajouter dans le layout : avant le stretch final
-        layout = self._dict_layout
-        # Insérer avant le stretch (dernier item)
-        stretch_idx = layout.count() - 1
-        if stretch_idx >= 0:
-            layout.insertWidget(stretch_idx, row_widget)
-        else:
-            layout.addWidget(row_widget)
+        # En bas de la fenêtre, hors du scroll
+        self._dict_new_entries.addWidget(row_widget)
 
         # Sauvegarder dans .tmp seulement si la ligne a du contenu
         # (sinon la ligne vide serait supprimée immédiatement par _save_dict_to_tmp)
@@ -3581,20 +4666,21 @@ class DicteeSetupDialog(QDialog):
             self._dict_push_undo()
             self._save_dict_to_tmp()
 
-        # Scroller vers la nouvelle entrée et donner le focus au champ mot
-        QTimer.singleShot(50, lambda: (
-            self._dict_scroll.ensureWidgetVisible(row_widget),
-            row_widget.property("dict_word_edt").setFocus(),
-        ))
+        # Donner le focus au champ mot
+        QTimer.singleShot(50, lambda: row_widget.property("dict_word_edt").setFocus())
 
     def _remove_dict_entry(self, entry):
-        """Supprime une entrée du dictionnaire et écrit dans .tmp."""
-        self._dict_push_undo()
+        """Supprime une entrée du dictionnaire."""
+        is_new = entry.property("dict_is_new")
+        if not is_new:
+            self._dict_push_undo()
         if entry in self._dict_rows:
             self._dict_rows.remove(entry)
         entry.setParent(None)
         entry.deleteLater()
-        self._save_dict_to_tmp(reload=False)
+        if not is_new:
+            self._save_dict_to_tmp(reload=False)
+            self._load_dict_form()
 
     def _filter_dict_entries(self):
         """Filtre les entrées visibles selon recherche et langue."""
@@ -3662,26 +4748,33 @@ class DicteeSetupDialog(QDialog):
         from collections import OrderedDict
         cat_entries = OrderedDict()
         empty_rows = []
+
         for row in self._dict_rows:
             cmb = row.property("dict_lang_cmb")
             edt_w = row.property("dict_word_edt")
             edt_r = row.property("dict_repl_edt")
-            category = row.property("dict_category") or _("Other")
             if cmb is None or edt_w is None or edt_r is None:
                 continue
             lang = cmb.currentText()
             word = edt_w.text().strip()
             repl = edt_r.text().strip()
 
-            if not word and not repl:
-                empty_rows.append(row)
+            # Nouvelles entrées (non confirmées) : toujours les ignorer
+            if row.property("dict_is_new"):
                 continue
-            if not word:
-                continue
+            else:
+                if not word and not repl:
+                    empty_rows.append(row)
+                    continue
+                if not word:
+                    continue
             if "=" in word:
-                QMessageBox.warning(self, "dictee",
+                QMessageBox.warning(self._pp_parent, "dictee",
                     _("Word cannot contain '=': {word}").format(word=word))
                 return None
+
+            category = row.property("dict_category") or f"Dictionary [{lang}]"
+
             if category not in cat_entries:
                 cat_entries[category] = []
             cat_entries[category].append((lang, word, repl))
@@ -3798,12 +4891,12 @@ class DicteeSetupDialog(QDialog):
                 text += "\n"
             ok, err = self._validate_dict_syntax(text)
             if not ok:
-                QMessageBox.warning(self, "dictee",
+                QMessageBox.warning(self._pp_parent, "dictee",
                     _("Cannot save — syntax error:\n\n{err}").format(err=err))
                 return
             self._save_dict_advanced()
             self._save_dict_official()
-            QMessageBox.information(self, "dictee", _("Dictionary saved."))
+            QMessageBox.information(self._pp_parent, "dictee", _("Dictionary saved."))
             self._btn_advanced.blockSignals(True)
             self._btn_advanced.setChecked(False)
             self._btn_advanced.blockSignals(False)
@@ -3813,7 +4906,7 @@ class DicteeSetupDialog(QDialog):
             # En mode normal : écrire .tmp puis copier vers officiel
             self._save_dict_to_tmp()
             self._save_dict_official()
-            QMessageBox.information(self, "dictee", _("Dictionary saved."))
+            QMessageBox.information(self._pp_parent, "dictee", _("Dictionary saved."))
 
     def _dict_update_undo_buttons(self):
         """Synchronise l'état enabled des boutons undo/redo."""
@@ -3902,7 +4995,7 @@ class DicteeSetupDialog(QDialog):
 
     def _dict_revert_to_saved(self):
         """Annule toutes les modifications depuis le dernier enregistrement."""
-        reply = QMessageBox.question(self, "dictee",
+        reply = QMessageBox.question(self._pp_parent, "dictee",
             _("Revert to the last saved version?\n\n"
               "All unsaved changes will be lost."),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -3936,7 +5029,7 @@ class DicteeSetupDialog(QDialog):
             text += "\n"
         ok, err = self._validate_dict_syntax(text)
         if not ok:
-            QMessageBox.warning(self, "dictee", err)
+            QMessageBox.warning(self._pp_parent, "dictee", err)
             return
         # Validation OK : écrire et basculer
         self._save_dict_advanced()
@@ -3948,7 +5041,7 @@ class DicteeSetupDialog(QDialog):
 
     def _restore_dict_defaults(self):
         """Restaure le dictionnaire usine dans le brouillon .tmp."""
-        reply = QMessageBox.question(self, "dictee",
+        reply = QMessageBox.question(self._pp_parent, "dictee",
             _("Restore factory defaults?\n\n"
               "This will replace ALL your dictionary entries with the original defaults.\n"
               "Click Save afterwards to make it permanent."),
@@ -3964,7 +5057,58 @@ class DicteeSetupDialog(QDialog):
                 shutil.copy2(candidate, self._dict_tmp_path)
                 self._load_dict_form()
                 return
-        QMessageBox.warning(self, "dictee", _("Default dictionary file not found."))
+        QMessageBox.warning(self._pp_parent, "dictee", _("Default dictionary file not found."))
+
+    def _dict_reorganize(self, text):
+        """Réorganise les entrées orphelines du dictionnaire.
+
+        Les entrées écrites hors d'une catégorie (avant le premier ── header)
+        sont placées dans une section 'Dictionary [lang]'.
+        Les entrées déjà dans une catégorie restent en place.
+        """
+        from collections import OrderedDict
+        cat_re = re.compile(r"^#\s*──\s*(.+?)\s*─")
+        entry_re = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+?)=(.+?)\s*$")
+
+        categories = []  # [(cat_name, [(lang, word, repl)])]
+        current_cat = None  # None = pas encore de catégorie
+        current_entries = []
+        orphans = []  # entrées avant tout header
+
+        for line in text.splitlines():
+            line_s = line.strip()
+            if not line_s:
+                continue
+            m_cat = cat_re.match(line_s)
+            if m_cat:
+                if current_cat is not None and current_entries:
+                    categories.append((current_cat, current_entries))
+                current_cat = m_cat.group(1).strip()
+                current_entries = []
+                continue
+            if line_s.startswith("#"):
+                continue
+            m = entry_re.match(line_s)
+            if m:
+                lang, word, repl = m.group(1), m.group(2).strip(), m.group(3).strip()
+                if current_cat is None:
+                    orphans.append((lang, word, repl))
+                else:
+                    current_entries.append((lang, word, repl))
+        if current_cat is not None and current_entries:
+            categories.append((current_cat, current_entries))
+
+        # Placer les orphelins dans Dictionary [lang]
+        reorg = OrderedDict()
+        for cat_name, entries in categories:
+            reorg[cat_name] = entries
+        for lang, word, repl in orphans:
+            cat = f"Dictionary [{lang}]"
+            if cat not in reorg:
+                reorg[cat] = []
+            reorg[cat].append((lang, word, repl))
+
+        return self._dict_entries_to_text(reorg)
 
     def _save_dict_advanced(self):
         """Sauvegarde le contenu du mode avancé dans .tmp (brouillon uniquement)."""
@@ -3974,12 +5118,15 @@ class DicteeSetupDialog(QDialog):
 
         ok, err = self._validate_dict_syntax(text)
         if not ok:
-            QMessageBox.warning(self, "dictee", err)
+            QMessageBox.warning(self._pp_parent, "dictee", err)
             # Rester en mode avancé
             self._btn_advanced.blockSignals(True)
             self._btn_advanced.setChecked(True)
             self._btn_advanced.blockSignals(False)
             return
+
+        # Réorganiser les entrées dans les bonnes catégories
+        text = self._dict_reorganize(text)
 
         os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
         self._dict_push_undo()
@@ -4065,10 +5212,12 @@ class DicteeSetupDialog(QDialog):
                 self._cont_sys_path = candidate
                 break
 
-        # Premier lancement : copier le fichier système vers le local
-        if not _os.path.isfile(self._cont_path) and self._cont_sys_path:
+        # Premier lancement : créer un fichier perso vide (les mots système sont lus séparément)
+        if not _os.path.isfile(self._cont_path):
             _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
-            shutil.copy2(self._cont_sys_path, self._cont_path)
+            with open(self._cont_path, "w", encoding="utf-8") as f:
+                f.write("# User continuation words for dictee\n"
+                        "# Format: [lang] word1 word2 ...\n\n")
 
         # Mots perso par langue : {lang: set()}
         self._cont_personal_words = {}
@@ -4082,14 +5231,27 @@ class DicteeSetupDialog(QDialog):
 
         # Info label
         info = QLabel(_(
-            "Words that never end a sentence. "
-            "If the ASR puts a period after one, it is removed."
+            "Continuation words are words that never end a sentence "
+            "(articles, prepositions, conjunctions, pronouns, auxiliaries...).\n"
+            "When the ASR incorrectly places a period after one of these words, "
+            "the period is removed and the next sentence is joined.\n"
+            "Example: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n\n"
+            "System words are built-in and cannot be modified. "
+            "You can add your own words per language below."
         ))
         info.setWordWrap(True)
         font = info.font()
         font.setItalic(True)
         info.setFont(font)
         form_top_lay.addWidget(info)
+
+        # Barre de recherche
+        self._cont_search = QLineEdit()
+        self._cont_search.addAction(
+            QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
+        self._cont_search.setMaximumWidth(250)
+        self._cont_search.textChanged.connect(self._filter_cont_words)
+        form_top_lay.addWidget(self._cont_search)
 
         # Zone scrollable pour les accordéons
         scroll = QScrollArea()
@@ -4122,22 +5284,41 @@ class DicteeSetupDialog(QDialog):
 
         self._add_zoom_overlay(self._cont_adv_editor)
 
-        btns_adv = QHBoxLayout()
-        btns_adv.addStretch()
-        btn_cancel_adv = QPushButton(_("Cancel"))
-        btn_cancel_adv.clicked.connect(lambda: self._btn_advanced.setChecked(False))
-        btn_save_adv = QPushButton(_("Save"))
-        btn_save_adv.clicked.connect(lambda: (
-            self._save_cont_advanced(),
-            self._btn_advanced.setChecked(False),
-        ))
-        btns_adv.addWidget(btn_cancel_adv)
-        btns_adv.addWidget(btn_save_adv)
-        adv_lay.addLayout(btns_adv)
-
         self._cont_stack.addWidget(adv_page)
 
         lay.addWidget(self._cont_stack)
+
+        # --- Barre commune ---
+        common_btns = QHBoxLayout()
+
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        btn_cont_save = QPushButton(_("Save"))
+        btn_cont_save.setToolTip(_("Save continuation words to disk"))
+        btn_cont_save.setStyleSheet(
+            f"font-weight: bold; background-color: {accent}; color: white; "
+            f"padding: 4px 16px; border-radius: 4px;")
+        btn_cont_save.clicked.connect(self._cont_save_smart)
+        common_btns.addWidget(btn_cont_save)
+
+        common_btns.addStretch()
+
+        btn_cont_revert = QPushButton(_("Revert to saved"))
+        btn_cont_revert.setToolTip(_("Discard all unsaved changes"))
+        btn_cont_revert.clicked.connect(self._cont_revert)
+        common_btns.addWidget(btn_cont_revert)
+
+        btn_cont_factory = QPushButton(_("Factory reset"))
+        btn_cont_factory.setToolTip(_("Restore factory defaults"))
+        btn_cont_factory.clicked.connect(self._cont_factory_reset)
+        common_btns.addWidget(btn_cont_factory)
+
+        lay.addLayout(common_btns)
+
+        # Sauvegarder l'état initial pour Revert
+        self._cont_saved_state = None
+        if os.path.isfile(self._cont_path):
+            with open(self._cont_path, encoding="utf-8") as f:
+                self._cont_saved_state = f.read()
 
         # Charger le formulaire
         self._load_cont_form()
@@ -4169,14 +5350,17 @@ class DicteeSetupDialog(QDialog):
         if self._cont_sys_path:
             sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
 
-        # Charger les mots perso
-        user_cats = self._parse_cont_with_categories(self._cont_path)
-        self._cont_personal_words.clear()
-        for lang, subcats in user_cats.items():
-            words_set = set()
-            for _sc, words in subcats:
-                words_set.update(words)
-            self._cont_personal_words[lang] = words_set
+        # Charger les mots perso depuis le fichier seulement au premier chargement
+        # ou après un revert/factory reset (_cont_force_reload)
+        if not self._cont_personal_words or getattr(self, '_cont_force_reload', False):
+            self._cont_personal_words.clear()
+            self._cont_force_reload = False
+            user_cats = self._parse_cont_with_categories(self._cont_path)
+            for lang, subcats in user_cats.items():
+                words_set = set()
+                for _sc, words in subcats:
+                    words_set.update(words)
+                self._cont_personal_words[lang] = words_set
 
         # Déterminer la langue active
         active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
@@ -4218,99 +5402,153 @@ class DicteeSetupDialog(QDialog):
                 return _toggle
             btn_lang.clicked.connect(_make_lang_toggle(btn_lang, group))
 
-            # --- Mots système par sous-catégorie ---
-            for subcat, words in sys_subcats:
-                # Sous-titre
-                lbl_sub = QLabel(f"<b>{subcat}</b>")
-                group_lay.addWidget(lbl_sub)
-
-                # Chips grisés (HTML inline)
-                chips_html = " ".join(
-                    f'<span style="background:#ddd;color:#555;border-radius:10px;'
-                    f'padding:2px 8px;margin:2px;display:inline-block;font-size:11px;">'
-                    f'{word}</span>'
-                    for word in words
-                )
-                lbl_chips = QLabel(chips_html)
-                lbl_chips.setWordWrap(True)
-                lbl_chips.setTextFormat(Qt.TextFormat.RichText)
-                group_lay.addWidget(lbl_chips)
-
-            # --- Séparateur dashed ---
-            sep = QFrame()
-            sep.setFrameShape(QFrame.Shape.HLine)
-            sep.setStyleSheet("border: 1px dashed #999;")
-            group_lay.addWidget(sep)
-
-            acc = self.palette().color(self.palette().ColorRole.Highlight).name()
-            lbl_yours = QLabel(f"<i style='color:{acc};'>" + _("Your additions:") + "</i>")
-            group_lay.addWidget(lbl_yours)
-
-            # --- Chips perso (QPushButtons cliquables) ---
-            perso_container = QWidget()
-            perso_container.setProperty("cont_lang", lang)
-            perso_flow = QHBoxLayout(perso_container)
-            perso_flow.setContentsMargins(0, 0, 0, 0)
-            perso_flow.setSpacing(4)
-
-            # Wrap dans un widget qui gère le wrapping
-            perso_wrap = QWidget()
-            perso_wrap_lay = self._make_flow_layout(perso_wrap)
-            perso_wrap.setProperty("cont_lang", lang)
-            perso_wrap.setProperty("is_perso_wrap", True)
-
+            # --- Mots ---
             hl_color = self.palette().color(self.palette().ColorRole.Highlight)
-            hl_text = self.palette().color(self.palette().ColorRole.HighlightedText)
             hl_hex = hl_color.name()
-            hl_text_hex = hl_text.name()
+            hl_text_hex = self.palette().color(self.palette().ColorRole.HighlightedText).name()
 
-            for word in sorted(perso_words):
-                btn = QPushButton(f"{word} \u2715")
-                btn.setFlat(True)
-                btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                btn.setStyleSheet(
-                    f"QPushButton {{ background:{hl_hex}; color:{hl_text_hex}; "
-                    f"border-radius:10px; padding:2px 8px; font-size:11px; }}"
-                    f"QPushButton:hover {{ background:{hl_color.darker(120).name()}; }}"
-                )
-                btn.clicked.connect(lambda checked, w=word, l=lang: self._remove_cont_word(l, w))
-                perso_wrap_lay.addWidget(btn)
+            # Collecter tous les mots système
+            sys_all = set()
+            for _sc, words in sys_subcats:
+                sys_all.update(words)
 
-            group_lay.addWidget(perso_wrap)
+            # Toggle pour mots système (en haut)
+            sys_count = len(sys_all)
+            btn_show_sys = QPushButton(
+                f"\u25b8 {_('System words')} ({sys_count})")
+            btn_show_sys.setFlat(True)
+            btn_show_sys.setStyleSheet("text-align: left; color: gray; padding: 2px;")
+            group_lay.addWidget(btn_show_sys)
 
-            # --- QLineEdit pour ajouter ---
+            # Chips système (cachés par défaut)
+            sys_w = QWidget()
+            sys_lay = self._FlowLayout(sys_w, spacing=8)
+            for word in sorted(sys_all, key=locale.strxfrm):
+                lbl = QLabel(f"  {word}  ")
+                lbl.setStyleSheet(
+                    "background:rgba(128,128,128,0.3); border-radius:14px; "
+                    "padding:6px 14px; font-size:14px;")
+                sys_lay.addWidget(lbl)
+            sys_w.setVisible(False)
+            sys_w.setProperty("cont_sys_chips", True)
+            group_lay.addWidget(sys_w)
+
+            def _toggle_sys(checked=None, btn=btn_show_sys, sw=sys_w, n=sys_count):
+                vis = not sw.isVisible()
+                sw.setVisible(vis)
+                arrow = "\u25be" if vis else "\u25b8"
+                btn.setText(f"{arrow} {_('System words')} ({n})")
+            btn_show_sys.clicked.connect(_toggle_sys)
+
+            # Chips perso (toujours visibles, après system)
+            lbl_yours = QLabel(f"<b>{_('Your words:')}</b>")
+            group_lay.addWidget(lbl_yours)
+            if perso_words:
+                perso_w = QWidget()
+                perso_lay = self._FlowLayout(perso_w, spacing=8)
+                for word in sorted(perso_words, key=locale.strxfrm):
+                    btn = QPushButton(f"  {word}  \u2715  ")
+                    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                    btn.setStyleSheet(
+                        f"QPushButton {{ background:{hl_hex}; color:{hl_text_hex}; "
+                        f"border-radius:14px; padding:6px 14px; font-size:14px; border:none; }}"
+                        f"QPushButton:hover {{ background:{hl_color.darker(120).name()}; }}")
+                    btn.clicked.connect(lambda checked, w=word, l=lang: self._remove_cont_word(l, w))
+                    perso_lay.addWidget(btn)
+                group_lay.addWidget(perso_w)
+            else:
+                lbl_none = QLabel("<i>" + _("(none)") + "</i>")
+                group_lay.addWidget(lbl_none)
+
+            # --- Champ pour ajouter ---
+            add_row = QHBoxLayout()
             add_edit = QLineEdit()
             add_edit.setPlaceholderText(_("Add a word..."))
             add_edit.returnPressed.connect(
                 lambda le=add_edit, l=lang: self._add_cont_word(l, le)
             )
-            group_lay.addWidget(add_edit)
+            add_row.addWidget(add_edit)
+            btn_add = QPushButton("+ " + _("Add"))
+            btn_add.clicked.connect(
+                lambda checked, le=add_edit, l=lang: self._add_cont_word(l, le)
+            )
+            add_row.addWidget(btn_add)
+            group_lay.addLayout(add_row)
 
             layout.addWidget(group)
 
         layout.addStretch()
 
-    def _make_flow_layout(self, parent):
-        """Crée un layout horizontal avec wrapping simulé via QHBoxLayout.
+        # Ré-appliquer le filtre de recherche s'il y a du texte
+        if hasattr(self, '_cont_search') and self._cont_search.text().strip():
+            self._filter_cont_words()
 
-        Note : un vrai FlowLayout serait idéal, mais QHBoxLayout + word-wrap
-        sur le conteneur parent suffit ici car les chips sont petits.
-        On utilise un simple QVBoxLayout contenant des QHBoxLayouts pour simuler.
-        Retourne le layout (on ajoute directement les widgets).
-        """
-        # Utiliser un simple layout wrap-friendly
-        try:
-            from PyQt6.QtWidgets import QLayout
-        except ImportError:
-            from PySide6.QtWidgets import QLayout
-        lay = QHBoxLayout(parent)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
-        lay.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
+    class _FlowLayout(QLayout):
+        """Layout qui wrappe les widgets horizontalement comme du texte."""
+
+        def __init__(self, parent=None, spacing=4):
+            super().__init__(parent)
+            self._items = []
+            self._spacing = spacing
+
+        def addItem(self, item):
+            self._items.append(item)
+
+        def count(self):
+            return len(self._items)
+
+        def itemAt(self, index):
+            if 0 <= index < len(self._items):
+                return self._items[index]
+            return None
+
+        def takeAt(self, index):
+            if 0 <= index < len(self._items):
+                return self._items.pop(index)
+            return None
+
+        def sizeHint(self):
+            return self.minimumSize()
+
+        def minimumSize(self):
+            return QSize(0, self._do_layout(self.geometry(), dry_run=True))
+
+        def setGeometry(self, rect):
+            super().setGeometry(rect)
+            self._do_layout(rect, dry_run=False)
+
+        def hasHeightForWidth(self):
+            return True
+
+        def heightForWidth(self, width):
+            return self._do_layout(QRect(0, 0, width, 0), dry_run=True)
+
+        def _do_layout(self, rect, dry_run=False):
+            x = rect.x()
+            y = rect.y()
+            row_height = 0
+            for item in self._items:
+                w = item.widget()
+                if w is None or w.isHidden():
+                    continue
+                size = item.sizeHint()
+                if x + size.width() > rect.right() and x > rect.x():
+                    x = rect.x()
+                    y += row_height + self._spacing
+                    row_height = 0
+                if not dry_run:
+                    item.setGeometry(QRect(x, y, size.width(), size.height()))
+                x += size.width() + self._spacing
+                row_height = max(row_height, size.height())
+            return y + row_height - rect.y()
+
+    def _make_flow_layout(self, parent):
+        """Crée un FlowLayout sur le parent."""
+        lay = self._FlowLayout(parent, spacing=4)
         return lay
 
     def _add_cont_word(self, lang, line_edit):
-        """Ajoute un mot perso, sauvegarde le fichier immédiatement, recharge."""
+        """Ajoute un mot perso en mémoire (pas de sauvegarde sur disque)."""
         word = line_edit.text().strip().lower()
         if not word:
             return
@@ -4323,19 +5561,104 @@ class DicteeSetupDialog(QDialog):
             sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
             for _sc, words in sys_cats.get(lang, []):
                 if word in words:
-                    QMessageBox.information(self, "dictee",
+                    QMessageBox.information(self._pp_parent, "dictee",
                         _("'{word}' is already in the system list.").format(word=word))
                     return
         self._cont_personal_words[lang].add(word)
-        self._save_cont_personal()
+        line_edit.clear()
         self._load_cont_form()
 
+    def _on_cont_chip_clicked(self, link):
+        """Gère le clic sur un chip perso (remove:lang:word)."""
+        if link.startswith("remove:"):
+            parts = link.split(":", 2)
+            if len(parts) == 3:
+                self._remove_cont_word(parts[1], parts[2])
+
     def _remove_cont_word(self, lang, word):
-        """Supprime un mot perso, sauvegarde le fichier immédiatement, recharge."""
+        """Supprime un mot perso en mémoire (pas de sauvegarde sur disque)."""
         if lang in self._cont_personal_words:
             self._cont_personal_words[lang].discard(word)
-        self._save_cont_personal()
         self._load_cont_form()
+
+    def _filter_cont_words(self):
+        """Filtre les chips visibles selon la recherche."""
+        search = self._cont_search.text().lower().strip() if hasattr(self, '_cont_search') else ""
+        active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        layout = self._cont_form_layout
+        i = 0
+        while i < layout.count():
+            item = layout.itemAt(i)
+            if item is None:
+                i += 1
+                continue
+            w = item.widget()
+            if w is None:
+                i += 1
+                continue
+            # Boutons titre (accordéons langue)
+            if isinstance(w, QPushButton) and w.isFlat() and "(" in w.text():
+                i += 1
+                if i >= layout.count():
+                    break
+                content_item = layout.itemAt(i)
+                content_w = content_item.widget() if content_item else None
+                if content_w is None:
+                    i += 1
+                    continue
+                i += 1
+
+                # Détecter si c'est la langue active (flag emoji dans le titre)
+                is_active = any(fn in w.text() for fn in
+                    [self._LANG_FULLNAMES.get(active_lang, "")])
+
+                if not search:
+                    # Pas de recherche : restaurer l'état par défaut
+                    w.setVisible(True)
+                    content_w.setVisible(is_active)
+                    for child in content_w.findChildren((QLabel, QPushButton)):
+                        child.setVisible(True)
+                    for child in content_w.findChildren(QWidget):
+                        if child.property("cont_sys_chips"):
+                            child.setVisible(False)
+                    # Remettre les icônes des toggles système à ▸ (fermé)
+                    for child in content_w.findChildren(QPushButton):
+                        ct = child.text()
+                        if _("System words") in ct and ct.startswith("\u25be"):
+                            child.setText("\u25b8" + ct[1:])
+                    txt = w.text()
+                    arrow = "\u25be" if is_active else "\u25b8"
+                    w.setText(arrow + txt[1:])
+                    continue
+
+                # Filtrer les chips individuels (perso ET système)
+                any_match = False
+                # Ouvrir les mots système et mettre l'icône ▾
+                for child in content_w.findChildren(QWidget):
+                    if child.property("cont_sys_chips"):
+                        child.setVisible(True)
+                for child in content_w.findChildren(QPushButton):
+                    ct = child.text()
+                    if _("System words") in ct and ct.startswith("\u25b8"):
+                        child.setText("\u25be" + ct[1:])
+                for child in content_w.findChildren((QLabel, QPushButton)):
+                    text = child.text().replace("\u2715", "").strip()
+                    if not text or text.startswith("\u25b8") or text.startswith("\u25be"):
+                        continue
+                    if _("Your words") in text or _("System words") in text:
+                        continue
+                    if search in text.lower():
+                        child.setVisible(True)
+                        any_match = True
+                    else:
+                        child.setVisible(False)
+                w.setVisible(any_match)
+                content_w.setVisible(any_match)
+                txt = w.text()
+                arrow = "\u25be" if any_match else "\u25b8"
+                w.setText(arrow + txt[1:])
+            else:
+                i += 1
 
     def _save_cont_personal(self):
         """Sauvegarde les mots perso dans ~/.config/dictee/continuation.conf."""
@@ -4349,6 +5672,56 @@ class DicteeSetupDialog(QDialog):
                 words = sorted(self._cont_personal_words[lang])
                 if words:
                     f.write(f"[{lang}] {' '.join(words)}\n")
+
+    def _cont_save_smart(self):
+        """Enregistrer (mode normal ou avancé)."""
+        if self._cont_stack.currentIndex() == 1:
+            self._save_cont_advanced()
+            self._btn_advanced.blockSignals(True)
+            self._btn_advanced.setChecked(False)
+            self._btn_advanced.blockSignals(False)
+            self._cont_force_reload = True
+            self._load_cont_form()
+            self._cont_stack.setCurrentIndex(0)
+        else:
+            self._save_cont_personal()
+        # Mettre à jour l'état sauvegardé
+        if os.path.isfile(self._cont_path):
+            with open(self._cont_path, encoding="utf-8") as f:
+                self._cont_saved_state = f.read()
+        QMessageBox.information(self._pp_parent, "dictee", _("Continuation words saved."))
+
+    def _cont_revert(self):
+        """Annule les modifications — revient à l'état de l'ouverture."""
+        reply = QMessageBox.question(self._pp_parent, "dictee",
+            _("Revert to the last saved version?\n\n"
+              "All unsaved changes will be lost."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        # Restaurer le fichier tel qu'il était à l'ouverture
+        os.makedirs(os.path.dirname(self._cont_path), exist_ok=True)
+        with open(self._cont_path, "w", encoding="utf-8") as f:
+            f.write(self._cont_saved_state or "")
+        self._cont_force_reload = True
+        self._load_cont_form()
+        if self._cont_stack.currentIndex() == 1:
+            self._btn_advanced.blockSignals(True)
+            self._btn_advanced.setChecked(False)
+            self._btn_advanced.blockSignals(False)
+            self._cont_stack.setCurrentIndex(0)
+
+    def _cont_factory_reset(self):
+        """Restaure le fichier système par défaut."""
+        reply = QMessageBox.question(self._pp_parent, "dictee",
+            _("Remove all your custom continuation words?\n\n"
+              "System words will remain unchanged."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._cont_personal_words.clear()
+        self._save_cont_personal()
+        self._load_cont_form()
 
     def _save_cont_advanced(self):
         """Sauvegarde le contenu du mode avancé dans le fichier (sans basculer le mode)."""
@@ -4368,7 +5741,7 @@ class DicteeSetupDialog(QDialog):
                                avant de déclencher cette bascule.
         """
         idx = self._pp_tabs.currentIndex()
-        if idx == 1:  # Dictionnaire
+        if idx == 0:  # Dictionnaire
             currently_advanced = self._dict_stack.currentIndex() == 1
             if checked and not currently_advanced:
                 # Formulaire → Avancé : empiler l'état actuel (Discard pourra le restaurer)
@@ -4390,13 +5763,14 @@ class DicteeSetupDialog(QDialog):
                     text += "\n"
                 ok, err = self._validate_dict_syntax(text)
                 if not ok:
-                    QMessageBox.warning(self, "dictee", err)
+                    QMessageBox.warning(self._pp_parent, "dictee", err)
                     # Rester en mode avancé
                     self._btn_advanced.blockSignals(True)
                     self._btn_advanced.setChecked(True)
                     self._btn_advanced.blockSignals(False)
                     return
-                # Écrire le texte validé dans .tmp et recharger le formulaire
+                # Réorganiser, écrire dans .tmp et recharger le formulaire
+                text = self._dict_reorganize(text)
                 self._dict_push_undo()
                 os.makedirs(os.path.dirname(self._dict_tmp_path), exist_ok=True)
                 with open(self._dict_tmp_path, "w", encoding="utf-8") as f:
@@ -4413,7 +5787,8 @@ class DicteeSetupDialog(QDialog):
                 else:
                     self._cont_adv_editor.clear()
             else:
-                # Avancé → Formulaire : juste recharger
+                # Avancé → Formulaire : recharger depuis le fichier
+                self._cont_force_reload = True
                 self._load_cont_form()
             self._cont_stack.setCurrentIndex(1 if checked else 0)
 
@@ -5301,14 +6676,29 @@ class DicteeSetupDialog(QDialog):
 
     # -- Panneau de test post-traitement --
 
+    class _TestInputFilter(QObject):
+        """Intercepte Enter dans le champ test pour ne pas ajouter de retour à la ligne."""
+        def __init__(self, parent):
+            super().__init__(parent)
+        def eventFilter(self, obj, event):
+            if event.type() == event.Type.KeyPress:
+                from PyQt6.QtCore import Qt as _Qt
+                if event.key() in (_Qt.Key.Key_Return, _Qt.Key.Key_Enter):
+                    return True  # bloquer Enter
+            return False
+
     def _build_test_panel(self, lay):
-        """Panneau de test compact : entrée → sortie sur une ligne + micro."""
-        # Ligne unique : [input] → [output] [🎤]
+        """Panneau de test : entrée → sortie multilignes + micro."""
         row = QHBoxLayout()
         row.setSpacing(4)
 
-        self._test_input = QLineEdit()
+        self._test_input = QTextEdit()
         self._test_input.setPlaceholderText(_("Type text or record..."))
+        self._test_input.setAcceptDrops(True)
+        self._test_input.setFixedHeight(60)
+        self._test_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Enter lance le test au lieu d'ajouter une ligne
+        self._test_input.installEventFilter(self._TestInputFilter(self._test_input))
         row.addWidget(self._test_input, 3)
 
         lbl_arrow = QLabel("\u2192")
@@ -5316,21 +6706,25 @@ class DicteeSetupDialog(QDialog):
         lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(lbl_arrow)
 
-        self._test_output = QLineEdit()
+        self._test_output = QTextEdit()
         self._test_output.setReadOnly(True)
         self._test_output.setPlaceholderText(_("Output"))
+        self._test_output.setFixedHeight(60)
+        self._test_output.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row.addWidget(self._test_output, 3)
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        self._btn_record = QPushButton("\U0001f3a4")
-        self._btn_record.setFixedWidth(36)
+        self._btn_record = QPushButton(QIcon.fromTheme("audio-input-microphone"), "")
+        self._btn_record.setFixedSize(60, 60)
+        self._btn_record.setIconSize(self._btn_record.size() * 0.6)
         self._btn_record.setToolTip(_("Record"))
         self._btn_record.setStyleSheet(
-            f"font-size: 16px; background-color: {accent}; color: white; border-radius: 4px;")
+            f"background-color: {accent}; color: white; border-radius: 8px;")
         row.addWidget(self._btn_record)
 
-        btn_details = QPushButton("\u2026")
-        btn_details.setFixedWidth(28)
+        btn_details = QPushButton(QIcon.fromTheme("view-list-details"), "")
+        btn_details.setFixedSize(60, 60)
+        btn_details.setIconSize(btn_details.size() * 0.6)
         btn_details.setToolTip(_("Pipeline details"))
         btn_details.setCheckable(True)
         row.addWidget(btn_details)
@@ -5364,9 +6758,9 @@ class DicteeSetupDialog(QDialog):
 
     def _run_test_pipeline(self):
         """Exécute le pipeline de postprocess étape par étape."""
-        text = self._test_input.text()
+        text = self._test_input.toPlainText()
         if not text.strip():
-            self._test_output.setText("")
+            self._test_output.setPlainText("")
             self._test_details_label.setText("")
             return
 
@@ -5390,12 +6784,15 @@ class DicteeSetupDialog(QDialog):
             do_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
             do_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
             do_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
+            do_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
             do_fuzzy_dict = self.chk_pp_fuzzy_dict.isChecked() if hasattr(self, 'chk_pp_fuzzy_dict') else True
+            do_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
+            do_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
 
             # 1. Règles regex
             rules = pp.load_rules()
-            if rules:
-                new = pp.apply_rules(current, rules).strip()
+            if do_rules and rules:
+                new = pp.apply_rules(current, rules).lstrip(" ")
                 steps.append((_("Rules"), current, new))
                 current = new
 
@@ -5408,27 +6805,58 @@ class DicteeSetupDialog(QDialog):
                 cyrillic = sum(1 for c in letters if '\u0400' <= c <= '\u04ff')
                 ratio = cyrillic / len(letters)
                 if lang in _LATIN and ratio > 0.5:
-                    self._test_output.setText(
+                    self._test_output.setPlainText(
                         _("Rejected: ASR detected Cyrillic instead of {lang}").format(lang=lang))
                     self._test_details_label.setText("")
                     return
                 if lang in _CYRILLIC and ratio < 0.2:
-                    self._test_output.setText(
+                    self._test_output.setPlainText(
                         _("Rejected: ASR detected Latin instead of {lang}").format(lang=lang))
                     self._test_details_label.setText("")
                     return
 
             # 3. Continuation
             cont_words = pp.load_continuation()
-            if cont_words:
+            if do_continuation and cont_words:
                 new = pp.fix_continuation(current, cont_words)
                 steps.append((_("Continuation"), current, new))
                 current = new
 
-            # 4. Élisions (FR)
+            # 4. Règles spécifiques à la langue
+            do_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
+            do_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True
+            do_portuguese = self.chk_pp_portuguese.isChecked() if hasattr(self, 'chk_pp_portuguese') else True
+            do_german = self.chk_pp_german.isChecked() if hasattr(self, 'chk_pp_german') else True
+            do_dutch = self.chk_pp_dutch.isChecked() if hasattr(self, 'chk_pp_dutch') else True
+            do_romanian = self.chk_pp_romanian.isChecked() if hasattr(self, 'chk_pp_romanian') else True
+
             if lang == "fr" and do_elisions:
                 new = pp.fix_elisions(current)
-                steps.append((_("Elisions"), current, new))
+                steps.append((_("Elisions [fr]"), current, new))
+                current = new
+            if lang == "it" and do_elisions_it:
+                new = pp.fix_italian_elisions(current)
+                steps.append((_("Elisions [it]"), current, new))
+                current = new
+            if lang == "es" and do_spanish:
+                new = pp.fix_spanish(current)
+                steps.append((_("Spanish [es]"), current, new))
+                current = new
+            if lang == "pt" and do_portuguese:
+                new = pp.fix_portuguese(current)
+                steps.append((_("Contractions [pt]"), current, new))
+                current = new
+            if lang == "de" and do_german:
+                new = pp.fix_german(current)
+                steps.append((_("German [de]"), current, new))
+                current = new
+            if lang == "nl" and do_dutch:
+                new = pp.fix_dutch(current)
+                steps.append((_("Dutch [nl]"), current, new))
+                current = new
+            if lang == "ro" and do_romanian:
+                new = pp.fix_romanian(current)
+                steps.append((_("Romanian [ro]"), current, new))
                 current = new
 
             # 5. Nombres
@@ -5445,7 +6873,7 @@ class DicteeSetupDialog(QDialog):
 
             # 7. Dictionnaire
             dictionary = pp.load_dictionary()
-            if dictionary:
+            if do_dict and dictionary:
                 new = pp.apply_dictionary(current, dictionary, fuzzy=do_fuzzy_dict)
                 steps.append((_("Dictionary"), current, new))
                 current = new
@@ -5456,7 +6884,16 @@ class DicteeSetupDialog(QDialog):
                 steps.append((_("Capitalization"), current, new))
                 current = new
 
-            self._test_output.setText(current)
+            # Afficher les caractères spéciaux avec des symboles visibles
+            display_output = current
+            display_output = display_output.replace("\n", "↵\n")
+            display_output = display_output.replace("\t", "⇥\t")
+            if display_output.endswith(" "):
+                display_output = display_output.rstrip(" ") + "␣"
+            # Si le résultat ne contient que des caractères spéciaux, afficher les symboles seuls
+            if not display_output.strip() and current.strip():
+                display_output = current.replace("\n", "↵").replace("\t", "⇥")
+            self._test_output.setPlainText(display_output)
 
             # Détails
             lines = []
@@ -5470,7 +6907,7 @@ class DicteeSetupDialog(QDialog):
             self._test_details_label.setText("\n".join(lines))
 
         except Exception as e:
-            self._test_output.setText(f"Error: {e}")
+            self._test_output.setPlainText(f"Error: {e}")
 
     def _toggle_recording(self):
         """Démarre/arrête l'enregistrement micro."""
@@ -5497,7 +6934,7 @@ class DicteeSetupDialog(QDialog):
 
         if not active:
             reply = QMessageBox.question(
-                self, "dictee",
+                self._pp_parent, "dictee",
                 _("No ASR service is running. Start the default service?"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
@@ -5525,7 +6962,9 @@ class DicteeSetupDialog(QDialog):
         if not wav_path or not os.path.isfile(wav_path):
             return
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-        sock_path = os.path.join(runtime_dir, "dictee", "transcribe.sock")
+        sock_path = os.path.join(runtime_dir, "transcribe.sock")
+        if not os.path.exists(sock_path):
+            sock_path = os.path.join(runtime_dir, "dictee", "transcribe.sock")
         if not os.path.exists(sock_path):
             sock_path = "/tmp/transcribe.sock"
         try:
@@ -5542,9 +6981,9 @@ class DicteeSetupDialog(QDialog):
             s.close()
             text = data.decode("utf-8").strip()
             if text:
-                self._test_input.setText(text)
+                self._test_input.setPlainText(text)
         except (_socket.error, OSError) as e:
-            QMessageBox.warning(self, "dictee",
+            QMessageBox.warning(self._pp_parent, "dictee",
                                 _("Cannot connect to ASR daemon: {err}").format(err=str(e)))
         finally:
             try:
@@ -5624,10 +7063,19 @@ class DicteeSetupDialog(QDialog):
         # Post-processing
         postprocess = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
         pp_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
+        pp_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
+        pp_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True
+        pp_portuguese = self.chk_pp_portuguese.isChecked() if hasattr(self, 'chk_pp_portuguese') else True
+        pp_german = self.chk_pp_german.isChecked() if hasattr(self, 'chk_pp_german') else True
+        pp_dutch = self.chk_pp_dutch.isChecked() if hasattr(self, 'chk_pp_dutch') else True
+        pp_romanian = self.chk_pp_romanian.isChecked() if hasattr(self, 'chk_pp_romanian') else True
         pp_numbers = self.chk_pp_numbers.isChecked() if hasattr(self, 'chk_pp_numbers') else True
         pp_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
         pp_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
+        pp_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
         pp_fuzzy_dict = self.chk_pp_fuzzy_dict.isChecked() if hasattr(self, 'chk_pp_fuzzy_dict') else True
+        pp_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
+        pp_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "ministral:3b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
@@ -5640,9 +7088,13 @@ class DicteeSetupDialog(QDialog):
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
                     postprocess=postprocess,
-                    pp_elisions=pp_elisions, pp_numbers=pp_numbers,
+                    pp_elisions=pp_elisions, pp_elisions_it=pp_elisions_it,
+                    pp_spanish=pp_spanish, pp_portuguese=pp_portuguese,
+                    pp_german=pp_german, pp_dutch=pp_dutch,
+                    pp_romanian=pp_romanian, pp_numbers=pp_numbers,
                     pp_typography=pp_typography, pp_capitalization=pp_capitalization,
-                    pp_fuzzy_dict=pp_fuzzy_dict,
+                    pp_dict=pp_dict, pp_fuzzy_dict=pp_fuzzy_dict,
+                    pp_rules=pp_rules, pp_continuation=pp_continuation,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu)
 

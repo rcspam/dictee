@@ -287,18 +287,11 @@
 [*] /;+/;/g
 [*] /:+/:/g
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 6 — French elisions (remove space after apostrophe)
-# ═══════════════════════════════════════════════════════════════════════
-# Single-letter elision words
-[fr] /([ldnmtsjcLDNMTSJC]') +/\1/g
-# Multi-letter elision words
-[fr] /(qu'|jusqu'|lorsqu'|puisqu'|presqu'|quelqu') +/\1/ig
-# Special case: "si il" → "s'il"
-[fr] /\bsi (ils?)\b/s'\1/ig
+# (French elisions are handled by fix_elisions() in dictee-postprocess —
+#  see the "Elisions" checkbox in Language rules tab)
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 9 — Final cleanup (all languages)
+# STEP 6 — Final cleanup (all languages)
 # ═══════════════════════════════════════════════════════════════════════
 # Space after sentence-ending punctuation if glued to a letter
 [*] /([.!?…»\)])([A-Za-zÀ-ÿ])/\1 \2/g
