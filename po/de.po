@@ -1163,6 +1163,9 @@ msgid ""
 "\n"
 "All unsaved changes will be lost."
 msgstr ""
+"Zur letzten gespeicherten Version zurückkehren?\n"
+"\n"
+"Alle ungespeicherten Änderungen gehen verloren."
 
 #: dictee-setup.py:5045
 msgid ""
@@ -1171,14 +1174,18 @@ msgid ""
 "This will replace ALL your dictionary entries with the original defaults.\n"
 "Click Save afterwards to make it permanent."
 msgstr ""
+"Werkseinstellungen wiederherstellen?\n"
+"\n"
+"Dies ersetzt ALLE Ihre Wörterbucheinträge durch die Standardwerte.\n"
+"Klicken Sie anschließend auf Speichern, um die Änderung dauerhaft zu machen."
 
 #: dictee-setup.py:5060
 msgid "Default dictionary file not found."
-msgstr ""
+msgstr "Standard-Wörterbuchdatei nicht gefunden."
 
 #: dictee-setup.py:5160 dictee-setup.py:5175
 msgid "Other"
-msgstr ""
+msgstr "Sonstige"
 
 #: dictee-setup.py:5234
 msgid ""
@@ -1191,43 +1198,51 @@ msgid ""
 "System words are built-in and cannot be modified. You can add your own words "
 "per language below."
 msgstr ""
+"Fortsetzungswörter sind Wörter, die nie einen Satz beenden (Artikel, "
+"Präpositionen, Konjunktionen, Pronomen, Hilfsverben…).\n"
+"Wenn die ASR fälschlicherweise einen Punkt nach einem dieser Wörter setzt, "
+"wird der Punkt entfernt und der nächste Satz angehängt.\n"
+"Beispiel: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n"
+"\n"
+"Systemwörter sind fest eingebaut und können nicht geändert werden. Sie können "
+"unten eigene Wörter pro Sprache hinzufügen."
 
 #: dictee-setup.py:5296
 msgid "Save continuation words to disk"
-msgstr ""
+msgstr "Fortsetzungswörter auf Datenträger speichern"
 
 #: dictee-setup.py:5306
 msgid "Discard all unsaved changes"
-msgstr ""
+msgstr "Alle ungespeicherten Änderungen verwerfen"
 
 #: dictee-setup.py:5383
 msgid "words"
-msgstr ""
+msgstr "Wörter"
 
 #: dictee-setup.py:5383
 msgid "word"
-msgstr ""
+msgstr "Wort"
 
 #: dictee-setup.py:5460
 msgid "(none)"
-msgstr ""
+msgstr "(keine)"
 
 #: dictee-setup.py:5466
 msgid "Add a word..."
-msgstr ""
+msgstr "Wort hinzufügen..."
 
 #: dictee-setup.py:5565
 #, python-brace-format
 msgid "'{word}' is already in the system list."
-msgstr ""
+msgstr "'{word}' ist bereits in der Systemliste."
 
 #: dictee-setup.py:5627 dictee-setup.py:5642 dictee-setup.py:5648
 msgid "System words"
-msgstr ""
+msgstr "Systemwörter"
 
 #: dictee-setup.py:5648
 msgid "Your words"
-msgstr ""
+msgstr "Ihre Wörter"
 
 #: dictee-setup.py:5692
 #, fuzzy
@@ -1240,6 +1255,9 @@ msgid ""
 "\n"
 "System words will remain unchanged."
 msgstr ""
+"Alle benutzerdefinierten Fortsetzungswörter entfernen?\n"
+"\n"
+"Systemwörter bleiben unverändert."
 
 #: dictee-setup.py:5801
 msgid "System default"
@@ -1417,15 +1435,15 @@ msgstr "Installieren"
 
 #: dictee-setup.py:6696
 msgid "Type text or record..."
-msgstr ""
+msgstr "Text eingeben oder aufnehmen..."
 
 #: dictee-setup.py:6711
 msgid "Output"
-msgstr ""
+msgstr "Ausgabe"
 
 #: dictee-setup.py:6728
 msgid "Pipeline details"
-msgstr ""
+msgstr "Pipeline-Details"
 
 #: dictee-setup.py:6796
 #, fuzzy
@@ -1435,12 +1453,12 @@ msgstr "Regex-Regeln"
 #: dictee-setup.py:6809
 #, python-brace-format
 msgid "Rejected: ASR detected Cyrillic instead of {lang}"
-msgstr ""
+msgstr "Abgelehnt: ASR hat Kyrillisch statt {lang} erkannt"
 
 #: dictee-setup.py:6814
 #, python-brace-format
 msgid "Rejected: ASR detected Latin instead of {lang}"
-msgstr ""
+msgstr "Abgelehnt: ASR hat Latein statt {lang} erkannt"
 
 #: dictee-setup.py:6835
 msgid "Elisions [fr]"
