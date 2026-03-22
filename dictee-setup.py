@@ -1627,6 +1627,9 @@ class DicteeSetupDialog(QDialog):
 
         self.conf = load_config()
 
+        # Prevent accidental scroll on interactive widgets (must be before UI build)
+        self._scroll_guard = ScrollGuardFilter(self)
+
         if self.wizard_mode:
             self._build_wizard_ui()
         else:
