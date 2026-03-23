@@ -106,10 +106,12 @@ PARAKEET_LANGUAGES = {
     "hr", "hu", "it", "lt", "lv", "mt", "nl", "pl", "pt", "ro",
     "ru", "sk", "sl", "sv", "uk",
 }
+CANARY_LANGUAGES = PARAKEET_LANGUAGES  # same 25 EU languages
 ASR_LANGUAGES = {
     "parakeet": PARAKEET_LANGUAGES,
     "vosk": {"fr", "en", "de", "es", "it", "pt", "ru", "zh", "ja"},
     "whisper": None,   # None = toutes
+    "canary": CANARY_LANGUAGES,
 }
 
 # Languages supported by each translation backend (pour filtrer la langue cible)
@@ -237,6 +239,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
             if whisper_lang:
                 f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
+        elif asr_backend == "canary":
+            f.write(f"DICTEE_CANARY_LANG={lang_source}\n")
         if backend == "trans":
             f.write(f"DICTEE_TRANS_ENGINE={trans_engine}\n")
         elif backend == "libretranslate":
@@ -728,6 +732,8 @@ ASSETS_DIR = _find_assets_dir()
 
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
+CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")
+CANARY_PACKAGES = ["onnx-asr>=0.11.0", "onnxruntime-gpu", "nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
 
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
@@ -791,6 +797,46 @@ class VenvInstallThread(QThread):
             self.finished.emit(False, _("Installation timed out."))
         except Exception as e:
             self.finished.emit(False, str(e))
+
+class _CanaryInstallThread(QThread):
+    """Thread to create a venv and install multiple packages for Canary."""
+    finished = Signal(bool, str)
+    progress = Signal(str)
+
+    def __init__(self, venv_path, packages):
+        super().__init__()
+        self.venv_path = venv_path
+        self.packages = packages
+
+    def run(self):
+        try:
+            self.progress.emit(_("Creating virtual environment…"))
+            os.makedirs(self.venv_path, exist_ok=True)
+            result = subprocess.run(
+                ["python3", "-m", "venv", self.venv_path],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                self.finished.emit(False, result.stderr.strip())
+                return
+            pip = os.path.join(self.venv_path, "bin", "pip")
+            self.progress.emit(_("Upgrading pip…"))
+            subprocess.run([pip, "install", "--upgrade", "pip"],
+                           capture_output=True, text=True, timeout=120)
+            self.progress.emit(_("Installing Canary packages…"))
+            result = subprocess.run(
+                [pip, "install"] + self.packages,
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode != 0:
+                self.finished.emit(False, result.stderr.strip()[-500:])
+                return
+            self.finished.emit(True, "")
+        except subprocess.TimeoutExpired:
+            self.finished.emit(False, _("Installation timed out."))
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
 
 ASR_MODELS = [
     {
@@ -1513,6 +1559,190 @@ class AudioLevelMonitor:
             self._meter.setLevel(level)
 
 
+class TestTranslateThread(QThread):
+    """Record mic, transcribe, then translate using the configured backend."""
+    result = Signal(str)
+
+    def __init__(self, duration=5, asr_backend="parakeet", trans_backend="trans:google",
+                 source_lang="fr", target_lang="en", trans_engine="google",
+                 lt_port=5000, ollama_model="translategemma", postprocess=False,
+                 parent=None):
+        super().__init__(parent)
+        self._duration = duration
+        self._asr_backend = asr_backend
+        self._trans_backend = trans_backend
+        self._source_lang = source_lang
+        self._target_lang = target_lang
+        self._trans_engine = trans_engine
+        self._lt_port = lt_port
+        self._ollama_model = ollama_model
+        self._postprocess = postprocess
+        self._rec_proc = None
+        self._stopped = False
+
+    def stop(self):
+        self._stopped = True
+        if self._rec_proc and self._rec_proc.poll() is None:
+            self._rec_proc.terminate()
+            try:
+                self._rec_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._rec_proc.kill()
+
+    def _unmute_mic(self):
+        """Auto-unmute mic, return True if was muted."""
+        try:
+            r = subprocess.run(
+                ["pactl", "get-source-mute", "@DEFAULT_SOURCE@"],
+                capture_output=True, text=True, timeout=3)
+            if r.returncode == 0 and any(
+                    x in r.stdout.lower() for x in ("oui", "yes")):
+                subprocess.run(
+                    ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"],
+                    timeout=3)
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        return False
+
+    def _remute_mic(self):
+        try:
+            subprocess.run(
+                ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1"],
+                timeout=3)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    def _record(self, wav_path):
+        """Record audio from mic."""
+        if shutil.which("pw-record"):
+            cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1", wav_path]
+        elif shutil.which("parecord"):
+            cmd = ["parecord", "--format=s16le", "--rate=16000", "--channels=1",
+                   "--file-format=wav", wav_path]
+        else:
+            return False, "pw-record / parecord not found"
+
+        was_muted = self._unmute_mic()
+        self._rec_proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self._rec_proc.wait(timeout=self._duration)
+        except subprocess.TimeoutExpired:
+            self._rec_proc.terminate()
+            self._rec_proc.wait(timeout=3)
+        if was_muted:
+            self._remute_mic()
+        return True, ""
+
+    def _transcribe(self, wav_path):
+        """Transcribe via transcribe-client."""
+        r = subprocess.run(
+            ["transcribe-client", wav_path],
+            capture_output=True, text=True, timeout=15)
+        if r.returncode == 0 and r.stdout.strip():
+            text = r.stdout.strip()
+            if self._postprocess and shutil.which("dictee-postprocess"):
+                pp = subprocess.run(
+                    ["dictee-postprocess"], input=text,
+                    capture_output=True, text=True, timeout=15)
+                if pp.returncode == 0 and pp.stdout.strip():
+                    text = pp.stdout.strip()
+            return text
+        return ""
+
+    def _translate_canary(self, wav_path):
+        """Send to Canary daemon with target language."""
+        import socket as _socket
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+        sock_path = os.path.join(runtime, "transcribe.sock") if runtime else f"/tmp/transcribe-{os.getuid()}.sock"
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock.settimeout(15)
+        sock.connect(sock_path)
+        sock.sendall(f"{wav_path}\tlang:{self._target_lang}\n".encode())
+        data = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        sock.close()
+        return data.decode("utf-8", errors="replace").strip()
+
+    def _translate_text(self, text):
+        """Translate text using the configured backend."""
+        if self._trans_backend.startswith("trans"):
+            engine = self._trans_engine
+            r = subprocess.run(
+                ["trans", "-b", "-e", engine,
+                 f"{self._source_lang}:{self._target_lang}"],
+                input=text, capture_output=True, text=True, timeout=15)
+            return r.stdout.strip() if r.returncode == 0 else ""
+        elif self._trans_backend == "libretranslate":
+            import json
+            import urllib.request
+            url = f"http://localhost:{self._lt_port}/translate"
+            payload = json.dumps({
+                "q": text, "source": self._source_lang,
+                "target": self._target_lang,
+            }).encode()
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"})
+            resp = urllib.request.urlopen(req, timeout=10)
+            result = json.loads(resp.read())
+            return result.get("translatedText", "")
+        elif self._trans_backend == "ollama":
+            r = subprocess.run(
+                ["ollama", "run", self._ollama_model,
+                 f"Translate from {self._source_lang} to {self._target_lang}: {text}"],
+                capture_output=True, text=True, timeout=30)
+            return r.stdout.strip() if r.returncode == 0 else ""
+        return ""
+
+    def run(self):
+        wav_path = os.path.join(tempfile.gettempdir(), "dictee_test_translate.wav")
+        try:
+            ok, err = self._record(wav_path)
+            if not ok:
+                self.result.emit(_("Error: ") + err)
+                return
+            if self._stopped:
+                return
+            if not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
+                self.result.emit(_("Error: ") + _("No audio recorded."))
+                return
+
+            if self._asr_backend == "canary":
+                # Canary: single-pass ASR + translation
+                translated = self._translate_canary(wav_path)
+                if translated.startswith("ERROR:"):
+                    self.result.emit(_("Error: ") + translated[6:].strip())
+                elif translated:
+                    self.result.emit(translated)
+                else:
+                    self.result.emit(_("No translation result."))
+            else:
+                # Other backends: transcribe then translate
+                transcribed = self._transcribe(wav_path)
+                if not transcribed:
+                    self.result.emit(_("No transcription result."))
+                    return
+                translated = self._translate_text(transcribed)
+                if translated:
+                    self.result.emit(f"{transcribed}\n→ {translated}")
+                else:
+                    self.result.emit(_("Transcribed: ") + transcribed + "\n"
+                                     + _("Translation failed."))
+
+        except ConnectionRefusedError:
+            self.result.emit(_("Error: ") + _("Cannot connect to daemon. Is it running?"))
+        except subprocess.TimeoutExpired:
+            self.result.emit(_("Timeout ({duration}s)").format(duration=self._duration))
+        except Exception as e:
+            self.result.emit(_("Error: ") + str(e))
+
+
 class TestDicteeThread(QThread):
     """Enregistre le micro puis transcrit via transcribe-client <fichier>."""
     result = Signal(str)
@@ -1547,6 +1777,21 @@ class TestDicteeThread(QThread):
                 self.result.emit(_("Error: ") + "pw-record / parecord not found")
                 return
 
+            # Auto-unmute mic if muted
+            was_muted = False
+            try:
+                r_mute = subprocess.run(
+                    ["pactl", "get-source-mute", "@DEFAULT_SOURCE@"],
+                    capture_output=True, text=True, timeout=3)
+                if r_mute.returncode == 0 and any(
+                        x in r_mute.stdout.lower() for x in ("oui", "yes")):
+                    subprocess.run(
+                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"],
+                        timeout=3)
+                    was_muted = True
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
             self._rec_proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1556,6 +1801,15 @@ class TestDicteeThread(QThread):
             except subprocess.TimeoutExpired:
                 self._rec_proc.terminate()
                 self._rec_proc.wait(timeout=3)
+
+            # Re-mute mic if it was muted before
+            if was_muted:
+                try:
+                    subprocess.run(
+                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1"],
+                        timeout=3)
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
 
             if self._stopped:
                 return
@@ -1713,18 +1967,24 @@ class DicteeSetupDialog(QDialog):
         self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
         self.cmb_asr_backend.addItem("Vosk", "vosk")
         self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        gpu_total, _free = get_gpu_vram_gb()
+        if gpu_total > 0:
+            self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         lay_asr.addWidget(self.cmb_asr_backend)
 
         self._build_parakeet_options(lay_asr)
         self._build_vosk_options(lay_asr)
         self._build_whisper_options(lay_asr)
+        self._build_canary_options(lay_asr)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
             self.w_parakeet_options.setVisible(backend == "parakeet")
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
+            self.w_canary_options.setVisible(backend == "canary")
+            self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
         self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
@@ -1755,6 +2015,9 @@ class DicteeSetupDialog(QDialog):
         lay_tr.setContentsMargins(16, 16, 16, 12)
         self._build_translation_section(lay_tr, conf)
         layout.addWidget(grp_translate)
+
+        # Apply canary state after translation section is built
+        self._update_canary_translation_visibility()
 
         # -- Microphone section --
         grp_mic = QGroupBox(_("Microphone"))
@@ -1942,6 +2205,10 @@ class DicteeSetupDialog(QDialog):
             self._update_wizard_nav()
 
     def _wizard_next(self):
+        # Debounce: disable button briefly to prevent double-click
+        self.btn_next.setEnabled(False)
+        QTimer.singleShot(400, lambda: self.btn_next.setEnabled(True))
+
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
             self.accept()
@@ -1950,6 +2217,8 @@ class DicteeSetupDialog(QDialog):
                 return
             self.stack.setCurrentIndex(idx + 1)
             self._update_wizard_nav()
+            # Update canary translation visibility when entering translation page
+            self._update_canary_translation_visibility()
             if idx + 1 == self.stack.count() - 1:
                 # Save config and start services BEFORE checks
                 self._on_apply()
@@ -2107,11 +2376,17 @@ class DicteeSetupDialog(QDialog):
         self._wizard_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
         self._asr_cards = {}
 
-        for backend_id, name, desc, size in [
+        gpu_total, _free = get_gpu_vram_gb()
+        backends = [
             ("parakeet", "Parakeet-TDT 0.6B", _("25 languages, ~2.5 GB, ~0.8s") + " — " + _("recommended"), "~2.5 Go"),
             ("vosk", "Vosk", _("9+ languages, ~50 MB, ~1.5s") + " — " + _("lightweight"), "~50 Mo"),
             ("whisper", "faster-whisper", _("99 languages, ~500 MB–3 GB, ~0.3s"), "~0.5–3 Go"),
-        ]:
+        ]
+        if gpu_total > 0:
+            backends.append(
+                ("canary", "Canary 1B v2", _("25 langs, GPU, built-in translation ↔ EN") + " — " + _("GPU only"), "~1.5 Go"),
+            )
+        for backend_id, name, desc, size in backends:
             card = self._make_radio_card(name, desc, backend_id == self._wizard_asr)
             card.mousePressEvent = lambda e, bid=backend_id: self._select_asr_radio(bid)
             self._asr_cards[backend_id] = card
@@ -2138,6 +2413,9 @@ class DicteeSetupDialog(QDialog):
         # Whisper options
         self._build_whisper_options(lay_sub)
 
+        # Canary options
+        self._build_canary_options(lay_sub)
+
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
 
@@ -2149,6 +2427,7 @@ class DicteeSetupDialog(QDialog):
         self.w_parakeet_options.setVisible(asr == "parakeet")
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
+        self.w_canary_options.setVisible(asr == "canary")
 
     def _select_asr_radio(self, backend_id):
         self._wizard_asr = backend_id
@@ -2157,6 +2436,7 @@ class DicteeSetupDialog(QDialog):
         self._update_asr_sub_visibility()
         if hasattr(self, 'combo_src'):
             self._update_src_languages()
+        self._update_canary_translation_visibility()
 
     # -- Wizard Page 2: Shortcuts --
 
@@ -2316,9 +2596,15 @@ class DicteeSetupDialog(QDialog):
         self.btn_test_dictee.clicked.connect(self._on_test_dictee)
         lay_test.addWidget(self.btn_test_dictee)
 
+        # Test translation (all backends)
+        self.btn_test_translate = QPushButton("🌐 " + _("Test translation"))
+        self.btn_test_translate.setMinimumHeight(40)
+        self.btn_test_translate.clicked.connect(self._on_test_translate)
+        lay_test.addWidget(self.btn_test_translate)
+
         self.txt_test_result = QTextEdit()
         self.txt_test_result.setReadOnly(True)
-        self.txt_test_result.setMaximumHeight(80)
+        self.txt_test_result.setMaximumHeight(100)
         self.txt_test_result.setPlaceholderText(_("Result will appear here…"))
         lay_test.addWidget(self.txt_test_result)
 
@@ -2693,6 +2979,68 @@ class DicteeSetupDialog(QDialog):
 
         parent_layout.addWidget(self.w_whisper_options)
 
+    def _build_canary_options(self, parent_layout):
+        """Build Canary 1B v2 sub-options (GPU only, venv install)."""
+        self.w_canary_options = QWidget()
+        canary_lay = QVBoxLayout(self.w_canary_options)
+        canary_lay.setContentsMargins(0, 4, 0, 0)
+        canary_lay.setSpacing(6)
+
+        lbl_info = QLabel(_(
+            "Canary 1B v2 — 25 languages, GPU-accelerated transcription "
+            "with built-in translation (all languages ↔ English, 48 pairs).\n"
+            "No external translation service needed."
+        ))
+        lbl_info.setWordWrap(True)
+        canary_lay.addWidget(lbl_info)
+
+        # Venv status
+        self._lbl_canary_venv = QLabel()
+        canary_lay.addWidget(self._lbl_canary_venv)
+
+        # Install button
+        row = QHBoxLayout()
+        self.btn_install_canary = QPushButton(_("Install Canary environment (~1.5 GB)"))
+        self.btn_install_canary.clicked.connect(self._install_canary_venv)
+        row.addStretch()
+        row.addWidget(self.btn_install_canary)
+        canary_lay.addLayout(row)
+
+        self._update_canary_venv_status()
+        self.w_canary_options.setVisible(False)
+        parent_layout.addWidget(self.w_canary_options)
+
+    def _update_canary_venv_status(self):
+        """Update Canary venv status label."""
+        if venv_is_installed(CANARY_VENV):
+            self._lbl_canary_venv.setText("✓ " + _("Canary environment installed"))
+            self._lbl_canary_venv.setStyleSheet("color: #4a4;")
+            self.btn_install_canary.setText(_("Reinstall Canary environment"))
+        else:
+            self._lbl_canary_venv.setText("✗ " + _("Canary environment not installed"))
+            self._lbl_canary_venv.setStyleSheet("color: #a44;")
+
+    def _install_canary_venv(self):
+        """Install Canary venv with onnx-asr + GPU deps."""
+        self.btn_install_canary.setEnabled(False)
+        self.btn_install_canary.setText(_("Installing..."))
+
+        # VenvInstallThread takes a single pip_package string;
+        # pip install handles multiple space-separated package specs
+        # when passed as separate args, so we join with space for display
+        # but actually install in sequence via a small wrapper
+        thread = _CanaryInstallThread(CANARY_VENV, CANARY_PACKAGES)
+        thread.finished.connect(self._on_canary_install_done)
+        thread.progress.connect(lambda msg: self.btn_install_canary.setText(msg))
+        self._venv_threads["canary"] = thread
+        thread.start()
+
+    def _on_canary_install_done(self, ok, msg):
+        self.btn_install_canary.setEnabled(True)
+        self._update_canary_venv_status()
+        if not ok:
+            QMessageBox.warning(self, _("Installation failed"), msg)
+
     def _build_visual_section(self, lay_vis, conf):
         """Build visual feedback checkboxes and install button."""
         self.chk_anim_speech = QCheckBox(_("animation-speech (overlay)"))
@@ -2762,6 +3110,19 @@ class DicteeSetupDialog(QDialog):
         lay_tr_title.addWidget(btn_help_tr)
         lay_tr_title.addStretch()
         lay_tr.addLayout(lay_tr_title)
+
+        # Canary translation notice (shown when ASR=canary)
+        self._canary_translation_notice = QLabel(_(
+            "Translation is built into the Canary engine — no external service needed.\n"
+            "Supported: 25 languages ↔ English (48 pairs).\n"
+            "For other pairs (e.g. FR→DE), switch to a different ASR backend."
+        ))
+        self._canary_translation_notice.setWordWrap(True)
+        self._canary_translation_notice.setStyleSheet(
+            "background: #1a3a1a; border: 1px solid #2a5a2a;"
+            " border-radius: 6px; padding: 8px;")
+        self._canary_translation_notice.setVisible(False)
+        lay_tr.addWidget(self._canary_translation_notice)
 
         # Languages
         form_lang = QFormLayout()
@@ -2964,6 +3325,7 @@ class DicteeSetupDialog(QDialog):
                 self._on_lt_langs_changed()
                 self._check_lt_status()
         self.combo_src.currentIndexChanged.connect(_on_lang_changed)
+        self.combo_src.currentIndexChanged.connect(lambda: self._update_canary_translation_visibility())
         self.combo_tgt.currentIndexChanged.connect(_on_lang_changed)
         self._update_lt_lang_checks()
         _on_trans_backend_changed()
@@ -5880,7 +6242,7 @@ class DicteeSetupDialog(QDialog):
 
     def _check_daemon_active(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
-        svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}.get(asr, "dictee")
+        svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
         # Le daemon peut mettre quelques secondes à démarrer (chargement modèle)
         import time
         for _ in range(10):
@@ -5997,6 +6359,63 @@ class DicteeSetupDialog(QDialog):
         self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
         self.txt_test_result.setPlainText(text)
 
+    # ── Test translation (Canary) ────────────────────────────────
+
+    def _on_test_translate(self):
+        if self._test_thread and self._test_thread.isRunning():
+            self._test_thread.stop()
+            self.btn_test_translate.setText("🌐 " + _("Test translation"))
+            self.btn_test_translate.setEnabled(True)
+            if hasattr(self, '_test_timer_tr'):
+                self._test_timer_tr.stop()
+            return
+        self.txt_test_result.clear()
+        self._test_countdown_tr = 5
+        self.btn_test_translate.setText("⏹ " + _("Recording… {n}s").format(n=self._test_countdown_tr))
+        self._test_timer_tr = QTimer(self)
+        self._test_timer_tr.timeout.connect(self._on_test_translate_tick)
+        self._test_timer_tr.start(1000)
+
+        # Gather current config
+        if self.wizard_mode and hasattr(self, '_wizard_asr'):
+            asr = self._wizard_asr
+        elif hasattr(self, 'cmb_asr_backend'):
+            asr = self.cmb_asr_backend.currentData()
+        else:
+            asr = "parakeet"
+        source = self.combo_src.currentData() if hasattr(self, 'combo_src') else "fr"
+        target = self.combo_tgt.currentData() if hasattr(self, 'combo_tgt') else "en"
+        trans_backend = self.cmb_trans_backend.currentData() if hasattr(self, 'cmb_trans_backend') else "trans:google"
+        trans_engine = "google"
+        if trans_backend.startswith("trans:"):
+            trans_engine = trans_backend.split(":", 1)[1]
+            trans_backend = "trans"
+        lt_port = int(self.spin_lt_port.currentText()) if hasattr(self, 'spin_lt_port') else 5000
+        ollama_model = self.cmb_ollama_model.currentText() if hasattr(self, 'cmb_ollama_model') else "translategemma"
+        pp_enabled = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else False
+
+        self._test_thread = TestTranslateThread(
+            duration=5, asr_backend=asr, trans_backend=trans_backend,
+            source_lang=source, target_lang=target, trans_engine=trans_engine,
+            lt_port=lt_port, ollama_model=ollama_model, postprocess=pp_enabled,
+        )
+        self._test_thread.result.connect(self._on_test_translate_result)
+        self._test_thread.start()
+
+    def _on_test_translate_tick(self):
+        self._test_countdown_tr -= 1
+        if self._test_countdown_tr > 0:
+            self.btn_test_translate.setText("⏹ " + _("Recording… {n}s").format(n=self._test_countdown_tr))
+        else:
+            self.btn_test_translate.setText("⏳ " + _("Translating…"))
+            self._test_timer_tr.stop()
+
+    def _on_test_translate_result(self, text):
+        if hasattr(self, '_test_timer_tr'):
+            self._test_timer_tr.stop()
+        self.btn_test_translate.setText("🌐 " + _("Test translation"))
+        self.txt_test_result.setPlainText(text)
+
     # ── Static helpers ────────────────────────────────────────────
 
     @staticmethod
@@ -6076,6 +6495,43 @@ class DicteeSetupDialog(QDialog):
         else:
             allowed = TRANSLATE_LANGUAGES.get(backend)
         self._filter_lang_combo(self.combo_tgt, allowed)
+
+    def _update_canary_translation_visibility(self):
+        """Show/hide translation widgets depending on Canary backend."""
+        if self.wizard_mode and hasattr(self, '_wizard_asr'):
+            asr = self._wizard_asr
+        elif hasattr(self, 'cmb_asr_backend'):
+            asr = self.cmb_asr_backend.currentData()
+        else:
+            asr = "parakeet"
+
+        is_canary = (asr == "canary")
+
+        # Notice verte
+        if hasattr(self, '_canary_translation_notice'):
+            self._canary_translation_notice.setVisible(is_canary)
+
+        # Masquer les backends traduction
+        for w_name in ('cmb_trans_backend', 'lt_widget', 'ollama_widget'):
+            w = getattr(self, w_name, None)
+            if w:
+                w.setVisible(not is_canary)
+
+        # Contrainte langue : Canary traduit uniquement via l'anglais
+        if is_canary and hasattr(self, 'combo_src') and hasattr(self, 'combo_tgt'):
+            src = self.combo_src.currentData()
+            if src != "en":
+                # Source ≠ EN → cible forcée à EN
+                self._filter_lang_combo(self.combo_tgt, {"en"})
+                self._set_combo_by_data(self.combo_tgt, "en", 0)
+                self.combo_tgt.setEnabled(False)
+            else:
+                # Source = EN → cible libre parmi les 25 langues Canary
+                self._filter_lang_combo(self.combo_tgt, CANARY_LANGUAGES - {"en"})
+                self.combo_tgt.setEnabled(True)
+        elif hasattr(self, 'combo_tgt'):
+            self.combo_tgt.setEnabled(True)
+            self._update_tgt_languages()
 
     # -- Capture raccourci --
 
@@ -6917,7 +7373,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-canary.service"]
         active = False
         for svc in services:
             try:
@@ -6937,7 +7393,7 @@ class DicteeSetupDialog(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
                 svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
-                           "whisper": "dictee-whisper.service"}
+                           "whisper": "dictee-whisper.service", "canary": "dictee-canary.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
             else:
@@ -7099,7 +7555,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():

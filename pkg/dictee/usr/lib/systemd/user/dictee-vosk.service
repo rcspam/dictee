@@ -1,7 +1,7 @@
 [Unit]
 Description=Vosk Transcription Daemon (ASR)
 After=network.target
-Conflicts=dictee.service dictee-whisper.service
+Conflicts=dictee.service dictee-whisper.service dictee-canary.service
 
 [Service]
 Type=simple
