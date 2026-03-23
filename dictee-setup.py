@@ -1559,6 +1559,110 @@ class AudioLevelMonitor:
             self._meter.setLevel(level)
 
 
+class _TestCanaryTranslateThread(QThread):
+    """Record mic then send to Canary daemon with target_language for translation."""
+    result = Signal(str)
+
+    def __init__(self, duration=5, target_lang="en", parent=None):
+        super().__init__(parent)
+        self._duration = duration
+        self._target_lang = target_lang
+        self._rec_proc = None
+        self._stopped = False
+
+    def stop(self):
+        self._stopped = True
+        if self._rec_proc and self._rec_proc.poll() is None:
+            self._rec_proc.terminate()
+            try:
+                self._rec_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._rec_proc.kill()
+
+    def run(self):
+        wav_path = os.path.join(tempfile.gettempdir(), "dictee_test_translate.wav")
+        try:
+            if shutil.which("pw-record"):
+                cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1",
+                       wav_path]
+            elif shutil.which("parecord"):
+                cmd = ["parecord", "--format=s16le", "--rate=16000", "--channels=1",
+                       "--file-format=wav", wav_path]
+            else:
+                self.result.emit(_("Error: ") + "pw-record / parecord not found")
+                return
+
+            # Auto-unmute mic
+            was_muted = False
+            try:
+                r_mute = subprocess.run(
+                    ["pactl", "get-source-mute", "@DEFAULT_SOURCE@"],
+                    capture_output=True, text=True, timeout=3)
+                if r_mute.returncode == 0 and any(
+                        x in r_mute.stdout.lower() for x in ("oui", "yes")):
+                    subprocess.run(
+                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"],
+                        timeout=3)
+                    was_muted = True
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+            self._rec_proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                self._rec_proc.wait(timeout=self._duration)
+            except subprocess.TimeoutExpired:
+                self._rec_proc.terminate()
+                self._rec_proc.wait(timeout=3)
+
+            # Re-mute
+            if was_muted:
+                try:
+                    subprocess.run(
+                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1"],
+                        timeout=3)
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+
+            if self._stopped:
+                return
+            if not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
+                self.result.emit(_("Error: ") + _("No audio recorded."))
+                return
+
+            # Send to Canary daemon with target language via extended protocol
+            runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+            sock_path = os.path.join(runtime, "transcribe.sock") if runtime else f"/tmp/transcribe-{os.getuid()}.sock"
+
+            import socket as _socket
+            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            sock.settimeout(15)
+            sock.connect(sock_path)
+            sock.sendall(f"{wav_path}\tlang:{self._target_lang}\n".encode())
+            data = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            sock.close()
+
+            text = data.decode("utf-8", errors="replace").strip()
+            if text.startswith("ERROR:"):
+                self.result.emit(_("Error: ") + text[6:].strip())
+            elif text:
+                self.result.emit(text)
+            else:
+                self.result.emit(_("No translation result."))
+
+        except ConnectionRefusedError:
+            self.result.emit(_("Error: ") + _("Cannot connect to Canary daemon. Is it running?"))
+        except subprocess.TimeoutExpired:
+            self.result.emit(_("Timeout ({duration}s)").format(duration=self._duration))
+        except Exception as e:
+            self.result.emit(_("Error: ") + str(e))
+
+
 class TestDicteeThread(QThread):
     """Enregistre le micro puis transcrit via transcribe-client <fichier>."""
     result = Signal(str)
@@ -2008,6 +2112,11 @@ class DicteeSetupDialog(QDialog):
         else:
             self.btn_next.setText(_("Next"))
             self.btn_next.setStyleSheet("")
+        # Show/hide translate test button based on ASR backend
+        if hasattr(self, 'btn_test_translate'):
+            asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
+            self.btn_test_translate.setVisible(asr == "canary")
+
         # Start/stop audio level thread on page 4 (index 4)
         if idx == 4:
             self._start_audio_level()
@@ -2412,9 +2521,17 @@ class DicteeSetupDialog(QDialog):
         self.btn_test_dictee.clicked.connect(self._on_test_dictee)
         lay_test.addWidget(self.btn_test_dictee)
 
+        # Test translation (Canary only)
+        self.btn_test_translate = QPushButton("🌐 " + _("Test translation"))
+        self.btn_test_translate.setMinimumHeight(40)
+        self.btn_test_translate.clicked.connect(self._on_test_translate)
+        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
+        self.btn_test_translate.setVisible(asr == "canary")
+        lay_test.addWidget(self.btn_test_translate)
+
         self.txt_test_result = QTextEdit()
         self.txt_test_result.setReadOnly(True)
-        self.txt_test_result.setMaximumHeight(80)
+        self.txt_test_result.setMaximumHeight(100)
         self.txt_test_result.setPlaceholderText(_("Result will appear here…"))
         lay_test.addWidget(self.txt_test_result)
 
@@ -6167,6 +6284,41 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_test_timer'):
             self._test_timer.stop()
         self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
+        self.txt_test_result.setPlainText(text)
+
+    # ── Test translation (Canary) ────────────────────────────────
+
+    def _on_test_translate(self):
+        if self._test_thread and self._test_thread.isRunning():
+            self._test_thread.stop()
+            self.btn_test_translate.setText("🌐 " + _("Test translation"))
+            self.btn_test_translate.setEnabled(True)
+            if hasattr(self, '_test_timer_tr'):
+                self._test_timer_tr.stop()
+            return
+        self.txt_test_result.clear()
+        self._test_countdown_tr = 5
+        self.btn_test_translate.setText("⏹ " + _("Recording… {n}s").format(n=self._test_countdown_tr))
+        self._test_timer_tr = QTimer(self)
+        self._test_timer_tr.timeout.connect(self._on_test_translate_tick)
+        self._test_timer_tr.start(1000)
+        target = self.combo_tgt.currentData() if hasattr(self, 'combo_tgt') else "en"
+        self._test_thread = _TestCanaryTranslateThread(duration=5, target_lang=target)
+        self._test_thread.result.connect(self._on_test_translate_result)
+        self._test_thread.start()
+
+    def _on_test_translate_tick(self):
+        self._test_countdown_tr -= 1
+        if self._test_countdown_tr > 0:
+            self.btn_test_translate.setText("⏹ " + _("Recording… {n}s").format(n=self._test_countdown_tr))
+        else:
+            self.btn_test_translate.setText("⏳ " + _("Translating…"))
+            self._test_timer_tr.stop()
+
+    def _on_test_translate_result(self, text):
+        if hasattr(self, '_test_timer_tr'):
+            self._test_timer_tr.stop()
+        self.btn_test_translate.setText("🌐 " + _("Test translation"))
         self.txt_test_result.setPlainText(text)
 
     # ── Static helpers ────────────────────────────────────────────
