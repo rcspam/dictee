@@ -1997,6 +1997,10 @@ class DicteeSetupDialog(QDialog):
             self._update_wizard_nav()
 
     def _wizard_next(self):
+        # Debounce: disable button briefly to prevent double-click
+        self.btn_next.setEnabled(False)
+        QTimer.singleShot(400, lambda: self.btn_next.setEnabled(True))
+
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
             self.accept()
@@ -2005,6 +2009,8 @@ class DicteeSetupDialog(QDialog):
                 return
             self.stack.setCurrentIndex(idx + 1)
             self._update_wizard_nav()
+            # Update canary translation visibility when entering translation page
+            self._update_canary_translation_visibility()
             if idx + 1 == self.stack.count() - 1:
                 # Save config and start services BEFORE checks
                 self._on_apply()
