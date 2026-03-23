@@ -100,19 +100,6 @@ sudo ./install.sh
 
 > Pour les instructions de compilation détaillées et les features Cargo, voir [docs/building.md](docs/building.md).
 
-### Dépendances
-
-| Debian / Ubuntu | Fedora / openSUSE | Arch Linux |
-|-----------------|-------------------|------------|
-| `pipewire` | `pipewire` | `pipewire` |
-| `dotool` | — (inclus) | `dotool` |
-| `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
-| `libnotify-bin` | `libnotify` | `libnotify` |
-| `python3-pyqt6` | `python3-pyqt6` | `python-pyqt6` |
-| `python3-pyqt6.qtmultimedia` | `python3-qt6-multimedia` | `python-pyqt6-multimedia` |
-| `python3-gi` | `python3-gobject` | `python-gobject` |
-| `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` |
-
 ### Version GPU : dépendances NVIDIA CUDA
 
 La version GPU (`dictee-cuda`) nécessite cuDNN, qui n'est **pas disponible** dans les dépôts standards Ubuntu/Fedora. Il faut ajouter le dépôt NVIDIA CUDA :
@@ -139,6 +126,19 @@ sudo dnf install libcudnn9-cuda-12
 ```
 
 > Sans cuDNN, la version GPU fonctionne automatiquement en mode CPU. `dictee-setup` détectera le problème et vous guidera.
+
+### Dépendances
+
+| Debian / Ubuntu | Fedora / openSUSE | Arch Linux |
+|-----------------|-------------------|------------|
+| `pipewire` | `pipewire` | `pipewire` |
+| `dotool` | — (inclus) | `dotool` |
+| `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
+| `libnotify-bin` | `libnotify` | `libnotify` |
+| `python3-pyqt6` | `python3-pyqt6` | `python-pyqt6` |
+| `python3-pyqt6.qtmultimedia` | `python3-qt6-multimedia` | `python-pyqt6-multimedia` |
+| `python3-gi` | `python3-gobject` | `python-gobject` |
+| `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` |
 
 ---
 
