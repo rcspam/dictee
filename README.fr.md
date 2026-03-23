@@ -53,7 +53,7 @@
 Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
-# Version GPU (NVIDIA CUDA)
+# Version GPU (NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
 sudo dpkg -i dictee-cuda_1.1.2_amd64.deb
 
 # Version CPU (tout ordinateur)
@@ -66,7 +66,7 @@ sudo apt-get install -f
 **Fedora / openSUSE :**
 
 ```bash
-# Version GPU (NVIDIA CUDA)
+# Version GPU (NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
 sudo dnf install ./dictee-cuda-1.1.2-1.x86_64.rpm
 
 # Version CPU (tout ordinateur)
