@@ -54,10 +54,10 @@ Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
 # GPU version (requires the NVIDIA CUDA repository — see "GPU dependencies" below)
-sudo dpkg -i dictee-cuda_1.1.3_amd64.deb
+sudo dpkg -i dictee-cuda_1.1.4_amd64.deb
 
 # CPU version (any computer, no extra repository needed)
-sudo dpkg -i dictee-cpu_1.1.3_amd64.deb
+sudo dpkg -i dictee-cpu_1.1.4_amd64.deb
 
 # Install missing dependencies
 sudo apt-get install -f
@@ -69,10 +69,10 @@ sudo apt-get install -f
 
 ```bash
 # GPU version (NVIDIA CUDA — see "GPU dependencies" below)
-sudo dnf install ./dictee-cuda-1.1.3-1.x86_64.rpm
+sudo dnf install ./dictee-cuda-1.1.4-1.x86_64.rpm
 
 # CPU version (any computer)
-sudo dnf install ./dictee-cpu-1.1.3-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.1.4-1.x86_64.rpm
 ```
 
 **Arch Linux (AUR):**
@@ -86,16 +86,16 @@ Pre-built packages are x86_64 only. On aarch64 (Raspberry Pi 5, Ampere, etc.), b
 **Other distributions (.tar.gz):**
 
 ```bash
-tar xzf dictee-1.1.3_amd64.tar.gz
-cd dictee-1.1.3
+tar xzf dictee-1.1.4_amd64.tar.gz
+cd dictee-1.1.4
 sudo ./install.sh
 ```
 
 **From source:**
 
 ```bash
-tar xzf dictee-1.1.3-source.tar.gz
-cd dictee-1.1.3-source
+tar xzf dictee-1.1.4-source.tar.gz
+cd dictee-1.1.4-source
 cargo build --release --features sortformer
 sudo ./install.sh
 ```
