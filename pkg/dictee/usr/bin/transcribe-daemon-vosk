@@ -32,29 +32,44 @@ def socket_path():
 
 
 def find_model_dir():
-    """Trouve le répertoire du modèle Vosk."""
+    """Trouve le répertoire du modèle Vosk selon DICTEE_VOSK_MODEL."""
     base = os.environ.get(
         "DICTEE_VOSK_MODEL_DIR",
         os.path.expanduser("~/.local/share/dictee/vosk-models"),
     )
     if not os.path.isdir(base):
         os.makedirs(base, exist_ok=True)
-    # Chercher le premier sous-répertoire contenant un modèle
+
+    # Use configured language (e.g. "fr", "en", "de")
+    wanted_lang = os.environ.get("DICTEE_VOSK_MODEL", "")
+
+    # Search for a model directory matching the requested language
+    if wanted_lang:
+        for entry in sorted(os.listdir(base)):
+            full = os.path.join(base, entry)
+            if os.path.isdir(full) and f"-{wanted_lang}" in entry:
+                return full
+
+    # Fallback: first available model directory
     for entry in sorted(os.listdir(base)):
         full = os.path.join(base, entry)
         if os.path.isdir(full):
             return full
-    # Aucun modèle trouvé → télécharger le modèle small pour la langue système
-    return download_default_model(base)
+
+    # No model found — download default for configured or system language
+    return download_default_model(base, wanted_lang)
 
 
-def download_default_model(base):
-    """Télécharge le modèle Vosk small par défaut pour la langue système."""
+def download_default_model(base, wanted_lang=""):
+    """Télécharge le modèle Vosk small par défaut."""
     import zipfile
     from urllib.request import urlretrieve
 
-    lang = locale.getlocale()[0] or "en_US"
-    lang = lang.split("_")[0]  # "fr_FR" → "fr"
+    if wanted_lang:
+        lang = wanted_lang
+    else:
+        lang = locale.getlocale()[0] or "en_US"
+        lang = lang.split("_")[0]  # "fr_FR" → "fr"
     # Modèles small connus (lang → nom exact du zip)
     known = {
         "fr": "vosk-model-small-fr-0.22",
