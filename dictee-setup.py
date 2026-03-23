@@ -106,10 +106,12 @@ PARAKEET_LANGUAGES = {
     "hr", "hu", "it", "lt", "lv", "mt", "nl", "pl", "pt", "ro",
     "ru", "sk", "sl", "sv", "uk",
 }
+CANARY_LANGUAGES = PARAKEET_LANGUAGES  # same 25 EU languages
 ASR_LANGUAGES = {
     "parakeet": PARAKEET_LANGUAGES,
     "vosk": {"fr", "en", "de", "es", "it", "pt", "ru", "zh", "ja"},
     "whisper": None,   # None = toutes
+    "canary": CANARY_LANGUAGES,
 }
 
 # Languages supported by each translation backend (pour filtrer la langue cible)
@@ -237,6 +239,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
             if whisper_lang:
                 f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
+        elif asr_backend == "canary":
+            f.write(f"DICTEE_CANARY_LANG={lang_source}\n")
         if backend == "trans":
             f.write(f"DICTEE_TRANS_ENGINE={trans_engine}\n")
         elif backend == "libretranslate":
@@ -728,6 +732,8 @@ ASSETS_DIR = _find_assets_dir()
 
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
+CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")
+CANARY_PACKAGES = ["onnx-asr>=0.11.0", "onnxruntime-gpu", "nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
 
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
@@ -791,6 +797,46 @@ class VenvInstallThread(QThread):
             self.finished.emit(False, _("Installation timed out."))
         except Exception as e:
             self.finished.emit(False, str(e))
+
+class _CanaryInstallThread(QThread):
+    """Thread to create a venv and install multiple packages for Canary."""
+    finished = Signal(bool, str)
+    progress = Signal(str)
+
+    def __init__(self, venv_path, packages):
+        super().__init__()
+        self.venv_path = venv_path
+        self.packages = packages
+
+    def run(self):
+        try:
+            self.progress.emit(_("Creating virtual environment…"))
+            os.makedirs(self.venv_path, exist_ok=True)
+            result = subprocess.run(
+                ["python3", "-m", "venv", self.venv_path],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result.returncode != 0:
+                self.finished.emit(False, result.stderr.strip())
+                return
+            pip = os.path.join(self.venv_path, "bin", "pip")
+            self.progress.emit(_("Upgrading pip…"))
+            subprocess.run([pip, "install", "--upgrade", "pip"],
+                           capture_output=True, text=True, timeout=120)
+            self.progress.emit(_("Installing Canary packages…"))
+            result = subprocess.run(
+                [pip, "install"] + self.packages,
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode != 0:
+                self.finished.emit(False, result.stderr.strip()[-500:])
+                return
+            self.finished.emit(True, "")
+        except subprocess.TimeoutExpired:
+            self.finished.emit(False, _("Installation timed out."))
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
 
 ASR_MODELS = [
     {
@@ -1713,18 +1759,31 @@ class DicteeSetupDialog(QDialog):
         self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
         self.cmb_asr_backend.addItem("Vosk", "vosk")
         self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        gpu_total, _ = get_gpu_vram_gb()
+        if gpu_total > 0:
+            self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         lay_asr.addWidget(self.cmb_asr_backend)
 
         self._build_parakeet_options(lay_asr)
         self._build_vosk_options(lay_asr)
         self._build_whisper_options(lay_asr)
+        self._build_canary_options(lay_asr)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
             self.w_parakeet_options.setVisible(backend == "parakeet")
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
+            self.w_canary_options.setVisible(backend == "canary")
+            # Update translation section if canary
+            if hasattr(self, '_canary_translation_notice'):
+                is_canary = (backend == "canary")
+                self._canary_translation_notice.setVisible(is_canary)
+                for w_name in ('cmb_trans_backend', 'lt_widget', 'ollama_widget'):
+                    w = getattr(self, w_name, None)
+                    if w:
+                        w.setVisible(not is_canary)
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
         self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
@@ -2107,11 +2166,17 @@ class DicteeSetupDialog(QDialog):
         self._wizard_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
         self._asr_cards = {}
 
-        for backend_id, name, desc, size in [
+        gpu_total, _ = get_gpu_vram_gb()
+        backends = [
             ("parakeet", "Parakeet-TDT 0.6B", _("25 languages, ~2.5 GB, ~0.8s") + " — " + _("recommended"), "~2.5 Go"),
             ("vosk", "Vosk", _("9+ languages, ~50 MB, ~1.5s") + " — " + _("lightweight"), "~50 Mo"),
             ("whisper", "faster-whisper", _("99 languages, ~500 MB–3 GB, ~0.3s"), "~0.5–3 Go"),
-        ]:
+        ]
+        if gpu_total > 0:
+            backends.append(
+                ("canary", "Canary 1B v2", _("25 langs, GPU, built-in translation ↔ EN") + " — " + _("GPU only"), "~1.5 Go"),
+            )
+        for backend_id, name, desc, size in backends:
             card = self._make_radio_card(name, desc, backend_id == self._wizard_asr)
             card.mousePressEvent = lambda e, bid=backend_id: self._select_asr_radio(bid)
             self._asr_cards[backend_id] = card
@@ -2138,6 +2203,9 @@ class DicteeSetupDialog(QDialog):
         # Whisper options
         self._build_whisper_options(lay_sub)
 
+        # Canary options
+        self._build_canary_options(lay_sub)
+
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
 
@@ -2149,6 +2217,7 @@ class DicteeSetupDialog(QDialog):
         self.w_parakeet_options.setVisible(asr == "parakeet")
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
+        self.w_canary_options.setVisible(asr == "canary")
 
     def _select_asr_radio(self, backend_id):
         self._wizard_asr = backend_id
@@ -2693,6 +2762,68 @@ class DicteeSetupDialog(QDialog):
 
         parent_layout.addWidget(self.w_whisper_options)
 
+    def _build_canary_options(self, parent_layout):
+        """Build Canary 1B v2 sub-options (GPU only, venv install)."""
+        self.w_canary_options = QWidget()
+        canary_lay = QVBoxLayout(self.w_canary_options)
+        canary_lay.setContentsMargins(0, 4, 0, 0)
+        canary_lay.setSpacing(6)
+
+        lbl_info = QLabel(_(
+            "Canary 1B v2 — 25 languages, GPU-accelerated transcription "
+            "with built-in translation (all languages ↔ English, 48 pairs).\n"
+            "No external translation service needed."
+        ))
+        lbl_info.setWordWrap(True)
+        canary_lay.addWidget(lbl_info)
+
+        # Venv status
+        self._lbl_canary_venv = QLabel()
+        canary_lay.addWidget(self._lbl_canary_venv)
+
+        # Install button
+        row = QHBoxLayout()
+        self.btn_install_canary = QPushButton(_("Install Canary environment (~1.5 GB)"))
+        self.btn_install_canary.clicked.connect(self._install_canary_venv)
+        row.addStretch()
+        row.addWidget(self.btn_install_canary)
+        canary_lay.addLayout(row)
+
+        self._update_canary_venv_status()
+        self.w_canary_options.setVisible(False)
+        parent_layout.addWidget(self.w_canary_options)
+
+    def _update_canary_venv_status(self):
+        """Update Canary venv status label."""
+        if venv_is_installed(CANARY_VENV):
+            self._lbl_canary_venv.setText("✓ " + _("Canary environment installed"))
+            self._lbl_canary_venv.setStyleSheet("color: #4a4;")
+            self.btn_install_canary.setText(_("Reinstall Canary environment"))
+        else:
+            self._lbl_canary_venv.setText("✗ " + _("Canary environment not installed"))
+            self._lbl_canary_venv.setStyleSheet("color: #a44;")
+
+    def _install_canary_venv(self):
+        """Install Canary venv with onnx-asr + GPU deps."""
+        self.btn_install_canary.setEnabled(False)
+        self.btn_install_canary.setText(_("Installing..."))
+
+        # VenvInstallThread takes a single pip_package string;
+        # pip install handles multiple space-separated package specs
+        # when passed as separate args, so we join with space for display
+        # but actually install in sequence via a small wrapper
+        thread = _CanaryInstallThread(CANARY_VENV, CANARY_PACKAGES)
+        thread.finished.connect(self._on_canary_install_done)
+        thread.progress.connect(lambda msg: self.btn_install_canary.setText(msg))
+        self._venv_threads["canary"] = thread
+        thread.start()
+
+    def _on_canary_install_done(self, ok, msg):
+        self.btn_install_canary.setEnabled(True)
+        self._update_canary_venv_status()
+        if not ok:
+            QMessageBox.warning(self, _("Installation failed"), msg)
+
     def _build_visual_section(self, lay_vis, conf):
         """Build visual feedback checkboxes and install button."""
         self.chk_anim_speech = QCheckBox(_("animation-speech (overlay)"))
@@ -2762,6 +2893,19 @@ class DicteeSetupDialog(QDialog):
         lay_tr_title.addWidget(btn_help_tr)
         lay_tr_title.addStretch()
         lay_tr.addLayout(lay_tr_title)
+
+        # Canary translation notice (shown when ASR=canary)
+        self._canary_translation_notice = QLabel(_(
+            "Translation is built into the Canary engine — no external service needed.\n"
+            "Supported: 25 languages ↔ English (48 pairs).\n"
+            "For other pairs (e.g. FR→DE), switch to a different ASR backend."
+        ))
+        self._canary_translation_notice.setWordWrap(True)
+        self._canary_translation_notice.setStyleSheet(
+            "background: #1a3a1a; border: 1px solid #2a5a2a;"
+            " border-radius: 6px; padding: 8px;")
+        self._canary_translation_notice.setVisible(False)
+        lay_tr.addWidget(self._canary_translation_notice)
 
         # Languages
         form_lang = QFormLayout()
@@ -5880,7 +6024,7 @@ class DicteeSetupDialog(QDialog):
 
     def _check_daemon_active(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
-        svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}.get(asr, "dictee")
+        svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
         # Le daemon peut mettre quelques secondes à démarrer (chargement modèle)
         import time
         for _ in range(10):
@@ -6917,7 +7061,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-canary.service"]
         active = False
         for svc in services:
             try:
@@ -6937,7 +7081,7 @@ class DicteeSetupDialog(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
                 svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
-                           "whisper": "dictee-whisper.service"}
+                           "whisper": "dictee-whisper.service", "canary": "dictee-canary.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
             else:
@@ -7099,7 +7243,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():
