@@ -1776,14 +1776,7 @@ class DicteeSetupDialog(QDialog):
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
             self.w_canary_options.setVisible(backend == "canary")
-            # Update translation section if canary
-            if hasattr(self, '_canary_translation_notice'):
-                is_canary = (backend == "canary")
-                self._canary_translation_notice.setVisible(is_canary)
-                for w_name in ('cmb_trans_backend', 'lt_widget', 'ollama_widget'):
-                    w = getattr(self, w_name, None)
-                    if w:
-                        w.setVisible(not is_canary)
+            self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
         self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
@@ -2226,6 +2219,7 @@ class DicteeSetupDialog(QDialog):
         self._update_asr_sub_visibility()
         if hasattr(self, 'combo_src'):
             self._update_src_languages()
+        self._update_canary_translation_visibility()
 
     # -- Wizard Page 2: Shortcuts --
 
@@ -3108,6 +3102,7 @@ class DicteeSetupDialog(QDialog):
                 self._on_lt_langs_changed()
                 self._check_lt_status()
         self.combo_src.currentIndexChanged.connect(_on_lang_changed)
+        self.combo_src.currentIndexChanged.connect(lambda: self._update_canary_translation_visibility())
         self.combo_tgt.currentIndexChanged.connect(_on_lang_changed)
         self._update_lt_lang_checks()
         _on_trans_backend_changed()
@@ -6220,6 +6215,43 @@ class DicteeSetupDialog(QDialog):
         else:
             allowed = TRANSLATE_LANGUAGES.get(backend)
         self._filter_lang_combo(self.combo_tgt, allowed)
+
+    def _update_canary_translation_visibility(self):
+        """Show/hide translation widgets depending on Canary backend."""
+        if self.wizard_mode and hasattr(self, '_wizard_asr'):
+            asr = self._wizard_asr
+        elif hasattr(self, 'cmb_asr_backend'):
+            asr = self.cmb_asr_backend.currentData()
+        else:
+            asr = "parakeet"
+
+        is_canary = (asr == "canary")
+
+        # Notice verte
+        if hasattr(self, '_canary_translation_notice'):
+            self._canary_translation_notice.setVisible(is_canary)
+
+        # Masquer les backends traduction
+        for w_name in ('cmb_trans_backend', 'lt_widget', 'ollama_widget'):
+            w = getattr(self, w_name, None)
+            if w:
+                w.setVisible(not is_canary)
+
+        # Contrainte langue : Canary traduit uniquement via l'anglais
+        if is_canary and hasattr(self, 'combo_src') and hasattr(self, 'combo_tgt'):
+            src = self.combo_src.currentData()
+            if src != "en":
+                # Source ≠ EN → cible forcée à EN
+                self._filter_lang_combo(self.combo_tgt, {"en"})
+                self._set_combo_by_data(self.combo_tgt, "en", 0)
+                self.combo_tgt.setEnabled(False)
+            else:
+                # Source = EN → cible libre parmi les 25 langues Canary
+                self._filter_lang_combo(self.combo_tgt, CANARY_LANGUAGES - {"en"})
+                self.combo_tgt.setEnabled(True)
+        elif hasattr(self, 'combo_tgt'):
+            self.combo_tgt.setEnabled(True)
+            self._update_tgt_languages()
 
     # -- Capture raccourci --
 
