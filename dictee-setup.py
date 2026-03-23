@@ -1559,14 +1559,24 @@ class AudioLevelMonitor:
             self._meter.setLevel(level)
 
 
-class _TestCanaryTranslateThread(QThread):
-    """Record mic then send to Canary daemon with target_language for translation."""
+class TestTranslateThread(QThread):
+    """Record mic, transcribe, then translate using the configured backend."""
     result = Signal(str)
 
-    def __init__(self, duration=5, target_lang="en", parent=None):
+    def __init__(self, duration=5, asr_backend="parakeet", trans_backend="trans:google",
+                 source_lang="fr", target_lang="en", trans_engine="google",
+                 lt_port=5000, ollama_model="translategemma", postprocess=False,
+                 parent=None):
         super().__init__(parent)
         self._duration = duration
+        self._asr_backend = asr_backend
+        self._trans_backend = trans_backend
+        self._source_lang = source_lang
         self._target_lang = target_lang
+        self._trans_engine = trans_engine
+        self._lt_port = lt_port
+        self._ollama_model = ollama_model
+        self._postprocess = postprocess
         self._rec_proc = None
         self._stopped = False
 
@@ -1579,84 +1589,154 @@ class _TestCanaryTranslateThread(QThread):
             except subprocess.TimeoutExpired:
                 self._rec_proc.kill()
 
+    def _unmute_mic(self):
+        """Auto-unmute mic, return True if was muted."""
+        try:
+            r = subprocess.run(
+                ["pactl", "get-source-mute", "@DEFAULT_SOURCE@"],
+                capture_output=True, text=True, timeout=3)
+            if r.returncode == 0 and any(
+                    x in r.stdout.lower() for x in ("oui", "yes")):
+                subprocess.run(
+                    ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"],
+                    timeout=3)
+                return True
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+        return False
+
+    def _remute_mic(self):
+        try:
+            subprocess.run(
+                ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1"],
+                timeout=3)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    def _record(self, wav_path):
+        """Record audio from mic."""
+        if shutil.which("pw-record"):
+            cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1", wav_path]
+        elif shutil.which("parecord"):
+            cmd = ["parecord", "--format=s16le", "--rate=16000", "--channels=1",
+                   "--file-format=wav", wav_path]
+        else:
+            return False, "pw-record / parecord not found"
+
+        was_muted = self._unmute_mic()
+        self._rec_proc = subprocess.Popen(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            self._rec_proc.wait(timeout=self._duration)
+        except subprocess.TimeoutExpired:
+            self._rec_proc.terminate()
+            self._rec_proc.wait(timeout=3)
+        if was_muted:
+            self._remute_mic()
+        return True, ""
+
+    def _transcribe(self, wav_path):
+        """Transcribe via transcribe-client."""
+        r = subprocess.run(
+            ["transcribe-client", wav_path],
+            capture_output=True, text=True, timeout=15)
+        if r.returncode == 0 and r.stdout.strip():
+            text = r.stdout.strip()
+            if self._postprocess and shutil.which("dictee-postprocess"):
+                pp = subprocess.run(
+                    ["dictee-postprocess"], input=text,
+                    capture_output=True, text=True, timeout=15)
+                if pp.returncode == 0 and pp.stdout.strip():
+                    text = pp.stdout.strip()
+            return text
+        return ""
+
+    def _translate_canary(self, wav_path):
+        """Send to Canary daemon with target language."""
+        import socket as _socket
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+        sock_path = os.path.join(runtime, "transcribe.sock") if runtime else f"/tmp/transcribe-{os.getuid()}.sock"
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock.settimeout(15)
+        sock.connect(sock_path)
+        sock.sendall(f"{wav_path}\tlang:{self._target_lang}\n".encode())
+        data = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        sock.close()
+        return data.decode("utf-8", errors="replace").strip()
+
+    def _translate_text(self, text):
+        """Translate text using the configured backend."""
+        if self._trans_backend.startswith("trans"):
+            engine = self._trans_engine
+            r = subprocess.run(
+                ["trans", "-b", "-e", engine,
+                 f"{self._source_lang}:{self._target_lang}"],
+                input=text, capture_output=True, text=True, timeout=15)
+            return r.stdout.strip() if r.returncode == 0 else ""
+        elif self._trans_backend == "libretranslate":
+            import json
+            import urllib.request
+            url = f"http://localhost:{self._lt_port}/translate"
+            payload = json.dumps({
+                "q": text, "source": self._source_lang,
+                "target": self._target_lang,
+            }).encode()
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"})
+            resp = urllib.request.urlopen(req, timeout=10)
+            result = json.loads(resp.read())
+            return result.get("translatedText", "")
+        elif self._trans_backend == "ollama":
+            r = subprocess.run(
+                ["ollama", "run", self._ollama_model,
+                 f"Translate from {self._source_lang} to {self._target_lang}: {text}"],
+                capture_output=True, text=True, timeout=30)
+            return r.stdout.strip() if r.returncode == 0 else ""
+        return ""
+
     def run(self):
         wav_path = os.path.join(tempfile.gettempdir(), "dictee_test_translate.wav")
         try:
-            if shutil.which("pw-record"):
-                cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1",
-                       wav_path]
-            elif shutil.which("parecord"):
-                cmd = ["parecord", "--format=s16le", "--rate=16000", "--channels=1",
-                       "--file-format=wav", wav_path]
-            else:
-                self.result.emit(_("Error: ") + "pw-record / parecord not found")
+            ok, err = self._record(wav_path)
+            if not ok:
+                self.result.emit(_("Error: ") + err)
                 return
-
-            # Auto-unmute mic
-            was_muted = False
-            try:
-                r_mute = subprocess.run(
-                    ["pactl", "get-source-mute", "@DEFAULT_SOURCE@"],
-                    capture_output=True, text=True, timeout=3)
-                if r_mute.returncode == 0 and any(
-                        x in r_mute.stdout.lower() for x in ("oui", "yes")):
-                    subprocess.run(
-                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"],
-                        timeout=3)
-                    was_muted = True
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
-
-            self._rec_proc = subprocess.Popen(
-                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            try:
-                self._rec_proc.wait(timeout=self._duration)
-            except subprocess.TimeoutExpired:
-                self._rec_proc.terminate()
-                self._rec_proc.wait(timeout=3)
-
-            # Re-mute
-            if was_muted:
-                try:
-                    subprocess.run(
-                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1"],
-                        timeout=3)
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    pass
-
             if self._stopped:
                 return
             if not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
                 self.result.emit(_("Error: ") + _("No audio recorded."))
                 return
 
-            # Send to Canary daemon with target language via extended protocol
-            runtime = os.environ.get("XDG_RUNTIME_DIR", "")
-            sock_path = os.path.join(runtime, "transcribe.sock") if runtime else f"/tmp/transcribe-{os.getuid()}.sock"
-
-            import socket as _socket
-            sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-            sock.settimeout(15)
-            sock.connect(sock_path)
-            sock.sendall(f"{wav_path}\tlang:{self._target_lang}\n".encode())
-            data = b""
-            while True:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    break
-                data += chunk
-            sock.close()
-
-            text = data.decode("utf-8", errors="replace").strip()
-            if text.startswith("ERROR:"):
-                self.result.emit(_("Error: ") + text[6:].strip())
-            elif text:
-                self.result.emit(text)
+            if self._asr_backend == "canary":
+                # Canary: single-pass ASR + translation
+                translated = self._translate_canary(wav_path)
+                if translated.startswith("ERROR:"):
+                    self.result.emit(_("Error: ") + translated[6:].strip())
+                elif translated:
+                    self.result.emit(translated)
+                else:
+                    self.result.emit(_("No translation result."))
             else:
-                self.result.emit(_("No translation result."))
+                # Other backends: transcribe then translate
+                transcribed = self._transcribe(wav_path)
+                if not transcribed:
+                    self.result.emit(_("No transcription result."))
+                    return
+                translated = self._translate_text(transcribed)
+                if translated:
+                    self.result.emit(f"{transcribed}\n→ {translated}")
+                else:
+                    self.result.emit(_("Transcribed: ") + transcribed + "\n"
+                                     + _("Translation failed."))
 
         except ConnectionRefusedError:
-            self.result.emit(_("Error: ") + _("Cannot connect to Canary daemon. Is it running?"))
+            self.result.emit(_("Error: ") + _("Cannot connect to daemon. Is it running?"))
         except subprocess.TimeoutExpired:
             self.result.emit(_("Timeout ({duration}s)").format(duration=self._duration))
         except Exception as e:
@@ -2112,11 +2192,6 @@ class DicteeSetupDialog(QDialog):
         else:
             self.btn_next.setText(_("Next"))
             self.btn_next.setStyleSheet("")
-        # Show/hide translate test button based on ASR backend
-        if hasattr(self, 'btn_test_translate'):
-            asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
-            self.btn_test_translate.setVisible(asr == "canary")
-
         # Start/stop audio level thread on page 4 (index 4)
         if idx == 4:
             self._start_audio_level()
@@ -2521,12 +2596,10 @@ class DicteeSetupDialog(QDialog):
         self.btn_test_dictee.clicked.connect(self._on_test_dictee)
         lay_test.addWidget(self.btn_test_dictee)
 
-        # Test translation (Canary only)
+        # Test translation (all backends)
         self.btn_test_translate = QPushButton("🌐 " + _("Test translation"))
         self.btn_test_translate.setMinimumHeight(40)
         self.btn_test_translate.clicked.connect(self._on_test_translate)
-        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
-        self.btn_test_translate.setVisible(asr == "canary")
         lay_test.addWidget(self.btn_test_translate)
 
         self.txt_test_result = QTextEdit()
@@ -6302,8 +6375,30 @@ class DicteeSetupDialog(QDialog):
         self._test_timer_tr = QTimer(self)
         self._test_timer_tr.timeout.connect(self._on_test_translate_tick)
         self._test_timer_tr.start(1000)
+
+        # Gather current config
+        if self.wizard_mode and hasattr(self, '_wizard_asr'):
+            asr = self._wizard_asr
+        elif hasattr(self, 'cmb_asr_backend'):
+            asr = self.cmb_asr_backend.currentData()
+        else:
+            asr = "parakeet"
+        source = self.combo_src.currentData() if hasattr(self, 'combo_src') else "fr"
         target = self.combo_tgt.currentData() if hasattr(self, 'combo_tgt') else "en"
-        self._test_thread = _TestCanaryTranslateThread(duration=5, target_lang=target)
+        trans_backend = self.cmb_trans_backend.currentData() if hasattr(self, 'cmb_trans_backend') else "trans:google"
+        trans_engine = "google"
+        if trans_backend.startswith("trans:"):
+            trans_engine = trans_backend.split(":", 1)[1]
+            trans_backend = "trans"
+        lt_port = int(self.spin_lt_port.currentText()) if hasattr(self, 'spin_lt_port') else 5000
+        ollama_model = self.cmb_ollama_model.currentText() if hasattr(self, 'cmb_ollama_model') else "translategemma"
+        pp_enabled = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else False
+
+        self._test_thread = TestTranslateThread(
+            duration=5, asr_backend=asr, trans_backend=trans_backend,
+            source_lang=source, target_lang=target, trans_engine=trans_engine,
+            lt_port=lt_port, ollama_model=ollama_model, postprocess=pp_enabled,
+        )
         self._test_thread.result.connect(self._on_test_translate_result)
         self._test_thread.start()
 
