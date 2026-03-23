@@ -1808,6 +1808,9 @@ class DicteeSetupDialog(QDialog):
         self._build_translation_section(lay_tr, conf)
         layout.addWidget(grp_translate)
 
+        # Apply canary state after translation section is built
+        self._update_canary_translation_visibility()
+
         # -- Microphone section --
         grp_mic = QGroupBox(_("Microphone"))
         lay_mic = QVBoxLayout(grp_mic)
