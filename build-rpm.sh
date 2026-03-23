@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.1.2"
+VERSION="1.1.3"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -169,6 +169,8 @@ Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
+Recommends:     (libcublas-12-8 or libcublas-12-6)
+Recommends:     (libcudnn9-cuda-12 or libcudnn9-cuda-11)
 Recommends:     nvidia-gpu-firmware
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
