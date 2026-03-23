@@ -113,6 +113,33 @@ sudo ./install.sh
 | `python3-gi` | `python3-gobject` | `python-gobject` |
 | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` |
 
+### Version GPU : dépendances NVIDIA CUDA
+
+La version GPU (`dictee-cuda`) nécessite cuDNN, qui n'est **pas disponible** dans les dépôts standards Ubuntu/Fedora. Il faut ajouter le dépôt NVIDIA CUDA :
+
+**Ubuntu / Debian :**
+
+```bash
+wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | \
+  sudo gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] \
+  https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" | \
+  sudo tee /etc/apt/sources.list.d/cuda-ubuntu2404-x86_64.list
+sudo apt update
+sudo apt install libcudnn9-cuda-12
+```
+
+> Remplacer `ubuntu2404` par votre version (`ubuntu2204`, `ubuntu2504`, etc.). Voir [dépôts NVIDIA CUDA](https://developer.download.nvidia.com/compute/cuda/repos/).
+
+**Fedora :**
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora41/x86_64/cuda-fedora41.repo
+sudo dnf install libcudnn9-cuda-12
+```
+
+> Sans cuDNN, la version GPU fonctionne automatiquement en mode CPU. `dictee-setup` détectera le problème et vous guidera.
+
 ---
 
 ## Configuration
