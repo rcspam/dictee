@@ -444,6 +444,31 @@ transcribe() {
     eval transcribe-client "$audio_file" $SUPPRIME
 }
 
+transcribe_canary_translate() {
+    # Send WAV path + target language to Canary daemon via extended protocol
+    local audio_file="$1"
+    local target_lang="$2"
+    local sock_path="${XDG_RUNTIME_DIR:-/tmp}/transcribe.sock"
+    if [ ! -S "$sock_path" ]; then
+        sock_path="/tmp/transcribe-$(id -u).sock"
+    fi
+    printf '%s\tlang:%s\n' "$audio_file" "$target_lang" | \
+        python3 -c "
+import socket, sys
+sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+sock.connect('$sock_path')
+sock.sendall(sys.stdin.buffer.read())
+data = b''
+while True:
+    chunk = sock.recv(4096)
+    if not chunk:
+        break
+    data += chunk
+sock.close()
+sys.stdout.buffer.write(data)
+"
+}
+
 translate() {
     local text="$1"
     local backend="$2"
@@ -658,7 +683,12 @@ if [ -f "$PIDFILE" ]; then
             notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
         fi
 
-        translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>/dev/null) || translated=""
+        if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
+            # Canary: built-in translation — single daemon call with target language
+            translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
+        else
+            translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>/dev/null) || translated=""
+        fi
         if [ -n "$translated" ]; then
             copy_to_clipboard "$translated"
             type_text "$translated"
