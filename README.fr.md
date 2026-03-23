@@ -53,15 +53,17 @@
 Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
-# Version GPU (NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
+# Version GPU (nécessite le dépôt NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
 sudo dpkg -i dictee-cuda_1.1.2_amd64.deb
 
-# Version CPU (tout ordinateur)
+# Version CPU (tout ordinateur, aucun dépôt supplémentaire requis)
 sudo dpkg -i dictee-cpu_1.1.2_amd64.deb
 
 # Installer les dépendances manquantes
 sudo apt-get install -f
 ```
+
+> **Note :** La version GPU nécessite cuDNN provenant du [dépôt NVIDIA CUDA](#version-gpu--dépendances-nvidia-cuda), qui n'est pas inclus dans les dépôts standards Ubuntu/Fedora. Sans celui-ci, la version GPU fonctionnera en mode CPU uniquement.
 
 **Fedora / openSUSE :**
 

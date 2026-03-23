@@ -53,15 +53,17 @@
 Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
-# GPU version (NVIDIA CUDA — see "GPU dependencies" below)
+# GPU version (requires the NVIDIA CUDA repository — see "GPU dependencies" below)
 sudo dpkg -i dictee-cuda_1.1.2_amd64.deb
 
-# CPU version (any computer)
+# CPU version (any computer, no extra repository needed)
 sudo dpkg -i dictee-cpu_1.1.2_amd64.deb
 
 # Install missing dependencies
 sudo apt-get install -f
 ```
+
+> **Note:** The GPU version requires cuDNN from the [NVIDIA CUDA repository](#gpu-version-nvidia-cuda-dependencies), which is not included in standard Ubuntu/Fedora repos. Without it, the GPU version will still work but in CPU mode only.
 
 **Fedora / openSUSE:**
 
