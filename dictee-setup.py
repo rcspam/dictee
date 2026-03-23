@@ -1593,6 +1593,21 @@ class TestDicteeThread(QThread):
                 self.result.emit(_("Error: ") + "pw-record / parecord not found")
                 return
 
+            # Auto-unmute mic if muted
+            was_muted = False
+            try:
+                r_mute = subprocess.run(
+                    ["pactl", "get-source-mute", "@DEFAULT_SOURCE@"],
+                    capture_output=True, text=True, timeout=3)
+                if r_mute.returncode == 0 and any(
+                        x in r_mute.stdout.lower() for x in ("oui", "yes")):
+                    subprocess.run(
+                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "0"],
+                        timeout=3)
+                    was_muted = True
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
             self._rec_proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1602,6 +1617,15 @@ class TestDicteeThread(QThread):
             except subprocess.TimeoutExpired:
                 self._rec_proc.terminate()
                 self._rec_proc.wait(timeout=3)
+
+            # Re-mute mic if it was muted before
+            if was_muted:
+                try:
+                    subprocess.run(
+                        ["pactl", "set-source-mute", "@DEFAULT_SOURCE@", "1"],
+                        timeout=3)
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
 
             if self._stopped:
                 return
