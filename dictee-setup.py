@@ -1759,7 +1759,7 @@ class DicteeSetupDialog(QDialog):
         self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
         self.cmb_asr_backend.addItem("Vosk", "vosk")
         self.cmb_asr_backend.addItem("faster-whisper", "whisper")
-        gpu_total, _ = get_gpu_vram_gb()
+        gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
@@ -2166,7 +2166,7 @@ class DicteeSetupDialog(QDialog):
         self._wizard_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
         self._asr_cards = {}
 
-        gpu_total, _ = get_gpu_vram_gb()
+        gpu_total, _free = get_gpu_vram_gb()
         backends = [
             ("parakeet", "Parakeet-TDT 0.6B", _("25 languages, ~2.5 GB, ~0.8s") + " — " + _("recommended"), "~2.5 Go"),
             ("vosk", "Vosk", _("9+ languages, ~50 MB, ~1.5s") + " — " + _("lightweight"), "~50 Mo"),
