@@ -210,6 +210,11 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+# Fix udev rule if old version with 0620 (RPM preserves config files)
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "\$UDEV_RULE"
+fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
@@ -295,6 +300,11 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+# Fix udev rule if old version with 0620 (RPM preserves config files)
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "\$UDEV_RULE"
+fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
