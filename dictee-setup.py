@@ -2282,6 +2282,13 @@ class DicteeSetupDialog(QDialog):
         else:
             self.btn_next.setText(_("Next"))
             self.btn_next.setStyleSheet("")
+        # Refresh translation backend visibility on page 3
+        if idx == 3 and hasattr(self, 'cmb_trans_backend'):
+            data = self.cmb_trans_backend.currentData()
+            self.lt_widget.setVisible(data == "libretranslate")
+            self.ollama_widget.setVisible(data == "ollama")
+            if data == "libretranslate":
+                self._check_lt_status()
         # Start/stop audio level thread on page 4 (index 4)
         if idx == 4:
             self._start_audio_level()
