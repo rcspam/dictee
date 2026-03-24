@@ -211,6 +211,7 @@ Features:
 
 %post
 udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
 
 %postun
 udevadm control --reload-rules 2>/dev/null || true
@@ -295,6 +296,7 @@ Features:
 
 %post
 udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
 
 %postun
 udevadm control --reload-rules 2>/dev/null || true
