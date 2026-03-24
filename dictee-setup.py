@@ -1030,10 +1030,23 @@ def docker_is_installed():
     return shutil.which("docker") is not None
 
 
+_docker_use_sg = False  # set to True after pkexec usermod -aG docker
+
+
+def docker_cmd(args, **kwargs):
+    """Run a docker command, using 'sg docker' if group was just added."""
+    if _docker_use_sg:
+        import shlex
+        cmd = ["sg", "docker", "-c", shlex.join(args)]
+    else:
+        cmd = args
+    return subprocess.run(cmd, **kwargs)
+
+
 def docker_is_accessible():
     """Vérifie si l'utilisateur peut exécuter docker (permissions)."""
     try:
-        result = subprocess.run(
+        result = docker_cmd(
             ["docker", "info"], capture_output=True, text=True, timeout=5,
         )
         return result.returncode == 0
@@ -1044,7 +1057,7 @@ def docker_is_accessible():
 def docker_has_image(image=LIBRETRANSLATE_IMAGE):
     """Vérifie si l'image Docker est téléchargée."""
     try:
-        result = subprocess.run(
+        result = docker_cmd(
             ["docker", "images", "-q", image],
             capture_output=True, text=True, timeout=5,
         )
@@ -1056,7 +1069,7 @@ def docker_has_image(image=LIBRETRANSLATE_IMAGE):
 def docker_container_running(name=LIBRETRANSLATE_CONTAINER):
     """Vérifie si le container est en cours d'exécution."""
     try:
-        result = subprocess.run(
+        result = docker_cmd(
             ["docker", "inspect", "-f", "{{.State.Running}}", name],
             capture_output=True, text=True, timeout=5,
         )
@@ -1068,7 +1081,7 @@ def docker_container_running(name=LIBRETRANSLATE_CONTAINER):
 def docker_container_exists(name=LIBRETRANSLATE_CONTAINER):
     """Vérifie si le container existe (arrêté ou en cours)."""
     try:
-        result = subprocess.run(
+        result = docker_cmd(
             ["docker", "inspect", name],
             capture_output=True, text=True, timeout=5,
         )
@@ -1117,7 +1130,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
         except Exception:
             needs_recreate = True  # When in doubt, recreate
         if needs_recreate:
-            subprocess.run(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
+            docker_cmd(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                            capture_output=True, timeout=10)
             subprocess.run([
                 "docker", "run", "-d",
@@ -1128,7 +1141,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
                 "--load-only", languages,
             ], capture_output=True, timeout=30)
             return
-        subprocess.run(["docker", "start", LIBRETRANSLATE_CONTAINER],
+        docker_cmd(["docker", "start", LIBRETRANSLATE_CONTAINER],
                        capture_output=True, timeout=10)
     else:
         subprocess.run([
@@ -1143,7 +1156,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
 
 def docker_stop_libretranslate():
     """Arrête le container LibreTranslate."""
-    subprocess.run(["docker", "stop", LIBRETRANSLATE_CONTAINER],
+    docker_cmd(["docker", "stop", LIBRETRANSLATE_CONTAINER],
                    capture_output=True, timeout=15)
 
 
@@ -1247,7 +1260,7 @@ class _DockerActionThread(QThread):
                 self._wait_ready()
             elif self._action == "restart":
                 self.progress.emit(_("Stopping container…"))
-                subprocess.run(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
+                docker_cmd(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                                capture_output=True, timeout=15)
                 self.progress.emit(_("Starting container with {langs}…").format(
                     langs=self._languages))
@@ -7138,12 +7151,16 @@ class DicteeSetupDialog(QDialog):
                 ["pkexec", "usermod", "-aG", "docker", user],
                 capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
+                global _docker_use_sg
+                _docker_use_sg = True
                 self._docker_group_fixed = True
                 self._btn_fix_docker_group.setVisible(False)
                 self.lbl_lt_status.setText(
                     '<span style="color: green;">✓ ' +
-                    _("User added to 'docker' group. Log out and back in to activate.") +
+                    _("User added to 'docker' group.") +
                     '</span>')
+                # Recheck status — now accessible via sg docker
+                self._check_lt_status()
             else:
                 QMessageBox.critical(self, _("Error"), result.stderr.strip())
         except Exception as e:
