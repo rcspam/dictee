@@ -2291,7 +2291,15 @@ class DicteeSetupDialog(QDialog):
         if idx == 3 and hasattr(self, 'cmb_trans_backend'):
             data = self.cmb_trans_backend.currentData()
             self.lt_widget.setVisible(data == "libretranslate")
-            self.ollama_widget.setVisible(data == "ollama")
+            if data == "ollama":
+                if self.ollama_widget.parent() is None:
+                    self._tr_layout.addWidget(self.ollama_widget)
+                self.ollama_widget.show()
+            else:
+                self.ollama_widget.hide()
+                if self.ollama_widget.parent() is not None:
+                    self._tr_layout.removeWidget(self.ollama_widget)
+                    self.ollama_widget.setParent(None)
             if data == "libretranslate":
                 self._check_lt_status()
         # Start/stop audio level thread on page 4 (index 4)
@@ -3424,8 +3432,9 @@ class DicteeSetupDialog(QDialog):
         self.progress_ollama.setVisible(False)
         lay_ollama.addWidget(self.progress_ollama)
 
-        self.ollama_widget.setVisible(False)
-        lay_tr.addWidget(self.ollama_widget)
+        # Don't add ollama_widget to layout yet — added dynamically when selected
+        self.ollama_widget.setParent(None)
+        self._tr_layout = lay_tr
 
         self.combo_ollama_model.currentIndexChanged.connect(self._on_ollama_model_changed)
         self._ollama_pull_thread = None
@@ -3450,7 +3459,15 @@ class DicteeSetupDialog(QDialog):
             data = self.cmb_trans_backend.currentData()
             print(f"[DEBUG] _on_trans_backend_changed: data={data}")
             self.lt_widget.setVisible(data == "libretranslate")
-            self.ollama_widget.setVisible(data == "ollama")
+            if data == "ollama":
+                if self.ollama_widget.parent() is None:
+                    self._tr_layout.addWidget(self.ollama_widget)
+                self.ollama_widget.show()
+            else:
+                self.ollama_widget.hide()
+                if self.ollama_widget.parent() is not None:
+                    self._tr_layout.removeWidget(self.ollama_widget)
+                    self.ollama_widget.setParent(None)
             print(f"[DEBUG] ollama visible={self.ollama_widget.isVisible()}, lt visible={self.lt_widget.isVisible()}")
             if data == "libretranslate":
                 self._check_lt_status()
@@ -6719,11 +6736,14 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_canary_translation_notice'):
             self._canary_translation_notice.setVisible(is_canary)
 
-        # Masquer les backends traduction
-        for w_name in ('cmb_trans_backend', 'lt_widget', 'ollama_widget'):
+        # Masquer les backends traduction (sauf ollama qui est géré dynamiquement)
+        for w_name in ('cmb_trans_backend', 'lt_widget'):
             w = getattr(self, w_name, None)
             if w:
                 w.setVisible(not is_canary)
+        if is_canary and hasattr(self, 'ollama_widget') and self.ollama_widget.parent() is not None:
+            self._tr_layout.removeWidget(self.ollama_widget)
+            self.ollama_widget.setParent(None)
 
         # Contrainte langue : Canary traduit uniquement via l'anglais
         if is_canary and hasattr(self, 'combo_src') and hasattr(self, 'combo_tgt'):
