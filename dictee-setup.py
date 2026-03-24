@@ -1200,7 +1200,7 @@ class DockerPullThread(QThread):
     def run(self):
         try:
             self.progress.emit(_("Downloading Docker image…"))
-            result = subprocess.run(
+            result = docker_cmd(
                 ["docker", "pull", LIBRETRANSLATE_IMAGE],
                 capture_output=True, text=True, timeout=600,
             )
