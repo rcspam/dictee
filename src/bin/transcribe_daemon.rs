@@ -32,7 +32,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let model_dir = if args.len() > 1 { &args[1] } else { "/usr/share/dictee/tdt" };
+    let model_dir = if args.len() > 1 {
+        args[1].clone()
+    } else {
+        // Try system dir first, fallback to user dir
+        let sys_dir = "/usr/share/dictee/tdt";
+        let user_dir = format!("{}/.local/share/dictee/tdt",
+            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
+        if Path::new(sys_dir).join("vocab.txt").exists() {
+            sys_dir.to_string()
+        } else {
+            user_dir
+        }
+    };
 
     // Remove existing socket
     if Path::new(&socket_path).exists() {
@@ -45,8 +57,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "cuda"))]
     let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
 
-    eprintln!("Loading model from {}...", model_dir);
-    let mut parakeet = ParakeetTDT::from_pretrained(model_dir, Some(config))?;
+    eprintln!("Loading model from {}...", &model_dir);
+    let mut parakeet = ParakeetTDT::from_pretrained(&model_dir, Some(config))?;
     eprintln!("Model loaded. Listening on {}", socket_path);
 
     let listener = UnixListener::bind(&socket_path)?;

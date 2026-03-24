@@ -954,8 +954,12 @@ ASR_MODELS = [
 
 
 def model_is_installed(model):
-    """Vérifie si un modèle ASR est installé."""
-    return os.path.isfile(os.path.join(model["dir"], model["check_file"]))
+    """Vérifie si un modèle ASR est installé (system or user dir)."""
+    sys_path = os.path.join(model["dir"], model["check_file"])
+    user_path = os.path.join(
+        model["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR),
+        model["check_file"])
+    return os.path.isfile(sys_path) or os.path.isfile(user_path)
 
 
 class ModelDownloadThread(QThread):
