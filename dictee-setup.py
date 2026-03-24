@@ -1057,7 +1057,7 @@ def docker_is_accessible():
 def docker_daemon_running():
     """Vérifie si le daemon Docker est en cours d'exécution."""
     try:
-        result = subprocess.run(
+        result = docker_cmd(
             ["systemctl", "is-active", "docker"],
             capture_output=True, text=True, timeout=3)
         return result.stdout.strip() == "active"
@@ -1131,7 +1131,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
         # Check if existing container languages match
         needs_recreate = False
         try:
-            result = subprocess.run(
+            result = docker_cmd(
                 ["docker", "inspect", "-f", "{{.Args}}", LIBRETRANSLATE_CONTAINER],
                 capture_output=True, text=True, timeout=5,
             )
@@ -1143,7 +1143,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
         if needs_recreate:
             docker_cmd(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                            capture_output=True, timeout=10)
-            subprocess.run([
+            docker_cmd([
                 "docker", "run", "-d",
                 "--name", LIBRETRANSLATE_CONTAINER,
                 "-p", f"{port}:5000",
@@ -1155,7 +1155,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
         docker_cmd(["docker", "start", LIBRETRANSLATE_CONTAINER],
                        capture_output=True, timeout=10)
     else:
-        subprocess.run([
+        docker_cmd([
             "docker", "run", "-d",
             "--name", LIBRETRANSLATE_CONTAINER,
             "-p", f"{port}:5000",
@@ -1174,7 +1174,7 @@ def docker_stop_libretranslate():
 def _docker_container_size():
     """Retourne la taille du conteneur LibreTranslate (ex: '1.2 GB')."""
     try:
-        result = subprocess.run(
+        result = docker_cmd(
             ["docker", "ps", "-s", "--filter", f"name={LIBRETRANSLATE_CONTAINER}",
              "--format", "{{.Size}}"],
             capture_output=True, text=True, timeout=5)
@@ -1275,7 +1275,7 @@ class _DockerActionThread(QThread):
                                capture_output=True, timeout=15)
                 self.progress.emit(_("Starting container with {langs}…").format(
                     langs=self._languages))
-                result = subprocess.run([
+                result = docker_cmd([
                     "docker", "run", "-d",
                     "--name", LIBRETRANSLATE_CONTAINER,
                     "-p", f"{self._port}:5000",
@@ -1304,7 +1304,7 @@ class _DockerActionThread(QThread):
         for i in range(90):
             # 1. Check if container is still running
             try:
-                state = subprocess.run(
+                state = docker_cmd(
                     ["docker", "inspect", "-f", "{{.State.Running}}", LIBRETRANSLATE_CONTAINER],
                     capture_output=True, text=True, timeout=3)
                 running = state.stdout.strip() == "true"
@@ -1333,7 +1333,7 @@ class _DockerActionThread(QThread):
             # 3. Analyser les logs Docker pour afficher un message clair
             # LibreTranslate writes downloads to stdout and server to stderr
             try:
-                result = subprocess.run(
+                result = docker_cmd(
                     ["docker", "logs", "--tail", "15", LIBRETRANSLATE_CONTAINER],
                     capture_output=True, text=True, timeout=3)
                 # Combine stdout (downloads) + stderr (server)
@@ -1419,7 +1419,7 @@ class _DockerActionThread(QThread):
     def _get_container_error(self):
         """Récupère les dernières lignes de log du conteneur crashé."""
         try:
-            result = subprocess.run(
+            result = docker_cmd(
                 ["docker", "logs", "--tail", "10", LIBRETRANSLATE_CONTAINER],
                 capture_output=True, text=True, timeout=3)
             log = result.stderr.strip() or result.stdout.strip()
@@ -6999,42 +6999,30 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_stop.setVisible(False)
             return
 
-        if not docker_daemon_running():
-            self.lbl_lt_status.setText(
-                '<span style="color: red;">⚠ ' +
-                _("Docker daemon is not running") + '</span>')
-            if not hasattr(self, '_btn_start_docker'):
-                self._btn_start_docker = QPushButton(_("Start Docker (requires password)"))
-                self._btn_start_docker.setFixedWidth(280)
-                self._btn_start_docker.clicked.connect(self._on_start_docker)
-                self.lt_widget.layout().addWidget(self._btn_start_docker)
-            self._btn_start_docker.setVisible(True)
-            self.btn_lt_pull.setVisible(False)
-            self.btn_lt_start.setVisible(False)
-            self.btn_lt_stop.setVisible(False)
-            if hasattr(self, '_btn_fix_docker_group'):
-                self._btn_fix_docker_group.setVisible(False)
-            return
-        if hasattr(self, '_btn_start_docker'):
-            self._btn_start_docker.setVisible(False)
+        needs_daemon = not docker_daemon_running()
+        needs_group = not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False)
 
-        if not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False):
+        if needs_daemon or needs_group:
+            if needs_daemon and needs_group:
+                msg = _("Docker daemon is not running and permissions are missing")
+            elif needs_daemon:
+                msg = _("Docker daemon is not running")
+            else:
+                msg = _("Docker permission denied")
             self.lbl_lt_status.setText(
-                '<span style="color: red;">⚠ ' +
-                _("Docker permission denied") + '</span>')
-            # Bouton ajouter au groupe docker
-            if not hasattr(self, '_btn_fix_docker_group'):
-                self._btn_fix_docker_group = QPushButton(_("Fix permissions (requires password)"))
-                self._btn_fix_docker_group.setFixedWidth(280)
-                self._btn_fix_docker_group.clicked.connect(self._on_fix_docker_group)
-                self.lt_widget.layout().addWidget(self._btn_fix_docker_group)
-            self._btn_fix_docker_group.setVisible(True)
+                '<span style="color: red;">⚠ ' + msg + '</span>')
+            if not hasattr(self, '_btn_fix_docker'):
+                self._btn_fix_docker = QPushButton(_("Setup Docker (requires password)"))
+                self._btn_fix_docker.setFixedWidth(280)
+                self._btn_fix_docker.clicked.connect(self._on_setup_docker)
+                self.lt_widget.layout().addWidget(self._btn_fix_docker)
+            self._btn_fix_docker.setVisible(True)
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(False)
             self.btn_lt_stop.setVisible(False)
             return
-        if hasattr(self, '_btn_fix_docker_group'):
-            self._btn_fix_docker_group.setVisible(False)
+        if hasattr(self, '_btn_fix_docker'):
+            self._btn_fix_docker.setVisible(False)
 
         if not docker_has_image():
             self.lbl_lt_status.setText(
@@ -7200,41 +7188,29 @@ class DicteeSetupDialog(QDialog):
         self.lbl_lt_langs_hint.setVisible(False)
         self._check_lt_status()
 
-    def _on_start_docker(self):
-        """Start Docker daemon via pkexec."""
-        try:
-            result = subprocess.run(
-                ["pkexec", "systemctl", "start", "docker"],
-                capture_output=True, text=True, timeout=15)
-            if result.returncode == 0:
-                # Also enable for next boot
-                subprocess.run(
-                    ["pkexec", "systemctl", "enable", "docker"],
-                    capture_output=True, text=True, timeout=15)
-                self._btn_start_docker.setVisible(False)
-                self._check_lt_status()
-            else:
-                QMessageBox.critical(self, _("Error"), result.stderr.strip())
-        except Exception as e:
-            QMessageBox.critical(self, _("Error"), str(e))
-
-    def _on_fix_docker_group(self):
-        """Ajoute l'utilisateur au groupe docker via pkexec."""
+    def _on_setup_docker(self):
+        """Start Docker daemon + add user to docker group in one pkexec call."""
         user = os.environ.get("USER", "")
         if not user:
             return
         try:
+            # Single pkexec: start+enable daemon, add user to group
+            script = (
+                "systemctl start docker && "
+                "systemctl enable docker && "
+                f"usermod -aG docker {user}"
+            )
             result = subprocess.run(
-                ["pkexec", "usermod", "-aG", "docker", user],
-                capture_output=True, text=True, timeout=15)
+                ["pkexec", "bash", "-c", script],
+                capture_output=True, text=True, timeout=30)
             if result.returncode == 0:
                 global _docker_use_sg
                 _docker_use_sg = True
                 self._docker_group_fixed = True
-                self._btn_fix_docker_group.setVisible(False)
+                self._btn_fix_docker.setVisible(False)
                 self.lbl_lt_status.setText(
                     '<span style="color: green;">✓ ' +
-                    _("User added to 'docker' group.") +
+                    _("Docker started and permissions configured.") +
                     '</span>')
                 # Recheck status — now accessible via sg docker
                 self._check_lt_status()
