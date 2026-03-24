@@ -219,14 +219,29 @@ if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
 fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
-# Enable GNOME AppIndicator extension for tray icon (if installed)
+
+# Per-user setup for all logged-in users
 for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
-    if [ -d "/run/user/\$uid" ]; then
-        sudo -u "\$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \
-            gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+    [ -d "/run/user/\$uid" ] || continue
+    _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+
+    # Add user to input group if needed
+    if ! id -nG "\$user" | grep -qw input; then
+        usermod -aG input "\$user"
     fi
+
+    # Enable GNOME AppIndicator extension for tray icon
+    \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Reload and enable systemd user services
+    \$_run systemctl --user daemon-reload 2>/dev/null || true
+    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper 2>/dev/null || true
+    \$_run systemctl --user restart dotoold 2>/dev/null || true
+    \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
+    \$_run systemctl --user restart dictee-tray 2>/dev/null || true
 done
 
 %postun
@@ -320,14 +335,29 @@ if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
 fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
-# Enable GNOME AppIndicator extension for tray icon (if installed)
+
+# Per-user setup for all logged-in users
 for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
-    if [ -d "/run/user/\$uid" ]; then
-        sudo -u "\$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \
-            gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+    [ -d "/run/user/\$uid" ] || continue
+    _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+
+    # Add user to input group if needed
+    if ! id -nG "\$user" | grep -qw input; then
+        usermod -aG input "\$user"
     fi
+
+    # Enable GNOME AppIndicator extension for tray icon
+    \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Reload and enable systemd user services
+    \$_run systemctl --user daemon-reload 2>/dev/null || true
+    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper 2>/dev/null || true
+    \$_run systemctl --user restart dotoold 2>/dev/null || true
+    \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
+    \$_run systemctl --user restart dictee-tray 2>/dev/null || true
 done
 
 %postun
