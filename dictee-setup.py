@@ -1054,6 +1054,12 @@ def docker_is_accessible():
         return False
 
 
+def docker_daemon_running():
+    """Vérifie si le daemon Docker est en cours d'exécution."""
+    import os
+    return os.path.exists("/var/run/docker.sock")
+
+
 def docker_has_image(image=LIBRETRANSLATE_IMAGE):
     """Vérifie si l'image Docker est téléchargée."""
     try:
@@ -6959,6 +6965,25 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_stop.setVisible(False)
             return
 
+        if not docker_daemon_running():
+            self.lbl_lt_status.setText(
+                '<span style="color: red;">⚠ ' +
+                _("Docker daemon is not running") + '</span>')
+            if not hasattr(self, '_btn_start_docker'):
+                self._btn_start_docker = QPushButton(_("Start Docker (requires password)"))
+                self._btn_start_docker.setFixedWidth(280)
+                self._btn_start_docker.clicked.connect(self._on_start_docker)
+                self.lt_widget.layout().addWidget(self._btn_start_docker)
+            self._btn_start_docker.setVisible(True)
+            self.btn_lt_pull.setVisible(False)
+            self.btn_lt_start.setVisible(False)
+            self.btn_lt_stop.setVisible(False)
+            if hasattr(self, '_btn_fix_docker_group'):
+                self._btn_fix_docker_group.setVisible(False)
+            return
+        if hasattr(self, '_btn_start_docker'):
+            self._btn_start_docker.setVisible(False)
+
         if not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False):
             self.lbl_lt_status.setText(
                 '<span style="color: red;">⚠ ' +
@@ -7140,6 +7165,24 @@ class DicteeSetupDialog(QDialog):
         self.btn_lt_restart_langs.setVisible(False)
         self.lbl_lt_langs_hint.setVisible(False)
         self._check_lt_status()
+
+    def _on_start_docker(self):
+        """Start Docker daemon via pkexec."""
+        try:
+            result = subprocess.run(
+                ["pkexec", "systemctl", "start", "docker"],
+                capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                # Also enable for next boot
+                subprocess.run(
+                    ["pkexec", "systemctl", "enable", "docker"],
+                    capture_output=True, text=True, timeout=15)
+                self._btn_start_docker.setVisible(False)
+                self._check_lt_status()
+            else:
+                QMessageBox.critical(self, _("Error"), result.stderr.strip())
+        except Exception as e:
+            QMessageBox.critical(self, _("Error"), str(e))
 
     def _on_fix_docker_group(self):
         """Ajoute l'utilisateur au groupe docker via pkexec."""
