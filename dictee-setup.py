@@ -971,7 +971,13 @@ class ModelDownloadThread(QThread):
         import urllib.request
         try:
             model_dir = self.model["dir"]
-            os.makedirs(model_dir, exist_ok=True)
+            try:
+                os.makedirs(model_dir, exist_ok=True)
+            except PermissionError:
+                # Fallback to user directory if system dir is not writable
+                model_dir = model_dir.replace(MODEL_DIR,
+                    os.path.join(os.path.expanduser("~/.local/share/dictee")))
+                os.makedirs(model_dir, exist_ok=True)
             total_files = len([f for f in self.model["files"]
                                if not os.path.isfile(os.path.join(model_dir, f[1]))])
             done = 0
@@ -1002,8 +1008,8 @@ class ModelDownloadThread(QThread):
                         done=done, total=total_files))
             self.finished.emit(True, "")
         except PermissionError:
-            self.finished.emit(False, _("Permission denied. Run: sudo chmod 777 {dir}").format(
-                dir=self.model["dir"]))
+            self.finished.emit(False, _("Permission denied on {dir}").format(
+                dir=model_dir))
         except Exception as e:
             self.finished.emit(False, str(e))
 
