@@ -234,7 +234,9 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         f.write(f"DICTEE_CLIPBOARD={'true' if clipboard else 'false'}\n")
         f.write(f"DICTEE_ANIMATION={animation}\n")
         if asr_backend == "vosk":
-            f.write(f"DICTEE_VOSK_MODEL={vosk_model}\n")
+            # Resolve language code to full model name if needed
+            resolved = VOSK_MODELS.get(vosk_model, vosk_model)
+            f.write(f"DICTEE_VOSK_MODEL={resolved}\n")
         elif asr_backend == "whisper":
             f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
             if whisper_lang:
