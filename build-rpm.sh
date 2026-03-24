@@ -125,6 +125,8 @@ prepare_buildroot() {
     mkdir -p "$buildroot/usr/share/dictee"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
     cp ./rules.conf.default "$buildroot/usr/share/dictee/rules.conf.default"
+    cp ./dictionary.conf.default "$buildroot/usr/share/dictee/dictionary.conf.default"
+    cp ./continuation.conf.default "$buildroot/usr/share/dictee/continuation.conf.default"
 
     # Doc
     mkdir -p "$buildroot/usr/share/doc/dictee"
