@@ -182,6 +182,8 @@ Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
 Recommends:     libayatana-appindicator-gtk3
+Recommends:     gnome-shell-extension-appindicator
+Recommends:     gnome-extensions-app
 Conflicts:      dictee-cpu
 Provides:       dictee = $VERSION
 
@@ -273,6 +275,8 @@ Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
 Recommends:     libayatana-appindicator-gtk3
+Recommends:     gnome-shell-extension-appindicator
+Recommends:     gnome-extensions-app
 Conflicts:      dictee-cuda
 Provides:       dictee = $VERSION
 
