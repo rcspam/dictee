@@ -108,6 +108,8 @@ load_continuation_words() {
             [[ "$line" == \[* ]] || continue
             local tag="${line%%]*}"
             tag="${tag#[}"
+            # Skip [keyword:*] lines — handled separately
+            [[ "$tag" == keyword* ]] && continue
             local words="${line#*]}"
             local var="CONTINUATION_WORDS_${tag^^}"
             # Ajouter les mots (cumulatif)
@@ -126,13 +128,44 @@ done
 _USER_CONT="${XDG_CONFIG_HOME:-$HOME/.config}/dictee/continuation.conf"
 
 load_continuation_words ${_SYSTEM_CONT:+"$_SYSTEM_CONT"} ${_USER_CONT:+"$_USER_CONT"}
+
+# Build regex for continuation keyword
+# Search order: [keyword:LANG] in user, [keyword:LANG] in system, [keyword] in user, [keyword] in system
+_CONT_KEYWORD=""
+_LANG_TAG="${LANG_SOURCE:-fr}"
+for _pattern in "\\[keyword:${_LANG_TAG}\\]" "\\[keyword\\]"; do
+    [ -n "$_CONT_KEYWORD" ] && break
+    for _cf in ${_USER_CONT:+"$_USER_CONT"} ${_SYSTEM_CONT:+"$_SYSTEM_CONT"}; do
+        [ -f "$_cf" ] || continue
+        _match=$(grep -m1 "^\\s*${_pattern}" "$_cf" 2>/dev/null) || continue
+        _CONT_KEYWORD="${_match#*] }"
+        _CONT_KEYWORD="${_CONT_KEYWORD#"${_CONT_KEYWORD%%[! ]*}"}"
+        break 2
+    done
+done
+_CONT_KEYWORD="${_CONT_KEYWORD:-contre-point}"
+_CONT_KEYWORD_RE=""
+if [ -n "$_CONT_KEYWORD" ]; then
+    _kw="${_CONT_KEYWORD,,}"
+    # Replace spaces and hyphens with [- ]? to match all variants
+    # Use placeholder to avoid double substitution
+    _kw="${_kw//-/§}"
+    _kw="${_kw// /§}"
+    _kw="${_kw//§/[- ]?}"
+    _first="${_kw:0:1}"
+    _upper="${_first^^}"
+    _kw="[${_first}${_upper}]${_kw:1}"
+    _CONT_KEYWORD_RE="^${_kw}[.,]?[[:space:]]*(.*)"
+    unset _kw _first _upper
+fi
+
 apply_continuation() {
     # Usage : apply_continuation VARNAME
     # Modifie la variable en place (pas de subshell)
     # Marqueurs du buffer :
     #   , → virgule (toujours continuation, espace + minuscule)
-    #   . → point (continuation si dernier mot est de classe fermée, sinon espace + garder casse)
-    #   F → fin de phrase (! ? … ; : » )) — espace + garder casse
+    #   .N → point(s) (continuation si dernier mot est de classe fermée, sinon espace + garder casse)
+    #   F → fin de phrase (! ; : » )) — espace + garder casse
     #   _ → pas de ponctuation (mi-phrase, espace + minuscule)
     local -n _ref="$1"
     # Si le texte commence par \n (commande "à la ligne"), ne pas modifier
@@ -147,14 +180,43 @@ apply_continuation() {
     # précédent avait un espace final, ex: "Bonjour, ")
     _ref="${_ref#"${_ref%%[! ]*}"}"
 
+    # Continuation keyword: remove last punctuation + lowercase
+    # Configurable via DICTEE_CONTINUATION_KEYWORD (default: contre-point)
+    if [ -n "$_CONT_KEYWORD_RE" ] && [[ "$_ref" =~ $_CONT_KEYWORD_RE ]]; then
+        local rest="${BASH_REMATCH[1]}"
+        # Backspace the punctuation from the previous push
+        if [[ "$last_char" == .* ]]; then
+            local bs_count="${last_char#.}"
+            bs_count="${bs_count:-1}"
+            for ((i=0; i<bs_count; i++)); do
+                printf 'key backspace\n'
+            done | safe_dotool
+        elif [[ "$last_char" == [,F] ]]; then
+            printf 'key backspace\n' | safe_dotool
+        fi
+        # Set text to rest in lowercase (or empty if nothing follows)
+        if [ -n "$rest" ]; then
+            _ref=" ${rest,}"
+        else
+            _ref=""
+        fi
+        return
+    fi
+
     # Si le push commence par une ponctuation (commande vocale "virgule",
     # "point", etc.), l'attacher au texte précédent sans espace.
     local fc="${_ref:0:1}"
     if [[ "$fc" == [,.\;!?:] ]]; then
-        # Si le précédent était un point, toujours l'effacer :
+        # Si le précédent était un point/ponctuation, l'effacer :
         # l'utilisateur corrige explicitement la ponctuation
-        if [ "$last_char" = "." ]; then
-            echo "key backspace" | safe_dotool
+        if [[ "$last_char" == .* ]]; then
+            local bs_count="${last_char#.}"
+            bs_count="${bs_count:-1}"
+            for ((i=0; i<bs_count; i++)); do
+                printf 'key backspace\n'
+            done | safe_dotool
+        elif [[ "$last_char" == [,F] ]]; then
+            printf 'key backspace\n' | safe_dotool
         fi
         # Minuscule seulement après , ; : (continuation)
         # Garder la casse après . ! ? (nouvelle phrase)
@@ -175,15 +237,21 @@ apply_continuation() {
     if [ "$last_char" = "," ]; then
         # Après virgule : toujours continuer (espace + minuscule)
         _ref=" ${_ref,}"
-    elif [ "$last_char" = "." ]; then
-        # Après point : continuer seulement si le dernier mot est de classe fermée
-        # (backward check uniquement — le forward check est trop agressif et
-        # peut effacer un point quand Parakeet a mangé une commande vocale)
+    elif [[ "$last_char" == .* ]]; then
+        # Après point(s) : continuer seulement si le dernier mot est de classe fermée
+        # Marker format: .N where N = number of backspaces (1, 2, or 3)
         local lower="${last_word,,}"
         local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
         local _cw="${!_cw_var}"
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
-            echo "key backspace" | safe_dotool
+            local bs_count="${last_char#.}"
+            bs_count="${bs_count:-1}"
+            local bs_cmd=""
+            for ((i=0; i<bs_count; i++)); do
+                bs_cmd+="key backspace
+"
+            done
+            printf '%s' "$bs_cmd" | safe_dotool
             _ref=" ${_ref,}"
         else
             # Phrase terminée : espace, garder la casse
@@ -218,20 +286,28 @@ save_last_word() {
     local marker="" stripped=""
 
     # Vérifier les patterns multi-caractères d'abord (points de suspension)
+    # Marker encodes backspace count: .3 = "...", .2 = "..", .1 = "…" or "."
     if [[ "$trimmed" == *... ]]; then
-        marker="F"
+        marker=".3"
         stripped="${trimmed%...}"
+    elif [[ "$trimmed" == *.. ]]; then
+        marker=".2"
+        stripped="${trimmed%..}"
     elif [[ "$trimmed" == *$'\xe2\x80\xa6' ]]; then
-        # … (U+2026) — ellipsis Unicode
-        marker="F"
+        # … (U+2026) — type_text() converts to "..." (3 ASCII chars) → 3 backspaces
+        marker=".3"
         stripped="${trimmed%?}"
     else
         local last_char="${trimmed: -1}"
         stripped="${trimmed%?}"
         case "$last_char" in
-            .)  marker="." ;;
+            .)  marker=".1" ;;
             ,)  marker="," ;;
-            '!'|'?'|';'|':'|$'\xbb')  marker="F" ;;
+            '?')  # French typography adds NNBSP before ? → 2 backspaces; other languages → 1
+                if [ "${LANG_SOURCE:-}" = "fr" ]; then marker=".2"; else marker=".1"; fi ;;
+            '!')  # Same NNBSP logic for !
+                if [ "${LANG_SOURCE:-}" = "fr" ]; then marker=".2"; else marker="F"; fi ;;
+            ';'|':'|$'\xbb')  marker="F" ;;
             ')')  marker="F" ;;
             *)  marker="_" ; stripped="$trimmed" ;;
         esac
@@ -242,6 +318,10 @@ save_last_word() {
         stripped="${stripped%"${stripped##*[! ]}"}"
     fi
     local last_word="${stripped##* }"
+    # Handle hyphenated words: "parles-tu" → check "tu" for continuation
+    if [[ "$last_word" == *-* ]]; then
+        last_word="${last_word##*-}"
+    fi
 
     if [ -n "$last_word" ]; then
         echo "${marker}:${last_word}" > "$LAST_WORD_FILE"

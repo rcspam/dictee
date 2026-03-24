@@ -5,7 +5,7 @@ Reads transcribed text from stdin, applies sequentially:
   1.  Regex rules (annotations, hesitations, voice commands, dedup, punctuation)
   2.  Language-specific rules (elisions, contractions, typography)
   3.  Number conversion (text2num, optional)
-  4.  Dictionary (system + personal, with jellyfish phonetic matching)
+  4.  Dictionary (system + personal, exact match on word boundaries)
   5.  Capitalization
   6.  Optional LLM correction (ollama)
 
@@ -25,7 +25,7 @@ Environment variables:
   DICTEE_PP_CAPITALIZATION — true/false (default: true)  — auto-capitalization
   DICTEE_PP_RULES          — true/false (default: true)  — regex rules
   DICTEE_PP_DICT           — true/false (default: true)  — dictionary
-  DICTEE_PP_FUZZY_DICT     — true/false (default: true)  — fuzzy matching (jellyfish)
+
   DICTEE_PP_CONTINUATION   — true/false (default: true)  — continuation
   DICTEE_LLM_POSTPROCESS   — true/false (default: false) — LLM correction
   DICTEE_LLM_MODEL         — ollama model (default: gemma3:4b)
@@ -38,7 +38,7 @@ import sys
 import subprocess
 
 # ── Venv bootstrap ───────────────────────────────────────────────────
-# If a dedicated venv exists (with text2num, jellyfish, etc.),
+# If a dedicated venv exists (with text2num, etc.),
 # add its site-packages to sys.path so imports work without re-exec.
 # Re-exec via os.execv would lose stdin (pipe), so we inject the path instead.
 
@@ -59,7 +59,7 @@ XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 USER_RULES = os.path.join(XDG_CONFIG, "dictee", "rules.conf")
 USER_DICT = os.path.join(XDG_CONFIG, "dictee", "dictionary.conf")
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 SYSTEM_RULES_CANDIDATES = [
     os.path.join(_SCRIPT_DIR, "rules.conf.default"),
@@ -194,29 +194,33 @@ def _parse_continuation(path):
     return words
 
 def load_continuation():
-    """Loads user continuation words (or system defaults)."""
-    if os.path.isfile(USER_CONT):
-        return _parse_continuation(USER_CONT)
-    # Fallback: system file
+    """Loads system continuation words, merged with user additions."""
+    words = set()
+    # Load system defaults first
     for candidate in SYSTEM_CONT_CANDIDATES:
         if os.path.isfile(candidate):
-            return _parse_continuation(candidate)
-    return set()
+            words = _parse_continuation(candidate)
+            break
+    # Merge user file on top (adds extra words)
+    if os.path.isfile(USER_CONT):
+        words |= _parse_continuation(USER_CONT)
+    return words
 
 def fix_continuation(text, continuation_words):
-    """Removes erroneous periods after a continuation word.
-    Preserves the case of the following word (proper nouns)."""
+    """Removes erroneous periods/ellipsis after a continuation word.
+    The following character is lowercased; proper nouns are re-cased
+    by the dictionary step later in the pipeline."""
     if not continuation_words:
         return text
 
     def _fix(m):
         word = m.group(1)
         after_char = m.group(2)
-        if word.lower() in continuation_words:
-            return word + " " + after_char
-        return m.group(0)
+        if word.lower() not in continuation_words:
+            return m.group(0)
+        return word + " " + after_char.lower()
 
-    return re.sub(r"(\w+)\.[ \t]+([A-Za-zÀ-ÿ])", _fix, text)
+    return re.sub(r"(\w+)(?:\.{1,3}|…)[ \t]+([A-Za-zÀ-ÿ])", _fix, text)
 
 
 # ── Advanced French elisions ─────────────────────────────────────
@@ -631,23 +635,10 @@ def load_dictionary():
     return []
 
 
-# Optional jellyfish import for phonetic matching
-try:
-    import jellyfish
-    _HAS_JELLYFISH = True
-except ImportError:
-    _HAS_JELLYFISH = False
-
-_FUZZY_THRESHOLD = 0.85
-
-
-def apply_dictionary(text, entries, fuzzy=True):
-    """Applies dictionary with case preservation + phonetic fallback."""
-    # Phase 1 : remplacement exact par regex (rapide)
-    matched_spans = set()
+def apply_dictionary(text, entries):
+    """Applies dictionary with case preservation (exact match on word boundaries)."""
     for word, word_re, replacement in entries:
         def _replace(m, repl=replacement):
-            matched_spans.add((m.start(), m.end()))
             orig = m.group(0)
             if orig.isupper():
                 return repl.upper()
@@ -655,42 +646,6 @@ def apply_dictionary(text, entries, fuzzy=True):
                 return repl[0].upper() + repl[1:]
             return repl
         text = word_re.sub(_replace, text)
-
-    # Phase 2: jellyfish phonetic matching (if enabled)
-    if not fuzzy or not _HAS_JELLYFISH or not entries:
-        return text
-
-    words_in_text = re.findall(r'\b[a-zA-ZÀ-ÿ]{2,}\b', text)
-    if not words_in_text:
-        return text
-
-    # Build dictionary key index
-    dict_keys = [(w.lower(), replacement) for w, _, replacement in entries]
-
-    for text_word in set(words_in_text):
-        text_word_lower = text_word.lower()
-        best_score = 0.0
-        best_replacement = None
-        for dict_word, replacement in dict_keys:
-            if dict_word == text_word_lower:
-                break  # already matched in phase 1
-            score = jellyfish.jaro_winkler_similarity(text_word_lower, dict_word)
-            if score > best_score and score >= _FUZZY_THRESHOLD:
-                best_score = score
-                best_replacement = replacement
-        else:
-            # Pas de break → pas de match exact → appliquer fuzzy
-            if best_replacement:
-                pat = re.compile(r'\b' + re.escape(text_word) + r'\b')
-                def _fuzzy_replace(m, repl=best_replacement):
-                    orig = m.group(0)
-                    if orig.isupper():
-                        return repl.upper()
-                    if orig[0].isupper():
-                        return repl[0].upper() + repl[1:]
-                    return repl
-                text = pat.sub(_fuzzy_replace, text)
-
     return text
 
 
@@ -836,13 +791,10 @@ def main():
 
     # 9. (final cleanup already in regex rules step 5)
 
-    # 10. Dictionary (system + personal, with phonetic matching)
+    # 10. Dictionary (system + personal, exact match)
     dictionary = load_dictionary()
     if _env_bool("DICTEE_PP_DICT") and dictionary:
-        text = apply_dictionary(
-            text, dictionary,
-            fuzzy=_env_bool("DICTEE_PP_FUZZY_DICT"),
-        )
+        text = apply_dictionary(text, dictionary)
 
     # 11. Capitalisation
     if _env_bool("DICTEE_PP_CAPITALIZATION"):

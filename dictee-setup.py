@@ -219,7 +219,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 pp_spanish=True, pp_portuguese=True, pp_german=True,
                 pp_dutch=True, pp_romanian=True,
                 pp_numbers=True, pp_typography=True,
-                pp_capitalization=True, pp_dict=True, pp_fuzzy_dict=True,
+                pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
                 llm_postprocess=False, llm_model="ministral:3b",
                 llm_timeout=10, llm_cpu=False):
@@ -284,8 +284,6 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write("DICTEE_PP_CAPITALIZATION=false\n")
         if not pp_dict:
             f.write("DICTEE_PP_DICT=false\n")
-        if not pp_fuzzy_dict:
-            f.write("DICTEE_PP_FUZZY_DICT=false\n")
         if not pp_rules:
             f.write("DICTEE_PP_RULES=false\n")
         if not pp_continuation:
@@ -3407,33 +3405,29 @@ class DicteeSetupDialog(QDialog):
               "this ensures correct capitalization afterwards.\n"
               "Essential for Vosk/Whisper backends.")), 0, 1)
 
+        self.chk_pp_rules = QCheckBox(_("Regex rules"))
+        self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
+            _("Applies regex substitution rules to fix\n"
+              "common ASR errors (voice commands,\n"
+              "punctuation, formatting).")), 1, 0)
+
         self.chk_pp_dict = QCheckBox(_("Dictionary"))
         self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
         grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
             _("Replaces words using the dictionary.\n"
               "Exact matching on word boundaries.")), 1, 1)
 
-        self.chk_pp_fuzzy_dict = QCheckBox(_("Fuzzy matching (jellyfish)"))
-        self.chk_pp_fuzzy_dict.setChecked(conf.get("DICTEE_PP_FUZZY_DICT", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_fuzzy_dict,
-            _("Tolerates small spelling variations from the ASR\n"
-              "using Jaro-Winkler string similarity (threshold 0.85).\n"
-              "Requires the jellyfish Python library.\n"
-              "Example: \"Gogle\" → \"Google\"")), 1, 0)
-
-        self.chk_pp_rules = QCheckBox(_("Regex rules"))
-        self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
-            _("Applies regex substitution rules to fix\n"
-              "common ASR errors (voice commands,\n"
-              "punctuation, formatting).")), 2, 0)
-
         self.chk_pp_continuation = QCheckBox(_("Continuation"))
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
         grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_continuation,
-            _("Removes line break before continuation words\n"
-              "(conjunctions, adverbs, etc.) to keep\n"
-              "sentences flowing naturally.")), 2, 1)
+            _("Removes erroneous periods after continuation words\n"
+              "(articles, prepositions, conjunctions, pronouns, verbs)\n"
+              "to keep sentences flowing naturally across push-to-talk segments.\n\n"
+              "Voice command: say your continuation keyword at the start\n"
+              "of a push to remove the previous punctuation and continue\n"
+              "in lowercase. The keyword is configurable per language\n"
+              "in the Continuation tab.")), 2, 1)
 
         pp_lay.addLayout(grid_gen)
 
@@ -3479,14 +3473,10 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.addTab(tab_lang, _("Language rules"))
 
         # Gray out tabs when corresponding checkbox is unchecked
-        def _on_dict_toggled(on):
-            self._pp_tabs.setTabEnabled(0, on)
-            self.chk_pp_fuzzy_dict.setEnabled(on)
-        self.chk_pp_dict.toggled.connect(_on_dict_toggled)
+        self.chk_pp_dict.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(0, on))
         self.chk_pp_rules.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(1, on))
         self.chk_pp_continuation.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(2, on))
         self._pp_tabs.setTabEnabled(0, self.chk_pp_dict.isChecked())
-        self.chk_pp_fuzzy_dict.setEnabled(self.chk_pp_dict.isChecked())
         self._pp_tabs.setTabEnabled(1, self.chk_pp_rules.isChecked())
         self._pp_tabs.setTabEnabled(2, self.chk_pp_continuation.isChecked())
 
@@ -5604,6 +5594,35 @@ class DicteeSetupDialog(QDialog):
         info.setFont(font)
         form_top_lay.addWidget(info)
 
+        # Continuation keyword
+        kw_lay = QHBoxLayout()
+        kw_lay.setSpacing(6)
+        kw_label = QLabel(_("Continuation keyword:"))
+        kw_label.setToolTip(_(
+            "Say this word at the start of a push-to-talk segment\n"
+            "to remove the previous punctuation and continue in lowercase.\n\n"
+            "Example: \"I eat.\" + \"counterpoint some cheese\"\n"
+            "→ \"I eat some cheese\"\n\n"
+            "Leave empty to disable."))
+        self._cont_keyword = QLineEdit()
+        self._cont_keyword.setMaximumWidth(200)
+        self._cont_keyword.setPlaceholderText("contre-point")
+        # Load keyword from continuation.conf (language-specific, then generic)
+        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        _kw_default = self._load_cont_keyword(_lang)
+        self._cont_keyword.setText(_kw_default)
+        kw_lay.addWidget(kw_label)
+        kw_lay.addWidget(self._cont_keyword)
+        kw_lay.addStretch()
+        form_top_lay.addLayout(kw_lay)
+
+        # Variants label
+        self._cont_kw_variants = QLabel()
+        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px; margin-left: 4px;")
+        form_top_lay.addWidget(self._cont_kw_variants)
+        self._cont_keyword.textChanged.connect(self._update_kw_variants)
+        self._update_kw_variants(_kw_default)
+
         # Search bar
         self._cont_search = QLineEdit()
         self._cont_search.addAction(
@@ -6020,13 +6039,18 @@ class DicteeSetupDialog(QDialog):
                 i += 1
 
     def _save_cont_personal(self):
-        """Saves personal words to ~/.config/dictee/continuation.conf."""
+        """Saves personal words + keyword to ~/.config/dictee/continuation.conf."""
         import os as _os
 
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
         with open(self._cont_path, "w", encoding="utf-8") as f:
             f.write("# User continuation words for dictee\n")
             f.write("# Format: [lang] word1 word2 ...\n\n")
+            # Save continuation keyword (per language)
+            kw = self._cont_keyword.text().strip() if hasattr(self, '_cont_keyword') else ""
+            lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+            if kw:
+                f.write(f"[keyword:{lang}] {kw}\n\n")
             for lang in sorted(self._cont_personal_words.keys()):
                 words = sorted(self._cont_personal_words[lang])
                 if words:
@@ -6069,6 +6093,48 @@ class DicteeSetupDialog(QDialog):
             self._btn_advanced.setChecked(False)
             self._btn_advanced.blockSignals(False)
             self._cont_stack.setCurrentIndex(0)
+
+    def _load_cont_keyword(self, lang="fr"):
+        """Load continuation keyword for a language from conf files."""
+        # Search order: [keyword:lang] user, [keyword:lang] system, [keyword] user, [keyword] system
+        for tag in [f"[keyword:{lang}]", "[keyword]"]:
+            for cf in [self._cont_path, self._cont_sys_path]:
+                if not cf or not os.path.isfile(cf):
+                    continue
+                with open(cf, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith(tag):
+                            return line[len(tag):].strip()
+        return "contre-point"
+
+    def _update_kw_variants(self, text):
+        """Show accepted variants of the continuation keyword."""
+        kw = text.strip()
+        if not kw:
+            self._cont_kw_variants.setText(_("(disabled)"))
+            return
+        variants = set()
+        variants.add(kw)
+        variants.add(kw.capitalize())
+        # Without hyphens
+        if '-' in kw:
+            no_hyphen = kw.replace('-', '')
+            variants.add(no_hyphen)
+            variants.add(no_hyphen.capitalize())
+            with_space = kw.replace('-', ' ')
+            variants.add(with_space)
+            variants.add(with_space.capitalize())
+        # Without spaces
+        if ' ' in kw:
+            no_space = kw.replace(' ', '')
+            variants.add(no_space)
+            variants.add(no_space.capitalize())
+            with_hyphen = kw.replace(' ', '-')
+            variants.add(with_hyphen)
+            variants.add(with_hyphen.capitalize())
+        sorted_v = sorted(variants, key=lambda s: (s.lower(), s))
+        self._cont_kw_variants.setText(_("Accepted: ") + ", ".join(sorted_v))
 
     def _cont_factory_reset(self):
         """Restores system file defaults."""
@@ -7238,7 +7304,6 @@ class DicteeSetupDialog(QDialog):
             do_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
             do_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
             do_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
-            do_fuzzy_dict = self.chk_pp_fuzzy_dict.isChecked() if hasattr(self, 'chk_pp_fuzzy_dict') else True
             do_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
             do_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
 
@@ -7327,7 +7392,7 @@ class DicteeSetupDialog(QDialog):
             # 7. Dictionnaire
             dictionary = pp.load_dictionary()
             if do_dict and dictionary:
-                new = pp.apply_dictionary(current, dictionary, fuzzy=do_fuzzy_dict)
+                new = pp.apply_dictionary(current, dictionary)
                 steps.append((_("Dictionary"), current, new))
                 current = new
 
@@ -7526,7 +7591,6 @@ class DicteeSetupDialog(QDialog):
         pp_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
         pp_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
         pp_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
-        pp_fuzzy_dict = self.chk_pp_fuzzy_dict.isChecked() if hasattr(self, 'chk_pp_fuzzy_dict') else True
         pp_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
         pp_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
@@ -7546,7 +7610,7 @@ class DicteeSetupDialog(QDialog):
                     pp_german=pp_german, pp_dutch=pp_dutch,
                     pp_romanian=pp_romanian, pp_numbers=pp_numbers,
                     pp_typography=pp_typography, pp_capitalization=pp_capitalization,
-                    pp_dict=pp_dict, pp_fuzzy_dict=pp_fuzzy_dict,
+                    pp_dict=pp_dict,
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu)
