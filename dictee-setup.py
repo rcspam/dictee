@@ -2306,6 +2306,24 @@ class DicteeSetupDialog(QDialog):
                         QMessageBox.warning(self, _("Model required"),
                             _("Please download the required model before continuing."))
                         return False
+        elif idx == 2:
+            # Shortcuts page: user must be in 'input' group
+            in_input = "input" in os.popen("groups").read().split()
+            if not in_input and not getattr(self, '_input_group_fixed', False):
+                QMessageBox.warning(self, _("Group required"),
+                    _("Your user must be in the 'input' group for keyboard shortcuts.\n"
+                      "Please click 'Fix' above."))
+                return False
+        elif idx == 3:
+            # Translation page: if libretranslate, user must be in 'docker' group
+            if hasattr(self, 'cmb_translate_backend'):
+                backend = self.cmb_translate_backend.currentData()
+                if backend == "libretranslate":
+                    if not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False):
+                        QMessageBox.warning(self, _("Group required"),
+                            _("Docker permissions are required for LibreTranslate.\n"
+                              "Please click 'Fix permissions' above."))
+                        return False
         return True
 
     # -- Project logos grid --
@@ -2846,6 +2864,7 @@ class DicteeSetupDialog(QDialog):
                         ["pkexec", "usermod", "-aG", "input", user],
                         capture_output=True, text=True, timeout=15)
                     if result.returncode == 0:
+                        self._input_group_fixed = True
                         btn_fix_input.setVisible(False)
                         lbl_group.setText(
                             '<span style="color: green;">✓ ' +
@@ -3374,6 +3393,7 @@ class DicteeSetupDialog(QDialog):
         self.progress_ollama.setVisible(False)
         lay_ollama.addWidget(self.progress_ollama)
 
+        self.ollama_widget.setVisible(False)
         lay_tr.addWidget(self.ollama_widget)
 
         self.combo_ollama_model.currentIndexChanged.connect(self._on_ollama_model_changed)
@@ -6926,7 +6946,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_stop.setVisible(False)
             return
 
-        if not docker_is_accessible():
+        if not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False):
             self.lbl_lt_status.setText(
                 '<span style="color: red;">⚠ ' +
                 _("Docker permission denied") + '</span>')
@@ -7118,6 +7138,7 @@ class DicteeSetupDialog(QDialog):
                 ["pkexec", "usermod", "-aG", "docker", user],
                 capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
+                self._docker_group_fixed = True
                 self._btn_fix_docker_group.setVisible(False)
                 self.lbl_lt_status.setText(
                     '<span style="color: green;">✓ ' +
