@@ -219,6 +219,15 @@ if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
 fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
+# Enable GNOME AppIndicator extension for tray icon (if installed)
+for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+    user=\$(id -nu "\$uid" 2>/dev/null) || continue
+    [ "\$user" = "root" ] && continue
+    if [ -d "/run/user/\$uid" ]; then
+        sudo -u "\$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \
+            gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+    fi
+done
 
 %postun
 udevadm control --reload-rules 2>/dev/null || true
@@ -311,6 +320,15 @@ if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
 fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
+# Enable GNOME AppIndicator extension for tray icon (if installed)
+for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+    user=\$(id -nu "\$uid" 2>/dev/null) || continue
+    [ "\$user" = "root" ] && continue
+    if [ -d "/run/user/\$uid" ]; then
+        sudo -u "\$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \
+            gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+    fi
+done
 
 %postun
 udevadm control --reload-rules 2>/dev/null || true
