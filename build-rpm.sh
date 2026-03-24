@@ -245,7 +245,25 @@ for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); 
 done
 
 %postun
-udevadm control --reload-rules 2>/dev/null || true
+if [ "\$1" -eq 0 ]; then
+    # Full uninstall (not upgrade)
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger /dev/uinput 2>/dev/null || true
+    # Stop and disable user services
+    for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+        user=\$(id -nu "\$uid" 2>/dev/null) || continue
+        [ "\$user" = "root" ] && continue
+        [ -d "/run/user/\$uid" ] || continue
+        _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user daemon-reload 2>/dev/null || true
+    done
+    # Clean locales
+    for lang in fr de es it uk pt; do
+        rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
+    done
+fi
 EOF
 
     rpmbuild --define "_topdir $RPMBUILD_DIR" \
@@ -361,7 +379,22 @@ for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); 
 done
 
 %postun
-udevadm control --reload-rules 2>/dev/null || true
+if [ "\$1" -eq 0 ]; then
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger /dev/uinput 2>/dev/null || true
+    for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+        user=\$(id -nu "\$uid" 2>/dev/null) || continue
+        [ "\$user" = "root" ] && continue
+        [ -d "/run/user/\$uid" ] || continue
+        _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user daemon-reload 2>/dev/null || true
+    done
+    for lang in fr de es it uk pt; do
+        rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
+    done
+fi
 EOF
 
     rpmbuild --define "_topdir $RPMBUILD_DIR" \
