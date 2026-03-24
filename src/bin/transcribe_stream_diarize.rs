@@ -12,6 +12,7 @@ use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 use parakeet_rs::{ExecutionConfig, ExecutionProvider, Nemotron};
 #[cfg(feature = "sortformer")]
 use std::env;
+use std::path::Path;
 #[cfg(feature = "sortformer")]
 use std::fs;
 #[cfg(feature = "sortformer")]
