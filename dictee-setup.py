@@ -651,6 +651,57 @@ def get_gpu_vram_gb():
     return 0, 0
 
 
+def check_cuda_gpu_ready():
+    """Check if CUDA GPU acceleration is usable (cuDNN installed).
+    Returns (gpu_detected, cudnn_ok, message)."""
+    total, _free = get_gpu_vram_gb()
+    if total == 0:
+        return False, False, ""
+    # GPU detected — check cuDNN
+    try:
+        import ctypes
+        ctypes.cdll.LoadLibrary("libcudnn.so.9")
+        return True, True, ""
+    except OSError:
+        pass
+    # cuDNN missing — build a helpful message
+    distro_id = ""
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                if line.startswith("ID="):
+                    distro_id = line.strip().split("=", 1)[1].strip('"')
+                    break
+    except OSError:
+        pass
+    if distro_id in ("ubuntu", "debian", "linuxmint", "pop"):
+        msg = _(
+            "NVIDIA GPU detected but cuDNN is not installed.\n"
+            "GPU acceleration will not work without it.\n\n"
+            "To fix, add the NVIDIA CUDA repository and install cuDNN:\n\n"
+            "  sudo apt install libcudnn9-cuda-12\n\n"
+            "If the package is not found, you need to add the NVIDIA repo first.\n"
+            "See the README for instructions."
+        )
+    elif distro_id in ("fedora", "nobara", "opensuse-tumbleweed"):
+        msg = _(
+            "NVIDIA GPU detected but cuDNN is not installed.\n"
+            "GPU acceleration will not work without it.\n\n"
+            "To fix:\n\n"
+            "  sudo dnf install libcudnn9-cuda-12\n\n"
+            "If the package is not found, you need to add the NVIDIA CUDA repo.\n"
+            "See the README for instructions."
+        )
+    else:
+        msg = _(
+            "NVIDIA GPU detected but cuDNN is not installed.\n"
+            "GPU acceleration will not work without it.\n\n"
+            "Install libcudnn9-cuda-12 from the NVIDIA CUDA repository.\n"
+            "See the README for instructions."
+        )
+    return True, False, msg
+
+
 def ollama_list_models():
     """Retourne la liste des modèles ollama installés."""
     try:
@@ -1971,6 +2022,18 @@ class DicteeSetupDialog(QDialog):
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         lay_asr.addWidget(self.cmb_asr_backend)
 
+        # cuDNN warning
+        gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
+        if gpu_detected and not cudnn_ok:
+            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
+            warn_lbl.setWordWrap(True)
+            warn_lbl.setStyleSheet(
+                "background: #442200; border: 1px solid #885500;"
+                " border-radius: 6px; padding: 8px;")
+            warn_lbl.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            lay_asr.addWidget(warn_lbl)
+
         self._build_parakeet_options(lay_asr)
         self._build_vosk_options(lay_asr)
         self._build_whisper_options(lay_asr)
@@ -2389,6 +2452,22 @@ class DicteeSetupDialog(QDialog):
             card.mousePressEvent = lambda e, bid=backend_id: self._select_asr_radio(bid)
             self._asr_cards[backend_id] = card
             lay.addWidget(card)
+
+        # cuDNN warning (GPU detected but cuDNN missing)
+        gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
+        if gpu_detected and not cudnn_ok:
+            warn_frame = QFrame()
+            warn_frame.setStyleSheet(
+                "QFrame { background: #442200; border: 1px solid #885500;"
+                " border-radius: 6px; padding: 8px; }")
+            warn_lay = QVBoxLayout(warn_frame)
+            warn_lay.setContentsMargins(8, 6, 8, 6)
+            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
+            warn_lbl.setWordWrap(True)
+            warn_lbl.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            warn_lay.addWidget(warn_lbl)
+            lay.addWidget(warn_frame)
 
         # Separator
         sep = QFrame()

@@ -53,24 +53,26 @@
 Download the `.deb` from the [Releases](../../releases), then:
 
 ```bash
-# GPU version (NVIDIA CUDA)
-sudo dpkg -i dictee-cuda_1.1.2_amd64.deb
+# GPU version (requires the NVIDIA CUDA repository — see "GPU dependencies" below)
+sudo dpkg -i dictee-cuda_1.1.4_amd64.deb
 
-# CPU version (any computer)
-sudo dpkg -i dictee-cpu_1.1.2_amd64.deb
+# CPU version (any computer, no extra repository needed)
+sudo dpkg -i dictee-cpu_1.1.4_amd64.deb
 
 # Install missing dependencies
 sudo apt-get install -f
 ```
 
+> **Note:** The GPU version requires cuDNN from the [NVIDIA CUDA repository](#gpu-version-nvidia-cuda-dependencies), which is not included in standard Ubuntu/Fedora repos. Without it, the GPU version will still work but in CPU mode only.
+
 **Fedora / openSUSE:**
 
 ```bash
-# GPU version (NVIDIA CUDA)
-sudo dnf install ./dictee-cuda-1.1.2-1.x86_64.rpm
+# GPU version (NVIDIA CUDA — see "GPU dependencies" below)
+sudo dnf install ./dictee-cuda-1.1.4-1.x86_64.rpm
 
 # CPU version (any computer)
-sudo dnf install ./dictee-cpu-1.1.2-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.1.4-1.x86_64.rpm
 ```
 
 **Arch Linux (AUR):**
@@ -84,21 +86,48 @@ Pre-built packages are x86_64 only. On aarch64 (Raspberry Pi 5, Ampere, etc.), b
 **Other distributions (.tar.gz):**
 
 ```bash
-tar xzf dictee-1.1.2_amd64.tar.gz
-cd dictee-1.1.2
+tar xzf dictee-1.1.4_amd64.tar.gz
+cd dictee-1.1.4
 sudo ./install.sh
 ```
 
 **From source:**
 
 ```bash
-tar xzf dictee-1.1.2-source.tar.gz
-cd dictee-1.1.2-source
+tar xzf dictee-1.1.4-source.tar.gz
+cd dictee-1.1.4-source
 cargo build --release --features sortformer
 sudo ./install.sh
 ```
 
 > For detailed build instructions and Cargo features, see [docs/building.md](docs/building.md).
+
+### GPU version: NVIDIA CUDA dependencies
+
+The GPU version (`dictee-cuda`) requires cuDNN, which is **not available** in standard Ubuntu/Fedora repositories. You need the NVIDIA CUDA repository:
+
+**Ubuntu / Debian:**
+
+```bash
+wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | \
+  sudo gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] \
+  https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" | \
+  sudo tee /etc/apt/sources.list.d/cuda-ubuntu2404-x86_64.list
+sudo apt update
+sudo apt install libcudnn9-cuda-12
+```
+
+> Replace `ubuntu2404` with your version (`ubuntu2204`, `ubuntu2504`, etc.). See [NVIDIA CUDA repos](https://developer.download.nvidia.com/compute/cuda/repos/).
+
+**Fedora:**
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora41/x86_64/cuda-fedora41.repo
+sudo dnf install libcudnn9-cuda-12
+```
+
+> Without cuDNN, the GPU version falls back to CPU automatically. `dictee-setup` will detect this and guide you through the setup.
 
 ### Dependencies
 
