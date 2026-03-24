@@ -7118,15 +7118,15 @@ class DicteeSetupDialog(QDialog):
                 ["pkexec", "usermod", "-aG", "docker", user],
                 capture_output=True, text=True, timeout=15)
             if result.returncode == 0:
-                QMessageBox.information(
-                    self, _("Docker"),
-                    _("User added to 'docker' group.") + "\n\n" +
-                    _("You must log out and log back in for this to take effect."))
+                self._btn_fix_docker_group.setVisible(False)
+                self.lbl_lt_status.setText(
+                    '<span style="color: green;">✓ ' +
+                    _("User added to 'docker' group. Log out and back in to activate.") +
+                    '</span>')
             else:
                 QMessageBox.critical(self, _("Error"), result.stderr.strip())
         except Exception as e:
             QMessageBox.critical(self, _("Error"), str(e))
-        self._check_lt_status()
 
     def _on_lt_pull(self):
         self.btn_lt_pull.setEnabled(False)
