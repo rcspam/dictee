@@ -1056,8 +1056,13 @@ def docker_is_accessible():
 
 def docker_daemon_running():
     """Vérifie si le daemon Docker est en cours d'exécution."""
-    import os
-    return os.path.exists("/var/run/docker.sock")
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "docker"],
+            capture_output=True, text=True, timeout=3)
+        return result.stdout.strip() == "active"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 def docker_has_image(image=LIBRETRANSLATE_IMAGE):
@@ -3381,8 +3386,8 @@ class DicteeSetupDialog(QDialog):
         self._docker_pull_thread = None
         self._lt_action_thread = None
 
-        # Ollama widget
-        self.ollama_widget = QFrame()
+        # Ollama widget (hidden by default — shown only when ollama backend selected)
+        self.ollama_widget = QWidget()
         lay_ollama = QVBoxLayout(self.ollama_widget)
         lay_ollama.setContentsMargins(32, 4, 0, 0)
         lay_ollama.setSpacing(4)
@@ -3443,8 +3448,10 @@ class DicteeSetupDialog(QDialog):
 
         def _on_trans_backend_changed():
             data = self.cmb_trans_backend.currentData()
+            print(f"[DEBUG] _on_trans_backend_changed: data={data}")
             self.lt_widget.setVisible(data == "libretranslate")
             self.ollama_widget.setVisible(data == "ollama")
+            print(f"[DEBUG] ollama visible={self.ollama_widget.isVisible()}, lt visible={self.lt_widget.isVisible()}")
             if data == "libretranslate":
                 self._check_lt_status()
             if data == "ollama":
