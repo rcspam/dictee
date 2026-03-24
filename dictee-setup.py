@@ -2347,9 +2347,26 @@ class DicteeSetupDialog(QDialog):
                         QMessageBox.warning(self, _("Model required"),
                             _("Please download the required model before continuing."))
                         return False
+            elif asr == "vosk":
+                # Check that downloaded Vosk model matches selected language
+                lang = self.combo_src.currentData() if hasattr(self, 'combo_src') else "fr"
+                expected_model = VOSK_MODELS.get(lang, "")
+                if expected_model:
+                    model_path = os.path.join(DICTEE_DATA_DIR, "vosk-models", expected_model)
+                    if not os.path.isdir(model_path):
+                        QMessageBox.warning(self, _("Model required"),
+                            _("Please download the Vosk model for {lang} before continuing.").format(lang=lang))
+                        return False
         elif idx == 2:
             # Shortcuts page: user must be in 'input' group
-            in_input = "input" in os.popen("groups").read().split()
+            # Check /etc/group (persistent) instead of 'groups' (session-only)
+            user = os.environ.get("USER", "")
+            try:
+                import grp
+                input_members = grp.getgrnam("input").gr_mem
+                in_input = user in input_members
+            except (KeyError, ImportError):
+                in_input = "input" in os.popen("groups").read().split()
             if not in_input and not getattr(self, '_input_group_fixed', False):
                 QMessageBox.warning(self, _("Group required"),
                     _("Your user must be in the 'input' group for keyboard shortcuts.\n"
@@ -2839,7 +2856,7 @@ class DicteeSetupDialog(QDialog):
 
         # Choix : même touche + modificateur ou touche séparée
         self.cmb_translate_mode = QComboBox()
-        self.cmb_translate_mode.addItem(_("Same key + Alt (e.g., Alt+F9)"), "same_alt")
+        self.cmb_translate_mode.addItem(_("Same key + Alt"), "same_alt")
         self.cmb_translate_mode.addItem(_("Same key + Ctrl"), "same_ctrl")
         self.cmb_translate_mode.addItem(_("Same key + Shift"), "same_shift")
         self.cmb_translate_mode.addItem(_("Separate key"), "separate")
@@ -2884,7 +2901,13 @@ class DicteeSetupDialog(QDialog):
         lay_sc.addSpacing(8)
 
         # Info groupe input
-        in_input_group = "input" in os.popen("groups").read().split()
+        # Check /etc/group (persistent) instead of 'groups' (session-only)
+        user = os.environ.get("USER", "")
+        try:
+            import grp
+            in_input_group = user in grp.getgrnam("input").gr_mem
+        except (KeyError, ImportError):
+            in_input_group = "input" in os.popen("groups").read().split()
         if not in_input_group:
             row_input = QHBoxLayout()
             lbl_group = QLabel(
