@@ -94,9 +94,9 @@
 [fr] /[,.\s]*nouveau paragraphe[,.\s]*/\n\n/ig
 # 3d. Markdown — Parakeet may transcribe "dièse" as text, "dièz", or "#"
 # Repeated forms
-[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/### /ig
-[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/## /ig
-[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/# /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*espace[,.\s]*/### /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*espace[,.\s]*/## /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*espace[,.\s]*/# /ig
 # "double/triple dièse" forms (more natural to say, "espace" optional)
 [fr] /[,.\s]*triple[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:espace[,.\s]*)*/### /ig
 [fr] /[,.\s]*double[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:espace[,.\s]*)*/## /ig

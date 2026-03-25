@@ -125,6 +125,10 @@ prepare_buildroot() {
     mkdir -p "$buildroot/usr/share/dictee"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
     cp ./rules.conf.default "$buildroot/usr/share/dictee/rules.conf.default"
+
+    # Generate VERSION file
+    BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    echo "$VERSION build $BUILD_HASH" > "$buildroot/usr/share/dictee/VERSION"
     cp ./dictionary.conf.default "$buildroot/usr/share/dictee/dictionary.conf.default"
     cp ./continuation.conf.default "$buildroot/usr/share/dictee/continuation.conf.default"
 
@@ -221,7 +225,7 @@ udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
 # Per-user setup for all logged-in users
-for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     [ -d "/run/user/\$uid" ] || continue
@@ -230,6 +234,17 @@ for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); 
     # Add user to input group if needed
     if ! id -nG "\$user" | grep -qw input; then
         usermod -aG input "\$user"
+    fi
+
+    # Start and enable Docker daemon if installed
+    if command -v docker >/dev/null 2>&1; then
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl start docker 2>/dev/null || true
+            systemctl enable docker 2>/dev/null || true
+        fi
+        if ! id -nG "\$user" | grep -qw docker; then
+            usermod -aG docker "\$user"
+        fi
     fi
 
     # Enable GNOME AppIndicator extension for tray icon
@@ -250,7 +265,7 @@ if [ "\$1" -eq 0 ]; then
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
     # Stop and disable user services
-    for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
         user=\$(id -nu "\$uid" 2>/dev/null) || continue
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
@@ -355,7 +370,7 @@ udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
 # Per-user setup for all logged-in users
-for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     [ -d "/run/user/\$uid" ] || continue
@@ -364,6 +379,17 @@ for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); 
     # Add user to input group if needed
     if ! id -nG "\$user" | grep -qw input; then
         usermod -aG input "\$user"
+    fi
+
+    # Start and enable Docker daemon if installed
+    if command -v docker >/dev/null 2>&1; then
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl start docker 2>/dev/null || true
+            systemctl enable docker 2>/dev/null || true
+        fi
+        if ! id -nG "\$user" | grep -qw docker; then
+            usermod -aG docker "\$user"
+        fi
     fi
 
     # Enable GNOME AppIndicator extension for tray icon
@@ -382,7 +408,7 @@ done
 if [ "\$1" -eq 0 ]; then
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
-    for uid in \$(loginctl list-users --no-legend 2>/dev/null | awk '{print \$1}'); do
+    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
         user=\$(id -nu "\$uid" 2>/dev/null) || continue
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue

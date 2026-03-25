@@ -234,9 +234,10 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         f.write(f"DICTEE_CLIPBOARD={'true' if clipboard else 'false'}\n")
         f.write(f"DICTEE_ANIMATION={animation}\n")
         if asr_backend == "vosk":
-            # Resolve language code to full model name if needed
-            resolved = VOSK_MODELS.get(vosk_model, vosk_model)
-            f.write(f"DICTEE_VOSK_MODEL={resolved}\n")
+            # Always write the short code (e.g. "fr", "en") — daemon resolves it
+            reverse = {v: k for k, v in VOSK_MODELS.items()}
+            code = reverse.get(vosk_model, vosk_model)
+            f.write(f"DICTEE_VOSK_MODEL={code}\n")
         elif asr_backend == "whisper":
             f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
             if whisper_lang:
@@ -1192,6 +1193,34 @@ def _docker_container_size():
     except Exception:
         pass
     return ""
+
+
+class _DockerSetupThread(QThread):
+    """Thread for pkexec Docker setup (start daemon + add user to group)."""
+    finished = Signal(bool, str)
+
+    def __init__(self, user):
+        super().__init__()
+        self._user = user
+
+    def run(self):
+        try:
+            script = (
+                "systemctl start docker && "
+                "systemctl enable docker && "
+                f"usermod -aG docker {self._user}"
+            )
+            result = subprocess.run(
+                ["pkexec", "bash", "-c", script],
+                capture_output=True, text=True, timeout=60)
+            if result.returncode == 0:
+                self.finished.emit(True, "")
+            else:
+                self.finished.emit(False, result.stderr.strip() or _("Docker setup failed."))
+        except subprocess.TimeoutExpired:
+            self.finished.emit(False, _("Timeout while setting up Docker."))
+        except Exception as e:
+            self.finished.emit(False, str(e))
 
 
 class DockerPullThread(QThread):
@@ -2473,8 +2502,18 @@ class DicteeSetupDialog(QDialog):
         lbl_logo.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(lbl_logo)
 
-        # Version
-        lbl_ver = QLabel("v1.1.0")
+        # Read version from installed VERSION file, fallback to dev
+        _ver = "dev"
+        for _vpath in ("/usr/share/dictee/VERSION",
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
+            if os.path.isfile(_vpath):
+                try:
+                    with open(_vpath) as _f:
+                        _ver = _f.read().strip()
+                except OSError:
+                    pass
+                break
+        lbl_ver = QLabel(f"v{_ver}")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
         lay.addWidget(lbl_ver)
@@ -3022,7 +3061,10 @@ class DicteeSetupDialog(QDialog):
             self.cmb_vosk_lang.setCurrentIndex(idx)
         row_vosk.addWidget(lbl_vosk_lang)
         self.cmb_vosk_lang.currentIndexChanged.connect(lambda: (
-            self._update_src_languages(), self._update_vosk_dl_button()))
+            self._update_src_languages(), self._update_vosk_dl_button(),
+            self._update_vosk_model_in_conf(self.cmb_vosk_lang.currentData())
+            if self.cmb_vosk_lang.currentData() and self._vosk_model_installed(self.cmb_vosk_lang.currentData())
+            else None))
         row_vosk.addWidget(self.cmb_vosk_lang)
 
         self.btn_dl_vosk_model = QPushButton(_("Download model"))
@@ -3044,6 +3086,37 @@ class DicteeSetupDialog(QDialog):
         parent_layout.addWidget(self.w_vosk_options)
 
     # -- Vosk model management --
+
+    def _update_vosk_model_in_conf(self, lang_code):
+        """Write DICTEE_VOSK_MODEL into dictee.conf and restart daemon if needed."""
+        # Always write the short code — daemon resolves to full name
+        reverse = {v: k for k, v in VOSK_MODELS.items()}
+        code = reverse.get(lang_code, lang_code)
+        # Update conf file in-place
+        lines = []
+        found = False
+        if os.path.isfile(CONF_PATH):
+            with open(CONF_PATH) as f:
+                for line in f:
+                    if line.startswith("DICTEE_VOSK_MODEL="):
+                        lines.append(f"DICTEE_VOSK_MODEL={code}\n")
+                        found = True
+                    else:
+                        lines.append(line)
+        if not found:
+            lines.append(f"DICTEE_VOSK_MODEL={code}\n")
+        os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
+        with open(CONF_PATH, "w") as f:
+            f.writelines(lines)
+        # Restart Vosk daemon if it is running
+        try:
+            r = subprocess.run(["systemctl", "--user", "is-active", "dictee-vosk.service"],
+                               capture_output=True, text=True, timeout=3)
+            if r.stdout.strip() == "active":
+                subprocess.run(["systemctl", "--user", "restart", "dictee-vosk.service"],
+                               capture_output=True, timeout=5)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
 
     def _vosk_model_installed(self, lang_code):
         """Vérifie si le modèle Vosk pour une langue est téléchargé."""
@@ -3098,10 +3171,15 @@ class DicteeSetupDialog(QDialog):
             self._refresh_vosk_lang_combo()
             self._update_vosk_dl_button()
             self._update_src_languages()
+            # Update conf + restart daemon with the newly downloaded model
+            code = self.cmb_vosk_lang.currentData()
+            if code:
+                self._update_vosk_model_in_conf(code)
         else:
             self.btn_dl_vosk_model.setEnabled(True)
             self.btn_dl_vosk_model.setText(_("Download model"))
-            QMessageBox.critical(self, _("Download error"), message)
+            print(f"[DEBUG] Vosk download error: {message!r}", file=sys.stderr)
+            QMessageBox.critical(self, _("Download error"), message or _("Unknown error"))
 
     def _build_whisper_options(self, parent_layout):
         """Build Whisper install + model/language widgets."""
@@ -4171,6 +4249,7 @@ class DicteeSetupDialog(QDialog):
         self._rules_count_label = QLabel()
         self._rules_count_label.setStyleSheet("color: gray; font-size: 11px;")
         self._rules_editor.textChanged.connect(self._update_rules_count)
+        self._rules_editor.cursorPositionChanged.connect(self._sync_test_lang_from_cursor)
 
         self._load_rules_file()
         lay.addWidget(self._rules_editor)
@@ -4513,7 +4592,18 @@ class DicteeSetupDialog(QDialog):
             with open(self._rules_path, encoding="utf-8") as f:
                 self._rules_editor.setPlainText(f.read())
         else:
-            self._rules_editor.clear()
+            # First launch: copy defaults if available
+            for candidate in [
+                _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules.conf.default"),
+                "/usr/share/dictee/rules.conf.default",
+            ]:
+                if _os.path.isfile(candidate):
+                    shutil.copy2(candidate, self._rules_path)
+                    with open(self._rules_path, encoding="utf-8") as f:
+                        self._rules_editor.setPlainText(f.read())
+                    break
+            else:
+                self._rules_editor.clear()
         self._refresh_rule_sections()
 
     def _refresh_rule_sections(self):
@@ -4540,6 +4630,31 @@ class DicteeSetupDialog(QDialog):
         self._rule_section.blockSignals(False)
         # Sync _rule_position (le signal était bloqué)
         self._rule_position.setEnabled(self._rule_section.currentData() == "section")
+
+    def _sync_test_lang_from_cursor(self):
+        """Detect language tag from current line in rules editor and update test label."""
+        if not hasattr(self, '_test_lang_override'):
+            return
+        import re
+        cursor = self._rules_editor.textCursor()
+        line = cursor.block().text().strip()
+        m = re.match(r"^\[([a-z]{2}|\*)\]", line)
+        if m:
+            code = m.group(1)
+            self._test_lang_override = code if code != "*" else ""
+            lang_names = {"fr": "Français", "en": "English", "de": "Deutsch",
+                          "es": "Español", "it": "Italiano", "pt": "Português",
+                          "nl": "Nederlands", "ro": "Română", "ru": "Русский",
+                          "uk": "Українська", "*": _("all languages")}
+            name = lang_names.get(code, code)
+            self._lbl_test_lang.setText(_("Testing as: {lang}").format(lang=f"{code} — {name}"))
+            self._schedule_test_run()
+        else:
+            if self._test_lang_override:
+                self._test_lang_override = ""
+                conf_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+                self._lbl_test_lang.setText(_("Testing as: {lang} (config)").format(lang=conf_lang))
+                self._schedule_test_run()
 
     def _validate_rules_syntax(self, text):
         """Valide la syntaxe des règles. Retourne (ok, erreur_msg)."""
@@ -7218,31 +7333,33 @@ class DicteeSetupDialog(QDialog):
         user = os.environ.get("USER", "")
         if not user:
             return
-        try:
-            # Single pkexec: start+enable daemon, add user to group
-            script = (
-                "systemctl start docker && "
-                "systemctl enable docker && "
-                f"usermod -aG docker {user}"
-            )
-            result = subprocess.run(
-                ["pkexec", "bash", "-c", script],
-                capture_output=True, text=True, timeout=30)
-            if result.returncode == 0:
-                global _docker_use_sg
-                _docker_use_sg = True
-                self._docker_group_fixed = True
-                self._btn_fix_docker.setVisible(False)
-                self.lbl_lt_status.setText(
-                    '<span style="color: green;">✓ ' +
-                    _("Docker started and permissions configured.") +
-                    '</span>')
-                # Recheck status — now accessible via sg docker
-                self._check_lt_status()
-            else:
-                QMessageBox.critical(self, _("Error"), result.stderr.strip())
-        except Exception as e:
-            QMessageBox.critical(self, _("Error"), str(e))
+        # Show spinner while pkexec runs
+        self._btn_fix_docker.setEnabled(False)
+        self.lbl_lt_status.setText(
+            '<span style="color: #888;">⏳ ' +
+            _("Setting up Docker…") + '</span>')
+        self.progress_lt.setVisible(True)
+
+        self._docker_setup_thread = _DockerSetupThread(user)
+        self._docker_setup_thread.finished.connect(self._on_setup_docker_finished)
+        self._docker_setup_thread.start()
+
+    def _on_setup_docker_finished(self, success, message):
+        self.progress_lt.setVisible(False)
+        if success:
+            global _docker_use_sg
+            _docker_use_sg = True
+            self._docker_group_fixed = True
+            self._btn_fix_docker.setVisible(False)
+            self.lbl_lt_status.setText(
+                '<span style="color: green;">✓ ' +
+                _("Docker started and permissions configured.") +
+                '</span>')
+            self._check_lt_status()
+        else:
+            self._btn_fix_docker.setEnabled(True)
+            self._check_lt_status()
+            QMessageBox.critical(self, _("Error"), message)
 
     def _on_lt_pull(self):
         self.btn_lt_pull.setEnabled(False)
@@ -7393,7 +7510,8 @@ class DicteeSetupDialog(QDialog):
             if isinstance(btn, QPushButton):
                 btn.setText(_("Install"))
                 btn.setEnabled(True)
-            QMessageBox.critical(self, _("Installation error"), message)
+            print(f"[DEBUG] Venv install error ({name}): {message!r}", file=sys.stderr)
+            QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 
     def _mark_dirty(self):
         self._dirty = True
@@ -7413,6 +7531,12 @@ class DicteeSetupDialog(QDialog):
 
     def _build_test_panel(self, lay):
         """Test panel: input → multiline output + mic."""
+        # Test language indicator (auto-detected from cursor position in rules editor)
+        self._test_lang_override = ""
+        self._lbl_test_lang = QLabel("")
+        self._lbl_test_lang.setStyleSheet("font-size: 14px; font-weight: bold;")
+        lay.addWidget(self._lbl_test_lang)
+
         row = QHBoxLayout()
         row.setSpacing(4)
 
@@ -7438,7 +7562,8 @@ class DicteeSetupDialog(QDialog):
         row.addWidget(self._test_output, 3)
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        self._btn_record = QPushButton(QIcon.fromTheme("audio-input-microphone"), "")
+        _mic_icon = QIcon.fromTheme("audio-input-microphone")
+        self._btn_record = QPushButton(_mic_icon, "") if not _mic_icon.isNull() else QPushButton("\U0001f3a4")
         self._btn_record.setFixedSize(60, 60)
         self._btn_record.setIconSize(self._btn_record.size() * 0.6)
         self._btn_record.setToolTip(_("Record"))
@@ -7490,13 +7615,21 @@ class DicteeSetupDialog(QDialog):
 
         script_dir = os.path.dirname(os.path.abspath(__file__))
         try:
-            import importlib.util
-            lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+            import importlib.util, importlib.machinery
+            # Use language from cursor position in rules editor, otherwise config
+            lang = getattr(self, '_test_lang_override', "") or self.conf.get("DICTEE_LANG_SOURCE", "fr")
             os.environ["DICTEE_LANG_SOURCE"] = lang
 
+            # Try with .py (dev) then without (installed as /usr/bin/dictee-postprocess)
+            pp_path = os.path.join(script_dir, "dictee-postprocess.py")
+            if not os.path.isfile(pp_path):
+                pp_path = os.path.join(script_dir, "dictee-postprocess")
+                if not os.path.isfile(pp_path):
+                    pp_path = shutil.which("dictee-postprocess") or pp_path
+            # Force SourceFileLoader for extensionless Python scripts
+            loader = importlib.machinery.SourceFileLoader("dictee_postprocess", pp_path)
             spec = importlib.util.spec_from_file_location(
-                "dictee_postprocess",
-                os.path.join(script_dir, "dictee-postprocess.py"))
+                "dictee_postprocess", pp_path, loader=loader)
             pp = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(pp)
 
@@ -7936,6 +8069,15 @@ def main():
     app.setApplicationName("dictee-setup")
     app.setDesktopFileName("dictee-setup")
     app.setWindowIcon(QIcon.fromTheme("dictee-setup"))
+
+    # Fix QMessageBox invisible text on GNOME dark themes
+    _pal = app.palette()
+    _win_light = _pal.color(_pal.ColorRole.Window).lightness()
+    _txt_light = _pal.color(_pal.ColorRole.WindowText).lightness()
+    if abs(_win_light - _txt_light) < 50:
+        # Text and background too similar — force readable contrast
+        txt_color = "white" if _win_light < 128 else "black"
+        app.setStyleSheet(f"QMessageBox QLabel {{ color: {txt_color}; }}")
     dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag)
     dialog.show()
     app.exec()

@@ -3,7 +3,7 @@ set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     # Stop and disable all user services
-    for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         [ -d "/run/user/$uid" ] || continue

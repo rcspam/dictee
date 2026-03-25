@@ -120,7 +120,7 @@ echo "Traductions installées"
 echo ""
 echo "=== Groupes utilisateur ==="
 GROUPS_CHANGED=false
-for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     [ "$user" = "root" ] && continue
     if ! id -nG "$user" | grep -qw input; then
@@ -131,6 +131,12 @@ for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
         echo "✓ $user déjà dans le groupe 'input'"
     fi
     if command -v docker >/dev/null 2>&1; then
+        # Start and enable Docker daemon if not running
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl start docker 2>/dev/null || true
+            systemctl enable docker 2>/dev/null || true
+            echo "✓ Docker démarré et activé"
+        fi
         if ! id -nG "$user" | grep -qw docker; then
             usermod -aG docker "$user"
             GROUPS_CHANGED=true
@@ -144,7 +150,7 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
     echo ""
     echo "⚠ Groupe(s) ajouté(s) — redémarrez pour activer les raccourcis clavier."
     # Notification desktop pour les installations graphiques
-    for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
         sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
@@ -153,6 +159,18 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
             "Please reboot to activate keyboard shortcuts." 2>/dev/null || true
     done
 fi
+
+# Enable GNOME AppIndicator extension for tray icon
+echo ""
+echo "=== Extension GNOME AppIndicator ==="
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    [ -d "/run/user/$uid" ] || continue
+    sudo -u "$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null && \
+        echo "✓ AppIndicator activé pour $user" || true
+done
 
 # Rafraîchir le cache d'icônes (nécessaire sur GNOME)
 echo ""
@@ -177,26 +195,27 @@ echo "Règles udev rechargées (dotool/uinput)"
 # Recharger les services systemd pour les utilisateurs connectés
 echo ""
 echo "=== Rechargement des services ==="
-for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
     user=$(id -nu "$uid" 2>/dev/null) || continue
     if [ -d "/run/user/$uid" ]; then
         echo "→ Rechargement pour $user (uid $uid)"
         _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
-        $_run systemctl --user preset dictee dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
         # Activer tous les services essentiels
-        $_run systemctl --user enable dotoold dictee-ptt dictee 2>/dev/null || true
-        # Démarrer le daemon ASR (pas besoin du groupe input)
-        $_run systemctl --user start dictee 2>/dev/null || true
-        echo "  ↳ dictee (daemon ASR) démarré"
-        # dotoold et dictee-ptt use sg input — always safe to restart
+        $_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+        # Démarrer/redémarrer les services
         $_run systemctl --user restart dotoold 2>/dev/null || true
         echo "  ↳ dotoold démarré"
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
         echo "  ↳ dictee-ptt démarré"
+        $_run systemctl --user restart dictee-tray 2>/dev/null || true
+        echo "  ↳ dictee-tray démarré"
+        $_run systemctl --user start dictee 2>/dev/null || true
+        echo "  ↳ dictee (daemon ASR) démarré"
         # Redémarrer les autres services actifs après upgrade
-        for svc in dictee dictee-vosk dictee-whisper dictee-tray; do
+        for svc in dictee dictee-vosk dictee-whisper; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 echo "  ↳ Redémarrage de $svc"
                 $_run systemctl --user restart "$svc" 2>/dev/null || true

@@ -47,6 +47,29 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
 echo "→ Installation des règles udev"
 install -Dm644 "$SCRIPT_DIR/etc/udev/rules.d/80-dotool.rules" "/etc/udev/rules.d/80-dotool.rules"
 udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
+
+# Groupe input (nécessaire pour les raccourcis clavier via dotool)
+echo "→ Vérification du groupe input"
+if ! id -nG "$REAL_USER" | grep -qw input; then
+    usermod -aG input "$REAL_USER"
+    echo "  ✓ $REAL_USER ajouté au groupe 'input' — redémarrez pour activer"
+else
+    echo "  ✓ $REAL_USER déjà dans le groupe 'input'"
+fi
+if command -v docker >/dev/null 2>&1; then
+    if ! systemctl is-active --quiet docker 2>/dev/null; then
+        systemctl start docker 2>/dev/null || true
+        systemctl enable docker 2>/dev/null || true
+        echo "  ✓ Docker démarré et activé"
+    fi
+    if ! id -nG "$REAL_USER" | grep -qw docker; then
+        usermod -aG docker "$REAL_USER"
+        echo "  ✓ $REAL_USER ajouté au groupe 'docker' (LibreTranslate)"
+    else
+        echo "  ✓ $REAL_USER déjà dans le groupe 'docker'"
+    fi
+fi
 
 # Man pages
 echo "→ Installation des pages de manuel"
@@ -117,10 +140,12 @@ if [ -d "$SCRIPT_DIR/usr/share/dictee/assets/logos" ]; then
     done
 fi
 
-# Règles de post-traitement par défaut
-if [ -f "$SCRIPT_DIR/usr/share/dictee/rules.conf.default" ]; then
-    install -Dm644 "$SCRIPT_DIR/usr/share/dictee/rules.conf.default" "$MODEL_DIR/rules.conf.default"
-fi
+# Règles et configs de post-traitement par défaut
+for conf in rules.conf.default dictionary.conf.default continuation.conf.default VERSION; do
+    if [ -f "$SCRIPT_DIR/usr/share/dictee/$conf" ]; then
+        install -Dm644 "$SCRIPT_DIR/usr/share/dictee/$conf" "$MODEL_DIR/$conf"
+    fi
+done
 
 # Répertoire des modèles (accessible en écriture pour dictee-setup)
 echo "→ Création du répertoire des modèles"
@@ -129,12 +154,24 @@ for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemot
     chmod 777 "$d"
 done
 
-# Recharger les services systemd
-echo "→ Rechargement des services systemd"
+# Recharger et activer les services systemd
+echo "→ Activation des services systemd"
 REAL_UID=$(id -u "$REAL_USER")
 if [ -d "/run/user/$REAL_UID" ]; then
-    sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$REAL_UID" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$REAL_UID/bus" \
-        systemctl --user daemon-reload 2>/dev/null || true
+    _run="sudo -u $REAL_USER XDG_RUNTIME_DIR=/run/user/$REAL_UID DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
+    $_run systemctl --user daemon-reload 2>/dev/null || true
+    $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
+    $_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+    $_run systemctl --user restart dotoold 2>/dev/null || true
+    echo "  ↳ dotoold démarré"
+    $_run systemctl --user restart dictee-ptt 2>/dev/null || true
+    echo "  ↳ dictee-ptt démarré"
+    $_run systemctl --user restart dictee-tray 2>/dev/null || true
+    echo "  ↳ dictee-tray démarré"
+    $_run systemctl --user start dictee 2>/dev/null || true
+    echo "  ↳ dictee (daemon ASR) démarré"
+    # Enable GNOME AppIndicator extension for tray icon
+    $_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
 fi
 
 echo ""

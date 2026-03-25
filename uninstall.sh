@@ -36,6 +36,8 @@ done
 # Udev rules
 echo "→ Suppression des règles udev"
 rm -f "/etc/udev/rules.d/80-dotool.rules"
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
 
 # Man pages
 echo "→ Suppression des pages de manuel"
@@ -61,6 +63,7 @@ su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
 echo "→ Suppression des traductions"
 for lang in fr de es it uk pt; do
     rm -f "/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    rm -f "$PREFIX/share/locale/$lang/LC_MESSAGES/dictee.mo"
 done
 
 # Icônes
