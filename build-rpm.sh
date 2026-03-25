@@ -126,6 +126,10 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
     cp ./rules.conf.default "$buildroot/usr/share/dictee/rules.conf.default"
 
+    # Generate VERSION file
+    BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    echo "$VERSION build $BUILD_HASH" > "$buildroot/usr/share/dictee/VERSION"
+
     # Doc
     mkdir -p "$buildroot/usr/share/doc/dictee"
     cp "$PKG_DIR/usr/share/doc/dictee/README" "$buildroot/usr/share/doc/dictee/" 2>/dev/null || true
@@ -209,9 +213,51 @@ Features:
 
 %post
 udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
+for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+    user=\$(id -nu "\$uid" 2>/dev/null) || continue
+    [ "\$user" = "root" ] && continue
+    [ -d "/run/user/\$uid" ] || continue
+    _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+    if ! id -nG "\$user" | grep -qw input; then
+        usermod -aG input "\$user"
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl start docker 2>/dev/null || true
+            systemctl enable docker 2>/dev/null || true
+        fi
+        if ! id -nG "\$user" | grep -qw docker; then
+            usermod -aG docker "\$user"
+        fi
+    fi
+    \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+    \$_run systemctl --user daemon-reload 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
+    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+    \$_run systemctl --user restart dotoold 2>/dev/null || true
+    \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
+    \$_run systemctl --user restart dictee-tray 2>/dev/null || true
+    \$_run systemctl --user start dictee 2>/dev/null || true
+done
 
 %postun
-udevadm control --reload-rules 2>/dev/null || true
+if [ "\$1" -eq 0 ]; then
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger /dev/uinput 2>/dev/null || true
+    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+        user=\$(id -nu "\$uid" 2>/dev/null) || continue
+        [ "\$user" = "root" ] && continue
+        [ -d "/run/user/\$uid" ] || continue
+        _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user daemon-reload 2>/dev/null || true
+    done
+    for lang in fr de es it uk pt; do
+        rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
+    done
+fi
 EOF
 
     rpmbuild --define "_topdir $RPMBUILD_DIR" \
@@ -293,9 +339,51 @@ Features:
 
 %post
 udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
+for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+    user=\$(id -nu "\$uid" 2>/dev/null) || continue
+    [ "\$user" = "root" ] && continue
+    [ -d "/run/user/\$uid" ] || continue
+    _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+    if ! id -nG "\$user" | grep -qw input; then
+        usermod -aG input "\$user"
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl start docker 2>/dev/null || true
+            systemctl enable docker 2>/dev/null || true
+        fi
+        if ! id -nG "\$user" | grep -qw docker; then
+            usermod -aG docker "\$user"
+        fi
+    fi
+    \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+    \$_run systemctl --user daemon-reload 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
+    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+    \$_run systemctl --user restart dotoold 2>/dev/null || true
+    \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
+    \$_run systemctl --user restart dictee-tray 2>/dev/null || true
+    \$_run systemctl --user start dictee 2>/dev/null || true
+done
 
 %postun
-udevadm control --reload-rules 2>/dev/null || true
+if [ "\$1" -eq 0 ]; then
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger /dev/uinput 2>/dev/null || true
+    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+        user=\$(id -nu "\$uid" 2>/dev/null) || continue
+        [ "\$user" = "root" ] && continue
+        [ -d "/run/user/\$uid" ] || continue
+        _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user daemon-reload 2>/dev/null || true
+    done
+    for lang in fr de es it uk pt; do
+        rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
+    done
+fi
 EOF
 
     rpmbuild --define "_topdir $RPMBUILD_DIR" \

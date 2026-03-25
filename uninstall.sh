@@ -37,6 +37,8 @@ done
 # Udev rules
 echo "→ Suppression des règles udev"
 rm -f "/etc/udev/rules.d/80-dotool.rules"
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
 
 # Man pages
 echo "→ Suppression des pages de manuel"
@@ -53,10 +55,17 @@ rm -f "$PREFIX/share/applications/dictee-tray.desktop"
 
 # Services systemd
 echo "→ Suppression des services systemd"
-rm -f "$REAL_HOME/.config/systemd/user/dictee.service"
-rm -f "$REAL_HOME/.config/systemd/user/dictee-tray.service"
-rm -f "$REAL_HOME/.config/systemd/user/dictee-ptt.service"
+for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+    rm -f "$REAL_HOME/.config/systemd/user/$svc.service"
+done
 su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
+
+# Locales
+echo "→ Suppression des traductions"
+for lang in fr de es it uk pt; do
+    rm -f "/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    rm -f "$PREFIX/share/locale/$lang/LC_MESSAGES/dictee.mo"
+done
 
 # Icônes
 echo "→ Suppression des icônes"

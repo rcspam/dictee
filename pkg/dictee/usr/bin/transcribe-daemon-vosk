@@ -40,14 +40,20 @@ def find_model_dir():
     if not os.path.isdir(base):
         os.makedirs(base, exist_ok=True)
 
-    # Use configured language (e.g. "fr", "en", "de")
-    wanted_lang = os.environ.get("DICTEE_VOSK_MODEL", "")
+    # Use configured model (full name like "vosk-model-small-fr-0.22" or short code like "fr")
+    wanted = os.environ.get("DICTEE_VOSK_MODEL", "")
 
-    # Search for a model directory matching the requested language
-    if wanted_lang:
+    # Search for a model directory matching the requested model
+    if wanted:
         for entry in sorted(os.listdir(base)):
             full = os.path.join(base, entry)
-            if os.path.isdir(full) and f"-{wanted_lang}" in entry:
+            if not os.path.isdir(full):
+                continue
+            # Exact match (full model name)
+            if entry == wanted:
+                return full
+            # Short code match (e.g. "fr" matches "vosk-model-small-fr-0.22")
+            if f"-{wanted}" in entry:
                 return full
 
     # Fallback: first available model directory
@@ -57,7 +63,7 @@ def find_model_dir():
             return full
 
     # No model found — download default for configured or system language
-    return download_default_model(base, wanted_lang)
+    return download_default_model(base, wanted)
 
 
 def download_default_model(base, wanted_lang=""):
@@ -66,7 +72,14 @@ def download_default_model(base, wanted_lang=""):
     from urllib.request import urlretrieve
 
     if wanted_lang:
+        # Accept both short code ("fr") and full name ("vosk-model-small-fr-0.22")
         lang = wanted_lang
+        if lang.startswith("vosk-model"):
+            # Extract short code from full name (e.g. "vosk-model-small-fr-0.22" → "fr")
+            for code in ("fr", "en", "de", "es", "it", "pt", "ru", "zh", "ja"):
+                if f"-{code}" in lang:
+                    lang = code
+                    break
     else:
         lang = locale.getlocale()[0] or "en_US"
         lang = lang.split("_")[0]  # "fr_FR" → "fr"

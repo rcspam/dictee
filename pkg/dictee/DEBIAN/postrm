@@ -3,7 +3,7 @@ set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     # Arrêter et désactiver le service pour tous les utilisateurs connectés
-    for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         if [ -d "/run/user/$uid" ]; then
             sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \

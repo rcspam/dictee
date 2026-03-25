@@ -28,6 +28,10 @@ chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/us
 # Copier les règles de post-traitement par défaut
 cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
 
+# Generate VERSION file
+BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+echo "$VERSION build $BUILD_HASH" > "$PKG_DIR/usr/share/dictee/VERSION"
+
 # Copier les assets (bannières SVG pour le wizard)
 echo "=== Copie des assets ==="
 mkdir -p "$PKG_DIR/usr/share/dictee/assets"
@@ -116,8 +120,8 @@ Version: 1.1.4
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
-Recommends: libcublas12 | libcublas-12-8 | libcublas-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
+Recommends: libcublas12 | libcublas-12-8 | libcublas-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -174,8 +178,8 @@ Version: 1.1.4
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
-Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
+Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>

@@ -2050,7 +2050,18 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(lbl_logo)
 
         # Version
-        lbl_ver = QLabel("v1.1.0")
+        # Read version from installed VERSION file, fallback to dev
+        _ver = "dev"
+        for _vpath in ("/usr/share/dictee/VERSION",
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
+            if os.path.isfile(_vpath):
+                try:
+                    with open(_vpath) as _f:
+                        _ver = _f.read().strip()
+                except OSError:
+                    pass
+                break
+        lbl_ver = QLabel(f"v{_ver}")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
         lay.addWidget(lbl_ver)

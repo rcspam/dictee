@@ -7,7 +7,7 @@
 # Case is preserved automatically:
 #   "LINUX" → "LINUX", "Linux" → "Linux", "linux" → "Linux"
 
-# ── Tech acronyms (all languages) ───────────────────────────────────
+# ── Dictionary [*] ──────────────────────────────────────────────────
 [*] api=API
 [*] url=URL
 [*] html=HTML
@@ -30,9 +30,6 @@
 [*] dns=DNS
 [*] vpn=VPN
 [*] ia=IA
-[en] ai=AI
-
-# ── Tech brand names (all languages) ────────────────────────────────
 [*] linux=Linux
 [*] python=Python
 [*] javascript=JavaScript
@@ -49,7 +46,10 @@
 [*] ubuntu=Ubuntu
 [*] debian=Debian
 
-# ── French acronyms ─────────────────────────────────────────────────
+# ── Dictionary [en] ─────────────────────────────────────────────────
+[en] ai=AI
+
+# ── Dictionary [fr] ─────────────────────────────────────────────────
 [fr] sncf=SNCF
 [fr] ratp=RATP
 [fr] onu=ONU
