@@ -14,6 +14,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 [*] /\([^)]*\)//g
 [*] /\[[^\]]*\]//g
+[*] /<unk>\s*//g
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 2 — Filler words / hesitations
@@ -81,10 +82,10 @@
 [fr] /^[,.\s]*[Вв]ер[гд][юу]л[яь][,.\s]*/, /igm
 [fr] /^[,.\s]*[Вв]ергуля[,.\s]*/, /igm
 # Quotes & parentheses (accept both imperative "ouvrez" and infinitive "ouvrir")
-[fr] /[,.\s]*ouvr(?:e|ez|ir) les guillemets[,.\s]*/« /ig
-[fr] /[,.\s]*ferm(?:e|ez|er) les guillemets[,.\s]*/ »/ig
-[fr] /[,.\s]*ouvr(?:e|ez|ir) la parenthèse[,.\s]*/ (/ig
-[fr] /[,.\s]*ferm(?:e|ez|er) la parenthèse[,.\s]*/) /ig
+[fr] /[,.\s]*ouvr(?:e|ez|ir) (?:les )?guillemets[,.\s]*/« /ig
+[fr] /[,.\s]*ferm(?:e|ez|er) (?:les )?guillemets[,.\s]*/ »/ig
+[fr] /[,.\s]*ouvr(?:e|ez|ir) (?:la |une |les )?parenthèses?[,.\s]*/ (/ig
+[fr] /[,.\s]*ferm(?:e|ez|er) (?:la |une |les )?parenthèses?[,.\s]*/) /ig
 # Miscellaneous
 [fr] /[,.\s]*tabulation[,.\s]*/\t/ig
 [fr] /[,.\s]*apostrophe[,.\s]*/'/ig
@@ -93,9 +94,9 @@
 [fr] /[,.\s]*nouveau paragraphe[,.\s]*/\n\n/ig
 # 3d. Markdown — Parakeet may transcribe "dièse" as text, "dièz", or "#"
 # Repeated forms
-[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/### /ig
-[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/## /ig
-[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]+espace[,.\s]*/# /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*espace[,.\s]*/### /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:dièse|dièz|#)[,.\s]*espace[,.\s]*/## /ig
+[fr] /[,.\s]*(?:dièse|dièz|#)[,.\s]*espace[,.\s]*/# /ig
 # "double/triple dièse" forms (more natural to say, "espace" optional)
 [fr] /[,.\s]*triple[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:espace[,.\s]*)*/### /ig
 [fr] /[,.\s]*double[,.\s]*(?:dièse|dièz|#)[,.\s]*(?:espace[,.\s]*)*/## /ig
@@ -126,8 +127,8 @@
 # Quotes & parentheses
 [en] /[,.\s]*open quote[,.\s]*/"/ig
 [en] /[,.\s]*close quote[,.\s]*/"/ig
-[en] /[,.\s]*open parenthesis[,.\s]*/(/ig
-[en] /[,.\s]*close parenthesis[,.\s]*/)/ig
+[en] /[,.\s]*open (?:the |a )?parenthes[ie]s?[,.\s]*/(/ig
+[en] /[,.\s]*close (?:the |a )?parenthes[ie]s?[,.\s]*/)/ig
 # Miscellaneous
 [en] /[,.\s]*tab[,.\s]*/\t/ig
 [en] /[,.\s]*hyphen[,.\s]*/- /ig
@@ -183,8 +184,8 @@
 # Quotes & parentheses
 [es] /[,.\s]*abrir comillas[,.\s]*/"/ig
 [es] /[,.\s]*cerrar comillas[,.\s]*/"/ig
-[es] /[,.\s]*abrir paréntesis[,.\s]*/(/ig
-[es] /[,.\s]*cerrar paréntesis[,.\s]*/)/ig
+[es] /[,.\s]*abrir (?:el |los |la |las )?paréntesis[,.\s]*/(/ig
+[es] /[,.\s]*cerrar (?:el |los |la |las )?paréntesis[,.\s]*/)/ig
 # Miscellaneous
 [es] /[,.\s]*tabulación[,.\s]*/\t/ig
 [es] /[,.\s]*guión[,.\s]*/- /ig
@@ -210,8 +211,8 @@
 # Quotes & parentheses
 [it] /[,.\s]*apri virgolette[,.\s]*/"/ig
 [it] /[,.\s]*chiudi virgolette[,.\s]*/"/ig
-[it] /[,.\s]*apri parentesi[,.\s]*/(/ig
-[it] /[,.\s]*chiudi parentesi[,.\s]*/)/ig
+[it] /[,.\s]*apri (?:la |le )?parentesi[,.\s]*/(/ig
+[it] /[,.\s]*chiudi (?:la |le )?parentesi[,.\s]*/)/ig
 # Miscellaneous
 [it] /[,.\s]*tabulazione[,.\s]*/\t/ig
 [it] /[,.\s]*trattino[,.\s]*/- /ig
@@ -237,8 +238,8 @@
 # Quotes & parentheses
 [pt] /[,.\s]*abrir aspas[,.\s]*/"/ig
 [pt] /[,.\s]*fechar aspas[,.\s]*/"/ig
-[pt] /[,.\s]*abrir parênteses[,.\s]*/(/ig
-[pt] /[,.\s]*fechar parênteses[,.\s]*/)/ig
+[pt] /[,.\s]*abrir (?:os |as |o |a )?parênteses?[,.\s]*/(/ig
+[pt] /[,.\s]*fechar (?:os |as |o |a )?parênteses?[,.\s]*/)/ig
 # Miscellaneous
 [pt] /[,.\s]*tabulação[,.\s]*/\t/ig
 [pt] /[,.\s]*hífen[,.\s]*/- /ig
@@ -287,18 +288,11 @@
 [*] /;+/;/g
 [*] /:+/:/g
 
-# ═══════════════════════════════════════════════════════════════════════
-# STEP 6 — French elisions (remove space after apostrophe)
-# ═══════════════════════════════════════════════════════════════════════
-# Single-letter elision words
-[fr] /([ldnmtsjcLDNMTSJC]') +/\1/g
-# Multi-letter elision words
-[fr] /(qu'|jusqu'|lorsqu'|puisqu'|presqu'|quelqu') +/\1/ig
-# Special case: "si il" → "s'il"
-[fr] /\bsi (ils?)\b/s'\1/ig
+# (French elisions are handled by fix_elisions() in dictee-postprocess —
+#  see the "Elisions" checkbox in Language rules tab)
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 9 — Final cleanup (all languages)
+# STEP 6 — Final cleanup (all languages)
 # ═══════════════════════════════════════════════════════════════════════
 # Space after sentence-ending punctuation if glued to a letter
 [*] /([.!?…»\)])([A-Za-zÀ-ÿ])/\1 \2/g

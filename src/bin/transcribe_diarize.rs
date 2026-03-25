@@ -45,8 +45,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let audio_path = resolve_path(&args[1])?;
-        let model_dir = args.get(2).map(|s| s.as_str()).unwrap_or("/usr/share/dictee/tdt");
-        let sortformer_dir = args.get(3).map(|s| s.as_str()).unwrap_or("/usr/share/dictee/sortformer");
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        let default_tdt = if std::path::Path::new("/usr/share/dictee/tdt/vocab.txt").exists() {
+            "/usr/share/dictee/tdt".to_string()
+        } else {
+            format!("{}/.local/share/dictee/tdt", home)
+        };
+        let default_sf = if std::path::Path::new("/usr/share/dictee/sortformer").exists() {
+            "/usr/share/dictee/sortformer".to_string()
+        } else {
+            format!("{}/.local/share/dictee/sortformer", home)
+        };
+        let model_dir = args.get(2).map(|s| s.to_string()).unwrap_or(default_tdt);
+        let sortformer_dir = args.get(3).map(|s| s.to_string()).unwrap_or(default_sf);
 
         // Convert to WAV 16kHz mono if needed
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;

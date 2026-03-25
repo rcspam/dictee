@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.1.4"
+VERSION="1.2.0~beta1"
 PKG_DIR="pkg/dictee"
 
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
@@ -25,12 +25,14 @@ cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess"
 
-# Copier les règles de post-traitement par défaut
+# Copier les fichiers de post-traitement par défaut
 cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
 
 # Generate VERSION file
 BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 echo "$VERSION build $BUILD_HASH" > "$PKG_DIR/usr/share/dictee/VERSION"
+cp ./dictionary.conf.default "$PKG_DIR/usr/share/dictee/dictionary.conf.default"
+cp ./continuation.conf.default "$PKG_DIR/usr/share/dictee/continuation.conf.default"
 
 # Copier les assets (bannières SVG pour le wizard)
 echo "=== Copie des assets ==="
@@ -116,7 +118,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.1.4
+Version: 1.2.0~beta1
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -174,7 +176,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.1.4
+Version: 1.2.0~beta1
 Section: sound
 Priority: optional
 Architecture: amd64

@@ -8,6 +8,18 @@
 #
 # User customization: copy to ~/.config/dictee/continuation.conf
 # The user file SUPPLEMENTS the system file (no replacement).
+#
+# Continuation keyword: say this word at the start of a push-to-talk
+# to remove the previous punctuation and continue in lowercase.
+# Example: "je mange." + "contre-point du fromage" → "je mange du fromage"
+# Set to empty to disable. Override in user file with [keyword:xx] your-word
+[keyword:fr] contre-point
+[keyword:en] counterpoint
+[keyword:de] Gegenpunkt
+[keyword:es] contrapunto
+[keyword:it] contrappunto
+[keyword:pt] contraponto
+[keyword:uk] контрапункт
 
 # ── French ───────────────────────────────────────────────────────────
 # Articles & contractions
@@ -27,6 +39,18 @@
 # Auxiliaries & common verbs
 [fr] suis es est sommes êtes sont ai as a avons avez ont
 [fr] était avait sera serait avoir être fait fais vais vas va vont
+# Modal & transitive verbs (commonly followed by complement)
+[fr] peux peut peuvent pouvez pouvons pouvais pouvait
+[fr] veux veut veulent voulez voulons voulais voulait
+[fr] dois doit doivent devez devons devais devait
+[fr] sais sait savent savez savons savais savait
+[fr] faut fallait
+[fr] vois voit voient voyez voyons voyais voyait
+[fr] prends prend prennent prenez prenons prenais prenait
+[fr] mets met mettent mettez mettons mettais mettait
+[fr] dis dit disent dites disons disais disait
+[fr] donne doit donnent donnez donnons donnais donnait
+[fr] reste laisse passe trouve garde cherche demande permet
 
 # ── English ──────────────────────────────────────────────────────────
 # Articles
@@ -40,6 +64,8 @@
 # Auxiliaries & modals
 [en] is are was were am be been being have has had do does
 [en] did will would shall should can could may might must
+# Common transitive verbs
+[en] want need know see take make give get find let keep tell say ask put
 
 # ── German ───────────────────────────────────────────────────────────
 # Articles

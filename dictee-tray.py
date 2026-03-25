@@ -248,6 +248,10 @@ class DicteeTrayAppIndicator:
         item_setup.connect("activate", lambda _: subprocess.Popen(["dictee-setup"]))
         self.menu.append(item_setup)
 
+        item_postprocess = Gtk.MenuItem(label=_("Post-processing..."))
+        item_postprocess.connect("activate", lambda _: subprocess.Popen(["dictee-setup", "--postprocess"]))
+        self.menu.append(item_postprocess)
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
         item_quit = Gtk.MenuItem(label=_("Quit icon"))
@@ -415,6 +419,7 @@ class DicteeTrayQt:
         self.action_daemon_hint.setEnabled(False)
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
+        self.action_postprocess = self.menu.addAction(_("Post-processing..."))
         self.menu.addSeparator()
         self.action_quit = self.menu.addAction(_("Quit icon"))
         self.menu.triggered.connect(self._on_menu_triggered)
@@ -447,6 +452,8 @@ class DicteeTrayQt:
                 self.QTimer.singleShot(1000, self._delayed_refresh)
         elif action == self.action_setup:
             subprocess.Popen(["dictee-setup"])
+        elif action == self.action_postprocess:
+            subprocess.Popen(["dictee-setup", "--postprocess"])
         elif action == self.action_quit:
             self.app.quit()
 

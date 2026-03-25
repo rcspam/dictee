@@ -26,3 +26,4 @@ PROMOTION.md
 *.tar.gz
 .worktrees/
 .superpowers/
+*.po~

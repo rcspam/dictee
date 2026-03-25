@@ -2,16 +2,25 @@
 set -e
 
 if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
-    # Arrêter et désactiver le service pour tous les utilisateurs connectés
+    # Stop and disable all user services
     for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
-        if [ -d "/run/user/$uid" ]; then
-            sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
-                systemctl --user disable --now dictee-tray 2>/dev/null || true
-            sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
-                systemctl --user disable --now dictee 2>/dev/null || true
-        fi
+        [ "$user" = "root" ] && continue
+        [ -d "/run/user/$uid" ] || continue
+        _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+        $_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user daemon-reload 2>/dev/null || true
     done
+
+    # Clean locales
+    for lang in fr de es it uk pt; do
+        rm -f "/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    done
+
+    # Reload udev rules
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger /dev/uinput 2>/dev/null || true
 fi
 
 exit 0

@@ -140,10 +140,12 @@ if [ -d "$SCRIPT_DIR/usr/share/dictee/assets/logos" ]; then
     done
 fi
 
-# Règles de post-traitement par défaut
-if [ -f "$SCRIPT_DIR/usr/share/dictee/rules.conf.default" ]; then
-    install -Dm644 "$SCRIPT_DIR/usr/share/dictee/rules.conf.default" "$MODEL_DIR/rules.conf.default"
-fi
+# Règles et configs de post-traitement par défaut
+for conf in rules.conf.default dictionary.conf.default continuation.conf.default VERSION; do
+    if [ -f "$SCRIPT_DIR/usr/share/dictee/$conf" ]; then
+        install -Dm644 "$SCRIPT_DIR/usr/share/dictee/$conf" "$MODEL_DIR/$conf"
+    fi
+done
 
 # Répertoire des modèles (accessible en écriture pour dictee-setup)
 echo "→ Création du répertoire des modèles"

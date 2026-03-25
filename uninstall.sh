@@ -20,17 +20,16 @@ echo ""
 
 # Arrêter les services
 echo "→ Arrêt des services"
-su "$REAL_USER" -c "systemctl --user stop dictee 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user stop dictee-tray 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user stop dictee-ptt 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user disable dictee 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user disable dictee-tray 2>/dev/null || true"
-su "$REAL_USER" -c "systemctl --user disable dictee-ptt 2>/dev/null || true"
+for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+    su "$REAL_USER" -c "systemctl --user stop $svc 2>/dev/null || true"
+    su "$REAL_USER" -c "systemctl --user disable $svc 2>/dev/null || true"
+done
 
 # Binaires
 echo "→ Suppression des binaires"
 for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-           transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt dotool dotoold; do
+           transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
+           dictee-ptt dotool dotoold transcribe-daemon-vosk transcribe-daemon-whisper; do
     rm -f "$PREFIX/bin/$bin"
 done
 

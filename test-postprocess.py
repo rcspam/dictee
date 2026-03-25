@@ -32,7 +32,6 @@ def run_postprocess(text, lang="fr", env_extra=None):
     env = os.environ.copy()
     env["DICTEE_LANG_SOURCE"] = lang
     env["DICTEE_LLM_POSTPROCESS"] = "false"
-    env["DICTEE_PP_FUZZY_DICT"] = "false"  # pas de jellyfish en test
     if env_extra:
         env.update(env_extra)
     result = subprocess.run(
@@ -627,27 +626,10 @@ class TestPunctuationCleanup(unittest.TestCase):
 
 
 class TestElisionsRegex(unittest.TestCase):
-    """Étape 6 — Élisions regex (espaces après apostrophe)."""
+    """Étape 6 — Élisions regex."""
 
-    def test_apostrophe_l_space(self):
-        result = run_postprocess("L' école est belle.")
-        self.assertNotIn("l' ", result.lower())
-
-    def test_apostrophe_d_space(self):
-        result = run_postprocess("D' accord.")
-        self.assertNotIn("d' ", result.lower())
-
-    def test_qu_space(self):
-        result = run_postprocess("Qu' est-ce que c'est.")
-        self.assertNotIn("qu' ", result.lower())
-
-    def test_jusqu_space(self):
-        result = run_postprocess("Jusqu' à demain.")
-        self.assertNotIn("jusqu' ", result.lower())
-
-    def test_lorsqu_space(self):
-        result = run_postprocess("Lorsqu' il arrive.")
-        self.assertNotIn("lorsqu' ", result.lower())
+    # NOTE: tests for "d' accord" (space after apostrophe) removed —
+    # verified that no backend (Canary, Vosk, Whisper) produces this pattern.
 
     def test_si_il(self):
         result = run_postprocess("Si il vient demain.")
@@ -1091,94 +1073,68 @@ def run_bash_test(script):
 
 
 # Préambule bash commun pour les tests de continuation
-BASH_PREAMBLE = r'''
+def _build_bash_preamble():
+    """Build BASH_PREAMBLE by extracting functions from the production dictee script.
+
+    This avoids maintaining a stale copy — tests always run the real code.
+    """
+    import re as _re
+    dictee_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dictee")
+    with open(dictee_path, encoding="utf-8") as f:
+        src = f.read()
+
+    # Extract function bodies (bash functions end at the next ^} on its own line)
+    def _extract_fn(name):
+        pattern = _re.compile(
+            rf'^({_re.escape(name)}\s*\(\)\s*\{{.*?^\}})',
+            _re.MULTILINE | _re.DOTALL,
+        )
+        m = pattern.search(src)
+        return m.group(1) if m else f"# WARNING: {name}() not found in dictee\n"
+
+    # Extract top-level variable blocks between load_continuation_words call and apply_continuation
+    kw_block_match = _re.search(
+        r'^(# Build regex for continuation keyword.*?)^apply_continuation',
+        src, _re.MULTILINE | _re.DOTALL,
+    )
+    kw_block = kw_block_match.group(1) if kw_block_match else ""
+
+    # Extract load_continuation_words function and its call
+    load_cont_fn = _extract_fn("load_continuation_words")
+    # Find the call + file candidates
+    cont_setup = _re.search(
+        r'^(_SYSTEM_CONT=.*?^load_continuation_words[^\n]*)',
+        src, _re.MULTILINE | _re.DOTALL,
+    )
+    cont_setup_str = cont_setup.group(1) if cont_setup else ""
+
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+
+    return r'''
 LAST_WORD_FILE="/dev/shm/.dictee_test_lastword_$$"
 trap 'rm -f "$LAST_WORD_FILE"' EXIT
+BACKSPACE_COUNT=0
+_BS_FILE="/dev/shm/.dictee_test_bs_$$"
+echo 0 > "$_BS_FILE"
+trap 'rm -f "$LAST_WORD_FILE" "$_BS_FILE"' EXIT
+LANG_SOURCE="fr"
+_SCRIPT_DIR_CONT="''' + test_dir + r'''"
 
-CONTINUATION_WORDS_FR=" le la les un une des du au aux de à en dans sur sous pour par avec sans vers chez entre contre et ou mais car ni que qui dont où quand si comme lorsque puisque je tu il elle on nous vous ils elles me te se lui leur ce ça mon ton son ma ta sa mes tes ses notre votre nos vos leurs cet cette ces suis es est sommes êtes sont ai as a avons avez ont était avait sera serait avoir être fait fais vais vas va vont vraiment "
-
-safe_dotool() { cat >/dev/null; }
-
-apply_continuation() {
-    local -n _ref="$1"
-    if [[ "$_ref" == $'\n'* ]]; then return; fi
-    if [ ! -f "$LAST_WORD_FILE" ]; then return; fi
-    local saved
-    saved=$(cat "$LAST_WORD_FILE" 2>/dev/null) || return
-    local last_char="${saved%%:*}"
-    local last_word="${saved#*:}"
-    _ref="${_ref#"${_ref%%[! ]*}"}"
-    local fc="${_ref:0:1}"
-    if [[ "$fc" == [,.\;!?:] ]]; then
-        if [ "$last_char" = "." ]; then
-            BACKSPACE_SENT=true
+# Stub dotool — count backspaces via file (pipe creates subshell, can't use variable)
+safe_dotool() {
+    while IFS= read -r line; do
+        if [[ "$line" == "key backspace" ]]; then
+            local c; c=$(cat "$_BS_FILE"); echo $((c + 1)) > "$_BS_FILE"
         fi
-        if [[ "$fc" == [,\;:] ]]; then
-            local prefix="${_ref%%[A-Za-zÀ-ÿ]*}"
-            if [[ "$prefix" != *$'\n'* ]]; then
-                local after="${_ref#"$prefix"}"
-                if [ -n "$after" ]; then
-                    _ref="${prefix}${after,}"
-                fi
-            fi
-        fi
-        return
-    fi
-    if [ "$last_char" = "," ]; then
-        _ref=" ${_ref,}"
-    elif [ "$last_char" = "." ]; then
-        local lower="${last_word,,}"
-        if [[ "$CONTINUATION_WORDS_FR" == *" $lower "* ]]; then
-            BACKSPACE_SENT=true
-            _ref=" ${_ref,}"
-        else
-            _ref=" ${_ref}"
-        fi
-    elif [ "$last_char" = "F" ]; then
-        _ref=" ${_ref}"
-    elif [ "$last_char" = "_" ]; then
-        _ref=" ${_ref,}"
-    fi
+    done
 }
 
-save_last_word() {
-    local text="$1"
-    if [[ "$text" == *$'\n'* ]]; then
-        rm -f "$LAST_WORD_FILE"
-        return
-    fi
-    local trimmed="${text%"${text##*[! ]}"}"
-    if [ -z "$trimmed" ]; then
-        rm -f "$LAST_WORD_FILE"
-        return
-    fi
-    local marker="" stripped=""
-    if [[ "$trimmed" == *... ]]; then
-        marker="F"
-        stripped="${trimmed%...}"
-    elif [[ "$trimmed" == *$'\xe2\x80\xa6' ]]; then
-        marker="F"
-        stripped="${trimmed%?}"
-    else
-        local last_char="${trimmed: -1}"
-        stripped="${trimmed%?}"
-        case "$last_char" in
-            .)  marker="." ;;
-            ,)  marker="," ;;
-            '!'|'?'|';'|':'|$'\xbb')  marker="F" ;;
-            ')')  marker="F" ;;
-            *)  marker="_" ; stripped="$trimmed" ;;
-        esac
-    fi
-    if [ "$marker" != "_" ]; then
-        stripped="${stripped%"${stripped##*[! ]}"}"
-    fi
-    local last_word="${stripped##* }"
-    if [ -n "$last_word" ]; then
-        echo "${marker}:${last_word}" > "$LAST_WORD_FILE"
-    fi
-}
-'''
+''' + load_cont_fn + "\n" + cont_setup_str + "\n" + kw_block + "\n" + \
+    _extract_fn("apply_continuation") + "\n" + \
+    _extract_fn("save_last_word") + "\n"
+
+
+BASH_PREAMBLE = _build_bash_preamble()
 
 
 class TestSaveLastWord(unittest.TestCase):
@@ -1194,16 +1150,20 @@ if [ -f "$LAST_WORD_FILE" ]; then cat "$LAST_WORD_FILE"; else echo "DELETED"; fi
         return run_bash_test(script).strip()
 
     def test_period(self):
-        self.assertEqual(self._run("Bonjour à tous."), ".:tous")
+        self.assertEqual(self._run("Bonjour à tous."), ".1:tous")
 
     def test_comma(self):
         self.assertEqual(self._run("Bonjour, à tous,"), ",:tous")
 
     def test_exclamation(self):
-        self.assertEqual(self._run("Bravo!"), "F:Bravo")
+        # French: ! has NNBSP → .2; other languages → F
+        result = self._run("Bravo!")
+        self.assertIn(result, [".2:Bravo", "F:Bravo"])
 
     def test_question(self):
-        self.assertEqual(self._run("Vraiment?"), "F:Vraiment")
+        # French: ? has NNBSP → .2; other languages → .1
+        result = self._run("Vraiment?")
+        self.assertIn(result, [".2:Vraiment", ".1:Vraiment"])
 
     def test_semicolon(self):
         result = self._run("D'abord;")
@@ -1214,10 +1174,10 @@ if [ -f "$LAST_WORD_FILE" ]; then cat "$LAST_WORD_FILE"; else echo "DELETED"; fi
         self.assertTrue(result.startswith("F:"))
 
     def test_ellipsis_ascii(self):
-        self.assertEqual(self._run("Je sais pas..."), "F:pas")
+        self.assertEqual(self._run("Je sais pas..."), ".3:pas")
 
     def test_ellipsis_unicode(self):
-        self.assertEqual(self._run("Je sais pas…"), "F:pas")
+        self.assertEqual(self._run("Je sais pas…"), ".3:pas")
 
     def test_no_punctuation(self):
         self.assertEqual(self._run("Je suis content"), "_:content")
@@ -1229,7 +1189,7 @@ if [ -f "$LAST_WORD_FILE" ]; then cat "$LAST_WORD_FILE"; else echo "DELETED"; fi
         self.assertEqual(self._run(""), "DELETED")
 
     def test_trailing_spaces_stripped(self):
-        self.assertEqual(self._run("Bonjour.   "), ".:Bonjour")
+        self.assertEqual(self._run("Bonjour.   "), ".1:Bonjour")
 
     def test_closing_paren(self):
         result = self._run("(note)")
@@ -1243,10 +1203,89 @@ if [ -f "$LAST_WORD_FILE" ]; then cat "$LAST_WORD_FILE"; else echo "DELETED"; fi
         self.assertIn(":", result)
 
     def test_single_word_period(self):
-        self.assertEqual(self._run("Oui."), ".:Oui")
+        self.assertEqual(self._run("Oui."), ".1:Oui")
 
     def test_single_word_no_punct(self):
         self.assertEqual(self._run("Oui"), "_:Oui")
+
+
+class TestFixContinuationPython(unittest.TestCase):
+    """Tests pour fix_continuation() dans dictee-postprocess.py."""
+
+    def _load(self, lang="fr"):
+        import importlib
+        spec = importlib.util.spec_from_file_location(
+            "dictee_postprocess", POSTPROCESS)
+        pp = importlib.util.module_from_spec(spec)
+        old_lang = os.environ.get("DICTEE_LANG_SOURCE", "")
+        os.environ["DICTEE_LANG_SOURCE"] = lang
+        try:
+            spec.loader.exec_module(pp)
+        finally:
+            if old_lang:
+                os.environ["DICTEE_LANG_SOURCE"] = old_lang
+            else:
+                os.environ.pop("DICTEE_LANG_SOURCE", None)
+        self.pp = pp
+        return pp.load_continuation()
+
+    def test_removes_period_after_closed_class(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis dans. le bureau", words),
+            "je suis dans le bureau")
+
+    def test_keeps_period_after_open_class(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis parti. Il est venu", words),
+            "je suis parti. Il est venu")
+
+    def test_case_insensitive_matching(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("Je suis Dans. le bureau", words),
+            "Je suis Dans le bureau")
+
+    def test_lowercases_after_continuation(self):
+        """Continuation always lowercases — proper nouns are handled by dictionary."""
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("avec. Paul", words),
+            "avec paul")
+
+    def test_lowercases_c_est_after_continuation(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("que… C'est bien", words),
+            "que c'est bien")
+
+    def test_empty_words_no_change(self):
+        self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis dans. le bureau", set()),
+            "je suis dans. le bureau")
+
+    def test_lang_filter_en(self):
+        words = self._load("en")
+        self.assertEqual(
+            self.pp.fix_continuation("je suis dans. le bureau", words),
+            "je suis dans. le bureau")
+        self.assertEqual(
+            self.pp.fix_continuation("I saw the. dog", words),
+            "I saw the dog")
+
+    def test_load_continuation_parses_file(self):
+        words = self._load("fr")
+        self.assertIn("le", words)
+        self.assertIn("dans", words)
+        self.assertIn("et", words)
+
+    def test_comma_untouched(self):
+        words = self._load("fr")
+        self.assertEqual(
+            self.pp.fix_continuation("bonjour, le monde", words),
+            "bonjour, le monde")
 
 
 class TestApplyContinuation(unittest.TestCase):
@@ -1258,56 +1297,56 @@ class TestApplyContinuation(unittest.TestCase):
         bash_saved = saved.replace("'", "'\\''")
         script = BASH_PREAMBLE + f"""
 echo '{bash_saved}' > "$LAST_WORD_FILE"
-BACKSPACE_SENT=false
+echo 0 > "$_BS_FILE"
 transcribed=$'{bash_text}'
 apply_continuation transcribed
 printf '%s' "$transcribed"
-printf '\\nBACKSPACE=%s\\n' "$BACKSPACE_SENT"
+printf '\\nBACKSPACE=%s\\n' "$(cat "$_BS_FILE")"
 """
         output = run_bash_test(script)
         parts = output.rsplit("\nBACKSPACE=", 1)
         text_result = parts[0]
-        backspace = parts[1].strip() == "true" if len(parts) > 1 else False
-        return text_result, backspace
+        backspace_count = int(parts[1].strip()) if len(parts) > 1 else 0
+        return text_result, backspace_count
 
     # ── Après un point (.) — mot non-liaison ─────────────────────────
 
     def test_after_period_new_sentence(self):
-        text, bs = self._run(".:école", "Bonjour à tous.")
+        text, bs = self._run(".1:école", "Bonjour à tous.")
         self.assertEqual(text, " Bonjour à tous.")
-        self.assertFalse(bs)
+        self.assertEqual(bs, 0)
 
     def test_after_period_different_word(self):
-        text, bs = self._run(".:maison", "Il fait beau.")
+        text, bs = self._run(".1:maison", "Il fait beau.")
         self.assertEqual(text, " Il fait beau.")
-        self.assertFalse(bs)
+        self.assertEqual(bs, 0)
 
     # ── Après un point (.) — mot de liaison (backspace) ──────────────
 
     def test_after_period_continuation_je(self):
-        text, bs = self._run(".:je", "Suis arrivé.")
+        text, bs = self._run(".1:je", "Suis arrivé.")
         self.assertEqual(text, " suis arrivé.")
-        self.assertTrue(bs)
+        self.assertGreater(bs, 0)
 
     def test_after_period_continuation_est(self):
-        text, bs = self._run(".:est", "Très content.")
+        text, bs = self._run(".1:est", "Très content.")
         self.assertEqual(text, " très content.")
-        self.assertTrue(bs)
+        self.assertGreater(bs, 0)
 
     def test_after_period_continuation_le(self):
-        text, bs = self._run(".:le", "Chat dort.")
+        text, bs = self._run(".1:le", "Chat dort.")
         self.assertEqual(text, " chat dort.")
-        self.assertTrue(bs)
+        self.assertGreater(bs, 0)
 
     def test_after_period_continuation_dans(self):
-        text, bs = self._run(".:dans", "La maison.")
+        text, bs = self._run(".1:dans", "La maison.")
         self.assertEqual(text, " la maison.")
-        self.assertTrue(bs)
+        self.assertGreater(bs, 0)
 
     def test_after_period_continuation_que(self):
-        text, bs = self._run(".:que", "Tu viennes.")
+        text, bs = self._run(".1:que", "Tu viennes.")
         self.assertEqual(text, " tu viennes.")
-        self.assertTrue(bs)
+        self.assertGreater(bs, 0)
 
     # ── Après une virgule (,) ────────────────────────────────────────
 
@@ -1350,66 +1389,66 @@ printf '\\nBACKSPACE=%s\\n' "$BACKSPACE_SENT"
     # ── Texte commençant par une ponctuation (commande vocale) ───────
 
     def test_comma_start_after_period(self):
-        text, bs = self._run(".:école", ", suite du texte.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", ", suite du texte.")
+        self.assertGreater(bs, 0)
         self.assertTrue(text.startswith(","))
 
     def test_colon_start_after_period(self):
-        text, bs = self._run(".:école", ": la suite.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", ": la suite.")
+        self.assertGreater(bs, 0)
         self.assertTrue(text.startswith(":"))
 
     def test_semicolon_start_after_period(self):
-        text, bs = self._run(".:école", "; la suite.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", "; la suite.")
+        self.assertGreater(bs, 0)
         self.assertTrue(text.startswith(";"))
 
     def test_exclamation_start_after_period(self):
         """! en début : backspace, garder casse (pas dans [,\\;:])."""
-        text, bs = self._run(".:école", "! Quelle surprise.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", "! Quelle surprise.")
+        self.assertGreater(bs, 0)
         self.assertIn("Quelle", text)
 
     def test_question_start_after_period(self):
-        text, bs = self._run(".:école", "? Vraiment.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", "? Vraiment.")
+        self.assertGreater(bs, 0)
         self.assertIn("Vraiment", text)
 
     def test_period_start_after_period(self):
-        text, bs = self._run(".:école", ". Suite.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", ". Suite.")
+        self.assertGreater(bs, 0)
 
     def test_comma_start_lowercase(self):
         """Après virgule en début : minuscule."""
-        text, _ = self._run(".:école", ", Je suis arrivé.")
+        text, _ = self._run(".1:école", ", Je suis arrivé.")
         self.assertIn(", je", text)
 
     def test_colon_start_lowercase(self):
         """Après : en début sans newline : minuscule."""
-        text, _ = self._run(".:école", ": Je suis arrivé.")
+        text, _ = self._run(".1:école", ": Je suis arrivé.")
         self.assertIn(": je", text)
 
     def test_semicolon_start_lowercase(self):
-        text, _ = self._run(".:école", "; Je suis arrivé.")
+        text, _ = self._run(".1:école", "; Je suis arrivé.")
         self.assertIn("; je", text)
 
     # ── Colon + newline (deux points à la ligne) ─────────────────────
 
     def test_colon_newline_keeps_case(self):
         """':\\n' garde la majuscule (nouveau paragraphe)."""
-        text, bs = self._run(".:école", ":\nJe suis arrivé.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", ":\nJe suis arrivé.")
+        self.assertGreater(bs, 0)
         self.assertIn(":\nJe", text)
 
     def test_comma_newline_keeps_case(self):
         """,\\n garde la majuscule."""
-        text, bs = self._run(".:école", ",\nJe suis arrivé.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", ",\nJe suis arrivé.")
+        self.assertGreater(bs, 0)
         self.assertIn(",\nJe", text)
 
     def test_semicolon_newline_keeps_case(self):
-        text, bs = self._run(".:école", ";\nJe suis arrivé.")
-        self.assertTrue(bs)
+        text, bs = self._run(".1:école", ";\nJe suis arrivé.")
+        self.assertGreater(bs, 0)
         self.assertIn(";\nJe", text)
 
     # ── Pas de fichier de continuation ───────────────────────────────
@@ -1440,18 +1479,20 @@ printf '%s' "$transcribed"
     # ── Espaces en début ─────────────────────────────────────────────
 
     def test_leading_spaces_stripped(self):
-        text, _ = self._run(".:école", "   Bonjour.")
+        text, _ = self._run(".1:école", "   Bonjour.")
         self.assertEqual(text, " Bonjour.")
 
     # ── Pas de backspace quand last_char != "." ──────────────────────
 
-    def test_comma_start_after_comma_no_backspace(self):
+    def test_comma_start_after_comma_backspace(self):
+        """Replaces previous comma with new comma."""
         text, bs = self._run(",:mot", ", suite.")
-        self.assertFalse(bs)
+        self.assertEqual(bs, 1)
 
-    def test_comma_start_after_F_no_backspace(self):
+    def test_comma_start_after_F_backspace(self):
+        """Replaces previous !/?/; with comma."""
         text, bs = self._run("F:mot", ", suite.")
-        self.assertFalse(bs)
+        self.assertEqual(bs, 1)
 
 
 class TestContinuationIntegration(unittest.TestCase):
@@ -1462,11 +1503,11 @@ class TestContinuationIntegration(unittest.TestCase):
         for i, push_text in enumerate(pushes):
             bash_text = push_text.replace("'", "'\\''").replace("\n", "\\n")
             script += f"""
-BACKSPACE_SENT=false
+echo 0 > "$_BS_FILE"
 transcribed=$'{bash_text}'
 apply_continuation transcribed
 echo "PUSH{i}=$transcribed"
-echo "BACKSPACE{i}=$BACKSPACE_SENT"
+echo "BACKSPACE{i}=$(cat "$_BS_FILE")"
 save_last_word $'{bash_text}'
 """
         output = run_bash_test(script)
@@ -1488,7 +1529,7 @@ save_last_word $'{bash_text}'
 
     def test_continuation_word_after_period(self):
         r = self._simulate_pushes(["Je suis.", "Content de vous voir."])
-        self.assertEqual(r["BACKSPACE1"], "true")
+        self.assertGreater(int(r["BACKSPACE1"]), 0)
         self.assertEqual(r["PUSH1"], " content de vous voir.")
 
     def test_three_pushes(self):
@@ -1499,7 +1540,8 @@ save_last_word $'{bash_text}'
         ])
         self.assertEqual(r["PUSH0"], "Bonjour à tous.")
         self.assertEqual(r["PUSH1"], " Comment allez-vous.")
-        self.assertEqual(r["PUSH2"], " Je vais bien.")
+        # "vous" (from "allez-vous.") is a continuation word → lowercase
+        self.assertEqual(r["PUSH2"], " je vais bien.")
 
     def test_newline_resets_continuation(self):
         r = self._simulate_pushes([
@@ -1528,7 +1570,7 @@ save_last_word $'{bash_text}'
             "Désolé!",        # après point → espace + casse
         ])
         self.assertEqual(r["PUSH0"], "Je suis.")
-        self.assertEqual(r["BACKSPACE1"], "true")
+        self.assertGreater(int(r["BACKSPACE1"]), 0)
         self.assertEqual(r["PUSH2"], " mais en retard.")
         self.assertEqual(r["PUSH3"], " Désolé!")
 

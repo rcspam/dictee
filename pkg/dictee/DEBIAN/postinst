@@ -160,6 +160,18 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
     done
 fi
 
+# Enable GNOME AppIndicator extension for tray icon
+echo ""
+echo "=== Extension GNOME AppIndicator ==="
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    [ -d "/run/user/$uid" ] || continue
+    sudo -u "$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null && \
+        echo "✓ AppIndicator activé pour $user" || true
+done
+
 # Rafraîchir le cache d'icônes (nécessaire sur GNOME)
 echo ""
 echo "=== Cache d'icônes ==="
@@ -202,8 +214,6 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         echo "  ↳ dictee-tray démarré"
         $_run systemctl --user start dictee 2>/dev/null || true
         echo "  ↳ dictee (daemon ASR) démarré"
-        # Enable GNOME AppIndicator extension for tray icon
-        $_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
         # Redémarrer les autres services actifs après upgrade
         for svc in dictee dictee-vosk dictee-whisper; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then

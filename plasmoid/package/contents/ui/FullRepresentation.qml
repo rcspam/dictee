@@ -213,6 +213,13 @@ ColumnLayout {
         Item { Layout.fillWidth: true }
 
         PlasmaComponents.Button {
+            text: i18n("Post-processing...")
+            icon.name: "document-edit"
+            flat: true
+            onClicked: fullRep.actionRequested("postprocess")
+        }
+
+        PlasmaComponents.Button {
             text: i18n("Configure Dictée")
             icon.name: "configure"
             flat: true

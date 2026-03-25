@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.1.4"
+VERSION="1.2.0~beta1"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -129,6 +129,8 @@ prepare_buildroot() {
     # Generate VERSION file
     BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
     echo "$VERSION build $BUILD_HASH" > "$buildroot/usr/share/dictee/VERSION"
+    cp ./dictionary.conf.default "$buildroot/usr/share/dictee/dictionary.conf.default"
+    cp ./continuation.conf.default "$buildroot/usr/share/dictee/continuation.conf.default"
 
     # Doc
     mkdir -p "$buildroot/usr/share/doc/dictee"
@@ -184,6 +186,8 @@ Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
 Recommends:     libayatana-appindicator-gtk3
+Recommends:     gnome-shell-extension-appindicator
+Recommends:     gnome-extensions-app
 Conflicts:      dictee-cpu
 Provides:       dictee = $VERSION
 
@@ -212,16 +216,27 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+# Fix udev rule if old version with 0620 (RPM preserves config files)
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "\$UDEV_RULE"
+fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
+
+# Per-user setup for all logged-in users
 for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     [ -d "/run/user/\$uid" ] || continue
     _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+
+    # Add user to input group if needed
     if ! id -nG "\$user" | grep -qw input; then
         usermod -aG input "\$user"
     fi
+
+    # Start and enable Docker daemon if installed
     if command -v docker >/dev/null 2>&1; then
         if ! systemctl is-active --quiet docker 2>/dev/null; then
             systemctl start docker 2>/dev/null || true
@@ -231,20 +246,25 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
             usermod -aG docker "\$user"
         fi
     fi
+
+    # Enable GNOME AppIndicator extension for tray icon
     \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
-    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     \$_run systemctl --user restart dictee-tray 2>/dev/null || true
-    \$_run systemctl --user start dictee 2>/dev/null || true
 done
 
 %postun
 if [ "\$1" -eq 0 ]; then
+    # Full uninstall (not upgrade)
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
+    # Stop and disable user services
     for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
         user=\$(id -nu "\$uid" 2>/dev/null) || continue
         [ "\$user" = "root" ] && continue
@@ -254,6 +274,7 @@ if [ "\$1" -eq 0 ]; then
         \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
+    # Clean locales
     for lang in fr de es it uk pt; do
         rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
     done
@@ -311,6 +332,8 @@ Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
 Recommends:     libayatana-appindicator-gtk3
+Recommends:     gnome-shell-extension-appindicator
+Recommends:     gnome-extensions-app
 Conflicts:      dictee-cuda
 Provides:       dictee = $VERSION
 
@@ -338,16 +361,27 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+# Fix udev rule if old version with 0620 (RPM preserves config files)
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "\$UDEV_RULE"
+fi
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
+
+# Per-user setup for all logged-in users
 for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
     [ "\$user" = "root" ] && continue
     [ -d "/run/user/\$uid" ] || continue
     _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
+
+    # Add user to input group if needed
     if ! id -nG "\$user" | grep -qw input; then
         usermod -aG input "\$user"
     fi
+
+    # Start and enable Docker daemon if installed
     if command -v docker >/dev/null 2>&1; then
         if ! systemctl is-active --quiet docker 2>/dev/null; then
             systemctl start docker 2>/dev/null || true
@@ -357,14 +391,17 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
             usermod -aG docker "\$user"
         fi
     fi
+
+    # Enable GNOME AppIndicator extension for tray icon
     \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
-    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+    \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     \$_run systemctl --user restart dictee-tray 2>/dev/null || true
-    \$_run systemctl --user start dictee 2>/dev/null || true
 done
 
 %postun

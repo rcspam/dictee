@@ -1,12 +1,12 @@
 [Unit]
-Description=Whisper Transcription Daemon (ASR)
+Description=Canary 1B v2 Transcription+Translation Daemon (ASR, GPU)
 After=network.target
-Conflicts=dictee.service dictee-vosk.service dictee-canary.service
+Conflicts=dictee.service dictee-vosk.service dictee-whisper.service
 
 [Service]
 Type=simple
 EnvironmentFile=-%h/.config/dictee.conf
-ExecStart=/usr/bin/transcribe-daemon-whisper
+ExecStart=/usr/bin/transcribe-daemon-canary
 Restart=on-failure
 RestartSec=5
 Environment=XDG_RUNTIME_DIR=/run/user/%U

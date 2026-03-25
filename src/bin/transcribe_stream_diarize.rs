@@ -12,6 +12,7 @@ use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 use parakeet_rs::{ExecutionConfig, ExecutionProvider, Nemotron};
 #[cfg(feature = "sortformer")]
 use std::env;
+use std::path::Path;
 #[cfg(feature = "sortformer")]
 use std::fs;
 #[cfg(feature = "sortformer")]
@@ -52,10 +53,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
 
-        let nemotron_dir = env::var("NEMOTRON_DIR")
-            .unwrap_or_else(|_| "/usr/share/dictee/nemotron".to_string());
-        let sortformer_dir = env::var("SORTFORMER_DIR")
-            .unwrap_or_else(|_| "/usr/share/dictee/sortformer".to_string());
+        let home = env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+        let nemotron_dir = env::var("NEMOTRON_DIR").unwrap_or_else(|_| {
+            if Path::new("/usr/share/dictee/nemotron").exists() {
+                "/usr/share/dictee/nemotron".to_string()
+            } else {
+                format!("{}/.local/share/dictee/nemotron", home)
+            }
+        });
+        let sortformer_dir = env::var("SORTFORMER_DIR").unwrap_or_else(|_| {
+            if Path::new("/usr/share/dictee/sortformer").exists() {
+                "/usr/share/dictee/sortformer".to_string()
+            } else {
+                format!("{}/.local/share/dictee/sortformer", home)
+            }
+        });
 
         // Configure execution
         #[cfg(feature = "cuda")]

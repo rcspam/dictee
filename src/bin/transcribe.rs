@@ -27,7 +27,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let audio_path = resolve_path(&args[1])?;
-    let model_dir = if args.len() > 2 { &args[2] } else { "/usr/share/dictee/tdt" };
+    let model_dir = if args.len() > 2 {
+        args[2].clone()
+    } else {
+        let sys_dir = "/usr/share/dictee/tdt";
+        let user_dir = format!("{}/.local/share/dictee/tdt",
+            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
+        if std::path::Path::new(sys_dir).join("vocab.txt").exists() {
+            sys_dir.to_string()
+        } else {
+            user_dir
+        }
+    };
 
     // Convert to WAV 16kHz mono if needed
     let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
