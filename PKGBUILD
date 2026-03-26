@@ -30,7 +30,7 @@ optdepends=(
     'cudnn: NVIDIA cuDNN for GPU acceleration'
 )
 makedepends=('rust' 'cargo' 'go' 'scdoc' 'libxkbcommon' 'git')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v1.2.0~rc1.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v1.2.0-rc1.tar.gz")
 sha256sums=('SKIP')
 
 build() {
