@@ -35,6 +35,10 @@ STATE_FILE = "/dev/shm/.dictee_state"
 TRANSLATE_FLAG = "/tmp/dictee_translate"
 APP_ID = "dictee"
 SERVICES = ("dictee", "dictee-vosk", "dictee-whisper")
+CONF_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "dictee.conf",
+)
 POLL_SLOW_MS = 3000
 
 # Icônes
@@ -545,6 +549,33 @@ class DicteeTrayQt:
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # First-run guard: prompt user to run setup wizard if not configured yet
+    if not os.path.exists(CONF_PATH):
+        try:
+            from PyQt6.QtWidgets import QApplication, QMessageBox
+            app = QApplication(sys.argv)
+            result = QMessageBox.question(
+                None, "Dictée",
+                _("Dictée is not configured yet.\nDo you want to run the setup wizard?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if result == QMessageBox.StandardButton.Yes:
+                subprocess.Popen(["dictee-setup", "--wizard"])
+        except ImportError:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            dialog = Gtk.MessageDialog(
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=_("Dictée is not configured yet.\nDo you want to run the setup wizard?"),
+            )
+            dialog.set_title("Dictée")
+            if dialog.run() == Gtk.ResponseType.YES:
+                subprocess.Popen(["dictee-setup", "--wizard"])
+            dialog.destroy()
+        sys.exit(0)
 
     backend = _detect_backend()
 
