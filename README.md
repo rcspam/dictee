@@ -287,13 +287,15 @@ dictee --cancel
 
 ## Roadmap
 
-- (v1.2) LLM correction before formatting rules (grammar, homophones)
+- (v1.3) **Hotword boosting** — bias ASR decoding toward custom names and terms without retraining (beam search + Aho-Corasick in Rust)
+- (v1.3) LLM correction before formatting rules (grammar, homophones via Ollama)
 - CLI for speech-to-text (pipe audio, get text)
 - `dictee-ctl` coordinator — single entry point, eliminates race conditions
 - VAD (Voice Activity Detection) — hands-free dictation without push-to-talk
 - Real-time streaming transcription with live text display
 - Built-in visual overlay (replace external `animation-speech`)
 - AppImage / Flatpak packaging
+- AUR publication (Arch Linux)
 - COSMIC / GNOME applet (contributions welcome!)
 
 ## Credits

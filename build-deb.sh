@@ -146,6 +146,21 @@ EOF
     cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
 
+    # ONNX Runtime CUDA provider libs
+    echo "=== Copie des libs CUDA ONNX Runtime ==="
+    mkdir -p "$PKG_DIR/usr/lib/dictee"
+    for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+        src="target/release/$lib"
+        if [ -L "$src" ]; then
+            cp -L "$src" "$PKG_DIR/usr/lib/dictee/"
+        elif [ -f "$src" ]; then
+            cp "$src" "$PKG_DIR/usr/lib/dictee/"
+        fi
+    done
+    # ld.so.conf.d entry so the dynamic linker finds them
+    mkdir -p "$PKG_DIR/etc/ld.so.conf.d"
+    echo "/usr/lib/dictee" > "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
+
     chmod 755 "$PKG_DIR/usr/bin/"*
     chmod 755 "$PKG_DIR/DEBIAN/postinst"
     chmod 755 "$PKG_DIR/DEBIAN/postrm"
@@ -159,6 +174,9 @@ EOF
     # Decompress for next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
+
+    # Cleanup CUDA libs for CPU build
+    rm -rf "$PKG_DIR/usr/lib/dictee" "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
     echo "Built: dictee-cuda_${VERSION}_amd64.deb"
 }
 
@@ -279,6 +297,18 @@ build_tarball() {
         mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/logos"
         cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
     fi
+
+    # ONNX Runtime CUDA libs (if available from last CUDA build)
+    for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+        src="target/release/$lib"
+        if [ -L "$src" ]; then
+            mkdir -p "$TARBALL_DIR/usr/lib/dictee"
+            cp -L "$src" "$TARBALL_DIR/usr/lib/dictee/"
+        elif [ -f "$src" ]; then
+            mkdir -p "$TARBALL_DIR/usr/lib/dictee"
+            cp "$src" "$TARBALL_DIR/usr/lib/dictee/"
+        fi
+    done
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"

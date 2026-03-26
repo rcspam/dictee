@@ -43,6 +43,17 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-postprocess" "$PREFIX/bin/dictee-post
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
 
+# ONNX Runtime CUDA libs (if present in the tarball — CUDA variant only)
+if [ -d "$SCRIPT_DIR/usr/lib/dictee" ]; then
+    echo "→ Installation des libs CUDA ONNX Runtime"
+    install -d /usr/lib/dictee
+    for lib in "$SCRIPT_DIR/usr/lib/dictee/"*.so; do
+        [ -f "$lib" ] && install -Dm644 "$lib" "/usr/lib/dictee/$(basename "$lib")"
+    done
+    echo "/usr/lib/dictee" > /etc/ld.so.conf.d/dictee.conf
+    ldconfig 2>/dev/null || true
+fi
+
 # Udev rules (dotool — accès uinput pour le groupe input)
 echo "→ Installation des règles udev"
 install -Dm644 "$SCRIPT_DIR/etc/udev/rules.d/80-dotool.rules" "/etc/udev/rules.d/80-dotool.rules"

@@ -287,13 +287,15 @@ dictee --cancel
 
 ## Feuille de route
 
-- (v1.2) Correction LLM avant les règles de formatage (grammaire, homophones)
-- CLI speech-to-text (pipe audio, récupère le texte)
+- (v1.3) **Hotword boosting** — biaiser le décodage ASR vers des noms et termes personnalisés sans ré-entraîner (beam search + Aho-Corasick en Rust)
+- (v1.3) Correction LLM avant les règles de formatage (grammaire, homophones via Ollama)
+- CLI speech-to-text (pipe audio, récupérer le texte)
 - Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions
 - VAD (Voice Activity Detection) — dictée mains libres sans push-to-talk
 - Transcription streaming temps réel avec affichage en direct
 - Overlay visuel intégré (remplacer `animation-speech` externe)
 - Packaging AppImage / Flatpak
+- Publication AUR (Arch Linux)
 - Applet COSMIC / GNOME (contributions bienvenues !)
 
 ## Crédits

@@ -159,6 +159,20 @@ build_rpm_cuda() {
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
 
+    # ONNX Runtime CUDA provider libs
+    echo "Copie des libs CUDA ONNX Runtime..."
+    mkdir -p "$buildroot/usr/lib/dictee"
+    for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+        src="target/release/$lib"
+        if [ -L "$src" ]; then
+            cp -L "$src" "$buildroot/usr/lib/dictee/"
+        elif [ -f "$src" ]; then
+            cp "$src" "$buildroot/usr/lib/dictee/"
+        fi
+    done
+    mkdir -p "$buildroot/etc/ld.so.conf.d"
+    echo "/usr/lib/dictee" > "$buildroot/etc/ld.so.conf.d/dictee.conf"
+
     cat > "$RPMBUILD_DIR/SPECS/dictee-cuda.spec" << EOF
 Name:           dictee-cuda
 Version:        $VERSION
@@ -204,6 +218,8 @@ Features:
 
 %files
 /usr/bin/*
+/usr/lib/dictee/*
+/etc/ld.so.conf.d/dictee.conf
 /etc/udev/rules.d/80-dotool.rules
 /usr/lib/systemd/user/*.service
 /usr/lib/systemd/user-preset/*.preset
@@ -216,6 +232,7 @@ Features:
 /usr/share/doc/dictee/*
 
 %post
+ldconfig 2>/dev/null || true
 # Fix udev rule if old version with 0620 (RPM preserves config files)
 UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
 if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
@@ -260,6 +277,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
 done
 
 %postun
+ldconfig 2>/dev/null || true
 if [ "\$1" -eq 0 ]; then
     # Full uninstall (not upgrade)
     udevadm control --reload-rules 2>/dev/null || true

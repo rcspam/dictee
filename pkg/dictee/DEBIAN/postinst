@@ -94,6 +94,11 @@ if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
     echo "Lancez 'dictee-setup' pour télécharger les modèles."
 fi
 
+# Refresh dynamic linker cache (needed for CUDA libs in /usr/lib/dictee)
+if [ -f /etc/ld.so.conf.d/dictee.conf ]; then
+    ldconfig 2>/dev/null || true
+fi
+
 # Répertoire modèles — accessible en écriture pour dictee-setup (user)
 echo ""
 echo "=== Répertoire des modèles ==="
