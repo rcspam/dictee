@@ -71,6 +71,7 @@ package() {
     install -Dm755 dictee-setup.py "$pkgdir/usr/bin/dictee-setup"
     install -Dm755 dictee-tray.py "$pkgdir/usr/bin/dictee-tray"
     install -Dm755 dictee-ptt.py "$pkgdir/usr/bin/dictee-ptt"
+    install -Dm755 dictee-switch-backend "$pkgdir/usr/bin/dictee-switch-backend"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-fft "$pkgdir/usr/bin/dictee-plasmoid-level-fft"

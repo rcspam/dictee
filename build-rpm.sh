@@ -18,7 +18,8 @@ cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
 cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess"
+cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -59,6 +60,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/dictee-tray" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-ptt" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-postprocess" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-switch-backend" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$buildroot/usr/bin/"

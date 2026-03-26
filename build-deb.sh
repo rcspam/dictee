@@ -23,7 +23,8 @@ cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
 cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess"
+cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend"
 
 # Copier les fichiers de post-traitement par défaut
 cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
@@ -261,6 +262,7 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-tray" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-ptt" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-switch-backend" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$TARBALL_DIR/usr/bin/"
