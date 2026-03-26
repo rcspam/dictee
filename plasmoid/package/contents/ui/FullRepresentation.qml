@@ -10,14 +10,16 @@ ColumnLayout {
     id: fullRep
 
     property string state: "offline"
+    property bool dicteeInstalled: true
+    property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
     signal actionRequested(string action)
 
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 18
+    Layout.preferredWidth: Kirigami.Units.gridUnit * 22
     Layout.preferredHeight: implicitHeight
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 14
-    Layout.maximumWidth: Kirigami.Units.gridUnit * 24
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 18
+    Layout.maximumWidth: Kirigami.Units.gridUnit * 28
 
     spacing: Kirigami.Units.smallSpacing
 
@@ -66,6 +68,8 @@ ColumnLayout {
                     return Kirigami.Theme.highlightColor
                 case "transcribing":
                     return Kirigami.Theme.positiveTextColor
+                case "switching":
+                    return Kirigami.Theme.neutralTextColor
                 default:
                     return Kirigami.Theme.positiveTextColor
                 }
@@ -76,6 +80,8 @@ ColumnLayout {
             text: {
                 switch (fullRep.state) {
                 case "offline":
+                    if (!fullRep.dicteeInstalled) return i18n("Dictée not installed — install dictee package")
+                    if (!fullRep.dicteeConfigured) return i18n("Not configured — click Configure Dictée below")
                     return i18n("Daemon stopped")
                 case "idle":
                     return i18n("Daemon active")
@@ -83,6 +89,8 @@ ColumnLayout {
                     return i18n("Recording…")
                 case "transcribing":
                     return i18n("Transcribing…")
+                case "switching":
+                    return i18n("Switching backend…")
                 default:
                     return ""
                 }
@@ -212,23 +220,12 @@ ColumnLayout {
 
         QQC2.ComboBox {
             id: asrCombo
-            model: [
-                { value: "parakeet", text: "Parakeet" },
-                { value: "canary", text: "Canary" },
-                { value: "vosk", text: "Vosk" },
-                { value: "whisper", text: "Whisper" }
-            ]
-            textRole: "text"
-            valueRole: "value"
-            currentIndex: {
-                var backend = root.currentAsrBackend
-                for (var i = 0; i < model.length; i++) {
-                    if (model[i].value === backend) return i
-                }
-                return 0
-            }
+            Kirigami.Theme.inherit: true
+            model: ["Parakeet", "Canary", "Vosk", "Whisper"]
+            property var values: ["parakeet", "canary", "vosk", "whisper"]
+            currentIndex: values.indexOf(root.currentAsrBackend)
             onActivated: {
-                executable.run("dictee-switch-backend asr " + currentValue)
+                executable.run("dictee-switch-backend asr " + values[currentIndex])
             }
             Layout.fillWidth: true
         }
@@ -236,29 +233,20 @@ ColumnLayout {
         PlasmaComponents.Label {
             text: i18n("Translation:")
             Layout.alignment: Qt.AlignVCenter
+            enabled: root.currentAsrBackend !== "canary"
         }
 
         QQC2.ComboBox {
             id: transCombo
-            model: [
-                { value: "google", text: "Google" },
-                { value: "bing", text: "Bing" },
-                { value: "ollama", text: "Ollama" },
-                { value: "libretranslate", text: "LibreTranslate" }
-            ]
-            textRole: "text"
-            valueRole: "value"
-            currentIndex: {
-                var backend = root.currentTranslateBackend
-                for (var i = 0; i < model.length; i++) {
-                    if (model[i].value === backend) return i
-                }
-                return 0
-            }
+            Kirigami.Theme.inherit: true
+            model: ["Google", "Bing", "Ollama", "LibreTranslate"]
+            property var values: ["google", "bing", "ollama", "libretranslate"]
+            currentIndex: values.indexOf(root.currentTranslateBackend)
             onActivated: {
-                executable.run("dictee-switch-backend translate " + currentValue)
+                executable.run("dictee-switch-backend translate " + values[currentIndex])
             }
             Layout.fillWidth: true
+            enabled: root.currentAsrBackend !== "canary"
         }
     }
 

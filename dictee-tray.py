@@ -393,6 +393,8 @@ class DicteeTrayAppIndicator:
         file_state = read_state()
         if file_state in ("recording", "transcribing"):
             self.state = file_state
+        elif file_state == "switching":
+            self.state = "idle"  # Stay idle during backend switch
         elif self._daemon_active:
             self.state = "idle"
         else:
@@ -464,9 +466,9 @@ class DicteeTrayAppIndicator:
             item.set_sensitive(_asr_service_exists(key))
             item.handler_unblock_by_func(self._on_asr_toggled)
 
+        # Disable translation submenu when using canary (built-in translation)
+        self.item_trans.set_sensitive(current_asr != "canary")
         current_trans = _current_translate_backend()
-        trans_enabled = _is_translate_enabled()
-        self.item_trans.set_sensitive(trans_enabled)
         for key, item in self._trans_radios:
             item.handler_block_by_func(self._on_trans_toggled)
             item.set_active(key == current_trans)
@@ -654,9 +656,9 @@ class DicteeTrayQt:
             action.setEnabled(_asr_service_exists(key))
 
     def _refresh_trans_menu(self):
+        # Disable when using canary (built-in translation)
+        self.menu_trans.setEnabled(_current_asr_backend() != "canary")
         current = _current_translate_backend()
-        trans_enabled = _is_translate_enabled()
-        self.menu_trans.setEnabled(trans_enabled)
         for key, action in self._trans_actions.items():
             action.setChecked(key == current)
 
@@ -667,6 +669,8 @@ class DicteeTrayQt:
         file_state = read_state()
         if file_state in ("recording", "transcribing"):
             self.state = file_state
+        elif file_state == "switching":
+            self.state = "idle"  # Stay idle during backend switch
         elif self._daemon_active:
             self.state = "idle"
         else:

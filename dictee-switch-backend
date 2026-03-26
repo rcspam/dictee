@@ -6,7 +6,12 @@ set -euo pipefail
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 
 usage() {
-    echo "Usage: dictee-switch-backend <asr|translate> <backend>"
+    echo "Usage: dictee-switch-backend <command> [backend]"
+    echo ""
+    echo "Commands:"
+    echo "  status                    Show current backends"
+    echo "  asr <backend>             Switch ASR backend"
+    echo "  translate <backend>       Switch translation backend"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -28,12 +33,37 @@ if [ ! -f "$CONF" ]; then
     exit 1
 fi
 
-if [ $# -lt 2 ]; then
+if [ $# -lt 1 ]; then
     usage
 fi
 
 case "$1" in
+status)
+    # Read current backends from config
+    source "$CONF"
+    asr="${DICTEE_ASR_BACKEND:-parakeet}"
+    case "$asr" in
+        parakeet) svc="dictee" ;;
+        canary)   svc="dictee-canary" ;;
+        vosk)     svc="dictee-vosk" ;;
+        whisper)  svc="dictee-whisper" ;;
+        *)        svc="unknown" ;;
+    esac
+    svc_state=$(systemctl --user is-active "${svc}.service" 2>/dev/null) || true
+    echo "ASR: $asr (${svc}.service, $svc_state)"
+
+    trans="${DICTEE_TRANSLATE_BACKEND:-trans}"
+    if [ "$trans" = "trans" ]; then
+        engine="${DICTEE_TRANS_ENGINE:-google}"
+        echo "Translate: $engine ($trans)"
+    else
+        echo "Translate: $trans"
+    fi
+    exit 0
+    ;;
+
 asr)
+    if [ $# -lt 2 ]; then usage; fi
     # Mapping backend -> service name
     case "$2" in
         parakeet) svc="dictee" ;;
@@ -50,6 +80,9 @@ asr)
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
 
+    # Signal transitional state to plasmoid/tray
+    echo "switching" > /dev/shm/.dictee_state
+
     # Stop all, start the right one
     for s in dictee dictee-canary dictee-vosk dictee-whisper; do
         if [ "$s" != "$svc" ]; then
@@ -59,6 +92,9 @@ asr)
     done
     if ! systemctl --user enable --now "${svc}.service" 2>/dev/null; then
         echo "Warning: ${svc}.service failed to start. Check: systemctl --user status ${svc}.service" >&2
+        echo "offline" > /dev/shm/.dictee_state
+    else
+        echo "idle" > /dev/shm/.dictee_state
     fi
 
     echo "ASR backend: $2 (${svc}.service)"
@@ -66,6 +102,7 @@ asr)
     ;;
 
 translate)
+    if [ $# -lt 2 ]; then usage; fi
     case "$2" in
         google)
             set_conf "DICTEE_TRANSLATE_BACKEND" "trans"

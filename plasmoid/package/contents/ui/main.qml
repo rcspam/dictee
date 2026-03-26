@@ -8,8 +8,10 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
-    // State: "offline", "idle", "recording", "transcribing"
+    // State: "offline", "idle", "recording", "transcribing", "switching"
     property string state: "offline"
+    property bool dicteeInstalled: true
+    property bool dicteeConfigured: true
     property string lastTranscription: ""
     // Niveau audio micro (0.0 - 1.0)
     property real audioLevel: 0.0
@@ -45,13 +47,15 @@ PlasmoidItem {
         }
     }
 
-    switchWidth: Kirigami.Units.gridUnit * 12
+    switchWidth: Kirigami.Units.gridUnit * 18
     switchHeight: Kirigami.Units.gridUnit * 12
 
     toolTipMainText: "Dictee"
     toolTipSubText: {
         switch (state) {
         case "offline":
+            if (!root.dicteeInstalled) return i18n("Dictée not installed")
+            if (!root.dicteeConfigured) return i18n("Dictée not configured — run dictee-setup")
             return i18n("Daemon stopped")
         case "idle":
             return i18n("Daemon active")
@@ -59,6 +63,8 @@ PlasmoidItem {
             return i18n("Recording…")
         case "transcribing":
             return i18n("Transcribing…")
+        case "switching":
+            return i18n("Switching backend…")
         default:
             return ""
         }
@@ -73,11 +79,24 @@ PlasmoidItem {
             var stdout = data["stdout"].trim()
 
             if (source === daemonCheckCmd) {
-                // Polling lent : offline/idle — jamais pendant recording/transcribing
-                if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing") {
+                // Check if dictee is installed and configured
+                if (stdout === "not-installed") {
+                    root.dicteeInstalled = false
+                    root.dicteeConfigured = false
                     root.state = "offline"
-                } else if (stdout !== "offline" && root.state === "offline") {
-                    root.state = "idle"
+                } else if (stdout === "not-configured") {
+                    root.dicteeInstalled = true
+                    root.dicteeConfigured = false
+                    root.state = "offline"
+                } else {
+                    root.dicteeInstalled = true
+                    root.dicteeConfigured = true
+                    // Polling lent : offline/idle — jamais pendant recording/transcribing
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching") {
+                        root.state = "offline"
+                    } else if (stdout !== "offline" && root.state === "offline") {
+                        root.state = "idle"
+                    }
                 }
             } else if (source.indexOf("/dev/shm/.dictee_state") !== -1) {
                 root.stateReadPending = false
@@ -178,7 +197,7 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
+    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; [ -f \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" ] || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
@@ -212,9 +231,11 @@ PlasmoidItem {
             root.state = "transcribing"
             recordingTimer.stop()
             transcribingTimer.restart()
+        } else if (newState === "switching") {
+            root.state = "switching"
         } else if (newState === "idle") {
             // Retour à idle depuis n'importe quel état actif
-            if (root.state === "recording" || root.state === "transcribing") {
+            if (root.state === "recording" || root.state === "transcribing" || root.state === "switching") {
                 transcribingTimer.stop()
                 recordingTimer.stop()
                 root.state = "idle"
@@ -287,6 +308,8 @@ PlasmoidItem {
 
     fullRepresentation: FullRepresentation {
         state: root.state
+        dicteeInstalled: root.dicteeInstalled
+        dicteeConfigured: root.dicteeConfigured
         barColor: root.barColor
         lastTranscription: root.lastTranscription
         onActionRequested: function(action) {
