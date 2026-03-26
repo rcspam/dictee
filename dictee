@@ -766,8 +766,10 @@ if [ -f "$PIDFILE" ]; then
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
             # Canary: built-in translation — single daemon call with target language
             translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
+            _trans_label="canary"
         else
             translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>/dev/null) || translated=""
+            _trans_label="$TRANSLATE_BACKEND"
         fi
         if [ -n "$translated" ]; then
             copy_to_clipboard "$translated"
@@ -775,9 +777,9 @@ if [ -f "$PIDFILE" ]; then
             save_last_word "$translated"
 
             if [ -n "$id" ]; then
-                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
             else
-                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
             fi
         else
             # Traduction échouée — taper le texte original
@@ -850,7 +852,12 @@ else
 
     # Notification (sert aussi de délai pour pw-record)
     if [ "$TRANSLATE" = true ]; then
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
+        if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
+            _rec_trans_label="canary"
+        else
+            _rec_trans_label="$TRANSLATE_BACKEND"
+        fi
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($_rec_trans_label)" >"$ID_TMP_FILE"
     else
         notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
     fi
