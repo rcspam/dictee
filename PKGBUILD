@@ -1,6 +1,6 @@
 # Maintainer: rcspam <rcspams@gmail.com>
 pkgname=dictee
-pkgver=1.1.4
+pkgver=1.2.0beta2
 pkgrel=1
 pkgdesc="Fast push-to-talk voice dictation for Linux with NVIDIA Parakeet, Vosk and faster-whisper"
 arch=('x86_64' 'aarch64')
@@ -30,7 +30,7 @@ optdepends=(
     'cudnn: NVIDIA cuDNN for GPU acceleration'
 )
 makedepends=('rust' 'cargo' 'go' 'scdoc' 'libxkbcommon' 'git')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v1.2.0~beta2.tar.gz")
 sha256sums=('SKIP')
 
 build() {
@@ -72,6 +72,9 @@ package() {
     install -Dm755 dictee-tray.py "$pkgdir/usr/bin/dictee-tray"
     install -Dm755 dictee-ptt.py "$pkgdir/usr/bin/dictee-ptt"
     install -Dm755 dictee-switch-backend "$pkgdir/usr/bin/dictee-switch-backend"
+    install -Dm755 dictee-postprocess.py "$pkgdir/usr/bin/dictee-postprocess"
+    install -Dm755 dictee-test-rules "$pkgdir/usr/bin/dictee-test-rules"
+    install -Dm755 transcribe-daemon-canary "$pkgdir/usr/bin/transcribe-daemon-canary"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-fft "$pkgdir/usr/bin/dictee-plasmoid-level-fft"
@@ -89,6 +92,7 @@ package() {
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-ptt.service "$pkgdir/usr/lib/systemd/user/dictee-ptt.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-vosk.service "$pkgdir/usr/lib/systemd/user/dictee-vosk.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
+    install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-canary.service "$pkgdir/usr/lib/systemd/user/dictee-canary.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user-preset/90-dictee.preset "$pkgdir/usr/lib/systemd/user-preset/90-dictee.preset"
 
     # Man pages
@@ -119,4 +123,12 @@ package() {
     if [ -f "dictee.plasmoid" ]; then
         install -Dm644 dictee.plasmoid "$pkgdir/usr/share/dictee/dictee.plasmoid"
     fi
+
+    # Default config files
+    install -Dm644 rules.conf.default "$pkgdir/usr/share/dictee/rules.conf.default"
+    install -Dm644 dictionary.conf.default "$pkgdir/usr/share/dictee/dictionary.conf.default"
+    install -Dm644 continuation.conf.default "$pkgdir/usr/share/dictee/continuation.conf.default"
+
+    # VERSION file
+    install -Dm644 pkg/dictee/usr/share/dictee/VERSION "$pkgdir/usr/share/dictee/VERSION"
 }
