@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-26 17:51+0100\n"
+"POT-Creation-Date: 2026-03-26 18:52+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,88 +17,88 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: dictee-tray.py:298 dictee-tray.py:427 dictee-tray.py:544 dictee-tray.py:708
+#: dictee-tray.py:298 dictee-tray.py:429 dictee-tray.py:546 dictee-tray.py:712
 msgid "Start dictation"
 msgstr ""
 
-#: dictee-tray.py:302 dictee-tray.py:545 dictee-tray.py:710
+#: dictee-tray.py:302 dictee-tray.py:547 dictee-tray.py:714
 msgid "Start translation"
 msgstr ""
 
-#: dictee-tray.py:306 dictee-tray.py:546 dictee-setup.py:2201
+#: dictee-tray.py:306 dictee-tray.py:548 dictee-setup.py:2201
 msgid "Cancel"
 msgstr ""
 
-#: dictee-tray.py:318 dictee-tray.py:557 dictee-setup.py:2074
+#: dictee-tray.py:318 dictee-tray.py:559 dictee-setup.py:2074
 msgid "ASR backend"
 msgstr ""
 
-#: dictee-tray.py:334 dictee-tray.py:571 dictee-setup.py:2673
+#: dictee-tray.py:334 dictee-tray.py:573 dictee-setup.py:2673
 #: dictee-setup.py:3349
 msgid "Translation"
 msgstr ""
 
-#: dictee-tray.py:350 dictee-tray.py:585
+#: dictee-tray.py:350 dictee-tray.py:587
 msgid "Configure Dictée"
 msgstr ""
 
-#: dictee-tray.py:354 dictee-tray.py:586 dictee-setup.py:2180
+#: dictee-tray.py:354 dictee-tray.py:588 dictee-setup.py:2180
 msgid "Post-processing..."
 msgstr ""
 
-#: dictee-tray.py:360 dictee-tray.py:588
+#: dictee-tray.py:360 dictee-tray.py:590
 msgid "Quit icon"
 msgstr ""
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Daemon active"
 msgstr ""
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Recording…"
 msgstr ""
 
-#: dictee-tray.py:418 dictee-tray.py:697 dictee-setup.py:6718
+#: dictee-tray.py:420 dictee-tray.py:701 dictee-setup.py:6718
 msgid "Transcribing…"
 msgstr ""
 
-#: dictee-tray.py:425 dictee-tray.py:706
+#: dictee-tray.py:427 dictee-tray.py:710
 msgid "Stop translation"
 msgstr ""
 
-#: dictee-tray.py:426 dictee-tray.py:707
+#: dictee-tray.py:428 dictee-tray.py:711
 msgid "Stop dictation"
 msgstr ""
 
-#: dictee-tray.py:517 dictee-tray.py:684
+#: dictee-tray.py:519 dictee-tray.py:688
 msgid "Dictation — offline"
 msgstr ""
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Dictation — ready"
 msgstr ""
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Click = dictation, Ctrl+click = translation"
 msgstr ""
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Dictation — recording"
 msgstr ""
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Click = stop, Middle = cancel"
 msgstr ""
 
-#: dictee-tray.py:686
+#: dictee-tray.py:690
 msgid "Dictation — transcribing"
 msgstr ""
 
-#: dictee-tray.py:688
+#: dictee-tray.py:692
 msgid "Dictation"
 msgstr ""
 
-#: dictee-tray.py:748 dictee-tray.py:760
+#: dictee-tray.py:752 dictee-tray.py:764
 msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"

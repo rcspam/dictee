@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-26 17:39+0100\n"
+"POT-Creation-Date: 2026-03-26 18:52+0100\n"
 "PO-Revision-Date: 2026-03-13 00:09+0100\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: Ukrainian\n"
@@ -18,89 +18,88 @@ msgstr ""
 "n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 # === dictee-tray ===
-#: dictee-tray.py:298 dictee-tray.py:427 dictee-tray.py:544 dictee-tray.py:708
+#: dictee-tray.py:298 dictee-tray.py:429 dictee-tray.py:546 dictee-tray.py:712
 msgid "Start dictation"
 msgstr "Почати диктант"
 
-#: dictee-tray.py:302 dictee-tray.py:545 dictee-tray.py:710
+#: dictee-tray.py:302 dictee-tray.py:547 dictee-tray.py:714
 msgid "Start translation"
 msgstr "Почати переклад"
 
-#: dictee-tray.py:306 dictee-tray.py:546 dictee-setup.py:2201
+#: dictee-tray.py:306 dictee-tray.py:548 dictee-setup.py:2201
 msgid "Cancel"
 msgstr "Скасувати"
 
-#: dictee-tray.py:318 dictee-tray.py:557 dictee-setup.py:2074
+#: dictee-tray.py:318 dictee-tray.py:559 dictee-setup.py:2074
 msgid "ASR backend"
 msgstr "Модуль ASR"
 
-#: dictee-tray.py:334 dictee-tray.py:571 dictee-setup.py:2673
+#: dictee-tray.py:334 dictee-tray.py:573 dictee-setup.py:2673
 #: dictee-setup.py:3349
 msgid "Translation"
 msgstr "Переклад"
 
-#: dictee-tray.py:350 dictee-tray.py:585
+#: dictee-tray.py:350 dictee-tray.py:587
 msgid "Configure Dictée"
 msgstr "Налаштувати Dictée"
 
-#: dictee-tray.py:354 dictee-tray.py:586 dictee-setup.py:2180
-#, fuzzy
+#: dictee-tray.py:354 dictee-tray.py:588 dictee-setup.py:2180
 msgid "Post-processing..."
-msgstr "Постобробка"
+msgstr "Постобробка..."
 
-#: dictee-tray.py:360 dictee-tray.py:588
+#: dictee-tray.py:360 dictee-tray.py:590
 msgid "Quit icon"
 msgstr "Закрити значок"
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Daemon active"
 msgstr "Daemon активний"
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Recording…"
 msgstr "Запис…"
 
-#: dictee-tray.py:418 dictee-tray.py:697 dictee-setup.py:6718
+#: dictee-tray.py:420 dictee-tray.py:701 dictee-setup.py:6718
 msgid "Transcribing…"
 msgstr "Транскрипція…"
 
-#: dictee-tray.py:425 dictee-tray.py:706
+#: dictee-tray.py:427 dictee-tray.py:710
 msgid "Stop translation"
 msgstr "Зупинити переклад"
 
-#: dictee-tray.py:426 dictee-tray.py:707
+#: dictee-tray.py:428 dictee-tray.py:711
 msgid "Stop dictation"
 msgstr "Зупинити диктант"
 
-#: dictee-tray.py:517 dictee-tray.py:684
+#: dictee-tray.py:519 dictee-tray.py:688
 msgid "Dictation — offline"
 msgstr "Диктант — офлайн"
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Dictation — ready"
 msgstr "Диктант — готовий"
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Click = dictation, Ctrl+click = translation"
 msgstr "Клік = диктант, Ctrl+клік = переклад"
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Dictation — recording"
 msgstr "Диктант — запис"
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Click = stop, Middle = cancel"
 msgstr "Клік = зупинити, Середня = скасувати"
 
-#: dictee-tray.py:686
+#: dictee-tray.py:690
 msgid "Dictation — transcribing"
 msgstr "Диктант — транскрипція"
 
-#: dictee-tray.py:688
+#: dictee-tray.py:692
 msgid "Dictation"
 msgstr "Диктант"
 
-#: dictee-tray.py:748 dictee-tray.py:760
+#: dictee-tray.py:752 dictee-tray.py:764
 msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"
@@ -140,6 +139,15 @@ msgid ""
 "If the package is not found, you need to add the NVIDIA repo first.\n"
 "See the README for instructions."
 msgstr ""
+"GPU NVIDIA виявлено, але cuDNN не встановлено.\n"
+"Прискорення GPU не працюватиме без нього.\n"
+"\n"
+"Для виправлення додайте репозиторій NVIDIA CUDA та встановіть cuDNN:\n"
+"\n"
+"  sudo apt install libcudnn9-cuda-12\n"
+"\n"
+"Якщо пакет не знайдено, спочатку додайте репозиторій NVIDIA.\n"
+"Дивіться README для інструкцій."
 
 #: dictee-setup.py:691
 msgid ""
@@ -153,6 +161,15 @@ msgid ""
 "If the package is not found, you need to add the NVIDIA CUDA repo.\n"
 "See the README for instructions."
 msgstr ""
+"GPU NVIDIA виявлено, але cuDNN не встановлено.\n"
+"Прискорення GPU не працюватиме без нього.\n"
+"\n"
+"Для виправлення:\n"
+"\n"
+"  sudo dnf install libcudnn9-cuda-12\n"
+"\n"
+"Якщо пакет не знайдено, додайте репозиторій NVIDIA CUDA.\n"
+"Дивіться README для інструкцій."
 
 #: dictee-setup.py:700
 msgid ""
@@ -162,6 +179,11 @@ msgid ""
 "Install libcudnn9-cuda-12 from the NVIDIA CUDA repository.\n"
 "See the README for instructions."
 msgstr ""
+"GPU NVIDIA виявлено, але cuDNN не встановлено.\n"
+"Прискорення GPU не працюватиме без нього.\n"
+"\n"
+"Встановіть libcudnn9-cuda-12 з репозиторію NVIDIA CUDA.\n"
+"Дивіться README для інструкцій."
 
 #: dictee-setup.py:746
 #, python-brace-format
@@ -268,18 +290,17 @@ msgid "Downloaded {done}/{total}"
 msgstr "Завантажено {done}/{total}"
 
 #: dictee-setup.py:1018
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Permission denied on {dir}"
-msgstr "Доступ заборонено. Виконайте: sudo chmod 777 {dir}"
+msgstr "Доступ заборонено до {dir}"
 
 #: dictee-setup.py:1219
-#, fuzzy
 msgid "Docker setup failed."
-msgstr "Помилка запуску Docker."
+msgstr "Помилка налаштування Docker."
 
 #: dictee-setup.py:1221
 msgid "Timeout while setting up Docker."
-msgstr ""
+msgstr "Перевищено час очікування під час налаштування Docker."
 
 #: dictee-setup.py:1233
 msgid "Downloading Docker image…"
@@ -373,9 +394,8 @@ msgid "Loaded {n} languages ({m} models)."
 msgstr "Завантажено {n} мов ({m} моделей)."
 
 #: dictee-setup.py:1478
-#, fuzzy
 msgid "Checking latest release…"
-msgstr "Отримання останньої версії…"
+msgstr "Перевірка останньої версії…"
 
 #: dictee-setup.py:1485
 #, python-brace-format
@@ -383,14 +403,13 @@ msgid "Cannot reach GitHub: {err}"
 msgstr "Не вдалося зв'язатися з GitHub: {err}"
 
 #: dictee-setup.py:1490
-#, fuzzy
 msgid "No assets found in the release."
-msgstr "Не знайдено {ext} у релізі."
+msgstr "Не знайдено файлів у релізі."
 
 #: dictee-setup.py:1504
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "No {pat} found in the release."
-msgstr "Не знайдено {ext} у релізі."
+msgstr "Не знайдено {pat} у релізі."
 
 #: dictee-setup.py:1507 dictee-setup.py:3159 dictee-setup.py:7013
 msgid "Downloading…"
@@ -535,35 +554,36 @@ msgid "Please download the required model before continuing."
 msgstr "Завантажте необхідну модель перед продовженням."
 
 #: dictee-setup.py:2387
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Please download the Vosk model for {lang} before continuing."
-msgstr "Завантажте необхідну модель перед продовженням."
+msgstr "Завантажте модель Vosk для {lang} перед продовженням."
 
 #: dictee-setup.py:2400 dictee-setup.py:2410
-#, fuzzy
 msgid "Group required"
-msgstr " (обов'язковий)"
+msgstr "Група обов'язкова"
 
 #: dictee-setup.py:2401
-#, fuzzy
 msgid ""
 "Your user must be in the 'input' group for keyboard shortcuts.\n"
 "Please click 'Fix' above."
 msgstr ""
-"Ваш користувач не входить до групи 'input' (необхідна для комбінацій клавіш)."
+"Ваш користувач має входити до групи 'input' для комбінацій клавіш.\n"
+"Натисніть 'Виправити' вище."
 
 #: dictee-setup.py:2411
 msgid ""
 "Docker permissions are required for LibreTranslate.\n"
 "Please click 'Fix permissions' above."
 msgstr ""
+"Для LibreTranslate потрібні дозволи Docker.\n"
+"Натисніть 'Виправити дозволи' вище."
 
 #: dictee-setup.py:2533
 msgid "Speak freely, type instantly"
 msgstr "Говоріть вільно, друкуйте миттєво"
 
 #: dictee-setup.py:2539
-#, fuzzy, python-format
+#, python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
@@ -691,9 +711,8 @@ msgid "Dictation + Translation"
 msgstr "Диктант + Переклад"
 
 #: dictee-setup.py:2898
-#, fuzzy
 msgid "Same key + Alt"
-msgstr "Та ж клавіша + Ctrl"
+msgstr "Та ж клавіша + Alt"
 
 #: dictee-setup.py:2899
 msgid "Same key + Ctrl"
@@ -766,9 +785,8 @@ msgid "Download error"
 msgstr "Помилка завантаження"
 
 #: dictee-setup.py:3182 dictee-setup.py:7514
-#, fuzzy
 msgid "Unknown error"
-msgstr "Помилка завантаження"
+msgstr "Невідома помилка"
 
 #: dictee-setup.py:3198
 msgid "Install Whisper engine"
@@ -979,9 +997,8 @@ msgstr ""
 "пунктуація, форматування)."
 
 #: dictee-setup.py:3677 dictee-setup.py:3714 dictee-setup.py:7734
-#, fuzzy
 msgid "Dictionary"
-msgstr "Диктант"
+msgstr "Словник"
 
 #: dictee-setup.py:3680
 msgid ""
@@ -992,9 +1009,8 @@ msgstr ""
 "Точний збіг на межах слів."
 
 #: dictee-setup.py:3683 dictee-setup.py:3728 dictee-setup.py:7678
-#, fuzzy
 msgid "Continuation"
-msgstr "Слова продовження"
+msgstr "Продовження"
 
 #: dictee-setup.py:3686
 msgid ""
@@ -1207,9 +1223,8 @@ msgstr "Додати"
 
 #: dictee-setup.py:4212 dictee-setup.py:4516 dictee-setup.py:4539
 #: dictee-setup.py:4540 dictee-setup.py:7569
-#, fuzzy
 msgid "Record"
-msgstr "Запис…"
+msgstr "Записати"
 
 #: dictee-setup.py:4213
 msgid "Record audio, transcribe, and fill the pattern field"
@@ -1261,19 +1276,18 @@ msgid "End of file"
 msgstr "Кінець файлу"
 
 #: dictee-setup.py:4648
-#, fuzzy
 msgid "all languages"
-msgstr "Мова:"
+msgstr "всі мови"
 
 #: dictee-setup.py:4650
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Testing as: {lang}"
-msgstr "Перезапуск з мовами: {langs}…"
+msgstr "Тест як: {lang}"
 
 #: dictee-setup.py:4656
 #, python-brace-format
 msgid "Testing as: {lang} (config)"
-msgstr ""
+msgstr "Тест як: {lang} (конфігурація)"
 
 #: dictee-setup.py:4669 dictee-setup.py:5641
 #, python-brace-format
@@ -1309,9 +1323,8 @@ msgid "Default rules file not found."
 msgstr "Файл стандартних правил не знайдено."
 
 #: dictee-setup.py:4937 dictee-setup.py:5183
-#, fuzzy
 msgid "All languages"
-msgstr "Мова:"
+msgstr "Всі мови"
 
 #: dictee-setup.py:5034
 msgid "Undo"
@@ -1384,9 +1397,8 @@ msgid "Word cannot contain '=': {word}"
 msgstr "Слово не може містити '=': {word}"
 
 #: dictee-setup.py:5547 dictee-setup.py:5557
-#, fuzzy
 msgid "Dictionary saved."
-msgstr "Налаштування збережено"
+msgstr "Словник збережено."
 
 #: dictee-setup.py:5647 dictee-setup.py:6379
 msgid ""
@@ -1439,9 +1451,8 @@ msgstr ""
 "слова для кожної мови нижче."
 
 #: dictee-setup.py:5899
-#, fuzzy
 msgid "Continuation keyword:"
-msgstr "Слова продовження"
+msgstr "Ключове слово продовження:"
 
 #: dictee-setup.py:5901
 msgid ""
@@ -1499,14 +1510,12 @@ msgid "Your words"
 msgstr "Ваші слова"
 
 #: dictee-setup.py:6374
-#, fuzzy
 msgid "Continuation words saved."
-msgstr "Слова продовження"
+msgstr "Слова продовження збережено."
 
 #: dictee-setup.py:6414
-#, fuzzy
 msgid "(disabled)"
-msgstr "Вимкнено"
+msgstr "(вимкнено)"
 
 #: dictee-setup.py:6436
 msgid "Accepted: "
@@ -1633,21 +1642,19 @@ msgstr "Docker не встановлено"
 
 #: dictee-setup.py:7147
 msgid "Docker daemon is not running and permissions are missing"
-msgstr ""
+msgstr "Daemon Docker не запущено і відсутні дозволи"
 
 #: dictee-setup.py:7149
-#, fuzzy
 msgid "Docker daemon is not running"
-msgstr "LibreTranslate не запущено."
+msgstr "Daemon Docker не запущено"
 
 #: dictee-setup.py:7151
 msgid "Docker permission denied"
 msgstr "Docker: доступ заборонено"
 
 #: dictee-setup.py:7155
-#, fuzzy
 msgid "Setup Docker (requires password)"
-msgstr "Виправити (потрібен пароль)"
+msgstr "Налаштувати Docker (потрібен пароль)"
 
 #: dictee-setup.py:7170
 msgid "Docker image not downloaded (~2 GB)"
@@ -1683,14 +1690,12 @@ msgid "Restarting with languages: {langs}…"
 msgstr "Перезапуск з мовами: {langs}…"
 
 #: dictee-setup.py:7340
-#, fuzzy
 msgid "Setting up Docker…"
-msgstr "Запуск контейнера…"
+msgstr "Налаштування Docker…"
 
 #: dictee-setup.py:7356
-#, fuzzy
 msgid "Docker started and permissions configured."
-msgstr "Docker: доступ заборонено"
+msgstr "Docker запущено і дозволи налаштовано."
 
 #: dictee-setup.py:7393
 msgid "Starting LibreTranslate…"
@@ -1717,9 +1722,8 @@ msgid "Pipeline details"
 msgstr "Деталі конвеєра"
 
 #: dictee-setup.py:7652
-#, fuzzy
 msgid "Rules"
-msgstr "Правила regex"
+msgstr "Правила"
 
 #: dictee-setup.py:7665
 #, python-brace-format
@@ -1768,9 +1772,8 @@ msgid "Typography"
 msgstr "Типографіка"
 
 #: dictee-setup.py:7740
-#, fuzzy
 msgid "Capitalization"
-msgstr "Автоматична капіталізація"
+msgstr "Капіталізація"
 
 #: dictee-setup.py:7758
 msgid "changed"

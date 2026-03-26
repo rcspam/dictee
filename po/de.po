@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-26 17:39+0100\n"
+"POT-Creation-Date: 2026-03-26 18:52+0100\n"
 "PO-Revision-Date: 2026-03-13 00:09+0100\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: German\n"
@@ -17,89 +17,88 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 # === dictee-tray ===
-#: dictee-tray.py:298 dictee-tray.py:427 dictee-tray.py:544 dictee-tray.py:708
+#: dictee-tray.py:298 dictee-tray.py:429 dictee-tray.py:546 dictee-tray.py:712
 msgid "Start dictation"
 msgstr "Diktat starten"
 
-#: dictee-tray.py:302 dictee-tray.py:545 dictee-tray.py:710
+#: dictee-tray.py:302 dictee-tray.py:547 dictee-tray.py:714
 msgid "Start translation"
 msgstr "Übersetzung starten"
 
-#: dictee-tray.py:306 dictee-tray.py:546 dictee-setup.py:2201
+#: dictee-tray.py:306 dictee-tray.py:548 dictee-setup.py:2201
 msgid "Cancel"
 msgstr "Abbrechen"
 
-#: dictee-tray.py:318 dictee-tray.py:557 dictee-setup.py:2074
+#: dictee-tray.py:318 dictee-tray.py:559 dictee-setup.py:2074
 msgid "ASR backend"
 msgstr "ASR-Backend"
 
-#: dictee-tray.py:334 dictee-tray.py:571 dictee-setup.py:2673
+#: dictee-tray.py:334 dictee-tray.py:573 dictee-setup.py:2673
 #: dictee-setup.py:3349
 msgid "Translation"
 msgstr "Uebersetzung"
 
-#: dictee-tray.py:350 dictee-tray.py:585
+#: dictee-tray.py:350 dictee-tray.py:587
 msgid "Configure Dictée"
 msgstr "Dictée konfigurieren"
 
-#: dictee-tray.py:354 dictee-tray.py:586 dictee-setup.py:2180
-#, fuzzy
+#: dictee-tray.py:354 dictee-tray.py:588 dictee-setup.py:2180
 msgid "Post-processing..."
-msgstr "Nachbearbeitung"
+msgstr "Nachbearbeitung..."
 
-#: dictee-tray.py:360 dictee-tray.py:588
+#: dictee-tray.py:360 dictee-tray.py:590
 msgid "Quit icon"
 msgstr "Symbol beenden"
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Daemon active"
 msgstr "Daemon aktiv"
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Recording…"
 msgstr "Aufnahme…"
 
-#: dictee-tray.py:418 dictee-tray.py:697 dictee-setup.py:6718
+#: dictee-tray.py:420 dictee-tray.py:701 dictee-setup.py:6718
 msgid "Transcribing…"
 msgstr "Transkription…"
 
-#: dictee-tray.py:425 dictee-tray.py:706
+#: dictee-tray.py:427 dictee-tray.py:710
 msgid "Stop translation"
 msgstr "Übersetzung stoppen"
 
-#: dictee-tray.py:426 dictee-tray.py:707
+#: dictee-tray.py:428 dictee-tray.py:711
 msgid "Stop dictation"
 msgstr "Diktat stoppen"
 
-#: dictee-tray.py:517 dictee-tray.py:684
+#: dictee-tray.py:519 dictee-tray.py:688
 msgid "Dictation — offline"
 msgstr "Diktat — offline"
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Dictation — ready"
 msgstr "Diktat — bereit"
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Click = dictation, Ctrl+click = translation"
 msgstr "Klick = Diktat, Strg+Klick = Übersetzung"
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Dictation — recording"
 msgstr "Diktat — Aufnahme"
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Click = stop, Middle = cancel"
 msgstr "Klick = Stopp, Mittelklick = Abbrechen"
 
-#: dictee-tray.py:686
+#: dictee-tray.py:690
 msgid "Dictation — transcribing"
 msgstr "Diktat — Transkription"
 
-#: dictee-tray.py:688
+#: dictee-tray.py:692
 msgid "Dictation"
 msgstr "Diktat"
 
-#: dictee-tray.py:748 dictee-tray.py:760
+#: dictee-tray.py:752 dictee-tray.py:764
 msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"
@@ -139,6 +138,15 @@ msgid ""
 "If the package is not found, you need to add the NVIDIA repo first.\n"
 "See the README for instructions."
 msgstr ""
+"NVIDIA GPU erkannt, aber cuDNN ist nicht installiert.\n"
+"GPU-Beschleunigung funktioniert ohne cuDNN nicht.\n"
+"\n"
+"Zur Behebung das NVIDIA CUDA-Repository hinzufügen und cuDNN installieren:\n"
+"\n"
+"  sudo apt install libcudnn9-cuda-12\n"
+"\n"
+"Falls das Paket nicht gefunden wird, zuerst das NVIDIA-Repository hinzufügen.\n"
+"Siehe README für Anweisungen."
 
 #: dictee-setup.py:691
 msgid ""
@@ -152,6 +160,15 @@ msgid ""
 "If the package is not found, you need to add the NVIDIA CUDA repo.\n"
 "See the README for instructions."
 msgstr ""
+"NVIDIA GPU erkannt, aber cuDNN ist nicht installiert.\n"
+"GPU-Beschleunigung funktioniert ohne cuDNN nicht.\n"
+"\n"
+"Zur Behebung:\n"
+"\n"
+"  sudo dnf install libcudnn9-cuda-12\n"
+"\n"
+"Falls das Paket nicht gefunden wird, das NVIDIA CUDA-Repository hinzufügen.\n"
+"Siehe README für Anweisungen."
 
 #: dictee-setup.py:700
 msgid ""
@@ -161,6 +178,11 @@ msgid ""
 "Install libcudnn9-cuda-12 from the NVIDIA CUDA repository.\n"
 "See the README for instructions."
 msgstr ""
+"NVIDIA GPU erkannt, aber cuDNN ist nicht installiert.\n"
+"GPU-Beschleunigung funktioniert ohne cuDNN nicht.\n"
+"\n"
+"libcudnn9-cuda-12 aus dem NVIDIA CUDA-Repository installieren.\n"
+"Siehe README für Anweisungen."
 
 #: dictee-setup.py:746
 #, python-brace-format
@@ -268,18 +290,17 @@ msgid "Downloaded {done}/{total}"
 msgstr "Heruntergeladen {done}/{total}"
 
 #: dictee-setup.py:1018
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Permission denied on {dir}"
-msgstr "Zugriff verweigert. Ausfuehren: sudo chmod 777 {dir}"
+msgstr "Zugriff verweigert auf {dir}"
 
 #: dictee-setup.py:1219
-#, fuzzy
 msgid "Docker setup failed."
-msgstr "Docker-Start fehlgeschlagen."
+msgstr "Docker-Einrichtung fehlgeschlagen."
 
 #: dictee-setup.py:1221
 msgid "Timeout while setting up Docker."
-msgstr ""
+msgstr "Zeitüberschreitung bei der Docker-Einrichtung."
 
 #: dictee-setup.py:1233
 msgid "Downloading Docker image…"
@@ -373,9 +394,8 @@ msgid "Loaded {n} languages ({m} models)."
 msgstr "{n} Sprachen geladen ({m} Modelle)."
 
 #: dictee-setup.py:1478
-#, fuzzy
 msgid "Checking latest release…"
-msgstr "Neueste Version wird abgerufen…"
+msgstr "Neueste Version wird geprüft…"
 
 #: dictee-setup.py:1485
 #, python-brace-format
@@ -383,14 +403,13 @@ msgid "Cannot reach GitHub: {err}"
 msgstr "GitHub nicht erreichbar: {err}"
 
 #: dictee-setup.py:1490
-#, fuzzy
 msgid "No assets found in the release."
-msgstr "Keine {ext} im Release gefunden."
+msgstr "Keine Assets im Release gefunden."
 
 #: dictee-setup.py:1504
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "No {pat} found in the release."
-msgstr "Keine {ext} im Release gefunden."
+msgstr "Kein {pat} im Release gefunden."
 
 #: dictee-setup.py:1507 dictee-setup.py:3159 dictee-setup.py:7013
 msgid "Downloading…"
@@ -536,30 +555,30 @@ msgstr ""
 "Bitte laden Sie das erforderliche Modell herunter, bevor Sie fortfahren."
 
 #: dictee-setup.py:2387
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Please download the Vosk model for {lang} before continuing."
 msgstr ""
-"Bitte laden Sie das erforderliche Modell herunter, bevor Sie fortfahren."
+"Bitte laden Sie das Vosk-Modell für {lang} herunter, bevor Sie fortfahren."
 
 #: dictee-setup.py:2400 dictee-setup.py:2410
-#, fuzzy
 msgid "Group required"
-msgstr " (erforderlich)"
+msgstr "Gruppe erforderlich"
 
 #: dictee-setup.py:2401
-#, fuzzy
 msgid ""
 "Your user must be in the 'input' group for keyboard shortcuts.\n"
 "Please click 'Fix' above."
 msgstr ""
-"Ihr Benutzer ist nicht in der Gruppe 'input' (erforderlich für "
-"Tastenkombinationen)."
+"Ihr Benutzer muss in der Gruppe 'input' sein für Tastenkombinationen.\n"
+"Bitte klicken Sie oben auf 'Beheben'."
 
 #: dictee-setup.py:2411
 msgid ""
 "Docker permissions are required for LibreTranslate.\n"
 "Please click 'Fix permissions' above."
 msgstr ""
+"Docker-Berechtigungen sind für LibreTranslate erforderlich.\n"
+"Bitte klicken Sie oben auf 'Berechtigungen beheben'."
 
 #: dictee-setup.py:2533
 msgid "Speak freely, type instantly"
@@ -697,9 +716,8 @@ msgid "Dictation + Translation"
 msgstr "Diktat + Uebersetzung"
 
 #: dictee-setup.py:2898
-#, fuzzy
 msgid "Same key + Alt"
-msgstr "Gleiche Taste + Strg"
+msgstr "Gleiche Taste + Alt"
 
 #: dictee-setup.py:2899
 msgid "Same key + Ctrl"
@@ -774,9 +792,8 @@ msgid "Download error"
 msgstr "Download-Fehler"
 
 #: dictee-setup.py:3182 dictee-setup.py:7514
-#, fuzzy
 msgid "Unknown error"
-msgstr "Download-Fehler"
+msgstr "Unbekannter Fehler"
 
 #: dictee-setup.py:3198
 msgid "Install Whisper engine"
@@ -990,9 +1007,8 @@ msgstr ""
 "Zeichensetzung, Formatierung)."
 
 #: dictee-setup.py:3677 dictee-setup.py:3714 dictee-setup.py:7734
-#, fuzzy
 msgid "Dictionary"
-msgstr "Diktat"
+msgstr "Wörterbuch"
 
 #: dictee-setup.py:3680
 msgid ""
@@ -1003,9 +1019,8 @@ msgstr ""
 "Exakte Übereinstimmung an Wortgrenzen."
 
 #: dictee-setup.py:3683 dictee-setup.py:3728 dictee-setup.py:7678
-#, fuzzy
 msgid "Continuation"
-msgstr "Fortsetzungswörter"
+msgstr "Fortsetzung"
 
 #: dictee-setup.py:3686
 msgid ""
@@ -1219,9 +1234,8 @@ msgstr "Hinzufügen"
 
 #: dictee-setup.py:4212 dictee-setup.py:4516 dictee-setup.py:4539
 #: dictee-setup.py:4540 dictee-setup.py:7569
-#, fuzzy
 msgid "Record"
-msgstr "Aufnahme…"
+msgstr "Aufnehmen"
 
 #: dictee-setup.py:4213
 msgid "Record audio, transcribe, and fill the pattern field"
@@ -1273,19 +1287,18 @@ msgid "End of file"
 msgstr "Dateiende"
 
 #: dictee-setup.py:4648
-#, fuzzy
 msgid "all languages"
-msgstr "Sprache:"
+msgstr "alle Sprachen"
 
 #: dictee-setup.py:4650
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Testing as: {lang}"
-msgstr "Neustart mit Sprachen: {langs}…"
+msgstr "Test als: {lang}"
 
 #: dictee-setup.py:4656
 #, python-brace-format
 msgid "Testing as: {lang} (config)"
-msgstr ""
+msgstr "Test als: {lang} (Konfiguration)"
 
 #: dictee-setup.py:4669 dictee-setup.py:5641
 #, python-brace-format
@@ -1321,9 +1334,8 @@ msgid "Default rules file not found."
 msgstr "Standardregeln-Datei nicht gefunden."
 
 #: dictee-setup.py:4937 dictee-setup.py:5183
-#, fuzzy
 msgid "All languages"
-msgstr "Sprache:"
+msgstr "Alle Sprachen"
 
 #: dictee-setup.py:5034
 msgid "Undo"
@@ -1397,9 +1409,8 @@ msgid "Word cannot contain '=': {word}"
 msgstr "Wort darf kein '=' enthalten: {word}"
 
 #: dictee-setup.py:5547 dictee-setup.py:5557
-#, fuzzy
 msgid "Dictionary saved."
-msgstr "Konfiguration gespeichert"
+msgstr "Wörterbuch gespeichert."
 
 #: dictee-setup.py:5647 dictee-setup.py:6379
 msgid ""
@@ -1452,9 +1463,8 @@ msgstr ""
 "können unten eigene Wörter pro Sprache hinzufügen."
 
 #: dictee-setup.py:5899
-#, fuzzy
 msgid "Continuation keyword:"
-msgstr "Fortsetzungswörter"
+msgstr "Fortsetzungs-Schlüsselwort:"
 
 #: dictee-setup.py:5901
 msgid ""
@@ -1513,14 +1523,12 @@ msgid "Your words"
 msgstr "Ihre Wörter"
 
 #: dictee-setup.py:6374
-#, fuzzy
 msgid "Continuation words saved."
-msgstr "Fortsetzungswörter"
+msgstr "Fortsetzungswörter gespeichert."
 
 #: dictee-setup.py:6414
-#, fuzzy
 msgid "(disabled)"
-msgstr "Deaktiviert"
+msgstr "(deaktiviert)"
 
 #: dictee-setup.py:6436
 msgid "Accepted: "
@@ -1648,21 +1656,19 @@ msgstr "Docker ist nicht installiert"
 
 #: dictee-setup.py:7147
 msgid "Docker daemon is not running and permissions are missing"
-msgstr ""
+msgstr "Docker-Daemon läuft nicht und Berechtigungen fehlen"
 
 #: dictee-setup.py:7149
-#, fuzzy
 msgid "Docker daemon is not running"
-msgstr "LibreTranslate läuft nicht."
+msgstr "Docker-Daemon läuft nicht"
 
 #: dictee-setup.py:7151
 msgid "Docker permission denied"
 msgstr "Docker: Zugriff verweigert"
 
 #: dictee-setup.py:7155
-#, fuzzy
 msgid "Setup Docker (requires password)"
-msgstr "Beheben (Passwort erforderlich)"
+msgstr "Docker einrichten (Passwort erforderlich)"
 
 #: dictee-setup.py:7170
 msgid "Docker image not downloaded (~2 GB)"
@@ -1698,14 +1704,12 @@ msgid "Restarting with languages: {langs}…"
 msgstr "Neustart mit Sprachen: {langs}…"
 
 #: dictee-setup.py:7340
-#, fuzzy
 msgid "Setting up Docker…"
-msgstr "Container wird gestartet…"
+msgstr "Docker wird eingerichtet…"
 
 #: dictee-setup.py:7356
-#, fuzzy
 msgid "Docker started and permissions configured."
-msgstr "Docker: Zugriff verweigert"
+msgstr "Docker gestartet und Berechtigungen konfiguriert."
 
 #: dictee-setup.py:7393
 msgid "Starting LibreTranslate…"
@@ -1732,9 +1736,8 @@ msgid "Pipeline details"
 msgstr "Pipeline-Details"
 
 #: dictee-setup.py:7652
-#, fuzzy
 msgid "Rules"
-msgstr "Regex-Regeln"
+msgstr "Regeln"
 
 #: dictee-setup.py:7665
 #, python-brace-format
@@ -1783,9 +1786,8 @@ msgid "Typography"
 msgstr "Typografie"
 
 #: dictee-setup.py:7740
-#, fuzzy
 msgid "Capitalization"
-msgstr "Automatische Großschreibung"
+msgstr "Großschreibung"
 
 #: dictee-setup.py:7758
 msgid "changed"

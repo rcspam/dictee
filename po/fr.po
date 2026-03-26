@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: dictee 0.99\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-26 17:39+0100\n"
+"POT-Creation-Date: 2026-03-26 18:52+0100\n"
 "PO-Revision-Date: 2026-03-10 12:00+0100\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: French\n"
@@ -16,88 +16,88 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
-#: dictee-tray.py:298 dictee-tray.py:427 dictee-tray.py:544 dictee-tray.py:708
+#: dictee-tray.py:298 dictee-tray.py:429 dictee-tray.py:546 dictee-tray.py:712
 msgid "Start dictation"
 msgstr "Démarrer dictée"
 
-#: dictee-tray.py:302 dictee-tray.py:545 dictee-tray.py:710
+#: dictee-tray.py:302 dictee-tray.py:547 dictee-tray.py:714
 msgid "Start translation"
 msgstr "Démarrer traduction"
 
-#: dictee-tray.py:306 dictee-tray.py:546 dictee-setup.py:2201
+#: dictee-tray.py:306 dictee-tray.py:548 dictee-setup.py:2201
 msgid "Cancel"
 msgstr "Annuler"
 
-#: dictee-tray.py:318 dictee-tray.py:557 dictee-setup.py:2074
+#: dictee-tray.py:318 dictee-tray.py:559 dictee-setup.py:2074
 msgid "ASR backend"
 msgstr "Moteur ASR"
 
-#: dictee-tray.py:334 dictee-tray.py:571 dictee-setup.py:2673
+#: dictee-tray.py:334 dictee-tray.py:573 dictee-setup.py:2673
 #: dictee-setup.py:3349
 msgid "Translation"
 msgstr "Traduction"
 
-#: dictee-tray.py:350 dictee-tray.py:585
+#: dictee-tray.py:350 dictee-tray.py:587
 msgid "Configure Dictée"
 msgstr "Configurer Dictée"
 
-#: dictee-tray.py:354 dictee-tray.py:586 dictee-setup.py:2180
+#: dictee-tray.py:354 dictee-tray.py:588 dictee-setup.py:2180
 msgid "Post-processing..."
 msgstr "Post-traitement..."
 
-#: dictee-tray.py:360 dictee-tray.py:588
+#: dictee-tray.py:360 dictee-tray.py:590
 msgid "Quit icon"
 msgstr "Quitter l'icône"
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Daemon active"
 msgstr "Daemon actif"
 
-#: dictee-tray.py:417 dictee-tray.py:696
+#: dictee-tray.py:419 dictee-tray.py:700
 msgid "Recording…"
 msgstr "Enregistrement…"
 
-#: dictee-tray.py:418 dictee-tray.py:697 dictee-setup.py:6718
+#: dictee-tray.py:420 dictee-tray.py:701 dictee-setup.py:6718
 msgid "Transcribing…"
 msgstr "Transcription…"
 
-#: dictee-tray.py:425 dictee-tray.py:706
+#: dictee-tray.py:427 dictee-tray.py:710
 msgid "Stop translation"
 msgstr "Arrêter traduction"
 
-#: dictee-tray.py:426 dictee-tray.py:707
+#: dictee-tray.py:428 dictee-tray.py:711
 msgid "Stop dictation"
 msgstr "Arrêter dictée"
 
-#: dictee-tray.py:517 dictee-tray.py:684
+#: dictee-tray.py:519 dictee-tray.py:688
 msgid "Dictation — offline"
 msgstr "Dictée — hors ligne"
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Dictation — ready"
 msgstr "Dictée — prêt"
 
-#: dictee-tray.py:683
+#: dictee-tray.py:687
 msgid "Click = dictation, Ctrl+click = translation"
 msgstr "Clic = dictée, Ctrl+clic = traduction"
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Dictation — recording"
 msgstr "Dictée — enregistrement"
 
-#: dictee-tray.py:685
+#: dictee-tray.py:689
 msgid "Click = stop, Middle = cancel"
 msgstr "Clic = arrêter, Molette = annuler"
 
-#: dictee-tray.py:686
+#: dictee-tray.py:690
 msgid "Dictation — transcribing"
 msgstr "Dictée — transcription"
 
-#: dictee-tray.py:688
+#: dictee-tray.py:692
 msgid "Dictation"
 msgstr "Dictée"
 
-#: dictee-tray.py:748 dictee-tray.py:760
+#: dictee-tray.py:752 dictee-tray.py:764
 msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"
@@ -138,6 +138,15 @@ msgid ""
 "If the package is not found, you need to add the NVIDIA repo first.\n"
 "See the README for instructions."
 msgstr ""
+"GPU NVIDIA détecté mais cuDNN n'est pas installé.\n"
+"L'accélération GPU ne fonctionnera pas sans lui.\n"
+"\n"
+"Pour corriger, ajoutez le dépôt NVIDIA CUDA et installez cuDNN :\n"
+"\n"
+"  sudo apt install libcudnn9-cuda-12\n"
+"\n"
+"Si le paquet est introuvable, ajoutez d'abord le dépôt NVIDIA.\n"
+"Consultez le README pour les instructions."
 
 #: dictee-setup.py:691
 msgid ""
@@ -151,6 +160,15 @@ msgid ""
 "If the package is not found, you need to add the NVIDIA CUDA repo.\n"
 "See the README for instructions."
 msgstr ""
+"GPU NVIDIA détecté mais cuDNN n'est pas installé.\n"
+"L'accélération GPU ne fonctionnera pas sans lui.\n"
+"\n"
+"Pour corriger :\n"
+"\n"
+"  sudo dnf install libcudnn9-cuda-12\n"
+"\n"
+"Si le paquet est introuvable, ajoutez le dépôt NVIDIA CUDA.\n"
+"Consultez le README pour les instructions."
 
 #: dictee-setup.py:700
 msgid ""
@@ -160,6 +178,11 @@ msgid ""
 "Install libcudnn9-cuda-12 from the NVIDIA CUDA repository.\n"
 "See the README for instructions."
 msgstr ""
+"GPU NVIDIA détecté mais cuDNN n'est pas installé.\n"
+"L'accélération GPU ne fonctionnera pas sans lui.\n"
+"\n"
+"Installez libcudnn9-cuda-12 depuis le dépôt NVIDIA CUDA.\n"
+"Consultez le README pour les instructions."
 
 #: dictee-setup.py:746
 #, python-brace-format
@@ -267,18 +290,17 @@ msgid "Downloaded {done}/{total}"
 msgstr "Téléchargé {done}/{total}"
 
 #: dictee-setup.py:1018
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Permission denied on {dir}"
-msgstr "Permission refusée. Exécutez : sudo chmod 777 {dir}"
+msgstr "Permission refusée sur {dir}"
 
 #: dictee-setup.py:1219
-#, fuzzy
 msgid "Docker setup failed."
-msgstr "Échec du lancement Docker."
+msgstr "Échec de la configuration Docker."
 
 #: dictee-setup.py:1221
 msgid "Timeout while setting up Docker."
-msgstr ""
+msgstr "Délai dépassé lors de la configuration Docker."
 
 #: dictee-setup.py:1233
 msgid "Downloading Docker image…"
@@ -533,29 +555,30 @@ msgid "Please download the required model before continuing."
 msgstr "Veuillez télécharger le modèle requis avant de continuer."
 
 #: dictee-setup.py:2387
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Please download the Vosk model for {lang} before continuing."
-msgstr "Veuillez télécharger le modèle requis avant de continuer."
+msgstr "Veuillez télécharger le modèle Vosk pour {lang} avant de continuer."
 
 #: dictee-setup.py:2400 dictee-setup.py:2410
-#, fuzzy
 msgid "Group required"
-msgstr " (requis)"
+msgstr "Groupe requis"
 
 #: dictee-setup.py:2401
-#, fuzzy
 msgid ""
 "Your user must be in the 'input' group for keyboard shortcuts.\n"
 "Please click 'Fix' above."
 msgstr ""
-"Votre utilisateur n'est pas dans le groupe 'input' (requis pour les "
-"raccourcis clavier)."
+"Votre utilisateur doit être dans le groupe 'input' pour les raccourcis "
+"clavier.\n"
+"Cliquez sur « Corriger » ci-dessus."
 
 #: dictee-setup.py:2411
 msgid ""
 "Docker permissions are required for LibreTranslate.\n"
 "Please click 'Fix permissions' above."
 msgstr ""
+"Les permissions Docker sont requises pour LibreTranslate.\n"
+"Cliquez sur « Corriger les permissions » ci-dessus."
 
 #: dictee-setup.py:2533
 msgid "Speak freely, type instantly"
@@ -692,9 +715,8 @@ msgid "Dictation + Translation"
 msgstr "Dictée + Traduction"
 
 #: dictee-setup.py:2898
-#, fuzzy
 msgid "Same key + Alt"
-msgstr "Même touche + Ctrl"
+msgstr "Même touche + Alt"
 
 #: dictee-setup.py:2899
 msgid "Same key + Ctrl"
@@ -769,9 +791,8 @@ msgid "Download error"
 msgstr "Erreur de téléchargement"
 
 #: dictee-setup.py:3182 dictee-setup.py:7514
-#, fuzzy
 msgid "Unknown error"
-msgstr "Erreur de téléchargement"
+msgstr "Erreur inconnue"
 
 #: dictee-setup.py:3198
 msgid "Install Whisper engine"
@@ -1266,19 +1287,18 @@ msgid "End of file"
 msgstr "Fin du fichier"
 
 #: dictee-setup.py:4648
-#, fuzzy
 msgid "all languages"
-msgstr "Toutes les langues"
+msgstr "toutes les langues"
 
 #: dictee-setup.py:4650
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "Testing as: {lang}"
-msgstr "Redémarrage avec les langues : {langs}…"
+msgstr "Test en : {lang}"
 
 #: dictee-setup.py:4656
 #, python-brace-format
 msgid "Testing as: {lang} (config)"
-msgstr ""
+msgstr "Test en : {lang} (config)"
 
 #: dictee-setup.py:4669 dictee-setup.py:5641
 #, python-brace-format
@@ -1444,9 +1464,8 @@ msgstr ""
 "ajouter vos propres mots par langue ci-dessous."
 
 #: dictee-setup.py:5899
-#, fuzzy
 msgid "Continuation keyword:"
-msgstr "Mots de continuation"
+msgstr "Mot-clé de continuation :"
 
 #: dictee-setup.py:5901
 msgid ""
@@ -1508,9 +1527,8 @@ msgid "Continuation words saved."
 msgstr "Mots de continuation enregistrés."
 
 #: dictee-setup.py:6414
-#, fuzzy
 msgid "(disabled)"
-msgstr "Désactivé"
+msgstr "(désactivé)"
 
 #: dictee-setup.py:6436
 msgid "Accepted: "
@@ -1636,21 +1654,19 @@ msgstr "Docker n'est pas installé"
 
 #: dictee-setup.py:7147
 msgid "Docker daemon is not running and permissions are missing"
-msgstr ""
+msgstr "Le daemon Docker n'est pas démarré et les permissions sont manquantes"
 
 #: dictee-setup.py:7149
-#, fuzzy
 msgid "Docker daemon is not running"
-msgstr "LibreTranslate n'est pas démarré."
+msgstr "Le daemon Docker n'est pas démarré"
 
 #: dictee-setup.py:7151
 msgid "Docker permission denied"
 msgstr "Docker : permission refusée"
 
 #: dictee-setup.py:7155
-#, fuzzy
 msgid "Setup Docker (requires password)"
-msgstr "Corriger (mot de passe requis)"
+msgstr "Configurer Docker (mot de passe requis)"
 
 #: dictee-setup.py:7170
 msgid "Docker image not downloaded (~2 GB)"
@@ -1686,14 +1702,12 @@ msgid "Restarting with languages: {langs}…"
 msgstr "Redémarrage avec les langues : {langs}…"
 
 #: dictee-setup.py:7340
-#, fuzzy
 msgid "Setting up Docker…"
-msgstr "Démarrage du conteneur…"
+msgstr "Configuration de Docker…"
 
 #: dictee-setup.py:7356
-#, fuzzy
 msgid "Docker started and permissions configured."
-msgstr "Docker : permission refusée"
+msgstr "Docker démarré et permissions configurées."
 
 #: dictee-setup.py:7393
 msgid "Starting LibreTranslate…"
