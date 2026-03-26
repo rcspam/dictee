@@ -41,6 +41,72 @@ CONF_PATH = os.path.join(
 )
 POLL_SLOW_MS = 3000
 
+
+def read_conf_value(key, default=""):
+    """Read a single value from dictee.conf."""
+    if not os.path.exists(CONF_PATH):
+        return default
+    try:
+        with open(CONF_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + "="):
+                    val = line.split("=", 1)[1].strip()
+                    # Remove surrounding quotes if present
+                    if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+                        val = val[1:-1]
+                    return val
+    except OSError:
+        pass
+    return default
+
+
+ASR_BACKENDS = [
+    ("parakeet", "Parakeet"),
+    ("canary", "Canary"),
+    ("vosk", "Vosk"),
+    ("whisper", "Whisper"),
+]
+
+TRANSLATE_BACKENDS = [
+    ("google", "Google Translate"),
+    ("bing", "Bing"),
+    ("ollama", "Ollama"),
+    ("libretranslate", "LibreTranslate"),
+]
+
+
+def _current_asr_backend():
+    return read_conf_value("DICTEE_ASR_BACKEND", "parakeet")
+
+
+def _current_translate_backend():
+    backend = read_conf_value("DICTEE_TRANSLATE_BACKEND", "trans")
+    if backend == "trans":
+        engine = read_conf_value("DICTEE_TRANS_ENGINE", "google")
+        return engine  # "google" or "bing"
+    return backend  # "ollama" or "libretranslate"
+
+
+def _is_translate_enabled():
+    return read_conf_value("DICTEE_TRANSLATE", "false").lower() == "true"
+
+
+def _asr_service_exists(key):
+    """Check if the systemd service for an ASR backend exists."""
+    svc_map = {"parakeet": "dictee", "canary": "dictee-canary",
+               "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
+    svc = svc_map.get(key, "")
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", "list-unit-files", f"{svc}.service"],
+            capture_output=True, text=True,
+        )
+        return svc in result.stdout
+    except FileNotFoundError:
+        return False
+
+
 # Icônes
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _ICON_SEARCH_DIRS = [
@@ -212,6 +278,7 @@ class DicteeTrayAppIndicator:
         # Menu
         self.menu = Gtk.Menu()
         self._build_menu()
+        self.menu.connect("show", lambda _: self._refresh_backend_radios())
         self.indicator.set_menu(self.menu)
 
         # Premier check
@@ -245,6 +312,38 @@ class DicteeTrayAppIndicator:
         self.item_daemon = Gtk.MenuItem(label="")
         self.item_daemon.connect("activate", self._on_daemon_toggle)
         self.menu.append(self.item_daemon)
+
+        # ASR backend submenu
+        self.submenu_asr = Gtk.Menu()
+        self.item_asr = Gtk.MenuItem(label=_("ASR backend"))
+        self.item_asr.set_submenu(self.submenu_asr)
+        self.menu.append(self.item_asr)
+
+        self._asr_radios = []
+        group = None
+        for key, label in ASR_BACKENDS:
+            item = Gtk.RadioMenuItem(label=label, group=group)
+            if group is None:
+                group = item
+            item.connect("toggled", self._on_asr_toggled, key)
+            self.submenu_asr.append(item)
+            self._asr_radios.append((key, item))
+
+        # Translate backend submenu
+        self.submenu_trans = Gtk.Menu()
+        self.item_trans = Gtk.MenuItem(label=_("Translation"))
+        self.item_trans.set_submenu(self.submenu_trans)
+        self.menu.append(self.item_trans)
+
+        self._trans_radios = []
+        group = None
+        for key, label in TRANSLATE_BACKENDS:
+            item = Gtk.RadioMenuItem(label=label, group=group)
+            if group is None:
+                group = item
+            item.connect("toggled", self._on_trans_toggled, key)
+            self.submenu_trans.append(item)
+            self._trans_radios.append((key, item))
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
@@ -341,6 +440,38 @@ class DicteeTrayAppIndicator:
         self._setup_file_watch()
         return True  # GLib.SOURCE_CONTINUE
 
+    def _on_asr_toggled(self, item, key):
+        if item.get_active():
+            subprocess.Popen(["dictee-switch-backend", "asr", key])
+            from gi.repository import GLib
+            GLib.timeout_add(2000, self._delayed_daemon_refresh)
+
+    def _on_trans_toggled(self, item, key):
+        if item.get_active():
+            subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _delayed_daemon_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+        return False  # one-shot
+
+    def _refresh_backend_radios(self):
+        current_asr = _current_asr_backend()
+        for key, item in self._asr_radios:
+            item.handler_block_by_func(self._on_asr_toggled)
+            item.set_active(key == current_asr)
+            item.set_sensitive(_asr_service_exists(key))
+            item.handler_unblock_by_func(self._on_asr_toggled)
+
+        current_trans = _current_translate_backend()
+        trans_enabled = _is_translate_enabled()
+        self.item_trans.set_sensitive(trans_enabled)
+        for key, item in self._trans_radios:
+            item.handler_block_by_func(self._on_trans_toggled)
+            item.set_active(key == current_trans)
+            item.handler_unblock_by_func(self._on_trans_toggled)
+
     def _delayed_refresh(self):
         self._check_daemon()
         self._check_state()
@@ -421,6 +552,35 @@ class DicteeTrayQt:
         hint_font.setItalic(True)
         self.action_daemon_hint.setFont(hint_font)
         self.action_daemon_hint.setEnabled(False)
+        # ASR backend submenu
+        from PyQt6.QtGui import QActionGroup
+        self.menu_asr = self.menu.addMenu(_("ASR backend"))
+        self.menu_asr.aboutToShow.connect(self._refresh_asr_menu)
+        self._asr_group = QActionGroup(self.menu_asr)
+        self._asr_group.setExclusive(True)
+        self._asr_actions = {}
+        for key, label in ASR_BACKENDS:
+            action = self.menu_asr.addAction(label)
+            action.setCheckable(True)
+            action.setData(key)
+            self._asr_group.addAction(action)
+            self._asr_actions[key] = action
+        self._asr_group.triggered.connect(self._on_asr_selected)
+
+        # Translate backend submenu
+        self.menu_trans = self.menu.addMenu(_("Translation"))
+        self.menu_trans.aboutToShow.connect(self._refresh_trans_menu)
+        self._trans_group = QActionGroup(self.menu_trans)
+        self._trans_group.setExclusive(True)
+        self._trans_actions = {}
+        for key, label in TRANSLATE_BACKENDS:
+            action = self.menu_trans.addAction(label)
+            action.setCheckable(True)
+            action.setData(key)
+            self._trans_group.addAction(action)
+            self._trans_actions[key] = action
+        self._trans_group.triggered.connect(self._on_trans_selected)
+
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.action_postprocess = self.menu.addAction(_("Post-processing..."))
@@ -471,6 +631,34 @@ class DicteeTrayQt:
         elif reason == self.QSystemTrayIcon.ActivationReason.MiddleClick:
             if self.state in ("recording", "transcribing"):
                 subprocess.Popen(["dictee", "--cancel"])
+
+    def _on_asr_selected(self, action):
+        key = action.data()
+        subprocess.Popen(["dictee-switch-backend", "asr", key])
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2000, self._delayed_daemon_refresh)
+
+    def _on_trans_selected(self, action):
+        key = action.data()
+        subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _delayed_daemon_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+
+    def _refresh_asr_menu(self):
+        current = _current_asr_backend()
+        for key, action in self._asr_actions.items():
+            action.setChecked(key == current)
+            action.setEnabled(_asr_service_exists(key))
+
+    def _refresh_trans_menu(self):
+        current = _current_translate_backend()
+        trans_enabled = _is_translate_enabled()
+        self.menu_trans.setEnabled(trans_enabled)
+        for key, action in self._trans_actions.items():
+            action.setChecked(key == current)
 
     def _check_daemon(self):
         self._daemon_active = daemon_is_active()
