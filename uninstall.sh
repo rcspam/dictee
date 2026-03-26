@@ -29,7 +29,10 @@ done
 echo "→ Suppression des binaires"
 for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
            transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
-           dictee-ptt dotool dotoold transcribe-daemon-vosk transcribe-daemon-whisper; do
+           dictee-switch-backend dictee-test-rules transcribe-daemon-canary \
+           transcribe-daemon-vosk transcribe-daemon-whisper \
+           dictee-plasmoid-level dictee-plasmoid-level-daemon dictee-plasmoid-level-fft \
+           dotool dotoold; do
     rm -f "$PREFIX/bin/$bin"
 done
 
@@ -42,7 +45,8 @@ udevadm trigger /dev/uinput 2>/dev/null || true
 # Man pages
 echo "→ Suppression des pages de manuel"
 for man in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-           transcribe-stream-diarize dictee dictee-setup dictee-tray; do
+           transcribe-stream-diarize dictee dictee-setup dictee-tray \
+           dictee-switch-backend dictee-test-rules dictee-postprocess; do
     rm -f "$PREFIX/share/man/man1/$man.1"
     rm -f "$PREFIX/share/man/fr/man1/$man.1"
 done
@@ -59,6 +63,24 @@ for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dict
 done
 su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
 
+# Plasmoid KDE
+if command -v kpackagetool6 >/dev/null 2>&1; then
+    echo "→ Suppression du widget Plasma"
+    su "$REAL_USER" -c "kpackagetool6 -t Plasma/Applet -r com.github.rcspam.dictee 2>/dev/null || true"
+fi
+
+# Preset systemd
+echo "→ Suppression du preset systemd"
+rm -f "/usr/lib/systemd/user-preset/90-dictee.preset"
+
+# CUDA libs
+if [ -d "/usr/lib/dictee" ]; then
+    echo "→ Suppression des libs CUDA"
+    rm -rf "/usr/lib/dictee"
+    rm -f "/etc/ld.so.conf.d/dictee.conf"
+    ldconfig 2>/dev/null || true
+fi
+
 # Locales
 echo "→ Suppression des traductions"
 for lang in fr de es it uk pt; do
@@ -68,7 +90,9 @@ done
 
 # Icônes
 echo "→ Suppression des icônes"
-for icon in parakeet-active parakeet-active-dark parakeet-inactive parakeet-inactive-dark; do
+for icon in parakeet-active parakeet-active-dark parakeet-inactive parakeet-inactive-dark \
+             parakeet-offline parakeet-recording parakeet-transcribing \
+             dictee dictee-setup dictee-tray; do
     rm -f "$REAL_HOME/.local/share/icons/hicolor/scalable/apps/$icon.svg"
 done
 

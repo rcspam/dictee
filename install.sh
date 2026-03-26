@@ -43,6 +43,11 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-postprocess" "$PREFIX/bin/dictee-post
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-switch-backend" "$PREFIX/bin/dictee-switch-backend"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-test-rules" "$PREFIX/bin/dictee-test-rules"
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-canary" "$PREFIX/bin/transcribe-daemon-canary"
+install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-vosk" "$PREFIX/bin/transcribe-daemon-vosk"
+install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-whisper" "$PREFIX/bin/transcribe-daemon-whisper"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-plasmoid-level" "$PREFIX/bin/dictee-plasmoid-level"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-plasmoid-level-daemon" "$PREFIX/bin/dictee-plasmoid-level-daemon"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-plasmoid-level-fft" "$PREFIX/bin/dictee-plasmoid-level-fft"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
 
@@ -161,6 +166,20 @@ for conf in rules.conf.default dictionary.conf.default continuation.conf.default
     fi
 done
 
+# Plasmoid KDE Plasma 6
+if [ -f "$SCRIPT_DIR/usr/share/dictee/dictee.plasmoid" ]; then
+    install -Dm644 "$SCRIPT_DIR/usr/share/dictee/dictee.plasmoid" "$MODEL_DIR/dictee.plasmoid"
+    echo "→ Installation du widget KDE Plasma"
+    if command -v kpackagetool6 >/dev/null 2>&1; then
+        sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -u "$MODEL_DIR/dictee.plasmoid" 2>/dev/null || \
+        sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -i "$MODEL_DIR/dictee.plasmoid" 2>/dev/null || true
+        echo "  ✓ Widget Plasma installé"
+    else
+        echo "  ⚠ kpackagetool6 non trouvé — installez manuellement :"
+        echo "    kpackagetool6 -t Plasma/Applet -i $MODEL_DIR/dictee.plasmoid"
+    fi
+fi
+
 # Répertoire des modèles (accessible en écriture pour dictee-setup)
 echo "→ Création du répertoire des modèles"
 for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemotron"; do
@@ -174,14 +193,18 @@ REAL_UID=$(id -u "$REAL_USER")
 if [ -d "/run/user/$REAL_UID" ]; then
     _run="sudo -u $REAL_USER XDG_RUNTIME_DIR=/run/user/$REAL_UID DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
     $_run systemctl --user daemon-reload 2>/dev/null || true
-    $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
+    $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
     $_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
     $_run systemctl --user restart dotoold 2>/dev/null || true
     echo "  ↳ dotoold démarré"
     $_run systemctl --user restart dictee-ptt 2>/dev/null || true
     echo "  ↳ dictee-ptt démarré"
-    $_run systemctl --user restart dictee-tray 2>/dev/null || true
-    echo "  ↳ dictee-tray démarré"
+    if [ -f "$REAL_HOME/.config/dictee.conf" ]; then
+        $_run systemctl --user restart dictee-tray 2>/dev/null || true
+        echo "  ↳ dictee-tray démarré"
+    else
+        echo "  ↳ dictee-tray : en attente de configuration (dictee-setup)"
+    fi
     $_run systemctl --user start dictee 2>/dev/null || true
     echo "  ↳ dictee (daemon ASR) démarré"
     # Enable GNOME AppIndicator extension for tray icon
