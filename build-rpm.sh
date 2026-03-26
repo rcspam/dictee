@@ -270,10 +270,14 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
-    \$_run systemctl --user restart dictee-tray 2>/dev/null || true
+    # Only restart tray if user has a config (avoid starting unconfigured tray)
+    _user_home=\$(getent passwd "\$user" | cut -d: -f6)
+    if [ -f "\$_user_home/.config/dictee.conf" ]; then
+        \$_run systemctl --user restart dictee-tray 2>/dev/null || true
+    fi
 done
 
 %postun
@@ -416,10 +420,14 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
-    \$_run systemctl --user restart dictee-tray 2>/dev/null || true
+    # Only restart tray if user has a config (avoid starting unconfigured tray)
+    _user_home=\$(getent passwd "\$user" | cut -d: -f6)
+    if [ -f "\$_user_home/.config/dictee.conf" ]; then
+        \$_run systemctl --user restart dictee-tray 2>/dev/null || true
+    fi
 done
 
 %postun

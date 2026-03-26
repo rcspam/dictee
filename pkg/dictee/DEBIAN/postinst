@@ -207,7 +207,7 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
-        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
         # Activer tous les services essentiels
         $_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
         # Démarrer/redémarrer les services
@@ -215,12 +215,17 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         echo "  ↳ dotoold démarré"
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
         echo "  ↳ dictee-ptt démarré"
-        $_run systemctl --user restart dictee-tray 2>/dev/null || true
-        echo "  ↳ dictee-tray démarré"
+        _user_home=$(getent passwd "$user" | cut -d: -f6)
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            $_run systemctl --user restart dictee-tray 2>/dev/null || true
+            echo "  ↳ dictee-tray démarré"
+        else
+            echo "  ↳ dictee-tray : en attente de configuration (dictee-setup)"
+        fi
         $_run systemctl --user start dictee 2>/dev/null || true
         echo "  ↳ dictee (daemon ASR) démarré"
         # Redémarrer les autres services actifs après upgrade
-        for svc in dictee dictee-vosk dictee-whisper; do
+        for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
             if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
                 echo "  ↳ Redémarrage de $svc"
                 $_run systemctl --user restart "$svc" 2>/dev/null || true
