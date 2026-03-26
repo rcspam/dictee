@@ -84,6 +84,18 @@ PlasmoidItem {
                 if (stdout.length > 0) {
                     parseState(stdout)
                 }
+            } else if (source === readConfCmd) {
+                var parts = stdout.trim().split("|")
+                if (parts.length >= 3) {
+                    root.currentAsrBackend = parts[0] || "parakeet"
+                    var tb = parts[1] || "trans"
+                    var te = parts[2] || "google"
+                    if (tb === "trans") {
+                        root.currentTranslateBackend = te
+                    } else {
+                        root.currentTranslateBackend = tb
+                    }
+                }
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
@@ -168,6 +180,15 @@ PlasmoidItem {
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
     property string daemonCheckCmd: "bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
+    // Current backend state (read from config)
+    property string currentAsrBackend: "parakeet"
+    property string currentTranslateBackend: "google"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
+
+    function refreshBackends() {
+        executable.run(readConfCmd)
+    }
+
     // Ping-pong pour l'état aussi
     property int stateSlot: 0
     property bool stateReadPending: false
@@ -226,6 +247,7 @@ PlasmoidItem {
         triggeredOnStart: true
         onTriggered: {
             executable.run(daemonCheckCmd)
+            refreshBackends()
         }
     }
 
@@ -333,7 +355,10 @@ PlasmoidItem {
     }
 
     // Lancer le daemon audio au chargement pour éviter la latence
-    Component.onCompleted: preStartAudioDaemon()
+    Component.onCompleted: {
+        preStartAudioDaemon()
+        refreshBackends()
+    }
 
     Component.onDestruction: {
         executable.run("dictee-plasmoid-level stop")

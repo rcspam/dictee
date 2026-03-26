@@ -199,6 +199,69 @@ ColumnLayout {
         Layout.fillWidth: true
     }
 
+    // Backend selectors
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
+        visible: fullRep.state !== "offline"
+
+        PlasmaComponents.Label {
+            text: i18n("ASR:")
+            Layout.alignment: Qt.AlignVCenter
+        }
+
+        QQC2.ComboBox {
+            id: asrCombo
+            model: [
+                { value: "parakeet", text: "Parakeet" },
+                { value: "canary", text: "Canary" },
+                { value: "vosk", text: "Vosk" },
+                { value: "whisper", text: "Whisper" }
+            ]
+            textRole: "text"
+            valueRole: "value"
+            currentIndex: {
+                var backend = root.currentAsrBackend
+                for (var i = 0; i < model.length; i++) {
+                    if (model[i].value === backend) return i
+                }
+                return 0
+            }
+            onActivated: {
+                executable.run("dictee-switch-backend asr " + currentValue)
+            }
+            Layout.fillWidth: true
+        }
+
+        PlasmaComponents.Label {
+            text: i18n("Translation:")
+            Layout.alignment: Qt.AlignVCenter
+        }
+
+        QQC2.ComboBox {
+            id: transCombo
+            model: [
+                { value: "google", text: "Google" },
+                { value: "bing", text: "Bing" },
+                { value: "ollama", text: "Ollama" },
+                { value: "libretranslate", text: "LibreTranslate" }
+            ]
+            textRole: "text"
+            valueRole: "value"
+            currentIndex: {
+                var backend = root.currentTranslateBackend
+                for (var i = 0; i < model.length; i++) {
+                    if (model[i].value === backend) return i
+                }
+                return 0
+            }
+            onActivated: {
+                executable.run("dictee-switch-backend translate " + currentValue)
+            }
+            Layout.fillWidth: true
+        }
+    }
+
     // Preview + configuration
     RowLayout {
         Layout.fillWidth: true
