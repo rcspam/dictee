@@ -1,0 +1,58 @@
+.TH DICTEE-POSTPROCESS 1 "March 2026" "dictee 1.2.0" "User Commands"
+.SH NAME
+dictee-postprocess \- text post-processing filter for dictee
+.SH SYNOPSIS
+.B dictee-postprocess
+.SH DESCRIPTION
+.B dictee-postprocess
+is a text filter that applies the post-processing pipeline to transcribed text. It reads from standard input and writes the transformed text to standard output.
+.PP
+The pipeline includes (in order): custom regex rules, dictionary replacements, fuzzy dictionary matching, number conversion (text2num), French elisions, auto-capitalization, and non-breaking space typography.
+.PP
+Each step can be individually enabled or disabled in
+.IR ~/.config/dictee.conf .
+.PP
+This command is typically called by
+.BR dictee (1)
+as part of the transcription pipeline, not directly by the user.
+.SH CONFIGURATION
+Post-processing options in
+.IR ~/.config/dictee.conf :
+.TP
+.B DICTEE_POSTPROCESS=true|false
+Enable or disable the entire pipeline.
+.TP
+.B DICTEE_PP_RULES=true|false
+Enable custom regex rules.
+.TP
+.B DICTEE_PP_DICTIONARY=true|false
+Enable dictionary replacements.
+.TP
+.B DICTEE_PP_TEXT2NUM=true|false
+Enable number conversion.
+.TP
+.B DICTEE_PP_ELISIONS=true|false
+Enable French elision rules.
+.TP
+.B DICTEE_PP_CAPITALIZATION=true|false
+Enable auto-capitalization.
+.TP
+.B DICTEE_PP_TYPOGRAPHY=true|false
+Enable non-breaking space insertion.
+.SH FILES
+.TP
+.I ~/.config/dictee/rules.conf
+User rules file.
+.TP
+.I ~/.config/dictee/dictionary.conf
+User dictionary file.
+.TP
+.I /usr/share/dictee/rules.conf.default
+Default rules.
+.TP
+.I /usr/share/dictee/dictionary.conf.default
+Default dictionary.
+.SH SEE ALSO
+.BR dictee (1),
+.BR dictee-test-rules (1),
+.BR dictee-setup (1)

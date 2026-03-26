@@ -1,0 +1,58 @@
+.TH DICTEE-POSTPROCESS 1 "Mars 2026" "dictee 1.2.0" "Commandes utilisateur"
+.SH NOM
+dictee-postprocess \- filtre de post-traitement de texte pour dictee
+.SH SYNOPSIS
+.B dictee-postprocess
+.SH DESCRIPTION
+.B dictee-postprocess
+est un filtre de texte qui applique le pipeline de post-traitement au texte transcrit. Il lit depuis l'entrée standard et écrit le texte transformé sur la sortie standard.
+.PP
+Le pipeline comprend (dans l'ordre) : règles regex personnalisées, remplacements par dictionnaire, correspondance floue dans le dictionnaire, conversion des nombres (text2num), élisions françaises, capitalisation automatique, et typographie avec espaces insécables.
+.PP
+Chaque étape peut être activée ou désactivée individuellement dans
+.IR ~/.config/dictee.conf .
+.PP
+Cette commande est généralement appelée par
+.BR dictee (1)
+dans le cadre du pipeline de transcription, et non directement par l'utilisateur.
+.SH CONFIGURATION
+Options de post-traitement dans
+.IR ~/.config/dictee.conf :
+.TP
+.B DICTEE_POSTPROCESS=true|false
+Active ou désactive l'ensemble du pipeline.
+.TP
+.B DICTEE_PP_RULES=true|false
+Active les règles regex personnalisées.
+.TP
+.B DICTEE_PP_DICTIONARY=true|false
+Active les remplacements par dictionnaire.
+.TP
+.B DICTEE_PP_TEXT2NUM=true|false
+Active la conversion des nombres.
+.TP
+.B DICTEE_PP_ELISIONS=true|false
+Active les règles d'élision françaises.
+.TP
+.B DICTEE_PP_CAPITALIZATION=true|false
+Active la capitalisation automatique.
+.TP
+.B DICTEE_PP_TYPOGRAPHY=true|false
+Active l'insertion d'espaces insécables.
+.SH FICHIERS
+.TP
+.I ~/.config/dictee/rules.conf
+Fichier de règles utilisateur.
+.TP
+.I ~/.config/dictee/dictionary.conf
+Fichier de dictionnaire utilisateur.
+.TP
+.I /usr/share/dictee/rules.conf.default
+Règles par défaut.
+.TP
+.I /usr/share/dictee/dictionary.conf.default
+Dictionnaire par défaut.
+.SH VOIR AUSSI
+.BR dictee (1),
+.BR dictee-test-rules (1),
+.BR dictee-setup (1)

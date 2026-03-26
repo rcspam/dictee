@@ -1,0 +1,30 @@
+.TH DICTEE-TEST-RULES 1 "Mars 2026" "dictee 1.2.0" "Commandes utilisateur"
+.SH NOM
+dictee-test-rules \- tester les règles de post-traitement de dictee
+.SH SYNOPSIS
+.B dictee-test-rules
+.RB [ \-\-loop ]
+.RB [ "\-\-wav " \fIfichier\fR ]
+.SH DESCRIPTION
+.B dictee-test-rules
+teste le pipeline de règles de post-traitement de manière interactive. Il affiche ce que Parakeet détecte et comment les règles transforment le texte.
+.PP
+Lorsque des caractères cyrilliques sont détectés dans la saisie (erreur de détection fréquente de Parakeet pour les commandes courtes), l'outil affiche la règle prête à copier pour
+.IR rules.conf .
+.SH OPTIONS
+.TP
+.B \-\-loop
+Exécute en mode boucle de test continu. Appuyer sur Ctrl+C pour quitter.
+.TP
+.BI \-\-wav " fichier"
+Teste les règles à partir d'un fichier audio plutôt que du microphone.
+.SH FICHIERS
+.TP
+.I ~/.config/dictee/rules.conf
+Fichier de règles utilisateur.
+.TP
+.I /usr/share/dictee/rules.conf.default
+Règles par défaut fournies avec dictee.
+.SH VOIR AUSSI
+.BR dictee (1),
+.BR dictee-setup (1)

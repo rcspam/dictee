@@ -1,0 +1,30 @@
+.TH DICTEE-TEST-RULES 1 "March 2026" "dictee 1.2.0" "User Commands"
+.SH NAME
+dictee-test-rules \- test post-processing rules for dictee
+.SH SYNOPSIS
+.B dictee-test-rules
+.RB [ \-\-loop ]
+.RB [ "\-\-wav " \fIfile\fR ]
+.SH DESCRIPTION
+.B dictee-test-rules
+tests the post-processing rules pipeline interactively. It shows what Parakeet detects and how the rules transform the text.
+.PP
+When Cyrillic characters are detected in the input (common Parakeet misdetection for short commands), the tool displays the ready-to-copy rule for
+.IR rules.conf .
+.SH OPTIONS
+.TP
+.B \-\-loop
+Run in continuous test loop mode. Press Ctrl+C to exit.
+.TP
+.BI \-\-wav " file"
+Test rules from an audio file instead of microphone input.
+.SH FILES
+.TP
+.I ~/.config/dictee/rules.conf
+User rules configuration file.
+.TP
+.I /usr/share/dictee/rules.conf.default
+Default rules shipped with dictee.
+.SH SEE ALSO
+.BR dictee (1),
+.BR dictee-setup (1)

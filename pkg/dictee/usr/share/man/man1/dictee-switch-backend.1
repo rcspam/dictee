@@ -1,0 +1,42 @@
+.TH DICTEE-SWITCH-BACKEND 1 "March 2026" "dictee 1.2.0" "User Commands"
+.SH NAME
+dictee-switch-backend \- switch ASR or translation backend for dictee
+.SH SYNOPSIS
+.B dictee-switch-backend
+.I command
+.RI [ backend ]
+.SH DESCRIPTION
+.B dictee-switch-backend
+switches the active ASR or translation backend. For ASR, it updates
+.I ~/.config/dictee.conf
+and restarts the corresponding systemd user service. For translation, it only updates the configuration (no service restart needed).
+.SH COMMANDS
+.TP
+.B status
+Show the current ASR and translation backends.
+.TP
+.BI "asr " backend
+Switch the ASR backend.
+.I backend
+is one of:
+.BR parakeet ", " canary ", " vosk ", " whisper .
+.TP
+.BI "translate " backend
+Switch the translation backend.
+.I backend
+is one of:
+.BR google ", " bing ", " ollama ", " libretranslate .
+.SH EXAMPLES
+.nf
+dictee-switch-backend status
+dictee-switch-backend asr canary
+dictee-switch-backend translate ollama
+.fi
+.SH FILES
+.TP
+.I ~/.config/dictee.conf
+Main configuration file (shell-sourceable key=value format).
+.SH SEE ALSO
+.BR dictee (1),
+.BR dictee-setup (1),
+.BR dictee-tray (1)
