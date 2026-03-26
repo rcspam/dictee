@@ -34,7 +34,7 @@ _ = gettext.gettext
 STATE_FILE = "/dev/shm/.dictee_state"
 TRANSLATE_FLAG = "/tmp/dictee_translate"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
 CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
