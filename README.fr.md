@@ -35,7 +35,7 @@
 
 **dictee** est un système complet de dictée vocale pour Linux. La transcription est réalisée **100% en local** — aucune donnée audio ne quitte votre machine. Appuyez sur un raccourci, parlez, et le texte est tapé directement dans l'application active.
 
-- **3 backends ASR** : [Parakeet-TDT](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (25 langues, ponctuation native), [Vosk](https://alphacephei.com/vosk/) (léger, ~50 Mo), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (99 langues)
+- **4 backends ASR** : [Parakeet-TDT](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (25 langues, ponctuation native), [Canary-1B](https://huggingface.co/nvidia/canary-1b) (traduction intégrée, GPU), [Vosk](https://alphacephei.com/vosk/) (léger, ~50 Mo), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (99 langues)
 - **Mode daemon** : modèle chargé une seule fois, transcriptions quasi-instantanées (~0,8s sur CPU)
 - **Traduction** : 4 backends — Google, Bing, LibreTranslate (local), ollama (local)
 - **Diarisation** : identification des locuteurs, jusqu'à 4 via Sortformer (CLI uniquement, pas encore dans la dictée vocale)
@@ -54,10 +54,10 @@ Télécharger le `.deb` depuis les [Releases](../../releases), puis :
 
 ```bash
 # Version GPU (nécessite le dépôt NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
-sudo dpkg -i dictee-cuda_1.1.4_amd64.deb
+sudo dpkg -i dictee-cuda_1.2.0_amd64.deb
 
 # Version CPU (tout ordinateur, aucun dépôt supplémentaire requis)
-sudo dpkg -i dictee-cpu_1.1.4_amd64.deb
+sudo dpkg -i dictee-cpu_1.2.0_amd64.deb
 
 # Installer les dépendances manquantes
 sudo apt-get install -f
@@ -69,10 +69,10 @@ sudo apt-get install -f
 
 ```bash
 # Version GPU (NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
-sudo dnf install ./dictee-cuda-1.1.4-1.x86_64.rpm
+sudo dnf install ./dictee-cuda-1.2.0-1.x86_64.rpm
 
 # Version CPU (tout ordinateur)
-sudo dnf install ./dictee-cpu-1.1.4-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.2.0-1.x86_64.rpm
 ```
 
 **Arch Linux (AUR) :**
@@ -86,16 +86,16 @@ Les paquets pré-compilés sont x86_64 uniquement. Sur aarch64 (Raspberry Pi 5, 
 **Autres distributions (.tar.gz) :**
 
 ```bash
-tar xzf dictee-1.1.4_amd64.tar.gz
-cd dictee-1.1.4
+tar xzf dictee-1.2.0_amd64.tar.gz
+cd dictee-1.2.0
 sudo ./install.sh
 ```
 
 **Depuis les sources :**
 
 ```bash
-tar xzf dictee-1.1.4-source.tar.gz
-cd dictee-1.1.4-source
+tar xzf dictee-1.2.0-source.tar.gz
+cd dictee-1.2.0-source
 cargo build --release --features sortformer
 sudo ./install.sh
 ```
@@ -154,11 +154,12 @@ Après installation, lancez `dictee --setup` pour tout configurer depuis une int
 
 ### Backend ASR
 
-Trois backends de transcription mutuellement exclusifs, commutables depuis `dictee --setup` :
+Quatre backends de transcription mutuellement exclusifs, commutables depuis `dictee --setup` :
 
 | Backend | Langues | Taille modèle | Daemon chaud | Type |
 |---------|---------|----------------|--------------|------|
 | **Parakeet-TDT** (défaut) | 25 | ~2,5 Go | ~0,8s | ONNX Runtime (Rust) |
+| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 Go | ~0,7s (GPU) | ONNX Runtime (Python, GPU recommandé) |
 | **Vosk** | 9+ | ~50 Mo | ~1,5s | Python (léger) |
 | **faster-whisper** | 99 | ~500 Mo–3 Go | ~0,3s | CTranslate2 (Python) |
 
@@ -178,6 +179,25 @@ Chaque backend tourne en service systemd utilisateur — même protocole socket 
 | **translate-shell** (Bing) | En ligne | 1,7–2,2s | Bonne | `apt install translate-shell` |
 | **LibreTranslate** | 100% local | 0,1–0,3s | Bonne | Docker (~2 Go d'image) |
 | **ollama** | 100% local | 2,3–3,4s | Meilleure | ollama + modèle translategemma |
+
+### Changement rapide de backend
+
+Changez de backend ASR ou traduction instantanément depuis la ligne de commande, le menu du tray ou le widget Plasma :
+
+```bash
+# Changer de backend ASR
+dictee-switch-backend asr canary
+
+# Changer de backend traduction
+dictee-switch-backend translate ollama
+
+# Voir les backends actifs
+dictee-switch-backend status
+# → ASR: parakeet (dictee.service, active)
+# → Translate: google (trans)
+```
+
+Le tray et le widget Plasma incluent des sous-menus pour changer de backend sans ouvrir la configuration.
 
 ---
 
@@ -234,6 +254,11 @@ systemctl --user enable --now dictee-tray
 
 L'icône s'adapte automatiquement au thème clair/sombre.
 
+Le widget Plasma et le tray incluent tous deux :
+- **Sélecteurs de backend** — changer de backend ASR et traduction sans ouvrir `dictee-setup`
+- **Détection premier lancement** — propose de lancer l'assistant de configuration si pas encore configuré
+- **Détection d'installation** (widget Plasma) — affiche un message clair si dictee n'est pas installé
+
 ### animation-speech
 
 [animation-speech](https://github.com/rcspam/animation-speech) est un projet autonome qui fournit une animation visuelle plein écran pendant l'enregistrement, avec annulation via la touche Echap. Il fonctionne sur tout compositeur Wayland supportant `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…).
@@ -271,31 +296,57 @@ DICTEE_LANG_TARGET=es dictee --translate    # → espagnol
 
 # Annuler l'enregistrement en cours (via raccourci ou touche Echap)
 dictee --cancel
+
+# Tester les règles de post-traitement
+dictee-test-rules                    # mode interactif
+dictee-test-rules --loop             # boucle de test continue
+dictee-test-rules --wav fichier.wav  # tester avec un fichier audio
+
+# Changer de backend en ligne de commande
+dictee-switch-backend status         # voir les backends actifs
+dictee-switch-backend asr canary     # passer à Canary
+dictee-switch-backend translate bing # traduction vers Bing
 ```
 
 ---
 
 ## Pour aller plus loin
 
+### Post-traitement
+
+dictee inclut un pipeline configurable de transformation du texte qui s'exécute après la transcription :
+
+- **Règles personnalisées** — remplacement par regex (ex : commandes vocales « à la ligne », « virgule »)
+- **Dictionnaire** — corriger les erreurs récurrentes de l'ASR
+- **Continuation** — détecter les phrases incomplètes entre plusieurs dictées
+- **Élisions** — règles de grammaire française (ex : « le arbre » → « l'arbre »)
+- **Conversion des nombres** — nombres dictés en chiffres (ex : « vingt-trois » → « 23 »)
+- **Capitalisation automatique** — majuscule après ponctuation finale
+- **Correction LLM** — correction optionnelle grammaire/orthographe via Ollama avant les règles
+
+Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les règles avec `dictee-test-rules`.
+
 | Documentation | Description |
 |---------------|-------------|
 | [docs/cli-programs.md](docs/cli-programs.md) | Binaires CLI, utilisation directe, modèles ONNX |
 | [docs/building.md](docs/building.md) | Compilation depuis les sources, features Cargo, pipeline audio |
 | [docs/plasmoid.md](docs/plasmoid.md) | Réglages du widget, styles d'animation, configuration détaillée |
+| [Post-traitement](docs/postprocessing.md) | Pipeline de transformation du texte : règles, dictionnaire, élisions, text2num, capitalisation, correction LLM |
 
 ---
 
 ## Feuille de route
 
+**v1.2.0 (actuelle) :** 4 backends ASR (+ Canary), pipeline de post-traitement, changement rapide de backend, assistant premier lancement, `dictee-test-rules`
+
 - (v1.3) **Hotword boosting** — biaiser le décodage ASR vers des noms et termes personnalisés sans ré-entraîner (beam search + Aho-Corasick en Rust)
-- (v1.3) Correction LLM avant les règles de formatage (grammaire, homophones via Ollama)
+- Diarisation depuis le tray/plasmoid — sélection de fichier audio, transcription avec identification des locuteurs
 - CLI speech-to-text (pipe audio, récupérer le texte)
 - Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions
 - VAD (Voice Activity Detection) — dictée mains libres sans push-to-talk
 - Transcription streaming temps réel avec affichage en direct
 - Overlay visuel intégré (remplacer `animation-speech` externe)
 - Packaging AppImage / Flatpak
-- Publication AUR (Arch Linux)
 - Applet COSMIC / GNOME (contributions bienvenues !)
 
 ## Crédits
