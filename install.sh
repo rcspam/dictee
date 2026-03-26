@@ -41,6 +41,8 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-tray" "$PREFIX/bin/dictee-tray"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-ptt" "$PREFIX/bin/dictee-ptt"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-postprocess" "$PREFIX/bin/dictee-postprocess"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-switch-backend" "$PREFIX/bin/dictee-switch-backend"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-test-rules" "$PREFIX/bin/dictee-test-rules"
+install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-canary" "$PREFIX/bin/transcribe-daemon-canary"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
 
