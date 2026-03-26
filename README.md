@@ -300,7 +300,7 @@ dictee --cancel
 # Test post-processing rules
 dictee-test-rules                    # interactive mode
 dictee-test-rules --loop             # continuous test loop
-dictee-test-rules --wav file.wav     # test with audio file
+dictee-test-rules --wav file.wav     # test from audio file
 
 # Switch backend from command line
 dictee-switch-backend status         # show current backends
