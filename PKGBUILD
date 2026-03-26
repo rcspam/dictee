@@ -1,6 +1,6 @@
 # Maintainer: rcspam <rcspams@gmail.com>
 pkgname=dictee
-pkgver=1.2.0beta2
+pkgver=1.2.0rc1
 pkgrel=1
 pkgdesc="Fast push-to-talk voice dictation for Linux with NVIDIA Parakeet, Vosk and faster-whisper"
 arch=('x86_64' 'aarch64')
@@ -30,7 +30,7 @@ optdepends=(
     'cudnn: NVIDIA cuDNN for GPU acceleration'
 )
 makedepends=('rust' 'cargo' 'go' 'scdoc' 'libxkbcommon' 'git')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v1.2.0~beta2.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v1.2.0~rc1.tar.gz")
 sha256sums=('SKIP')
 
 build() {
