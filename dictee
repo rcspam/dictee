@@ -22,7 +22,22 @@
 
 # Charger la configuration (dictee-setup)
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
-[ -f "$DICTEE_CONF" ] && source "$DICTEE_CONF"
+if [ -f "$DICTEE_CONF" ]; then
+    source "$DICTEE_CONF"
+fi
+
+# Parse --help before config guard (works without config)
+case "${1:-}" in
+    --help|-h)
+        head -n 18 "$0" | grep '^#' | sed 's/^# \?//'
+        exit 0
+        ;;
+esac
+
+# First-run guard: launch wizard if no config
+if [ ! -f "$DICTEE_CONF" ]; then
+    exec dictee-setup --wizard
+fi
 
 # Exporter OLLAMA_NUM_GPU si défini dans la config (mode CPU forcé)
 [ -n "$OLLAMA_NUM_GPU" ] && export OLLAMA_NUM_GPU
