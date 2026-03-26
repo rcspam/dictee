@@ -1,30 +1,30 @@
 .TH DICTEE-SWITCH-BACKEND 1 "Mars 2026" "dictee 1.2.0" "Commandes utilisateur"
 .SH NOM
-dictee-switch-backend \- changer le moteur ASR ou de traduction de dictee
+dictee-switch-backend \- changer le backend ASR ou de traduction pour dictee
 .SH SYNOPSIS
 .B dictee-switch-backend
 .I commande
-.RI [ moteur ]
+.RI [ backend ]
 .SH DESCRIPTION
 .B dictee-switch-backend
-change le moteur ASR ou de traduction actif. Pour l'ASR, il met à jour
+change le backend ASR ou de traduction actif. Pour l'ASR, il met à jour
 .I ~/.config/dictee.conf
-et redémarre le service systemd utilisateur correspondant. Pour la traduction, il met uniquement à jour la configuration (aucun redémarrage de service nécessaire).
+et redémarre le service systemd utilisateur correspondant. Pour la traduction, il met uniquement à jour la configuration (pas de redémarrage de service nécessaire).
 .SH COMMANDES
 .TP
 .B status
-Affiche les moteurs ASR et de traduction actuellement configurés.
+Afficher les backends ASR et de traduction actuels.
 .TP
-.BI "asr " moteur
-Change le moteur ASR.
-.I moteur
-est l'un des suivants :
+.BI "asr " backend
+Changer le backend ASR.
+.I backend
+est l'un de :
 .BR parakeet ", " canary ", " vosk ", " whisper .
 .TP
-.BI "translate " moteur
-Change le moteur de traduction.
-.I moteur
-est l'un des suivants :
+.BI "translate " backend
+Changer le backend de traduction.
+.I backend
+est l'un de :
 .BR google ", " bing ", " ollama ", " libretranslate .
 .SH EXEMPLES
 .nf
@@ -35,7 +35,7 @@ dictee-switch-backend translate ollama
 .SH FICHIERS
 .TP
 .I ~/.config/dictee.conf
-Fichier de configuration principal (format clé=valeur compatible shell).
+Fichier de configuration principal (format clé=valeur sourçable par le shell).
 .SH VOIR AUSSI
 .BR dictee (1),
 .BR dictee-setup (1),

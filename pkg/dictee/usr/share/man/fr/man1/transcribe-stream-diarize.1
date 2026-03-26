@@ -1,55 +1,53 @@
 .TH TRANSCRIBE-STREAM-DIARIZE 1 "Mars 2025" "dictee 0.99" "Commandes utilisateur"
 .SH NOM
-transcribe-stream-diarize \- transcription en continu avec identification des locuteurs (anglais)
+transcribe-stream-diarize \- transcription en streaming avec identification des locuteurs (anglais)
 .SH SYNOPSIS
 .B transcribe-stream-diarize
 .RI [ fichier_audio ]
 .SH DESCRIPTION
 .B transcribe-stream-diarize
-effectue une transcription en continu avec sortie en temps r\('eel et
-identification des locuteurs.
-Utilise Nemotron pour la transcription en continu et Sortformer pour la
-diarisation.
+effectue une transcription en streaming avec sortie en temps réel et identification des locuteurs.
+Utilise Nemotron pour la transcription en streaming et Sortformer pour la diarisation.
 .PP
 .B Note :
-Cette commande ne supporte que l'anglais (limitation Nemotron).
-Pour le support multilingue, utiliser
+Cette commande ne supporte que l'anglais (limitation de Nemotron).
+Pour le support multilingue, utilisez
 .BR transcribe\-diarize (1).
 .PP
-Accepte tout format audio (MP3, OGG, FLAC, OPUS, etc.) via conversion
-automatique par
+Accepte tout format audio (MP3, OGG, FLAC, OPUS, etc.) via conversion automatique
 .BR ffmpeg (1)
-en WAV 16kHz mono. Les chemins de fichiers supportent la r\('esolution de
+en WAV 16 kHz mono.
+Les chemins de fichiers supportent la résolution de
 .BR ~ ", " ./ " et " ../ .
 .PP
-Lors de l'enregistrement depuis le micro, si celui-ci est muet il est
-automatiquement d\('emut\('e pour l'enregistrement et remut\('e ensuite.
+Lors de l'enregistrement depuis le microphone, si celui-ci est coupé, il est automatiquement
+réactivé pour l'enregistrement puis recoupé ensuite.
 .SH OPTIONS
 .TP
 .I fichier_audio
-Chemin vers le fichier audio. Sans argument, enregistre depuis le micro
-jusqu'\(`a Ctrl+C. Tout format support\('e par ffmpeg est accept\('e.
+Chemin vers le fichier audio. S'il n'est pas fourni, enregistre depuis le microphone jusqu'à Ctrl+C.
+Tout format supporté par ffmpeg est accepté.
 .TP
 .BR \-\-help ", " \-h
-Affiche un r\('esum\('e de l'utilisation et quitte.
+Affiche un résumé d'utilisation et quitte.
 .SH ENVIRONNEMENT
 .TP
 .B NEMOTRON_DIR
-Chemin vers le mod\(`ele Nemotron (d\('efaut : /usr/share/dictee/nemotron).
+Chemin vers le modèle Nemotron (par défaut : /usr/share/dictee/nemotron).
 .TP
 .B SORTFORMER_DIR
-Chemin vers le mod\(`ele Sortformer (d\('efaut : /usr/share/dictee/sortformer).
+Chemin vers le modèle Sortformer (par défaut : /usr/share/dictee/sortformer).
 .SH EXEMPLES
 .TP
 Depuis un fichier :
-.B transcribe-stream-diarize reunion.wav
+.B transcribe-stream-diarize meeting.wav
 .TP
-Depuis le micro :
+Depuis le microphone :
 .B transcribe-stream-diarize
 .br
-(Appuyer sur Ctrl+C pour arr\(^eter l'enregistrement)
+(Appuyez sur Ctrl+C pour arrêter l'enregistrement)
 .SH COMPILATION
-Ce binaire n\('ecessite la feature Cargo
+Ce binaire nécessite la feature Cargo
 .B sortformer
 :
 .PP

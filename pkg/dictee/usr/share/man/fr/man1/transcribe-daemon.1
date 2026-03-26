@@ -1,28 +1,28 @@
-.TH TRANSCRIBE-DAEMON 1 "Mars 2025" "dictee 0.99" "Commandes utilisateur"
+.TH TRANSCRIBE-DAEMON 1 "Février 2025" "dictee 0.99" "Commandes utilisateur"
 .SH NOM
-transcribe-daemon \- daemon de reconnaissance vocale avec mod\(`ele pr\('echarg\('e
+transcribe-daemon \- daemon de reconnaissance vocale avec modèle préchargé
 .SH SYNOPSIS
 .B transcribe-daemon
-.RI [ r\('ep_mod\(`ele ]
+.RI [ répertoire_modèle ]
 .SH DESCRIPTION
 .B transcribe-daemon
-d\('emarre un daemon qui garde le mod\(`ele Parakeet TDT charg\('e en m\('emoire,
-permettant des transcriptions rapides r\('ep\('et\('ees via
-.BR transcribe\-client (1).
+démarre un daemon qui garde le modèle Parakeet TDT chargé en mémoire,
+permettant des transcriptions répétées rapides via
+.BR transcribe-client (1).
 .PP
-Le daemon \('ecoute sur une socket Unix \(`a /tmp/transcribe.sock
+Le daemon écoute sur un socket Unix à /tmp/transcribe.sock
 .SH OPTIONS
 .TP
-.I r\('ep_mod\(`ele
-Chemin vers le r\('epertoire du mod\(`ele TDT (d\('efaut : /usr/share/dictee/tdt).
+.I répertoire_modèle
+Chemin vers le répertoire du modèle TDT (par défaut : /usr/share/dictee/tdt)
 .SH SYSTEMD
-Pour lancer en tant que service utilisateur :
+Pour exécuter en tant que service utilisateur :
 .PP
 .RS
-systemctl \-\-user enable \-\-now dictee
+systemctl --user enable --now dictee
 .RE
 .SH VOIR AUSSI
-.BR transcribe\-client (1),
+.BR transcribe-client (1),
 .BR transcribe (1),
 .BR dictee (1)
 .SH AUTEUR

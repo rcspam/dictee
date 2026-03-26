@@ -4,41 +4,40 @@ transcribe-diarize \- transcrire avec identification des locuteurs
 .SH SYNOPSIS
 .B transcribe-diarize
 .I fichier_audio
-.RI [ r\('ep_mod\(`ele ]
-.RI [ r\('ep_sortformer ]
+.RI [ répertoire_modèle ]
+.RI [ répertoire_sortformer ]
 .SH DESCRIPTION
 .B transcribe-diarize
-transcrit l'audio et identifie qui parle (jusqu'\(`a 4 locuteurs).
+transcrit l'audio et identifie qui parle (jusqu'à 4 locuteurs).
 Utilise Parakeet TDT pour la transcription et Sortformer pour la diarisation.
 .PP
-Supporte 25 langues (TDT). La diarisation est ind\('ependante de la langue.
+Supporte 25 langues (TDT). La diarisation est indépendante de la langue.
 .PP
-Accepte tout format audio (MP3, OGG, FLAC, OPUS, etc.) via conversion
-automatique par
+Accepte tout format audio (MP3, OGG, FLAC, OPUS, etc.) via conversion automatique
 .BR ffmpeg (1)
-en WAV 16kHz mono. Les chemins de fichiers supportent la r\('esolution de
+en WAV 16 kHz mono.
+Les chemins de fichiers supportent la résolution de
 .BR ~ ", " ./ " et " ../ .
 .SH OPTIONS
 .TP
 .I fichier_audio
-Chemin vers le fichier audio (requis). Tout format support\('e par ffmpeg
-est accept\('e.
+Chemin vers le fichier audio (requis). Tout format supporté par ffmpeg est accepté.
 .TP
-.I r\('ep_mod\(`ele
-Chemin vers le mod\(`ele TDT (d\('efaut : /usr/share/dictee/tdt).
+.I répertoire_modèle
+Chemin vers le modèle TDT (par défaut : /usr/share/dictee/tdt).
 .TP
-.I r\('ep_sortformer
-Chemin vers le mod\(`ele Sortformer (d\('efaut : /usr/share/dictee/sortformer).
+.I répertoire_sortformer
+Chemin vers le modèle Sortformer (par défaut : /usr/share/dictee/sortformer).
 .TP
 .BR \-\-help ", " \-h
-Affiche un r\('esum\('e de l'utilisation et quitte.
+Affiche un résumé d'utilisation et quitte.
 .SH SORTIE
 .PP
-[0.00s \- 2.50s] Speaker 0: Bonjour, comment allez-vous ?
+[0.00s \- 2.50s] Locuteur 0 : Bonjour, comment allez-vous ?
 .br
-[2.60s \- 5.30s] Speaker 1: Tr\(`es bien, merci !
+[2.60s \- 5.30s] Locuteur 1 : Très bien, merci !
 .SH COMPILATION
-Ce binaire n\('ecessite la feature Cargo
+Ce binaire nécessite la feature Cargo
 .B sortformer
 :
 .PP

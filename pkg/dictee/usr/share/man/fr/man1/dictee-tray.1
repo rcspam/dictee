@@ -1,23 +1,22 @@
 .TH DICTEE-TRAY 1 "Mars 2025" "dictee 0.99" "Commandes utilisateur"
 .SH NOM
-dictee-tray \- ic\(^one de zone de notification pour transcribe-daemon
+dictee-tray \- icône de zone de notification pour transcribe-daemon
 .SH SYNOPSIS
 .B dictee-tray
 .SH DESCRIPTION
 .B dictee-tray
-affiche une ic\(^one dans la zone de notification (bo\(^ite \(`a miniatures)
-indiquant l'\('etat de
+affiche une icône dans la zone de notification (systray) qui indique l'état de
 .BR transcribe\-daemon (1)
-et offrant des actions rapides via un menu contextuel.
+et fournit des actions rapides via un menu contextuel.
 .PP
-L'ic\(^one s'adapte au th\(`eme du bureau (clair ou sombre) gr\(^ace \(`a 4 ic\(^ones SVG :
+L'icône s'adapte au thème du bureau (clair ou sombre) en utilisant 4 icônes SVG :
 .BR parakeet-active ", " parakeet-active-dark ", "
 .BR parakeet-inactive ", " parakeet-inactive-dark .
-La d\('etection du th\(`eme est automatique (KDE via kreadconfig6, GNOME via color-scheme).
+La détection du thème est automatique (KDE via kreadconfig6, GNOME via color-scheme).
 .PP
-L'\('etat du daemon est v\('erifi\('e toutes les 3 secondes en contr\(^olant la socket
+L'état du daemon est interrogé toutes les 3 secondes en vérifiant le socket
 .I /tmp/transcribe.sock
-et le processus via
+et en vérifiant le processus via
 .BR pgrep (1).
 .SH BACKENDS D'INDICATEUR
 .B dictee-tray
@@ -32,29 +31,28 @@ essaie les backends d'indicateur dans cet ordre :
 .TP
 3.
 .B Gtk.StatusIcon
-(fallback)
+(repli)
 .SH MENU CONTEXTUEL
 .TP
 \(bu
-.B Statut
-\(em indique si le daemon est actif ou arr\(^et\('e.
+.B État
+\(em indique si le daemon est actif ou arrêté.
 .TP
 \(bu
-.B D\('emarrer / Arr\(^eter le daemon
-\(em contr\(^ole
+.B Démarrer / Arrêter le daemon
+\(em contrôle
 .BR transcribe\-daemon (1)
 via
 .BR systemctl (1)
-(service utilisateur), ou gestion directe du processus si systemd n'est
-pas disponible.
+(service utilisateur), ou gestion directe du processus si systemd n'est pas disponible.
 .TP
 \(bu
-.B Dict\('ee vocale
+.B Dictée vocale
 \(em lance
 .BR dictee (1).
 .TP
 \(bu
-.B Dict\('ee + Traduction
+.B Dictée + Traduction
 \(em lance
 .B dictee \-\-translate
 .TP
@@ -64,19 +62,19 @@ pas disponible.
 .BR dictee\-setup (1).
 .TP
 \(bu
-.B Quitter l'ic\(^one
-\(em ferme l'application tray.
+.B Quitter l'icône
+\(em ferme l'application systray.
 .SH SYSTEMD
-Pour d\('emarrer automatiquement l'ic\(^one tray \(`a la connexion :
+Pour démarrer automatiquement l'icône systray à la connexion :
 .PP
 .RS
 systemctl \-\-user enable \-\-now dictee\-tray
 .RE
 .PP
-L'unit\('e de service est
+L'unité de service est
 .IR dictee\-tray.service .
-.SH IC\(^ONES
-Les ic\(^ones SVG sont install\('ees dans :
+.SH ICÔNES
+Les icônes SVG sont installées dans :
 .PP
 .RS
 /usr/share/icons/hicolor/scalable/apps/

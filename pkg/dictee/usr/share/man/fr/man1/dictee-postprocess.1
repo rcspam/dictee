@@ -7,7 +7,7 @@ dictee-postprocess \- filtre de post-traitement de texte pour dictee
 .B dictee-postprocess
 est un filtre de texte qui applique le pipeline de post-traitement au texte transcrit. Il lit depuis l'entrée standard et écrit le texte transformé sur la sortie standard.
 .PP
-Le pipeline comprend (dans l'ordre) : règles regex personnalisées, remplacements par dictionnaire, correspondance floue dans le dictionnaire, conversion des nombres (text2num), élisions françaises, capitalisation automatique, et typographie avec espaces insécables.
+Le pipeline comprend (dans l'ordre) : règles regex personnalisées, remplacements par dictionnaire, correspondance floue du dictionnaire, conversion de nombres (text2num), élisions françaises, capitalisation automatique et typographie des espaces insécables.
 .PP
 Chaque étape peut être activée ou désactivée individuellement dans
 .IR ~/.config/dictee.conf .
@@ -20,25 +20,25 @@ Options de post-traitement dans
 .IR ~/.config/dictee.conf :
 .TP
 .B DICTEE_POSTPROCESS=true|false
-Active ou désactive l'ensemble du pipeline.
+Activer ou désactiver l'ensemble du pipeline.
 .TP
 .B DICTEE_PP_RULES=true|false
-Active les règles regex personnalisées.
+Activer les règles regex personnalisées.
 .TP
 .B DICTEE_PP_DICTIONARY=true|false
-Active les remplacements par dictionnaire.
+Activer les remplacements par dictionnaire.
 .TP
 .B DICTEE_PP_TEXT2NUM=true|false
-Active la conversion des nombres.
+Activer la conversion des nombres.
 .TP
 .B DICTEE_PP_ELISIONS=true|false
-Active les règles d'élision françaises.
+Activer les règles d'élision françaises.
 .TP
 .B DICTEE_PP_CAPITALIZATION=true|false
-Active la capitalisation automatique.
+Activer la capitalisation automatique.
 .TP
 .B DICTEE_PP_TYPOGRAPHY=true|false
-Active l'insertion d'espaces insécables.
+Activer l'insertion des espaces insécables.
 .SH FICHIERS
 .TP
 .I ~/.config/dictee/rules.conf
