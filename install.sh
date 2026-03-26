@@ -166,17 +166,14 @@ for conf in rules.conf.default dictionary.conf.default continuation.conf.default
     fi
 done
 
-# Plasmoid KDE Plasma 6
+# Plasmoid KDE Plasma 6 (only if KDE is available)
 if [ -f "$SCRIPT_DIR/usr/share/dictee/dictee.plasmoid" ]; then
     install -Dm644 "$SCRIPT_DIR/usr/share/dictee/dictee.plasmoid" "$MODEL_DIR/dictee.plasmoid"
-    echo "→ Installation du widget KDE Plasma"
     if command -v kpackagetool6 >/dev/null 2>&1; then
+        echo "→ Installation du widget KDE Plasma"
         sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -u "$MODEL_DIR/dictee.plasmoid" 2>/dev/null || \
         sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -i "$MODEL_DIR/dictee.plasmoid" 2>/dev/null || true
         echo "  ✓ Widget Plasma installé"
-    else
-        echo "  ⚠ kpackagetool6 non trouvé — installez manuellement :"
-        echo "    kpackagetool6 -t Plasma/Applet -i $MODEL_DIR/dictee.plasmoid"
     fi
 fi
 
