@@ -204,6 +204,13 @@ if [ -d "/run/user/$REAL_UID" ]; then
     fi
     $_run systemctl --user start dictee 2>/dev/null || true
     echo "  ↳ dictee (daemon ASR) démarré"
+    # Restart active ASR services after upgrade
+    for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
+        if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
+            echo "  ↳ Redémarrage de $svc"
+            $_run systemctl --user restart "$svc" 2>/dev/null || true
+        fi
+    done
     # Enable GNOME AppIndicator extension for tray icon
     $_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
 fi
