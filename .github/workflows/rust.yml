@@ -12,6 +12,30 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Bash syntax check
+      run: |
+        for f in dictee dictee-switch-backend dictee-test-rules; do
+          echo "Checking $f..."
+          bash -n "$f"
+        done
+    - name: Python syntax check
+      run: |
+        for f in dictee-setup.py dictee-tray.py dictee-ptt.py dictee-postprocess.py transcribe-daemon-canary; do
+          echo "Checking $f..."
+          python3 -m py_compile "$f"
+        done
+    - name: Gettext locale check
+      run: |
+        sudo apt-get install -y gettext > /dev/null
+        for f in po/*.po; do
+          echo "Checking $f..."
+          msgfmt --check --output=/dev/null "$f"
+        done
+
   test-x86:
     runs-on: ubuntu-latest
     steps:
@@ -35,7 +59,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    needs: [test-x86, test-arm64]
+    needs: [lint, test-x86, test-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
