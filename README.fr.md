@@ -43,7 +43,7 @@
 
 <p align="center">
   <img src="plasmoid.png" alt="Popup du plasmoid (enregistrement)" width="520"><br>
-  <img src="assets/wizard-en.png" alt="dictee --setup" width="600">
+  <img src="assets/wizard-en.png" alt="dictee --setup" width="720">
 </p>
 
 ---
