@@ -585,7 +585,6 @@ msgid "Speak freely, type instantly"
 msgstr "Parlez librement, tapez instantanément"
 
 #: dictee-setup.py:2539
-#, python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
