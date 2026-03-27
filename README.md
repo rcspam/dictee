@@ -328,7 +328,7 @@ dictee includes a configurable text transformation pipeline that runs after tran
 Configure from `dictee --setup` → Post-processing tab, or test rules with `dictee-test-rules`.
 
 <p align="center">
-  <img src="assets/postprocess.gif" alt="Post-processing: dictionary, regex rules, continuation" width="800">
+  <img src="assets/postprocess.gif" alt="Post-processing: dictionary, regex rules, continuation" width="900">
 </p>
 
 | Documentation | Description |

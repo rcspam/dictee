@@ -328,7 +328,7 @@ dictee inclut un pipeline configurable de transformation du texte qui s'exécute
 Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les règles avec `dictee-test-rules`.
 
 <p align="center">
-  <img src="assets/postprocess.gif" alt="Post-traitement : dictionnaire, règles regex, continuation" width="800">
+  <img src="assets/postprocess.gif" alt="Post-traitement : dictionnaire, règles regex, continuation" width="900">
 </p>
 
 | Documentation | Description |
