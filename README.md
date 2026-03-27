@@ -150,6 +150,7 @@ After installation, run `dictee --setup` to configure everything from a graphica
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="600">
+  <img src="assets/postprocess.png" alt="Post-processing dictionary" width="600">
 </p>
 
 ### ASR backend
@@ -325,6 +326,11 @@ dictee includes a configurable text transformation pipeline that runs after tran
 - **LLM correction** — optional grammar/spelling fix via Ollama before rules
 
 Configure from `dictee --setup` → Post-processing tab, or test rules with `dictee-test-rules`.
+
+<p align="center">
+  <img src="assets/postprocess-2.png" alt="Post-processing regex rules" width="600">
+  <img src="assets/postprocess-3.png" alt="Post-processing continuation" width="600">
+</p>
 
 | Documentation | Description |
 |---------------|-------------|

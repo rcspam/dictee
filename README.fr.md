@@ -150,6 +150,7 @@ Après installation, lancez `dictee --setup` pour tout configurer depuis une int
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="600">
+  <img src="assets/postprocess.png" alt="Post-traitement dictionnaire" width="600">
 </p>
 
 ### Backend ASR
@@ -325,6 +326,11 @@ dictee inclut un pipeline configurable de transformation du texte qui s'exécute
 - **Correction LLM** — correction optionnelle grammaire/orthographe via Ollama avant les règles
 
 Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les règles avec `dictee-test-rules`.
+
+<p align="center">
+  <img src="assets/postprocess-2.png" alt="Règles regex post-traitement" width="600">
+  <img src="assets/postprocess-3.png" alt="Continuation post-traitement" width="600">
+</p>
 
 | Documentation | Description |
 |---------------|-------------|
