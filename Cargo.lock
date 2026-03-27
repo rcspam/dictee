@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "parakeet-rs"
-version = "1.2.0-beta2"
+version = "1.2.0"
 dependencies = [
  "ctrlc",
  "eyre",
