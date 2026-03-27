@@ -35,22 +35,22 @@
 # 3a. Combined punctuation+newline (BEFORE simple punctuation)
 # "à la ligne" alone is too ambiguous ("la pêche à la ligne" = fishing line)
 # Text form (ASR without native punctuation)
-[fr] /[,.\s]*point d'interrogation à la ligne[,.\s]*/?\n/ig
-[fr] /[,.\s]*point d'exclamation à la ligne[,.\s]*/!\n/ig
-[fr] /[,.\s]*points? de suspension à la ligne[,.\s]*/…\n/ig
-[fr] /[,.\s]*deux points à la ligne[,.\s]*/:\n/ig
-[fr] /[,.\s]*point virgule à la ligne[,.\s]*/;\n/ig
-[fr] /[,.\s]*virgule à la ligne[,.\s]*/,\n/ig
-[fr] /[,.\s]*point à la ligne[,.\s]*/.\n/ig
+[fr] /[,.\s]*point d'interrogation (?:à )?la ligne[,.\s]*/?\n/ig
+[fr] /[,.\s]*point d'exclamation (?:à )?la ligne[,.\s]*/!\n/ig
+[fr] /[,.\s]*points? de suspension (?:à )?la ligne[,.\s]*/…\n/ig
+[fr] /[,.\s]*deux points (?:à )?la ligne[,.\s]*/:\n/ig
+[fr] /[,.\s]*point virgule (?:à )?la ligne[,.\s]*/;\n/ig
+[fr] /[,.\s]*virgule (?:à )?la ligne[,.\s]*/,\n/ig
+[fr] /[,.\s]*point (?:à )?la ligne[,.\s]*/.\n/ig
 # Symbol form (Parakeet converts punctuation natively)
-[fr] /\s*:\s*à la ligne[,.\s]*/:\n/ig
-[fr] /\s*;\s*à la ligne[,.\s]*/;\n/ig
-[fr] /\s*\?\s*à la ligne[,.\s]*/?\n/ig
-[fr] /\s*!\s*à la ligne[,.\s]*/!\n/ig
-[fr] /\s*,\s*à la ligne[,.\s]*/,\n/ig
-[fr] /\s*\.\s*à la ligne[,.\s]*/.\n/ig
+[fr] /\s*:\s*(?:à )?la ligne[,.\s]*/:\n/ig
+[fr] /\s*;\s*(?:à )?la ligne[,.\s]*/;\n/ig
+[fr] /\s*\?\s*(?:à )?la ligne[,.\s]*/?\n/ig
+[fr] /\s*!\s*(?:à )?la ligne[,.\s]*/!\n/ig
+[fr] /\s*,\s*(?:à )?la ligne[,.\s]*/,\n/ig
+[fr] /\s*\.\s*(?:à )?la ligne[,.\s]*/.\n/ig
 # "à la ligne" alone only at start of text/line (not mid-sentence)
-[fr] /^[,.\s]*[àÀaA] la ligne[,.\s]*/\n/igm
+[fr] /^[,.\s]*(?:[àÀaA] )?la ligne[,.\s]*/\n/igm
 # Parakeet misdetects "à la ligne" as Cyrillic on short audio
 # Broad pattern: Cyrillic text containing лин (most variants)
 [fr] /^[,.\s]*[А-Яа-я][-А-Яа-я]*лин[А-Яа-я]*[,.\s]*/\n/igm
