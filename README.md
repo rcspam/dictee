@@ -149,8 +149,8 @@ sudo dnf install libcudnn9-cuda-12
 After installation, run `dictee --setup` to configure everything from a graphical interface:
 
 <p align="center">
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="600">
-  <img src="assets/postprocess.png" alt="Post-processing dictionary" width="600">
+  <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">
+  <img src="assets/postprocess.png" alt="Post-processing dictionary" width="720">
 </p>
 
 ### ASR backend
@@ -328,8 +328,7 @@ dictee includes a configurable text transformation pipeline that runs after tran
 Configure from `dictee --setup` → Post-processing tab, or test rules with `dictee-test-rules`.
 
 <p align="center">
-  <img src="assets/postprocess-2.png" alt="Post-processing regex rules" width="600">
-  <img src="assets/postprocess-3.png" alt="Post-processing continuation" width="600">
+  <img src="assets/postprocess.gif" alt="Post-processing: dictionary, regex rules, continuation" width="720">
 </p>
 
 | Documentation | Description |
