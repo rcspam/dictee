@@ -213,7 +213,7 @@ Un widget natif KDE Plasma 6 avec visualisation audio en temps réel pendant l'e
 </p>
 
 <p align="center">
-  <img src="plasmoid_config.png" alt="Configuration du plasmoid" width="450">
+  <img src="plasmoid_config.png" alt="Configuration du plasmoid" width="600">
 </p>
 
 Cinq styles d'animation avec enveloppe Hanning, sensibilité par style et dégradés de couleurs optionnels :
@@ -328,7 +328,7 @@ dictee inclut un pipeline configurable de transformation du texte qui s'exécute
 Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les règles avec `dictee-test-rules`.
 
 <p align="center">
-  <img src="assets/postprocess.gif" alt="Post-traitement : dictionnaire, règles regex, continuation" width="720">
+  <img src="assets/postprocess.gif" alt="Post-traitement : dictionnaire, règles regex, continuation" width="800">
 </p>
 
 | Documentation | Description |
