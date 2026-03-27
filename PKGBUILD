@@ -2,6 +2,7 @@
 pkgname=dictee
 pkgver=1.2.0rc1
 pkgrel=1
+_tag=1.2.0-rc1
 pkgdesc="Fast push-to-talk voice dictation for Linux with NVIDIA Parakeet, Vosk and faster-whisper"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
@@ -13,8 +14,8 @@ depends=(
     'libnotify'
     'libpulse'
     'python-pyqt6'
-    'python-pyqt6-multimedia'
-    'python-pyqt6-svg'
+    'qt6-multimedia'
+    'qt6-svg'
 )
 optdepends=(
     'python-evdev: dictee-ptt key grab (recommended)'
@@ -29,12 +30,12 @@ optdepends=(
     'cuda: NVIDIA GPU acceleration'
     'cudnn: NVIDIA cuDNN for GPU acceleration'
 )
-makedepends=('rust' 'cargo' 'go' 'scdoc' 'libxkbcommon' 'git')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/rcspam/dictee/archive/v1.2.0-rc1.tar.gz")
+makedepends=('rust' 'cargo' 'gettext' 'git')
+source=("$pkgname-$_tag.tar.gz::https://github.com/rcspam/dictee/archive/v$_tag.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-    cd "$pkgname-$pkgver"
+    cd "$pkgname-$_tag"
 
     # Build Rust binaries
     cargo build --release --features sortformer \
@@ -44,11 +45,12 @@ build() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize
 
-    # Build dotool
-    if [ ! -d "/tmp/dotool-build" ]; then
-        git clone https://git.sr.ht/~geb/dotool /tmp/dotool-build
-        (cd /tmp/dotool-build && ./build.sh)
-    fi
+    # Compile locales from .po sources
+    for lang in fr de es it pt uk; do
+        if [ -f "po/$lang.po" ]; then
+            msgfmt -o "po/$lang.mo" "po/$lang.po"
+        fi
+    done
 
     # Build plasmoid
     if [ -d "plasmoid/package" ]; then
@@ -57,7 +59,7 @@ build() {
 }
 
 package() {
-    cd "$pkgname-$pkgver"
+    cd "$pkgname-$_tag"
 
     # Rust binaries
     install -Dm755 target/release/transcribe "$pkgdir/usr/bin/transcribe"
@@ -80,11 +82,6 @@ package() {
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-fft "$pkgdir/usr/bin/dictee-plasmoid-level-fft"
     install -Dm755 pkg/dictee/usr/bin/transcribe-daemon-vosk "$pkgdir/usr/bin/transcribe-daemon-vosk"
     install -Dm755 pkg/dictee/usr/bin/transcribe-daemon-whisper "$pkgdir/usr/bin/transcribe-daemon-whisper"
-
-    # dotool
-    install -Dm755 /tmp/dotool-build/dotool "$pkgdir/usr/bin/dotool"
-    install -Dm755 /tmp/dotool-build/dotoold "$pkgdir/usr/bin/dotoold"
-    install -Dm644 /tmp/dotool-build/80-dotool.rules "$pkgdir/etc/udev/rules.d/80-dotool.rules"
 
     # Systemd services
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee.service "$pkgdir/usr/lib/systemd/user/dictee.service"
@@ -109,14 +106,14 @@ package() {
         install -Dm644 "$f" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$(basename "$f")"
     done
 
-    # Locales
+    # Locales (compiled in build())
     for lang in fr de es it pt uk; do
-        for f in pkg/dictee/usr/share/locale/$lang/LC_MESSAGES/*.mo; do
-            [ -f "$f" ] && install -Dm644 "$f" "$pkgdir/usr/share/locale/$lang/LC_MESSAGES/$(basename "$f")"
-        done
+        if [ -f "po/$lang.mo" ]; then
+            install -Dm644 "po/$lang.mo" "$pkgdir/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+        fi
     done
 
-    # Desktop entry
+    # Desktop entries
     install -Dm644 pkg/dictee/usr/share/applications/dictee-setup.desktop "$pkgdir/usr/share/applications/dictee-setup.desktop"
     install -Dm644 pkg/dictee/usr/share/applications/dictee-tray.desktop "$pkgdir/usr/share/applications/dictee-tray.desktop"
 
@@ -130,6 +127,8 @@ package() {
     install -Dm644 dictionary.conf.default "$pkgdir/usr/share/dictee/dictionary.conf.default"
     install -Dm644 continuation.conf.default "$pkgdir/usr/share/dictee/continuation.conf.default"
 
-    # VERSION file
-    install -Dm644 pkg/dictee/usr/share/dictee/VERSION "$pkgdir/usr/share/dictee/VERSION"
+    # VERSION file (generated at build time)
+    echo "$pkgver build $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
+        > "$pkgdir/usr/share/dictee/VERSION"
+    chmod 644 "$pkgdir/usr/share/dictee/VERSION"
 }
