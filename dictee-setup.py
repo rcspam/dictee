@@ -1989,6 +1989,8 @@ class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
+        self._conf_existed_before_wizard = os.path.exists(CONF_PATH)
+        self._wizard_finished = False
         self.setWindowTitle(_("Voice dictation configuration"))
         self.setMinimumSize(710, 680)
         self.resize(710, 700)
@@ -2365,6 +2367,8 @@ class DicteeSetupDialog(QDialog):
 
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
+            # Last page → Finish
+            self._wizard_finished = True
             self.accept()
         else:
             if not self._validate_wizard_page(idx):
@@ -2374,7 +2378,7 @@ class DicteeSetupDialog(QDialog):
             # Update canary translation visibility when entering translation page
             self._update_canary_translation_visibility()
             if idx + 1 == self.stack.count() - 1:
-                # Save config and start services BEFORE checks
+                # Entering checks page — save + start THEN verify
                 self._on_apply()
                 self._run_wizard_checks()
 
@@ -6717,6 +6721,16 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
+        # Si le wizard a été annulé et que le conf n'existait pas avant,
+        # supprimer le conf créé par _on_apply (page checks) pour ne pas
+        # laisser une config incomplète
+        if (self.wizard_mode and not self._wizard_finished
+                and not self._conf_existed_before_wizard
+                and os.path.exists(CONF_PATH)):
+            try:
+                os.unlink(CONF_PATH)
+            except OSError:
+                pass
         super().closeEvent(event)
 
     # ── Test dictation ────────────────────────────────────────────
