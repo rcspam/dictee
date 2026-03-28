@@ -1516,7 +1516,7 @@ class InstallThread(QThread):
                 )
             elif pattern == ".rpm":
                 result = subprocess.run(
-                    ["pkexec", "rpm", "-U", dest],
+                    ["pkexec", "dnf", "install", "-y", dest],
                     capture_output=True, text=True,
                 )
             else:
