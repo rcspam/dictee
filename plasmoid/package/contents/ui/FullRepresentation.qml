@@ -228,11 +228,19 @@ ColumnLayout {
                 ListElement { text: "Whisper"; value: "whisper" }
             }
             textRole: "text"
-            currentIndex: {
+            function syncIndex() {
                 for (var i = 0; i < asrModel.count; i++) {
-                    if (asrModel.get(i).value === root.currentAsrBackend) return i
+                    if (asrModel.get(i).value === root.currentAsrBackend) {
+                        currentIndex = i
+                        return
+                    }
                 }
-                return 0
+                currentIndex = 0
+            }
+            Component.onCompleted: syncIndex()
+            Connections {
+                target: root
+                function onCurrentAsrBackendChanged() { asrCombo.syncIndex() }
             }
             delegate: QQC2.ItemDelegate {
                 width: parent ? parent.width : 0
@@ -245,13 +253,7 @@ ColumnLayout {
                 if (root.installedAsr.indexOf(val) !== -1) {
                     executable.run("dictee-switch-backend asr " + val)
                 } else {
-                    // Revert to current backend
-                    for (var i = 0; i < asrModel.count; i++) {
-                        if (asrModel.get(i).value === root.currentAsrBackend) {
-                            currentIndex = i
-                            break
-                        }
-                    }
+                    syncIndex()
                 }
             }
             Layout.fillWidth: true

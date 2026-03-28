@@ -32,7 +32,7 @@ _ = gettext.gettext
 # === Configuration ===
 
 STATE_FILE = "/dev/shm/.dictee_state"
-TRANSLATE_FLAG = "/tmp/dictee_translate"
+TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
 SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
 CONF_PATH = os.path.join(

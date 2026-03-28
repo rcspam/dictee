@@ -493,7 +493,7 @@ check_dependencies() {
 cleanup_on_error() {
     local exit_code=$?
     local err_line="${1:-unknown}"
-    echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> /tmp/dictee-error.log
+    echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> "/tmp/dictee-error${_UID_SUFFIX}.log"
 
     stop_escape_listener
 
@@ -503,7 +503,7 @@ cleanup_on_error() {
         kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
         sleep 0.1
         kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
-        rm -f "$PIDFILE"
+        rm -f "$PIDFILE" "${PIDFILE}.lock"
     fi
 
     # Arrêter l'animation
@@ -685,7 +685,7 @@ if [ "$CANCEL" = true ]; then
                     fi
                 fi
             fi
-            rm -f "$PIDFILE"
+            rm -f "$PIDFILE" "${PIDFILE}.lock"
         fi
 
         if [ -n "$id" ]; then
@@ -749,7 +749,7 @@ if [ -f "$PIDFILE" ]; then
                 fi
             fi
         fi
-        rm -f "$PIDFILE"
+        rm -f "$PIDFILE" "${PIDFILE}.lock"
     fi
 
     if [ -n "$id" ]; then
@@ -887,7 +887,7 @@ else
     # Vérifier que pw-record a bien démarré
     sleep 0.2
     if ! kill -0 $! 2>/dev/null; then
-        rm -f "$PIDFILE" "$RECORDING_FILE"
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
         notify-send -t 5000 -i dialog-error -a Dictee "Recording failed — audio device unavailable" 2>/dev/null || true
         write_state "idle"
         exit 1
