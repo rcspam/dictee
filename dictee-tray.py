@@ -165,8 +165,19 @@ def _icon_path(name):
     return None
 
 
+def _is_setup_done():
+    """Vérifie si le wizard a été complété (DICTEE_SETUP_DONE=true)."""
+    try:
+        with open(CONF_PATH) as f:
+            return "DICTEE_SETUP_DONE=true" in f.read()
+    except FileNotFoundError:
+        return False
+
+
 def daemon_is_active():
-    """Vérifie si un des 3 services daemon est actif via systemctl."""
+    """Vérifie si un des services daemon est actif et la config est complète."""
+    if not _is_setup_done():
+        return False
     for svc in SERVICES:
         try:
             result = subprocess.run(

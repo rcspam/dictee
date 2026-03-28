@@ -34,8 +34,8 @@ case "${1:-}" in
         ;;
 esac
 
-# First-run guard: launch wizard if no config
-if [ ! -f "$DICTEE_CONF" ]; then
+# First-run guard: launch wizard if no config or setup not completed
+if [ ! -f "$DICTEE_CONF" ] || ! grep -q "DICTEE_SETUP_DONE=true" "$DICTEE_CONF" 2>/dev/null; then
     exec dictee-setup --wizard
 fi
 

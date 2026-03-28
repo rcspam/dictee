@@ -2367,8 +2367,12 @@ class DicteeSetupDialog(QDialog):
 
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
-            # Last page → Finish: save config and start services
-            self._on_apply()
+            # Last page → Finish: mark setup as done
+            try:
+                with open(CONF_PATH, "a") as f:
+                    f.write("DICTEE_SETUP_DONE=true\n")
+            except OSError:
+                pass
             self._wizard_finished = True
             self.accept()
         else:
@@ -2379,7 +2383,8 @@ class DicteeSetupDialog(QDialog):
             # Update canary translation visibility when entering translation page
             self._update_canary_translation_visibility()
             if idx + 1 == self.stack.count() - 1:
-                # Entering checks page — verify prerequisites (no config saved yet)
+                # Entering checks page — save config, start services, verify
+                self._on_apply()
                 self._run_wizard_checks()
 
     def _validate_wizard_page(self, idx):
@@ -6716,6 +6721,18 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
+        # Wizard annulé : supprimer la conf et arrêter les services
+        if (self.wizard_mode and not self._wizard_finished
+                and not self._conf_existed_before_wizard):
+            if os.path.exists(CONF_PATH):
+                try:
+                    os.unlink(CONF_PATH)
+                except OSError:
+                    pass
+            for svc in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary",
+                        "dictee-tray", "dictee-ptt"):
+                subprocess.run(["systemctl", "--user", "disable", "--now", svc],
+                               capture_output=True)
         super().closeEvent(event)
 
     # ── Test dictation ────────────────────────────────────────────
