@@ -181,12 +181,10 @@ def daemon_is_active():
 
 def _conf_asr_service():
     """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
-    conf = os.path.expandvars("${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf")
-    conf = os.path.expanduser(conf.replace("$HOME", "~"))
     mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
                "whisper": "dictee-whisper", "canary": "dictee-canary"}
     try:
-        with open(conf) as f:
+        with open(CONF_PATH) as f:
             for line in f:
                 if line.startswith("DICTEE_ASR_BACKEND="):
                     backend = line.strip().split("=", 1)[1]

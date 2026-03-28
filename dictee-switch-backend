@@ -75,7 +75,9 @@ asr)
 
     # Check service exists
     if ! systemctl --user list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}.service"; then
-        echo "Warning: ${svc}.service not found" >&2
+        echo "Error: ${svc}.service not found. Is the $2 backend installed?" >&2
+        notify-send -t 5000 -i dialog-error -a Dictee "Backend $2 not installed" 2>/dev/null || true
+        exit 1
     fi
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
