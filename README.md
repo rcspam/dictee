@@ -146,7 +146,7 @@ sudo dnf install libcudnn9-cuda-12
 
 ## Configuration
 
-On first launch, a setup wizard guides you through backend selection, model download, and keyboard shortcuts. You can reconfigure anytime from the application menu, tray icon, Plasma widget, or `dictee --setup`:
+On first launch, a setup wizard guides you through backend selection, model download, and keyboard shortcuts. You can reconfigure anytime from the application menu, tray icon, Plasma widget, or by running `dictee --setup` from the terminal:
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">

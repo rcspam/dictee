@@ -146,7 +146,7 @@ sudo dnf install libcudnn9-cuda-12
 
 ## Configuration
 
-Au premier lancement, un assistant vous guide pour choisir le backend, télécharger le modèle et configurer les raccourcis clavier. Vous pouvez reconfigurer à tout moment depuis le menu application, le tray, le widget Plasma ou `dictee --setup` :
+Au premier lancement, un assistant vous guide pour choisir le backend, télécharger le modèle et configurer les raccourcis clavier. Vous pouvez reconfigurer à tout moment depuis le menu application, le tray, le widget Plasma ou en lançant `dictee --setup` depuis le terminal :
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">
