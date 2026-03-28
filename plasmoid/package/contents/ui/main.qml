@@ -344,11 +344,11 @@ PlasmoidItem {
             root.state = "idle"
             break
         case "start-daemon":
-            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-enabled $s 2>/dev/null | grep -qx enabled && systemctl --user start $s && exit; done; systemctl --user start dictee'")
+            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-enabled $s 2>/dev/null | grep -qx enabled && systemctl --user restart $s && exit; done; systemctl --user restart dictee'")
             root.state = "idle"
             break
         case "stop-daemon":
-            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; done'")
+            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             root.state = "offline"
             break
         case "reset":

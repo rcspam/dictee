@@ -180,7 +180,7 @@ def daemon_is_active():
 
 
 def daemon_start():
-    """Démarre le service daemon activé."""
+    """Démarre le service daemon activé (restart pour gérer l'état failed)."""
     for svc in SERVICES:
         try:
             result = subprocess.run(
@@ -188,25 +188,29 @@ def daemon_start():
                 capture_output=True, text=True,
             )
             if result.stdout.strip() == "enabled":
-                subprocess.Popen(
-                    ["systemctl", "--user", "start", svc],
+                subprocess.run(
+                    ["systemctl", "--user", "restart", svc],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
                 return
         except FileNotFoundError:
             pass
-    subprocess.Popen(
-        ["systemctl", "--user", "start", "dictee"],
+    subprocess.run(
+        ["systemctl", "--user", "restart", "dictee"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
 
 def daemon_stop():
-    """Arrête tous les services daemon."""
+    """Arrête tous les services daemon et nettoie l'état failed."""
     for svc in SERVICES:
         try:
             subprocess.run(
                 ["systemctl", "--user", "stop", svc],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                ["systemctl", "--user", "reset-failed", svc],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
