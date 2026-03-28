@@ -11,7 +11,7 @@ PlasmoidItem {
     // State: "offline", "idle", "recording", "transcribing", "switching"
     property string state: "offline"
     property bool dicteeInstalled: true
-    property bool dicteeConfigured: true
+    property bool dicteeConfigured: false
     property string lastTranscription: ""
     // Niveau audio micro (0.0 - 1.0)
     property real audioLevel: 0.0
