@@ -2898,7 +2898,7 @@ class DicteeSetupDialog(QDialog):
         self.cmb_ptt_mode = QComboBox()
         self.cmb_ptt_mode.addItem(_("Hold (push-to-talk) — hold key to record, release to transcribe"), "hold")
         self.cmb_ptt_mode.addItem(_("Toggle — press to start, press again to stop"), "toggle")
-        existing_mode = self.conf.get("DICTEE_PTT_MODE", "toggle")
+        existing_mode = self.conf.get("DICTEE_PTT_MODE", "hold" if self.wizard_mode else "toggle")
         idx = self.cmb_ptt_mode.findData(existing_mode)
         if idx >= 0:
             self.cmb_ptt_mode.setCurrentIndex(idx)
@@ -2945,7 +2945,7 @@ class DicteeSetupDialog(QDialog):
         existing_key_tr = int(self.conf.get("DICTEE_PTT_KEY_TRANSLATE", 0))
         existing_key = int(self.conf.get("DICTEE_PTT_KEY", 67))
 
-        if not existing_key_tr:
+        if not existing_key_tr and not self.wizard_mode:
             self.cmb_translate_mode.setCurrentIndex(4)  # disabled
         elif existing_mod == "alt":
             self.cmb_translate_mode.setCurrentIndex(0)
