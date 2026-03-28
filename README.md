@@ -146,7 +146,7 @@ sudo dnf install libcudnn9-cuda-12
 
 ## Configuration
 
-After installation, run `dictee --setup` to configure everything from a graphical interface:
+On first launch, a setup wizard guides you through backend selection, model download, and keyboard shortcuts. You can also run `dictee --setup` anytime to reconfigure:
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">
@@ -157,12 +157,12 @@ After installation, run `dictee --setup` to configure everything from a graphica
 
 Four mutually exclusive transcription backends, switchable from `dictee --setup`:
 
-| Backend | Languages | Model size | Warm daemon | Type |
-|---------|-----------|------------|-------------|------|
-| **Parakeet-TDT** (default) | 25 | ~2.5 GB | ~0.8s | ONNX Runtime (Rust) |
-| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 GB | ~0.7s (GPU) | ONNX Runtime (Python, GPU recommended) |
-| **Vosk** | 9+ | ~50 MB | ~1.5s | Python (lightweight) |
+| Backend | Languages | Model size | Warm latency | Type |
+|---------|-----------|------------|--------------|------|
+| **Parakeet-TDT** | 25 | ~2.5 GB | ~0.8s CPU · ~0.16s GPU | ONNX Runtime (Rust) |
+| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 GB | ~0.7s GPU | ONNX Runtime (Python, GPU recommended) |
 | **faster-whisper** | 99 | ~500 MB–3 GB | ~0.3s | CTranslate2 (Python) |
+| **Vosk** | 9+ | ~50 MB | ~1.5s | Python (lightweight) |
 
 Each backend runs as a systemd user service — same Unix socket protocol, fully transparent to the user.
 
@@ -176,10 +176,11 @@ Each backend runs as a systemd user service — same Unix socket protocol, fully
 
 | Backend | Privacy | Speed | Quality | Setup |
 |---------|---------|-------|---------|-------|
-| **translate-shell** (Google) | Online | 0.2–0.7s | Good | `apt install translate-shell` |
-| **translate-shell** (Bing) | Online | 1.7–2.2s | Good | `apt install translate-shell` |
+| **Canary-1B** | 100% local | Built-in | Best | Included with ASR backend |
 | **LibreTranslate** | 100% local | 0.1–0.3s | Good | Docker (~2 GB image) |
 | **ollama** | 100% local | 2.3–3.4s | Best | ollama + translategemma model |
+| **translate-shell** (Google) | Online | 0.2–0.7s | Good | Included |
+| **translate-shell** (Bing) | Online | 1.7–2.2s | Good | Included |
 
 ### Quick backend switching
 

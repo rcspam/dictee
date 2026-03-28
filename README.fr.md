@@ -146,7 +146,7 @@ sudo dnf install libcudnn9-cuda-12
 
 ## Configuration
 
-Après installation, lancez `dictee --setup` pour tout configurer depuis une interface graphique :
+Au premier lancement, un assistant vous guide pour choisir le backend, télécharger le modèle et configurer les raccourcis clavier. Vous pouvez aussi relancer `dictee --setup` à tout moment :
 
 <p align="center">
   <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">
@@ -157,12 +157,12 @@ Après installation, lancez `dictee --setup` pour tout configurer depuis une int
 
 Quatre backends de transcription mutuellement exclusifs, commutables depuis `dictee --setup` :
 
-| Backend | Langues | Taille modèle | Daemon chaud | Type |
-|---------|---------|----------------|--------------|------|
-| **Parakeet-TDT** (défaut) | 25 | ~2,5 Go | ~0,8s | ONNX Runtime (Rust) |
-| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 Go | ~0,7s (GPU) | ONNX Runtime (Python, GPU recommandé) |
-| **Vosk** | 9+ | ~50 Mo | ~1,5s | Python (léger) |
+| Backend | Langues | Taille modèle | Latence (chaud) | Type |
+|---------|---------|----------------|-----------------|------|
+| **Parakeet-TDT** | 25 | ~2,5 Go | ~0,8s CPU · ~0,16s GPU | ONNX Runtime (Rust) |
+| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 Go | ~0,7s GPU | ONNX Runtime (Python, GPU recommandé) |
 | **faster-whisper** | 99 | ~500 Mo–3 Go | ~0,3s | CTranslate2 (Python) |
+| **Vosk** | 9+ | ~50 Mo | ~1,5s | Python (léger) |
 
 Chaque backend tourne en service systemd utilisateur — même protocole socket Unix, totalement transparent pour l'utilisateur.
 
@@ -176,10 +176,11 @@ Chaque backend tourne en service systemd utilisateur — même protocole socket 
 
 | Backend | Confidentialité | Vitesse | Qualité | Installation |
 |---------|-----------------|---------|---------|--------------|
-| **translate-shell** (Google) | En ligne | 0,2–0,7s | Bonne | `apt install translate-shell` |
-| **translate-shell** (Bing) | En ligne | 1,7–2,2s | Bonne | `apt install translate-shell` |
+| **Canary-1B** | 100% local | Intégrée | Meilleure | Inclus avec le backend ASR |
 | **LibreTranslate** | 100% local | 0,1–0,3s | Bonne | Docker (~2 Go d'image) |
 | **ollama** | 100% local | 2,3–3,4s | Meilleure | ollama + modèle translategemma |
+| **translate-shell** (Google) | En ligne | 0,2–0,7s | Bonne | Inclus |
+| **translate-shell** (Bing) | En ligne | 1,7–2,2s | Bonne | Inclus |
 
 ### Changement rapide de backend
 
