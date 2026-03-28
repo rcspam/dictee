@@ -8055,6 +8055,14 @@ class DicteeSetupDialog(QDialog):
 
         self._dirty = False
 
+        # En mode normal, ré-ajouter DICTEE_SETUP_DONE (save_config réécrit tout)
+        if not self.wizard_mode:
+            try:
+                with open(CONF_PATH, "a") as f:
+                    f.write("DICTEE_SETUP_DONE=true\n")
+            except OSError:
+                pass
+
         # Proposer de démarrer/redémarrer LibreTranslate si nécessaire
         # Proposer de démarrer/redémarrer LibreTranslate si nécessaire
         self._lt_starting_after_apply = False
