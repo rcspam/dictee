@@ -82,8 +82,12 @@ asr)
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
 
-    # Signal transitional state to plasmoid/tray
-    echo "switching" > /dev/shm/.dictee_state
+    # Signal transitional state to plasmoid/tray (protégé par flock)
+    STATE_FILE="/dev/shm/.dictee_state"
+    STATE_LOCK="/dev/shm/.dictee_state.lock"
+    _write_state() { ( flock -n 200 || return 1; echo "$1" > "$STATE_FILE"; ) 200>"$STATE_LOCK"; }
+
+    _write_state "switching"
 
     # Stop all, start the right one
     for s in dictee dictee-canary dictee-vosk dictee-whisper; do
@@ -94,9 +98,9 @@ asr)
     done
     if ! systemctl --user enable --now "${svc}.service" 2>/dev/null; then
         echo "Warning: ${svc}.service failed to start. Check: systemctl --user status ${svc}.service" >&2
-        echo "offline" > /dev/shm/.dictee_state
+        _write_state "offline"
     else
-        echo "idle" > /dev/shm/.dictee_state
+        _write_state "idle"
     fi
 
     echo "ASR backend: $2 (${svc}.service)"

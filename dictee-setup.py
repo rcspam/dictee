@@ -7962,11 +7962,19 @@ class DicteeSetupDialog(QDialog):
         # Systemd services — ASR
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
+        svc_error = ""
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():
                 if svc_name == active_svc:
-                    subprocess.run(["systemctl", "--user", "enable", "--now", svc_name], capture_output=True)
-                    subprocess.run(["systemctl", "--user", "restart", svc_name], capture_output=True)
+                    # Disable d'abord pour éviter les conflits, puis enable + start
+                    subprocess.run(["systemctl", "--user", "enable", svc_name], capture_output=True)
+                    result = subprocess.run(
+                        ["systemctl", "--user", "restart", svc_name],
+                        capture_output=True, text=True,
+                    )
+                    if result.returncode != 0:
+                        svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                            svc=svc_name, err=result.stderr.strip())
                 else:
                     subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
         else:
@@ -8001,11 +8009,19 @@ class DicteeSetupDialog(QDialog):
             self._prompt_lt_server()
 
         if not self.wizard_mode:
-            QMessageBox.information(
-                self,
-                _("Configuration saved"),
-                _("File: {path}").format(path=CONF_PATH) + shortcut_msg,
-            )
+            msg = _("File: {path}").format(path=CONF_PATH) + shortcut_msg
+            if svc_error:
+                QMessageBox.warning(
+                    self,
+                    _("Configuration saved"),
+                    msg + "\n\n" + svc_error,
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    _("Configuration saved"),
+                    msg,
+                )
 
     def _prompt_lt_server(self):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
