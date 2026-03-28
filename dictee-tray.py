@@ -179,8 +179,34 @@ def daemon_is_active():
     return False
 
 
+def _conf_asr_service():
+    """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
+    conf = os.path.expandvars("${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf")
+    conf = os.path.expanduser(conf.replace("$HOME", "~"))
+    mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
+               "whisper": "dictee-whisper", "canary": "dictee-canary"}
+    try:
+        with open(conf) as f:
+            for line in f:
+                if line.startswith("DICTEE_ASR_BACKEND="):
+                    backend = line.strip().split("=", 1)[1]
+                    return mapping.get(backend)
+    except FileNotFoundError:
+        pass
+    return None
+
+
 def daemon_start():
-    """Démarre le service daemon activé (restart pour gérer l'état failed)."""
+    """Démarre le service daemon configuré (enable + restart)."""
+    # 1. Lire le backend depuis dictee.conf
+    conf_svc = _conf_asr_service()
+    if conf_svc:
+        subprocess.run(
+            ["systemctl", "--user", "enable", "--now", conf_svc],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        return
+    # 2. Fallback: chercher un service déjà enabled
     for svc in SERVICES:
         try:
             result = subprocess.run(

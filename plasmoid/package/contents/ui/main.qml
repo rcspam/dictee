@@ -344,7 +344,14 @@ PlasmoidItem {
             root.state = "idle"
             break
         case "start-daemon":
-            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-enabled $s 2>/dev/null | grep -qx enabled && systemctl --user restart $s && exit; done; systemctl --user restart dictee'")
+            executable.run("bash -c '" +
+                "conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; " +
+                "svc=dictee; " +
+                "if [ -f \"$conf\" ]; then " +
+                "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
+                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
+                "fi; " +
+                "systemctl --user enable --now $svc'")
             root.state = "idle"
             break
         case "stop-daemon":
