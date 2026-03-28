@@ -16,6 +16,14 @@ ColumnLayout {
     property string lastTranscription: ""
     signal actionRequested(string action)
 
+    // Fermer les ComboBox quand le popup se ferme
+    onVisibleChanged: {
+        if (!visible) {
+            if (asrCombo.popup && asrCombo.popup.visible) asrCombo.popup.close()
+            if (transCombo.popup && transCombo.popup.visible) transCombo.popup.close()
+        }
+    }
+
     Layout.preferredWidth: Kirigami.Units.gridUnit * 36
     Layout.preferredHeight: implicitHeight
     Layout.minimumWidth: Kirigami.Units.gridUnit * 36

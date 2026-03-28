@@ -105,9 +105,15 @@ def _is_translate_enabled():
 
 
 def _asr_service_exists(key):
-    """Check if an ASR backend is actually usable (binary/venv installed)."""
+    """Check if an ASR backend is actually usable (binary+model/venv installed)."""
     if key == "parakeet":
-        return shutil.which("transcribe-daemon") is not None
+        if not shutil.which("transcribe-daemon"):
+            return False
+        data_dir = os.path.join(
+            os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+            "dictee", "tdt",
+        )
+        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(data_dir)
     data_dir = os.path.join(
         os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
         "dictee",

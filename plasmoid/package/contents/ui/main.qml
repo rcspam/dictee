@@ -219,7 +219,7 @@ PlasmoidItem {
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
-        "command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
+        "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
         "[ -d \"$dd/canary-env/lib\" ] && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
