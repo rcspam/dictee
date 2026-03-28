@@ -2367,7 +2367,8 @@ class DicteeSetupDialog(QDialog):
 
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
-            # Last page → Finish
+            # Last page → Finish: save config and start services
+            self._on_apply()
             self._wizard_finished = True
             self.accept()
         else:
@@ -2378,8 +2379,7 @@ class DicteeSetupDialog(QDialog):
             # Update canary translation visibility when entering translation page
             self._update_canary_translation_visibility()
             if idx + 1 == self.stack.count() - 1:
-                # Entering checks page — save config, start services, verify
-                self._on_apply()
+                # Entering checks page — verify prerequisites (no config saved yet)
                 self._run_wizard_checks()
 
     def _validate_wizard_page(self, idx):
@@ -6594,7 +6594,7 @@ class DicteeSetupDialog(QDialog):
 
     def _run_wizard_checks(self):
         checks = {
-            "daemon": self._check_daemon_active,
+            "daemon": self._check_daemon_active,   # service exists (not running yet)
             "model": self._check_model_installed_fn,
             "shortcut": self._check_shortcut_registered,
             "audio": lambda: len(QMediaDevices.audioInputs()) > 0,
@@ -6640,20 +6640,15 @@ class DicteeSetupDialog(QDialog):
             )
 
     def _check_daemon_active(self):
+        """Vérifie que le service systemd du backend choisi existe."""
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
-        # Le daemon peut mettre quelques secondes à démarrer (chargement modèle)
-        import time
-        for _ in range(10):
-            try:
-                r = subprocess.run(["systemctl", "--user", "is-active", svc],
-                                   capture_output=True, text=True)
-                if r.stdout.strip() == "active":
-                    return True
-            except (FileNotFoundError, OSError):
-                pass
-            time.sleep(0.5)
-        return False
+        try:
+            r = subprocess.run(["systemctl", "--user", "list-unit-files", f"{svc}.service"],
+                               capture_output=True, text=True)
+            return svc in r.stdout
+        except (FileNotFoundError, OSError):
+            return False
 
     def _check_model_installed_fn(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
@@ -6721,19 +6716,6 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
-        # Wizard annulé : supprimer la conf créée par _on_apply et arrêter les services
-        if (self.wizard_mode and not self._wizard_finished
-                and not self._conf_existed_before_wizard):
-            if os.path.exists(CONF_PATH):
-                try:
-                    os.unlink(CONF_PATH)
-                except OSError:
-                    pass
-            # Arrêter les services potentiellement démarrés par _on_apply (page checks)
-            for svc in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary",
-                        "dictee-tray", "dictee-ptt"):
-                subprocess.run(["systemctl", "--user", "disable", "--now", svc],
-                               capture_output=True)
         super().closeEvent(event)
 
     # ── Test dictation ────────────────────────────────────────────
