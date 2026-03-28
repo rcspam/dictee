@@ -207,10 +207,11 @@ ColumnLayout {
         Layout.fillWidth: true
     }
 
-    // Backend selectors
+    // Backend selectors (hidden until configured)
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
+        visible: fullRep.dicteeConfigured
 
         PlasmaComponents.Label {
             text: i18n("ASR:")
