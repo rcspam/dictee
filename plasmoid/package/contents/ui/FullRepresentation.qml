@@ -19,7 +19,7 @@ ColumnLayout {
     Layout.preferredWidth: Kirigami.Units.gridUnit * 28
     Layout.preferredHeight: implicitHeight
     Layout.minimumWidth: Kirigami.Units.gridUnit * 28
-    Layout.maximumWidth: Kirigami.Units.gridUnit * 28
+    Layout.maximumWidth: Kirigami.Units.gridUnit * 36
 
     spacing: Kirigami.Units.smallSpacing
 
