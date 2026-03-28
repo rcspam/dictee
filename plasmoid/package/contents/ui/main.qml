@@ -115,6 +115,11 @@ PlasmoidItem {
                         root.currentTranslateBackend = tb
                     }
                 }
+            } else if (source === checkInstalledCmd) {
+                var installed = stdout.trim().split("\n").filter(function(s) { return s.length > 0 })
+                if (installed.length > 0) {
+                    root.installedAsr = installed
+                }
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
@@ -202,10 +207,13 @@ PlasmoidItem {
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
+    property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
+    property string checkInstalledCmd: "bash -c 'for b in parakeet:dictee canary:dictee-canary vosk:dictee-vosk whisper:dictee-whisper; do k=${b%%:*}; s=${b##*:}; systemctl --user list-unit-files ${s}.service 2>/dev/null | grep -q ${s} && echo $k; done'"
 
     function refreshBackends() {
         executable.run(readConfCmd)
+        executable.run(checkInstalledCmd)
     }
 
     // Ping-pong pour l'état aussi

@@ -211,7 +211,6 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        visible: fullRep.state !== "offline"
 
         PlasmaComponents.Label {
             text: i18n("ASR:")
@@ -221,11 +220,31 @@ ColumnLayout {
         QQC2.ComboBox {
             id: asrCombo
             Kirigami.Theme.inherit: true
-            model: ["Parakeet", "Canary", "Vosk", "Whisper"]
-            property var values: ["parakeet", "canary", "vosk", "whisper"]
-            currentIndex: values.indexOf(root.currentAsrBackend)
-            onActivated: {
-                executable.run("dictee-switch-backend asr " + values[currentIndex])
+            model: ListModel {
+                id: asrModel
+                ListElement { text: "Parakeet"; value: "parakeet" }
+                ListElement { text: "Canary"; value: "canary" }
+                ListElement { text: "Vosk"; value: "vosk" }
+                ListElement { text: "Whisper"; value: "whisper" }
+            }
+            textRole: "text"
+            currentIndex: {
+                for (var i = 0; i < asrModel.count; i++) {
+                    if (asrModel.get(i).value === root.currentAsrBackend) return i
+                }
+                return 0
+            }
+            delegate: QQC2.ItemDelegate {
+                width: parent ? parent.width : 0
+                text: model.text
+                enabled: root.installedAsr.indexOf(model.value) !== -1
+                opacity: enabled ? 1.0 : 0.4
+            }
+            onActivated: function(index) {
+                var val = asrModel.get(index).value
+                if (root.installedAsr.indexOf(val) !== -1) {
+                    executable.run("dictee-switch-backend asr " + val)
+                }
             }
             Layout.fillWidth: true
         }
