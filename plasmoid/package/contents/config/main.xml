@@ -77,7 +77,7 @@
 
         <!-- Bars parameters -->
         <entry name="barCount" type="Int">
-            <default>6</default>
+            <default>15</default>
         </entry>
         <entry name="barSpacing" type="Int">
             <default>2</default>
@@ -97,7 +97,7 @@
 
         <!-- Wave parameters -->
         <entry name="waveWidth" type="Int">
-            <default>30</default>
+            <default>60</default>
         </entry>
         <entry name="waveThickness" type="Int">
             <default>3</default>
@@ -145,7 +145,7 @@
 
         <!-- Dots parameters -->
         <entry name="dotCount" type="Int">
-            <default>5</default>
+            <default>10</default>
         </entry>
         <entry name="dotSize" type="Int">
             <default>6</default>
