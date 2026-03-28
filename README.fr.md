@@ -129,19 +129,6 @@ sudo dnf install libcudnn9-cuda-12
 
 > Sans cuDNN, la version GPU fonctionne automatiquement en mode CPU. `dictee-setup` détectera le problème et vous guidera.
 
-### Dépendances
-
-| Debian / Ubuntu | Fedora / openSUSE | Arch Linux |
-|-----------------|-------------------|------------|
-| `pipewire` | `pipewire` | `pipewire` |
-| `dotool` | — (inclus) | `dotool` |
-| `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
-| `libnotify-bin` | `libnotify` | `libnotify` |
-| `python3-pyqt6` | `python3-pyqt6` | `python-pyqt6` |
-| `python3-pyqt6.qtmultimedia` | `python3-qt6-multimedia` | `python-pyqt6-multimedia` |
-| `python3-gi` | `python3-gobject` | `python-gobject` |
-| `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` | `wl-clipboard` / `xclip` |
-
 ---
 
 ## Configuration
