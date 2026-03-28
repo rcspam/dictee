@@ -164,8 +164,8 @@ Chaque backend tourne en service systemd utilisateur — même protocole socket 
 | Backend | Confidentialité | Vitesse | Qualité | Installation |
 |---------|-----------------|---------|---------|--------------|
 | **Canary-1B** | 100% local | Intégrée | Meilleure | Inclus avec le backend ASR |
-| **LibreTranslate** | 100% local | 0,1–0,3s | Bonne | Docker (~2 Go d'image) |
-| **ollama** | 100% local | 2,3–3,4s | Meilleure | ollama + modèle translategemma |
+| **LibreTranslate** | 100% local | 0,1–0,3s | Bonne | Guidé depuis le setup |
+| **ollama** | 100% local | 2,3–3,4s | Meilleure | Guidé depuis le setup |
 | **translate-shell** (Google) | En ligne | 0,2–0,7s | Bonne | Inclus |
 | **translate-shell** (Bing) | En ligne | 1,7–2,2s | Bonne | Inclus |
 
