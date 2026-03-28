@@ -370,10 +370,24 @@ class DicteeTrayAppIndicator:
     def _on_daemon_toggle(self, _item):
         if self.state == "offline":
             daemon_start()
-            self.GLib.timeout_add(2000, self._delayed_refresh)
+            self._start_retries = 0
+            self.GLib.timeout_add(1000, self._poll_daemon_start)
         else:
             daemon_stop()
             self.GLib.timeout_add(1000, self._delayed_refresh)
+
+    def _poll_daemon_start(self):
+        self._start_retries += 1
+        self._check_daemon()
+        if self._daemon_active:
+            self._check_state()
+            self._apply_state()
+            return False
+        if self._start_retries >= 10:
+            self._check_state()
+            self._apply_state()
+            return False
+        return True  # retry in 1s
 
     def _setup_file_watch(self):
         """Surveille le fichier état via inotify (GLib)."""
@@ -616,7 +630,10 @@ class DicteeTrayQt:
         elif action == self.action_daemon:
             if self.state == "offline":
                 daemon_start()
-                self.QTimer.singleShot(2000, self._delayed_refresh)
+                self._start_retries = 0
+                self._poll_timer = self.QTimer()
+                self._poll_timer.timeout.connect(self._poll_daemon_start_qt)
+                self._poll_timer.start(1000)
             else:
                 daemon_stop()
                 self.QTimer.singleShot(1000, self._delayed_refresh)
@@ -734,6 +751,14 @@ class DicteeTrayQt:
             self._watcher.addPath(STATE_FILE)
         self._check_state()
         self._apply_state()
+
+    def _poll_daemon_start_qt(self):
+        self._start_retries += 1
+        self._check_daemon()
+        if self._daemon_active or self._start_retries >= 10:
+            self._poll_timer.stop()
+            self._check_state()
+            self._apply_state()
 
     def _delayed_refresh(self):
         self._check_daemon()
