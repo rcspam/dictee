@@ -12,6 +12,7 @@ Backend automatique :
 
 import gettext
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -93,18 +94,18 @@ def _is_translate_enabled():
 
 
 def _asr_service_exists(key):
-    """Check if the systemd service for an ASR backend exists."""
-    svc_map = {"parakeet": "dictee", "canary": "dictee-canary",
-               "vosk": "dictee-vosk", "whisper": "dictee-whisper"}
-    svc = svc_map.get(key, "")
-    try:
-        result = subprocess.run(
-            ["systemctl", "--user", "list-unit-files", f"{svc}.service"],
-            capture_output=True, text=True,
-        )
-        return svc in result.stdout
-    except FileNotFoundError:
-        return False
+    """Check if an ASR backend is actually usable (binary/venv installed)."""
+    if key == "parakeet":
+        return shutil.which("transcribe-daemon") is not None
+    data_dir = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee",
+    )
+    venv_map = {"vosk": "vosk-env", "whisper": "whisper-env", "canary": "canary-env"}
+    venv = venv_map.get(key)
+    if venv:
+        return os.path.isdir(os.path.join(data_dir, venv, "lib"))
+    return False
 
 
 # Icônes

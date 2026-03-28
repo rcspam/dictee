@@ -2800,7 +2800,7 @@ class DicteeSetupDialog(QDialog):
         lay_checks.setContentsMargins(0, 0, 0, 0)
         self._check_labels = {}
         for check_id, label in [
-            ("daemon", _("ASR daemon")),
+            ("daemon", _("ASR service")),
             ("model", _("ASR model")),
             ("shortcut", _("Keyboard shortcut")),
             ("audio", _("Audio (PipeWire/PulseAudio)")),

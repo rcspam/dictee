@@ -209,7 +209,12 @@ PlasmoidItem {
     property string currentTranslateBackend: "google"
     property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
-    property string checkInstalledCmd: "bash -c 'for b in parakeet:dictee canary:dictee-canary vosk:dictee-vosk whisper:dictee-whisper; do k=${b%%:*}; s=${b##*:}; systemctl --user list-unit-files ${s}.service 2>/dev/null | grep -q ${s} && echo $k; done'"
+    property string checkInstalledCmd: "bash -c '" +
+        "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
+        "command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
+        "[ -d \"$dd/canary-env/lib\" ] && echo canary; " +
+        "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
+        "[ -d \"$dd/whisper-env/lib\" ] && echo whisper'"
 
     function refreshBackends() {
         executable.run(readConfCmd)
