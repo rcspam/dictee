@@ -2170,7 +2170,10 @@ class DicteeSetupDialog(QDialog):
         lay_srv.setContentsMargins(16, 16, 16, 12)
         self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
         self.chk_tray = QCheckBox(_("Show notification area icon"))
-        self.chk_daemon.setChecked(self._is_service_enabled("dictee"))
+        self.chk_daemon.setChecked(any(
+            self._is_service_enabled(s)
+            for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
+        ))
         self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
         lay_srv.addWidget(self.chk_daemon)
         lay_srv.addWidget(self.chk_tray)
