@@ -16,9 +16,9 @@ ColumnLayout {
     property string lastTranscription: ""
     signal actionRequested(string action)
 
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 22
+    Layout.preferredWidth: Kirigami.Units.gridUnit * 28
     Layout.preferredHeight: implicitHeight
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 18
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 28
     Layout.maximumWidth: Kirigami.Units.gridUnit * 28
 
     spacing: Kirigami.Units.smallSpacing
