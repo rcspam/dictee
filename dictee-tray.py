@@ -194,15 +194,26 @@ def _conf_asr_service():
     return None
 
 
+def _write_state(state):
+    """Écrit l'état dans le fichier partagé (sans flock — best effort)."""
+    try:
+        with open(STATE_FILE, "w") as f:
+            f.write(state + "\n")
+    except OSError:
+        pass
+
+
 def daemon_start():
     """Démarre le service daemon configuré (enable + restart)."""
     # 1. Lire le backend depuis dictee.conf
     conf_svc = _conf_asr_service()
     if conf_svc:
-        subprocess.run(
+        result = subprocess.run(
             ["systemctl", "--user", "enable", "--now", conf_svc],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        if result.returncode == 0:
+            _write_state("idle")
         return
     # 2. Fallback: chercher un service déjà enabled
     for svc in SERVICES:
@@ -212,10 +223,12 @@ def daemon_start():
                 capture_output=True, text=True,
             )
             if result.stdout.strip() == "enabled":
-                subprocess.run(
+                result = subprocess.run(
                     ["systemctl", "--user", "restart", svc],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+                if result.returncode == 0:
+                    _write_state("idle")
                 return
         except FileNotFoundError:
             pass
@@ -246,9 +259,9 @@ def read_state():
     try:
         with open(STATE_FILE, "r") as f:
             state = f.read().strip()
-            if state in ("recording", "transcribing"):
+            if state in ("recording", "transcribing", "switching"):
                 return state
-            if state == "cancelled":
+            if state in ("cancelled", "idle"):
                 return "idle"
     except (FileNotFoundError, PermissionError):
         pass
