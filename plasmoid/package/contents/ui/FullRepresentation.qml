@@ -269,11 +269,38 @@ ColumnLayout {
         QQC2.ComboBox {
             id: transCombo
             Kirigami.Theme.inherit: true
-            model: ["Google", "Bing", "Ollama", "LibreTranslate"]
-            property var values: ["google", "bing", "ollama", "libretranslate"]
-            currentIndex: values.indexOf(root.currentTranslateBackend)
-            onActivated: {
-                executable.run("dictee-switch-backend translate " + values[currentIndex])
+            model: ListModel {
+                id: transModel
+                ListElement { text: "Google"; value: "google" }
+                ListElement { text: "Bing"; value: "bing" }
+                ListElement { text: "Ollama"; value: "ollama" }
+                ListElement { text: "LibreTranslate"; value: "libretranslate" }
+            }
+            textRole: "text"
+            currentIndex: {
+                for (var i = 0; i < transModel.count; i++) {
+                    if (transModel.get(i).value === root.currentTranslateBackend) return i
+                }
+                return 0
+            }
+            delegate: QQC2.ItemDelegate {
+                width: parent ? parent.width : 0
+                text: model.text
+                enabled: root.installedTranslate.indexOf(model.value) !== -1
+                opacity: enabled ? 1.0 : 0.4
+            }
+            onActivated: function(index) {
+                var val = transModel.get(index).value
+                if (root.installedTranslate.indexOf(val) !== -1) {
+                    executable.run("dictee-switch-backend translate " + val)
+                } else {
+                    // Revert
+                    for (var i = 0; i < transModel.count; i++) {
+                        if (transModel.get(i).value === root.currentTranslateBackend) {
+                            currentIndex = i; break
+                        }
+                    }
+                }
             }
             Layout.fillWidth: true
             enabled: root.currentAsrBackend !== "canary"

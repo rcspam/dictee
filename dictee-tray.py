@@ -77,6 +77,17 @@ TRANSLATE_BACKENDS = [
 ]
 
 
+def _translate_backend_available(key):
+    """Check if a translation backend is usable."""
+    if key in ("google", "bing"):
+        return shutil.which("trans") is not None
+    if key == "ollama":
+        return shutil.which("ollama") is not None
+    if key == "libretranslate":
+        return shutil.which("docker") is not None
+    return True
+
+
 def _current_asr_backend():
     return read_conf_value("DICTEE_ASR_BACKEND", "parakeet")
 
@@ -541,6 +552,7 @@ class DicteeTrayAppIndicator:
         for key, item in self._trans_radios:
             item.handler_block_by_func(self._on_trans_toggled)
             item.set_active(key == current_trans)
+            item.set_sensitive(_translate_backend_available(key))
             item.handler_unblock_by_func(self._on_trans_toggled)
 
     def _delayed_refresh(self):
@@ -733,6 +745,7 @@ class DicteeTrayQt:
         current = _current_translate_backend()
         for key, action in self._trans_actions.items():
             action.setChecked(key == current)
+            action.setEnabled(_translate_backend_available(key))
 
     def _check_daemon(self):
         self._daemon_active = daemon_is_active()

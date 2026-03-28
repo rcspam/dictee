@@ -116,9 +116,16 @@ PlasmoidItem {
                     }
                 }
             } else if (source === checkInstalledCmd) {
-                var installed = stdout.trim().split("\n").filter(function(s) { return s.length > 0 })
-                if (installed.length > 0) {
-                    root.installedAsr = installed
+                var parts = stdout.trim().split("---")
+                var asrList = parts[0].trim().split("\n").filter(function(s) { return s.length > 0 })
+                if (asrList.length > 0) {
+                    root.installedAsr = asrList
+                }
+                if (parts.length > 1) {
+                    var trList = parts[1].trim().split("\n").filter(function(s) { return s.length > 0 })
+                    if (trList.length > 0) {
+                        root.installedTranslate = trList
+                    }
                 }
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
@@ -208,13 +215,18 @@ PlasmoidItem {
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
     property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
+    property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
         "command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
         "[ -d \"$dd/canary-env/lib\" ] && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
-        "[ -d \"$dd/whisper-env/lib\" ] && echo whisper'"
+        "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
+        "echo ---; " +
+        "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
+        "command -v ollama >/dev/null 2>&1 && echo ollama; " +
+        "command -v docker >/dev/null 2>&1 && echo libretranslate'"
 
     function refreshBackends() {
         executable.run(readConfCmd)
