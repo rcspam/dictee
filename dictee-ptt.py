@@ -321,6 +321,12 @@ class PttState:
                     print("[ptt] hold: cancel (trop court)")
                     run_dictee_async("--cancel")
                 else:
+                    # Écrire "transcribing" immédiatement pour stopper l'animation
+                    try:
+                        with open("/dev/shm/.dictee_state", "w") as f:
+                            f.write("transcribing\n")
+                    except OSError:
+                        pass
                     print("[ptt] hold: stop")
                     run_dictee_async()
                 self.recording = False
@@ -360,6 +366,12 @@ class PttState:
                     print("[ptt] hold: cancel+translate (trop court)")
                     run_dictee_async("--cancel")
                 else:
+                    # Écrire "transcribing" immédiatement pour stopper l'animation
+                    try:
+                        with open("/dev/shm/.dictee_state", "w") as f:
+                            f.write("transcribing\n")
+                    except OSError:
+                        pass
                     print("[ptt] hold: stop+translate")
                     run_dictee_async("--translate")
                 self.recording_translate = False
