@@ -92,6 +92,7 @@ def main():
             break
 
         try:
+            conn.settimeout(30)  # Client must send data within 30s
             data = b""
             while b"\n" not in data:
                 chunk = conn.recv(4096)

@@ -56,12 +56,13 @@ if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
 fi
 export DOTOOL_XKB_LAYOUT
 
-RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.mp3"
-PIDFILE="/tmp/recording_dictee_pid"
-ID_TMP_FILE="/tmp/notify_dictee"
-MUT_FILE="/tmp/mut_dictee"
-TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend"
-TRANSLATE_FLAG_FILE="/tmp/dictee_translate"
+RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
+_UID_SUFFIX="-$(id -u)"
+PIDFILE="/tmp/recording_dictee_pid${_UID_SUFFIX}"
+ID_TMP_FILE="/tmp/notify_dictee${_UID_SUFFIX}"
+MUT_FILE="/tmp/mut_dictee${_UID_SUFFIX}"
+TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
+TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 LAST_WORD_FILE="/dev/shm/.dictee_last_word"
 
 # État partagé avec plasmoid/tray (protégé par flock)
@@ -384,7 +385,7 @@ done
 
 # === ÉCOUTE ESCAPE (/dev/input) ===
 
-ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid"
+ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid${_UID_SUFFIX}"
 
 start_escape_listener() {
     # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
@@ -848,6 +849,12 @@ if [ -f "$PIDFILE" ]; then
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
+
+    # Verrou atomique : empêcher un double-démarrage (rebond clavier, double raccourci)
+    exec 201>"${PIDFILE}.lock"
+    if ! flock -n 201; then
+        exit 0  # un autre dictee est déjà en train de démarrer
+    fi
 
     if [ "$NO_ESC_LISTENER" = false ]; then start_escape_listener; fi
 

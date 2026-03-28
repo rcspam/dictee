@@ -39,8 +39,10 @@ fi
 
 case "$1" in
 status)
-    # Read current backends from config
+    # Read current backends from config (disable -eu during source to tolerate malformed values)
+    set +eu
     source "$CONF"
+    set -eu
     asr="${DICTEE_ASR_BACKEND:-parakeet}"
     case "$asr" in
         parakeet) svc="dictee" ;;
