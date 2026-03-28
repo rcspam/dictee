@@ -43,8 +43,9 @@ except ImportError:
 
 CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
 DICTEE_BIN = None  # auto-detect
-PIDFILE = "/tmp/recording_dictee_pid"
-OWN_PIDFILE = "/tmp/dictee-ptt.pid"
+_UID_SUFFIX = f"-{os.getuid()}"
+PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
+OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
 
 EV_KEY = 1
 KEY_DOWN = 1
