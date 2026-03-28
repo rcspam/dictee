@@ -475,11 +475,12 @@ build_rpm_plasmoid() {
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-plasmoid-$VERSION-1.noarch"
     rm -rf "$buildroot"
 
-    # Plasmoid
-    mkdir -p "$buildroot/usr/share/dictee"
-    cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
+    # Plasmoid — installer directement dans le répertoire KDE
+    local plasmoid_dir="$buildroot/usr/share/plasma/plasmoids/com.github.rcspam.dictee"
+    mkdir -p "$plasmoid_dir"
+    cp -r plasmoid/package/* "$plasmoid_dir/"
 
-    # Locales plasmoid
+    # Locales plasmoid (FHS standard)
     local plasmoid_locale="plasmoid/package/contents/locale"
     if [ -d "$plasmoid_locale" ]; then
         for lang_dir in "$plasmoid_locale"/*/; do
@@ -500,7 +501,6 @@ Group:          System/GUI/KDE
 BuildArch:      noarch
 
 Requires:       dictee
-Requires:       kf6-kpackage
 Recommends:     python3-numpy
 Recommends:     pulseaudio-utils
 
@@ -512,18 +512,12 @@ and provides quick controls (dictate, translate, cancel).
 Five animation styles with configurable sensitivity and color gradients.
 
 %files
-/usr/share/dictee/dictee.plasmoid
+/usr/share/plasma/plasmoids/com.github.rcspam.dictee/
 /usr/share/locale/*/LC_MESSAGES/*.mo
 
-%post
-if command -v kpackagetool6 >/dev/null 2>&1; then
-    kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
-    kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
-fi
-
 %postun
-if [ "\$1" -eq 0 ] && command -v kpackagetool6 >/dev/null 2>&1; then
-    kpackagetool6 -t Plasma/Applet -r com.github.rcspam.dictee 2>/dev/null || true
+if [ "\$1" -eq 0 ]; then
+    rm -rf /usr/share/plasma/plasmoids/com.github.rcspam.dictee 2>/dev/null || true
 fi
 EOF
 
