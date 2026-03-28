@@ -756,15 +756,21 @@ if [ -f "$PIDFILE" ]; then
     fi
 
     if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
-        local err_id
-        err_id=$(notify-send -p -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null) || true
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
+        else
+            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
+        fi
         write_state "idle"
         rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
         exit 1
     fi
     if [ -z "$raw" ]; then
-        local err_id
-        err_id=$(notify-send -p -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null) || true
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
+        else
+            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
+        fi
         write_state "idle"
         rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
         exit 1
@@ -871,9 +877,14 @@ else
     pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
     echo $! >"$PIDFILE"
 
-    # Attendre que pw-record soit connecté à PipeWire (~200ms de latence de démarrage)
-    # La notification sert de délai naturel : l'utilisateur attend le retour visuel
-    # avant de parler, ce qui laisse le temps à pw-record de démarrer
+    # Vérifier que pw-record a bien démarré
+    sleep 0.2
+    if ! kill -0 $! 2>/dev/null; then
+        rm -f "$PIDFILE" "$RECORDING_FILE"
+        notify-send -t 5000 -i dialog-error -a Dictee "Recording failed — audio device unavailable" 2>/dev/null || true
+        write_state "idle"
+        exit 1
+    fi
 
     # Signaler au plasmoid
     write_state "recording"

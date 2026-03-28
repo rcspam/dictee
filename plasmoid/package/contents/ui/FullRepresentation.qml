@@ -244,6 +244,14 @@ ColumnLayout {
                 var val = asrModel.get(index).value
                 if (root.installedAsr.indexOf(val) !== -1) {
                     executable.run("dictee-switch-backend asr " + val)
+                } else {
+                    // Revert to current backend
+                    for (var i = 0; i < asrModel.count; i++) {
+                        if (asrModel.get(i).value === root.currentAsrBackend) {
+                            currentIndex = i
+                            break
+                        }
+                    }
                 }
             }
             Layout.fillWidth: true

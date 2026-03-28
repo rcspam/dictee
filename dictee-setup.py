@@ -7966,15 +7966,19 @@ class DicteeSetupDialog(QDialog):
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():
                 if svc_name == active_svc:
-                    # Disable d'abord pour éviter les conflits, puis enable + start
+                    # Enable puis restart avec timeout (évite de geler l'UI)
                     subprocess.run(["systemctl", "--user", "enable", svc_name], capture_output=True)
-                    result = subprocess.run(
-                        ["systemctl", "--user", "restart", svc_name],
-                        capture_output=True, text=True,
-                    )
-                    if result.returncode != 0:
-                        svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                            svc=svc_name, err=result.stderr.strip())
+                    try:
+                        result = subprocess.run(
+                            ["systemctl", "--user", "restart", svc_name],
+                            capture_output=True, text=True, timeout=15,
+                        )
+                        if result.returncode != 0:
+                            svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                                svc=svc_name, err=result.stderr.strip())
+                    except subprocess.TimeoutExpired:
+                        svc_error = _("Warning: {svc} is taking too long to start.\n"
+                                      "It may still be loading the model.").format(svc=svc_name)
                 else:
                     subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
         else:

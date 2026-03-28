@@ -187,7 +187,7 @@ def _conf_asr_service():
         with open(CONF_PATH) as f:
             for line in f:
                 if line.startswith("DICTEE_ASR_BACKEND="):
-                    backend = line.strip().split("=", 1)[1]
+                    backend = line.strip().split("=", 1)[1].strip('"\'')
                     return mapping.get(backend)
     except FileNotFoundError:
         pass
@@ -259,7 +259,7 @@ def read_state():
     try:
         with open(STATE_FILE, "r") as f:
             state = f.read().strip()
-            if state in ("recording", "transcribing", "switching"):
+            if state in ("recording", "transcribing", "switching", "offline"):
                 return state
             if state in ("cancelled", "idle"):
                 return "idle"
@@ -450,6 +450,8 @@ class DicteeTrayAppIndicator:
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
+        elif file_state == "offline":
+            self.state = "offline"
         elif self._daemon_active:
             self.state = "idle"
         else:
@@ -729,6 +731,8 @@ class DicteeTrayQt:
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
+        elif file_state == "offline":
+            self.state = "offline"
         elif self._daemon_active:
             self.state = "idle"
         else:

@@ -241,11 +241,15 @@ PlasmoidItem {
             transcribingTimer.restart()
         } else if (newState === "switching") {
             root.state = "switching"
+            transcribingTimer.stop()
+            recordingTimer.stop()
+            switchingTimer.restart()
         } else if (newState === "idle") {
             // Retour à idle depuis n'importe quel état actif
             if (root.state === "recording" || root.state === "transcribing" || root.state === "switching") {
                 transcribingTimer.stop()
                 recordingTimer.stop()
+                switchingTimer.stop()
                 root.state = "idle"
             }
         }
@@ -306,6 +310,19 @@ PlasmoidItem {
         }
     }
 
+    // Timer de sécurité pour switching (15s max — si dictee-switch-backend crash)
+    Timer {
+        id: switchingTimer
+        interval: 15000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "switching") {
+                root.state = "offline"
+            }
+        }
+    }
+
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
         barColor: root.barColor
@@ -325,7 +342,14 @@ PlasmoidItem {
         }
     }
 
+    property real lastActionTime: 0
+
     function handleAction(action) {
+        // Debounce: ignore actions within 800ms
+        var now = Date.now()
+        if (now - lastActionTime < 800) return
+        lastActionTime = now
+
         switch (action) {
         case "dictate":
             if (root.state === "recording") {
