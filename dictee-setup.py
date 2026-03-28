@@ -2390,6 +2390,10 @@ class DicteeSetupDialog(QDialog):
                             _("Please download the required model before continuing."))
                         return False
             elif asr == "vosk":
+                if not venv_is_installed(VOSK_VENV):
+                    QMessageBox.warning(self, _("Setup required"),
+                        _("Vosk is not installed. Please click 'Install Vosk' above."))
+                    return False
                 # Check that downloaded Vosk model matches selected language
                 lang = self.combo_src.currentData() if hasattr(self, 'combo_src') else "fr"
                 expected_model = VOSK_MODELS.get(lang, "")
@@ -2399,6 +2403,16 @@ class DicteeSetupDialog(QDialog):
                         QMessageBox.warning(self, _("Model required"),
                             _("Please download the Vosk model for {lang} before continuing.").format(lang=lang))
                         return False
+            elif asr == "whisper":
+                if not venv_is_installed(WHISPER_VENV):
+                    QMessageBox.warning(self, _("Setup required"),
+                        _("faster-whisper is not installed. Please click 'Install Whisper' above."))
+                    return False
+            elif asr == "canary":
+                if not venv_is_installed(CANARY_VENV):
+                    QMessageBox.warning(self, _("Setup required"),
+                        _("Canary is not installed. Please click 'Install Canary' above."))
+                    return False
         elif idx == 2:
             # Shortcuts page: user must be in 'input' group
             # Check /etc/group (persistent) instead of 'groups' (session-only)
