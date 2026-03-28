@@ -2731,8 +2731,11 @@ class DicteeSetupDialog(QDialog):
         self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
         self.chk_tray = QCheckBox(_("Show notification area icon"))
         # In wizard, check by default (first install)
-        self.chk_daemon.setChecked(self._is_service_enabled("dictee") or self.wizard_mode)
-        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
+        self.chk_daemon.setChecked(any(
+            self._is_service_enabled(s)
+            for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
+        ) or self.wizard_mode)
+        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray") or self.wizard_mode)
         lay_srv.addWidget(self.chk_daemon)
         lay_srv.addWidget(self.chk_tray)
         lay.addWidget(grp_srv)
@@ -7966,8 +7969,14 @@ class DicteeSetupDialog(QDialog):
         if self.chk_daemon.isChecked():
             for svc_name in asr_services.values():
                 if svc_name == active_svc:
-                    # Enable puis restart avec timeout (évite de geler l'UI)
-                    subprocess.run(["systemctl", "--user", "enable", svc_name], capture_output=True)
+                    # Enable (boot) puis restart (maintenant)
+                    en = subprocess.run(
+                        ["systemctl", "--user", "enable", svc_name],
+                        capture_output=True, text=True,
+                    )
+                    if en.returncode != 0:
+                        svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
+                            svc=svc_name, err=en.stderr.strip())
                     try:
                         result = subprocess.run(
                             ["systemctl", "--user", "restart", svc_name],

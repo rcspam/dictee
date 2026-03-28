@@ -1,5 +1,6 @@
 disable dictee.service
 disable dictee-vosk.service
 disable dictee-whisper.service
+disable dictee-canary.service
 disable dictee-tray.service
 disable dictee-ptt.service
