@@ -435,7 +435,8 @@ ColumnLayout {
             Layout.preferredWidth: 80
             from: 0.0
             to: 0.6
-            stepSize: 0.01
+            stepSize: 0.0
+            snapMode: QQC2.Slider.NoSnap
             value: root.micVolume
             onMoved: {
                 root.micVolume = value
