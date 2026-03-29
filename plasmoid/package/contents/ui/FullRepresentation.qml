@@ -348,7 +348,7 @@ ColumnLayout {
         QQC2.CheckBox {
             id: chkDiarize
             text: i18n("Diarization")
-            enabled: root.sortformerAvailable && root.currentAsrBackend === "parakeet"
+            enabled: root.sortformerAvailable
             checked: root.diarizeEnabled
             onToggled: {
                 root.diarizeEnabled = checked
@@ -356,9 +356,7 @@ ColumnLayout {
             }
             QQC2.ToolTip.text: !root.sortformerAvailable
                 ? i18n("Sortformer model not installed. Configure in dictee-setup.")
-                : root.currentAsrBackend !== "parakeet"
-                    ? i18n("Diarization requires Parakeet backend.")
-                    : i18n("Live speaker identification (max 4). For recordings over 5 minutes, use Transcribe file instead.")
+                : i18n("Speaker identification (max 4). Switches to Parakeet automatically. Previous backend restored after.")
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
