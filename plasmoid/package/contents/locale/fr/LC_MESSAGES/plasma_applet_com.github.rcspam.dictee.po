@@ -287,11 +287,11 @@ msgstr "Épingler la popup"
 
 #: contents/ui/FullRepresentation.qml:91
 msgid "Dictée not installed — install dictee package"
-msgstr ""
+msgstr "Dictée non installé — installez le paquet dictee"
 
 #: contents/ui/FullRepresentation.qml:92
 msgid "Not configured — click Configure Dictée below"
-msgstr ""
+msgstr "Non configuré — cliquez sur Configurer Dictée ci-dessous"
 
 #: contents/ui/FullRepresentation.qml:93 contents/ui/main.qml:59
 msgid "Daemon stopped"
@@ -311,7 +311,7 @@ msgstr "Transcription…"
 
 #: contents/ui/FullRepresentation.qml:101 contents/ui/main.qml:67
 msgid "Switching backend…"
-msgstr ""
+msgstr "Changement de backend…"
 
 #: contents/ui/FullRepresentation.qml:113
 msgid "Reset"
@@ -350,37 +350,36 @@ msgid "Translation:"
 msgstr "Traduction :"
 
 #: contents/ui/FullRepresentation.qml:324
-#, fuzzy
 msgid "Preview"
-msgstr "Aperçu :"
+msgstr "Aperçu"
 
 #: contents/ui/FullRepresentation.qml:333
-#, fuzzy
 msgid "Diarization"
-msgstr "Animation"
+msgstr "Diarisation"
 
 #: contents/ui/FullRepresentation.qml:341
 msgid ""
 "Live speaker identification (max 4). For recordings over 5 minutes, use "
 "Transcribe file instead."
 msgstr ""
+"Identification des locuteurs en direct (max 4). Pour les enregistrements de "
+"plus de 5 minutes, utilisez Transcrire un fichier."
 
 #: contents/ui/FullRepresentation.qml:342
 msgid "Sortformer model not installed. Configure in dictee-setup."
-msgstr ""
+msgstr "Modèle Sortformer non installé. Configurez dans dictee-setup."
 
 #: contents/ui/FullRepresentation.qml:348
-#, fuzzy
 msgid "Transcribe file"
-msgstr "Transcription…"
+msgstr "Transcrire un fichier"
 
 #: contents/ui/FullRepresentation.qml:352
 msgid "Open an audio file for transcription"
-msgstr ""
+msgstr "Ouvrir un fichier audio pour transcription"
 
 #: contents/ui/FullRepresentation.qml:358
 msgid "Post-processing..."
-msgstr ""
+msgstr "Post-traitement..."
 
 #: contents/ui/FullRepresentation.qml:365
 msgid "Configure Dictée"
@@ -388,11 +387,11 @@ msgstr "Configurer Dictée"
 
 #: contents/ui/main.qml:57
 msgid "Dictée not installed"
-msgstr ""
+msgstr "Dictée non installé"
 
 #: contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
-msgstr ""
+msgstr "Dictée non configuré — lancez dictee-setup"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Aperçu (test micro)"
