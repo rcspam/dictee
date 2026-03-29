@@ -13,22 +13,23 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 try:
-    from PyQt6.QtCore import Qt, QProcess, QByteArray
+    from PyQt6.QtCore import Qt, QProcess, QByteArray, QThread, pyqtSignal as Signal
     from PyQt6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
-        QPlainTextEdit, QFileDialog, QLineEdit, QWidget,
+        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget,
     )
 except ImportError:
-    from PySide6.QtCore import Qt, QProcess, QByteArray
+    from PySide6.QtCore import Qt, QProcess, QByteArray, QThread, Signal
     from PySide6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
-        QPlainTextEdit, QFileDialog, QLineEdit, QWidget,
+        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget,
     )
 
 # === i18n ===
@@ -52,9 +53,167 @@ _ = gettext.gettext
 
 AUDIO_FILTER = _("Audio files") + " (*.wav *.mp3 *.flac *.ogg *.m4a *.webm *.opus);;All files (*)"
 
+# Colors that contrast well on both light and dark backgrounds
+SPEAKER_COLORS = [
+    "#e06c75",  # red
+    "#61afef",  # blue
+    "#98c379",  # green
+    "#d19a66",  # orange
+]
+
 DIARIZE_RE = re.compile(
     r"\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*(Speaker\s+\d+|UNKNOWN):\s*(.*)"
 )
+
+
+# === Configuration ===
+
+CONF_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "dictee.conf",
+)
+
+
+def _read_conf():
+    """Read dictee.conf into a dict."""
+    conf = {}
+    if os.path.isfile(CONF_PATH):
+        with open(CONF_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    conf[k] = v.strip().strip('"').strip("'")
+    return conf
+
+
+def _detect_language(text):
+    """Simple language detection based on common words and characters."""
+    text_lower = text.lower()
+    scores = {
+        "en": 0, "fr": 0, "de": 0, "es": 0, "it": 0, "pt": 0,
+        "uk": 0, "ru": 0, "nl": 0, "pl": 0, "zh": 0, "ja": 0,
+        "ko": 0, "ar": 0,
+    }
+    # Common words per language
+    markers = {
+        "en": ["the ", " is ", " are ", " was ", " have ", " that ", " with ", " this "],
+        "fr": [" le ", " la ", " les ", " des ", " est ", " que ", " dans ", " une ", " qui "],
+        "de": [" der ", " die ", " das ", " und ", " ist ", " ein ", " nicht ", " den "],
+        "es": [" el ", " los ", " las ", " que ", " por ", " una ", " con ", " del "],
+        "it": [" il ", " che ", " di ", " una ", " per ", " con ", " sono ", " della "],
+        "pt": [" que ", " uma ", " com ", " para ", " dos ", " das ", " não "],
+        "nl": [" het ", " een ", " van ", " dat ", " niet ", " zijn "],
+        "pl": [" nie ", " jest ", " się ", " że ", " jak "],
+        "ru": [" не ", " что ", " это ", " как ", " для "],
+        "uk": [" не ", " що ", " це ", " як ", " для ", " або "],
+    }
+    # Character-based detection for non-Latin scripts
+    for ch in text:
+        if "\u4e00" <= ch <= "\u9fff":
+            scores["zh"] += 5
+        elif "\u3040" <= ch <= "\u30ff":
+            scores["ja"] += 5
+        elif "\uac00" <= ch <= "\ud7af":
+            scores["ko"] += 5
+        elif "\u0600" <= ch <= "\u06ff":
+            scores["ar"] += 5
+        elif "\u0400" <= ch <= "\u04ff":
+            # Cyrillic — differentiate Ukrainian vs Russian
+            scores["ru"] += 1
+            scores["uk"] += 1
+    # Ukrainian-specific characters
+    for uk_ch in "іїєґ":
+        if uk_ch in text_lower:
+            scores["uk"] += 10
+    # Word-based detection for Latin scripts
+    for lang, words in markers.items():
+        for w in words:
+            scores[lang] += text_lower.count(w)
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "en"
+
+
+def _translate_available():
+    """Check if any translation backend is configured and usable."""
+    import shutil
+    conf = _read_conf()
+    backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+    if backend == "trans":
+        return shutil.which("trans") is not None
+    if backend == "ollama":
+        return shutil.which("ollama") is not None
+    if backend == "libretranslate":
+        return shutil.which("docker") is not None
+    return False
+
+
+def _translate_text(text, lang_src="en", lang_tgt="fr"):
+    """Translate text using the configured backend. Returns translated text or None."""
+    conf = _read_conf()
+    backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+
+    try:
+        if backend == "trans":
+            engine = conf.get("DICTEE_TRANS_ENGINE", "google")
+            result = subprocess.run(
+                ["trans", "-b", "-e", engine, f"{lang_src}:{lang_tgt}"],
+                input=text, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+
+        elif backend == "ollama":
+            import json as _json
+            import urllib.request
+            _LANG_NAMES = {
+                "en": "English", "fr": "French", "de": "German",
+                "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+                "uk": "Ukrainian", "nl": "Dutch", "pl": "Polish",
+                "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
+                "ko": "Korean", "ar": "Arabic",
+            }
+            model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+            if ":" not in model:
+                model += ":latest"
+            src_name = _LANG_NAMES.get(lang_src, lang_src)
+            tgt_name = _LANG_NAMES.get(lang_tgt, lang_tgt)
+            prompt = (
+                f"You are a professional {src_name} to {tgt_name} translator. "
+                f"Produce only the {tgt_name} translation, without any additional "
+                f"explanations or commentary. Please translate the following text:\n\n{text}"
+            )
+            payload = _json.dumps({
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "http://localhost:11434/api/generate",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            resp = urllib.request.urlopen(req, timeout=120)
+            data = _json.loads(resp.read().decode("utf-8"))
+            response = data.get("response", "").strip()
+            if response:
+                return response
+
+        elif backend == "libretranslate":
+            import json as _json
+            port = conf.get("DICTEE_LIBRETRANSLATE_PORT", "5000")
+            json_text = _json.dumps(text)
+            result = subprocess.run(
+                ["curl", "-s", "--max-time", "10",
+                 f"http://localhost:{port}/translate",
+                 "-H", "Content-Type: application/json",
+                 "-d", f'{{"q":{json_text},"source":"{lang_src}","target":"{lang_tgt}"}}'],
+                capture_output=True, text=True, timeout=15)
+            if result.returncode == 0:
+                data = _json.loads(result.stdout)
+                return data.get("translatedText", "")
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+        pass
+    return None
 
 
 # === Helpers ===
@@ -93,8 +252,17 @@ def _seconds_to_srt_time(seconds):
 
 
 def _format_text(segments):
-    """Format diarized segments as plain text."""
-    return "\n".join(f"{seg['speaker']}: {seg['text']}" for seg in segments)
+    """Format diarized segments as plain text with speaker headers."""
+    lines = []
+    prev_speaker = None
+    for seg in segments:
+        if seg["speaker"] != prev_speaker:
+            if prev_speaker is not None:
+                lines.append("")  # blank line between speakers
+            lines.append(f"{seg['speaker']}:")
+            prev_speaker = seg["speaker"]
+        lines.append(f"     {seg['text']}")
+    return "\n".join(lines)
 
 
 def _format_srt(segments):
@@ -126,7 +294,7 @@ def _format_json(segments):
 # === Search Bar ===
 
 class SearchBar(QWidget):
-    """Ephemeral search bar for QPlainTextEdit."""
+    """Ephemeral search bar for QTextEdit."""
 
     def __init__(self, text_edit, parent=None):
         super().__init__(parent)
@@ -154,6 +322,9 @@ class SearchBar(QWidget):
         btn_close.clicked.connect(self.hide)
         lay.addWidget(btn_close)
 
+    def set_editor(self, text_edit):
+        self._text_edit = text_edit
+
     def activate(self):
         self.setVisible(True)
         self._input.setFocus()
@@ -170,6 +341,148 @@ class SearchBar(QWidget):
             self._text_edit.find(text, QTextDocument.FindFlag.FindBackward)
 
 
+# === Translation Thread ===
+
+class TranslateThread(QThread):
+    """Translate text in background to avoid blocking UI."""
+    finished_signal = Signal(str, list)  # translated_text, translated_segments
+    error_signal = Signal(str)  # error message
+
+    def __init__(self, raw_text, segments, was_diarized, lang_src="en", lang_tgt="fr"):
+        super().__init__()
+        self._raw_text = raw_text
+        self._segments = segments
+        self._was_diarized = was_diarized
+        self._lang_src = lang_src
+        self._lang_tgt = lang_tgt
+
+    def run(self):
+        try:
+            if self._was_diarized and self._segments:
+                groups = []
+                for i, seg in enumerate(self._segments):
+                    if groups and groups[-1][0] == seg["speaker"]:
+                        groups[-1][1].append(i)
+                    else:
+                        groups.append((seg["speaker"], [i]))
+
+                translated_segments = list(self._segments)
+                failed = False
+                for _speaker, indices in groups:
+                    group_text = "\n".join(self._segments[i]["text"] for i in indices)
+                    translated = _translate_text(group_text, self._lang_src, self._lang_tgt)
+                    if translated:
+                        lines = [l.strip() for l in translated.strip().splitlines() if l.strip()]
+                        for j, idx in enumerate(indices):
+                            new_seg = dict(self._segments[idx])
+                            new_seg["text"] = lines[j] if j < len(lines) else self._segments[idx]["text"]
+                            translated_segments[idx] = new_seg
+                    else:
+                        failed = True
+                if failed:
+                    self.error_signal.emit(_("Translation partially failed — some segments untranslated."))
+                self.finished_signal.emit("", translated_segments)
+            else:
+                translated = _translate_text(self._raw_text, self._lang_src, self._lang_tgt)
+                if not translated:
+                    self.error_signal.emit(_("Translation failed — check backend configuration."))
+                    self.finished_signal.emit(self._raw_text, [])
+                else:
+                    self.finished_signal.emit(translated, [])
+        except Exception as e:
+            self.error_signal.emit(str(e))
+            self.finished_signal.emit(self._raw_text, self._segments)
+
+
+# === Export Dialog ===
+
+class ExportDialog(QDialog):
+    """Dialog to export one or more tabs in chosen format and directory."""
+
+    def __init__(self, tabs_info, current_format, base_name, parent=None):
+        """
+        tabs_info: list of (tab_name, text_content)
+        current_format: "text", "srt", or "json"
+        base_name: base filename from audio file
+        """
+        super().__init__(parent)
+        self.setWindowTitle(_("Export"))
+        self.setMinimumWidth(450)
+
+        self._tabs_info = tabs_info
+        self._base_name = base_name
+
+        layout = QVBoxLayout(self)
+
+        # -- Tabs to export --
+        from PyQt6.QtWidgets import QGroupBox
+        group = QGroupBox(_("Tabs to export"))
+        lay_tabs = QVBoxLayout(group)
+        self._tab_checks = []
+        for i, (name, _text) in enumerate(tabs_info):
+            chk = QCheckBox(name)
+            chk.setChecked(True)
+            lay_tabs.addWidget(chk)
+            self._tab_checks.append(chk)
+        layout.addWidget(group)
+
+        # -- Format --
+        lay_fmt = QHBoxLayout()
+        lay_fmt.addWidget(QLabel(_("Format:")))
+        self._cmb_format = QComboBox()
+        self._cmb_format.addItem(_("Plain text"), "text")
+        self._cmb_format.addItem("SRT", "srt")
+        self._cmb_format.addItem("JSON", "json")
+        for i in range(self._cmb_format.count()):
+            if self._cmb_format.itemData(i) == current_format:
+                self._cmb_format.setCurrentIndex(i)
+                break
+        lay_fmt.addWidget(self._cmb_format)
+        lay_fmt.addStretch()
+        layout.addLayout(lay_fmt)
+
+        # -- Directory --
+        lay_dir = QHBoxLayout()
+        lay_dir.addWidget(QLabel(_("Directory:")))
+        self._dir_input = QLineEdit()
+        self._dir_input.setText(os.path.expanduser("~"))
+        lay_dir.addWidget(self._dir_input, 1)
+        btn_dir = QPushButton(_("Browse..."))
+        btn_dir.clicked.connect(self._on_browse_dir)
+        lay_dir.addWidget(btn_dir)
+        layout.addLayout(lay_dir)
+
+        # -- Buttons --
+        lay_btns = QHBoxLayout()
+        lay_btns.addStretch()
+        btn_export = QPushButton(_("Export"))
+        btn_export.clicked.connect(self.accept)
+        lay_btns.addWidget(btn_export)
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        lay_btns.addWidget(btn_cancel)
+        layout.addLayout(lay_btns)
+
+    def _on_browse_dir(self):
+        d = QFileDialog.getExistingDirectory(self, _("Select directory"), self._dir_input.text())
+        if d:
+            self._dir_input.setText(d)
+
+    def selected_tabs(self):
+        """Return list of (tab_name, text_content) for checked tabs."""
+        return [(name, text) for (name, text), chk
+                in zip(self._tabs_info, self._tab_checks) if chk.isChecked()]
+
+    def export_format(self):
+        return self._cmb_format.currentData()
+
+    def export_dir(self):
+        return self._dir_input.text()
+
+    def base_name(self):
+        return self._base_name
+
+
 # === Main Window ===
 
 class TranscribeWindow(QDialog):
@@ -179,11 +492,19 @@ class TranscribeWindow(QDialog):
         super().__init__(parent)
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
-        self.resize(700, 550)
+        self.resize(980, 800)
 
         self._process = None
         self._stdout_buf = QByteArray()
         self._segments = []
+        self._raw_text = ""  # raw transcription output (stored for reformat)
+        self._was_diarized = False  # whether last transcription used diarization
+        self._translate_thread = None
+        self._audio_duration = 0.0
+        self._transcribe_elapsed = 0.0
+        self._translate_elapsed = 0.0
+        self._translate_start = 0.0
+        self._current_translate_lang = ""  # lang code of current translation
 
         self._build_ui()
         self._connect_signals()
@@ -231,6 +552,11 @@ class TranscribeWindow(QDialog):
                 _("Sortformer model not installed. Configure in dictee-setup."))
         lay_opts.addWidget(self._chk_diarize)
 
+        self._chk_auto_translate = QCheckBox(_("Auto-translate the transcription"))
+        self._chk_auto_translate.setToolTip(
+            _("Automatically translate after transcription"))
+        lay_opts.addWidget(self._chk_auto_translate)
+
         lay_opts.addStretch()
 
         lbl_fmt = QLabel(_("Format:"))
@@ -245,14 +571,62 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_opts)
 
-        # -- Transcribe button --
+        # -- Translation row --
+        lay_trans = QHBoxLayout()
+
+        conf = _read_conf()
+
+        LANG_CODES = [
+            ("en", "English"), ("fr", "Français"), ("de", "Deutsch"),
+            ("es", "Español"), ("it", "Italiano"), ("pt", "Português"),
+            ("uk", "Українська"), ("nl", "Nederlands"), ("pl", "Polski"),
+            ("ru", "Русский"), ("zh", "中文"), ("ja", "日本語"),
+            ("ko", "한국어"), ("ar", "العربية"),
+        ]
+
+        self._cmb_lang_src = QComboBox()
+        for code, name in LANG_CODES:
+            self._cmb_lang_src.addItem(f"{code} — {name}", code)
+        lang_src = conf.get("DICTEE_LANG_SOURCE", "en")
+        for i in range(self._cmb_lang_src.count()):
+            if self._cmb_lang_src.itemData(i) == lang_src:
+                self._cmb_lang_src.setCurrentIndex(i)
+                break
+        self._cmb_lang_src.setToolTip(_("Source language"))
+        lay_trans.addWidget(self._cmb_lang_src)
+
+        lay_trans.addWidget(QLabel("→"))
+
+        self._cmb_lang_tgt = QComboBox()
+        for code, name in LANG_CODES:
+            self._cmb_lang_tgt.addItem(f"{code} — {name}", code)
+        lang_tgt = conf.get("DICTEE_LANG_TARGET", "fr")
+        for i in range(self._cmb_lang_tgt.count()):
+            if self._cmb_lang_tgt.itemData(i) == lang_tgt:
+                self._cmb_lang_tgt.setCurrentIndex(i)
+                break
+        self._cmb_lang_tgt.setToolTip(_("Target language"))
+        lay_trans.addWidget(self._cmb_lang_tgt)
+
+        lay_trans.addStretch()
+        layout.addLayout(lay_trans)
+
+        # -- Action buttons (Transcribe + Translate on same line) --
         lay_action = QHBoxLayout()
         lay_action.addStretch()
+
         self._btn_transcribe = QPushButton(_("Transcribe"))
         self._btn_transcribe.setEnabled(False)
         self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
         self._btn_transcribe.clicked.connect(self._on_transcribe)
         lay_action.addWidget(self._btn_transcribe)
+
+        self._btn_translate = QPushButton(_("Translate"))
+        self._btn_translate.setEnabled(False)
+        self._btn_translate.setToolTip(_("Translate the current transcription"))
+        self._btn_translate.clicked.connect(self._on_translate)
+        lay_action.addWidget(self._btn_translate)
+
         lay_action.addStretch()
         layout.addLayout(lay_action)
 
@@ -267,14 +641,25 @@ class TranscribeWindow(QDialog):
         self._lbl_status.setVisible(False)
         layout.addWidget(self._lbl_status)
 
-        # -- Text editor --
-        self._text_edit = QPlainTextEdit()
+        # -- Tab widget: Original + dynamic translation tabs --
+        self._tabs = QTabWidget()
+        self._tabs.setTabsClosable(True)
+        self._tabs.tabCloseRequested.connect(self._on_tab_close)
+
+        self._text_edit = QTextEdit()
         self._text_edit.setReadOnly(False)
         self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
         self._text_edit.setToolTip(_("Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."))
-        layout.addWidget(self._text_edit, 1)
+        self._tabs.addTab(self._text_edit, _("Original"))
+        # Original tab is not closable
+        self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
 
-        # -- Search bar --
+        # Dict of translation tabs: lang_code -> {editor, segments, text}
+        self._translation_tabs = {}
+
+        layout.addWidget(self._tabs, 1)
+
+        # -- Search bar (works on active tab) --
         self._search_bar = SearchBar(self._text_edit, self)
         layout.addWidget(self._search_bar)
 
@@ -300,8 +685,31 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_btns)
 
+    def _active_editor(self):
+        """Return the QTextEdit of the active tab."""
+        widget = self._tabs.currentWidget()
+        return widget if isinstance(widget, QTextEdit) else self._text_edit
+
+    def _on_tab_close(self, index):
+        """Close a translation tab (but never the Original tab)."""
+        if index == 0:
+            return  # never close Original
+        widget = self._tabs.widget(index)
+        # Remove from translation_tabs dict
+        for lang, data in list(self._translation_tabs.items()):
+            if data["editor"] is widget:
+                del self._translation_tabs[lang]
+                break
+        self._tabs.removeTab(index)
+
     def _connect_signals(self):
         self._file_input.textChanged.connect(self._update_transcribe_btn)
+        self._cmb_format.currentIndexChanged.connect(self._on_format_changed)
+        self._cmb_lang_src.currentIndexChanged.connect(self._on_lang_changed)
+        self._cmb_lang_tgt.currentIndexChanged.connect(self._on_lang_changed)
+        self._chk_auto_translate.toggled.connect(lambda: self._update_translate_btn())
+        self._tabs.currentChanged.connect(
+            lambda: self._search_bar.set_editor(self._active_editor()))
 
         # Ctrl+F -> search bar
         shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
@@ -311,10 +719,53 @@ class TranscribeWindow(QDialog):
         esc = QShortcut(QKeySequence("Escape"), self)
         esc.activated.connect(self._on_escape)
 
+    def _on_lang_changed(self):
+        """Disable same language in the other ComboBox."""
+        src = self._cmb_lang_src.currentData()
+        tgt = self._cmb_lang_tgt.currentData()
+        # Grey out source lang in target ComboBox
+        model_tgt = self._cmb_lang_tgt.model()
+        for i in range(self._cmb_lang_tgt.count()):
+            item = model_tgt.item(i)
+            if item:
+                item.setEnabled(self._cmb_lang_tgt.itemData(i) != src)
+        # Grey out target lang in source ComboBox
+        model_src = self._cmb_lang_src.model()
+        for i in range(self._cmb_lang_src.count()):
+            item = model_src.item(i)
+            if item:
+                item.setEnabled(self._cmb_lang_src.itemData(i) != tgt)
+        self._update_translate_btn()
+
+    def _update_translate_btn(self):
+        src = self._cmb_lang_src.currentData()
+        tgt = self._cmb_lang_tgt.currentData()
+        translating = self._translate_thread and self._translate_thread.isRunning()
+        self._btn_translate.setEnabled(
+            src != tgt
+            and bool(self._raw_text)
+            and _translate_available()
+            and not self._chk_auto_translate.isChecked()
+            and not translating)
+
     def _update_transcribe_btn(self):
         has_file = bool(self._file_input.text().strip())
         not_running = self._process is None
         self._btn_transcribe.setEnabled(has_file and not_running)
+
+    @staticmethod
+    def _get_audio_duration(path):
+        """Get audio duration in seconds via ffprobe."""
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", path],
+                capture_output=True, text=True, timeout=10)
+            if result.returncode == 0 and result.stdout.strip():
+                return float(result.stdout.strip())
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+        return 0.0
 
     def _on_escape(self):
         if self._search_bar.isVisible():
@@ -323,7 +774,7 @@ class TranscribeWindow(QDialog):
             self.close()
 
     def _on_browse(self):
-        path, _ = QFileDialog.getOpenFileName(
+        path, _filter = QFileDialog.getOpenFileName(
             self, _("Select audio file"), "", AUDIO_FILTER)
         if path:
             self._file_input.setText(path)
@@ -335,18 +786,64 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             return
 
+        # Block if translation is running
+        if self._translate_thread and self._translate_thread.isRunning():
+            return
+
         diarize = self._chk_diarize.isChecked()
 
+        # Reset all state for new transcription
+        self._was_diarized = False
         self._text_edit.clear()
+        # Remove all translation tabs
+        while self._tabs.count() > 1:
+            self._tabs.removeTab(1)
+        self._translation_tabs.clear()
         self._segments = []
+        self._raw_text = ""
         self._stdout_buf = QByteArray()
+        self._start_time = time.monotonic()
+        self._translate_elapsed = 0.0
+        self._audio_duration = self._get_audio_duration(audio_path)
+        self._tabs.setCurrentIndex(0)  # show Original tab
         self._progress.setVisible(True)
+
+        # Free GPU VRAM only if needed: unload ollama model before transcription
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                free_mb = int(result.stdout.strip().split("\n")[0])
+                if free_mb < 1024:  # less than 1 GB free
+                    conf = _read_conf()
+                    if conf.get("DICTEE_TRANSLATE_BACKEND") == "ollama":
+                        model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+                        import urllib.request
+                        req = urllib.request.Request(
+                            "http://localhost:11434/api/generate",
+                            data=json.dumps({"model": model, "keep_alive": 0}).encode(),
+                            headers={"Content-Type": "application/json"})
+                        urllib.request.urlopen(req, timeout=5)
+        except Exception:
+            pass
+
         self._lbl_status.setText(_("Transcribing..."))
         self._lbl_status.setVisible(True)
         self._btn_transcribe.setEnabled(False)
+        self._btn_translate.setEnabled(False)
 
         self._process = QProcess(self)
         self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        # Set ORT_DYLIB_PATH for GPU acceleration if the lib exists
+        env = self._process.processEnvironment()
+        if env.isEmpty():
+            from PyQt6.QtCore import QProcessEnvironment
+            env = QProcessEnvironment.systemEnvironment()
+        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort_lib):
+            env.insert("ORT_DYLIB_PATH", ort_lib)
+            self._process.setProcessEnvironment(env)
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
 
@@ -367,80 +864,303 @@ class TranscribeWindow(QDialog):
         raw_output = bytes(self._stdout_buf).decode("utf-8", errors="replace").strip()
 
         if exit_code != 0:
+            # GPU OOM: unload ollama and retry once
+            if "Failed to allocate memory" in raw_output and not getattr(self, '_retry_done', False):
+                self._retry_done = True
+                msg = _("GPU memory full — unloading translation model and retrying...")
+                self._lbl_status.setText(msg)
+                self._lbl_status.setVisible(True)
+                self._text_edit.setPlainText(msg)
+                self._progress.setVisible(True)
+                conf = _read_conf()
+                if conf.get("DICTEE_TRANSLATE_BACKEND") == "ollama":
+                    model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+                    try:
+                        import urllib.request
+                        req = urllib.request.Request(
+                            "http://localhost:11434/api/generate",
+                            data=json.dumps({"model": model, "keep_alive": 0}).encode(),
+                            headers={"Content-Type": "application/json"})
+                        urllib.request.urlopen(req, timeout=5)
+                    except Exception:
+                        pass
+                # Re-trigger transcription after delay
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(2000, self._on_transcribe)
+                return
+
+            self._retry_done = False
             self._lbl_status.setText(
                 _("Transcription failed (exit code {code}).").format(code=exit_code))
+            self._lbl_status.setVisible(True)
             if raw_output:
                 self._text_edit.setPlainText(raw_output)
+            self._raw_text = ""
+            self._segments = []
+            self._update_translate_btn()
             return
 
         if not raw_output:
             self._lbl_status.setText(_("No transcription result."))
+            self._lbl_status.setVisible(True)
+            self._raw_text = ""
+            self._segments = []
+            self._update_translate_btn()
             return
 
-        diarize = self._chk_diarize.isChecked()
+        # Store raw result for reformatting
+        self._raw_text = raw_output
+        self._was_diarized = self._chk_diarize.isChecked()
+
+        if self._was_diarized:
+            self._segments = _parse_diarize_output(raw_output)
+
+        # Auto-detect language and update source/target ComboBoxes
+        detect_text = raw_output
+        if self._segments:
+            detect_text = " ".join(seg["text"] for seg in self._segments)
+        detected = _detect_language(detect_text)
+        for i in range(self._cmb_lang_src.count()):
+            if self._cmb_lang_src.itemData(i) == detected:
+                self._cmb_lang_src.setCurrentIndex(i)
+                break
+        # If target is same as detected source, switch target to user's language
+        if self._cmb_lang_tgt.currentData() == detected:
+            import locale as _locale
+            conf = _read_conf()
+            # Prefer dictee.conf target, then system locale
+            fallback = conf.get("DICTEE_LANG_TARGET", "")
+            if not fallback or fallback == detected:
+                sys_lang = _locale.getlocale()[0] or ""
+                fallback = sys_lang.split("_")[0] if sys_lang else ""
+            if fallback and fallback != detected:
+                for i in range(self._cmb_lang_tgt.count()):
+                    if self._cmb_lang_tgt.itemData(i) == fallback:
+                        self._cmb_lang_tgt.setCurrentIndex(i)
+                        break
+
+        # Display in current format
+        self._apply_format()
+        self._transcribe_elapsed = time.monotonic() - self._start_time
+        self._translate_elapsed = 0.0
+        self._update_translate_btn()
+
+        self._show_status()
+
+        # Auto-translate if checked and languages differ
+        if (self._chk_auto_translate.isChecked()
+                and _translate_available()
+                and self._cmb_lang_src.currentData() != self._cmb_lang_tgt.currentData()):
+            self._on_translate()
+
+    def _show_status(self):
+        """Show final status with timing and speaker info."""
+        dur = self._audio_duration
+        dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
+        n_speakers = len(set(s["speaker"] for s in self._segments)) if self._segments else 0
+        parts = []
+        if self._was_diarized and self._segments:
+            parts.append(_("{n} speaker(s)").format(n=n_speakers))
+        parts.append(_("audio {dur}").format(dur=dur_str))
+        parts.append(_("transcribed in {t:.1f}s").format(t=self._transcribe_elapsed))
+        if self._translate_elapsed > 0:
+            parts.append(_("translated in {t:.1f}s").format(t=self._translate_elapsed))
+        self._lbl_status.setText(" — ".join(parts))
+
+    def _on_translate(self):
+        """Translate current transcription result."""
+        if not self._raw_text:
+            return
+        # Prevent concurrent translation
+        if self._translate_thread and self._translate_thread.isRunning():
+            return
+        self._lbl_status.setText(_("Translating..."))
+        self._lbl_status.setVisible(True)
+        self._progress.setVisible(True)
+        self._btn_translate.setEnabled(False)
+        self._btn_transcribe.setEnabled(False)
+        self._translate_start = time.monotonic()
+        lang_src = self._cmb_lang_src.currentData()
+        lang_tgt = self._cmb_lang_tgt.currentData()
+        self._current_translate_lang = lang_tgt
+        # Disconnect previous thread signal if any
+        if self._translate_thread:
+            try:
+                self._translate_thread.finished_signal.disconnect(self._on_translate_done)
+            except (TypeError, RuntimeError):
+                pass
+        self._translate_thread = TranslateThread(
+            self._raw_text, self._segments, self._was_diarized,
+            lang_src, lang_tgt)
+        self._translate_thread.finished_signal.connect(self._on_translate_done)
+        self._translate_thread.error_signal.connect(self._on_translate_error)
+        self._translate_thread.start()
+
+    def _on_translate_error(self, message):
+        """Show translation error in status bar."""
+        self._lbl_status.setText(message)
+        self._lbl_status.setVisible(True)
+
+    def _on_translate_done(self, translated_text, translated_segments):
+        """Handle translation completion."""
+        self._progress.setVisible(False)
+        self._update_translate_btn()
+        self._update_transcribe_btn()
+        self._translate_elapsed = time.monotonic() - self._translate_start
+
+        lang = self._current_translate_lang
+        # Find language name for tab title
+        lang_name = lang.upper()
+        for i in range(self._cmb_lang_tgt.count()):
+            if self._cmb_lang_tgt.itemData(i) == lang:
+                lang_name = self._cmb_lang_tgt.itemText(i).split(" — ")[1] if " — " in self._cmb_lang_tgt.itemText(i) else lang.upper()
+                break
+
+        # Create or reuse tab for this language
+        if lang in self._translation_tabs:
+            tab_data = self._translation_tabs[lang]
+            editor = tab_data["editor"]
+        else:
+            editor = QTextEdit()
+            editor.setReadOnly(False)
+            editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
+            tab_idx = self._tabs.addTab(editor, lang_name)
+            self._translation_tabs[lang] = {"editor": editor, "segments": [], "text": ""}
+
+        # Store and display
+        if translated_segments:
+            self._translation_tabs[lang]["segments"] = translated_segments
+            self._translation_tabs[lang]["text"] = ""
+            self._apply_format_to(editor, translated_segments, None)
+        elif translated_text:
+            self._translation_tabs[lang]["segments"] = []
+            self._translation_tabs[lang]["text"] = translated_text
+            self._apply_format_to(editor, [], translated_text)
+
+        # Switch to this translation tab
+        self._tabs.setCurrentWidget(editor)
+        # Uncheck auto-translate so user can translate to other languages
+        self._chk_auto_translate.setChecked(False)
+        self._show_status()
+
+    def _on_format_changed(self):
+        """Reformat display when user changes the format ComboBox."""
+        if self._raw_text:
+            self._apply_format()
+
+    def _speaker_color(self, speaker):
+        """Get color for a speaker label."""
+        # Extract speaker index from 'Speaker N'
+        try:
+            idx = int(speaker.split()[-1])
+        except (ValueError, IndexError):
+            idx = 0
+        return SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]
+
+    def _apply_format(self):
+        """Format and display original transcription + all translation tabs."""
+        self._apply_format_to(self._text_edit, self._segments, self._raw_text)
+        # Reformat all translation tabs
+        for lang, data in self._translation_tabs.items():
+            if data["segments"] or data["text"]:
+                self._apply_format_to(data["editor"], data["segments"], data["text"])
+
+    def _apply_format_to(self, editor, segments, raw_text):
+        """Format and display text in the given editor."""
         fmt = self._cmb_format.currentData()
 
-        if diarize:
-            self._segments = _parse_diarize_output(raw_output)
-            if not self._segments:
-                # Fallback: show raw output
-                self._text_edit.setPlainText(raw_output)
-            elif fmt == "srt":
-                self._text_edit.setPlainText(_format_srt(self._segments))
+        if self._was_diarized and segments:
+            if fmt == "srt":
+                editor.setPlainText(_format_srt(segments))
             elif fmt == "json":
-                self._text_edit.setPlainText(_format_json(self._segments))
+                editor.setPlainText(_format_json(segments))
             else:
-                self._text_edit.setPlainText(_format_text(self._segments))
+                self._set_colored_diarize_to(editor, segments)
         else:
+            text = raw_text or ""
             if fmt == "json":
-                self._text_edit.setPlainText(json.dumps(
-                    [{"text": raw_output}], ensure_ascii=False, indent=2))
+                editor.setPlainText(json.dumps(
+                    [{"text": text}], ensure_ascii=False, indent=2))
             elif fmt == "srt":
-                self._text_edit.setPlainText(
-                    f"1\n00:00:00,000 --> 99:59:59,999\n{raw_output}\n")
+                editor.setPlainText(
+                    f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
             else:
-                self._text_edit.setPlainText(raw_output)
+                editor.setPlainText(text)
 
-        n_speakers = len(set(s["speaker"] for s in self._segments)) if self._segments else 0
-        if diarize and self._segments:
-            self._lbl_status.setText(
-                _("Transcription complete - {n} speaker(s) identified.").format(n=n_speakers))
-        else:
-            self._lbl_status.setText(_("Transcription complete."))
+    def _set_colored_diarize_to(self, editor, segments):
+        """Display diarized text with colored speaker headers in given editor."""
+        import html as _html
+        lines = []
+        prev_speaker = None
+        for seg in segments:
+            if seg["speaker"] != prev_speaker:
+                if prev_speaker is not None:
+                    lines.append("<br/>")
+                color = self._speaker_color(seg["speaker"])
+                lines.append(
+                    f'<b style="color:{color}">{_html.escape(seg["speaker"])}:</b>')
+                prev_speaker = seg["speaker"]
+            lines.append(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{_html.escape(seg["text"])}')
+        editor.setHtml(
+            '<div style="white-space:pre-wrap">' + "<br/>".join(lines) + "</div>")
 
     def _on_copy(self):
-        text = self._text_edit.toPlainText()
+        editor = self._active_editor()
+        text = editor.toPlainText()
+        print(f"[DEBUG] _on_copy: tab={self._tabs.currentIndex()}, editor={type(editor).__name__}, text_len={len(text)}")
         if text:
             QApplication.clipboard().setText(text)
-            self._lbl_status.setText(_("Copied to clipboard."))
+            tab_name = self._tabs.tabText(self._tabs.currentIndex())
+            self._lbl_status.setText(_("Copied {tab} to clipboard.").format(tab=tab_name))
+            self._lbl_status.setVisible(True)
+        else:
+            self._lbl_status.setText(_("Nothing to copy."))
             self._lbl_status.setVisible(True)
 
     def _on_export(self):
-        fmt = self._cmb_format.currentData()
+        # Collect all tabs with content
+        tabs_info = []
+        for i in range(self._tabs.count()):
+            editor = self._tabs.widget(i)
+            if isinstance(editor, QTextEdit):
+                text = editor.toPlainText()
+                if text.strip():
+                    tabs_info.append((self._tabs.tabText(i), text))
+
+        if not tabs_info:
+            self._lbl_status.setText(_("Nothing to export."))
+            self._lbl_status.setVisible(True)
+            return
+
+        base = os.path.splitext(os.path.basename(self._file_input.text()))[0] or "transcription"
+        dlg = ExportDialog(tabs_info, self._cmb_format.currentData(), base, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = dlg.selected_tabs()
+        fmt = dlg.export_format()
+        out_dir = dlg.export_dir()
         ext_map = {"text": ".txt", "srt": ".srt", "json": ".json"}
-        filter_map = {
-            "text": _("Text files") + " (*.txt)",
-            "srt": _("SRT subtitles") + " (*.srt)",
-            "json": _("JSON files") + " (*.json)",
-        }
-        default_ext = ext_map.get(fmt, ".txt")
-        file_filter = filter_map.get(fmt, _("All files") + " (*)")
+        ext = ext_map.get(fmt, ".txt")
 
-        # Suggest filename based on input
-        base = os.path.splitext(os.path.basename(self._file_input.text()))[0]
-        suggested = f"{base}-transcription{default_ext}" if base else f"transcription{default_ext}"
-
-        path, _ = QFileDialog.getSaveFileName(
-            self, _("Export transcription"), suggested, file_filter)
-        if path:
+        exported = []
+        for tab_name, text in selected:
+            safe_name = tab_name.replace(" ", "_").replace("/", "-")
+            filename = f"{base}-{safe_name}{ext}"
+            path = os.path.join(out_dir, filename)
             try:
                 with open(path, "w", encoding="utf-8") as f:
-                    f.write(self._text_edit.toPlainText())
-                self._lbl_status.setText(_("Exported to {path}").format(path=path))
-                self._lbl_status.setVisible(True)
+                    f.write(text)
+                exported.append(filename)
             except OSError as e:
-                self._lbl_status.setText(_("Export failed: {error}").format(error=str(e)))
+                self._lbl_status.setText(
+                    _("Export failed: {error}").format(error=str(e)))
                 self._lbl_status.setVisible(True)
+                return
+
+        self._lbl_status.setText(
+            _("Exported {n} file(s) to {dir}").format(n=len(exported), dir=out_dir))
+        self._lbl_status.setVisible(True)
 
 
 # === Main ===
