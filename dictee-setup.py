@@ -2133,6 +2133,7 @@ class DicteeSetupDialog(QDialog):
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
+            _dbg_setup(f"_on_asr_changed: {backend}")
             self.w_parakeet_options.setVisible(backend == "parakeet")
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
@@ -2254,6 +2255,7 @@ class DicteeSetupDialog(QDialog):
         self.setMaximumHeight(content_h + buttons_h + 10)
 
     def _on_launch_wizard(self):
+        _dbg_setup("_on_launch_wizard")
         """Ferme le dialog et relance en mode wizard."""
         self.reject()
         exe = os.path.abspath(sys.argv[0])
@@ -3204,6 +3206,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_dl_vosk_model.setText(_("Download model"))
 
     def _on_vosk_model_download(self):
+        _dbg_setup("_on_vosk_model_download")
         """Télécharge le modèle Vosk sélectionné."""
         code = self.cmb_vosk_lang.currentData()
         if not code or self._vosk_model_installed(code):
@@ -3220,6 +3223,7 @@ class DicteeSetupDialog(QDialog):
         self._vosk_dl_thread.start()
 
     def _on_vosk_model_download_finished(self, success, message):
+        _dbg_setup(f"_on_vosk_model_download_finished: success={success}, msg={message!r}")
         self.progress_vosk_model.setVisible(False)
         if success:
             self._refresh_vosk_lang_combo()
@@ -3323,6 +3327,7 @@ class DicteeSetupDialog(QDialog):
             self._lbl_canary_venv.setStyleSheet("color: #a44;")
 
     def _install_canary_venv(self):
+        _dbg_setup("_install_canary_venv")
         """Install Canary venv with onnx-asr + GPU deps."""
         self.btn_install_canary.setEnabled(False)
         self.btn_install_canary.setText(_("Installing..."))
@@ -3338,6 +3343,7 @@ class DicteeSetupDialog(QDialog):
         thread.start()
 
     def _on_canary_install_done(self, ok, msg):
+        _dbg_setup(f"_on_canary_install_done: ok={ok}, msg={msg!r}")
         self.btn_install_canary.setEnabled(True)
         self._update_canary_venv_status()
         if not ok:
@@ -6753,6 +6759,7 @@ class DicteeSetupDialog(QDialog):
     # ── Test dictation ────────────────────────────────────────────
 
     def _on_test_dictee(self):
+        _dbg_setup("_on_test_dictee")
         if self._test_thread and self._test_thread.isRunning():
             self._test_thread.stop()
             self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
@@ -6780,6 +6787,7 @@ class DicteeSetupDialog(QDialog):
             self._test_timer.stop()
 
     def _on_test_result(self, text):
+        _dbg_setup(f"_on_test_result: {text[:80]!r}")
         if hasattr(self, '_test_timer'):
             self._test_timer.stop()
         self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
@@ -6788,6 +6796,7 @@ class DicteeSetupDialog(QDialog):
     # ── Test translation (Canary) ────────────────────────────────
 
     def _on_test_translate(self):
+        _dbg_setup("_on_test_translate")
         if self._test_thread and self._test_thread.isRunning():
             self._test_thread.stop()
             self.btn_test_translate.setText("🌐 " + _("Test translation"))
@@ -6837,6 +6846,7 @@ class DicteeSetupDialog(QDialog):
             self._test_timer_tr.stop()
 
     def _on_test_translate_result(self, text):
+        _dbg_setup(f"_on_test_translate_result: {text[:80]!r}")
         if hasattr(self, '_test_timer_tr'):
             self._test_timer_tr.stop()
         self.btn_test_translate.setText("🌐 " + _("Test translation"))
@@ -7078,6 +7088,7 @@ class DicteeSetupDialog(QDialog):
             self.lbl_anim_status.setText(" — ".join(parts))
 
     def _on_install_animation(self):
+        _dbg_setup("_on_install_animation")
         self.btn_install_anim.setEnabled(False)
         self.btn_install_anim.setText(_("Downloading…"))
         self.progress_anim.setVisible(True)
@@ -7088,6 +7099,7 @@ class DicteeSetupDialog(QDialog):
         self._install_thread.start()
 
     def _on_install_finished(self, success, message):
+        _dbg_setup(f"_on_install_finished: success={success}, msg={message!r}")
         self.progress_anim.setVisible(False)
         if success:
             self._check_animation_speech()
@@ -7172,6 +7184,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_ollama_pull.setEnabled(True)
 
     def _on_ollama_pull(self):
+        _dbg_setup(f"_on_ollama_pull: model={self.combo_ollama_model.currentData()}")
         model = self.combo_ollama_model.currentData()
         self.btn_ollama_pull.setEnabled(False)
         self.progress_ollama.setVisible(True)
@@ -7183,6 +7196,7 @@ class DicteeSetupDialog(QDialog):
         self._ollama_pull_thread.start()
 
     def _on_ollama_pull_finished(self, success, message):
+        _dbg_setup(f"_on_ollama_pull_finished: success={success}, msg={message!r}")
         self.progress_ollama.setVisible(False)
         if success:
             self._check_ollama_status()
@@ -7400,6 +7414,7 @@ class DicteeSetupDialog(QDialog):
         self._check_lt_status()
 
     def _on_setup_docker(self):
+        _dbg_setup("_on_setup_docker")
         """Start Docker daemon + add user to docker group in one pkexec call."""
         user = os.environ.get("USER", "")
         if not user:
@@ -7416,6 +7431,7 @@ class DicteeSetupDialog(QDialog):
         self._docker_setup_thread.start()
 
     def _on_setup_docker_finished(self, success, message):
+        _dbg_setup(f"_on_setup_docker_finished: success={success}, msg={message!r}")
         self.progress_lt.setVisible(False)
         if success:
             global _docker_use_sg
@@ -7433,6 +7449,7 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.critical(self, _("Error"), message)
 
     def _on_lt_pull(self):
+        _dbg_setup("_on_lt_pull: downloading LibreTranslate image")
         self.btn_lt_pull.setEnabled(False)
         self.progress_lt.setVisible(True)
 
@@ -7443,6 +7460,7 @@ class DicteeSetupDialog(QDialog):
         self._docker_pull_thread.start()
 
     def _on_lt_pull_finished(self, success, message):
+        _dbg_setup(f"_on_lt_pull_finished: success={success}, msg={message!r}")
         self.progress_lt.setVisible(False)
         if success:
             self._check_lt_status()
@@ -7452,6 +7470,7 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.critical(self, _("Download error"), message)
 
     def _on_lt_start(self):
+        _dbg_setup("_on_lt_start")
         if self._lt_is_busy():
             return
         port = int(self.spin_lt_port.currentText())
@@ -7469,6 +7488,7 @@ class DicteeSetupDialog(QDialog):
         self._lt_action_thread.start()
 
     def _on_lt_stop(self):
+        _dbg_setup("_on_lt_stop")
         if self._lt_is_busy():
             return
 
@@ -7501,6 +7521,7 @@ class DicteeSetupDialog(QDialog):
             '<span style="color: #888;">⏳ ' + text + '</span>')
 
     def _on_lt_action_finished(self, success, message):
+        _dbg_setup(f"_on_lt_action_finished: success={success}, msg={message!r}")
         self._lt_set_buttons_busy(False)
         self._lt_starting_after_apply = False
         _lt_langs_cache["time"] = 0
@@ -7511,6 +7532,7 @@ class DicteeSetupDialog(QDialog):
     # -- Modèles ASR --
 
     def _on_model_download(self, model):
+        _dbg_setup(f"_on_model_download: {model}")
         mid = model["id"]
         w = self._model_widgets[mid]
         w["button"].setEnabled(False)
@@ -7537,6 +7559,7 @@ class DicteeSetupDialog(QDialog):
                 pass
 
     def _on_model_download_finished(self, mid, success, message):
+        _dbg_setup(f"_on_model_download_finished: {mid}, success={success}, msg={message!r}")
         w = self._model_widgets[mid]
         w["progress"].setVisible(False)
         model = w["model"]
@@ -7560,6 +7583,7 @@ class DicteeSetupDialog(QDialog):
     # -- Installation venv ASR --
 
     def _install_venv(self, name, venv_path, pip_package):
+        _dbg_setup(f"_install_venv: {name}, path={venv_path}, pkg={pip_package}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
         if not isinstance(btn, QPushButton):
             return
@@ -7572,6 +7596,7 @@ class DicteeSetupDialog(QDialog):
         thread.start()
 
     def _on_venv_installed(self, name, success, message):
+        _dbg_setup(f"_on_venv_installed: {name}, success={success}, msg={message!r}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
         if success:
             if isinstance(btn, QPushButton):
@@ -8160,6 +8185,7 @@ class DicteeSetupDialog(QDialog):
                 self._on_lt_start()
 
     def _on_ok(self):
+        _dbg_setup("_on_ok")
         if self._dirty:
             self._on_apply()
         # Ne pas fermer si LibreTranslate est en cours de démarrage
