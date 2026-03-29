@@ -315,7 +315,7 @@ ColumnLayout {
         }
     }
 
-    // Diarization toggle + Transcribe file + configuration
+    // Preview + actions
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
@@ -325,6 +325,8 @@ ColumnLayout {
             checked: Plasmoid.configuration.previewMode
             onToggled: Plasmoid.configuration.previewMode = checked
         }
+
+        Item { Layout.fillWidth: true }
 
         QQC2.CheckBox {
             id: chkDiarize
@@ -351,8 +353,6 @@ ColumnLayout {
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
-
-        Item { Layout.fillWidth: true }
 
         PlasmaComponents.Button {
             text: i18n("Post-processing...")
