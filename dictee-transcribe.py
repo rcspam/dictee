@@ -360,12 +360,22 @@ class SearchBar(QWidget):
     def _find_next(self):
         text = self._input.text()
         if text:
-            self._text_edit.find(text)
+            if not self._text_edit.find(text):
+                # Wrap: move cursor to start and try again
+                cursor = self._text_edit.textCursor()
+                cursor.movePosition(cursor.MoveOperation.Start)
+                self._text_edit.setTextCursor(cursor)
+                self._text_edit.find(text)
 
     def _find_prev(self):
         text = self._input.text()
         if text:
-            self._text_edit.find(text, QTextDocument.FindFlag.FindBackward)
+            if not self._text_edit.find(text, QTextDocument.FindFlag.FindBackward):
+                # Wrap: move cursor to end and try again
+                cursor = self._text_edit.textCursor()
+                cursor.movePosition(cursor.MoveOperation.End)
+                self._text_edit.setTextCursor(cursor)
+                self._text_edit.find(text, QTextDocument.FindFlag.FindBackward)
 
 
 # === Translation Thread ===
@@ -393,7 +403,7 @@ class TranslateThread(QThread):
                     else:
                         groups.append((seg["speaker"], [i]))
 
-                translated_segments = list(self._segments)
+                translated_segments = [dict(s) for s in self._segments]
                 failed = False
                 for _speaker, indices in groups:
                     group_text = "\n".join(self._segments[i]["text"] for i in indices)
@@ -658,9 +668,11 @@ class TranscribeWindow(QDialog):
 
         btn_setup_trans = QPushButton(_("Configure..."))
         btn_setup_trans.setToolTip(_("Open translation settings in dictee-setup"))
-        btn_setup_trans.clicked.connect(
-            lambda: subprocess.Popen(["env", "QT_QPA_PLATFORMTHEME=kde",
-                                      "dictee-setup", "--translation"]))
+        def _open_setup_translation():
+            env = dict(os.environ)
+            env["QT_QPA_PLATFORMTHEME"] = "kde"
+            subprocess.Popen(["dictee-setup", "--translation"], env=env)
+        btn_setup_trans.clicked.connect(_open_setup_translation)
         lay_trans.addWidget(btn_setup_trans)
 
         lay_trans.addStretch()
@@ -739,6 +751,29 @@ class TranscribeWindow(QDialog):
         lay_btns.addWidget(self._btn_close)
 
         layout.addLayout(lay_btns)
+
+    def closeEvent(self, event):
+        """Clean up processes on window close."""
+        if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
+            _dbg("closeEvent: killing transcription process")
+            self._process.kill()
+            self._process.waitForFinished(3000)
+        if self._translate_thread and self._translate_thread.isRunning():
+            _dbg("closeEvent: waiting for translation thread")
+            self._translate_thread.wait(5000)
+        # Restart daemon if we stopped it
+        if getattr(self, '_daemon_was_active', False):
+            conf = _read_conf()
+            asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+            svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
+                       "whisper": "dictee-whisper", "canary": "dictee-canary"}
+            subprocess.Popen(["systemctl", "--user", "start", svc_map.get(asr, "dictee")])
+        # Close log file
+        global _log_file
+        if _log_file:
+            _log_file.close()
+            _log_file = None
+        super().closeEvent(event)
 
     def _active_editor(self):
         """Return the QTextEdit of the active tab."""
@@ -899,6 +934,7 @@ class TranscribeWindow(QDialog):
         _dbg("_on_transcribe: checking GPU VRAM")
         self._daemon_was_active = False
         try:
+            import time as _time
             # Check free VRAM
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=memory.free",
@@ -916,7 +952,6 @@ class TranscribeWindow(QDialog):
                         capture_output=True, text=True, timeout=5)
                     gpu_procs = result2.stdout.strip() if result2.returncode == 0 else ""
                     _dbg(f"_on_transcribe: GPU processes: {gpu_procs}")
-                    import time as _time
                     # Stop daemon first (biggest VRAM consumer)
                     if "transcribe-daemon" in gpu_procs:
                         _dbg("_on_transcribe: stopping daemon to free VRAM")
@@ -1005,7 +1040,7 @@ class TranscribeWindow(QDialog):
             if ("Failed to allocate memory" in raw_output
                     or "BFCArena" in raw_output
                     or "CUBLAS_STATUS_ALLOC_FAILED" in raw_output
-                    or "CUDA" in raw_output and "ALLOC" in raw_output
+                    or ("CUDA" in raw_output and "ALLOC" in raw_output)
                     ) and not getattr(self, '_retry_done', False):
                 self._retry_done = True
                 _dbg(f"_on_finished: GPU OOM detected, retrying. Error: {raw_output[:200]}")
