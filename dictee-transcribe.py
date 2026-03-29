@@ -561,6 +561,14 @@ class TranscribeWindow(QDialog):
         self._build_ui()
         self._connect_signals()
 
+        # Check if dictee is configured
+        conf = _read_conf()
+        if not os.path.isfile(CONF_PATH) or conf.get("DICTEE_SETUP_DONE") != "true":
+            self._lbl_status.setText(
+                _("Dictee is not configured. Please run dictee-setup first."))
+            self._lbl_status.setVisible(True)
+            self._btn_transcribe.setEnabled(False)
+
         # Pre-fill from CLI args
         if file_path:
             self._file_input.setText(file_path)
