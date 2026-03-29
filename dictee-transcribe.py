@@ -791,13 +791,17 @@ class TranscribeWindow(QDialog):
         if self._translate_thread and self._translate_thread.isRunning():
             _dbg("closeEvent: waiting for translation thread")
             self._translate_thread.wait(5000)
-        # Restart daemon if we stopped it
-        if getattr(self, '_daemon_was_active', False):
-            conf = _read_conf()
+        # Restore backend if we were in diarization mode
+        conf = _read_conf()
+        if conf.get("DICTEE_DIARIZE") == "true" or conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
+            _dbg("closeEvent: restoring backend via diarize false")
+            subprocess.Popen(["dictee-switch-backend", "diarize", "false"])
+        elif getattr(self, '_daemon_was_active', False):
+            # Restart daemon if we stopped it for VRAM
             asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
             svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
                        "whisper": "dictee-whisper", "canary": "dictee-canary"}
-            subprocess.Popen(["systemctl", "--user", "start", svc_map.get(asr, "dictee")])
+            subprocess.Popen(["systemctl", "--user", "enable", "--now", svc_map.get(asr, "dictee")])
         # Close log file
         global _log_file
         if _log_file:

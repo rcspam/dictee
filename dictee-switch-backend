@@ -167,6 +167,7 @@ diarize)
         set_conf "DICTEE_DIARIZE" "true"
         # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI)
         # Use disable to prevent auto-restart (re-enabled on diarize false)
+        echo "[diarize] stopping all daemons..." >> /tmp/dictee-diarize-debug.log
         systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
         # Wait until GPU processes are gone (max 5s)
         for i in $(seq 1 10); do
