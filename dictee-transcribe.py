@@ -16,20 +16,22 @@ import sys
 import time
 
 try:
-    from PyQt6.QtCore import Qt, QProcess, QByteArray, QThread, pyqtSignal as Signal
+    from PyQt6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
+                               QProcessEnvironment, pyqtSignal as Signal)
     from PyQt6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
-        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget,
+        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
     )
 except ImportError:
-    from PySide6.QtCore import Qt, QProcess, QByteArray, QThread, Signal
+    from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
+                                QProcessEnvironment, Signal)
     from PySide6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
-        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget,
+        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
     )
 
 # === i18n ===
@@ -48,6 +50,27 @@ for _d in LOCALE_DIRS:
 
 gettext.textdomain("dictee")
 _ = gettext.gettext
+
+# === Debug ===
+
+DEBUG = False
+_log_file = None
+
+
+def _dbg(msg):
+    """Print debug message if --debug is enabled."""
+    if not DEBUG:
+        return
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    line = f"[DBG {ts}] {msg}"
+    print(line, file=sys.stderr)
+    global _log_file
+    if _log_file is None:
+        _log_file = open("/tmp/dictee-transcribe.log", "a", encoding="utf-8")
+    _log_file.write(line + "\n")
+    _log_file.flush()
+
 
 # === Constants ===
 
@@ -152,6 +175,7 @@ def _translate_text(text, lang_src="en", lang_tgt="fr"):
     """Translate text using the configured backend. Returns translated text or None."""
     conf = _read_conf()
     backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+    _dbg(f"_translate_text: backend={backend}, {lang_src}→{lang_tgt}, text_len={len(text)}")
 
     try:
         if backend == "trans":
@@ -212,8 +236,8 @@ def _translate_text(text, lang_src="en", lang_tgt="fr"):
             resp = urllib.request.urlopen(req, timeout=15)
             data = _json.loads(resp.read().decode("utf-8"))
             return data.get("translatedText", "")
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
-        pass
+    except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+        _dbg(f"_translate_text: exception {type(e).__name__}: {e}")
     return None
 
 
@@ -416,7 +440,6 @@ class ExportDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # -- Tabs to export --
-        from PyQt6.QtWidgets import QGroupBox
         group = QGroupBox(_("Tabs to export"))
         lay_tabs = QVBoxLayout(group)
         self._tab_checks = []
@@ -786,9 +809,11 @@ class TranscribeWindow(QDialog):
             self.close()
 
     def _on_browse(self):
+        _dbg("_on_browse: opening file dialog")
         path, _filter = QFileDialog.getOpenFileName(
             self, _("Select audio file"), "", AUDIO_FILTER)
         if path:
+            _dbg(f"_on_browse: selected {path}")
             self._file_input.setText(path)
 
     def _on_transcribe(self):
@@ -800,9 +825,11 @@ class TranscribeWindow(QDialog):
 
         # Block if translation is running
         if self._translate_thread and self._translate_thread.isRunning():
+            _dbg("_on_transcribe: blocked — translation running")
             return
 
         diarize = self._chk_diarize.isChecked()
+        _dbg(f"_on_transcribe: file={audio_path}, diarize={diarize}")
 
         # Reset all state for new transcription
         self._was_diarized = False
@@ -821,12 +848,14 @@ class TranscribeWindow(QDialog):
         self._progress.setVisible(True)
 
         # Free GPU VRAM only if needed: unload ollama model before transcription
+        _dbg("_on_transcribe: checking GPU VRAM")
         try:
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
                 free_mb = int(result.stdout.strip().split("\n")[0])
+                _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB")
                 if free_mb < 1024:  # less than 1 GB free
                     conf = _read_conf()
                     if conf.get("DICTEE_TRANSLATE_BACKEND") == "ollama":
@@ -850,7 +879,6 @@ class TranscribeWindow(QDialog):
         # Set ORT_DYLIB_PATH for GPU acceleration if the lib exists
         env = self._process.processEnvironment()
         if env.isEmpty():
-            from PyQt6.QtCore import QProcessEnvironment
             env = QProcessEnvironment.systemEnvironment()
         ort_lib = "/usr/lib/dictee/libonnxruntime.so"
         if os.path.isfile(ort_lib):
@@ -861,6 +889,7 @@ class TranscribeWindow(QDialog):
 
         import shutil
         cmd = "transcribe-diarize" if diarize else "transcribe"
+        _dbg(f"_on_transcribe: cmd={cmd}, ort_lib={os.path.isfile('/usr/lib/dictee/libonnxruntime.so')}")
         if not shutil.which(cmd):
             self._progress.setVisible(False)
             self._lbl_status.setText(
@@ -881,12 +910,17 @@ class TranscribeWindow(QDialog):
         self._update_transcribe_btn()
 
         raw_output = bytes(self._stdout_buf).decode("utf-8", errors="replace").strip()
+        _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
 
         if exit_code != 0:
             # GPU OOM: unload ollama and retry once
-            if ("Failed to allocate memory" in raw_output or "BFCArena" in raw_output
+            if ("Failed to allocate memory" in raw_output
+                    or "BFCArena" in raw_output
+                    or "CUBLAS_STATUS_ALLOC_FAILED" in raw_output
+                    or "CUDA" in raw_output and "ALLOC" in raw_output
                     ) and not getattr(self, '_retry_done', False):
                 self._retry_done = True
+                _dbg(f"_on_finished: GPU OOM detected, retrying. Error: {raw_output[:200]}")
                 msg = _("GPU memory full — unloading translation model and retrying...")
                 self._lbl_status.setText(msg)
                 self._lbl_status.setVisible(True)
@@ -905,13 +939,13 @@ class TranscribeWindow(QDialog):
                     except Exception:
                         pass
                 # Re-trigger transcription after delay
-                from PyQt6.QtCore import QTimer
                 QTimer.singleShot(2000, self._on_transcribe)
                 return
 
             self._retry_done = False
             self._lbl_status.setText(
-                _("Transcription failed (exit code {code}).").format(code=exit_code))
+                _("Transcription failed (code {code}). Check memory, backend, or audio file.").format(
+                    code=exit_code))
             self._lbl_status.setVisible(True)
             if raw_output:
                 self._text_edit.setPlainText(raw_output)
@@ -930,6 +964,7 @@ class TranscribeWindow(QDialog):
 
         # Reset retry flag on success
         self._retry_done = False
+        _dbg(f"_on_finished: success, diarized={self._chk_diarize.isChecked()}, raw_len={len(raw_output)}")
 
         # Store raw result for reformatting
         self._raw_text = raw_output
@@ -943,6 +978,7 @@ class TranscribeWindow(QDialog):
         if self._segments:
             detect_text = " ".join(seg["text"] for seg in self._segments)
         detected = _detect_language(detect_text)
+        _dbg(f"_on_finished: detected language={detected}")
         for i in range(self._cmb_lang_src.count()):
             if self._cmb_lang_src.itemData(i) == detected:
                 self._cmb_lang_src.setCurrentIndex(i)
@@ -999,8 +1035,12 @@ class TranscribeWindow(QDialog):
             return
         # Prevent same-language translation
         if self._cmb_lang_src.currentData() == self._cmb_lang_tgt.currentData():
+            _dbg("_on_translate: blocked — same language")
             return
-        self._lbl_status.setText(_("Translating..."))
+        _dbg(f"_on_translate: {self._cmb_lang_src.currentData()} → {self._cmb_lang_tgt.currentData()}")
+        # Keep transcription status and append translating
+        current = self._lbl_status.text()
+        self._lbl_status.setText(current + " — " + _("Translating..."))
         self._lbl_status.setVisible(True)
         self._progress.setVisible(True)
         self._btn_translate.setEnabled(False)
@@ -1024,11 +1064,13 @@ class TranscribeWindow(QDialog):
 
     def _on_translate_error(self, message):
         """Show translation error in status bar."""
+        _dbg(f"_on_translate_error: {message}")
         self._lbl_status.setText(message)
         self._lbl_status.setVisible(True)
 
     def _on_translate_done(self, translated_text, translated_segments):
         """Handle translation completion."""
+        _dbg(f"_on_translate_done: text_len={len(translated_text)}, segments={len(translated_segments)}")
         self._progress.setVisible(False)
         self._update_translate_btn()
         self._update_transcribe_btn()
@@ -1133,7 +1175,7 @@ class TranscribeWindow(QDialog):
     def _on_copy(self):
         editor = self._active_editor()
         text = editor.toPlainText()
-        print(f"[DEBUG] _on_copy: tab={self._tabs.currentIndex()}, editor={type(editor).__name__}, text_len={len(text)}")
+        _dbg(f"_on_copy: tab={self._tabs.currentIndex()}, editor={type(editor).__name__}, text_len={len(text)}")
         if text:
             QApplication.clipboard().setText(text)
             tab_name = self._tabs.tabText(self._tabs.currentIndex())
@@ -1144,6 +1186,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
 
     def _on_export(self):
+        _dbg(f"_on_export: {self._tabs.count()} tabs")
         # Collect all tabs with content
         tabs_info = []
         for i in range(self._tabs.count()):
@@ -1232,7 +1275,14 @@ def main():
     parser.add_argument("--file", "-f", help="Audio file to transcribe")
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
     args = parser.parse_args()
+
+    global DEBUG
+    if args.debug:
+        DEBUG = True
+        _dbg("dictee-transcribe starting with --debug")
 
     app = QApplication(sys.argv)
     app.setApplicationName("dictee-transcribe")
