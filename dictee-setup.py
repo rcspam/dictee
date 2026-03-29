@@ -6933,11 +6933,19 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_canary_translation_notice'):
             self._canary_translation_notice.setVisible(is_canary)
 
-        # Masquer les backends traduction (sauf ollama qui est géré dynamiquement)
-        for w_name in ('cmb_trans_backend', 'lt_widget'):
-            w = getattr(self, w_name, None)
-            if w:
-                w.setVisible(not is_canary)
+        # Masquer la ComboBox backend traduction si Canary
+        w = getattr(self, 'cmb_trans_backend', None)
+        if w:
+            w.setVisible(not is_canary)
+        # lt_widget: visible seulement si pas Canary ET backend == libretranslate
+        w = getattr(self, 'lt_widget', None)
+        if w:
+            if is_canary:
+                w.setVisible(False)
+            else:
+                current_backend = getattr(self, 'cmb_trans_backend', None)
+                if current_backend:
+                    w.setVisible(current_backend.currentData() == "libretranslate")
         if is_canary and hasattr(self, 'ollama_widget') and self.ollama_widget.parent() is not None:
             self._tr_layout.removeWidget(self.ollama_widget)
             self.ollama_widget.setParent(None)
