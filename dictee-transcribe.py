@@ -200,17 +200,18 @@ def _translate_text(text, lang_src="en", lang_tgt="fr"):
 
         elif backend == "libretranslate":
             import json as _json
+            import urllib.request
             port = conf.get("DICTEE_LIBRETRANSLATE_PORT", "5000")
-            json_text = _json.dumps(text)
-            result = subprocess.run(
-                ["curl", "-s", "--max-time", "10",
-                 f"http://localhost:{port}/translate",
-                 "-H", "Content-Type: application/json",
-                 "-d", f'{{"q":{json_text},"source":"{lang_src}","target":"{lang_tgt}"}}'],
-                capture_output=True, text=True, timeout=15)
-            if result.returncode == 0:
-                data = _json.loads(result.stdout)
-                return data.get("translatedText", "")
+            payload = _json.dumps({
+                "q": text, "source": lang_src, "target": lang_tgt,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"http://localhost:{port}/translate",
+                data=payload,
+                headers={"Content-Type": "application/json"})
+            resp = urllib.request.urlopen(req, timeout=15)
+            data = _json.loads(resp.read().decode("utf-8"))
+            return data.get("translatedText", "")
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         pass
     return None
@@ -426,20 +427,23 @@ class ExportDialog(QDialog):
             self._tab_checks.append(chk)
         layout.addWidget(group)
 
-        # -- Format --
-        lay_fmt = QHBoxLayout()
-        lay_fmt.addWidget(QLabel(_("Format:")))
-        self._cmb_format = QComboBox()
-        self._cmb_format.addItem(_("Plain text"), "text")
-        self._cmb_format.addItem("SRT", "srt")
-        self._cmb_format.addItem("JSON", "json")
-        for i in range(self._cmb_format.count()):
-            if self._cmb_format.itemData(i) == current_format:
-                self._cmb_format.setCurrentIndex(i)
-                break
-        lay_fmt.addWidget(self._cmb_format)
-        lay_fmt.addStretch()
-        layout.addLayout(lay_fmt)
+        # -- Formats (checkboxes) --
+        group_fmt = QGroupBox(_("Formats"))
+        lay_fmt = QHBoxLayout(group_fmt)
+        self._chk_text = QCheckBox(_("Plain text (.txt)"))
+        self._chk_srt = QCheckBox(_("SRT (.srt)"))
+        self._chk_json = QCheckBox(_("JSON (.json)"))
+        # Pre-check current format
+        if current_format == "text":
+            self._chk_text.setChecked(True)
+        elif current_format == "srt":
+            self._chk_srt.setChecked(True)
+        elif current_format == "json":
+            self._chk_json.setChecked(True)
+        lay_fmt.addWidget(self._chk_text)
+        lay_fmt.addWidget(self._chk_srt)
+        lay_fmt.addWidget(self._chk_json)
+        layout.addWidget(group_fmt)
 
         # -- Directory --
         lay_dir = QHBoxLayout()
@@ -473,8 +477,16 @@ class ExportDialog(QDialog):
         return [(name, text) for (name, text), chk
                 in zip(self._tabs_info, self._tab_checks) if chk.isChecked()]
 
-    def export_format(self):
-        return self._cmb_format.currentData()
+    def export_formats(self):
+        """Return list of selected format codes."""
+        fmts = []
+        if self._chk_text.isChecked():
+            fmts.append("text")
+        if self._chk_srt.isChecked():
+            fmts.append("srt")
+        if self._chk_json.isChecked():
+            fmts.append("json")
+        return fmts
 
     def export_dir(self):
         return self._dir_input.text()
@@ -847,10 +859,17 @@ class TranscribeWindow(QDialog):
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
 
-        if diarize:
-            self._process.start("transcribe-diarize", [audio_path])
-        else:
-            self._process.start("transcribe", [audio_path])
+        import shutil
+        cmd = "transcribe-diarize" if diarize else "transcribe"
+        if not shutil.which(cmd):
+            self._progress.setVisible(False)
+            self._lbl_status.setText(
+                _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
+            self._lbl_status.setVisible(True)
+            self._update_transcribe_btn()
+            self._process = None
+            return
+        self._process.start(cmd, [audio_path])
 
     def _on_stdout(self):
         data = self._process.readAllStandardOutput()
@@ -865,7 +884,8 @@ class TranscribeWindow(QDialog):
 
         if exit_code != 0:
             # GPU OOM: unload ollama and retry once
-            if "Failed to allocate memory" in raw_output and not getattr(self, '_retry_done', False):
+            if ("Failed to allocate memory" in raw_output or "BFCArena" in raw_output
+                    ) and not getattr(self, '_retry_done', False):
                 self._retry_done = True
                 msg = _("GPU memory full — unloading translation model and retrying...")
                 self._lbl_status.setText(msg)
@@ -907,6 +927,9 @@ class TranscribeWindow(QDialog):
             self._segments = []
             self._update_translate_btn()
             return
+
+        # Reset retry flag on success
+        self._retry_done = False
 
         # Store raw result for reformatting
         self._raw_text = raw_output
@@ -973,6 +996,9 @@ class TranscribeWindow(QDialog):
             return
         # Prevent concurrent translation
         if self._translate_thread and self._translate_thread.isRunning():
+            return
+        # Prevent same-language translation
+        if self._cmb_lang_src.currentData() == self._cmb_lang_tgt.currentData():
             return
         self._lbl_status.setText(_("Translating..."))
         self._lbl_status.setVisible(True)
@@ -1138,25 +1164,61 @@ class TranscribeWindow(QDialog):
             return
 
         selected = dlg.selected_tabs()
-        fmt = dlg.export_format()
+        formats = dlg.export_formats()
         out_dir = dlg.export_dir()
-        ext_map = {"text": ".txt", "srt": ".srt", "json": ".json"}
-        ext = ext_map.get(fmt, ".txt")
 
+        if not selected or not formats:
+            self._lbl_status.setText(_("Nothing to export."))
+            self._lbl_status.setVisible(True)
+            return
+
+        ext_map = {"text": ".txt", "srt": ".srt", "json": ".json"}
+
+        # For SRT/JSON we need segments, not plain text — reformat from stored data
         exported = []
-        for tab_name, text in selected:
-            safe_name = tab_name.replace(" ", "_").replace("/", "-")
-            filename = f"{base}-{safe_name}{ext}"
-            path = os.path.join(out_dir, filename)
-            try:
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(text)
-                exported.append(filename)
-            except OSError as e:
-                self._lbl_status.setText(
-                    _("Export failed: {error}").format(error=str(e)))
-                self._lbl_status.setVisible(True)
-                return
+        for fmt in formats:
+            ext = ext_map.get(fmt, ".txt")
+            for tab_name, text in selected:
+                # Find segments for this tab to reformat
+                content = text  # default: plain text from editor
+                if fmt != "text":
+                    # Try to find segments for this tab
+                    segments = None
+                    if tab_name == self._tabs.tabText(0):
+                        segments = self._segments if self._was_diarized else None
+                    else:
+                        for lang, data in self._translation_tabs.items():
+                            if data["segments"]:
+                                # Match by checking tab widget text
+                                for i in range(self._tabs.count()):
+                                    if (self._tabs.tabText(i) == tab_name
+                                            and self._tabs.widget(i) is data["editor"]):
+                                        segments = data["segments"]
+                                        break
+
+                    if segments and fmt == "srt":
+                        content = _format_srt(segments)
+                    elif segments and fmt == "json":
+                        content = _format_json(segments)
+                    elif fmt == "json":
+                        raw = self._raw_text if tab_name == self._tabs.tabText(0) else text
+                        content = json.dumps([{"text": raw}], ensure_ascii=False, indent=2)
+                    elif fmt == "srt":
+                        raw = self._raw_text if tab_name == self._tabs.tabText(0) else text
+                        content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
+
+                safe_name = tab_name.replace(" ", "_").replace("/", "-")
+                filename = f"{base}-{safe_name}{ext}"
+                path = os.path.join(out_dir, filename)
+                try:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    exported.append(filename)
+                except OSError as e:
+                    self._lbl_status.setText(
+                        _("Export failed: {error}").format(error=str(e)))
+                    self._lbl_status.setVisible(True)
+                    return
 
         self._lbl_status.setText(
             _("Exported {n} file(s) to {dir}").format(n=len(exported), dir=out_dir))
