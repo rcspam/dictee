@@ -164,6 +164,59 @@ ColumnLayout {
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
+
+        PlasmaComponents.Button {
+            id: btnDiarize
+            text: btnDiarize.switching
+                ? i18n("Starting...")
+                : (fullRep.state === "recording" && root.diarizeEnabled)
+                    ? i18n("Stop diarization")
+                    : i18n("Diarization")
+            icon.name: "group"
+            Layout.fillWidth: true
+            enabled: root.sortformerAvailable
+                && (fullRep.state === "idle" || (fullRep.state === "recording" && root.diarizeEnabled))
+                && !btnDiarize.switching
+            property bool switching: false
+
+            onClicked: {
+                if (fullRep.state === "recording" && root.diarizeEnabled) {
+                    // Stop recording → diarize
+                    fullRep.actionRequested("dictate")
+                } else {
+                    // Start: switch backend, wait, then record
+                    switching = true
+                    executable.run("dictee-switch-backend diarize true")
+                    diarizeStartTimer.start()
+                }
+            }
+
+            Timer {
+                id: diarizeStartTimer
+                interval: 3500
+                onTriggered: {
+                    btnDiarize.switching = false
+                    root.diarizeEnabled = true
+                    // Auto-start recording
+                    fullRep.actionRequested("dictate")
+                }
+            }
+
+            // Blinking while switching
+            SequentialAnimation on opacity {
+                running: btnDiarize.switching
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.4; duration: 500 }
+                NumberAnimation { to: 1.0; duration: 500 }
+            }
+            opacity: btnDiarize.switching ? undefined : 1.0
+
+            QQC2.ToolTip.text: !root.sortformerAvailable
+                ? i18n("Sortformer model not installed. Configure in dictee-setup.")
+                : i18n("Record and identify speakers (max 4). Switches to Parakeet automatically.")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
     }
 
     // Bouton annuler (visible uniquement en recording)
@@ -344,65 +397,6 @@ ColumnLayout {
         }
 
         Item { Layout.fillWidth: true }
-
-        QQC2.CheckBox {
-            id: chkDiarize
-            text: i18n("Diarization")
-            enabled: root.sortformerAvailable
-            checked: root.diarizeEnabled
-            onToggled: {
-                root.diarizeEnabled = checked
-                if (checked) {
-                    diarizeAnim.start()
-                }
-                executable.run("dictee-switch-backend diarize " + (checked ? "true" : "false"))
-            }
-
-            // Blinking animation while switching backend, then green when ready
-            property bool switching: false
-            contentItem: PlasmaComponents.Label {
-                text: chkDiarize.text
-                color: chkDiarize.checked
-                    ? (chkDiarize.switching ? Kirigami.Theme.textColor : "#98c379")
-                    : Kirigami.Theme.textColor
-                opacity: chkDiarize.switching ? blinkAnim.opacity : 1.0
-
-                SequentialAnimation on opacity {
-                    id: blinkAnim
-                    running: chkDiarize.switching
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 0.3; duration: 400 }
-                    NumberAnimation { to: 1.0; duration: 400 }
-                }
-            }
-
-            // Timer: blink for 3s (backend switch time), then stop and go green
-            Timer {
-                id: diarizeAnim
-                interval: 3000
-                onTriggered: {
-                    chkDiarize.switching = false
-                }
-            }
-
-            Component.onCompleted: {
-                // If already checked at startup, show green
-            }
-
-            onCheckedChanged: {
-                if (checked) {
-                    switching = true
-                } else {
-                    switching = false
-                }
-            }
-
-            QQC2.ToolTip.text: !root.sortformerAvailable
-                ? i18n("Sortformer model not installed. Configure in dictee-setup.")
-                : i18n("Speaker identification (max 4). Switches to Parakeet automatically. Previous backend restored after.")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
-        }
 
         PlasmaComponents.Button {
             text: i18n("Transcribe file")
