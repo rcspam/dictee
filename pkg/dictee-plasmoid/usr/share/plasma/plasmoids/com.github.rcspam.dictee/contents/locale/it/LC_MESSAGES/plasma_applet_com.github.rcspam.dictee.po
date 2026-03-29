@@ -1,0 +1,314 @@
+# Italian translations for Dictée plasmoid.
+# Copyright (C) 2024 rcspam
+# This file is distributed under the same license as the dictee package.
+# rcspam <rcspams@gmail.com>, 2024.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.0.0\n"
+"Report-Msgid-Bugs-To: rcspams@gmail.com\n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: rcspam <rcspams@gmail.com>\n"
+"Language-Team: Italian\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: ui/FullRepresentation.qml
+msgid "Daemon stopped"
+msgstr "Daemon arrestato"
+
+#: ui/FullRepresentation.qml
+msgid "Daemon active"
+msgstr "Daemon attivo"
+
+#: ui/FullRepresentation.qml
+msgid "Recording…"
+msgstr "Registrazione…"
+
+#: ui/FullRepresentation.qml
+msgid "Transcribing…"
+msgstr "Trascrizione…"
+
+#: ui/FullRepresentation.qml
+msgid "Start daemon"
+msgstr "Avvia daemon"
+
+#: ui/FullRepresentation.qml
+msgid "Stop daemon"
+msgstr "Arresta daemon"
+
+#: ui/FullRepresentation.qml
+msgid "Voice dictation"
+msgstr "Dettatura vocale"
+
+#: ui/FullRepresentation.qml
+msgid "Dictation + Translation"
+msgstr "Dettatura + Traduzione"
+
+#: ui/FullRepresentation.qml
+msgid "Cancel recording"
+msgstr "Annulla registrazione"
+
+#: ui/FullRepresentation.qml
+msgid "Last transcription:"
+msgstr "Ultima trascrizione:"
+
+#: ui/FullRepresentation.qml
+msgid "Preview (mic test)"
+msgstr "Anteprima (test microfono)"
+
+#: ui/FullRepresentation.qml
+msgid "Configure Dictée"
+msgstr "Configura Dictée"
+
+#: ui/FullRepresentation.qml
+msgid "Pin popup"
+msgstr "Fissa popup"
+
+#: ui/FullRepresentation.qml
+msgid "Unpin popup"
+msgstr "Sblocca popup"
+
+#: ui/FullRepresentation.qml
+msgid "Recording silence…"
+msgstr "Registrazione del silenzio…"
+
+#: ui/configGeneral.qml
+msgid "General"
+msgstr "Generale"
+
+#: ui/configGeneral.qml
+msgid "Polling interval (ms):"
+msgstr "Intervallo di polling (ms):"
+
+#: ui/configGeneral.qml
+msgid "How often the widget checks if the daemon is running (in milliseconds)."
+msgstr "Ogni quanto il widget verifica se il daemon è in esecuzione (in millisecondi)."
+
+#: ui/configGeneral.qml
+msgid "Show last transcription:"
+msgstr "Mostra ultima trascrizione:"
+
+#: ui/configGeneral.qml
+msgid "Display the last transcribed text in the popup window."
+msgstr "Visualizza l'ultimo testo trascritto nella finestra popup."
+
+#: ui/configGeneral.qml
+msgid "Preview mode (test with mic):"
+msgstr "Modalità anteprima (test con microfono):"
+
+#: ui/configGeneral.qml
+msgid "Microphone volume:"
+msgstr "Volume del microfono:"
+
+#: ui/configGeneral.qml
+msgid "Adjust the microphone input volume (PipeWire/PulseAudio default source)."
+msgstr "Regola il volume di ingresso del microfono (sorgente predefinita PipeWire/PulseAudio)."
+
+#: ui/configGeneral.qml
+msgid "Noise floor:"
+msgstr "Rumore di fondo:"
+
+#: ui/configGeneral.qml
+msgid "Calibrate"
+msgstr "Calibra"
+
+#: ui/configGeneral.qml
+msgid "Calibration done!"
+msgstr "Calibrazione completata!"
+
+#: ui/configGeneral.qml
+msgid "Calibration failed"
+msgstr "Calibrazione fallita"
+
+#: ui/configGeneral.qml
+msgid "Record 5 seconds of silence to calibrate the background noise level. This improves animation accuracy."
+msgstr "Registra 5 secondi di silenzio per calibrare il livello di rumore di fondo. Questo migliora la precisione dell'animazione."
+
+#: ui/configGeneral.qml
+msgid "Noise gate:"
+msgstr "Noise gate:"
+
+#: ui/configGeneral.qml
+msgid "Audio levels below this threshold are zeroed. Increase to suppress background noise and get clean silence."
+msgstr "I livelli audio sotto questa soglia vengono azzerati. Aumentare per sopprimere il rumore di fondo e ottenere un silenzio pulito."
+
+#: ui/configGeneral.qml
+msgid "Envelope shape:"
+msgstr "Forma dell'inviluppo:"
+
+#: ui/configGeneral.qml
+msgid "Flat"
+msgstr "Piatto"
+
+#: ui/configGeneral.qml
+msgid "Normal"
+msgstr "Normale"
+
+#: ui/configGeneral.qml
+msgid "Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, higher = more peaked at the center."
+msgstr "Controlla la forma dell'inviluppo di Hanning. 0 = piatto (barre uniformi), 1 = normale, più alto = più appuntito al centro."
+
+#: ui/configGeneral.qml
+msgid "Envelope center:"
+msgstr "Centro dell'inviluppo:"
+
+#: ui/configGeneral.qml
+msgid "Shift the envelope peak across the frequency range (80–4000 Hz). Useful with rainbow colors to emphasize different frequency bands."
+msgstr "Spostare il picco dell'inviluppo nell'intervallo di frequenze (80–4000 Hz). Utile con i colori arcobaleno per evidenziare diverse bande di frequenza."
+
+#: ui/configGeneral.qml
+msgid "Animation"
+msgstr "Animazione"
+
+#: ui/configGeneral.qml
+msgid "Animation style:"
+msgstr "Stile animazione:"
+
+#: ui/configGeneral.qml
+msgid "Bars (default)"
+msgstr "Barre (predefinito)"
+
+#: ui/configGeneral.qml
+msgid "Wave"
+msgstr "Onda"
+
+#: ui/configGeneral.qml
+msgid "Pulse"
+msgstr "Pulsazione"
+
+#: ui/configGeneral.qml
+msgid "Dots"
+msgstr "Punti"
+
+#: ui/configGeneral.qml
+msgid "Waveform"
+msgstr "Forma d'onda"
+
+#: ui/configGeneral.qml
+msgid "Rainbow colors:"
+msgstr "Colori arcobaleno:"
+
+#: ui/configGeneral.qml
+msgid "Start hue:"
+msgstr "Tonalità iniziale:"
+
+#: ui/configGeneral.qml
+msgid "End hue:"
+msgstr "Tonalità finale:"
+
+#: ui/configGeneral.qml
+msgid "Preview:"
+msgstr "Anteprima:"
+
+#: ui/configGeneral.qml
+msgid "Bars settings"
+msgstr "Impostazioni barre"
+
+#: ui/configGeneral.qml
+msgid "Sensitivity:"
+msgstr "Sensibilità:"
+
+#: ui/configGeneral.qml
+msgid "Number of bars:"
+msgstr "Numero di barre:"
+
+#: ui/configGeneral.qml
+msgid "Bar spacing (px):"
+msgstr "Spaziatura barre (px):"
+
+#: ui/configGeneral.qml
+msgid "Bar corner radius:"
+msgstr "Raggio angoli barre:"
+
+#: ui/configGeneral.qml
+msgid "Min height (%):"
+msgstr "Altezza minima (%):"
+
+#: ui/configGeneral.qml
+msgid "Idle breathing animation:"
+msgstr "Animazione di respiro a riposo:"
+
+#: ui/configGeneral.qml
+msgid "Animation speed (ms):"
+msgstr "Velocità animazione (ms):"
+
+#: ui/configGeneral.qml
+msgid "Wave settings"
+msgstr "Impostazioni onda"
+
+#: ui/configGeneral.qml
+msgid "Width (px):"
+msgstr "Larghezza (px):"
+
+#: ui/configGeneral.qml
+msgid "Line thickness (px):"
+msgstr "Spessore linea (px):"
+
+#: ui/configGeneral.qml
+msgid "Wave frequency:"
+msgstr "Frequenza dell'onda:"
+
+#: ui/configGeneral.qml
+msgid "Amplitude (%):"
+msgstr "Ampiezza (%):"
+
+#: ui/configGeneral.qml
+msgid "Wave speed (ms):"
+msgstr "Velocità dell'onda (ms):"
+
+#: ui/configGeneral.qml
+msgid "Fill under wave:"
+msgstr "Riempi sotto l'onda:"
+
+#: ui/configGeneral.qml
+msgid "Pulse settings"
+msgstr "Impostazioni pulsazione"
+
+#: ui/configGeneral.qml
+msgid "Number of rings:"
+msgstr "Numero di anelli:"
+
+#: ui/configGeneral.qml
+msgid "Ring thickness (px):"
+msgstr "Spessore anelli (px):"
+
+#: ui/configGeneral.qml
+msgid "Pulse speed (ms):"
+msgstr "Velocità pulsazione (ms):"
+
+#: ui/configGeneral.qml
+msgid "Dots settings"
+msgstr "Impostazioni punti"
+
+#: ui/configGeneral.qml
+msgid "Number of dots:"
+msgstr "Numero di punti:"
+
+#: ui/configGeneral.qml
+msgid "Dot size (px):"
+msgstr "Dimensione punti (px):"
+
+#: ui/configGeneral.qml
+msgid "Dot spacing (px):"
+msgstr "Spaziatura punti (px):"
+
+#: ui/configGeneral.qml
+msgid "Bounce amplitude (%):"
+msgstr "Ampiezza rimbalzo (%):"
+
+#: ui/configGeneral.qml
+msgid "Bounce speed (ms):"
+msgstr "Velocità rimbalzo (ms):"
+
+#: ui/configGeneral.qml
+msgid "Waveform settings"
+msgstr "Impostazioni forma d'onda"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Reset"
+msgstr "Reset"

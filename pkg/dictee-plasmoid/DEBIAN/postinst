@@ -1,0 +1,6 @@
+#!/bin/bash
+if command -v kpackagetool6 >/dev/null 2>&1; then
+    kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+    kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+fi
+exit 0

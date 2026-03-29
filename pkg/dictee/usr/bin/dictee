@@ -22,7 +22,22 @@
 
 # Charger la configuration (dictee-setup)
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
-[ -f "$DICTEE_CONF" ] && source "$DICTEE_CONF"
+if [ -f "$DICTEE_CONF" ]; then
+    source "$DICTEE_CONF"
+fi
+
+# Parse --help before config guard (works without config)
+case "${1:-}" in
+    --help|-h)
+        head -n 18 "$0" | grep '^#' | sed 's/^# \?//'
+        exit 0
+        ;;
+esac
+
+# First-run guard: launch wizard if no config or setup not completed
+if [ ! -f "$DICTEE_CONF" ] || ! grep -q "DICTEE_SETUP_DONE=true" "$DICTEE_CONF" 2>/dev/null; then
+    exec dictee-setup --wizard
+fi
 
 # Exporter OLLAMA_NUM_GPU si défini dans la config (mode CPU forcé)
 [ -n "$OLLAMA_NUM_GPU" ] && export OLLAMA_NUM_GPU
@@ -41,12 +56,13 @@ if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
 fi
 export DOTOOL_XKB_LAYOUT
 
-RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.mp3"
-PIDFILE="/tmp/recording_dictee_pid"
-ID_TMP_FILE="/tmp/notify_dictee"
-MUT_FILE="/tmp/mut_dictee"
-TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend"
-TRANSLATE_FLAG_FILE="/tmp/dictee_translate"
+RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
+_UID_SUFFIX="-$(id -u)"
+PIDFILE="/tmp/recording_dictee_pid${_UID_SUFFIX}"
+ID_TMP_FILE="/tmp/notify_dictee${_UID_SUFFIX}"
+MUT_FILE="/tmp/mut_dictee${_UID_SUFFIX}"
+TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
+TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 LAST_WORD_FILE="/dev/shm/.dictee_last_word"
 
 # État partagé avec plasmoid/tray (protégé par flock)
@@ -369,7 +385,7 @@ done
 
 # === ÉCOUTE ESCAPE (/dev/input) ===
 
-ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid"
+ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid${_UID_SUFFIX}"
 
 start_escape_listener() {
     # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
@@ -477,7 +493,7 @@ check_dependencies() {
 cleanup_on_error() {
     local exit_code=$?
     local err_line="${1:-unknown}"
-    echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> /tmp/dictee-error.log
+    echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> "/tmp/dictee-error${_UID_SUFFIX}.log"
 
     stop_escape_listener
 
@@ -487,7 +503,7 @@ cleanup_on_error() {
         kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
         sleep 0.1
         kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
-        rm -f "$PIDFILE"
+        rm -f "$PIDFILE" "${PIDFILE}.lock"
     fi
 
     # Arrêter l'animation
@@ -669,7 +685,7 @@ if [ "$CANCEL" = true ]; then
                     fi
                 fi
             fi
-            rm -f "$PIDFILE"
+            rm -f "$PIDFILE" "${PIDFILE}.lock"
         fi
 
         if [ -n "$id" ]; then
@@ -733,14 +749,33 @@ if [ -f "$PIDFILE" ]; then
                 fi
             fi
         fi
-        rm -f "$PIDFILE"
+        rm -f "$PIDFILE" "${PIDFILE}.lock"
     fi
 
     if [ -n "$id" ]; then
         notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
     fi
 
-    raw=$(eval transcribe-client "$RECORDING_FILE")
+    if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
+        else
+            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
+        fi
+        write_state "idle"
+        rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        exit 1
+    fi
+    if [ -z "$raw" ]; then
+        if [ -n "$id" ]; then
+            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
+        else
+            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
+        fi
+        write_state "idle"
+        rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        exit 1
+    fi
     if [ -n "$SUPPRIME" ]; then
         echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp
         transcribed=$(cat /dev/shm/.dictee_pp; printf x)
@@ -766,8 +801,10 @@ if [ -f "$PIDFILE" ]; then
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
             # Canary: built-in translation — single daemon call with target language
             translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
+            _trans_label="canary"
         else
             translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>/dev/null) || translated=""
+            _trans_label="$TRANSLATE_BACKEND"
         fi
         if [ -n "$translated" ]; then
             copy_to_clipboard "$translated"
@@ -775,9 +812,9 @@ if [ -f "$PIDFILE" ]; then
             save_last_word "$translated"
 
             if [ -n "$id" ]; then
-                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
             else
-                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($TRANSLATE_BACKEND):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
             fi
         else
             # Traduction échouée — taper le texte original
@@ -798,9 +835,9 @@ if [ -f "$PIDFILE" ]; then
         save_last_word "$transcribed"
 
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
+            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
         else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé :" "<i>\"$transcribed\"</i>"
+            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
         fi
     fi
 
@@ -812,6 +849,12 @@ if [ -f "$PIDFILE" ]; then
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
+
+    # Verrou atomique : empêcher un double-démarrage (rebond clavier, double raccourci)
+    exec 201>"${PIDFILE}.lock"
+    if ! flock -n 201; then
+        exit 0  # un autre dictee est déjà en train de démarrer
+    fi
 
     if [ "$NO_ESC_LISTENER" = false ]; then start_escape_listener; fi
 
@@ -841,17 +884,27 @@ else
     pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
     echo $! >"$PIDFILE"
 
-    # Attendre que pw-record soit connecté à PipeWire (~200ms de latence de démarrage)
-    # La notification sert de délai naturel : l'utilisateur attend le retour visuel
-    # avant de parler, ce qui laisse le temps à pw-record de démarrer
+    # Vérifier que pw-record a bien démarré
+    sleep 0.2
+    if ! kill -0 $! 2>/dev/null; then
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
+        notify-send -t 5000 -i dialog-error -a Dictee "Recording failed — audio device unavailable" 2>/dev/null || true
+        write_state "idle"
+        exit 1
+    fi
 
     # Signaler au plasmoid
     write_state "recording"
 
     # Notification (sert aussi de délai pour pw-record)
     if [ "$TRANSLATE" = true ]; then
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($TRANSLATE_BACKEND)" >"$ID_TMP_FILE"
+        if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
+            _rec_trans_label="canary"
+        else
+            _rec_trans_label="$TRANSLATE_BACKEND"
+        fi
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($_rec_trans_label) (${DICTEE_ASR_BACKEND:-parakeet})" >"$ID_TMP_FILE"
     else
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré" >"$ID_TMP_FILE"
+        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré (${DICTEE_ASR_BACKEND:-parakeet})" >"$ID_TMP_FILE"
     fi
 fi

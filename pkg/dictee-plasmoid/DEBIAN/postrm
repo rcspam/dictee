@@ -1,0 +1,5 @@
+#!/bin/bash
+if [ "$1" = "remove" ] && command -v kpackagetool6 >/dev/null 2>&1; then
+    kpackagetool6 -t Plasma/Applet -r com.github.rcspam.dictee 2>/dev/null || true
+fi
+exit 0

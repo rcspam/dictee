@@ -43,8 +43,9 @@ except ImportError:
 
 CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
 DICTEE_BIN = None  # auto-detect
-PIDFILE = "/tmp/recording_dictee_pid"
-OWN_PIDFILE = "/tmp/dictee-ptt.pid"
+_UID_SUFFIX = f"-{os.getuid()}"
+PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
+OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
 
 EV_KEY = 1
 KEY_DOWN = 1
@@ -320,6 +321,12 @@ class PttState:
                     print("[ptt] hold: cancel (trop court)")
                     run_dictee_async("--cancel")
                 else:
+                    # Écrire "transcribing" immédiatement pour stopper l'animation
+                    try:
+                        with open("/dev/shm/.dictee_state", "w") as f:
+                            f.write("transcribing\n")
+                    except OSError:
+                        pass
                     print("[ptt] hold: stop")
                     run_dictee_async()
                 self.recording = False
@@ -359,6 +366,12 @@ class PttState:
                     print("[ptt] hold: cancel+translate (trop court)")
                     run_dictee_async("--cancel")
                 else:
+                    # Écrire "transcribing" immédiatement pour stopper l'animation
+                    try:
+                        with open("/dev/shm/.dictee_state", "w") as f:
+                            f.write("transcribing\n")
+                    except OSError:
+                        pass
                     print("[ptt] hold: stop+translate")
                     run_dictee_async("--translate")
                 self.recording_translate = False

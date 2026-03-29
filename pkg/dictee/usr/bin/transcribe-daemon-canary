@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""transcribe-daemon-canary — Canary 1B v2 ASR+translation daemon.
+
+GPU-only daemon using onnx-asr. Supports 25 languages for transcription
+and 48 translation pairs (all ↔ English).
+
+Socket protocol:
+  Client sends: <wav_path>\n                     → transcription
+  Client sends: <wav_path>\tlang:<target>\n      → translation
+  Daemon responds: <text>\n  or  ERROR: <msg>\n
+"""
+
+import os
+import sys
+import socket
+import signal
+
+# Inject venv site-packages
+VENV_DIR = os.path.expanduser("~/.local/share/dictee/canary-env")
+VENV_SITE = os.path.join(
+    VENV_DIR, "lib",
+    f"python{sys.version_info.major}.{sys.version_info.minor}",
+    "site-packages",
+)
+if os.path.isdir(VENV_SITE):
+    sys.path.insert(0, VENV_SITE)
+
+import onnx_asr
+
+
+def get_socket_path():
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+    if runtime:
+        return os.path.join(runtime, "transcribe.sock")
+    return f"/tmp/transcribe-{os.getuid()}.sock"
+
+
+def load_model():
+    """Load Canary 1B v2 model with GPU (fallback CPU)."""
+    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    model = onnx_asr.load_model("nemo-canary-1b-v2", providers=providers)
+    print("[canary] model loaded", flush=True)
+    return model
+
+
+def transcribe(model, wav_path, source_lang, target_lang=None):
+    """Transcribe or translate a WAV file."""
+    kwargs = {"language": source_lang}
+    if target_lang and target_lang != source_lang:
+        kwargs["target_language"] = target_lang
+    return model.recognize(wav_path, **kwargs)
+
+
+def main():
+    sock_path = get_socket_path()
+
+    # Cleanup stale socket
+    try:
+        os.unlink(sock_path)
+    except FileNotFoundError:
+        pass
+
+    source_lang = os.environ.get("DICTEE_LANG_SOURCE", "fr")
+    model = load_model()
+
+    # Warmup with a silent recognition (primes GPU kernels)
+    print("[canary] warming up...", flush=True)
+
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(sock_path)
+    os.chmod(sock_path, 0o600)
+    server.listen(1)
+    server.settimeout(1.0)
+
+    running = True
+
+    def on_signal(*_):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, on_signal)
+    signal.signal(signal.SIGINT, on_signal)
+
+    print(f"[canary] listening on {sock_path}", flush=True)
+
+    while running:
+        try:
+            conn, _ = server.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+
+        try:
+            conn.settimeout(30)  # Client must send data within 30s
+            data = b""
+            while b"\n" not in data:
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+
+            line = data.decode("utf-8", errors="replace").strip()
+            if not line:
+                conn.close()
+                continue
+
+            # Parse: <wav_path>\tlang:<target>  or  <wav_path>
+            target_lang = None
+            if "\t" in line:
+                wav_path, params = line.split("\t", 1)
+                if params.startswith("lang:"):
+                    target_lang = params[5:]
+            else:
+                wav_path = line
+
+            if not os.path.isfile(wav_path):
+                conn.sendall(f"ERROR: file not found: {wav_path}\n".encode())
+                conn.close()
+                continue
+
+            text = transcribe(model, wav_path, source_lang, target_lang)
+            conn.sendall(f"{text}\n".encode())
+
+        except Exception as e:
+            try:
+                conn.sendall(f"ERROR: {e}\n".encode())
+            except OSError:
+                pass
+            print(f"[canary] error: {e}", file=sys.stderr, flush=True)
+        finally:
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    server.close()
+    try:
+        os.unlink(sock_path)
+    except FileNotFoundError:
+        pass
+    print("[canary] stopped", flush=True)
+
+
+if __name__ == "__main__":
+    main()

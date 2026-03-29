@@ -27,3 +27,17 @@ PROMOTION.md
 .worktrees/
 .superpowers/
 *.po~
+
+# Artefacts de build
+*.rpm
+*.plasmoid
+
+# Fichiers internes
+docs/superpowers/
+docs/plan-*.md
+assets/dictee.png
+gh-stats.sh
+test-wer*.py
+discord-*.md
+reddit-*.md
+dictee-showcase.mp4

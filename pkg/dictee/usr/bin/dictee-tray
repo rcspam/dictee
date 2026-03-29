@@ -12,6 +12,7 @@ Backend automatique :
 
 import gettext
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -32,10 +33,97 @@ _ = gettext.gettext
 # === Configuration ===
 
 STATE_FILE = "/dev/shm/.dictee_state"
-TRANSLATE_FLAG = "/tmp/dictee_translate"
+TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
+CONF_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "dictee.conf",
+)
 POLL_SLOW_MS = 3000
+
+
+def read_conf_value(key, default=""):
+    """Read a single value from dictee.conf."""
+    if not os.path.exists(CONF_PATH):
+        return default
+    try:
+        with open(CONF_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + "="):
+                    val = line.split("=", 1)[1].strip()
+                    # Remove surrounding quotes if present
+                    if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+                        val = val[1:-1]
+                    return val
+    except OSError:
+        pass
+    return default
+
+
+ASR_BACKENDS = [
+    ("parakeet", "Parakeet"),
+    ("canary", "Canary"),
+    ("vosk", "Vosk"),
+    ("whisper", "Whisper"),
+]
+
+TRANSLATE_BACKENDS = [
+    ("google", "Google Translate"),
+    ("bing", "Bing"),
+    ("ollama", "Ollama"),
+    ("libretranslate", "LibreTranslate"),
+]
+
+
+def _translate_backend_available(key):
+    """Check if a translation backend is usable."""
+    if key in ("google", "bing"):
+        return shutil.which("trans") is not None
+    if key == "ollama":
+        return shutil.which("ollama") is not None
+    if key == "libretranslate":
+        return shutil.which("docker") is not None
+    return True
+
+
+def _current_asr_backend():
+    return read_conf_value("DICTEE_ASR_BACKEND", "parakeet")
+
+
+def _current_translate_backend():
+    backend = read_conf_value("DICTEE_TRANSLATE_BACKEND", "trans")
+    if backend == "trans":
+        engine = read_conf_value("DICTEE_TRANS_ENGINE", "google")
+        return engine  # "google" or "bing"
+    return backend  # "ollama" or "libretranslate"
+
+
+def _is_translate_enabled():
+    return read_conf_value("DICTEE_TRANSLATE", "false").lower() == "true"
+
+
+def _asr_service_exists(key):
+    """Check if an ASR backend is actually usable (binary+model/venv installed)."""
+    if key == "parakeet":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        data_dir = os.path.join(
+            os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+            "dictee", "tdt",
+        )
+        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(data_dir)
+    data_dir = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee",
+    )
+    venv_map = {"vosk": "vosk-env", "whisper": "whisper-env", "canary": "canary-env"}
+    venv = venv_map.get(key)
+    if venv:
+        return os.path.isdir(os.path.join(data_dir, venv, "lib"))
+    return False
+
 
 # Icônes
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -94,8 +182,19 @@ def _icon_path(name):
     return None
 
 
+def _is_setup_done():
+    """Vérifie si le wizard a été complété (DICTEE_SETUP_DONE=true)."""
+    try:
+        with open(CONF_PATH) as f:
+            return "DICTEE_SETUP_DONE=true" in f.read()
+    except FileNotFoundError:
+        return False
+
+
 def daemon_is_active():
-    """Vérifie si un des 3 services daemon est actif via systemctl."""
+    """Vérifie si un des services daemon est actif et la config est complète."""
+    if not _is_setup_done():
+        return False
     for svc in SERVICES:
         try:
             result = subprocess.run(
@@ -109,8 +208,43 @@ def daemon_is_active():
     return False
 
 
+def _conf_asr_service():
+    """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
+    mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
+               "whisper": "dictee-whisper", "canary": "dictee-canary"}
+    try:
+        with open(CONF_PATH) as f:
+            for line in f:
+                if line.startswith("DICTEE_ASR_BACKEND="):
+                    backend = line.strip().split("=", 1)[1].strip('"\'')
+                    return mapping.get(backend)
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _write_state(state):
+    """Écrit l'état dans le fichier partagé (sans flock — best effort)."""
+    try:
+        with open(STATE_FILE, "w") as f:
+            f.write(state + "\n")
+    except OSError:
+        pass
+
+
 def daemon_start():
-    """Démarre le service daemon activé."""
+    """Démarre le service daemon configuré (enable + restart)."""
+    # 1. Lire le backend depuis dictee.conf
+    conf_svc = _conf_asr_service()
+    if conf_svc:
+        result = subprocess.run(
+            ["systemctl", "--user", "enable", "--now", conf_svc],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if result.returncode == 0:
+            _write_state("idle")
+        return
+    # 2. Fallback: chercher un service déjà enabled
     for svc in SERVICES:
         try:
             result = subprocess.run(
@@ -118,25 +252,31 @@ def daemon_start():
                 capture_output=True, text=True,
             )
             if result.stdout.strip() == "enabled":
-                subprocess.Popen(
-                    ["systemctl", "--user", "start", svc],
+                result = subprocess.run(
+                    ["systemctl", "--user", "restart", svc],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
+                if result.returncode == 0:
+                    _write_state("idle")
                 return
         except FileNotFoundError:
             pass
-    subprocess.Popen(
-        ["systemctl", "--user", "start", "dictee"],
+    subprocess.run(
+        ["systemctl", "--user", "restart", "dictee"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
 
 def daemon_stop():
-    """Arrête tous les services daemon."""
+    """Arrête tous les services daemon et nettoie l'état failed."""
     for svc in SERVICES:
         try:
             subprocess.run(
                 ["systemctl", "--user", "stop", svc],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                ["systemctl", "--user", "reset-failed", svc],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
@@ -148,9 +288,9 @@ def read_state():
     try:
         with open(STATE_FILE, "r") as f:
             state = f.read().strip()
-            if state in ("recording", "transcribing"):
+            if state in ("recording", "transcribing", "switching", "offline"):
                 return state
-            if state == "cancelled":
+            if state in ("cancelled", "idle"):
                 return "idle"
     except (FileNotFoundError, PermissionError):
         pass
@@ -208,6 +348,7 @@ class DicteeTrayAppIndicator:
         # Menu
         self.menu = Gtk.Menu()
         self._build_menu()
+        self.menu.connect("show", lambda _: self._refresh_backend_radios())
         self.indicator.set_menu(self.menu)
 
         # Premier check
@@ -242,6 +383,38 @@ class DicteeTrayAppIndicator:
         self.item_daemon.connect("activate", self._on_daemon_toggle)
         self.menu.append(self.item_daemon)
 
+        # ASR backend submenu
+        self.submenu_asr = Gtk.Menu()
+        self.item_asr = Gtk.MenuItem(label=_("ASR backend"))
+        self.item_asr.set_submenu(self.submenu_asr)
+        self.menu.append(self.item_asr)
+
+        self._asr_radios = []
+        group = None
+        for key, label in ASR_BACKENDS:
+            item = Gtk.RadioMenuItem(label=label, group=group)
+            if group is None:
+                group = item
+            item.connect("toggled", self._on_asr_toggled, key)
+            self.submenu_asr.append(item)
+            self._asr_radios.append((key, item))
+
+        # Translate backend submenu
+        self.submenu_trans = Gtk.Menu()
+        self.item_trans = Gtk.MenuItem(label=_("Translation"))
+        self.item_trans.set_submenu(self.submenu_trans)
+        self.menu.append(self.item_trans)
+
+        self._trans_radios = []
+        group = None
+        for key, label in TRANSLATE_BACKENDS:
+            item = Gtk.RadioMenuItem(label=label, group=group)
+            if group is None:
+                group = item
+            item.connect("toggled", self._on_trans_toggled, key)
+            self.submenu_trans.append(item)
+            self._trans_radios.append((key, item))
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
         item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
@@ -263,10 +436,24 @@ class DicteeTrayAppIndicator:
     def _on_daemon_toggle(self, _item):
         if self.state == "offline":
             daemon_start()
-            self.GLib.timeout_add(2000, self._delayed_refresh)
+            self._start_retries = 0
+            self.GLib.timeout_add(1000, self._poll_daemon_start)
         else:
             daemon_stop()
             self.GLib.timeout_add(1000, self._delayed_refresh)
+
+    def _poll_daemon_start(self):
+        self._start_retries += 1
+        self._check_daemon()
+        if self._daemon_active:
+            self._check_state()
+            self._apply_state()
+            return False
+        if self._start_retries >= 10:
+            self._check_state()
+            self._apply_state()
+            return False
+        return True  # retry in 1s
 
     def _setup_file_watch(self):
         """Surveille le fichier état via inotify (GLib)."""
@@ -290,6 +477,10 @@ class DicteeTrayAppIndicator:
         file_state = read_state()
         if file_state in ("recording", "transcribing"):
             self.state = file_state
+        elif file_state == "switching":
+            self.state = "idle"  # Stay idle during backend switch
+        elif file_state == "offline":
+            self.state = "offline"
         elif self._daemon_active:
             self.state = "idle"
         else:
@@ -336,6 +527,39 @@ class DicteeTrayAppIndicator:
         # Re-setup file watch si perdu
         self._setup_file_watch()
         return True  # GLib.SOURCE_CONTINUE
+
+    def _on_asr_toggled(self, item, key):
+        if item.get_active():
+            subprocess.Popen(["dictee-switch-backend", "asr", key])
+            from gi.repository import GLib
+            GLib.timeout_add(2000, self._delayed_daemon_refresh)
+
+    def _on_trans_toggled(self, item, key):
+        if item.get_active():
+            subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _delayed_daemon_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+        return False  # one-shot
+
+    def _refresh_backend_radios(self):
+        current_asr = _current_asr_backend()
+        for key, item in self._asr_radios:
+            item.handler_block_by_func(self._on_asr_toggled)
+            item.set_active(key == current_asr)
+            item.set_sensitive(_asr_service_exists(key))
+            item.handler_unblock_by_func(self._on_asr_toggled)
+
+        # Disable translation submenu when using canary (built-in translation)
+        self.item_trans.set_sensitive(current_asr != "canary")
+        current_trans = _current_translate_backend()
+        for key, item in self._trans_radios:
+            item.handler_block_by_func(self._on_trans_toggled)
+            item.set_active(key == current_trans)
+            item.set_sensitive(_translate_backend_available(key))
+            item.handler_unblock_by_func(self._on_trans_toggled)
 
     def _delayed_refresh(self):
         self._check_daemon()
@@ -417,6 +641,35 @@ class DicteeTrayQt:
         hint_font.setItalic(True)
         self.action_daemon_hint.setFont(hint_font)
         self.action_daemon_hint.setEnabled(False)
+        # ASR backend submenu
+        from PyQt6.QtGui import QActionGroup
+        self.menu_asr = self.menu.addMenu(_("ASR backend"))
+        self.menu_asr.aboutToShow.connect(self._refresh_asr_menu)
+        self._asr_group = QActionGroup(self.menu_asr)
+        self._asr_group.setExclusive(True)
+        self._asr_actions = {}
+        for key, label in ASR_BACKENDS:
+            action = self.menu_asr.addAction(label)
+            action.setCheckable(True)
+            action.setData(key)
+            self._asr_group.addAction(action)
+            self._asr_actions[key] = action
+        self._asr_group.triggered.connect(self._on_asr_selected)
+
+        # Translate backend submenu
+        self.menu_trans = self.menu.addMenu(_("Translation"))
+        self.menu_trans.aboutToShow.connect(self._refresh_trans_menu)
+        self._trans_group = QActionGroup(self.menu_trans)
+        self._trans_group.setExclusive(True)
+        self._trans_actions = {}
+        for key, label in TRANSLATE_BACKENDS:
+            action = self.menu_trans.addAction(label)
+            action.setCheckable(True)
+            action.setData(key)
+            self._trans_group.addAction(action)
+            self._trans_actions[key] = action
+        self._trans_group.triggered.connect(self._on_trans_selected)
+
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.action_postprocess = self.menu.addAction(_("Post-processing..."))
@@ -446,7 +699,10 @@ class DicteeTrayQt:
         elif action == self.action_daemon:
             if self.state == "offline":
                 daemon_start()
-                self.QTimer.singleShot(2000, self._delayed_refresh)
+                self._start_retries = 0
+                self._poll_timer = self.QTimer()
+                self._poll_timer.timeout.connect(self._poll_daemon_start_qt)
+                self._poll_timer.start(1000)
             else:
                 daemon_stop()
                 self.QTimer.singleShot(1000, self._delayed_refresh)
@@ -468,6 +724,35 @@ class DicteeTrayQt:
             if self.state in ("recording", "transcribing"):
                 subprocess.Popen(["dictee", "--cancel"])
 
+    def _on_asr_selected(self, action):
+        key = action.data()
+        subprocess.Popen(["dictee-switch-backend", "asr", key])
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2000, self._delayed_daemon_refresh)
+
+    def _on_trans_selected(self, action):
+        key = action.data()
+        subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _delayed_daemon_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+
+    def _refresh_asr_menu(self):
+        current = _current_asr_backend()
+        for key, action in self._asr_actions.items():
+            action.setChecked(key == current)
+            action.setEnabled(_asr_service_exists(key))
+
+    def _refresh_trans_menu(self):
+        # Disable when using canary (built-in translation)
+        self.menu_trans.setEnabled(_current_asr_backend() != "canary")
+        current = _current_translate_backend()
+        for key, action in self._trans_actions.items():
+            action.setChecked(key == current)
+            action.setEnabled(_translate_backend_available(key))
+
     def _check_daemon(self):
         self._daemon_active = daemon_is_active()
 
@@ -475,6 +760,10 @@ class DicteeTrayQt:
         file_state = read_state()
         if file_state in ("recording", "transcribing"):
             self.state = file_state
+        elif file_state == "switching":
+            self.state = "idle"  # Stay idle during backend switch
+        elif file_state == "offline":
+            self.state = "offline"
         elif self._daemon_active:
             self.state = "idle"
         else:
@@ -535,6 +824,14 @@ class DicteeTrayQt:
         self._check_state()
         self._apply_state()
 
+    def _poll_daemon_start_qt(self):
+        self._start_retries += 1
+        self._check_daemon()
+        if self._daemon_active or self._start_retries >= 10:
+            self._poll_timer.stop()
+            self._check_state()
+            self._apply_state()
+
     def _delayed_refresh(self):
         self._check_daemon()
         self._check_state()
@@ -545,6 +842,33 @@ class DicteeTrayQt:
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    # First-run guard: prompt user to run setup wizard if not configured yet
+    if not os.path.exists(CONF_PATH):
+        try:
+            from PyQt6.QtWidgets import QApplication, QMessageBox
+            app = QApplication(sys.argv)
+            result = QMessageBox.question(
+                None, "Dictée",
+                _("Dictée is not configured yet.\nDo you want to run the setup wizard?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if result == QMessageBox.StandardButton.Yes:
+                subprocess.Popen(["dictee-setup", "--wizard"])
+        except ImportError:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            dialog = Gtk.MessageDialog(
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=_("Dictée is not configured yet.\nDo you want to run the setup wizard?"),
+            )
+            dialog.set_title("Dictée")
+            if dialog.run() == Gtk.ResponseType.YES:
+                subprocess.Popen(["dictee-setup", "--wizard"])
+            dialog.destroy()
+        sys.exit(0)
 
     backend = _detect_backend()
 
