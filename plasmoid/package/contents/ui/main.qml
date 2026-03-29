@@ -133,6 +133,12 @@ PlasmoidItem {
                 if (parts.length > 2) {
                     root.sortformerAvailable = parts[2].trim().indexOf("sortformer") !== -1
                 }
+            } else if (source === micVolumeCmd) {
+                // Parse "Volume: 0.50" or "Volume: 0.50 [MUTED]"
+                var volMatch = stdout.match(/Volume:\s+(\d+\.?\d*)/)
+                if (volMatch) {
+                    root.micVolume = parseFloat(volMatch[1])
+                }
             } else if (stdout.indexOf("DIARIZE_READY") !== -1) {
                 // Diarization backend ready
                 root.diarizeEnabled = true
@@ -226,6 +232,8 @@ PlasmoidItem {
     property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
+    property real micVolume: 0.5  // microphone volume (0.0-1.5)
+    property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property bool diarizeEnabled: false  // read from config
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE\"'"
     property string checkInstalledCmd: "bash -c '" +
@@ -244,6 +252,7 @@ PlasmoidItem {
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
+        executable.run(micVolumeCmd)
     }
 
     // Ping-pong pour l'état aussi

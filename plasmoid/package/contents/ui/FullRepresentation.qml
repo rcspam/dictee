@@ -423,6 +423,29 @@ ColumnLayout {
             QQC2.ToolTip.delay: 500
         }
 
+        // Microphone volume slider
+        Kirigami.Icon {
+            source: "audio-input-microphone"
+            Layout.preferredWidth: Kirigami.Units.iconSizes.small
+            Layout.preferredHeight: Kirigami.Units.iconSizes.small
+        }
+        QQC2.Slider {
+            id: micSlider
+            Layout.fillWidth: true
+            Layout.preferredWidth: 80
+            from: 0.0
+            to: 1.5
+            stepSize: 0.01
+            value: root.micVolume
+            onMoved: {
+                root.micVolume = value
+                executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+            }
+            QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 300
+        }
+
         Item { Layout.fillWidth: true }
 
         PlasmaComponents.Button {
