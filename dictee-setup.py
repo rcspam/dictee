@@ -2030,9 +2030,13 @@ class DicteeSetupDialog(QDialog):
             QTimer.singleShot(50, self._open_postprocess_dialog)
         elif getattr(self, '_open_translation', False):
             self._open_translation = False
-            # Jump to translation page (page 3 in wizard stack)
-            if hasattr(self, 'stack'):
+            if self.wizard_mode and hasattr(self, 'stack'):
+                # Jump to translation page (page 3 in wizard stack)
                 self.stack.setCurrentIndex(3)
+            elif hasattr(self, '_main_scroll') and hasattr(self, 'cmb_trans_backend'):
+                # Classic mode: scroll to translation section
+                QTimer.singleShot(100, lambda: self._main_scroll.ensureWidgetVisible(
+                    self.cmb_trans_backend))
 
     @property
     def _pp_parent(self):
