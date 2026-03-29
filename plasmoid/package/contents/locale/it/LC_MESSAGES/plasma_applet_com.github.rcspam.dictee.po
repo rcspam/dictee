@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-26 17:49+0100\n"
+"POT-Creation-Date: 2026-03-29 18:32+0200\n"
 "PO-Revision-Date: 2024-01-01 00:00+0000\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: Italian\n"
@@ -276,74 +276,122 @@ msgstr "Velocità rimbalzo (ms):"
 msgid "Waveform settings"
 msgstr "Impostazioni forma d'onda"
 
-#: contents/ui/FullRepresentation.qml:41
+#: contents/ui/FullRepresentation.qml:51
 msgid "Unpin popup"
 msgstr "Sblocca popup"
 
-#: contents/ui/FullRepresentation.qml:41
+#: contents/ui/FullRepresentation.qml:51
 msgid "Pin popup"
 msgstr "Fissa popup"
 
-#: contents/ui/FullRepresentation.qml:79 contents/ui/main.qml:55
+#: contents/ui/FullRepresentation.qml:91
+msgid "Dictée not installed — install dictee package"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml:92
+msgid "Not configured — click Configure Dictée below"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml:93 contents/ui/main.qml:59
 msgid "Daemon stopped"
 msgstr "Daemon arrestato"
 
-#: contents/ui/FullRepresentation.qml:81 contents/ui/main.qml:57
+#: contents/ui/FullRepresentation.qml:95 contents/ui/main.qml:61
 msgid "Daemon active"
 msgstr "Daemon attivo"
 
-#: contents/ui/FullRepresentation.qml:83 contents/ui/main.qml:59
+#: contents/ui/FullRepresentation.qml:97 contents/ui/main.qml:63
 msgid "Recording…"
 msgstr "Registrazione…"
 
-#: contents/ui/FullRepresentation.qml:85 contents/ui/main.qml:61
+#: contents/ui/FullRepresentation.qml:99 contents/ui/main.qml:65
 msgid "Transcribing…"
 msgstr "Trascrizione…"
 
-#: contents/ui/FullRepresentation.qml:97
+#: contents/ui/FullRepresentation.qml:101 contents/ui/main.qml:67
+msgid "Switching backend…"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml:113
 msgid "Reset"
 msgstr "Reset"
 
-#: contents/ui/FullRepresentation.qml:105
+#: contents/ui/FullRepresentation.qml:121
 msgid "Start daemon"
 msgstr "Avvia daemon"
 
-#: contents/ui/FullRepresentation.qml:105
+#: contents/ui/FullRepresentation.qml:121
 msgid "Stop daemon"
 msgstr "Arresta daemon"
 
-#: contents/ui/FullRepresentation.qml:123
+#: contents/ui/FullRepresentation.qml:139
 msgid "Voice dictation"
 msgstr "Dettatura vocale"
 
-#: contents/ui/FullRepresentation.qml:131
+#: contents/ui/FullRepresentation.qml:147
 msgid "Dictation + Translation"
 msgstr "Dettatura + Traduzione"
 
-#: contents/ui/FullRepresentation.qml:154
+#: contents/ui/FullRepresentation.qml:170
 msgid "Cancel recording"
 msgstr "Annulla registrazione"
 
-#: contents/ui/FullRepresentation.qml:182
+#: contents/ui/FullRepresentation.qml:198
 msgid "Last transcription:"
 msgstr "Ultima trascrizione:"
 
-#: contents/ui/FullRepresentation.qml:209
+#: contents/ui/FullRepresentation.qml:225
 msgid "ASR:"
 msgstr "ASR:"
 
-#: contents/ui/FullRepresentation.qml:237
+#: contents/ui/FullRepresentation.qml:272
 msgid "Translation:"
 msgstr "Traduzione:"
 
-#: contents/ui/FullRepresentation.qml:271
-msgid "Preview (mic test)"
-msgstr "Anteprima (test microfono)"
+#: contents/ui/FullRepresentation.qml:324
+#, fuzzy
+msgid "Preview"
+msgstr "Anteprima:"
 
-#: contents/ui/FullRepresentation.qml:279
+#: contents/ui/FullRepresentation.qml:333
+#, fuzzy
+msgid "Diarization"
+msgstr "Animazione"
+
+#: contents/ui/FullRepresentation.qml:341
+msgid ""
+"Live speaker identification (max 4). For recordings over 5 minutes, use "
+"Transcribe file instead."
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml:342
+msgid "Sortformer model not installed. Configure in dictee-setup."
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml:348
+#, fuzzy
+msgid "Transcribe file"
+msgstr "Trascrizione…"
+
+#: contents/ui/FullRepresentation.qml:352
+msgid "Open an audio file for transcription"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml:358
 msgid "Post-processing..."
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:286
+#: contents/ui/FullRepresentation.qml:365
 msgid "Configure Dictée"
 msgstr "Configura Dictée"
+
+#: contents/ui/main.qml:57
+msgid "Dictée not installed"
+msgstr ""
+
+#: contents/ui/main.qml:58
+msgid "Dictée not configured — run dictee-setup"
+msgstr ""
+
+#~ msgid "Preview (mic test)"
+#~ msgstr "Anteprima (test microfono)"
