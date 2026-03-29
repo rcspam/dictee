@@ -906,6 +906,8 @@ class TranscribeWindow(QDialog):
             self._file_input.setText(path)
 
     def _on_transcribe(self):
+        if not self.isVisible():
+            return  # window closed, don't start new transcription
         audio_path = self._file_input.text().strip()
         if not audio_path or not os.path.isfile(audio_path):
             self._lbl_status.setText(_("File not found."))
@@ -946,8 +948,9 @@ class TranscribeWindow(QDialog):
                 ["nvidia-smi", "--query-gpu=memory.free",
                  "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                free_mb = int(result.stdout.strip().split("\n")[0])
+            free_str = result.stdout.strip().split("\n")[0] if result.returncode == 0 else ""
+            if free_str and free_str.isdigit():
+                free_mb = int(free_str)
                 _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB")
                 # Need ~2 GB for Parakeet + Sortformer
                 if free_mb < 2048:
@@ -972,7 +975,8 @@ class TranscribeWindow(QDialog):
                         ["nvidia-smi", "--query-gpu=memory.free",
                          "--format=csv,noheader,nounits"],
                         capture_output=True, text=True, timeout=5)
-                    free_after = int(result3.stdout.strip().split("\n")[0]) if result3.returncode == 0 else free_mb
+                    free_str2 = result3.stdout.strip().split("\n")[0] if result3.returncode == 0 else ""
+                    free_after = int(free_str2) if free_str2.isdigit() else free_mb
                     if free_after < 2048 and "ollama" in gpu_procs:
                         _dbg("_on_transcribe: unloading ollama model")
                         conf = _read_conf()
@@ -1014,16 +1018,21 @@ class TranscribeWindow(QDialog):
                 _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
             self._lbl_status.setVisible(True)
             self._update_transcribe_btn()
+            self._process.deleteLater()
             self._process = None
             return
         self._process.start(cmd, [audio_path])
 
     def _on_stdout(self):
+        if self._process is None:
+            return
         data = self._process.readAllStandardOutput()
         self._stdout_buf.append(data)
 
     def _on_finished(self, exit_code, _exit_status):
         self._progress.setVisible(False)
+        if self._process:
+            self._process.deleteLater()
         self._process = None
         self._update_transcribe_btn()
 
@@ -1178,7 +1187,7 @@ class TranscribeWindow(QDialog):
         lang_src = self._cmb_lang_src.currentData()
         lang_tgt = self._cmb_lang_tgt.currentData()
         self._current_translate_lang = lang_tgt
-        # Disconnect previous thread signals if any
+        # Cleanup previous thread if any
         if self._translate_thread:
             try:
                 self._translate_thread.finished_signal.disconnect(self._on_translate_done)
@@ -1188,6 +1197,8 @@ class TranscribeWindow(QDialog):
                 self._translate_thread.error_signal.disconnect(self._on_translate_error)
             except (TypeError, RuntimeError):
                 pass
+            if not self._translate_thread.isRunning():
+                self._translate_thread.deleteLater()
         self._translate_thread = TranslateThread(
             self._raw_text, self._segments, self._was_diarized,
             lang_src, lang_tgt)
@@ -1226,6 +1237,8 @@ class TranscribeWindow(QDialog):
             editor.setReadOnly(False)
             editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
             tab_idx = self._tabs.addTab(editor, lang_name)
+            # Re-suppress close button on Original tab (Qt quirk after addTab)
+            self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
             self._translation_tabs[lang] = {"editor": editor, "segments": [], "text": ""}
 
         # Store and display

@@ -2033,11 +2033,14 @@ class DicteeSetupDialog(QDialog):
             if self.wizard_mode and self._conf_existed_before_wizard and hasattr(self, 'stack'):
                 # Jump to translation page (page 3) only if config already exists
                 self.stack.setCurrentIndex(3)
-            elif hasattr(self, '_main_scroll') and hasattr(self, 'cmb_trans_backend'):
-                # Classic mode: scroll to translation section (use the group box)
-                target = self.cmb_trans_backend.parent()
-                QTimer.singleShot(100, lambda: self._main_scroll.ensureWidgetVisible(
-                    target, 0, 50))
+            elif hasattr(self, '_main_scroll') and hasattr(self, '_grp_translate'):
+                # Classic mode: scroll to translation section
+                def _scroll_to_translation():
+                    target = self._grp_translate
+                    # Map widget position to scroll area coordinates
+                    pos = target.mapTo(self._main_scroll.widget(), target.rect().topLeft())
+                    self._main_scroll.verticalScrollBar().setValue(pos.y())
+                QTimer.singleShot(100, _scroll_to_translation)
 
     @property
     def _pp_parent(self):
@@ -2158,7 +2161,7 @@ class DicteeSetupDialog(QDialog):
         layout.addWidget(grp_visual)
 
         # -- Section traduction --
-        grp_translate = QGroupBox()
+        self._grp_translate = grp_translate = QGroupBox()
         lay_tr = QVBoxLayout(grp_translate)
         lay_tr.setSpacing(6)
         lay_tr.setContentsMargins(16, 16, 16, 12)
