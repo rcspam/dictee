@@ -2034,9 +2034,10 @@ class DicteeSetupDialog(QDialog):
                 # Jump to translation page (page 3) only if config already exists
                 self.stack.setCurrentIndex(3)
             elif hasattr(self, '_main_scroll') and hasattr(self, 'cmb_trans_backend'):
-                # Classic mode: scroll to translation section
+                # Classic mode: scroll to translation section (use the group box)
+                target = self.cmb_trans_backend.parent()
                 QTimer.singleShot(100, lambda: self._main_scroll.ensureWidgetVisible(
-                    self.cmb_trans_backend))
+                    target, 0, 50))
 
     @property
     def _pp_parent(self):
