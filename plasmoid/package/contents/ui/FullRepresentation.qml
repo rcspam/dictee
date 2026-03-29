@@ -434,7 +434,7 @@ ColumnLayout {
             Layout.fillWidth: true
             Layout.preferredWidth: 80
             from: 0.0
-            to: 1.5
+            to: 0.6
             stepSize: 0.01
             value: root.micVolume
             onMoved: {
