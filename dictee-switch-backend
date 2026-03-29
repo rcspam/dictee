@@ -12,6 +12,7 @@ usage() {
     echo "  status                    Show current backends"
     echo "  asr <backend>             Switch ASR backend"
     echo "  translate <backend>       Switch translation backend"
+    echo "  diarize [true|false|toggle]  Toggle speaker diarization"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -144,6 +145,26 @@ translate)
 
     echo "Translate backend: $2"
     notify-send -t 3000 -i translate-symbolic -a Dictee "Traduction: $2" 2>/dev/null || true
+    ;;
+
+diarize)
+    val="${2:-toggle}"
+    if [ "$val" = "toggle" ]; then
+        set +eu; source "$CONF"; set -eu
+        current="${DICTEE_DIARIZE:-false}"
+        if [ "$current" = "true" ]; then
+            val="false"
+        else
+            val="true"
+        fi
+    fi
+    set_conf "DICTEE_DIARIZE" "$val"
+    echo "Diarization: $val"
+    if [ "$val" = "true" ]; then
+        notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation activée" 2>/dev/null || true
+    else
+        notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation désactivée" 2>/dev/null || true
+    fi
     ;;
 
 *) usage ;;

@@ -77,6 +77,15 @@ TRANSLATE_BACKENDS = [
 ]
 
 
+def _sortformer_available():
+    """Check if the Sortformer diarization model is installed."""
+    dd = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "sortformer",
+    )
+    return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
+
+
 def _translate_backend_available(key):
     """Check if a translation backend is usable."""
     if key in ("google", "bing"):
@@ -428,6 +437,26 @@ class DicteeTrayAppIndicator:
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
+        item_transcribe = Gtk.MenuItem(label=_("Transcribe a file..."))
+        item_transcribe.connect("activate", lambda _: subprocess.Popen(["dictee-transcribe"]))
+        self.menu.append(item_transcribe)
+
+        self.item_diarize_gtk = Gtk.CheckMenuItem(label=_("Live diarization"))
+        sortformer_ok = _sortformer_available()
+        self.item_diarize_gtk.set_sensitive(sortformer_ok)
+        if sortformer_ok:
+            self.item_diarize_gtk.set_tooltip_text(
+                _("Speaker identification. Recommended for short recordings (< 5 min)."))
+        else:
+            self.item_diarize_gtk.set_tooltip_text(
+                _("Sortformer model not installed. Configure in dictee-setup."))
+        self.item_diarize_gtk.set_active(
+            read_conf_value("DICTEE_DIARIZE", "false").lower() == "true")
+        self.item_diarize_gtk.connect("toggled", self._on_diarize_toggled_gtk)
+        self.menu.append(self.item_diarize_gtk)
+
+        self.menu.append(Gtk.SeparatorMenuItem())
+
         item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
         item_setup.connect("activate", lambda _: subprocess.Popen(["dictee-setup"]))
         self.menu.append(item_setup)
@@ -548,6 +577,10 @@ class DicteeTrayAppIndicator:
     def _on_trans_toggled(self, item, key):
         if item.get_active():
             subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _on_diarize_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "diarize", val])
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()
@@ -682,6 +715,24 @@ class DicteeTrayQt:
         self._trans_group.triggered.connect(self._on_trans_selected)
 
         self.menu.addSeparator()
+
+        self.action_transcribe = self.menu.addAction(_("Transcribe a file..."))
+
+        self.action_diarize_qt = self.menu.addAction(_("Live diarization"))
+        self.action_diarize_qt.setCheckable(True)
+        sortformer_ok = _sortformer_available()
+        self.action_diarize_qt.setEnabled(sortformer_ok)
+        if sortformer_ok:
+            self.action_diarize_qt.setToolTip(
+                _("Speaker identification. Recommended for short recordings (< 5 min)."))
+        else:
+            self.action_diarize_qt.setToolTip(
+                _("Sortformer model not installed. Configure in dictee-setup."))
+        self.action_diarize_qt.setChecked(
+            read_conf_value("DICTEE_DIARIZE", "false").lower() == "true")
+        self.action_diarize_qt.toggled.connect(self._on_diarize_toggled_qt)
+
+        self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.action_postprocess = self.menu.addAction(_("Post-processing..."))
         self.menu.addSeparator()
@@ -717,6 +768,8 @@ class DicteeTrayQt:
             else:
                 daemon_stop()
                 self.QTimer.singleShot(1000, self._delayed_refresh)
+        elif action == self.action_transcribe:
+            subprocess.Popen(["dictee-transcribe"])
         elif action == self.action_setup:
             subprocess.Popen(["dictee-setup"])
         elif action == self.action_postprocess:
@@ -744,6 +797,10 @@ class DicteeTrayQt:
     def _on_trans_selected(self, action):
         key = action.data()
         subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _on_diarize_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "diarize", val])
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()

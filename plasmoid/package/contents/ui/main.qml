@@ -115,6 +115,9 @@ PlasmoidItem {
                         root.currentTranslateBackend = tb
                     }
                 }
+                if (parts.length >= 4) {
+                    root.diarizeEnabled = (parts[3] === "true")
+                }
             } else if (source === checkInstalledCmd) {
                 var parts = stdout.trim().split("---")
                 var asrList = parts[0].trim().split("\n").filter(function(s) { return s.length > 0 })
@@ -126,6 +129,9 @@ PlasmoidItem {
                     if (trList.length > 0) {
                         root.installedTranslate = trList
                     }
+                }
+                if (parts.length > 2) {
+                    root.sortformerAvailable = parts[2].trim().indexOf("sortformer") !== -1
                 }
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
@@ -216,7 +222,9 @@ PlasmoidItem {
     property string currentTranslateBackend: "google"
     property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
+    property bool sortformerAvailable: false  // updated by checkInstalledCmd
+    property bool diarizeEnabled: false  // read from config
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE\"'"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
         "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
@@ -226,7 +234,9 @@ PlasmoidItem {
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
-        "command -v docker >/dev/null 2>&1 && echo libretranslate'"
+        "command -v docker >/dev/null 2>&1 && echo libretranslate; " +
+        "echo ---; " +
+        "{ [ -d /usr/share/dictee/sortformer ] || [ -d \"$dd/sortformer\" ]; } && echo sortformer'"
 
     function refreshBackends() {
         executable.run(readConfCmd)
@@ -412,6 +422,9 @@ PlasmoidItem {
             transcribingTimer.stop()
             recordingTimer.stop()
             root.state = "idle"
+            break
+        case "transcribe-file":
+            executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")
             break
         case "setup":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")

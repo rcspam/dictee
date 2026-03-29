@@ -47,6 +47,7 @@ LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
+DIARIZE="${DICTEE_DIARIZE:-false}"
 
 # Détection du layout clavier pour dotool (localectl > setxkbmap > us)
 if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
@@ -754,6 +755,14 @@ if [ -f "$PIDFILE" ]; then
 
     if [ -n "$id" ]; then
         notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
+    fi
+
+    # Diarisation live : ouvrir dictee-transcribe au lieu du pipeline normal
+    if [ "$DIARIZE" = "true" ]; then
+        write_state "idle"
+        dictee-transcribe --file "$RECORDING_FILE" --diarize &
+        rm -f "$ID_TMP_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        exit 0
     fi
 
     if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then

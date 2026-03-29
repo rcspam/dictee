@@ -315,15 +315,35 @@ ColumnLayout {
         }
     }
 
-    // Preview + configuration
+    // Diarization toggle + Transcribe file + configuration
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
         QQC2.CheckBox {
-            text: i18n("Preview (mic test)")
-            checked: Plasmoid.configuration.previewMode
-            onToggled: Plasmoid.configuration.previewMode = checked
+            id: chkDiarize
+            text: i18n("Diarization")
+            enabled: root.sortformerAvailable
+            checked: root.diarizeEnabled
+            onToggled: {
+                root.diarizeEnabled = checked
+                executable.run("dictee-switch-backend diarize " + (checked ? "true" : "false"))
+            }
+            QQC2.ToolTip.text: root.sortformerAvailable
+                ? i18n("Speaker identification (max 4). Recommended for recordings under 5 minutes.")
+                : i18n("Sortformer model not installed. Configure in dictee-setup.")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
+
+        PlasmaComponents.Button {
+            text: i18n("Transcribe file")
+            icon.name: "document-open"
+            flat: true
+            onClicked: fullRep.actionRequested("transcribe-file")
+            QQC2.ToolTip.text: i18n("Open an audio file for transcription")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
 
         Item { Layout.fillWidth: true }
