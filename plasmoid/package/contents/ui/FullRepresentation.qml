@@ -168,7 +168,7 @@ ColumnLayout {
         PlasmaComponents.Button {
             id: btnDiarize
             text: btnDiarize.switching
-                ? i18n("Starting...")
+                ? i18n("Preparing...")
                 : (fullRep.state === "recording" && root.diarizeEnabled)
                     ? i18n("Stop diarization")
                     : i18n("Diarization")
@@ -184,8 +184,9 @@ ColumnLayout {
                     // Stop recording → diarize
                     fullRep.actionRequested("dictate")
                 } else {
-                    // Start: switch backend, wait, then record
+                    // Start: stop daemons to free VRAM, set flag, then record
                     switching = true
+                    pulseAnim.start()
                     executable.run("dictee-switch-backend diarize true")
                     diarizeStartTimer.start()
                 }
@@ -193,27 +194,26 @@ ColumnLayout {
 
             Timer {
                 id: diarizeStartTimer
-                interval: 3500
+                interval: 2000
                 onTriggered: {
                     btnDiarize.switching = false
+                    pulseAnim.stop()
+                    btnDiarize.opacity = 1.0
                     root.diarizeEnabled = true
-                    // Auto-start recording
                     fullRep.actionRequested("dictate")
                 }
             }
 
-            // Blinking while switching
-            SequentialAnimation on opacity {
-                running: btnDiarize.switching
+            SequentialAnimation {
+                id: pulseAnim
                 loops: Animation.Infinite
-                NumberAnimation { to: 0.4; duration: 500 }
-                NumberAnimation { to: 1.0; duration: 500 }
+                NumberAnimation { target: btnDiarize; property: "opacity"; to: 0.4; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: btnDiarize; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
             }
-            opacity: btnDiarize.switching ? undefined : 1.0
 
             QQC2.ToolTip.text: !root.sortformerAvailable
                 ? i18n("Sortformer model not installed. Configure in dictee-setup.")
-                : i18n("Record and identify speakers (max 4). Switches to Parakeet automatically.")
+                : i18n("Record and identify speakers (max 4). Frees GPU memory automatically.")
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }

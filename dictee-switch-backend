@@ -162,30 +162,24 @@ diarize)
     current_asr="${DICTEE_ASR_BACKEND:-parakeet}"
 
     if [ "$val" = "true" ]; then
-        # Save current backend and switch to parakeet for diarization
-        if [ "$current_asr" != "parakeet" ]; then
-            set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
-            # Switch ASR to parakeet (restart daemon)
-            set_conf "DICTEE_ASR_BACKEND" "parakeet"
-            systemctl --user stop dictee-vosk dictee-whisper dictee-canary 2>/dev/null
-            systemctl --user start dictee 2>/dev/null
-        fi
+        # Save current backend and stop daemon to free VRAM for transcribe-diarize CLI
+        set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         set_conf "DICTEE_DIARIZE" "true"
-        notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation activée (Parakeet)" 2>/dev/null || true
+        # Stop all daemons to free VRAM (transcribe-diarize is a CLI, not a daemon)
+        systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
+        notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation activée" 2>/dev/null || true
     else
         set_conf "DICTEE_DIARIZE" "false"
-        # Restore previous backend if saved
-        pre_backend="${DICTEE_PRE_DIARIZE_BACKEND:-}"
-        if [ -n "$pre_backend" ] && [ "$pre_backend" != "parakeet" ]; then
+        # Restore previous backend daemon
+        pre_backend="${DICTEE_PRE_DIARIZE_BACKEND:-$current_asr}"
+        if [ -n "$pre_backend" ]; then
             set_conf "DICTEE_ASR_BACKEND" "$pre_backend"
-            # Map backend to service name
             case "$pre_backend" in
                 vosk)    svc="dictee-vosk" ;;
                 whisper) svc="dictee-whisper" ;;
                 canary)  svc="dictee-canary" ;;
                 *)       svc="dictee" ;;
             esac
-            systemctl --user stop dictee 2>/dev/null
             systemctl --user start "$svc" 2>/dev/null
             set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
             notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation désactivée — retour à $pre_backend" 2>/dev/null || true
