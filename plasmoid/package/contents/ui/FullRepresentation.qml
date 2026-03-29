@@ -6,7 +6,7 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
 
-ColumnLayout {
+RowLayout {
     id: fullRep
 
     property string state: "offline"
@@ -15,6 +15,10 @@ ColumnLayout {
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
     signal actionRequested(string action)
+
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
 
     // Fermer les ComboBox quand le popup se ferme
     onVisibleChanged: {
@@ -136,30 +140,56 @@ ColumnLayout {
         visible: fullRep.state !== "offline" || btnDiarize.dState !== "idle"
 
         PlasmaComponents.Button {
-            text: i18n("Voice dictation")
+            id: btnDictate
+            text: fullRep.state === "recording" ? i18n("Stop dictation") : i18n("Voice dictation")
             icon.name: "audio-input-microphone"
             onClicked: fullRep.actionRequested("dictate")
             Layout.fillWidth: true
             enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
+
+            palette.buttonText: fullRep.state === "recording" ? "#e06c75" : Kirigami.Theme.textColor
+
+            SequentialAnimation {
+                id: dictateAnim
+                running: fullRep.state === "recording" && !root.diarizeEnabled
+                loops: Animation.Infinite
+                NumberAnimation { target: btnDictate; property: "opacity"; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
+                NumberAnimation { target: btnDictate; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+            }
+            onEnabledChanged: if (fullRep.state !== "recording") opacity = 1.0
+
             QQC2.ToolTip.text: fullRep.state === "idle"
                 ? i18n("Press to start recording. Press again to stop and transcribe.")
                 : fullRep.state === "recording"
-                    ? i18n("Press to stop recording and transcribe.")
+                    ? i18n("Press to stop recording and transcribe. ESC to cancel.")
                     : ""
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
 
         PlasmaComponents.Button {
-            text: i18n("Dictation + Translation")
+            id: btnTranslate
+            text: fullRep.state === "recording" ? i18n("Stop translation") : i18n("Dictation + Translation")
             icon.name: "translate"
             onClicked: fullRep.actionRequested("dictate-translate")
             Layout.fillWidth: true
             enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
+
+            palette.buttonText: fullRep.state === "recording" ? "#e06c75" : Kirigami.Theme.textColor
+
+            SequentialAnimation {
+                id: translateAnim
+                running: fullRep.state === "recording" && !root.diarizeEnabled
+                loops: Animation.Infinite
+                NumberAnimation { target: btnTranslate; property: "opacity"; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
+                NumberAnimation { target: btnTranslate; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+            }
+            onEnabledChanged: if (fullRep.state !== "recording") opacity = 1.0
+
             QQC2.ToolTip.text: fullRep.state === "idle"
                 ? i18n("Press to start recording. Press again to stop, transcribe, and translate.")
                 : fullRep.state === "recording"
-                    ? i18n("Press to stop recording, transcribe, and translate.")
+                    ? i18n("Press to stop recording, transcribe, and translate. ESC to cancel.")
                     : ""
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
@@ -243,28 +273,6 @@ ColumnLayout {
             }
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
-        }
-    }
-
-    // Bouton annuler (visible uniquement en recording)
-    PlasmaComponents.Button {
-        visible: fullRep.state === "recording"
-        Layout.fillWidth: true
-        onClicked: fullRep.actionRequested("cancel")
-
-        contentItem: RowLayout {
-            spacing: Kirigami.Units.smallSpacing
-            Kirigami.Icon {
-                source: "dialog-cancel"
-                Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                color: Kirigami.Theme.negativeTextColor
-            }
-            PlasmaComponents.Label {
-                text: i18n("Cancel recording")
-                color: Kirigami.Theme.negativeTextColor
-                Layout.fillWidth: true
-            }
         }
     }
 
@@ -409,45 +417,10 @@ ColumnLayout {
         }
     }
 
-    // Preview + actions
+    // Actions + Preview
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-
-        QQC2.CheckBox {
-            text: i18n("Preview")
-            checked: Plasmoid.configuration.previewMode
-            onToggled: Plasmoid.configuration.previewMode = checked
-            QQC2.ToolTip.text: i18n("Show live microphone animation preview")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
-        }
-
-        // Microphone volume slider
-        Kirigami.Icon {
-            source: "audio-input-microphone"
-            Layout.preferredWidth: Kirigami.Units.iconSizes.small
-            Layout.preferredHeight: Kirigami.Units.iconSizes.small
-        }
-        QQC2.Slider {
-            id: micSlider
-            Layout.fillWidth: true
-            Layout.preferredWidth: 80
-            from: 0.0
-            to: 0.6
-            stepSize: 0.0
-            snapMode: QQC2.Slider.NoSnap
-            value: root.micVolume
-            onMoved: {
-                root.micVolume = value
-                executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
-            }
-            QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 300
-        }
-
-        Item { Layout.fillWidth: true }
 
         PlasmaComponents.Button {
             text: i18n("Transcribe file")
@@ -478,8 +451,64 @@ ColumnLayout {
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
+
+        Item { Layout.fillWidth: true }
+
+        QQC2.CheckBox {
+            text: i18n("Preview")
+            checked: Plasmoid.configuration.previewMode
+            onToggled: Plasmoid.configuration.previewMode = checked
+            QQC2.ToolTip.text: i18n("Show live microphone animation preview")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
     }
 
     // Focus pour recevoir ESC
     Component.onCompleted: forceActiveFocus()
+
+    }  // end ColumnLayout
+
+    // Vertical microphone volume slider (right side)
+    ColumnLayout {
+        Layout.fillHeight: true
+        Layout.preferredWidth: 30
+        spacing: 2
+
+        Kirigami.Icon {
+            source: root.micMuted ? "microphone-sensitivity-muted" : "audio-input-microphone"
+            color: root.micMuted ? "#e06c75" : Kirigami.Theme.textColor
+            Layout.preferredWidth: Kirigami.Units.iconSizes.small
+            Layout.preferredHeight: Kirigami.Units.iconSizes.small
+            Layout.alignment: Qt.AlignHCenter
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    executable.run("wpctl set-mute @DEFAULT_SOURCE@ toggle")
+                    root.micMuted = !root.micMuted
+                }
+            }
+            QQC2.ToolTip.text: root.micMuted ? i18n("Microphone muted — click to unmute") : i18n("Click to mute microphone")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 300
+        }
+
+        QQC2.Slider {
+            id: micSlider
+            Layout.fillHeight: true
+            orientation: Qt.Vertical
+            from: 0.0
+            to: 0.6
+            stepSize: 0.0
+            snapMode: QQC2.Slider.NoSnap
+            value: root.micVolume
+            onMoved: {
+                root.micVolume = value
+                executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+            }
+            QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 300
+        }
+    }
 }
