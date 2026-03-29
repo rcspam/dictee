@@ -895,39 +895,54 @@ class TranscribeWindow(QDialog):
         self._tabs.setCurrentIndex(0)  # show Original tab
         self._progress.setVisible(True)
 
-        # Free GPU VRAM: stop daemon + unload ollama if needed
-        _dbg("_on_transcribe: freeing GPU VRAM")
+        # Free GPU VRAM if needed: only stop processes when VRAM is tight
+        _dbg("_on_transcribe: checking GPU VRAM")
         self._daemon_was_active = False
         try:
-            # Check if transcribe-daemon uses GPU (occupies VRAM)
+            # Check free VRAM
             result = subprocess.run(
-                ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
+                ["nvidia-smi", "--query-gpu=memory.free",
+                 "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
-                gpu_procs = result.stdout.strip()
-                _dbg(f"_on_transcribe: GPU processes: {gpu_procs}")
-                # Stop ASR daemon if it's on the GPU
-                if "transcribe-daemon" in gpu_procs:
-                    _dbg("_on_transcribe: stopping transcribe-daemon to free VRAM")
-                    self._daemon_was_active = True
-                    subprocess.run(
-                        ["systemctl", "--user", "stop",
-                         "dictee", "dictee-vosk", "dictee-whisper", "dictee-canary"],
-                        timeout=10)
+                free_mb = int(result.stdout.strip().split("\n")[0])
+                _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB")
+                # Need ~2 GB for Parakeet + Sortformer
+                if free_mb < 2048:
+                    # Check what's using VRAM
+                    result2 = subprocess.run(
+                        ["nvidia-smi", "--query-compute-apps=name",
+                         "--format=csv,noheader"],
+                        capture_output=True, text=True, timeout=5)
+                    gpu_procs = result2.stdout.strip() if result2.returncode == 0 else ""
+                    _dbg(f"_on_transcribe: GPU processes: {gpu_procs}")
                     import time as _time
-                    _time.sleep(1)  # wait for VRAM release
-                # Unload ollama if it's on the GPU
-                if "ollama" in gpu_procs:
-                    _dbg("_on_transcribe: unloading ollama model")
-                    conf = _read_conf()
-                    model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
-                    import urllib.request
-                    req = urllib.request.Request(
-                        "http://localhost:11434/api/generate",
-                        data=json.dumps({"model": model, "keep_alive": 0}).encode(),
-                        headers={"Content-Type": "application/json"})
-                    urllib.request.urlopen(req, timeout=5)
-                    _time.sleep(1)
+                    # Stop daemon first (biggest VRAM consumer)
+                    if "transcribe-daemon" in gpu_procs:
+                        _dbg("_on_transcribe: stopping daemon to free VRAM")
+                        self._daemon_was_active = True
+                        subprocess.run(
+                            ["systemctl", "--user", "stop",
+                             "dictee", "dictee-vosk", "dictee-whisper", "dictee-canary"],
+                            timeout=10)
+                        _time.sleep(1)
+                    # Still tight? Unload ollama too
+                    result3 = subprocess.run(
+                        ["nvidia-smi", "--query-gpu=memory.free",
+                         "--format=csv,noheader,nounits"],
+                        capture_output=True, text=True, timeout=5)
+                    free_after = int(result3.stdout.strip().split("\n")[0]) if result3.returncode == 0 else free_mb
+                    if free_after < 2048 and "ollama" in gpu_procs:
+                        _dbg("_on_transcribe: unloading ollama model")
+                        conf = _read_conf()
+                        model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+                        import urllib.request
+                        req = urllib.request.Request(
+                            "http://localhost:11434/api/generate",
+                            data=json.dumps({"model": model, "keep_alive": 0}).encode(),
+                            headers={"Content-Type": "application/json"})
+                        urllib.request.urlopen(req, timeout=5)
+                        _time.sleep(1)
         except Exception as e:
             _dbg(f"_on_transcribe: VRAM cleanup error: {e}")
 
