@@ -137,10 +137,10 @@
             <default>2</default>
         </entry>
         <entry name="waveformMinHeight" type="Double">
-            <default>0.25</default>
+            <default>0.1</default>
         </entry>
         <entry name="waveformSensitivity" type="Double">
-            <default>3.0</default>
+            <default>2.0</default>
         </entry>
 
         <!-- Dots parameters -->
