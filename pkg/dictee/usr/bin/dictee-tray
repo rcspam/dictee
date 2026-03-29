@@ -82,7 +82,18 @@ def _translate_backend_available(key):
     if key in ("google", "bing"):
         return shutil.which("trans") is not None
     if key == "ollama":
-        return shutil.which("ollama") is not None
+        if shutil.which("ollama") is None:
+            return False
+        model = read_conf_value("DICTEE_OLLAMA_MODEL", "translategemma")
+        try:
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                base = model.split(":")[0]
+                return any(base in line for line in result.stdout.splitlines())
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return False
     if key == "libretranslate":
         return shutil.which("docker") is not None
     return True

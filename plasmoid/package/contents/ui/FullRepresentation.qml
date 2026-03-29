@@ -14,6 +14,7 @@ RowLayout {
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
+    // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
     ColumnLayout {
@@ -141,83 +142,84 @@ RowLayout {
 
         PlasmaComponents.Button {
             id: btnDictate
-            text: fullRep.state === "recording" ? i18n("Stop dictation") : i18n("Voice dictation")
+            text: i18n("Dictation")
             icon.name: "audio-input-microphone"
-            onClicked: fullRep.actionRequested("dictate")
+            onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
             Layout.fillWidth: true
+            Layout.preferredWidth: 0
             enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
-
-            palette.buttonText: fullRep.state === "recording" ? "#e06c75" : Kirigami.Theme.textColor
-
+            palette.buttonText: fullRep.state === "recording" && root.activeButton === "dictate" ? "#e06c75" : Kirigami.Theme.textColor
             SequentialAnimation {
-                id: dictateAnim
-                running: fullRep.state === "recording" && !root.diarizeEnabled
+                running: fullRep.state === "recording" && root.activeButton === "dictate"
                 loops: Animation.Infinite
                 NumberAnimation { target: btnDictate; property: "opacity"; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
                 NumberAnimation { target: btnDictate; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
             }
             onEnabledChanged: if (fullRep.state !== "recording") opacity = 1.0
-
-            QQC2.ToolTip.text: fullRep.state === "idle"
-                ? i18n("Press to start recording. Press again to stop and transcribe.")
-                : fullRep.state === "recording"
-                    ? i18n("Press to stop recording and transcribe. ESC to cancel.")
-                    : ""
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
         }
 
         PlasmaComponents.Button {
             id: btnTranslate
-            text: fullRep.state === "recording" ? i18n("Stop translation") : i18n("Dictation + Translation")
+            text: i18n("Translate")
             icon.name: "translate"
-            onClicked: fullRep.actionRequested("dictate-translate")
+            onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
             Layout.fillWidth: true
+            Layout.preferredWidth: 0
             enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
-
-            palette.buttonText: fullRep.state === "recording" ? "#e06c75" : Kirigami.Theme.textColor
-
+            palette.buttonText: fullRep.state === "recording" && root.activeButton === "dictate-translate" ? "#e06c75" : Kirigami.Theme.textColor
             SequentialAnimation {
-                id: translateAnim
-                running: fullRep.state === "recording" && !root.diarizeEnabled
+                running: fullRep.state === "recording" && root.activeButton === "dictate-translate"
                 loops: Animation.Infinite
                 NumberAnimation { target: btnTranslate; property: "opacity"; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
                 NumberAnimation { target: btnTranslate; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
             }
             onEnabledChanged: if (fullRep.state !== "recording") opacity = 1.0
-
-            QQC2.ToolTip.text: fullRep.state === "idle"
-                ? i18n("Press to start recording. Press again to stop, transcribe, and translate.")
-                : fullRep.state === "recording"
-                    ? i18n("Press to stop recording, transcribe, and translate. ESC to cancel.")
-                    : ""
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
         }
 
         PlasmaComponents.Button {
             id: btnDiarize
-            icon.name: "group"
             Layout.fillWidth: true
+            Layout.preferredWidth: 0
 
             // States: idle → preparing → ready → recording
-            property string dState: "idle"  // idle, preparing, ready, recording
-
-            text: {
-                switch (dState) {
-                    case "preparing": return i18n("Preparing...")
-                    case "ready":     return i18n("Start diarization")
-                    case "recording": return i18n("Stop diarization")
-                    default:          return i18n("Diarization")
-                }
-            }
+            property string dState: "idle"
 
             enabled: root.sortformerAvailable && dState !== "preparing"
 
-            palette.buttonText: {
-                if (dState === "ready") return "#98c379"
-                if (dState === "recording") return "#e06c75"
-                return Kirigami.Theme.textColor
+            contentItem: RowLayout {
+                spacing: 4
+                Rectangle {
+                    visible: fullRep.state === "recording" && root.activeButton === "diarize"
+                    width: 10; height: 10; radius: 5
+                    color: "#ff0000"
+                    SequentialAnimation on opacity {
+                        running: fullRep.state === "recording" && root.activeButton === "diarize"
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+                    }
+                }
+                Kirigami.Icon {
+                    source: "group"
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    visible: !(fullRep.state === "recording" && root.activeButton === "diarize")
+                }
+                PlasmaComponents.Label {
+                    text: {
+                        switch (btnDiarize.dState) {
+                            case "preparing": return i18n("Preparing...")
+                            case "ready":     return i18n("Start diarization")
+                            case "recording": return i18n("Stop diarization")
+                            default:          return i18n("Diarization")
+                        }
+                    }
+                    color: {
+                        if (btnDiarize.dState === "ready") return "#98c379"
+                        if (btnDiarize.dState === "recording") return "#e06c75"
+                        return Kirigami.Theme.textColor
+                    }
+                }
             }
 
             onClicked: {
@@ -232,6 +234,7 @@ RowLayout {
                         // Step 2: start recording
                         dState = "recording"
                         root.diarizeEnabled = true
+                        root.activeButton = "diarize"
                         fullRep.actionRequested("dictate")
                         break
                     case "recording":

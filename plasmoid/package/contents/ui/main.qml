@@ -139,6 +139,7 @@ PlasmoidItem {
                 if (volMatch) {
                     root.micVolume = parseFloat(volMatch[1])
                 }
+                root.micMuted = stdout.indexOf("[MUTED]") !== -1
             } else if (stdout.indexOf("DIARIZE_READY") !== -1) {
                 // Diarization backend ready
                 root.diarizeEnabled = true
@@ -233,8 +234,10 @@ PlasmoidItem {
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
+    property bool micMuted: false
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property bool diarizeEnabled: false  // read from config
+    property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE\"'"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
@@ -290,6 +293,7 @@ PlasmoidItem {
                 recordingTimer.stop()
                 switchingTimer.stop()
                 root.state = "idle"
+                root.activeButton = ""
             }
         }
     }
