@@ -975,9 +975,10 @@ class TranscribeWindow(QDialog):
             free_str = result.stdout.strip().split("\n")[0] if result.returncode == 0 else ""
             if free_str and free_str.isdigit():
                 free_mb = int(free_str)
-                _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB")
-                # Need ~2 GB for Parakeet + Sortformer
-                if free_mb < 2048:
+                # Parakeet needs ~3.5 GB, Sortformer adds ~1.5 GB
+                vram_needed = 5120 if diarize else 3584
+                _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB, needed={vram_needed} MB, diarize={diarize}")
+                if free_mb < vram_needed:
                     # Check what's using VRAM
                     result2 = subprocess.run(
                         ["nvidia-smi", "--query-compute-apps=name",
@@ -1001,7 +1002,7 @@ class TranscribeWindow(QDialog):
                         capture_output=True, text=True, timeout=5)
                     free_str2 = result3.stdout.strip().split("\n")[0] if result3.returncode == 0 else ""
                     free_after = int(free_str2) if free_str2.isdigit() else free_mb
-                    if free_after < 2048 and "ollama" in gpu_procs:
+                    if free_after < vram_needed and "ollama" in gpu_procs:
                         _dbg("_on_transcribe: unloading ollama model")
                         conf = _read_conf()
                         model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
