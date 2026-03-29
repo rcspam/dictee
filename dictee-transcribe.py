@@ -17,7 +17,8 @@ import time
 
 try:
     from PyQt6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
-                               QProcessEnvironment, pyqtSignal as Signal)
+                               QProcessEnvironment, QFileSystemWatcher,
+                               pyqtSignal as Signal)
     from PyQt6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
@@ -26,7 +27,8 @@ try:
     )
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
-                                QProcessEnvironment, Signal)
+                                QProcessEnvironment, QFileSystemWatcher,
+                                Signal)
     from PySide6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
@@ -643,6 +645,17 @@ class TranscribeWindow(QDialog):
         self._cmb_lang_tgt.setToolTip(_("Target language"))
         lay_trans.addWidget(self._cmb_lang_tgt)
 
+        backend_name = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        if backend_name == "trans":
+            backend_name = conf.get("DICTEE_TRANS_ENGINE", "google").capitalize()
+        elif backend_name == "ollama":
+            backend_name = "Ollama"
+        elif backend_name == "libretranslate":
+            backend_name = "LibreTranslate"
+        self._lbl_backend = QLabel(f'<small style="color: #98c379;"><b>{backend_name}</b></small>')
+        self._lbl_backend.setToolTip(_("Current translation backend"))
+        lay_trans.addWidget(self._lbl_backend)
+
         btn_setup_trans = QPushButton(_("Configure..."))
         btn_setup_trans.setToolTip(_("Open translation settings in dictee-setup"))
         btn_setup_trans.clicked.connect(
@@ -753,6 +766,11 @@ class TranscribeWindow(QDialog):
         self._tabs.currentChanged.connect(
             lambda: self._search_bar.set_editor(self._active_editor()))
 
+        # Watch dictee.conf for changes (e.g. after dictee-setup modifies it)
+        if os.path.isfile(CONF_PATH):
+            self._conf_watcher = QFileSystemWatcher([CONF_PATH], self)
+            self._conf_watcher.fileChanged.connect(self._on_conf_changed)
+
         # Ctrl+F -> search bar
         shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
         shortcut.activated.connect(self._search_bar.activate)
@@ -760,6 +778,29 @@ class TranscribeWindow(QDialog):
         # Escape -> close search bar if visible, else close window
         esc = QShortcut(QKeySequence("Escape"), self)
         esc.activated.connect(self._on_escape)
+
+    def _on_conf_changed(self, path):
+        """Refresh UI when dictee.conf changes."""
+        _dbg(f"_on_conf_changed: {path}")
+        self._refresh_backend_label()
+        self._update_translate_btn()
+        # Re-add to watcher (some editors replace the file, removing the watch)
+        if hasattr(self, '_conf_watcher') and path not in self._conf_watcher.files():
+            self._conf_watcher.addPath(path)
+
+    def _refresh_backend_label(self):
+        """Update the backend label from current config."""
+        conf = _read_conf()
+        backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        if backend == "trans":
+            name = conf.get("DICTEE_TRANS_ENGINE", "google").capitalize()
+        elif backend == "ollama":
+            name = "Ollama"
+        elif backend == "libretranslate":
+            name = "LibreTranslate"
+        else:
+            name = backend
+        self._lbl_backend.setText(f'<small style="color: #98c379;"><b>{name}</b></small>')
 
     def _on_lang_changed(self):
         """Disable same language in the other ComboBox."""
