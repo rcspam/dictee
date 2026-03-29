@@ -338,7 +338,7 @@ ColumnLayout {
                 executable.run("dictee-switch-backend diarize " + (checked ? "true" : "false"))
             }
             QQC2.ToolTip.text: root.sortformerAvailable
-                ? i18n("Speaker identification (max 4). Recommended for recordings under 5 minutes.")
+                ? i18n("Live speaker identification (max 4). For recordings over 5 minutes, use Transcribe file instead.")
                 : i18n("Sortformer model not installed. Configure in dictee-setup.")
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
