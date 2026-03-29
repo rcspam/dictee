@@ -762,9 +762,10 @@ if [ -f "$PIDFILE" ]; then
         write_state "idle"
         diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
         cp "$RECORDING_FILE" "$diarize_file"
-        # Launch diarization UI — it will call "diarize false" when done
-        dictee-transcribe --file "$diarize_file" --diarize &
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        # Launch diarization UI and wait — restore backend when done (even on crash)
+        dictee-transcribe --file "$diarize_file" --diarize
+        dictee-switch-backend diarize false
         exit 0
     fi
 
