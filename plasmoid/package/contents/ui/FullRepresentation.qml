@@ -196,7 +196,7 @@ ColumnLayout {
                         // Step 1: prepare — stop daemons, free VRAM
                         dState = "preparing"
                         pulseAnim.start()
-                        executable.run("dictee-switch-backend diarize true && echo DIARIZE_READY")
+                        executable.run("bash -c 'dictee-switch-backend diarize true && echo DIARIZE_READY'")
                         break
                     case "ready":
                         // Step 2: start recording

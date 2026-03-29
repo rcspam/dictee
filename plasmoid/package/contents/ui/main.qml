@@ -133,10 +133,9 @@ PlasmoidItem {
                 if (parts.length > 2) {
                     root.sortformerAvailable = parts[2].trim().indexOf("sortformer") !== -1
                 }
-            } else if (stdout.trim() === "DIARIZE_READY") {
-                // Diarization backend ready — start recording
+            } else if (stdout.indexOf("DIARIZE_READY") !== -1) {
+                // Diarization backend ready
                 root.diarizeEnabled = true
-                handleAction("dictate")
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
