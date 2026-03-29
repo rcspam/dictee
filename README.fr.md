@@ -42,7 +42,7 @@
 - **3 interfaces visuelles** : widget KDE Plasma, icône de notification, animation plein écran
 
 <p align="center">
-  <img src="plasmoid.png" alt="Popup du plasmoid (enregistrement)" width="520"><br>
+  <img src="plasmoid_gh.png" alt="Popup du plasmoid (enregistrement)" width="520"><br>
   <img src="assets/wizard-en.png" alt="dictee --setup" width="720">
 </p>
 
@@ -197,7 +197,7 @@ Le tray et le widget Plasma incluent des sous-menus pour changer de backend sans
 Un widget natif KDE Plasma 6 avec visualisation audio en temps réel pendant l'enregistrement, état du daemon et contrôles rapides (dictée, traduction, annulation).
 
 <p align="center">
-  <img src="plasmoid.png" alt="Popup du widget (enregistrement)" width="500">
+  <img src="plasmoid_gh.png" alt="Popup du widget (enregistrement)" width="500">
 </p>
 
 <p align="center">
@@ -226,7 +226,7 @@ Clic droit sur le panneau → « Ajouter des composants graphiques… » → che
 `dictee-tray` est l'alternative au widget KDE Plasma pour les bureaux non-KDE (GNOME, Xfce, Sway, Hyprland…). Il affiche une icône dans la zone de notification qui reflète l'état en temps réel : idle, enregistrement (vert), transcription (bleu), daemon arrêté (rouge).
 
 <p align="center">
-  <img src="tray.png" alt="Menu contextuel dictee-tray" width="400">
+  <img src="tray_gh.png" alt="Menu contextuel dictee-tray" width="400">
 </p>
 
 - Clic gauche → lancer une dictée

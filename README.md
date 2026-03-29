@@ -42,7 +42,7 @@
 - **3 visual interfaces**: KDE Plasma widget, notification area icon, fullscreen animation
 
 <p align="center">
-  <img src="plasmoid.png" alt="Plasmoid popup (recording)" width="520"><br>
+  <img src="plasmoid_gh.png" alt="Plasmoid popup (recording)" width="520"><br>
   <img src="assets/wizard-en.png" alt="dictee --setup" width="720">
 </p>
 
@@ -197,7 +197,7 @@ The tray icon and Plasma widget include sub-menus for switching backends without
 A native KDE Plasma 6 widget with real-time audio visualization during recording, daemon status, and quick controls (dictate, translate, cancel).
 
 <p align="center">
-  <img src="plasmoid.png" alt="Plasmoid popup (recording)" width="500">
+  <img src="plasmoid_gh.png" alt="Plasmoid popup (recording)" width="500">
 </p>
 
 <p align="center">
@@ -226,7 +226,7 @@ Right-click on the panel → "Add Widgets…" → search for "Dictée".
 `dictee-tray` is the alternative to the KDE Plasma widget for non-KDE desktops (GNOME, Xfce, Sway, Hyprland…). It displays a notification area icon reflecting the real-time state: idle, recording (green), transcribing (blue), daemon stopped (red).
 
 <p align="center">
-  <img src="tray.png" alt="dictee-tray context menu" width="400">
+  <img src="tray_gh.png" alt="dictee-tray context menu" width="400">
 </p>
 
 - Left click → start dictation
