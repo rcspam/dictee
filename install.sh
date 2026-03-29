@@ -43,6 +43,7 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-postprocess" "$PREFIX/bin/dictee-post
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-switch-backend" "$PREFIX/bin/dictee-switch-backend"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-test-rules" "$PREFIX/bin/dictee-test-rules"
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-canary" "$PREFIX/bin/transcribe-daemon-canary"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-transcribe" "$PREFIX/bin/dictee-transcribe"
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-vosk" "$PREFIX/bin/transcribe-daemon-vosk"
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-whisper" "$PREFIX/bin/transcribe-daemon-whisper"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-plasmoid-level" "$PREFIX/bin/dictee-plasmoid-level"

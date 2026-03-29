@@ -77,6 +77,7 @@ package() {
     install -Dm755 dictee-postprocess.py "$pkgdir/usr/bin/dictee-postprocess"
     install -Dm755 dictee-test-rules "$pkgdir/usr/bin/dictee-test-rules"
     install -Dm755 transcribe-daemon-canary "$pkgdir/usr/bin/transcribe-daemon-canary"
+    install -Dm755 dictee-transcribe.py "$pkgdir/usr/bin/dictee-transcribe"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-fft "$pkgdir/usr/bin/dictee-plasmoid-level-fft"

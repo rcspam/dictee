@@ -21,7 +21,8 @@ cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
 cp ./transcribe-daemon-canary "$PKG_DIR/usr/bin/transcribe-daemon-canary"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/transcribe-daemon-canary"
+cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$PKG_DIR/usr/bin/dictee-transcribe"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -72,6 +73,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-transcribe" "$buildroot/usr/bin/"
     chmod 755 "$buildroot/usr/bin/"*
 
     # Patcher shebangs pour packaging RPM (guidelines Fedora)
@@ -84,6 +86,7 @@ prepare_buildroot() {
         "$buildroot/usr/bin/transcribe-daemon-vosk" \
         "$buildroot/usr/bin/transcribe-daemon-whisper" \
         "$buildroot/usr/bin/transcribe-daemon-canary" \
+        "$buildroot/usr/bin/dictee-transcribe" \
         "$buildroot/usr/bin/dictee-plasmoid-level" \
         "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \
         "$buildroot/usr/bin/dictee-plasmoid-level-fft"
