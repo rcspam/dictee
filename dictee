@@ -757,11 +757,13 @@ if [ -f "$PIDFILE" ]; then
         notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
     fi
 
-    # Diarisation live : ouvrir dictee-transcribe au lieu du pipeline normal
+    # Diarisation live : copier le WAV et ouvrir dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
         write_state "idle"
-        dictee-transcribe --file "$RECORDING_FILE" --diarize &
-        rm -f "$ID_TMP_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
+        cp "$RECORDING_FILE" "$diarize_file"
+        dictee-transcribe --file "$diarize_file" --diarize &
+        rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
         exit 0
     fi
 
