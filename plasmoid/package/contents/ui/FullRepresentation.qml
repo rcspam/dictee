@@ -321,6 +321,12 @@ ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
 
         QQC2.CheckBox {
+            text: i18n("Preview")
+            checked: Plasmoid.configuration.previewMode
+            onToggled: Plasmoid.configuration.previewMode = checked
+        }
+
+        QQC2.CheckBox {
             id: chkDiarize
             text: i18n("Diarization")
             enabled: root.sortformerAvailable
