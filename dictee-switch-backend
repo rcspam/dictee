@@ -165,8 +165,15 @@ diarize)
         # Save current backend and stop daemon to free VRAM for transcribe-diarize CLI
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         set_conf "DICTEE_DIARIZE" "true"
-        # Stop all daemons to free VRAM (transcribe-diarize is a CLI, not a daemon)
+        # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI)
         systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
+        # Wait until GPU processes are gone (max 5s)
+        for i in $(seq 1 10); do
+            if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
+                break
+            fi
+            sleep 0.5
+        done
         notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation activée" 2>/dev/null || true
     else
         set_conf "DICTEE_DIARIZE" "false"

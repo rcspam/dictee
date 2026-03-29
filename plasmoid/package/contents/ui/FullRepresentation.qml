@@ -133,14 +133,14 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        visible: fullRep.state !== "offline"
+        visible: fullRep.state !== "offline" || btnDiarize.switching
 
         PlasmaComponents.Button {
             text: i18n("Voice dictation")
             icon.name: "audio-input-microphone"
             onClicked: fullRep.actionRequested("dictate")
             Layout.fillWidth: true
-            enabled: fullRep.state === "idle" || fullRep.state === "recording"
+            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && !btnDiarize.switching
             QQC2.ToolTip.text: fullRep.state === "idle"
                 ? i18n("Press to start recording. Press again to stop and transcribe.")
                 : fullRep.state === "recording"
@@ -155,7 +155,7 @@ ColumnLayout {
             icon.name: "translate"
             onClicked: fullRep.actionRequested("dictate-translate")
             Layout.fillWidth: true
-            enabled: fullRep.state === "idle" || fullRep.state === "recording"
+            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && !btnDiarize.switching
             QQC2.ToolTip.text: fullRep.state === "idle"
                 ? i18n("Press to start recording. Press again to stop, transcribe, and translate.")
                 : fullRep.state === "recording"
@@ -187,20 +187,19 @@ ColumnLayout {
                     // Start: stop daemons to free VRAM, set flag, then record
                     switching = true
                     pulseAnim.start()
-                    executable.run("dictee-switch-backend diarize true")
-                    diarizeStartTimer.start()
+                    // dictee-switch-backend waits for VRAM release, then we start recording
+                    executable.run("dictee-switch-backend diarize true && echo DIARIZE_READY")
                 }
             }
 
-            Timer {
-                id: diarizeStartTimer
-                interval: 2000
-                onTriggered: {
-                    btnDiarize.switching = false
-                    pulseAnim.stop()
-                    btnDiarize.opacity = 1.0
-                    root.diarizeEnabled = true
-                    fullRep.actionRequested("dictate")
+            Connections {
+                target: root
+                function onDiarizeEnabledChanged() {
+                    if (root.diarizeEnabled && btnDiarize.switching) {
+                        btnDiarize.switching = false
+                        pulseAnim.stop()
+                        btnDiarize.opacity = 1.0
+                    }
                 }
             }
 
