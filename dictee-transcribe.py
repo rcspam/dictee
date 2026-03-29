@@ -895,27 +895,41 @@ class TranscribeWindow(QDialog):
         self._tabs.setCurrentIndex(0)  # show Original tab
         self._progress.setVisible(True)
 
-        # Free GPU VRAM only if needed: unload ollama model before transcription
-        _dbg("_on_transcribe: checking GPU VRAM")
+        # Free GPU VRAM: stop daemon + unload ollama if needed
+        _dbg("_on_transcribe: freeing GPU VRAM")
+        self._daemon_was_active = False
         try:
+            # Check if transcribe-daemon uses GPU (occupies VRAM)
             result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+                ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
                 capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
-                free_mb = int(result.stdout.strip().split("\n")[0])
-                _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB")
-                if free_mb < 1024:  # less than 1 GB free
+                gpu_procs = result.stdout.strip()
+                _dbg(f"_on_transcribe: GPU processes: {gpu_procs}")
+                # Stop ASR daemon if it's on the GPU
+                if "transcribe-daemon" in gpu_procs:
+                    _dbg("_on_transcribe: stopping transcribe-daemon to free VRAM")
+                    self._daemon_was_active = True
+                    subprocess.run(
+                        ["systemctl", "--user", "stop",
+                         "dictee", "dictee-vosk", "dictee-whisper", "dictee-canary"],
+                        timeout=10)
+                    import time as _time
+                    _time.sleep(1)  # wait for VRAM release
+                # Unload ollama if it's on the GPU
+                if "ollama" in gpu_procs:
+                    _dbg("_on_transcribe: unloading ollama model")
                     conf = _read_conf()
-                    if conf.get("DICTEE_TRANSLATE_BACKEND") == "ollama":
-                        model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
-                        import urllib.request
-                        req = urllib.request.Request(
-                            "http://localhost:11434/api/generate",
-                            data=json.dumps({"model": model, "keep_alive": 0}).encode(),
-                            headers={"Content-Type": "application/json"})
-                        urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass
+                    model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+                    import urllib.request
+                    req = urllib.request.Request(
+                        "http://localhost:11434/api/generate",
+                        data=json.dumps({"model": model, "keep_alive": 0}).encode(),
+                        headers={"Content-Type": "application/json"})
+                    urllib.request.urlopen(req, timeout=5)
+                    _time.sleep(1)
+        except Exception as e:
+            _dbg(f"_on_transcribe: VRAM cleanup error: {e}")
 
         self._lbl_status.setText(_("Transcribing..."))
         self._lbl_status.setVisible(True)
@@ -956,6 +970,17 @@ class TranscribeWindow(QDialog):
         self._progress.setVisible(False)
         self._process = None
         self._update_transcribe_btn()
+
+        # Restart daemon if we stopped it for VRAM
+        if getattr(self, '_daemon_was_active', False):
+            self._daemon_was_active = False
+            _dbg("_on_finished: restarting transcribe-daemon")
+            conf = _read_conf()
+            asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+            svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
+                       "whisper": "dictee-whisper", "canary": "dictee-canary"}
+            svc = svc_map.get(asr, "dictee")
+            subprocess.Popen(["systemctl", "--user", "start", svc])
 
         raw_output = bytes(self._stdout_buf).decode("utf-8", errors="replace").strip()
         _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
