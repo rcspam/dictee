@@ -2024,6 +2024,7 @@ class DicteeSetupDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
+        _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
         if getattr(self, '_open_postprocess', False):
             self._open_postprocess = False
             self.hide()
@@ -3231,7 +3232,7 @@ class DicteeSetupDialog(QDialog):
         else:
             self.btn_dl_vosk_model.setEnabled(True)
             self.btn_dl_vosk_model.setText(_("Download model"))
-            print(f"[DEBUG] Vosk download error: {message!r}", file=sys.stderr)
+            _dbg_setup(f"Vosk download error: {message!r}")
             QMessageBox.critical(self, _("Download error"), message or _("Unknown error"))
 
     def _build_whisper_options(self, parent_layout):
@@ -3613,7 +3614,7 @@ class DicteeSetupDialog(QDialog):
 
         def _on_trans_backend_changed():
             data = self.cmb_trans_backend.currentData()
-            print(f"[DEBUG] _on_trans_backend_changed: data={data}")
+            _dbg_setup(f"_on_trans_backend_changed: data={data}")
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
                 if self.ollama_widget.parent() is None:
@@ -3624,7 +3625,7 @@ class DicteeSetupDialog(QDialog):
                 if self.ollama_widget.parent() is not None:
                     self._tr_layout.removeWidget(self.ollama_widget)
                     self.ollama_widget.setParent(None)
-            print(f"[DEBUG] ollama visible={self.ollama_widget.isVisible()}, lt visible={self.lt_widget.isVisible()}")
+            _dbg_setup(f"ollama visible={self.ollama_widget.isVisible()}, lt visible={self.lt_widget.isVisible()}")
             if data == "libretranslate":
                 self._check_lt_status()
             if data == "ollama":
@@ -7102,6 +7103,7 @@ class DicteeSetupDialog(QDialog):
             self._check_ollama_status()
 
     def _check_ollama_status(self):
+        _dbg_setup("_check_ollama_status")
         if not ollama_is_installed():
             self.lbl_ollama_status.setText(
                 '<span style="color: red;">⚠ ' +
@@ -7197,6 +7199,7 @@ class DicteeSetupDialog(QDialog):
             self._check_lt_status()
 
     def _check_lt_status(self):
+        _dbg_setup("_check_lt_status")
         if not docker_is_installed():
             self.lbl_lt_status.setText(
                 '<span style="color: red;">⚠ ' +
@@ -7578,7 +7581,7 @@ class DicteeSetupDialog(QDialog):
             if isinstance(btn, QPushButton):
                 btn.setText(_("Install"))
                 btn.setEnabled(True)
-            print(f"[DEBUG] Venv install error ({name}): {message!r}", file=sys.stderr)
+            _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 
     def _mark_dirty(self):
@@ -7918,6 +7921,7 @@ class DicteeSetupDialog(QDialog):
     # -- Appliquer --
 
     def _on_apply(self):
+        _dbg_setup("_on_apply: saving configuration")
         trans_data = self.cmb_trans_backend.currentData()
         if trans_data == "ollama":
             backend = "ollama"
@@ -8164,10 +8168,51 @@ class DicteeSetupDialog(QDialog):
         self.accept()
 
 
+_SETUP_DEBUG = False
+_setup_log_file = None
+
+
+def _dbg_setup(msg):
+    """Print debug message if --debug is enabled."""
+    if not _SETUP_DEBUG:
+        return
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    line = f"[DBG {ts}] {msg}"
+    print(line, file=sys.stderr)
+    global _setup_log_file
+    if _setup_log_file is None:
+        _setup_log_file = open("/tmp/dictee-setup.log", "a", encoding="utf-8")
+    _setup_log_file.write(line + "\n")
+    _setup_log_file.flush()
+
+
 def main():
-    wizard_flag = "--wizard" in sys.argv
-    postprocess_flag = "--postprocess" in sys.argv
-    translation_flag = "--translation" in sys.argv
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Dictee — Voice dictation configuration",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  dictee-setup                  Open configuration\n"
+               "  dictee-setup --wizard         Force wizard mode\n"
+               "  dictee-setup --postprocess    Open post-processing dialog\n"
+               "  dictee-setup --translation    Open on translation section\n"
+               "  dictee-setup --debug          Enable debug logging\n")
+    parser.add_argument("--wizard", action="store_true",
+                        help="Force wizard mode (step-by-step configuration)")
+    parser.add_argument("--postprocess", action="store_true",
+                        help="Open post-processing dialog directly")
+    parser.add_argument("--translation", action="store_true",
+                        help="Open on the translation configuration section")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug logging to stderr and /tmp/dictee-setup.log")
+    args = parser.parse_args()
+
+    global _SETUP_DEBUG
+    if args.debug:
+        _SETUP_DEBUG = True
+        _dbg_setup("dictee-setup starting with --debug")
+
     app = QApplication([])
     app.setApplicationName("dictee-setup")
     app.setDesktopFileName("dictee-setup")
@@ -8181,8 +8226,9 @@ def main():
         # Text and background too similar — force readable contrast
         txt_color = "white" if _win_light < 128 else "black"
         app.setStyleSheet(f"QMessageBox QLabel {{ color: {txt_color}; }}")
-    dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag,
-                               open_translation=translation_flag)
+    _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
+    dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
+                               open_translation=args.translation)
     dialog.show()
     app.exec()
 
