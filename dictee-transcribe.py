@@ -102,18 +102,23 @@ CONF_PATH = os.path.join(
 def _read_conf():
     """Read dictee.conf into a dict."""
     conf = {}
-    if os.path.isfile(CONF_PATH):
-        with open(CONF_PATH) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    conf[k] = v.strip().strip('"').strip("'")
+    try:
+        if os.path.isfile(CONF_PATH):
+            with open(CONF_PATH, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        conf[k] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
     return conf
 
 
 def _detect_language(text):
     """Simple language detection based on common words and characters."""
+    if not text:
+        return "en"
     text_lower = text.lower()
     scores = {
         "en": 0, "fr": 0, "de": 0, "es": 0, "it": 0, "pt": 0,
@@ -562,7 +567,8 @@ class TranscribeWindow(QDialog):
         if auto_diarize and _sortformer_available():
             self._chk_diarize.setChecked(True)
         if file_path and auto_diarize:
-            self._on_transcribe()
+            # Defer to event loop so window is fully initialized
+            QTimer.singleShot(100, self._on_transcribe)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -1172,10 +1178,14 @@ class TranscribeWindow(QDialog):
         lang_src = self._cmb_lang_src.currentData()
         lang_tgt = self._cmb_lang_tgt.currentData()
         self._current_translate_lang = lang_tgt
-        # Disconnect previous thread signal if any
+        # Disconnect previous thread signals if any
         if self._translate_thread:
             try:
                 self._translate_thread.finished_signal.disconnect(self._on_translate_done)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._translate_thread.error_signal.disconnect(self._on_translate_error)
             except (TypeError, RuntimeError):
                 pass
         self._translate_thread = TranslateThread(
@@ -1335,6 +1345,12 @@ class TranscribeWindow(QDialog):
 
         if not selected or not formats:
             self._lbl_status.setText(_("Nothing to export."))
+            self._lbl_status.setVisible(True)
+            return
+
+        if not os.path.isdir(out_dir):
+            self._lbl_status.setText(
+                _("Export directory does not exist: {dir}").format(dir=out_dir))
             self._lbl_status.setVisible(True)
             return
 
