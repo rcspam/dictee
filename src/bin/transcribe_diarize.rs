@@ -27,12 +27,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.iter().any(|a| a == "--help" || a == "-h") {
             eprintln!("transcribe-diarize - Transcription + identification des locuteurs");
             eprintln!();
-            eprintln!("Usage: transcribe-diarize <audio> [model_dir] [sortformer_dir]");
+            eprintln!("Usage: transcribe-diarize [OPTIONS] <audio> [model_dir] [sortformer_dir]");
             eprintln!();
             eprintln!("Arguments:");
             eprintln!("  <audio>          Fichier audio (tout format supporté par ffmpeg)");
             eprintln!("  [model_dir]      Répertoire du modèle TDT (défaut: /usr/share/dictee/tdt)");
             eprintln!("  [sortformer_dir] Répertoire Sortformer (défaut: /usr/share/dictee/sortformer)");
+            eprintln!();
+            eprintln!("Options:");
+            eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5)");
+            eprintln!("                           0.0 = very sensitive (more speakers detected)");
+            eprintln!("                           1.0 = very strict (fewer speakers detected)");
             return Ok(());
         }
 
@@ -44,7 +49,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
 
-        let audio_path = resolve_path(&args[1])?;
+        // Parse --sensitivity option
+        let mut sensitivity: f32 = 0.5;
+        let mut positional_args: Vec<String> = Vec::new();
+        let mut i = 1;
+        while i < args.len() {
+            if args[i] == "--sensitivity" && i + 1 < args.len() {
+                sensitivity = args[i + 1].parse().unwrap_or(0.5);
+                sensitivity = sensitivity.clamp(0.0, 1.0);
+                i += 2;
+            } else {
+                positional_args.push(args[i].clone());
+                i += 1;
+            }
+        }
+        if positional_args.is_empty() {
+            eprintln!("Error: missing audio file argument");
+            std::process::exit(1);
+        }
+
+        let audio_path = resolve_path(&positional_args[0])?;
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         let default_tdt = if std::path::Path::new("/usr/share/dictee/tdt/vocab.txt").exists() {
             "/usr/share/dictee/tdt".to_string()
@@ -56,8 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             format!("{}/.local/share/dictee/sortformer", home)
         };
-        let model_dir = args.get(2).map(|s| s.to_string()).unwrap_or(default_tdt);
-        let sortformer_dir = args.get(3).map(|s| s.to_string()).unwrap_or(default_sf);
+        let model_dir = positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_tdt);
+        let sortformer_dir = positional_args.get(2).map(|s| s.to_string()).unwrap_or(default_sf);
 
         // Convert to WAV 16kHz mono if needed
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
@@ -86,10 +110,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Load Sortformer for diarization
         let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
+        // Map sensitivity (0=sensitive, 1=strict) to onset/offset thresholds
+        let diar_config = if (sensitivity - 0.5).abs() < 0.01 {
+            DiarizationConfig::callhome()  // default
+        } else {
+            // onset: 0.4 (sensitive) to 0.7 (strict)
+            // offset: 0.3 (sensitive) to 0.6 (strict)
+            let onset = 0.4 + sensitivity * 0.3;
+            let offset = 0.3 + sensitivity * 0.3;
+            DiarizationConfig::custom(onset, offset)
+        };
         let mut sortformer = Sortformer::with_config(
             &sortformer_path,
             Some(config.clone()),
-            DiarizationConfig::callhome(),
+            diar_config,
         )?;
 
         // Get speaker segments
