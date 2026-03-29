@@ -1986,7 +1986,7 @@ class ScrollGuardFilter(QObject):
 
 
 class DicteeSetupDialog(QDialog):
-    def __init__(self, wizard=False, open_postprocess=False):
+    def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
         self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
         self._wizard_finished = False
@@ -2004,6 +2004,7 @@ class DicteeSetupDialog(QDialog):
         self._test_thread = None
         self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
+        self._open_translation = open_translation
 
         self.conf = load_config()
 
@@ -2027,6 +2028,11 @@ class DicteeSetupDialog(QDialog):
             self._open_postprocess = False
             self.hide()
             QTimer.singleShot(50, self._open_postprocess_dialog)
+        elif getattr(self, '_open_translation', False):
+            self._open_translation = False
+            # Jump to translation page (page 3 in wizard stack)
+            if hasattr(self, 'stack'):
+                self.stack.setCurrentIndex(3)
 
     @property
     def _pp_parent(self):
@@ -8145,6 +8151,7 @@ class DicteeSetupDialog(QDialog):
 def main():
     wizard_flag = "--wizard" in sys.argv
     postprocess_flag = "--postprocess" in sys.argv
+    translation_flag = "--translation" in sys.argv
     app = QApplication([])
     app.setApplicationName("dictee-setup")
     app.setDesktopFileName("dictee-setup")
@@ -8158,7 +8165,8 @@ def main():
         # Text and background too similar — force readable contrast
         txt_color = "white" if _win_light < 128 else "black"
         app.setStyleSheet(f"QMessageBox QLabel {{ color: {txt_color}; }}")
-    dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag)
+    dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag,
+                               open_translation=translation_flag)
     dialog.show()
     app.exec()
 

@@ -643,6 +643,13 @@ class TranscribeWindow(QDialog):
         self._cmb_lang_tgt.setToolTip(_("Target language"))
         lay_trans.addWidget(self._cmb_lang_tgt)
 
+        btn_setup_trans = QPushButton(_("Configure..."))
+        btn_setup_trans.setToolTip(_("Open translation settings in dictee-setup"))
+        btn_setup_trans.clicked.connect(
+            lambda: subprocess.Popen(["env", "QT_QPA_PLATFORMTHEME=kde",
+                                      "dictee-setup", "--translation"]))
+        lay_trans.addWidget(btn_setup_trans)
+
         lay_trans.addStretch()
         layout.addLayout(lay_trans)
 
