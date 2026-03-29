@@ -561,13 +561,15 @@ class TranscribeWindow(QDialog):
         self._build_ui()
         self._connect_signals()
 
-        # Check if dictee is configured
+        # Check if dictee is configured — launch wizard if not
         conf = _read_conf()
         if not os.path.isfile(CONF_PATH) or conf.get("DICTEE_SETUP_DONE") != "true":
-            self._lbl_status.setText(
-                _("Dictee is not configured. Please run dictee-setup first."))
-            self._lbl_status.setVisible(True)
-            self._btn_transcribe.setEnabled(False)
+            _dbg("config not found or SETUP_DONE != true, launching wizard")
+            env = dict(os.environ)
+            env["QT_QPA_PLATFORMTHEME"] = "kde"
+            subprocess.Popen(["dictee-setup", "--wizard"], env=env)
+            QTimer.singleShot(0, self.close)
+            return
 
         # Pre-fill from CLI args
         if file_path:
