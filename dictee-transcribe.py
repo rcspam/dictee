@@ -24,6 +24,7 @@ try:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
+        QMessageBox,
     )
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
@@ -34,6 +35,7 @@ except ImportError:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
+        QMessageBox,
     )
 
 # === i18n ===
@@ -565,7 +567,6 @@ class TranscribeWindow(QDialog):
         conf = _read_conf()
         if not os.path.isfile(CONF_PATH) or conf.get("DICTEE_SETUP_DONE") != "true":
             _dbg("config not found or SETUP_DONE != true")
-            from PyQt6.QtWidgets import QMessageBox
             msg = QMessageBox(self)
             msg.setIcon(QMessageBox.Icon.Information)
             msg.setWindowTitle(_("Dictee - First run"))
