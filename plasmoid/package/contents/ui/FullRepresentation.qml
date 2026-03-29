@@ -352,8 +352,51 @@ ColumnLayout {
             checked: root.diarizeEnabled
             onToggled: {
                 root.diarizeEnabled = checked
+                if (checked) {
+                    diarizeAnim.start()
+                }
                 executable.run("dictee-switch-backend diarize " + (checked ? "true" : "false"))
             }
+
+            // Blinking animation while switching backend, then green when ready
+            property bool switching: false
+            contentItem: PlasmaComponents.Label {
+                text: chkDiarize.text
+                color: chkDiarize.checked
+                    ? (chkDiarize.switching ? Kirigami.Theme.textColor : "#98c379")
+                    : Kirigami.Theme.textColor
+                opacity: chkDiarize.switching ? blinkAnim.opacity : 1.0
+
+                SequentialAnimation on opacity {
+                    id: blinkAnim
+                    running: chkDiarize.switching
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.3; duration: 400 }
+                    NumberAnimation { to: 1.0; duration: 400 }
+                }
+            }
+
+            // Timer: blink for 3s (backend switch time), then stop and go green
+            Timer {
+                id: diarizeAnim
+                interval: 3000
+                onTriggered: {
+                    chkDiarize.switching = false
+                }
+            }
+
+            Component.onCompleted: {
+                // If already checked at startup, show green
+            }
+
+            onCheckedChanged: {
+                if (checked) {
+                    switching = true
+                } else {
+                    switching = false
+                }
+            }
+
             QQC2.ToolTip.text: !root.sortformerAvailable
                 ? i18n("Sortformer model not installed. Configure in dictee-setup.")
                 : i18n("Speaker identification (max 4). Switches to Parakeet automatically. Previous backend restored after.")
