@@ -225,7 +225,7 @@ PlasmoidItem {
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
-        "command -v ollama >/dev/null 2>&1 && echo ollama; " +
+        "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
         "command -v docker >/dev/null 2>&1 && echo libretranslate'"
 
     function refreshBackends() {

@@ -121,6 +121,19 @@ translate)
             set_conf "DICTEE_TRANS_ENGINE" "bing"
             ;;
         ollama)
+            if ! command -v ollama >/dev/null 2>&1; then
+                echo "Error: ollama is not installed. See https://ollama.com" >&2
+                notify-send -t 5000 -i dialog-error -a Dictee "Ollama non installé" "Installez ollama depuis https://ollama.com" 2>/dev/null || true
+                exit 1
+            fi
+            set +eu; source "$CONF"; set -eu
+            model="${DICTEE_OLLAMA_MODEL:-translategemma}"
+            base="${model%%:*}"
+            if ! ollama list 2>/dev/null | grep -q "$base"; then
+                echo "Error: model '$model' not downloaded. Run: ollama pull $model" >&2
+                notify-send -t 5000 -i dialog-warning -a Dictee "Modèle Ollama manquant" "Configurez Ollama dans dictee-setup" 2>/dev/null || true
+                exit 1
+            fi
             set_conf "DICTEE_TRANSLATE_BACKEND" "ollama"
             ;;
         libretranslate)
