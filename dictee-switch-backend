@@ -166,7 +166,8 @@ diarize)
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         set_conf "DICTEE_DIARIZE" "true"
         # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI)
-        systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
+        # Use disable to prevent auto-restart (re-enabled on diarize false)
+        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
         # Wait until GPU processes are gone (max 5s)
         for i in $(seq 1 10); do
             if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
@@ -187,7 +188,7 @@ diarize)
                 canary)  svc="dictee-canary" ;;
                 *)       svc="dictee" ;;
             esac
-            systemctl --user start "$svc" 2>/dev/null
+            systemctl --user enable --now "$svc" 2>/dev/null
             set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
             notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation désactivée — retour à $pre_backend" 2>/dev/null || true
         else
