@@ -133,14 +133,14 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        visible: fullRep.state !== "offline" || btnDiarize.switching
+        visible: fullRep.state !== "offline" || btnDiarize.dState !== "idle"
 
         PlasmaComponents.Button {
             text: i18n("Voice dictation")
             icon.name: "audio-input-microphone"
             onClicked: fullRep.actionRequested("dictate")
             Layout.fillWidth: true
-            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && !btnDiarize.switching
+            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
             QQC2.ToolTip.text: fullRep.state === "idle"
                 ? i18n("Press to start recording. Press again to stop and transcribe.")
                 : fullRep.state === "recording"
@@ -155,7 +155,7 @@ ColumnLayout {
             icon.name: "translate"
             onClicked: fullRep.actionRequested("dictate-translate")
             Layout.fillWidth: true
-            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && !btnDiarize.switching
+            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
             QQC2.ToolTip.text: fullRep.state === "idle"
                 ? i18n("Press to start recording. Press again to stop, transcribe, and translate.")
                 : fullRep.state === "recording"
@@ -167,36 +167,57 @@ ColumnLayout {
 
         PlasmaComponents.Button {
             id: btnDiarize
-            text: btnDiarize.switching
-                ? i18n("Preparing...")
-                : (fullRep.state === "recording" && root.diarizeEnabled)
-                    ? i18n("Stop diarization")
-                    : i18n("Diarization")
             icon.name: "group"
             Layout.fillWidth: true
-            enabled: root.sortformerAvailable
-                && (fullRep.state === "idle" || (fullRep.state === "recording" && root.diarizeEnabled))
-                && !btnDiarize.switching
-            property bool switching: false
+
+            // States: idle → preparing → ready → recording
+            property string dState: "idle"  // idle, preparing, ready, recording
+
+            text: {
+                switch (dState) {
+                    case "preparing": return i18n("Preparing...")
+                    case "ready":     return i18n("Start diarization")
+                    case "recording": return i18n("Stop diarization")
+                    default:          return i18n("Diarization")
+                }
+            }
+
+            enabled: root.sortformerAvailable && dState !== "preparing"
+
+            palette.buttonText: {
+                if (dState === "ready") return "#98c379"
+                if (dState === "recording") return "#e06c75"
+                return Kirigami.Theme.textColor
+            }
 
             onClicked: {
-                if (fullRep.state === "recording" && root.diarizeEnabled) {
-                    // Stop recording → diarize
-                    fullRep.actionRequested("dictate")
-                } else {
-                    // Start: stop daemons to free VRAM, set flag, then record
-                    switching = true
-                    pulseAnim.start()
-                    // dictee-switch-backend waits for VRAM release, then we start recording
-                    executable.run("dictee-switch-backend diarize true && echo DIARIZE_READY")
+                switch (dState) {
+                    case "idle":
+                        // Step 1: prepare — stop daemons, free VRAM
+                        dState = "preparing"
+                        pulseAnim.start()
+                        executable.run("dictee-switch-backend diarize true && echo DIARIZE_READY")
+                        break
+                    case "ready":
+                        // Step 2: start recording
+                        dState = "recording"
+                        root.diarizeEnabled = true
+                        fullRep.actionRequested("dictate")
+                        break
+                    case "recording":
+                        // Step 3: stop recording → diarize → open window
+                        fullRep.actionRequested("dictate")
+                        dState = "idle"
+                        break
                 }
             }
 
             Connections {
                 target: root
                 function onDiarizeEnabledChanged() {
-                    if (root.diarizeEnabled && btnDiarize.switching) {
-                        btnDiarize.switching = false
+                    // DIARIZE_READY received from main.qml
+                    if (root.diarizeEnabled && btnDiarize.dState === "preparing") {
+                        btnDiarize.dState = "ready"
                         pulseAnim.stop()
                         btnDiarize.opacity = 1.0
                     }
@@ -210,9 +231,16 @@ ColumnLayout {
                 NumberAnimation { target: btnDiarize; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
             }
 
-            QQC2.ToolTip.text: !root.sortformerAvailable
-                ? i18n("Sortformer model not installed. Configure in dictee-setup.")
-                : i18n("Record and identify speakers (max 4). Frees GPU memory automatically.")
+            QQC2.ToolTip.text: {
+                if (!root.sortformerAvailable)
+                    return i18n("Sortformer model not installed. Configure in dictee-setup.")
+                switch (dState) {
+                    case "preparing": return i18n("Freeing GPU memory...")
+                    case "ready":     return i18n("Click to start recording with speaker identification")
+                    case "recording": return i18n("Click to stop and identify speakers")
+                    default:          return i18n("Record and identify speakers (max 4)")
+                }
+            }
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
