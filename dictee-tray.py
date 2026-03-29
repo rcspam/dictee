@@ -558,6 +558,20 @@ class DicteeTrayAppIndicator:
         self.item_translate.set_visible(not is_busy)
         self.item_cancel.set_visible(is_busy)
 
+        # Diarization only available with Parakeet + Sortformer
+        asr = _current_asr_backend()
+        diarize_ok = _sortformer_available() and asr == "parakeet"
+        self.item_diarize_gtk.set_sensitive(diarize_ok)
+        if not _sortformer_available():
+            self.item_diarize_gtk.set_tooltip_text(
+                _("Sortformer model not installed. Configure in dictee-setup."))
+        elif asr != "parakeet":
+            self.item_diarize_gtk.set_tooltip_text(
+                _("Diarization requires Parakeet backend."))
+        else:
+            self.item_diarize_gtk.set_tooltip_text(
+                _("Speaker identification. Recommended for short recordings (< 5 min)."))
+
         self._prev_state = self.state
 
     def _poll(self):
@@ -876,6 +890,20 @@ class DicteeTrayQt:
         self.action_translate.setEnabled(self.state != "offline")
         self.action_translate.setVisible(not is_busy)
         self.action_cancel.setVisible(is_busy)
+
+        # Diarization only available with Parakeet + Sortformer
+        asr = _current_asr_backend()
+        diarize_ok = _sortformer_available() and asr == "parakeet"
+        self.action_diarize_qt.setEnabled(diarize_ok)
+        if not _sortformer_available():
+            self.action_diarize_qt.setToolTip(
+                _("Sortformer model not installed. Configure in dictee-setup."))
+        elif asr != "parakeet":
+            self.action_diarize_qt.setToolTip(
+                _("Diarization requires Parakeet backend."))
+        else:
+            self.action_diarize_qt.setToolTip(
+                _("Speaker identification. Recommended for short recordings (< 5 min)."))
 
         self._prev_state = self.state
 
