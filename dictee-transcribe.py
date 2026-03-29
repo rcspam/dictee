@@ -561,13 +561,26 @@ class TranscribeWindow(QDialog):
         self._build_ui()
         self._connect_signals()
 
-        # Check if dictee is configured — launch wizard if not
+        # Check if dictee is configured — explain and offer wizard if not
         conf = _read_conf()
         if not os.path.isfile(CONF_PATH) or conf.get("DICTEE_SETUP_DONE") != "true":
-            _dbg("config not found or SETUP_DONE != true, launching wizard")
-            env = dict(os.environ)
-            env["QT_QPA_PLATFORMTHEME"] = "kde"
-            subprocess.Popen(["dictee-setup", "--wizard"], env=env)
+            _dbg("config not found or SETUP_DONE != true")
+            from PyQt6.QtWidgets import QMessageBox
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setWindowTitle(_("Dictee - First run"))
+            msg.setText(_("Dictee is not yet configured."))
+            msg.setInformativeText(
+                _("Before transcribing audio files, you need to configure "
+                  "the speech recognition engine and other settings.\n\n"
+                  "Would you like to open the configuration wizard?"))
+            msg.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+            if msg.exec() == QMessageBox.StandardButton.Yes:
+                env = dict(os.environ)
+                env["QT_QPA_PLATFORMTHEME"] = "kde"
+                subprocess.Popen(["dictee-setup", "--wizard"], env=env)
             QTimer.singleShot(0, self.close)
             return
 
