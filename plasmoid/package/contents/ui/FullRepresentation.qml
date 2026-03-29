@@ -141,6 +141,13 @@ ColumnLayout {
             onClicked: fullRep.actionRequested("dictate")
             Layout.fillWidth: true
             enabled: fullRep.state === "idle" || fullRep.state === "recording"
+            QQC2.ToolTip.text: fullRep.state === "idle"
+                ? i18n("Press to start recording. Press again to stop and transcribe.")
+                : fullRep.state === "recording"
+                    ? i18n("Press to stop recording and transcribe.")
+                    : ""
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
 
         PlasmaComponents.Button {
@@ -149,6 +156,13 @@ ColumnLayout {
             onClicked: fullRep.actionRequested("dictate-translate")
             Layout.fillWidth: true
             enabled: fullRep.state === "idle" || fullRep.state === "recording"
+            QQC2.ToolTip.text: fullRep.state === "idle"
+                ? i18n("Press to start recording. Press again to stop, transcribe, and translate.")
+                : fullRep.state === "recording"
+                    ? i18n("Press to stop recording, transcribe, and translate.")
+                    : ""
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
     }
 
@@ -324,6 +338,9 @@ ColumnLayout {
             text: i18n("Preview")
             checked: Plasmoid.configuration.previewMode
             onToggled: Plasmoid.configuration.previewMode = checked
+            QQC2.ToolTip.text: i18n("Show live microphone animation preview")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
 
         Item { Layout.fillWidth: true }
@@ -359,6 +376,9 @@ ColumnLayout {
             icon.name: "document-edit"
             flat: true
             onClicked: fullRep.actionRequested("postprocess")
+            QQC2.ToolTip.text: i18n("Configure post-processing rules (regex, dictionary, continuation)")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
 
         PlasmaComponents.Button {
@@ -366,6 +386,9 @@ ColumnLayout {
             icon.name: "configure"
             flat: true
             onClicked: fullRep.actionRequested("setup")
+            QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
     }
 

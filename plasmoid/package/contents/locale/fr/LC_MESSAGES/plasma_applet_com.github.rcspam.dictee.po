@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-29 18:32+0200\n"
+"POT-Creation-Date: 2026-03-29 18:41+0200\n"
 "PO-Revision-Date: 2024-01-01 00:00+0000\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: French\n"
@@ -329,35 +329,58 @@ msgstr "Arrêter le daemon"
 msgid "Voice dictation"
 msgstr "Dictée vocale"
 
+#: contents/ui/FullRepresentation.qml:145
+msgid "Press to start recording. Press again to stop and transcribe."
+msgstr "Appuyez pour enregistrer. Appuyez à nouveau pour arrêter et transcrire."
+
 #: contents/ui/FullRepresentation.qml:147
+msgid "Press to stop recording and transcribe."
+msgstr "Appuyez pour arrêter et transcrire."
+
+#: contents/ui/FullRepresentation.qml:154
 msgid "Dictation + Translation"
 msgstr "Dictée + Traduction"
 
-#: contents/ui/FullRepresentation.qml:170
+#: contents/ui/FullRepresentation.qml:160
+msgid ""
+"Press to start recording. Press again to stop, transcribe, and translate."
+msgstr ""
+"Appuyez pour enregistrer. Appuyez à nouveau pour arrêter, transcrire et "
+"traduire."
+
+#: contents/ui/FullRepresentation.qml:162
+msgid "Press to stop recording, transcribe, and translate."
+msgstr "Appuyez pour arrêter, transcrire et traduire."
+
+#: contents/ui/FullRepresentation.qml:184
 msgid "Cancel recording"
 msgstr "Annuler l'enregistrement"
 
-#: contents/ui/FullRepresentation.qml:198
+#: contents/ui/FullRepresentation.qml:212
 msgid "Last transcription:"
 msgstr "Dernière transcription :"
 
-#: contents/ui/FullRepresentation.qml:225
+#: contents/ui/FullRepresentation.qml:239
 msgid "ASR:"
 msgstr "ASR :"
 
-#: contents/ui/FullRepresentation.qml:272
+#: contents/ui/FullRepresentation.qml:286
 msgid "Translation:"
 msgstr "Traduction :"
 
-#: contents/ui/FullRepresentation.qml:324
+#: contents/ui/FullRepresentation.qml:338
 msgid "Preview"
 msgstr "Aperçu"
 
-#: contents/ui/FullRepresentation.qml:333
+#: contents/ui/FullRepresentation.qml:341
+msgid "Show live microphone animation preview"
+msgstr "Afficher l'aperçu de l'animation du microphone en direct"
+
+#: contents/ui/FullRepresentation.qml:350
 msgid "Diarization"
 msgstr "Diarisation"
 
-#: contents/ui/FullRepresentation.qml:341
+#: contents/ui/FullRepresentation.qml:358
 msgid ""
 "Live speaker identification (max 4). For recordings over 5 minutes, use "
 "Transcribe file instead."
@@ -365,25 +388,33 @@ msgstr ""
 "Identification des locuteurs en direct (max 4). Pour les enregistrements de "
 "plus de 5 minutes, utilisez Transcrire un fichier."
 
-#: contents/ui/FullRepresentation.qml:342
+#: contents/ui/FullRepresentation.qml:359
 msgid "Sortformer model not installed. Configure in dictee-setup."
 msgstr "Modèle Sortformer non installé. Configurez dans dictee-setup."
 
-#: contents/ui/FullRepresentation.qml:348
+#: contents/ui/FullRepresentation.qml:365
 msgid "Transcribe file"
 msgstr "Transcrire un fichier"
 
-#: contents/ui/FullRepresentation.qml:352
+#: contents/ui/FullRepresentation.qml:369
 msgid "Open an audio file for transcription"
 msgstr "Ouvrir un fichier audio pour transcription"
 
-#: contents/ui/FullRepresentation.qml:358
+#: contents/ui/FullRepresentation.qml:375
 msgid "Post-processing..."
 msgstr "Post-traitement..."
 
-#: contents/ui/FullRepresentation.qml:365
+#: contents/ui/FullRepresentation.qml:379
+msgid "Configure post-processing rules (regex, dictionary, continuation)"
+msgstr "Configurer les règles de post-traitement (regex, dictionnaire, continuation)"
+
+#: contents/ui/FullRepresentation.qml:385
 msgid "Configure Dictée"
 msgstr "Configurer Dictée"
+
+#: contents/ui/FullRepresentation.qml:389
+msgid "Open dictee-setup to configure ASR, translation, shortcuts"
+msgstr "Ouvrir dictee-setup pour configurer l'ASR, la traduction, les raccourcis"
 
 #: contents/ui/main.qml:57
 msgid "Dictée not installed"
