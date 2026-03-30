@@ -345,15 +345,23 @@
 [es] /\barroba\b/@/ig
 [it] /\bchiocciola\b/@/ig
 
-# Programming — brackets
+# Programming — brackets (with verb or standalone)
 [fr] /\bouvrir? parenthèses?\b/(/ig
 [fr] /\bfermer? parenthèses?\b/)/ig
+[fr] /\bparenthèses? ouvrantes?\b/(/ig
+[fr] /\bparenthèses? fermantes?\b/)/ig
 [fr] /\bouvrir? accolades?\b/{/ig
 [fr] /\bfermer? accolades?\b/}/ig
+[fr] /\baccolades? ouvrantes?\b/{/ig
+[fr] /\baccolades? fermantes?\b/}/ig
 [fr] /\bouvrir? crochets?\b/[/ig
 [fr] /\bfermer? crochets?\b/]/ig
+[fr] /\bcrochets? ouvrants?\b/[/ig
+[fr] /\bcrochets? fermants?\b/]/ig
 [fr] /\bouvrir? chevrons?\b/</ig
 [fr] /\bfermer? chevrons?\b/>/ig
+[fr] /\bchevrons? ouvrants?\b/</ig
+[fr] /\bchevrons? fermants?\b/>/ig
 
 [en] /\bopen (?:paren|parenthesis)\b/(/ig
 [en] /\bclose (?:paren|parenthesis)\b/)/ig
