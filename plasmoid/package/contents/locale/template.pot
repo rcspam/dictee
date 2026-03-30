@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-29 18:41+0200\n"
+"POT-Creation-Date: 2026-03-30 12:08+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,392 +17,417 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: contents/ui/configGeneral.qml:119
+#: plasmoid/package/contents/ui/configGeneral.qml:119
 msgid "Calibration done!"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:121
+#: plasmoid/package/contents/ui/configGeneral.qml:121
 msgid "Calibration failed"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:193
+#: plasmoid/package/contents/ui/configGeneral.qml:193
 msgid "General"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:198
+#: plasmoid/package/contents/ui/configGeneral.qml:198
 msgid "Polling interval (ms):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:207
+#: plasmoid/package/contents/ui/configGeneral.qml:207
 msgid "How often the widget checks if the daemon is running (in milliseconds)."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:212
+#: plasmoid/package/contents/ui/configGeneral.qml:212
 msgid "Show last transcription:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:218
+#: plasmoid/package/contents/ui/configGeneral.qml:218
 msgid "Display the last transcribed text in the popup window."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:224
+#: plasmoid/package/contents/ui/configGeneral.qml:224
 msgid "Preview mode (test with mic):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:229
+#: plasmoid/package/contents/ui/configGeneral.qml:229
 msgid "Microphone volume:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:253
+#: plasmoid/package/contents/ui/configGeneral.qml:253
 msgid ""
 "Adjust the microphone input volume (PipeWire/PulseAudio default source)."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:259
+#: plasmoid/package/contents/ui/configGeneral.qml:259
 msgid "Noise floor:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:262
+#: plasmoid/package/contents/ui/configGeneral.qml:262
 msgid "Calibrate"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:265
+#: plasmoid/package/contents/ui/configGeneral.qml:265
 msgid "Recording silence…"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:271
+#: plasmoid/package/contents/ui/configGeneral.qml:271
 msgid ""
 "Record 5 seconds of silence to calibrate the background noise level. This "
 "improves animation accuracy."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:282
+#: plasmoid/package/contents/ui/configGeneral.qml:282
 msgid "Noise gate:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:296
+#: plasmoid/package/contents/ui/configGeneral.qml:296
 msgid ""
 "Audio levels below this threshold are zeroed. Increase to suppress "
 "background noise and get clean silence."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:301
+#: plasmoid/package/contents/ui/configGeneral.qml:301
 msgid "Envelope shape:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:312
+#: plasmoid/package/contents/ui/configGeneral.qml:312
 msgid "Flat"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:314
+#: plasmoid/package/contents/ui/configGeneral.qml:314
 msgid "Normal"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:320
+#: plasmoid/package/contents/ui/configGeneral.qml:320
 msgid ""
 "Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, "
 "higher = more peaked at the center."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:325
+#: plasmoid/package/contents/ui/configGeneral.qml:325
 msgid "Envelope center:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:341
+#: plasmoid/package/contents/ui/configGeneral.qml:341
 msgid ""
 "Shift the envelope peak across the frequency range (80–4000 Hz). Useful with "
 "rainbow colors to emphasize different frequency bands."
 msgstr ""
 
-#: contents/ui/configGeneral.qml:347
+#: plasmoid/package/contents/ui/configGeneral.qml:347
 msgid "Animation"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:353
+#: plasmoid/package/contents/ui/configGeneral.qml:353
 msgid "Animation style:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:355
+#: plasmoid/package/contents/ui/configGeneral.qml:355
 msgid "Bars (default)"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:356
+#: plasmoid/package/contents/ui/configGeneral.qml:356
 msgid "Wave"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:357
+#: plasmoid/package/contents/ui/configGeneral.qml:357
 msgid "Pulse"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:358
+#: plasmoid/package/contents/ui/configGeneral.qml:358
 msgid "Dots"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:359
+#: plasmoid/package/contents/ui/configGeneral.qml:359
 msgid "Waveform"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:370
+#: plasmoid/package/contents/ui/configGeneral.qml:370
 msgid "Rainbow colors:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:374
+#: plasmoid/package/contents/ui/configGeneral.qml:374
 msgid "Start hue:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:390
+#: plasmoid/package/contents/ui/configGeneral.qml:390
 msgid "End hue:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:407
+#: plasmoid/package/contents/ui/configGeneral.qml:407
 msgid "Preview:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:759
+#: plasmoid/package/contents/ui/configGeneral.qml:759
 msgid "Bars settings"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:765 contents/ui/configGeneral.qml:840
-#: contents/ui/configGeneral.qml:917 contents/ui/configGeneral.qml:966
-#: contents/ui/configGeneral.qml:1032
+#: plasmoid/package/contents/ui/configGeneral.qml:765
+#: plasmoid/package/contents/ui/configGeneral.qml:840
+#: plasmoid/package/contents/ui/configGeneral.qml:917
+#: plasmoid/package/contents/ui/configGeneral.qml:966
+#: plasmoid/package/contents/ui/configGeneral.qml:1032
 msgid "Sensitivity:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:783 contents/ui/configGeneral.qml:1050
+#: plasmoid/package/contents/ui/configGeneral.qml:783
+#: plasmoid/package/contents/ui/configGeneral.qml:1050
 msgid "Number of bars:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:791 contents/ui/configGeneral.qml:1058
+#: plasmoid/package/contents/ui/configGeneral.qml:791
+#: plasmoid/package/contents/ui/configGeneral.qml:1058
 msgid "Bar spacing (px):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:799 contents/ui/configGeneral.qml:1066
+#: plasmoid/package/contents/ui/configGeneral.qml:799
+#: plasmoid/package/contents/ui/configGeneral.qml:1066
 msgid "Bar corner radius:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:807 contents/ui/configGeneral.qml:1074
+#: plasmoid/package/contents/ui/configGeneral.qml:807
+#: plasmoid/package/contents/ui/configGeneral.qml:1074
 msgid "Min height (%):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:819
+#: plasmoid/package/contents/ui/configGeneral.qml:819
 msgid "Idle breathing animation:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:825
+#: plasmoid/package/contents/ui/configGeneral.qml:825
 msgid "Animation speed (ms):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:834
+#: plasmoid/package/contents/ui/configGeneral.qml:834
 msgid "Wave settings"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:858
+#: plasmoid/package/contents/ui/configGeneral.qml:858
 msgid "Width (px):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:866
+#: plasmoid/package/contents/ui/configGeneral.qml:866
 msgid "Line thickness (px):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:874
+#: plasmoid/package/contents/ui/configGeneral.qml:874
 msgid "Wave frequency:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:885
+#: plasmoid/package/contents/ui/configGeneral.qml:885
 msgid "Amplitude (%):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:896
+#: plasmoid/package/contents/ui/configGeneral.qml:896
 msgid "Wave speed (ms):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:905
+#: plasmoid/package/contents/ui/configGeneral.qml:905
 msgid "Fill under wave:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:911
+#: plasmoid/package/contents/ui/configGeneral.qml:911
 msgid "Pulse settings"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:935
+#: plasmoid/package/contents/ui/configGeneral.qml:935
 msgid "Number of rings:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:943
+#: plasmoid/package/contents/ui/configGeneral.qml:943
 msgid "Ring thickness (px):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:951
+#: plasmoid/package/contents/ui/configGeneral.qml:951
 msgid "Pulse speed (ms):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:960
+#: plasmoid/package/contents/ui/configGeneral.qml:960
 msgid "Dots settings"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:984
+#: plasmoid/package/contents/ui/configGeneral.qml:984
 msgid "Number of dots:"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:992
+#: plasmoid/package/contents/ui/configGeneral.qml:992
 msgid "Dot size (px):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:1000
+#: plasmoid/package/contents/ui/configGeneral.qml:1000
 msgid "Dot spacing (px):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:1008
+#: plasmoid/package/contents/ui/configGeneral.qml:1008
 msgid "Bounce amplitude (%):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:1017
+#: plasmoid/package/contents/ui/configGeneral.qml:1017
 msgid "Bounce speed (ms):"
 msgstr ""
 
-#: contents/ui/configGeneral.qml:1026
+#: plasmoid/package/contents/ui/configGeneral.qml:1026
 msgid "Waveform settings"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:51
+#: plasmoid/package/contents/ui/FullRepresentation.qml:56
 msgid "Unpin popup"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:51
+#: plasmoid/package/contents/ui/FullRepresentation.qml:56
 msgid "Pin popup"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:91
+#: plasmoid/package/contents/ui/FullRepresentation.qml:96
 msgid "Dictée not installed — install dictee package"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:92
+#: plasmoid/package/contents/ui/FullRepresentation.qml:97
 msgid "Not configured — click Configure Dictée below"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:93 contents/ui/main.qml:59
+#: plasmoid/package/contents/ui/FullRepresentation.qml:98
+#: plasmoid/package/contents/ui/main.qml:59
 msgid "Daemon stopped"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:95 contents/ui/main.qml:61
+#: plasmoid/package/contents/ui/FullRepresentation.qml:100
+#: plasmoid/package/contents/ui/main.qml:61
 msgid "Daemon active"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:97 contents/ui/main.qml:63
+#: plasmoid/package/contents/ui/FullRepresentation.qml:102
+#: plasmoid/package/contents/ui/main.qml:63
 msgid "Recording…"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:99 contents/ui/main.qml:65
+#: plasmoid/package/contents/ui/FullRepresentation.qml:104
+#: plasmoid/package/contents/ui/main.qml:65
 msgid "Transcribing…"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:101 contents/ui/main.qml:67
+#: plasmoid/package/contents/ui/FullRepresentation.qml:106
+#: plasmoid/package/contents/ui/main.qml:67
 msgid "Switching backend…"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:113
+#: plasmoid/package/contents/ui/FullRepresentation.qml:118
 msgid "Reset"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:121
+#: plasmoid/package/contents/ui/FullRepresentation.qml:126
 msgid "Start daemon"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:121
+#: plasmoid/package/contents/ui/FullRepresentation.qml:126
 msgid "Stop daemon"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:139
-msgid "Voice dictation"
+#: plasmoid/package/contents/ui/FullRepresentation.qml:151
+msgid "Dictation"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:145
-msgid "Press to start recording. Press again to stop and transcribe."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:188
+msgid "Translate"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:147
-msgid "Press to stop recording and transcribe."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:237
+msgid "Preparing..."
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:154
-msgid "Dictation + Translation"
+#: plasmoid/package/contents/ui/FullRepresentation.qml:238
+msgid "Start diarization"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:160
-msgid ""
-"Press to start recording. Press again to stop, transcribe, and translate."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:239
+msgid "Stop diarization"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:162
-msgid "Press to stop recording, transcribe, and translate."
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:184
-msgid "Cancel recording"
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:212
-msgid "Last transcription:"
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:239
-msgid "ASR:"
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:286
-msgid "Translation:"
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:338
-msgid "Preview"
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:341
-msgid "Show live microphone animation preview"
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:350
+#: plasmoid/package/contents/ui/FullRepresentation.qml:240
 msgid "Diarization"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:358
-msgid ""
-"Live speaker identification (max 4). For recordings over 5 minutes, use "
-"Transcribe file instead."
-msgstr ""
-
-#: contents/ui/FullRepresentation.qml:359
+#: plasmoid/package/contents/ui/FullRepresentation.qml:295
 msgid "Sortformer model not installed. Configure in dictee-setup."
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:365
+#: plasmoid/package/contents/ui/FullRepresentation.qml:297
+msgid "Freeing GPU memory..."
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:298
+msgid "Click to start recording with speaker identification"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:299
+msgid "Click to stop and identify speakers"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:300
+msgid "Record and identify speakers (max 4)"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:329
+msgid "Last transcription:"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:356
+msgid "ASR:"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:403
+msgid "Translation:"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:455
 msgid "Transcribe file"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:369
+#: plasmoid/package/contents/ui/FullRepresentation.qml:459
 msgid "Open an audio file for transcription"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:375
+#: plasmoid/package/contents/ui/FullRepresentation.qml:465
 msgid "Post-processing..."
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:379
+#: plasmoid/package/contents/ui/FullRepresentation.qml:469
 msgid "Configure post-processing rules (regex, dictionary, continuation)"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:385
+#: plasmoid/package/contents/ui/FullRepresentation.qml:475
 msgid "Configure Dictée"
 msgstr ""
 
-#: contents/ui/FullRepresentation.qml:389
+#: plasmoid/package/contents/ui/FullRepresentation.qml:479
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
 msgstr ""
 
-#: contents/ui/main.qml:57
+#: plasmoid/package/contents/ui/FullRepresentation.qml:487
+msgid "Preview"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:490
+msgid "Show live microphone animation preview"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:520
+msgid "Microphone muted — click to unmute"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:520
+msgid "Click to mute microphone"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:538
+#, javascript-format
+msgid "Microphone volume: %1%"
+msgstr ""
+
+#: plasmoid/package/contents/ui/main.qml:57
 msgid "Dictée not installed"
 msgstr ""
 
-#: contents/ui/main.qml:58
+#: plasmoid/package/contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
 msgstr ""

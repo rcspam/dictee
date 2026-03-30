@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-29 18:23+0200\n"
+"POT-Creation-Date: 2026-03-30 12:08+0200\n"
 "PO-Revision-Date: 2026-03-13 00:09+0100\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: Ukrainian\n"
@@ -17,408 +17,127 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
 "n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
-#: dictee-transcribe.py:81
-#, fuzzy
-msgid "Audio files"
-msgstr "Кінець файлу"
-
-#: dictee-transcribe.py:342
-msgid "Search..."
-msgstr ""
-
-#: dictee-transcribe.py:346 dictee-setup.py:2329 dictee-setup.py:2351
-#: dictee-setup.py:4342 dictee-setup.py:5061
-msgid "Next"
-msgstr "Далі →"
-
-#: dictee-transcribe.py:350 dictee-setup.py:2321 dictee-setup.py:4337
-#: dictee-setup.py:5056
-msgid "Previous"
-msgstr "← Назад"
-
-#: dictee-transcribe.py:427
-msgid "Translation partially failed — some segments untranslated."
-msgstr ""
-
-#: dictee-transcribe.py:432
-msgid "Translation failed — check backend configuration."
-msgstr ""
-
-#: dictee-transcribe.py:453 dictee-transcribe.py:504
-msgid "Export"
-msgstr ""
-
-#: dictee-transcribe.py:462
-msgid "Tabs to export"
-msgstr ""
-
-#: dictee-transcribe.py:473
-msgid "Formats"
-msgstr ""
-
-#: dictee-transcribe.py:475
-msgid "Plain text (.txt)"
-msgstr ""
-
-#: dictee-transcribe.py:476
-msgid "SRT (.srt)"
-msgstr ""
-
-#: dictee-transcribe.py:477
-msgid "JSON (.json)"
-msgstr ""
-
-#: dictee-transcribe.py:492
-msgid "Directory:"
-msgstr ""
-
-#: dictee-transcribe.py:496 dictee-transcribe.py:611
-msgid "Browse..."
-msgstr ""
-
-#: dictee-transcribe.py:507 dictee-tray.py:396 dictee-tray.py:679
-#: dictee-setup.py:2232
-msgid "Cancel"
-msgstr "Скасувати"
-
-#: dictee-transcribe.py:513
-msgid "Select directory"
-msgstr ""
-
-#: dictee-transcribe.py:547
-#, fuzzy
-msgid "Dictee - Transcribe file"
-msgstr "Диктант — транскрипція"
-
-#: dictee-transcribe.py:572
-msgid "Dictee - First run"
-msgstr ""
-
-#: dictee-transcribe.py:573
-msgid "Dictee is not yet configured."
-msgstr ""
-
-#: dictee-transcribe.py:575
-msgid ""
-"Before transcribing audio files, you need to configure the speech "
-"recognition engine and other settings.\n"
-"\n"
-"Would you like to open the configuration wizard?"
-msgstr ""
-
-#: dictee-transcribe.py:603
-msgid "File:"
-msgstr ""
-
-#: dictee-transcribe.py:607
-msgid "Select an audio file..."
-msgstr ""
-
-#: dictee-transcribe.py:608
-msgid "Path to the audio file to transcribe"
-msgstr ""
-
-#: dictee-transcribe.py:612
-msgid "Open file selection dialog"
-msgstr ""
-
-#: dictee-transcribe.py:621
-#, fuzzy
-msgid "Speaker identification (diarization)"
-msgstr "Показувати значок в області сповіщень"
-
-#: dictee-transcribe.py:626
-msgid "Identify speakers (max 4). Recommended for recordings under 5 minutes."
-msgstr ""
-
-#: dictee-transcribe.py:629 dictee-tray.py:452 dictee-tray.py:730
-msgid "Sortformer model not installed. Configure in dictee-setup."
-msgstr ""
-
-#: dictee-transcribe.py:632
-msgid "Auto-translate the transcription"
-msgstr ""
-
-#: dictee-transcribe.py:634
-msgid "Automatically translate after transcription"
-msgstr ""
-
-#: dictee-transcribe.py:639
-msgid "Format:"
-msgstr ""
-
-#: dictee-transcribe.py:643
-msgid "Plain text"
-msgstr ""
-
-#: dictee-transcribe.py:646
-msgid "Output format for transcription"
-msgstr ""
-
-#: dictee-transcribe.py:672
-#, fuzzy
-msgid "Source language"
-msgstr "Мова джерела:"
-
-#: dictee-transcribe.py:685
-#, fuzzy
-msgid "Target language"
-msgstr "Цільова мова:"
-
-#: dictee-transcribe.py:696
-#, fuzzy
-msgid "Current translation backend"
-msgstr "Налаштуйте сервіс перекладу (необов'язково)."
-
-#: dictee-transcribe.py:699
-#, fuzzy
-msgid "Configure..."
-msgstr "Налаштувати Dictée"
-
-#: dictee-transcribe.py:700
-msgid "Open translation settings in dictee-setup"
-msgstr ""
-
-#: dictee-transcribe.py:715
-#, fuzzy
-msgid "Transcribe"
-msgstr "Транскрибовано: "
-
-#: dictee-transcribe.py:717
-#, fuzzy
-msgid "Start transcription of the selected file"
-msgstr "Запускати daemon транскрипції при старті"
-
-#: dictee-transcribe.py:721
-#, fuzzy
-msgid "Translate"
-msgstr "Переклад"
-
-#: dictee-transcribe.py:723
-msgid "Translate the current transcription"
-msgstr ""
-
-#: dictee-transcribe.py:748
-#, fuzzy
-msgid "Transcription results will appear here..."
-msgstr "Результат з'явиться тут…"
-
-#: dictee-transcribe.py:749
-msgid "Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."
-msgstr ""
-
-#: dictee-transcribe.py:750
-msgid "Original"
-msgstr ""
-
-#: dictee-transcribe.py:766
-msgid "Copy all"
-msgstr ""
-
-#: dictee-transcribe.py:767
-#, fuzzy
-msgid "Copy the entire text to the clipboard"
-msgstr "Копіювати транскрипцію в буфер обміну"
-
-#: dictee-transcribe.py:771
-msgid "Export..."
-msgstr ""
-
-#: dictee-transcribe.py:772
-#, fuzzy
-msgid "Save the transcription to a file"
-msgstr "Запускати daemon транскрипції при старті"
-
-#: dictee-transcribe.py:778
-msgid "Close"
-msgstr ""
-
-#: dictee-transcribe.py:779
-msgid "Close this window"
-msgstr ""
-
-#: dictee-transcribe.py:927
-msgid "Select audio file"
-msgstr ""
-
-#: dictee-transcribe.py:937
-#, fuzzy
-msgid "File not found."
-msgstr "pw-record не знайдено."
-
-#: dictee-transcribe.py:1018 dictee-setup.py:4551
-msgid "Transcribing..."
-msgstr "Транскрипція..."
-
-#: dictee-transcribe.py:1042
-#, python-brace-format
-msgid "Command '{cmd}' not found. Install dictee first."
-msgstr ""
-
-#: dictee-transcribe.py:1086
-msgid "GPU memory full — unloading translation model and retrying..."
-msgstr ""
-
-#: dictee-transcribe.py:1109
-#, python-brace-format
-msgid ""
-"Transcription failed (code {code}). Check memory, backend, or audio file."
-msgstr ""
-
-#: dictee-transcribe.py:1120 dictee-setup.py:1853 dictee-setup.py:1963
-msgid "No transcription result."
-msgstr "Немає результату транскрипції."
-
-#: dictee-transcribe.py:1184
-#, python-brace-format
-msgid "{n} speaker(s)"
-msgstr ""
-
-#: dictee-transcribe.py:1185
-#, python-brace-format
-msgid "audio {dur}"
-msgstr ""
-
-#: dictee-transcribe.py:1186
-#, fuzzy, python-brace-format
-msgid "transcribed in {t:.1f}s"
-msgstr "Транскрибовано: "
-
-#: dictee-transcribe.py:1188
-#, python-brace-format
-msgid "translated in {t:.1f}s"
-msgstr ""
-
-#: dictee-transcribe.py:1205
-#, fuzzy
-msgid "Translating..."
-msgstr "Переклад"
-
-#: dictee-transcribe.py:1262
-msgid "Editable translation text. Ctrl+F to search, Ctrl+Z to undo."
-msgstr ""
-
-#: dictee-transcribe.py:1352
-#, fuzzy, python-brace-format
-msgid "Copied {tab} to clipboard."
-msgstr "Копіювати транскрипцію в буфер обміну"
-
-#: dictee-transcribe.py:1355
-msgid "Nothing to copy."
-msgstr ""
-
-#: dictee-transcribe.py:1370 dictee-transcribe.py:1384
-msgid "Nothing to export."
-msgstr ""
-
-#: dictee-transcribe.py:1390
-#, python-brace-format
-msgid "Export directory does not exist: {dir}"
-msgstr ""
-
-#: dictee-transcribe.py:1438
-#, python-brace-format
-msgid "Export failed: {error}"
-msgstr ""
-
-#: dictee-transcribe.py:1443
-#, python-brace-format
-msgid "Exported {n} file(s) to {dir}"
-msgstr ""
-
 # === dictee-tray ===
-#: dictee-tray.py:388 dictee-tray.py:555 dictee-tray.py:677 dictee-tray.py:873
+#: dictee-tray.py:390 dictee-tray.py:568 dictee-tray.py:720 dictee-tray.py:937
 msgid "Start dictation"
 msgstr "Почати диктант"
 
-#: dictee-tray.py:392 dictee-tray.py:678 dictee-tray.py:875
+#: dictee-tray.py:394 dictee-tray.py:721 dictee-tray.py:939
 msgid "Start translation"
 msgstr "Почати переклад"
 
-#: dictee-tray.py:408 dictee-tray.py:690 dictee-setup.py:2101
+#: dictee-tray.py:398 dictee-tray.py:722 dictee-setup.py:2232
+#: dictee-transcribe.py:507
+msgid "Cancel"
+msgstr "Скасувати"
+
+#: dictee-tray.py:410 dictee-tray.py:733 dictee-setup.py:2101
 msgid "ASR backend"
 msgstr "Модуль ASR"
 
-#: dictee-tray.py:424 dictee-tray.py:704 dictee-setup.py:2726
+#: dictee-tray.py:426 dictee-tray.py:747 dictee-setup.py:2726
 #: dictee-setup.py:3409
 msgid "Translation"
 msgstr "Переклад"
 
-#: dictee-tray.py:440 dictee-tray.py:719
-#, fuzzy
+#: dictee-tray.py:442 dictee-tray.py:762
 msgid "Transcribe a file..."
-msgstr "Транскрипція..."
+msgstr "Транскрибувати файл..."
 
-#: dictee-tray.py:444 dictee-tray.py:721
-#, fuzzy
+#: dictee-tray.py:446 dictee-tray.py:764
 msgid "Live diarization"
-msgstr "Голосовий диктант"
+msgstr "Діаризація в реальному часі"
 
-#: dictee-tray.py:449 dictee-tray.py:727
+#: dictee-tray.py:451 dictee-tray.py:770
 msgid "Speaker identification. Recommended for short recordings (< 5 min)."
-msgstr ""
+msgstr "Ідентифікація мовців. Рекомендовано для коротких записів (< 5 хв)."
 
-#: dictee-tray.py:460 dictee-tray.py:736
+#: dictee-tray.py:454 dictee-tray.py:580 dictee-tray.py:773 dictee-tray.py:950
+#: dictee-transcribe.py:629
+msgid "Sortformer model not installed. Configure in dictee-setup."
+msgstr "Модель Sortformer не встановлено. Налаштуйте в dictee-setup."
+
+#: dictee-tray.py:460 dictee-tray.py:778
+msgid "Keep diarization active"
+msgstr "Залишати діаризацію активною"
+
+#: dictee-tray.py:465 dictee-tray.py:784
+msgid "When unchecked, diarization is disabled after each recording."
+msgstr "Якщо вимкнено, діаризація деактивується після кожного запису."
+
+#: dictee-tray.py:471 dictee-tray.py:788
 msgid "Configure Dictée"
 msgstr "Налаштувати Dictée"
 
-#: dictee-tray.py:464 dictee-tray.py:737 dictee-setup.py:2211
+#: dictee-tray.py:475 dictee-tray.py:789 dictee-setup.py:2211
 msgid "Post-processing..."
 msgstr "Постобробка..."
 
-#: dictee-tray.py:470 dictee-tray.py:739
+#: dictee-tray.py:481 dictee-tray.py:791
 msgid "Quit icon"
 msgstr "Закрити значок"
 
-#: dictee-tray.py:545 dictee-tray.py:861
+#: dictee-tray.py:558 dictee-tray.py:925
 msgid "Daemon active"
 msgstr "Daemon активний"
 
-#: dictee-tray.py:545 dictee-tray.py:861
+#: dictee-tray.py:558 dictee-tray.py:925
 msgid "Recording…"
 msgstr "Запис…"
 
-#: dictee-tray.py:546 dictee-tray.py:862 dictee-setup.py:6786
+#: dictee-tray.py:559 dictee-tray.py:926 dictee-setup.py:6786
 msgid "Transcribing…"
 msgstr "Транскрипція…"
 
-#: dictee-tray.py:553 dictee-tray.py:871
+#: dictee-tray.py:566 dictee-tray.py:935
 msgid "Stop translation"
 msgstr "Зупинити переклад"
 
-#: dictee-tray.py:554 dictee-tray.py:872
+#: dictee-tray.py:567 dictee-tray.py:936
 msgid "Stop dictation"
 msgstr "Зупинити диктант"
 
-#: dictee-tray.py:650 dictee-tray.py:849
+#: dictee-tray.py:583 dictee-tray.py:953
+msgid "Speaker identification (max 4). Switches to Parakeet automatically."
+msgstr "Ідентифікація мовців (макс. 4). Автоматично перемикається на Parakeet."
+
+#: dictee-tray.py:693 dictee-tray.py:908
 msgid "Dictation — offline"
 msgstr "Диктант — офлайн"
 
-#: dictee-tray.py:848
+#: dictee-tray.py:907
 msgid "Dictation — ready"
 msgstr "Диктант — готовий"
 
-#: dictee-tray.py:848
+#: dictee-tray.py:907
 msgid "Click = dictation, Ctrl+click = translation"
 msgstr "Клік = диктант, Ctrl+клік = переклад"
 
-#: dictee-tray.py:850
+#: dictee-tray.py:909
+msgid "Diarization ready"
+msgstr "Діаризація готова"
+
+#: dictee-tray.py:909
+msgid "Use keyboard shortcut to record"
+msgstr "Використовуйте комбінацію клавіш для запису"
+
+#: dictee-tray.py:910
 msgid "Dictation — recording"
 msgstr "Диктант — запис"
 
-#: dictee-tray.py:850
+#: dictee-tray.py:910
 msgid "Click = stop, Middle = cancel"
 msgstr "Клік = зупинити, Середня = скасувати"
 
-#: dictee-tray.py:851
+#: dictee-tray.py:911
 msgid "Dictation — transcribing"
 msgstr "Диктант — транскрипція"
 
-#: dictee-tray.py:853
+#: dictee-tray.py:913
 msgid "Dictation"
 msgstr "Диктант"
 
-#: dictee-tray.py:921 dictee-tray.py:933
+#: dictee-tray.py:1006 dictee-tray.py:1018
 msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"
@@ -769,6 +488,10 @@ msgstr "Аудіо не записано."
 msgid "No translation result."
 msgstr "Немає результату перекладу."
 
+#: dictee-setup.py:1853 dictee-setup.py:1963 dictee-transcribe.py:1125
+msgid "No transcription result."
+msgstr "Немає результату транскрипції."
+
 #: dictee-setup.py:1859
 msgid "Transcribed: "
 msgstr "Транскрибовано: "
@@ -838,6 +561,16 @@ msgstr "Застосувати"
 msgid "OK"
 msgstr "OK"
 
+#: dictee-setup.py:2321 dictee-setup.py:4337 dictee-setup.py:5056
+#: dictee-transcribe.py:350
+msgid "Previous"
+msgstr "← Назад"
+
+#: dictee-setup.py:2329 dictee-setup.py:2351 dictee-setup.py:4342
+#: dictee-setup.py:5061 dictee-transcribe.py:346
+msgid "Next"
+msgstr "Далі →"
+
 #: dictee-setup.py:2343
 #, python-brace-format
 msgid "Step {n} of {total}"
@@ -860,13 +593,12 @@ msgid "Please download the required model before continuing."
 msgstr "Завантажте необхідну модель перед продовженням."
 
 #: dictee-setup.py:2420 dictee-setup.py:2434 dictee-setup.py:2439
-#, fuzzy
 msgid "Setup required"
-msgstr "Група обов'язкова"
+msgstr "Потрібне налаштування"
 
 #: dictee-setup.py:2421
 msgid "Vosk is not installed. Please click 'Install Vosk' above."
-msgstr ""
+msgstr "Vosk не встановлено. Натисніть «Встановити Vosk» вище."
 
 #: dictee-setup.py:2430
 #, python-brace-format
@@ -875,11 +607,11 @@ msgstr "Завантажте модель Vosk для {lang} перед прод
 
 #: dictee-setup.py:2435
 msgid "faster-whisper is not installed. Please click 'Install Whisper' above."
-msgstr ""
+msgstr "faster-whisper не встановлено. Натисніть «Встановити Whisper» вище."
 
 #: dictee-setup.py:2440
 msgid "Canary is not installed. Please click 'Install Canary' above."
-msgstr ""
+msgstr "Canary не встановлено. Натисніть «Встановити Canary» вище."
 
 #: dictee-setup.py:2453 dictee-setup.py:2463
 msgid "Group required"
@@ -906,7 +638,6 @@ msgid "Speak freely, type instantly"
 msgstr "Говоріть вільно, друкуйте миттєво"
 
 #: dictee-setup.py:2592
-#, fuzzy, python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
@@ -971,9 +702,8 @@ msgid "Let's verify that everything works correctly."
 msgstr "Перевіримо, що все працює правильно."
 
 #: dictee-setup.py:2825
-#, fuzzy
 msgid "ASR service"
-msgstr "Служби автозапуску"
+msgstr "Служба ASR"
 
 #: dictee-setup.py:2826
 msgid "ASR model"
@@ -1583,6 +1313,10 @@ msgstr ""
 "Голосові команди залежать від мови.\n"
 "Будь ласка, оберіть мову замість *."
 
+#: dictee-setup.py:4551 dictee-transcribe.py:1023
+msgid "Transcribing..."
+msgstr "Транскрипція..."
+
 #: dictee-setup.py:4575
 msgid "pw-record not found."
 msgstr "pw-record не знайдено."
@@ -2114,6 +1848,8 @@ msgid ""
 "Warning: could not enable {svc} at boot.\n"
 "{err}"
 msgstr ""
+"Увага: не вдалося увімкнути {svc} при завантаженні.\n"
+"{err}"
 
 #: dictee-setup.py:8077
 #, python-brace-format
@@ -2121,6 +1857,8 @@ msgid ""
 "Warning: {svc} failed to start.\n"
 "{err}"
 msgstr ""
+"Увага: {svc} не вдалося запустити.\n"
+"{err}"
 
 #: dictee-setup.py:8080
 #, python-brace-format
@@ -2128,6 +1866,8 @@ msgid ""
 "Warning: {svc} is taking too long to start.\n"
 "It may still be loading the model."
 msgstr ""
+"Увага: {svc} надто довго запускається.\n"
+"Можливо, модель ще завантажується."
 
 #: dictee-setup.py:8104
 #, python-brace-format
@@ -2177,6 +1917,278 @@ msgstr "LibreTranslate не запущено."
 #, python-brace-format
 msgid "Start the server with {n} languages ({langs})?"
 msgstr "Запустити сервер з {n} мовами ({langs})?"
+
+#: dictee-transcribe.py:81
+msgid "Audio files"
+msgstr "Аудіофайли"
+
+#: dictee-transcribe.py:342
+msgid "Search..."
+msgstr "Пошук..."
+
+#: dictee-transcribe.py:427
+msgid "Translation partially failed — some segments untranslated."
+msgstr "Переклад частково не вдався — деякі сегменти не перекладено."
+
+#: dictee-transcribe.py:432
+msgid "Translation failed — check backend configuration."
+msgstr "Помилка перекладу — перевірте налаштування backend."
+
+#: dictee-transcribe.py:453 dictee-transcribe.py:504
+msgid "Export"
+msgstr "Експорт"
+
+#: dictee-transcribe.py:462
+msgid "Tabs to export"
+msgstr "Вкладки для експорту"
+
+#: dictee-transcribe.py:473
+msgid "Formats"
+msgstr "Формати"
+
+#: dictee-transcribe.py:475
+msgid "Plain text (.txt)"
+msgstr "Звичайний текст (.txt)"
+
+#: dictee-transcribe.py:476
+msgid "SRT (.srt)"
+msgstr "SRT (.srt)"
+
+#: dictee-transcribe.py:477
+msgid "JSON (.json)"
+msgstr "JSON (.json)"
+
+#: dictee-transcribe.py:492
+msgid "Directory:"
+msgstr "Тека:"
+
+#: dictee-transcribe.py:496 dictee-transcribe.py:611
+msgid "Browse..."
+msgstr "Огляд..."
+
+#: dictee-transcribe.py:513
+msgid "Select directory"
+msgstr "Обрати теку"
+
+#: dictee-transcribe.py:547
+msgid "Dictee - Transcribe file"
+msgstr "Dictee — Транскрибувати файл"
+
+#: dictee-transcribe.py:572
+msgid "Dictee - First run"
+msgstr "Dictee — Перший запуск"
+
+#: dictee-transcribe.py:573
+msgid "Dictee is not yet configured."
+msgstr "Dictee ще не налаштовано."
+
+#: dictee-transcribe.py:575
+msgid ""
+"Before transcribing audio files, you need to configure the speech "
+"recognition engine and other settings.\n"
+"\n"
+"Would you like to open the configuration wizard?"
+msgstr ""
+"Перед транскрипцією аудіофайлів потрібно налаштувати систему розпізнавання "
+"мовлення та інші параметри.\n"
+"\n"
+"Бажаєте відкрити майстер налаштування?"
+
+#: dictee-transcribe.py:603
+msgid "File:"
+msgstr "Файл:"
+
+#: dictee-transcribe.py:607
+msgid "Select an audio file..."
+msgstr "Оберіть аудіофайл..."
+
+#: dictee-transcribe.py:608
+msgid "Path to the audio file to transcribe"
+msgstr "Шлях до аудіофайлу для транскрипції"
+
+#: dictee-transcribe.py:612
+msgid "Open file selection dialog"
+msgstr "Відкрити діалог вибору файлу"
+
+#: dictee-transcribe.py:621
+msgid "Speaker identification (diarization)"
+msgstr "Ідентифікація мовців (діаризація)"
+
+#: dictee-transcribe.py:626
+msgid "Identify speakers (max 4). Recommended for recordings under 5 minutes."
+msgstr "Ідентифікувати мовців (макс. 4). Рекомендовано для записів до 5 хвилин."
+
+#: dictee-transcribe.py:632
+msgid "Auto-translate the transcription"
+msgstr "Автоматично перекласти транскрипцію"
+
+#: dictee-transcribe.py:634
+msgid "Automatically translate after transcription"
+msgstr "Автоматично перекладати після транскрипції"
+
+#: dictee-transcribe.py:639
+msgid "Format:"
+msgstr "Формат:"
+
+#: dictee-transcribe.py:643
+msgid "Plain text"
+msgstr "Звичайний текст"
+
+#: dictee-transcribe.py:646
+msgid "Output format for transcription"
+msgstr "Формат виводу транскрипції"
+
+#: dictee-transcribe.py:672
+msgid "Source language"
+msgstr "Мова джерела"
+
+#: dictee-transcribe.py:685
+msgid "Target language"
+msgstr "Цільова мова"
+
+#: dictee-transcribe.py:696
+msgid "Current translation backend"
+msgstr "Поточний backend перекладу"
+
+#: dictee-transcribe.py:699
+msgid "Configure..."
+msgstr "Налаштувати..."
+
+#: dictee-transcribe.py:700
+msgid "Open translation settings in dictee-setup"
+msgstr "Відкрити налаштування перекладу в dictee-setup"
+
+#: dictee-transcribe.py:715
+msgid "Transcribe"
+msgstr "Транскрибувати"
+
+#: dictee-transcribe.py:717
+msgid "Start transcription of the selected file"
+msgstr "Почати транскрипцію обраного файлу"
+
+#: dictee-transcribe.py:721
+msgid "Translate"
+msgstr "Перекласти"
+
+#: dictee-transcribe.py:723
+msgid "Translate the current transcription"
+msgstr "Перекласти поточну транскрипцію"
+
+#: dictee-transcribe.py:748
+msgid "Transcription results will appear here..."
+msgstr "Результати транскрипції з'являться тут..."
+
+#: dictee-transcribe.py:749
+msgid "Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."
+msgstr "Текст транскрипції для редагування. Ctrl+F — пошук, Ctrl+Z — скасувати."
+
+#: dictee-transcribe.py:750
+msgid "Original"
+msgstr "Оригінал"
+
+#: dictee-transcribe.py:766
+msgid "Copy all"
+msgstr "Копіювати все"
+
+#: dictee-transcribe.py:767
+msgid "Copy the entire text to the clipboard"
+msgstr "Копіювати весь текст у буфер обміну"
+
+#: dictee-transcribe.py:771
+msgid "Export..."
+msgstr "Експорт..."
+
+#: dictee-transcribe.py:772
+msgid "Save the transcription to a file"
+msgstr "Зберегти транскрипцію у файл"
+
+#: dictee-transcribe.py:778
+msgid "Close"
+msgstr "Закрити"
+
+#: dictee-transcribe.py:779
+msgid "Close this window"
+msgstr "Закрити це вікно"
+
+#: dictee-transcribe.py:931
+msgid "Select audio file"
+msgstr "Обрати аудіофайл"
+
+#: dictee-transcribe.py:941
+msgid "File not found."
+msgstr "Файл не знайдено."
+
+#: dictee-transcribe.py:1047
+#, python-brace-format
+msgid "Command '{cmd}' not found. Install dictee first."
+msgstr "Команду «{cmd}» не знайдено. Спочатку встановіть dictee."
+
+#: dictee-transcribe.py:1091
+msgid "GPU memory full — unloading translation model and retrying..."
+msgstr "Пам'ять GPU заповнена — вивантаження моделі перекладу та повторна спроба..."
+
+#: dictee-transcribe.py:1114
+#, python-brace-format
+msgid ""
+"Transcription failed (code {code}). Check memory, backend, or audio file."
+msgstr ""
+"Помилка транскрипції (код {code}). Перевірте пам'ять, backend або аудіофайл."
+
+#: dictee-transcribe.py:1189
+#, python-brace-format
+msgid "{n} speaker(s)"
+msgstr "{n} мовець(ів)"
+
+#: dictee-transcribe.py:1190
+#, python-brace-format
+msgid "audio {dur}"
+msgstr "аудіо {dur}"
+
+#: dictee-transcribe.py:1191
+#, python-brace-format
+msgid "transcribed in {t:.1f}s"
+msgstr "транскрибовано за {t:.1f}с"
+
+#: dictee-transcribe.py:1193
+#, python-brace-format
+msgid "translated in {t:.1f}s"
+msgstr "перекладено за {t:.1f}с"
+
+#: dictee-transcribe.py:1210
+msgid "Translating..."
+msgstr "Переклад..."
+
+#: dictee-transcribe.py:1267
+msgid "Editable translation text. Ctrl+F to search, Ctrl+Z to undo."
+msgstr "Текст перекладу для редагування. Ctrl+F — пошук, Ctrl+Z — скасувати."
+
+#: dictee-transcribe.py:1357
+#, python-brace-format
+msgid "Copied {tab} to clipboard."
+msgstr "{tab} скопійовано в буфер обміну."
+
+#: dictee-transcribe.py:1360
+msgid "Nothing to copy."
+msgstr "Немає що копіювати."
+
+#: dictee-transcribe.py:1375 dictee-transcribe.py:1389
+msgid "Nothing to export."
+msgstr "Немає що експортувати."
+
+#: dictee-transcribe.py:1395
+#, python-brace-format
+msgid "Export directory does not exist: {dir}"
+msgstr "Тека експорту не існує: {dir}"
+
+#: dictee-transcribe.py:1443
+#, python-brace-format
+msgid "Export failed: {error}"
+msgstr "Помилка експорту: {error}"
+
+#: dictee-transcribe.py:1448
+#, python-brace-format
+msgid "Exported {n} file(s) to {dir}"
+msgstr "Експортовано {n} файл(ів) до {dir}"
 
 #~ msgid "ASR daemon"
 #~ msgstr "Бекенд ASR"
