@@ -1298,8 +1298,8 @@ class TranscribeWindow(QDialog):
     def _finish_transcription(self, raw_output):
         """Common finish logic for both single-phase and two-phase diarization."""
         self._progress.setVisible(False)
-        self._update_transcribe_btn()
-        exit_code = 0 if raw_output else 1
+        self._btn_transcribe.setEnabled(True)
+        self._btn_translate.setEnabled(True)
 
         if not raw_output:
             self._lbl_status.setText(_("No transcription result."))
