@@ -27,6 +27,7 @@ Environment variables:
   DICTEE_PP_DICT           — true/false (default: true)  — dictionary
 
   DICTEE_PP_CONTINUATION   — true/false (default: true)  — continuation
+  DICTEE_PP_SHORT_TEXT     — true/false (default: true)  — short text correction (< 3 words)
   DICTEE_LLM_POSTPROCESS   — true/false (default: false) — LLM correction
   DICTEE_LLM_MODEL         — ollama model (default: gemma3:4b)
   DICTEE_LLM_TIMEOUT       — timeout in seconds (default: 10)
@@ -221,6 +222,28 @@ def fix_continuation(text, continuation_words):
         return word + " " + after_char.lower()
 
     return re.sub(r"(\w+)(?:\.{1,3}|…)[ \t]+([A-Za-zÀ-ÿ])", _fix, text)
+
+
+# ── Short text correction ────────────────────────────────────────
+
+_SHORT_TEXT_MAX_WORDS = 3
+
+def fix_short_text(text):
+    """For transcriptions with fewer than 3 words, remove trailing
+    punctuation and lowercase Capitalized words.  Preserves acronyms
+    (ALL CAPS) and mixed-case words (iPhone)."""
+    words = text.split()
+    if not words or len(words) >= _SHORT_TEXT_MAX_WORDS:
+        return text
+    # Remove trailing punctuation
+    if text and text[-1] in ".!?,":
+        text = text[:-1]
+    # Lowercase Capitalized words (first upper + second lower)
+    parts = text.split()
+    for i, w in enumerate(parts):
+        if len(w) >= 2 and w[0].isupper() and w[1].islower():
+            parts[i] = w[0].lower() + w[1:]
+    return " ".join(parts)
 
 
 # ── Advanced French elisions ─────────────────────────────────────
@@ -800,7 +823,11 @@ def main():
     if _env_bool("DICTEE_PP_CAPITALIZATION"):
         text = fix_capitalization(text)
 
-    # 12. Correction LLM (optionnelle)
+    # 12. Short text correction (< 3 words: remove trailing punct, lowercase)
+    if _env_bool("DICTEE_PP_SHORT_TEXT"):
+        text = fix_short_text(text)
+
+    # 13. Correction LLM (optionnelle)
     if _env_bool("DICTEE_LLM_POSTPROCESS", "false"):
         text = llm_postprocess(text)
 
