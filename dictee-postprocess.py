@@ -148,7 +148,8 @@ def _parse_rules(path):
                            .replace("\\u2026", "\u2026")
                            .replace("\\u2014", "\u2014")
                            .replace("\\u00ab", "\u00ab")
-                           .replace("\\u00bb", "\u00bb"))
+                           .replace("\\u00bb", "\u00bb")
+                           .replace("\\u002f", "/"))
             rules.append((compiled, replacement))
     return rules
 

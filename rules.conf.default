@@ -89,6 +89,7 @@
 # Miscellaneous
 [fr] /[,.\s]*tabulation[,.\s]*/\t/ig
 [fr] /[,.\s]*apostrophe[,.\s]*/'/ig
+[fr] /[,.\s]*tirets? bas[,.\s]*/_/ig
 [fr] /[,.\s]*tiret[,.\s]*/- /ig
 # 3c. Line breaks
 [fr] /[,.\s]*nouveau paragraphe[,.\s]*/\n\n/ig
@@ -310,3 +311,82 @@
 [*] /  +/ /g
 # Remove space before simple punctuation
 [*] / ([.,;:!?])/\1/g
+
+# ═══════════════════════════════════════════════════════════════════════
+# STEP 7 — Symbols (currency, programming, special characters)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Currency
+[fr] /\bdollars?\b/$/ig
+[en] /\bdollars?\b/$/ig
+[de] /\bDollars?\b/$/ig
+[es] /\bdólares?\b/$/ig
+[it] /\bdollari?\b/$/ig
+[pt] /\bdólares?\b/$/ig
+[uk] /\bдолар(?:ів|и)?\b/$/ig
+
+[fr] /\beuros?\b/€/ig
+[en] /\beuros?\b/€/ig
+[de] /\bEuros?\b/€/ig
+[es] /\beuros?\b/€/ig
+[it] /\beuro\b/€/ig
+[pt] /\beuros?\b/€/ig
+[uk] /\bєвро\b/€/ig
+
+[fr] /\blivres? sterling\b/£/ig
+[en] /\bpounds?\b/£/ig
+
+# Email / web
+[fr] /\barobas?e?\b/@/ig
+[en] /\bat sign\b/@/ig
+[de] /\bKlammeraffe\b/@/ig
+[es] /\barroba\b/@/ig
+[it] /\bchiocciola\b/@/ig
+
+# Programming — brackets
+[fr] /\bouvrir? parenthèses?\b/(/ig
+[fr] /\bfermer? parenthèses?\b/)/ig
+[fr] /\bouvrir? accolades?\b/{/ig
+[fr] /\bfermer? accolades?\b/}/ig
+[fr] /\bouvrir? crochets?\b/[/ig
+[fr] /\bfermer? crochets?\b/]/ig
+[fr] /\bouvrir? chevrons?\b/</ig
+[fr] /\bfermer? chevrons?\b/>/ig
+
+[en] /\bopen (?:paren|parenthesis)\b/(/ig
+[en] /\bclose (?:paren|parenthesis)\b/)/ig
+[en] /\bopen (?:curly )?brace\b/{/ig
+[en] /\bclose (?:curly )?brace\b/}/ig
+[en] /\bopen bracket\b/[/ig
+[en] /\bclose bracket\b/]/ig
+
+# Programming — operators & symbols
+[*] /\bunderscores?\b/_/ig
+[*] /\bampersands?\b/&/ig
+[*] /\bpipes?\b/|/ig
+[*] /\bbackslash\b/\\/ig
+[*] /\btildes?\b/~/ig
+
+# (moved to STEP 3 before "tiret" rule)
+[fr] /\besperluettes?\b/&/ig
+[fr] /\bbarre oblique inversée?\b/\\/ig
+[fr] /\bbarre oblique\b/\u002f/ig
+[fr] /\bbarre verticale\b/|/ig
+[fr] /\bastérisques?\b/*/ig
+[fr] /\bpourcents?\b/%/ig
+[fr] /\bégale?\b/=/ig
+[fr] /\bguillemets?\b/"/ig
+
+[en] /\bforward slash\b/\u002f/ig
+[en] /\basterisks?\b/*/ig
+[en] /\bpercent\b/%/ig
+[en] /\bequals?\b/=/ig
+[en] /\bquote\b/"/ig
+[en] /\bsingle quote\b/'/ig
+
+[de] /\bProzent\b/%/ig
+[de] /\bSternchen\b/*/ig
+[de] /\bGleich\b/=/ig
+[de] /\bSchrägstrich\b/\u002f/ig
+[de] /\bumgekehrter Schrägstrich\b/\\/ig
+[de] /\bAnführungszeichen\b/"/ig
