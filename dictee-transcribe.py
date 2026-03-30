@@ -336,9 +336,29 @@ class _DiarizeTranscribeWorker(QThread):
                 final.append(seg)
         final.sort(key=lambda s: s["start"])
 
-        # Open audio and transcribe each segment
+        # Ensure audio is WAV 16kHz mono (convert if needed)
+        audio_to_read = self._audio_path
+        converted_wav = None
         try:
-            w = wave.open(self._audio_path, "r")
+            w_test = wave.open(self._audio_path, "r")
+            spec_ok = (w_test.getframerate() == 16000 and w_test.getnchannels() == 1)
+            w_test.close()
+            if not spec_ok:
+                raise ValueError("needs conversion")
+        except Exception:
+            converted_wav = self._audio_path + ".phase2.wav"
+            ret = subprocess.run(
+                ["ffmpeg", "-y", "-i", self._audio_path, "-ar", "16000", "-ac", "1",
+                 "-f", "wav", converted_wav],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            if ret.returncode == 0:
+                audio_to_read = converted_wav
+            else:
+                self.error.emit("ffmpeg conversion failed")
+                return
+
+        try:
+            w = wave.open(audio_to_read, "r")
         except Exception as e:
             self.error.emit(str(e))
             return
@@ -351,7 +371,7 @@ class _DiarizeTranscribeWorker(QThread):
             start_frame = int(seg["start"] * rate)
             end_frame = min(int(seg["end"] * rate), w.getnframes())
             length = end_frame - start_frame
-            if length < rate * 0.3:
+            if length < int(rate * 0.3):
                 self.progress.emit(idx + 1, total)
                 continue
 
@@ -395,6 +415,8 @@ class _DiarizeTranscribeWorker(QThread):
             self.progress.emit(idx + 1, total)
 
         w.close()
+        if converted_wav and os.path.exists(converted_wav):
+            os.unlink(converted_wav)
         self.finished.emit("\n".join(results))
 
 
@@ -928,6 +950,9 @@ class TranscribeWindow(QDialog):
         if self._translate_thread and self._translate_thread.isRunning():
             _dbg("closeEvent: waiting for translation thread")
             self._translate_thread.wait(5000)
+        if hasattr(self, '_diarize_worker') and self._diarize_worker and self._diarize_worker.isRunning():
+            _dbg("closeEvent: waiting for diarize worker")
+            self._diarize_worker.wait(5000)
         # Restore backend if we were in diarization mode
         conf = _read_conf()
         if conf.get("DICTEE_DIARIZE") == "true" or conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
@@ -1163,7 +1188,11 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(False)
 
         self._process = QProcess(self)
-        self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        if getattr(self, '_diarize_two_phase', False):
+            # Phase 1 : séparer stdout (timestamps) de stderr (warnings ONNX)
+            self._process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
+        else:
+            self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         # Set ORT_DYLIB_PATH for GPU acceleration if the lib exists
         env = self._process.processEnvironment()
         if env.isEmpty():
@@ -1179,7 +1208,7 @@ class TranscribeWindow(QDialog):
         # Diarisation : pipeline en 2 phases (diarize-only → daemon transcription)
         # Transcription seule : transcribe (batch)
         if diarize:
-            cmd = "diarize_only"
+            cmd = "diarize-only"
             fallback_cmd = "transcribe-diarize"  # ancien binaire si diarize-only absent
             if not shutil.which(cmd):
                 if shutil.which(fallback_cmd):

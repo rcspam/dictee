@@ -45,6 +45,10 @@ path = "src/bin/transcribe_diarize.rs"
 name = "transcribe-stream-diarize"
 path = "src/bin/transcribe_stream_diarize.rs"
 
+[[bin]]
+name = "diarize-only"
+path = "src/bin/diarize_only.rs"
+
 [dependencies]
 ort = { version = "=2.0.0-rc.11", default-features = false, features = ["std", "ndarray"] }
 hound = "3.5"
