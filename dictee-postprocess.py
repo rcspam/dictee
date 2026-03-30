@@ -231,9 +231,14 @@ _SHORT_TEXT_MAX_WORDS = 3
 def fix_short_text(text):
     """For transcriptions with fewer than 3 words, remove trailing
     punctuation and lowercase Capitalized words.  Preserves acronyms
-    (ALL CAPS) and mixed-case words (iPhone)."""
-    words = text.split()
-    if not words or len(words) >= _SHORT_TEXT_MAX_WORDS:
+    (ALL CAPS) and mixed-case words (iPhone).  Skips voice commands
+    (pure punctuation, whitespace, or newlines)."""
+    stripped = text.strip()
+    # Skip voice commands: pure punctuation/whitespace/newlines
+    if not stripped or not any(c.isalnum() for c in stripped):
+        return text
+    words = stripped.split()
+    if len(words) >= _SHORT_TEXT_MAX_WORDS:
         return text
     # Remove trailing punctuation
     if text and text[-1] in ".!?,":
