@@ -191,13 +191,19 @@ build_rpm_cuda() {
         fi
     done
 
-    # CUDA runtime libs
+    # CUDA runtime libs (chercher dans : CUDA toolkit, système, pip/uv)
     for lib in libcufft.so.11 libcudart.so.12; do
-        sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu -name "$lib*" -type f 2>/dev/null | head -1)
+        sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/dictee \
+                       "$HOME"/.cache/uv/archive-v0/*/nvidia/*/lib \
+                       "$HOME"/.local/share/dictee/*/lib/python*/site-packages/nvidia/*/lib \
+                  -name "$lib" -type f 2>/dev/null | head -1)
         if [ -n "$sys_lib" ]; then
             cp -L "$sys_lib" "$buildroot/usr/lib/dictee/$lib"
+            echo "  $lib ← $sys_lib"
         else
-            echo "ATTENTION: $lib non trouvé — le paquet CUDA pourrait ne pas fonctionner sans CUDA toolkit installé"
+            echo "ERREUR: $lib non trouvé — le paquet CUDA ne fonctionnera pas !"
+            echo "  Installer avec : pip download nvidia-cufft-cu12 nvidia-cuda-runtime-cu12"
+            exit 1
         fi
     done
 
