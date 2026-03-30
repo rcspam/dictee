@@ -71,11 +71,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(mut stream) => {
                 let reader = BufReader::new(&stream);
 
-                // Read the audio file path from client
-                if let Some(Ok(audio_path)) = reader.lines().next() {
-                    let audio_path = audio_path.trim();
+                // Read the request: "path.wav\n" or "path.wav\tdiarize\n"
+                if let Some(Ok(line)) = reader.lines().next() {
+                    let line = line.trim().to_string();
+                    let (audio_path, timestamps) = if let Some((path, mode)) = line.split_once('\t') {
+                        (path.trim(), mode.trim() == "diarize")
+                    } else {
+                        (line.as_str(), false)
+                    };
 
-                    match transcribe_file(&mut parakeet, audio_path) {
+                    match transcribe_file(&mut parakeet, audio_path, timestamps) {
                         Ok(text) => {
                             let _ = writeln!(stream, "{}", text);
                         }
@@ -97,6 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn transcribe_file(
     parakeet: &mut ParakeetTDT,
     audio_path: &str,
+    timestamps: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut reader = hound::WavReader::open(audio_path)?;
     let spec = reader.spec();
@@ -116,7 +122,15 @@ fn transcribe_file(
         Some(TimestampMode::Sentences),
     )?;
 
-    Ok(result.text.trim().to_string())
+    if timestamps {
+        // Return timestamped sentences for diarization matching
+        let lines: Vec<String> = result.tokens.iter()
+            .map(|t| format!("[{:.2}s - {:.2}s] {}", t.start, t.end, t.text))
+            .collect();
+        Ok(lines.join("\n"))
+    } else {
+        Ok(result.text.trim().to_string())
+    }
 }
 
 use std::os::unix::fs::PermissionsExt;

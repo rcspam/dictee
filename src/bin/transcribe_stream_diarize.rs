@@ -69,12 +69,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-        // Configure execution
-        #[cfg(feature = "cuda")]
-        let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
-        #[cfg(not(feature = "cuda"))]
-        let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
-
         let audio: Vec<f32> = if args.len() > 1 {
             // Load from file (any format via ffmpeg)
             let path = resolve_path(&args[1])?;
@@ -100,11 +94,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let duration = audio.len() as f32 / 16000.0;
         eprintln!("\nProcessing {:.1}s of audio...\n", duration);
 
-        // Load models
+        // Load models — try CUDA first, fallback to CPU
         eprint!("Loading Nemotron... ");
         std::io::stderr().flush()?;
-        let mut nemotron = Nemotron::from_pretrained(&nemotron_dir, Some(config.clone()))?;
-        eprintln!("OK");
+        #[cfg(feature = "cuda")]
+        let (mut nemotron, config) = {
+            let cuda_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
+            match Nemotron::from_pretrained(&nemotron_dir, Some(cuda_cfg.clone())) {
+                Ok(n) => { eprintln!("OK (CUDA)"); (n, cuda_cfg) }
+                Err(_) => {
+                    eprintln!("CUDA failed, falling back to CPU");
+                    let cpu_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+                    eprint!("Loading Nemotron... ");
+                    let n = Nemotron::from_pretrained(&nemotron_dir, Some(cpu_cfg.clone()))?;
+                    eprintln!("OK (CPU)");
+                    (n, cpu_cfg)
+                }
+            }
+        };
+        #[cfg(not(feature = "cuda"))]
+        let (mut nemotron, config) = {
+            let cpu_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+            let n = Nemotron::from_pretrained(&nemotron_dir, Some(cpu_cfg.clone()))?;
+            eprintln!("OK");
+            (n, cpu_cfg)
+        };
 
         eprint!("Loading Sortformer... ");
         std::io::stderr().flush()?;

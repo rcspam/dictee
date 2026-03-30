@@ -11,6 +11,7 @@ import gettext
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -18,25 +19,28 @@ import time
 try:
     from PyQt6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                QProcessEnvironment, QFileSystemWatcher,
-                               pyqtSignal as Signal)
+                               QUrl, pyqtSignal as Signal)
     from PyQt6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
-        QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
+        QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
         QMessageBox,
     )
+    from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+    from PyQt6.QtCore import QUrl
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                 QProcessEnvironment, QFileSystemWatcher,
-                                Signal)
+                                Signal, QUrl)
     from PySide6.QtGui import QIcon, QShortcut, QKeySequence, QTextDocument
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout,
-        QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox,
+        QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
         QMessageBox,
     )
+    from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 # === i18n ===
 
@@ -81,6 +85,74 @@ def _dbg(msg):
 AUDIO_FILTER = _("Audio files") + " (*.wav *.mp3 *.flac *.ogg *.m4a *.webm *.opus);;All files (*)"
 
 # Colors that contrast well on both light and dark backgrounds
+class _ClickSlider(QSlider):
+    """QSlider with click-to-seek and speaker segment markers."""
+    sliderClicked = Signal(int)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._markers = []   # list of (start_ms, end_ms, QColor)
+        self._setMinimumHeight(28)
+
+    def _setMinimumHeight(self, h):
+        self.setMinimumHeight(h)
+
+    def set_markers(self, markers):
+        """Set speaker markers: list of (start_ms, end_ms, color_str)."""
+        try:
+            from PyQt6.QtGui import QColor
+        except ImportError:
+            from PySide6.QtGui import QColor
+        self._markers = [(s, e, QColor(c)) for s, e, c in markers]
+        self.update()
+
+    def clear_markers(self):
+        self._markers.clear()
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._markers or self.maximum() <= self.minimum():
+            return
+        try:
+            from PyQt6.QtGui import QPainter, QPen, QPolygonF, QColor
+            from PyQt6.QtCore import QPointF
+        except ImportError:
+            from PySide6.QtGui import QPainter, QPen, QPolygonF, QColor
+            from PySide6.QtCore import QPointF
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rng = self.maximum() - self.minimum()
+        h = self.height()
+        # Draw colored bars for each segment (semi-transparent)
+        for start_ms, end_ms, color in self._markers:
+            x1 = int((start_ms - self.minimum()) / rng * self.width())
+            x2 = int((end_ms - self.minimum()) / rng * self.width())
+            bar_color = QColor(color)
+            bar_color.setAlpha(60)
+            p.fillRect(x1, 0, max(x2 - x1, 2), h, bar_color)
+        # Draw triangle markers at segment starts
+        for start_ms, _end_ms, color in self._markers:
+            x = int((start_ms - self.minimum()) / rng * self.width())
+            tri = QPolygonF([
+                QPointF(x - 4, 0), QPointF(x + 4, 0), QPointF(x, 7)])
+            p.setPen(QPen(color, 1))
+            p.setBrush(color)
+            p.drawPolygon(tri)
+        p.end()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            val = QSlider.minimum(self) + (
+                (QSlider.maximum(self) - QSlider.minimum(self))
+                * event.position().x() / self.width())
+            self.setValue(int(val))
+            self.sliderClicked.emit(int(val))
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+
 SPEAKER_COLORS = [
     "#e06c75",  # red
     "#61afef",  # blue
@@ -115,6 +187,24 @@ def _read_conf():
     except OSError:
         pass
     return conf
+
+
+def _postprocess(text):
+    """Apply dictee-postprocess rules to transcribed text."""
+    if not text or not shutil.which("dictee-postprocess"):
+        return text
+    conf = _read_conf()
+    env = os.environ.copy()
+    env["DICTEE_LANG_SOURCE"] = conf.get("DICTEE_LANG_SOURCE", env.get("LANG", "en")[:2])
+    try:
+        result = subprocess.run(
+            ["dictee-postprocess"],
+            input=text, capture_output=True, text=True, timeout=10, env=env)
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception as e:
+        _dbg(f"_postprocess: error: {e}")
+    return text
 
 
 def _detect_language(text):
@@ -274,7 +364,7 @@ class _DiarizeTranscribeWorker(QThread):
         self._sock_path = sock_path
 
     def run(self):
-        import wave, socket as sock_mod, tempfile, time as _time
+        import socket as sock_mod, time as _time, re
 
         # Wait for socket (max 15s)
         for _ in range(60):
@@ -292,131 +382,94 @@ class _DiarizeTranscribeWorker(QThread):
             self.error.emit("Daemon socket not available after 15s")
             return
 
-        # Parse diarize-only output
-        raw_segments = []
+        # Parse diarize-only output into speaker segments
+        speaker_segments = []
         for line in self._diarize_output.strip().split("\n"):
             parts = line.strip().split()
             if len(parts) >= 3:
                 try:
-                    raw_segments.append({
+                    speaker_segments.append({
                         "start": float(parts[0]), "end": float(parts[1]),
                         "speaker": int(parts[2])
                     })
                 except ValueError:
                     continue
 
-        if not raw_segments:
+        if not speaker_segments:
             self.error.emit("No speaker segments detected")
             return
 
-        # Merge consecutive segments from same speaker
-        merged = []
-        for seg in sorted(raw_segments, key=lambda s: s["start"]):
-            if (merged and merged[-1]["speaker"] == seg["speaker"]
-                    and seg["start"] - merged[-1]["end"] < 0.5):
-                merged[-1]["end"] = max(merged[-1]["end"], seg["end"])
-            else:
-                merged.append(dict(seg))
+        self.progress.emit(1, 3)  # phase 2 started
 
-        # Split long segments (>5s)
-        MAX_SEG = 5.0
-        final = []
-        for seg in merged:
-            duration = seg["end"] - seg["start"]
-            if duration > MAX_SEG:
-                n = int(duration / MAX_SEG) + 1
-                chunk = duration / n
-                for i in range(n):
-                    final.append({
-                        "start": seg["start"] + i * chunk,
-                        "end": seg["start"] + (i + 1) * chunk,
-                        "speaker": seg["speaker"]
-                    })
-            else:
-                final.append(seg)
-        final.sort(key=lambda s: s["start"])
-
-        # Ensure audio is WAV 16kHz mono (convert if needed)
-        audio_to_read = self._audio_path
-        converted_wav = None
+        # Transcribe full audio via daemon with timestamps (diarize mode)
+        _dbg(f"DiarizeWorker: sending full audio to daemon: {self._audio_path}")
+        full_text = ""
         try:
-            w_test = wave.open(self._audio_path, "r")
-            spec_ok = (w_test.getframerate() == 16000 and w_test.getnchannels() == 1)
-            w_test.close()
-            if not spec_ok:
-                raise ValueError("needs conversion")
-        except Exception:
-            converted_wav = self._audio_path + ".phase2.wav"
-            ret = subprocess.run(
-                ["ffmpeg", "-y", "-i", self._audio_path, "-ar", "16000", "-ac", "1",
-                 "-f", "wav", converted_wav],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-            if ret.returncode == 0:
-                audio_to_read = converted_wav
-            else:
-                self.error.emit("ffmpeg conversion failed")
-                return
-
-        try:
-            w = wave.open(audio_to_read, "r")
+            s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+            s.settimeout(120)
+            s.connect(self._sock_path)
+            s.sendall((self._audio_path + "\tdiarize\n").encode())
+            data = b""
+            while True:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+            s.close()
+            full_text = data.decode("utf-8", errors="replace").strip()
         except Exception as e:
-            self.error.emit(str(e))
+            self.error.emit(f"Daemon transcription failed: {e}")
             return
 
-        rate = w.getframerate()
-        results = []
-        total = len(final)
+        if not full_text:
+            self.error.emit("Empty transcription from daemon")
+            return
 
-        for idx, seg in enumerate(final):
-            start_frame = int(seg["start"] * rate)
-            end_frame = min(int(seg["end"] * rate), w.getnframes())
-            length = end_frame - start_frame
-            if length < int(rate * 0.3):
-                self.progress.emit(idx + 1, total)
+        self.progress.emit(2, 3)  # transcription done
+
+        # The daemon returns timestamped sentences (TimestampMode::Sentences)
+        # Format: "[start - end] text" or just "text" (plain)
+        # Parse sentences with timestamps
+        sentences = []
+        ts_pattern = re.compile(r"^\[(\d+\.?\d*)s?\s*-\s*(\d+\.?\d*)s?\]\s*(.+)")
+        for line in full_text.split("\n"):
+            line = line.strip()
+            if not line:
                 continue
+            m = ts_pattern.match(line)
+            if m:
+                sentences.append({
+                    "start": float(m.group(1)),
+                    "end": float(m.group(2)),
+                    "text": m.group(3).strip()
+                })
 
-            w.setpos(start_frame)
-            frames = w.readframes(length)
+        # If daemon returned plain text (no timestamps), emit as single block
+        if not sentences:
+            # Fallback: attribute all text to the dominant speaker
+            from collections import Counter
+            spk_counts = Counter(s["speaker"] for s in speaker_segments)
+            dominant = spk_counts.most_common(1)[0][0]
+            self.finished.emit(f"[0.00s - 0.00s] Speaker {dominant}: {full_text}")
+            return
 
-            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            wo = wave.open(tmp.name, "w")
-            wo.setnchannels(w.getnchannels())
-            wo.setsampwidth(w.getsampwidth())
-            wo.setframerate(rate)
-            wo.writeframes(frames)
-            wo.close()
+        # Match sentences to speakers by maximum overlap (same algo as transcribe-diarize)
+        results = []
+        for sent in sentences:
+            best_speaker = -1
+            best_overlap = 0.0
+            for seg in speaker_segments:
+                overlap_start = max(sent["start"], seg["start"])
+                overlap_end = min(sent["end"], seg["end"])
+                overlap = max(0.0, overlap_end - overlap_start)
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_speaker = seg["speaker"]
+            speaker = f"Speaker {best_speaker}" if best_speaker >= 0 else "UNKNOWN"
+            results.append(
+                f"[{sent['start']:.2f}s - {sent['end']:.2f}s] {speaker}: {sent['text']}")
 
-            text = ""
-            try:
-                s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
-                s.settimeout(30)
-                s.connect(self._sock_path)
-                s.sendall((tmp.name + "\n").encode())
-                data = b""
-                while True:
-                    chunk = s.recv(4096)
-                    if not chunk:
-                        break
-                    data += chunk
-                s.close()
-                text = data.decode("utf-8", errors="replace").strip()
-            except Exception as e:
-                _dbg(f"DiarizeWorker: socket error seg {idx}: {e}")
-            finally:
-                try:
-                    os.unlink(tmp.name)
-                except OSError:
-                    pass
-
-            if text:
-                results.append(
-                    f"[{seg['start']:.2f}s - {seg['end']:.2f}s] Speaker {seg['speaker']}: {text}")
-
-            self.progress.emit(idx + 1, total)
-
-        w.close()
-        if converted_wav and os.path.exists(converted_wav):
-            os.unlink(converted_wav)
+        self.progress.emit(3, 3)  # done
         self.finished.emit("\n".join(results))
 
 
@@ -602,11 +655,13 @@ class TranslateThread(QThread):
 class ExportDialog(QDialog):
     """Dialog to export one or more tabs in chosen format and directory."""
 
-    def __init__(self, tabs_info, current_format, base_name, parent=None):
+    def __init__(self, tabs_info, current_format, base_name, parent=None,
+                 current_tab_index=None):
         """
         tabs_info: list of (tab_name, text_content)
         current_format: "text", "srt", or "json"
         base_name: base filename from audio file
+        current_tab_index: if set, only this tab is pre-checked
         """
         super().__init__(parent)
         self.setWindowTitle(_("Export"))
@@ -623,7 +678,10 @@ class ExportDialog(QDialog):
         self._tab_checks = []
         for i, (name, _text) in enumerate(tabs_info):
             chk = QCheckBox(name)
-            chk.setChecked(True)
+            if current_tab_index is not None:
+                chk.setChecked(i == current_tab_index)
+            else:
+                chk.setChecked(True)
             lay_tabs.addWidget(chk)
             self._tab_checks.append(chk)
         layout.addWidget(group)
@@ -650,7 +708,15 @@ class ExportDialog(QDialog):
         lay_dir = QHBoxLayout()
         lay_dir.addWidget(QLabel(_("Directory:")))
         self._dir_input = QLineEdit()
-        self._dir_input.setText(os.path.expanduser("~"))
+        # Use XDG Desktop directory (localized: Bureau, Escritorio, Schreibtisch...)
+        try:
+            desktop = subprocess.check_output(
+                ["xdg-user-dir", "DESKTOP"], text=True, timeout=3).strip()
+        except Exception:
+            desktop = os.path.expanduser("~/Desktop")
+        if not os.path.isdir(desktop):
+            desktop = os.path.expanduser("~")
+        self._dir_input.setText(desktop)
         lay_dir.addWidget(self._dir_input, 1)
         btn_dir = QPushButton(_("Browse..."))
         btn_dir.clicked.connect(self._on_browse_dir)
@@ -747,6 +813,7 @@ class TranscribeWindow(QDialog):
         # Pre-fill from CLI args
         if file_path:
             self._file_input.setText(file_path)
+            self._load_audio(file_path)
         if auto_diarize and _sortformer_available():
             self._chk_diarize.setChecked(True)
         if file_path and auto_diarize:
@@ -774,7 +841,59 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_file)
 
-        # -- Options row --
+        # -- Audio player --
+        lay_player = QHBoxLayout()
+
+        _big = "font-size: 24px;"
+
+        self._btn_play = QPushButton("▶")
+        self._btn_play.setFixedWidth(36)
+        self._btn_play.setToolTip(_("Play / Pause"))
+        self._btn_play.clicked.connect(self._on_play_pause)
+        lay_player.addWidget(self._btn_play)
+
+        self._btn_stop = QPushButton("⏹")
+        self._btn_stop.setFixedWidth(36)
+        self._btn_stop.setStyleSheet(_big)
+        self._btn_stop.setToolTip(_("Stop"))
+        self._btn_stop.clicked.connect(self._on_player_stop)
+        lay_player.addWidget(self._btn_stop)
+
+        self._btn_prev_seg = QPushButton("⏮")
+        self._btn_prev_seg.setFixedWidth(36)
+        self._btn_prev_seg.setStyleSheet(_big)
+        self._btn_prev_seg.setToolTip(_("Previous speaker segment"))
+        self._btn_prev_seg.clicked.connect(self._on_prev_segment)
+        lay_player.addWidget(self._btn_prev_seg)
+
+        self._btn_next_seg = QPushButton("⏭")
+        self._btn_next_seg.setFixedWidth(36)
+        self._btn_next_seg.setStyleSheet(_big)
+        self._btn_next_seg.setToolTip(_("Next speaker segment"))
+        self._btn_next_seg.clicked.connect(self._on_next_segment)
+        lay_player.addWidget(self._btn_next_seg)
+
+        self._sld_position = _ClickSlider(Qt.Orientation.Horizontal)
+        self._sld_position.setRange(0, 0)
+        self._sld_position.sliderMoved.connect(self._on_seek)
+        self._sld_position.sliderClicked.connect(self._on_seek)
+        lay_player.addWidget(self._sld_position, 1)
+
+        self._lbl_time = QLabel("0:00 / 0:00")
+        self._lbl_time.setFixedWidth(90)
+        lay_player.addWidget(self._lbl_time)
+
+        layout.addLayout(lay_player)
+
+        # Media player backend
+        self._audio_output = QAudioOutput()
+        self._player = QMediaPlayer()
+        self._player.setAudioOutput(self._audio_output)
+        self._player.positionChanged.connect(self._on_player_position)
+        self._player.durationChanged.connect(self._on_player_duration)
+        self._player.playbackStateChanged.connect(self._on_playback_state)
+
+        # -- Options: row 1 — diarization + sensitivity + format --
         lay_opts = QHBoxLayout()
 
         self._chk_diarize = QCheckBox(_("Speaker identification (diarization)"))
@@ -788,10 +907,31 @@ class TranscribeWindow(QDialog):
                 _("Sortformer model not installed. Configure in dictee-setup."))
         lay_opts.addWidget(self._chk_diarize)
 
-        self._chk_auto_translate = QCheckBox(_("Auto-translate the transcription"))
-        self._chk_auto_translate.setToolTip(
-            _("Automatically translate after transcription"))
-        lay_opts.addWidget(self._chk_auto_translate)
+        # Sensitivity slider (visible only when diarization is checked)
+        self._lbl_sensitivity = QLabel(_("Threshold:"))
+        self._sld_sensitivity = QSlider(Qt.Orientation.Horizontal)
+        self._sld_sensitivity.setRange(0, 100)
+        self._sld_sensitivity.setValue(50)
+        self._sld_sensitivity.setFixedWidth(120)
+        self._sld_sensitivity.setToolTip(
+            _("Speaker detection threshold.\n"
+              "← Low: more sensitive, detects more speakers\n"
+              "     (may split one person into two speakers).\n"
+              "→ High: stricter, detects fewer speakers\n"
+              "     (may merge two people into one speaker).\n"
+              "Default (50%) works well for most recordings."))
+        self._lbl_sensitivity_val = QLabel("50%")
+        self._lbl_sensitivity_val.setFixedWidth(35)
+        self._sld_sensitivity.valueChanged.connect(
+            lambda v: self._lbl_sensitivity_val.setText(f"{v}%"))
+        lay_opts.addWidget(self._lbl_sensitivity)
+        lay_opts.addWidget(self._sld_sensitivity)
+        lay_opts.addWidget(self._lbl_sensitivity_val)
+        # Initially hidden
+        self._lbl_sensitivity.setVisible(False)
+        self._sld_sensitivity.setVisible(False)
+        self._lbl_sensitivity_val.setVisible(False)
+        self._chk_diarize.toggled.connect(self._on_diarize_toggled)
 
         lay_opts.addStretch()
 
@@ -806,6 +946,15 @@ class TranscribeWindow(QDialog):
         lay_opts.addWidget(self._cmb_format)
 
         layout.addLayout(lay_opts)
+
+        # -- Options: row 2 — auto-translate --
+        lay_opts2 = QHBoxLayout()
+        self._chk_auto_translate = QCheckBox(_("Auto-translate the transcription"))
+        self._chk_auto_translate.setToolTip(
+            _("Automatically translate after transcription"))
+        lay_opts2.addWidget(self._chk_auto_translate)
+        lay_opts2.addStretch()
+        layout.addLayout(lay_opts2)
 
         # -- Translation row --
         lay_trans = QHBoxLayout()
@@ -927,10 +1076,15 @@ class TranscribeWindow(QDialog):
         self._btn_copy.clicked.connect(self._on_copy)
         lay_btns.addWidget(self._btn_copy)
 
-        self._btn_export = QPushButton(_("Export..."))
-        self._btn_export.setToolTip(_("Save the transcription to a file"))
+        self._btn_export = QPushButton(_("Export all..."))
+        self._btn_export.setToolTip(_("Export all tabs to files"))
         self._btn_export.clicked.connect(self._on_export)
         lay_btns.addWidget(self._btn_export)
+
+        self._btn_export_tab = QPushButton(_("Export tab..."))
+        self._btn_export_tab.setToolTip(_("Export only the current tab"))
+        self._btn_export_tab.clicked.connect(self._on_export_current_tab)
+        lay_btns.addWidget(self._btn_export_tab)
 
         lay_btns.addStretch()
 
@@ -943,6 +1097,7 @@ class TranscribeWindow(QDialog):
 
     def closeEvent(self, event):
         """Clean up processes on window close."""
+        self._player.stop()
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("closeEvent: killing transcription process")
             self._process.kill()
@@ -977,15 +1132,7 @@ class TranscribeWindow(QDialog):
         return widget if isinstance(widget, QTextEdit) else self._text_edit
 
     def _on_tab_close(self, index):
-        """Close a translation tab (but never the Original tab)."""
-        if index == 0:
-            return  # never close Original
-        widget = self._tabs.widget(index)
-        # Remove from translation_tabs dict
-        for lang, data in list(self._translation_tabs.items()):
-            if data["editor"] is widget:
-                del self._translation_tabs[lang]
-                break
+        """Close a tab (all tabs are closable)."""
         self._tabs.removeTab(index)
 
     def _connect_signals(self):
@@ -994,8 +1141,7 @@ class TranscribeWindow(QDialog):
         self._cmb_lang_src.currentIndexChanged.connect(self._on_lang_changed)
         self._cmb_lang_tgt.currentIndexChanged.connect(self._on_lang_changed)
         self._chk_auto_translate.toggled.connect(lambda: self._update_translate_btn())
-        self._tabs.currentChanged.connect(
-            lambda: self._search_bar.set_editor(self._active_editor()))
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
         # Watch dictee.conf for changes (e.g. after dictee-setup modifies it)
         if os.path.isfile(CONF_PATH):
@@ -1094,6 +1240,129 @@ class TranscribeWindow(QDialog):
         if path:
             _dbg(f"_on_browse: selected {path}")
             self._file_input.setText(path)
+            self._player.stop()
+            self._load_audio(path)
+
+    # -- Audio player methods --
+
+    def _load_audio(self, path):
+        """Load an audio file into the player."""
+        self._player.setSource(QUrl.fromLocalFile(path))
+
+    def _on_play_pause(self):
+        # Load file if not yet loaded
+        path = self._file_input.text().strip()
+        if not path:
+            return
+        if self._player.source().isEmpty():
+            self._load_audio(path)
+        if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+            self._player.pause()
+        else:
+            self._player.play()
+
+    def _on_player_stop(self):
+        self._player.stop()
+
+    def _on_seek(self, position):
+        self._player.setPosition(position)
+
+    def _on_player_position(self, pos_ms):
+        if not self._sld_position.isSliderDown():
+            self._sld_position.setValue(pos_ms)
+        dur_ms = self._player.duration()
+        self._lbl_time.setText(
+            f"{self._ms_to_str(pos_ms)} / {self._ms_to_str(dur_ms)}")
+
+    def _on_player_duration(self, dur_ms):
+        self._sld_position.setRange(0, dur_ms)
+        self._lbl_time.setText(
+            f"0:00 / {self._ms_to_str(dur_ms)}")
+
+    def _on_playback_state(self, state):
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self._btn_play.setText("⏸")
+            self._btn_play.setStyleSheet("font-size: 24px;")
+        else:
+            self._btn_play.setText("▶")
+            self._btn_play.setStyleSheet("")
+
+    @staticmethod
+    def _ms_to_str(ms):
+        s = ms // 1000
+        return f"{s // 60}:{s % 60:02d}"
+
+    def _update_player_markers(self):
+        """Update slider markers from current segments."""
+        # Store segments on current text_edit for tab switching
+        if hasattr(self, '_text_edit'):
+            self._text_edit._diarize_segments = list(self._segments)
+        if not self._segments:
+            self._sld_position.clear_markers()
+            return
+        markers = []
+        for seg in self._segments:
+            # Extract speaker number for color
+            spk = seg.get("speaker", "")
+            try:
+                spk_idx = int(spk.split()[-1]) if "Speaker" in spk else 0
+            except (ValueError, IndexError):
+                spk_idx = 0
+            color = SPEAKER_COLORS[spk_idx % len(SPEAKER_COLORS)]
+            markers.append((
+                int(seg["start"] * 1000),
+                int(seg["end"] * 1000),
+                color))
+        self._sld_position.set_markers(markers)
+
+    def _on_prev_segment(self):
+        """Jump to previous speaker segment start."""
+        if not self._segments:
+            return
+        pos_s = self._player.position() / 1000.0 - 0.1
+        for seg in reversed(self._segments):
+            if seg["start"] < pos_s:
+                self._player.setPosition(int(seg["start"] * 1000))
+                return
+        # Wrap to last
+        self._player.setPosition(int(self._segments[-1]["start"] * 1000))
+
+    def _on_next_segment(self):
+        """Jump to next speaker segment start."""
+        if not self._segments:
+            return
+        pos_s = self._player.position() / 1000.0 + 0.1
+        for seg in self._segments:
+            if seg["start"] > pos_s:
+                self._player.setPosition(int(seg["start"] * 1000))
+                return
+        # Wrap to first
+        self._player.setPosition(int(self._segments[0]["start"] * 1000))
+
+    def _on_tab_changed(self, index):
+        self._search_bar.set_editor(self._active_editor())
+        # Update player markers — show ONLY the segments of the active tab
+        widget = self._tabs.widget(index)
+        if widget is None:
+            self._sld_position.clear_markers()
+            return
+        segs = getattr(widget, '_diarize_segments', [])
+        # Build markers only from this tab's segments
+        markers = []
+        for seg in segs:
+            spk = seg.get("speaker", "")
+            try:
+                spk_idx = int(spk.split()[-1]) if "Speaker" in spk else 0
+            except (ValueError, IndexError):
+                spk_idx = 0
+            color = SPEAKER_COLORS[spk_idx % len(SPEAKER_COLORS)]
+            markers.append((int(seg["start"] * 1000), int(seg["end"] * 1000), color))
+        self._sld_position.set_markers(markers)
+
+    def _on_diarize_toggled(self, checked):
+        self._lbl_sensitivity.setVisible(checked)
+        self._sld_sensitivity.setVisible(checked)
+        self._lbl_sensitivity_val.setVisible(checked)
 
     def _on_transcribe(self):
         if not self.isVisible():
@@ -1112,20 +1381,39 @@ class TranscribeWindow(QDialog):
         diarize = self._chk_diarize.isChecked()
         _dbg(f"_on_transcribe: file={audio_path}, diarize={diarize}")
 
-        # Reset all state for new transcription
+        # Create a new tab for this transcription (keep previous tabs)
         self._was_diarized = False
-        self._text_edit.clear()
-        # Remove all translation tabs
-        while self._tabs.count() > 1:
-            self._tabs.removeTab(1)
-        self._translation_tabs.clear()
+        # Name tab after mode + sensitivity + counter
+        if not hasattr(self, '_transcription_counter'):
+            self._transcription_counter = 0
+        self._transcription_counter += 1
+        if diarize:
+            sens = self._sld_sensitivity.value()
+            tab_name = f"#{self._transcription_counter} Diarize {sens}%"
+        else:
+            tab_name = f"#{self._transcription_counter} Transcribe"
+        # Remove empty Original placeholder if it exists
+        for i in range(self._tabs.count()):
+            if (self._tabs.tabText(i) == _("Original")
+                    and not self._tabs.widget(i).toPlainText().strip()):
+                self._tabs.removeTab(i)
+                break
+        # Make previous active tab read-only
+        if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
+            self._text_edit.setReadOnly(True)
+        # Create new tab at the right
+        self._text_edit = QTextEdit()
+        self._text_edit.setReadOnly(False)
+        self._text_edit.setPlaceholderText(
+            _("Transcription results will appear here..."))
+        self._tabs.addTab(self._text_edit, tab_name)
+        self._tabs.setCurrentWidget(self._text_edit)
         self._segments = []
         self._raw_text = ""
         self._stdout_buf = QByteArray()
         self._start_time = time.monotonic()
         self._translate_elapsed = 0.0
         self._audio_duration = self._get_audio_duration(audio_path)
-        self._tabs.setCurrentIndex(0)  # show Original tab
         self._progress.setVisible(True)
 
         # Free GPU VRAM if needed: only stop processes when VRAM is tight
@@ -1239,7 +1527,11 @@ class TranscribeWindow(QDialog):
                 return
         _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
         self._diarize_audio_path = audio_path
-        self._process.start(cmd, [audio_path])
+        args = [audio_path]
+        if diarize:
+            sensitivity = self._sld_sensitivity.value() / 100.0
+            args += ["--sensitivity", f"{sensitivity:.2f}"]
+        self._process.start(cmd, args)
 
     def _on_stdout(self):
         if self._process is None:
@@ -1311,9 +1603,21 @@ class TranscribeWindow(QDialog):
             return
 
         self._retry_done = False
-        self._raw_text = raw_output
         self._was_diarized = True
         self._segments = _parse_diarize_output(raw_output)
+
+        # Post-process each segment's text through dictee-postprocess
+        for seg in self._segments:
+            seg["text"] = _postprocess(seg["text"])
+        # Rebuild raw_output with post-processed text
+        raw_output = "\n".join(
+            f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
+            for seg in self._segments) if self._segments else raw_output
+        self._raw_text = raw_output
+        # Store data on the tab widget for per-tab translation & markers
+        self._text_edit._raw_text = raw_output
+        self._text_edit._was_diarized = True
+        self._text_edit._diarize_segments = list(self._segments)
 
         # Auto-detect language
         detect_text = " ".join(seg["text"] for seg in self._segments) if self._segments else raw_output
@@ -1338,10 +1642,17 @@ class TranscribeWindow(QDialog):
                         break
 
         self._apply_format()
+        self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
         self._update_translate_btn()
         self._show_status()
+
+        # Auto-translate if checked and languages differ
+        if (self._chk_auto_translate.isChecked()
+                and _translate_available()
+                and self._cmb_lang_src.currentData() != self._cmb_lang_tgt.currentData()):
+            self._on_translate()
 
     def _on_finished(self, exit_code, _exit_status):
         self._progress.setVisible(False)
@@ -1423,11 +1734,25 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_finished: success, diarized={self._chk_diarize.isChecked()}, raw_len={len(raw_output)}")
 
         # Store raw result for reformatting
-        self._raw_text = raw_output
         self._was_diarized = self._chk_diarize.isChecked()
 
         if self._was_diarized:
             self._segments = _parse_diarize_output(raw_output)
+            # Post-process each segment's text
+            for seg in self._segments:
+                seg["text"] = _postprocess(seg["text"])
+            raw_output = "\n".join(
+                f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
+                for seg in self._segments) if self._segments else raw_output
+        else:
+            # Post-process plain transcription
+            raw_output = _postprocess(raw_output)
+
+        self._raw_text = raw_output
+        # Store data on the tab widget for per-tab translation & markers
+        self._text_edit._raw_text = raw_output
+        self._text_edit._was_diarized = self._was_diarized
+        self._text_edit._diarize_segments = list(self._segments)
 
         # Auto-detect language and update source/target ComboBoxes
         detect_text = raw_output
@@ -1456,6 +1781,7 @@ class TranscribeWindow(QDialog):
 
         # Display in current format
         self._apply_format()
+        self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
         self._update_translate_btn()
@@ -1483,8 +1809,18 @@ class TranscribeWindow(QDialog):
         self._lbl_status.setText(" — ".join(parts))
 
     def _on_translate(self):
-        """Translate current transcription result."""
-        if not self._raw_text:
+        """Translate the currently active tab."""
+        # Get data from current tab widget
+        widget = self._tabs.currentWidget()
+        raw_text = getattr(widget, '_raw_text', '') if widget else ''
+        segments = getattr(widget, '_diarize_segments', []) if widget else []
+        was_diarized = getattr(widget, '_was_diarized', False) if widget else False
+        if not raw_text and not segments:
+            # Fallback to instance state
+            raw_text = self._raw_text
+            segments = self._segments
+            was_diarized = self._was_diarized
+        if not raw_text:
             return
         # Prevent concurrent translation
         if self._translate_thread and self._translate_thread.isRunning():
@@ -1505,6 +1841,8 @@ class TranscribeWindow(QDialog):
         lang_src = self._cmb_lang_src.currentData()
         lang_tgt = self._cmb_lang_tgt.currentData()
         self._current_translate_lang = lang_tgt
+        # Remember which tab we're translating from
+        self._translate_source_tab = widget
         # Cleanup previous thread if any
         if self._translate_thread:
             try:
@@ -1518,7 +1856,7 @@ class TranscribeWindow(QDialog):
             if not self._translate_thread.isRunning():
                 self._translate_thread.deleteLater()
         self._translate_thread = TranslateThread(
-            self._raw_text, self._segments, self._was_diarized,
+            raw_text, segments, was_diarized,
             lang_src, lang_tgt)
         self._translate_thread.finished_signal.connect(self._on_translate_done)
         self._translate_thread.error_signal.connect(self._on_translate_error)
@@ -1546,27 +1884,38 @@ class TranscribeWindow(QDialog):
                 lang_name = self._cmb_lang_tgt.itemText(i).split(" — ")[1] if " — " in self._cmb_lang_tgt.itemText(i) else lang.upper()
                 break
 
-        # Create or reuse tab for this language
-        if lang in self._translation_tabs:
-            tab_data = self._translation_tabs[lang]
-            editor = tab_data["editor"]
+        # Build tab name: "SourceTab → Lang"
+        source_tab = getattr(self, '_translate_source_tab', None)
+        source_idx = self._tabs.indexOf(source_tab) if source_tab else -1
+        if source_idx >= 0:
+            source_name = self._tabs.tabText(source_idx)
+            tab_title = f"{source_name} → {lang_name}"
+            insert_at = source_idx + 1
+            # Skip any existing translation tabs after the source
+            while insert_at < self._tabs.count():
+                t = self._tabs.tabText(insert_at)
+                if "→" in t and t.startswith(source_name):
+                    insert_at += 1
+                else:
+                    break
         else:
-            editor = QTextEdit()
-            editor.setReadOnly(False)
-            editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
-            tab_idx = self._tabs.addTab(editor, lang_name)
-            # Re-suppress close button on Original tab (Qt quirk after addTab)
-            self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
-            self._translation_tabs[lang] = {"editor": editor, "segments": [], "text": ""}
+            tab_title = lang_name
+            insert_at = self._tabs.count()
+
+        # Create new translation tab inserted right after source
+        editor = QTextEdit()
+        editor.setReadOnly(False)
+        editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
+        self._tabs.insertTab(insert_at, editor, tab_title)
+
+        # Copy segments from source tab for marker support
+        if source_tab and hasattr(source_tab, '_diarize_segments'):
+            editor._diarize_segments = list(source_tab._diarize_segments)
 
         # Store and display
         if translated_segments:
-            self._translation_tabs[lang]["segments"] = translated_segments
-            self._translation_tabs[lang]["text"] = ""
             self._apply_format_to(editor, translated_segments, None)
         elif translated_text:
-            self._translation_tabs[lang]["segments"] = []
-            self._translation_tabs[lang]["text"] = translated_text
             self._apply_format_to(editor, [], translated_text)
 
         # Switch to this translation tab
@@ -1590,12 +1939,8 @@ class TranscribeWindow(QDialog):
         return SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]
 
     def _apply_format(self):
-        """Format and display original transcription + all translation tabs."""
+        """Format and display current transcription tab."""
         self._apply_format_to(self._text_edit, self._segments, self._raw_text)
-        # Reformat all translation tabs
-        for lang, data in self._translation_tabs.items():
-            if data["segments"] or data["text"]:
-                self._apply_format_to(data["editor"], data["segments"], data["text"])
 
     def _apply_format_to(self, editor, segments, raw_text):
         """Format and display text in the given editor."""
@@ -1649,15 +1994,23 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("Nothing to copy."))
             self._lbl_status.setVisible(True)
 
-    def _on_export(self):
-        _dbg(f"_on_export: {self._tabs.count()} tabs")
-        # Collect all tabs with content
+    def _on_export_current_tab(self):
+        """Export only the currently active tab."""
+        self._on_export(current_only=True)
+
+    def _on_export(self, current_only=False):
+        _dbg(f"_on_export: {self._tabs.count()} tabs, current_only={current_only}")
+        # Collect tabs with content
         tabs_info = []
+        current_tab_index = None
+        cur_widget = self._tabs.currentWidget()
         for i in range(self._tabs.count()):
             editor = self._tabs.widget(i)
             if isinstance(editor, QTextEdit):
                 text = editor.toPlainText()
                 if text.strip():
+                    if editor is cur_widget:
+                        current_tab_index = len(tabs_info)
                     tabs_info.append((self._tabs.tabText(i), text))
 
         if not tabs_info:
@@ -1666,7 +2019,8 @@ class TranscribeWindow(QDialog):
             return
 
         base = os.path.splitext(os.path.basename(self._file_input.text()))[0] or "transcription"
-        dlg = ExportDialog(tabs_info, self._cmb_format.currentData(), base, self)
+        dlg = ExportDialog(tabs_info, self._cmb_format.currentData(), base, self,
+                           current_tab_index=current_tab_index if current_only else None)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
@@ -1695,19 +2049,15 @@ class TranscribeWindow(QDialog):
                 # Find segments for this tab to reformat
                 content = text  # default: plain text from editor
                 if fmt != "text":
-                    # Try to find segments for this tab
+                    # Try to find segments from the tab widget
                     segments = None
-                    if tab_name == self._tabs.tabText(0):
-                        segments = self._segments if self._was_diarized else None
-                    else:
-                        for lang, data in self._translation_tabs.items():
-                            if data["segments"]:
-                                # Match by checking tab widget text
-                                for i in range(self._tabs.count()):
-                                    if (self._tabs.tabText(i) == tab_name
-                                            and self._tabs.widget(i) is data["editor"]):
-                                        segments = data["segments"]
-                                        break
+                    for i in range(self._tabs.count()):
+                        if self._tabs.tabText(i) == tab_name:
+                            w = self._tabs.widget(i)
+                            segs = getattr(w, '_diarize_segments', None)
+                            if segs:
+                                segments = segs
+                            break
 
                     if segments and fmt == "srt":
                         content = _format_srt(segments)

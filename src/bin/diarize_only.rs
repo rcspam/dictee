@@ -92,15 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = fs::remove_file(&wav_path);
         }
 
-        // Configure execution
-        #[cfg(feature = "cuda")]
-        let config = ExecutionConfig::new()
-            .with_execution_provider(parakeet_rs::ExecutionProvider::Cuda);
-        #[cfg(not(feature = "cuda"))]
-        let config = ExecutionConfig::new()
-            .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
-
-        // Load Sortformer
+        // Load Sortformer — try CUDA first, fallback to CPU
         let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
         let diar_config = if (sensitivity - 0.5).abs() < 0.01 {
             DiarizationConfig::callhome()
@@ -109,11 +101,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let offset = 0.3 + sensitivity * 0.3;
             DiarizationConfig::custom(onset, offset)
         };
-        let mut sortformer = Sortformer::with_config(
-            &sortformer_path,
-            Some(config),
-            diar_config,
-        )?;
+        #[cfg(feature = "cuda")]
+        let mut sortformer = {
+            let cuda_cfg = ExecutionConfig::new()
+                .with_execution_provider(parakeet_rs::ExecutionProvider::Cuda);
+            match Sortformer::with_config(&sortformer_path, Some(cuda_cfg), diar_config.clone()) {
+                Ok(sf) => sf,
+                Err(_) => {
+                    eprintln!("CUDA init failed for Sortformer, falling back to CPU");
+                    let cpu_cfg = ExecutionConfig::new()
+                        .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
+                    Sortformer::with_config(&sortformer_path, Some(cpu_cfg), diar_config)?
+                }
+            }
+        };
+        #[cfg(not(feature = "cuda"))]
+        let mut sortformer = {
+            let cpu_cfg = ExecutionConfig::new()
+                .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
+            Sortformer::with_config(&sortformer_path, Some(cpu_cfg), diar_config)?
+        };
 
         // Run diarization — output: start end speaker_id
         let segments = sortformer.diarize(audio, spec.sample_rate, spec.channels)?;
