@@ -90,6 +90,8 @@
 [fr] /[,.\s]*tabulation[,.\s]*/\t/ig
 [fr] /[,.\s]*apostrophe[,.\s]*/'/ig
 [fr] /[,.\s]*tirets? bas[,.\s]*/_/ig
+[fr] /[,.\s]*tirets? du six[,.\s]*/- /ig
+[fr] /[,.\s]*tirets? du huit[,.\s]*/_/ig
 [fr] /[,.\s]*tiret[,.\s]*/- /ig
 # 3c. Line breaks
 [fr] /[,.\s]*nouveau paragraphe[,.\s]*/\n\n/ig
