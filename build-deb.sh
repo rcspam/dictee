@@ -111,7 +111,7 @@ build_plasmoid
 # Build CUDA version
 build_cuda() {
     echo "=== [CUDA] Compiling binaries with GPU support ==="
-    cargo build --release --features "cuda,sortformer" \
+    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -149,17 +149,42 @@ EOF
     cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
 
-    # ONNX Runtime CUDA provider libs
-    echo "=== Copie des libs CUDA ONNX Runtime ==="
+    # ONNX Runtime libs (load-dynamic nécessite libonnxruntime.so)
+    echo "=== Copie des libs ONNX Runtime + CUDA ==="
     mkdir -p "$PKG_DIR/usr/lib/dictee"
+
+    # Lib ORT principale (requise par load-dynamic)
+    ORT_TGZ="onnxruntime-linux-x64-gpu-1.23.0.tgz"
+    ORT_DIR="onnxruntime-linux-x64-gpu-1.23.0"
+    if [ ! -d "$ORT_DIR" ]; then
+        if [ ! -f "$ORT_TGZ" ]; then
+            echo "Téléchargement d'ONNX Runtime GPU 1.23.0..."
+            curl -LO "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/$ORT_TGZ"
+        fi
+        tar xzf "$ORT_TGZ"
+    fi
+    cp "$ORT_DIR/lib/libonnxruntime.so.1.23.0" "$PKG_DIR/usr/lib/dictee/"
+    ln -sf libonnxruntime.so.1.23.0 "$PKG_DIR/usr/lib/dictee/libonnxruntime.so.1"
+    ln -sf libonnxruntime.so.1 "$PKG_DIR/usr/lib/dictee/libonnxruntime.so"
+
+    # Provider libs
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-        src="target/release/$lib"
-        if [ -L "$src" ]; then
-            cp -L "$src" "$PKG_DIR/usr/lib/dictee/"
-        elif [ -f "$src" ]; then
-            cp "$src" "$PKG_DIR/usr/lib/dictee/"
+        if [ -f "$ORT_DIR/lib/$lib" ]; then
+            cp "$ORT_DIR/lib/$lib" "$PKG_DIR/usr/lib/dictee/"
         fi
     done
+
+    # CUDA runtime libs
+    for lib in libcufft.so.11 libcudart.so.12; do
+        # Chercher dans le système (CUDA toolkit)
+        sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu -name "$lib*" -type f 2>/dev/null | head -1)
+        if [ -n "$sys_lib" ]; then
+            cp -L "$sys_lib" "$PKG_DIR/usr/lib/dictee/$lib"
+        else
+            echo "ATTENTION: $lib non trouvé — le paquet CUDA pourrait ne pas fonctionner sans CUDA toolkit installé"
+        fi
+    done
+
     # ld.so.conf.d entry so the dynamic linker finds them
     mkdir -p "$PKG_DIR/etc/ld.so.conf.d"
     echo "/usr/lib/dictee" > "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
@@ -310,17 +335,28 @@ build_tarball() {
         cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
     fi
 
-    # ONNX Runtime CUDA libs (if available from last CUDA build)
-    for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-        src="target/release/$lib"
-        if [ -L "$src" ]; then
-            mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-            cp -L "$src" "$TARBALL_DIR/usr/lib/dictee/"
-        elif [ -f "$src" ]; then
-            mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-            cp "$src" "$TARBALL_DIR/usr/lib/dictee/"
-        fi
-    done
+    # ONNX Runtime + CUDA libs (si le build CUDA a téléchargé le tgz ORT)
+    ORT_DIR="onnxruntime-linux-x64-gpu-1.23.0"
+    if [ -d "$ORT_DIR" ]; then
+        mkdir -p "$TARBALL_DIR/usr/lib/dictee"
+        cp "$ORT_DIR/lib/libonnxruntime.so.1.23.0" "$TARBALL_DIR/usr/lib/dictee/"
+        ln -sf libonnxruntime.so.1.23.0 "$TARBALL_DIR/usr/lib/dictee/libonnxruntime.so.1"
+        ln -sf libonnxruntime.so.1 "$TARBALL_DIR/usr/lib/dictee/libonnxruntime.so"
+        for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+            if [ -f "$ORT_DIR/lib/$lib" ]; then
+                cp "$ORT_DIR/lib/$lib" "$TARBALL_DIR/usr/lib/dictee/"
+            fi
+        done
+        # CUDA runtime libs (copiées pendant le build CUDA)
+        for lib in libcufft.so.11 libcudart.so.12; do
+            sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu -name "$lib*" -type f 2>/dev/null | head -1)
+            if [ -n "$sys_lib" ]; then
+                cp -L "$sys_lib" "$TARBALL_DIR/usr/lib/dictee/$lib"
+            fi
+        done
+        mkdir -p "$TARBALL_DIR/etc/ld.so.conf.d"
+        echo "/usr/lib/dictee" > "$TARBALL_DIR/etc/ld.so.conf.d/dictee.conf"
+    fi
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"

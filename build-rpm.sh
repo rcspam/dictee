@@ -155,7 +155,7 @@ build_rpm_cuda() {
     # Recompiler en CUDA si nécessaire
     if ! nm target/release/transcribe 2>/dev/null | grep -q cuda; then
         echo "Recompilation CUDA..."
-        cargo build --release --features "cuda,sortformer" \
+        cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
             --bin transcribe \
             --bin transcribe-daemon \
             --bin transcribe-client \
@@ -166,17 +166,41 @@ build_rpm_cuda() {
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
 
-    # ONNX Runtime CUDA provider libs
-    echo "Copie des libs CUDA ONNX Runtime..."
+    # ONNX Runtime libs (load-dynamic nécessite libonnxruntime.so)
+    echo "Copie des libs ONNX Runtime + CUDA..."
     mkdir -p "$buildroot/usr/lib/dictee"
+
+    # Lib ORT principale (requise par load-dynamic)
+    ORT_TGZ="onnxruntime-linux-x64-gpu-1.23.0.tgz"
+    ORT_DIR="onnxruntime-linux-x64-gpu-1.23.0"
+    if [ ! -d "$ORT_DIR" ]; then
+        if [ ! -f "$ORT_TGZ" ]; then
+            echo "Téléchargement d'ONNX Runtime GPU 1.23.0..."
+            curl -LO "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/$ORT_TGZ"
+        fi
+        tar xzf "$ORT_TGZ"
+    fi
+    cp "$ORT_DIR/lib/libonnxruntime.so.1.23.0" "$buildroot/usr/lib/dictee/"
+    ln -sf libonnxruntime.so.1.23.0 "$buildroot/usr/lib/dictee/libonnxruntime.so.1"
+    ln -sf libonnxruntime.so.1 "$buildroot/usr/lib/dictee/libonnxruntime.so"
+
+    # Provider libs
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-        src="target/release/$lib"
-        if [ -L "$src" ]; then
-            cp -L "$src" "$buildroot/usr/lib/dictee/"
-        elif [ -f "$src" ]; then
-            cp "$src" "$buildroot/usr/lib/dictee/"
+        if [ -f "$ORT_DIR/lib/$lib" ]; then
+            cp "$ORT_DIR/lib/$lib" "$buildroot/usr/lib/dictee/"
         fi
     done
+
+    # CUDA runtime libs
+    for lib in libcufft.so.11 libcudart.so.12; do
+        sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu -name "$lib*" -type f 2>/dev/null | head -1)
+        if [ -n "$sys_lib" ]; then
+            cp -L "$sys_lib" "$buildroot/usr/lib/dictee/$lib"
+        else
+            echo "ATTENTION: $lib non trouvé — le paquet CUDA pourrait ne pas fonctionner sans CUDA toolkit installé"
+        fi
+    done
+
     mkdir -p "$buildroot/etc/ld.so.conf.d"
     echo "/usr/lib/dictee" > "$buildroot/etc/ld.so.conf.d/dictee.conf"
 
