@@ -35,6 +35,32 @@ if [ "${1:-}" = "stop" ]; then
 fi
 
 N_BARS="${1:-6}"
+AUDIO_SOURCE="${2:-${DICTEE_AUDIO_SOURCE:-}}"
+
+# Arguments parec pour la source audio
+PAREC_ARGS="--rate=16000 --channels=1 --format=s16le --latency-msec=40"
+if [ -n "$AUDIO_SOURCE" ]; then
+    # Vérifier si c'est une source PulseAudio (alsa_*) ou une application
+    case "$AUDIO_SOURCE" in
+        alsa_*|*.monitor)
+            # Source ou monitor — parec --device directement
+            PAREC_ARGS="$PAREC_ARGS --device=$AUDIO_SOURCE"
+            ;;
+        *)
+            # Application (Firefox, etc.) — trouver le monitor du sink
+            _sink=$(LANG=C pactl list sink-inputs 2>/dev/null | awk -v app="$AUDIO_SOURCE" '
+                /^\tSink:/ { sink=$NF }
+                /application.name =/ && index($0, "\"" app "\"") { print sink; exit }
+            ')
+            if [ -n "$_sink" ]; then
+                _sink_name=$(LANG=C pactl list sinks short 2>/dev/null | awk -v id="$_sink" '$1==id {print $2}')
+                if [ -n "$_sink_name" ]; then
+                    PAREC_ARGS="$PAREC_ARGS --device=${_sink_name}.monitor"
+                fi
+            fi
+            ;;
+    esac
+fi
 
 # Arrêter l'ancien daemon
 stop_existing
@@ -57,7 +83,7 @@ fi
 # Vérifier que dictee-plasmoid-level-fft est disponible
 if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
     # Fallback : mode RMS simple sans FFT
-    parec --rate=16000 --channels=1 --format=s16le --latency-msec=40 2>/dev/null | \
+    parec $PAREC_ARGS 2>/dev/null | \
     while true; do
         # Lire 2560 octets (1280 samples × 2 bytes = 80ms à 16kHz)
         chunk=$(dd bs=2560 count=1 2>/dev/null | od -An -td2 -w2 | \
@@ -82,7 +108,7 @@ if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
 fi
 
 # Mode FFT : parec → dictee-plasmoid-level-fft
-parec --rate=16000 --channels=1 --format=s16le --latency-msec=40 2>/dev/null | \
+parec $PAREC_ARGS 2>/dev/null | \
     dictee-plasmoid-level-fft "$N_BARS" "$BANDS_FILE" &
 PAREC_PID=$!
 

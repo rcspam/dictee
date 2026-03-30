@@ -21,11 +21,14 @@ RowLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
 
-    // Fermer les ComboBox quand le popup se ferme
+    // Rafraîchir les sources audio à l'ouverture, fermer les ComboBox à la fermeture
     onVisibleChanged: {
-        if (!visible) {
+        if (visible) {
+            executable.run(root.listAudioSourcesCmd)
+        } else {
             if (asrCombo.popup && asrCombo.popup.visible) asrCombo.popup.close()
             if (transCombo.popup && transCombo.popup.visible) transCombo.popup.close()
+            if (typeof audioSourceCombo !== "undefined" && audioSourceCombo.popup && audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
         }
     }
 
@@ -108,13 +111,12 @@ RowLayout {
                     return ""
                 }
             }
-            Layout.fillWidth: true
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 8
         }
 
         PlasmaComponents.ToolButton {
             icon.name: "view-refresh"
             display: PlasmaComponents.AbstractButton.IconOnly
-            visible: fullRep.state !== "offline"
             PlasmaComponents.ToolTip { text: i18n("Reset") }
             onClicked: fullRep.actionRequested("reset")
         }
@@ -127,6 +129,76 @@ RowLayout {
             }
             onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
         }
+
+        Item { Layout.fillWidth: true }
+
+        QQC2.ComboBox {
+            id: audioSourceCombo
+            Kirigami.Theme.inherit: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+            visible: root.dicteeConfigured && root.audioSourceList.length > 0
+            textRole: "label"
+            model: root.audioSourceList
+            delegate: QQC2.ItemDelegate {
+                width: parent ? parent.width : 0
+                contentItem: RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+                    Kirigami.Icon {
+                        source: modelData.icon || "audio-input-microphone"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    }
+                    QQC2.Label {
+                        text: modelData.label
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                }
+                highlighted: audioSourceCombo.highlightedIndex === index
+            }
+            displayText: " "
+            contentItem: RowLayout {
+                spacing: Kirigami.Units.smallSpacing
+                Kirigami.Icon {
+                    source: (root.audioSourceList.length > 0 && audioSourceCombo.currentIndex >= 0)
+                            ? root.audioSourceList[audioSourceCombo.currentIndex].icon
+                            : "audio-input-microphone"
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                }
+                QQC2.Label {
+                    text: (root.audioSourceList.length > 0 && audioSourceCombo.currentIndex >= 0)
+                          ? root.audioSourceList[audioSourceCombo.currentIndex].label
+                          : ""
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+            }
+            currentIndex: {
+                for (var i = 0; i < root.audioSourceList.length; i++) {
+                    if (root.audioSourceList[i].value === root.currentAudioSource) return i
+                }
+                return 0
+            }
+            onActivated: function(index) {
+                var val = root.audioSourceList[index].value
+                root.currentAudioSource = val
+                executable.run("sed -i 's/^DICTEE_AUDIO_SOURCE=.*/DICTEE_AUDIO_SOURCE=" + val + "/' \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"")
+            }
+            Connections {
+                target: root
+                function onAudioSourceListChanged() {
+                    for (var i = 0; i < root.audioSourceList.length; i++) {
+                        if (root.audioSourceList[i].value === root.currentAudioSource) {
+                            audioSourceCombo.currentIndex = i
+                            return
+                        }
+                    }
+                    audioSourceCombo.currentIndex = 0
+                }
+            }
+        }
+
     }
 
     // Separateur
@@ -253,6 +325,7 @@ RowLayout {
                     case "idle":
                         // Step 1: prepare — stop daemons, free VRAM
                         dState = "preparing"
+                        root.diarizeEnabled = false
                         pulseAnim.start()
                         executable.run("bash -c 'dictee-switch-backend diarize true && echo DIARIZE_READY'")
                         break
@@ -274,9 +347,14 @@ RowLayout {
             Connections {
                 target: root
                 function onDiarizeEnabledChanged() {
-                    // DIARIZE_READY received from main.qml
                     if (root.diarizeEnabled && btnDiarize.dState === "preparing") {
+                        // DIARIZE_READY received — backend prêt
                         btnDiarize.dState = "ready"
+                        pulseAnim.stop()
+                        btnDiarize.opacity = 1.0
+                    } else if (!root.diarizeEnabled) {
+                        // Reset (annulation ou reset global)
+                        btnDiarize.dState = "idle"
                         pulseAnim.stop()
                         btnDiarize.opacity = 1.0
                     }
@@ -305,9 +383,11 @@ RowLayout {
         }
     }
 
-    // Raccourci ESC pour annuler
+    // Raccourci ESC pour annuler (recording ou diarisation en préparation)
     Keys.onEscapePressed: {
         if (fullRep.state === "recording") {
+            fullRep.actionRequested("cancel")
+        } else if (btnDiarize.dState === "preparing" || btnDiarize.dState === "ready") {
             fullRep.actionRequested("cancel")
         }
     }
@@ -493,16 +573,27 @@ RowLayout {
         }
     }
 
+    // Level meter : utilise root.audioLevel de main.qml (timer ping-pong déjà actif pendant recording)
+    // + timer popup pour lire le niveau quand on n'enregistre pas
+
+
     // Focus pour recevoir ESC
     Component.onCompleted: forceActiveFocus()
 
     }  // end ColumnLayout
 
-    // Vertical microphone volume slider (right side)
+    // Séparateur vertical avant le slider micro
+    Kirigami.Separator {
+        Layout.fillHeight: true
+        Layout.topMargin: Kirigami.Units.largeSpacing * 4
+    }
+
+    // Vertical microphone volume slider + level meter (right side)
     ColumnLayout {
         Layout.fillHeight: true
-        Layout.preferredWidth: 30
-        spacing: 2
+        Layout.preferredWidth: 50
+        Layout.topMargin: Kirigami.Units.largeSpacing * 4
+        spacing: Kirigami.Units.smallSpacing
 
         Kirigami.Icon {
             source: root.micMuted ? "microphone-sensitivity-muted" : "audio-input-microphone"
@@ -510,34 +601,78 @@ RowLayout {
             Layout.preferredWidth: Kirigami.Units.iconSizes.small
             Layout.preferredHeight: Kirigami.Units.iconSizes.small
             Layout.alignment: Qt.AlignHCenter
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
             MouseArea {
+                id: micIconMouse
                 anchors.fill: parent
+                hoverEnabled: true
                 onClicked: {
                     executable.run("wpctl set-mute @DEFAULT_SOURCE@ toggle")
                     root.micMuted = !root.micMuted
                 }
             }
-            QQC2.ToolTip.text: root.micMuted ? i18n("Microphone muted — click to unmute") : i18n("Click to mute microphone")
-            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: root.micMuted ? i18n("Microphone muted — click to unmute") : i18n("Microphone — click to mute")
+            QQC2.ToolTip.visible: micIconMouse.containsMouse
             QQC2.ToolTip.delay: 300
         }
 
-        QQC2.Slider {
-            id: micSlider
+        RowLayout {
             Layout.fillHeight: true
-            orientation: Qt.Vertical
-            from: 0.0
-            to: 0.6
-            stepSize: 0.0
-            snapMode: QQC2.Slider.NoSnap
-            value: root.micVolume
-            onMoved: {
-                root.micVolume = value
-                executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+            spacing: 4
+
+            QQC2.Slider {
+                id: micSlider
+                Layout.fillHeight: true
+                orientation: Qt.Vertical
+                from: 0.0
+                to: 0.6
+                stepSize: 0.0
+                snapMode: QQC2.Slider.NoSnap
+                value: root.micVolume
+                onMoved: {
+                    root.micVolume = value
+                    executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+                }
+                QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: 300
             }
-            QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 300
+
+            // Level meter — barre verticale alignée sur le slider
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 6
+                radius: 3
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                clip: true
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - 2
+                    property real level: root.audioLevel || 0.0
+                    height: Math.max(0, parent.height * Math.min(1.0, level * 1.5))
+                    radius: 2
+                    color: level > 0.8 ? Kirigami.Theme.negativeTextColor
+                         : level > 0.4 ? Kirigami.Theme.neutralTextColor
+                         : Kirigami.Theme.positiveTextColor
+
+                    Behavior on height {
+                        NumberAnimation { duration: 50 }
+                    }
+                }
+
+                QQC2.ToolTip.text: i18n("Audio input level")
+                QQC2.ToolTip.visible: levelMeterMouse.containsMouse
+                QQC2.ToolTip.delay: 300
+                MouseArea {
+                    id: levelMeterMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                }
+            }
         }
     }
 }

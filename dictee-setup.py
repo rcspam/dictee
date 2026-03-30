@@ -6583,16 +6583,25 @@ class DicteeSetupDialog(QDialog):
         self._audio_devices = QMediaDevices.audioInputs()
         self.cmb_audio_source = QComboBox()
         self.cmb_audio_source.addItem(_("System default"), "")
-        for dev in self._audio_devices:
-            self.cmb_audio_source.addItem(dev.description(), dev.id().data().decode())
+        self._populate_audio_sources()
         if saved_src:
             idx = self.cmb_audio_source.findData(saved_src)
             if idx >= 0:
                 self.cmb_audio_source.setCurrentIndex(idx)
         self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
 
+        # Refresh button to update application list
+        lay_src = QHBoxLayout()
+        lay_src.setSpacing(4)
+        lay_src.addWidget(self.cmb_audio_source, 1)
+        btn_refresh = QPushButton("⟳")
+        btn_refresh.setFixedWidth(32)
+        btn_refresh.setToolTip(_("Refresh audio sources"))
+        btn_refresh.clicked.connect(self._refresh_audio_sources)
+        lay_src.addWidget(btn_refresh)
+
         lay_mic.addWidget(QLabel(_("Audio source:")))
-        lay_mic.addWidget(self.cmb_audio_source)
+        lay_mic.addLayout(lay_src)
 
         # Volume slider
         lay_vol = QHBoxLayout()
@@ -6615,6 +6624,59 @@ class DicteeSetupDialog(QDialog):
         # In wizard mode, start audio level only when page 4 becomes visible
         if not self.wizard_mode:
             self._start_audio_level()
+
+    def _populate_audio_sources(self):
+        """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
+        # ── Devices (microphones) ──
+        for dev in self._audio_devices:
+            self.cmb_audio_source.addItem(
+                "🎤 " + dev.description(), dev.id().data().decode())
+        # ── Monitors + Applications (PipeWire/PulseAudio) ──
+        try:
+            import json
+            out = subprocess.check_output(
+                ["pw-dump"], timeout=3, stderr=subprocess.DEVNULL)
+            nodes = json.loads(out)
+            for node in nodes:
+                if node.get("type") != "PipeWire:Interface:Node":
+                    continue
+                props = node.get("info", {}).get("props", {})
+                media_class = props.get("media.class", "")
+                node_name = props.get("node.name", "")
+                # Monitors (audio output loopback)
+                if media_class == "Audio/Source" and node_name.endswith(".monitor"):
+                    desc = props.get("node.description",
+                                     props.get("node.nick", node_name))
+                    self.cmb_audio_source.addItem(
+                        "🔊 Monitor: " + desc, node_name)
+                # Applications playing audio
+                elif media_class == "Stream/Output/Audio":
+                    app = props.get("application.name", "?")
+                    media = props.get("media.name", "")
+                    label = f"📺 {app}"
+                    if media and media != app:
+                        # Truncate long media names
+                        if len(media) > 50:
+                            media = media[:47] + "..."
+                        label += f" — {media}"
+                    # Use node.name (stable) instead of id (ephemeral)
+                    self.cmb_audio_source.addItem(label, node_name)
+        except Exception:
+            pass  # pw-dump unavailable — Qt devices only
+
+    def _refresh_audio_sources(self):
+        """Refresh the audio source list (re-scan devices + apps)."""
+        saved = self.cmb_audio_source.currentData()
+        self.cmb_audio_source.blockSignals(True)
+        self.cmb_audio_source.clear()
+        self.cmb_audio_source.addItem(_("System default"), "")
+        self._audio_devices = QMediaDevices.audioInputs()
+        self._populate_audio_sources()
+        if saved:
+            idx = self.cmb_audio_source.findData(saved)
+            if idx >= 0:
+                self.cmb_audio_source.setCurrentIndex(idx)
+        self.cmb_audio_source.blockSignals(False)
 
     # ── Wizard checks (page 5) ───────────────────────────────────
 

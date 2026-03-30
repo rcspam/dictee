@@ -118,6 +118,9 @@ PlasmoidItem {
                 if (parts.length >= 4) {
                     root.diarizeEnabled = (parts[3] === "true")
                 }
+                if (parts.length >= 5) {
+                    root.currentAudioSource = parts[4] || ""
+                }
             } else if (source === checkInstalledCmd) {
                 var parts = stdout.trim().split("---")
                 var asrList = parts[0].trim().split("\n").filter(function(s) { return s.length > 0 })
@@ -133,6 +136,16 @@ PlasmoidItem {
                 if (parts.length > 2) {
                     root.sortformerAvailable = parts[2].trim().indexOf("sortformer") !== -1
                 }
+            } else if (source === listAudioSourcesCmd) {
+                var lines = stdout.trim().split("\n").filter(function(s) { return s.length > 0 })
+                var sources = []
+                for (var i = 0; i < lines.length; i++) {
+                    var p = lines[i].split("|")
+                    if (p.length >= 3) {
+                        sources.push({ value: p[0], icon: p[1], label: p[2] })
+                    }
+                }
+                root.audioSourceList = sources
             } else if (source === micVolumeCmd) {
                 // Parse "Volume: 0.50" or "Volume: 0.50 [MUTED]"
                 var volMatch = stdout.match(/Volume:\s+(\d+\.?\d*)/)
@@ -207,7 +220,7 @@ PlasmoidItem {
     Timer {
         id: audioTimer
         interval: 80
-        running: root.effectiveState === "recording"
+        running: root.effectiveState === "recording" || root.expanded
         repeat: true
         onTriggered: {
             if (!root.audioReadPending) {
@@ -238,7 +251,10 @@ PlasmoidItem {
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property bool diarizeEnabled: false  // read from config
     property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE|$DICTEE_AUDIO_SOURCE\"'"
+    property string currentAudioSource: ""
+    property var audioSourceList: []
+    property string listAudioSourcesCmd: "dictee-audio-sources"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
         "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
@@ -256,6 +272,7 @@ PlasmoidItem {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
         executable.run(micVolumeCmd)
+        executable.run(listAudioSourcesCmd)
     }
 
     // Ping-pong pour l'état aussi
@@ -266,11 +283,20 @@ PlasmoidItem {
         "cat /dev/shm/.dictee_state 2>/dev/null #B"
     ]
 
+    function cleanupDiarize() {
+        if (root.diarizeEnabled) {
+            root.diarizeEnabled = false
+            executable.run("dictee-switch-backend diarize false")
+        }
+    }
+
     function parseState(output) {
         var newState = output.trim()
         if (newState === "cancelled") {
             transcribingTimer.stop()
             recordingTimer.stop()
+            cleanupDiarize()
+            root.activeButton = ""
             root.state = "idle"
             return
         }
@@ -294,6 +320,7 @@ PlasmoidItem {
                 transcribingTimer.stop()
                 recordingTimer.stop()
                 switchingTimer.stop()
+                cleanupDiarize()
                 root.state = "idle"
                 root.activeButton = ""
             }
@@ -418,6 +445,8 @@ PlasmoidItem {
             break
         case "cancel":
             executable.run("dictee --cancel")
+            cleanupDiarize()
+            root.activeButton = ""
             root.state = "idle"
             break
         case "start-daemon":
@@ -436,9 +465,24 @@ PlasmoidItem {
             root.state = "offline"
             break
         case "reset":
-            executable.run("bash -c 'echo idle > /dev/shm/.dictee_state; dictee --cancel 2>/dev/null'")
+            executable.run("bash -c '" +
+                "echo idle > /dev/shm/.dictee_state; " +
+                "dictee --cancel 2>/dev/null; " +
+                "pkill -f transcribe-diarize 2>/dev/null; " +
+                "pkill -f dictee-transcribe 2>/dev/null; " +
+                "rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* /tmp/dictee_esc_listener_pid*; " +
+                "dictee-switch-backend diarize false 2>/dev/null; " +
+                "source ${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf 2>/dev/null; " +
+                "case \"${DICTEE_ASR_BACKEND:-parakeet}\" in " +
+                "  parakeet) systemctl --user start dictee.service ;; " +
+                "  vosk) systemctl --user start dictee-vosk.service ;; " +
+                "  whisper) systemctl --user start dictee-whisper.service ;; " +
+                "  canary) systemctl --user start dictee-canary.service ;; " +
+                "esac'")
             transcribingTimer.stop()
             recordingTimer.stop()
+            root.diarizeEnabled = false
+            root.activeButton = ""
             root.state = "idle"
             break
         case "transcribe-file":
@@ -461,7 +505,21 @@ PlasmoidItem {
         } else if (style === "waveform") {
             cmd += " " + Plasmoid.configuration.waveformBars
         }
+        if (root.currentAudioSource) {
+            cmd += " " + root.currentAudioSource
+        }
         executable.run(cmd)
+    }
+
+    onCurrentAudioSourceChanged: {
+        // Relancer le daemon level avec la nouvelle source (stop + délai + start)
+        executable.run("bash -c 'dictee-plasmoid-level stop; sleep 0.3; " +
+            "dictee-plasmoid-level " +
+            (function() {
+                var style = Plasmoid.configuration.animationStyle || "bars"
+                var bars = (style === "waveform") ? Plasmoid.configuration.waveformBars : Plasmoid.configuration.barCount
+                return bars + (root.currentAudioSource ? " " + root.currentAudioSource : "")
+            })() + "'")
     }
 
     // Lancer le daemon audio au chargement pour éviter la latence

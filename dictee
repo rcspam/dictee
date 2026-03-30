@@ -48,6 +48,13 @@ LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
 DIARIZE="${DICTEE_DIARIZE:-false}"
+AUDIO_SOURCE="${DICTEE_AUDIO_SOURCE:-}"
+# Déterminer si la source est un périphérique (alsa_*) ou une application (Firefox, etc.)
+# Les applications ne sont pas des sources pactl → mute/unmute sur @DEFAULT_SOURCE@
+case "$AUDIO_SOURCE" in
+    ''|alsa_*) _PA_SOURCE="${AUDIO_SOURCE:-@DEFAULT_SOURCE@}"; _IS_APP_SOURCE=false ;;
+    *)         _PA_SOURCE="@DEFAULT_SOURCE@"; _IS_APP_SOURCE=true ;;
+esac
 
 # Détection du layout clavier pour dotool (localectl > setxkbmap > us)
 if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
@@ -520,7 +527,7 @@ cleanup_on_error() {
     # Restaurer l'état audio
     pactl set-sink-mute @DEFAULT_SINK@ 0
     if [ -f "$MUT_FILE" ]; then
-        [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
+        [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute "$_PA_SOURCE" 1
         rm -f "$MUT_FILE"
     fi
 
@@ -669,7 +676,7 @@ if [ "$CANCEL" = true ]; then
             was_muted=""
             if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
                 if [ "$was_muted" = "1" ]; then
-                    pactl set-source-mute @DEFAULT_SOURCE@ 1
+                    pactl set-source-mute "$_PA_SOURCE" 1
                 fi
             fi
             rm -f "$MUT_FILE"
@@ -729,7 +736,7 @@ if [ -f "$PIDFILE" ]; then
         was_muted=""
         if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
             if [ "$was_muted" = "1" ]; then
-                pactl set-source-mute @DEFAULT_SOURCE@ 1
+                pactl set-source-mute "$_PA_SOURCE" 1
             fi
         fi
         rm -f "$MUT_FILE"
@@ -899,13 +906,15 @@ else
         echo "$TRANSLATE_BACKEND" >"$TRANSLATE_BACKEND_FILE"
     fi
 
-    # Vérifier si le micro est muté et le démuter
-    if pactl get-source-mute @DEFAULT_SOURCE@ | grep -q -i -E 'oui|yes'; then
-        pactl set-source-mute @DEFAULT_SOURCE@ 0
-        echo "MUT=1" >"$MUT_FILE"
+    # Gestion audio : pas de mute si on capture une application (node ID numérique)
+    if [ "$_IS_APP_SOURCE" = false ]; then
+        # Source = micro : démuter le micro, muter la sortie (anti-feedback)
+        if pactl get-source-mute "$_PA_SOURCE" | grep -q -i -E 'oui|yes'; then
+            pactl set-source-mute "$_PA_SOURCE" 0
+            echo "MUT=1" >"$MUT_FILE"
+        fi
+        pactl set-sink-mute @DEFAULT_SINK@ 1
     fi
-    # Muter le son (pour éviter le feedback)
-    pactl set-sink-mute @DEFAULT_SINK@ 1
 
     # Lancer l'animation (si mode speech ou both, et si disponible)
     if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
@@ -916,7 +925,11 @@ else
     fi
 
     # Démarrer l'enregistrement EN PREMIER (avant notification/plasmoid pour ne rien perdre)
-    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    if [ -n "$AUDIO_SOURCE" ]; then
+        pw-record --target "$AUDIO_SOURCE" --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    else
+        pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    fi
     echo $! >"$PIDFILE"
 
     # Vérifier que pw-record a bien démarré

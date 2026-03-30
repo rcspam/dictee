@@ -1,0 +1,52 @@
+#!/bin/bash
+# dictee-audio-sources — Liste les sources audio disponibles pour le plasmoid
+# Format: value|icon|label (une ligne par source)
+echo "|audio-input-microphone|System default"
+pw-dump 2>/dev/null | python3 -c "
+import json, sys
+nodes = json.loads(sys.stdin.read())
+
+# Map app names to system icon names
+APP_ICONS = {
+    'firefox': 'firefox',
+    'chromium': 'chromium',
+    'chrome': 'google-chrome',
+    'brave': 'brave',
+    'vlc': 'vlc',
+    'mpv': 'mpv',
+    'spotify': 'spotify',
+    'audacious': 'audacious',
+    'rhythmbox': 'rhythmbox',
+    'elisa': 'elisa',
+    'kaffeine': 'kaffeine',
+    'totem': 'totem',
+    'obs': 'obs',
+    'discord': 'discord',
+    'telegram': 'telegram',
+    'steam': 'steam',
+}
+
+for n in nodes:
+    if n.get('type') != 'PipeWire:Interface:Node':
+        continue
+    p = n.get('info', {}).get('props', {})
+    mc = p.get('media.class', '')
+    nn = p.get('node.name', '')
+    if mc == 'Audio/Source' and not nn.endswith('.monitor'):
+        print(nn + '|audio-input-microphone|' + p.get('node.description', nn))
+    elif mc == 'Audio/Source' and nn.endswith('.monitor'):
+        print(nn + '|audio-speakers|Monitor: ' + p.get('node.description', nn))
+    elif mc == 'Stream/Output/Audio':
+        a = p.get('application.name', '?')
+        m = p.get('media.name', '')
+        # Find matching icon
+        icon = 'applications-multimedia'
+        for key, val in APP_ICONS.items():
+            if key in a.lower():
+                icon = val
+                break
+        label = a
+        if m and m != a:
+            label += ' — ' + m[:50]
+        print(nn + '|' + icon + '|' + label)
+" 2>/dev/null
