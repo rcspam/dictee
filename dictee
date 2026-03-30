@@ -52,8 +52,8 @@ AUDIO_SOURCE="${DICTEE_AUDIO_SOURCE:-}"
 # Déterminer si la source est un périphérique (alsa_*) ou une application (Firefox, etc.)
 # Les applications ne sont pas des sources pactl → mute/unmute sur @DEFAULT_SOURCE@
 case "$AUDIO_SOURCE" in
-    ''|alsa_*) _PA_SOURCE="${AUDIO_SOURCE:-@DEFAULT_SOURCE@}"; _IS_APP_SOURCE=false ;;
-    *)         _PA_SOURCE="@DEFAULT_SOURCE@"; _IS_APP_SOURCE=true ;;
+    ''|alsa_input.*) _PA_SOURCE="${AUDIO_SOURCE:-@DEFAULT_SOURCE@}"; _IS_APP_SOURCE=false ;;
+    *)               _PA_SOURCE="@DEFAULT_SOURCE@"; _IS_APP_SOURCE=true ;;
 esac
 
 # Détection du layout clavier pour dotool (localectl > setxkbmap > us)
@@ -525,9 +525,13 @@ cleanup_on_error() {
     pkill -P $$ 2>/dev/null
 
     # Restaurer l'état audio
-    pactl set-sink-mute @DEFAULT_SINK@ 0
+    if [ "$_IS_APP_SOURCE" = false ]; then
+        pactl set-sink-mute @DEFAULT_SINK@ 0
+    fi
     if [ -f "$MUT_FILE" ]; then
-        [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute "$_PA_SOURCE" 1
+        if [ "$(awk -F'=' '{print $2}' "$MUT_FILE" 2>/dev/null)" = "1" ]; then
+            pactl set-source-mute "$_PA_SOURCE" 1
+        fi
         rm -f "$MUT_FILE"
     fi
 

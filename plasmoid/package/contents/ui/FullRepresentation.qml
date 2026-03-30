@@ -28,7 +28,7 @@ RowLayout {
         } else {
             if (asrCombo.popup && asrCombo.popup.visible) asrCombo.popup.close()
             if (transCombo.popup && transCombo.popup.visible) transCombo.popup.close()
-            if (typeof audioSourceCombo !== "undefined" && audioSourceCombo.popup && audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
+            if (audioSourceCombo.popup && audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
         }
     }
 
@@ -183,7 +183,7 @@ RowLayout {
             onActivated: function(index) {
                 var val = root.audioSourceList[index].value
                 root.currentAudioSource = val
-                executable.run("sed -i 's/^DICTEE_AUDIO_SOURCE=.*/DICTEE_AUDIO_SOURCE=" + val + "/' \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"")
+                executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_AUDIO_SOURCE=\" \"$conf\" && sed -i \"s|^DICTEE_AUDIO_SOURCE=.*|DICTEE_AUDIO_SOURCE=" + val + "|\" \"$conf\" || echo \"DICTEE_AUDIO_SOURCE=" + val + "\" >> \"$conf\"'")
             }
             Connections {
                 target: root
@@ -573,8 +573,6 @@ RowLayout {
         }
     }
 
-    // Level meter : utilise root.audioLevel de main.qml (timer ping-pong déjà actif pendant recording)
-    // + timer popup pour lire le niveau quand on n'enregistre pas
 
 
     // Focus pour recevoir ESC
