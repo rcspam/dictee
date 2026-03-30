@@ -292,6 +292,10 @@ PlasmoidItem {
 
     function parseState(output) {
         var newState = output.trim()
+        if (newState === "diarizing") {
+            root.state = "diarizing"
+            return
+        }
         if (newState === "cancelled") {
             transcribingTimer.stop()
             recordingTimer.stop()
@@ -316,7 +320,7 @@ PlasmoidItem {
             // Retour à idle depuis n'importe quel état actif
             // Grace period : ignorer idle dans les 2s après un clic (le script n'a pas encore démarré)
             if (root.state === "recording" && (Date.now() - lastActionTime) < 2000) return
-            if (root.state === "recording" || root.state === "transcribing" || root.state === "switching") {
+            if (root.state === "recording" || root.state === "transcribing" || root.state === "switching" || root.state === "diarizing") {
                 transcribingTimer.stop()
                 recordingTimer.stop()
                 switchingTimer.stop()

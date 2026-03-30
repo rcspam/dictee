@@ -1286,8 +1286,10 @@ class TranscribeWindow(QDialog):
             _("Transcribing {done}/{total}...").format(done=done, total=total))
 
     def _on_diarize_done(self, raw_output):
+        _dbg(f"_on_diarize_done: output_len={len(raw_output)}, btn_enabled_before={self._btn_transcribe.isEnabled()}")
         self._diarize_worker = None
         self._finish_transcription(raw_output)
+        _dbg(f"_on_diarize_done: btn_enabled_after={self._btn_transcribe.isEnabled()}")
 
     def _on_diarize_error(self, msg):
         self._diarize_worker = None

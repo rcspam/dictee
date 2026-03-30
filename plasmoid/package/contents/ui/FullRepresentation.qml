@@ -107,6 +107,8 @@ RowLayout {
                     return i18n("Transcribing…")
                 case "switching":
                     return i18n("Switching backend…")
+                case "diarizing":
+                    return i18n("Diarization in progress…")
                 default:
                     return ""
                 }
@@ -294,7 +296,7 @@ RowLayout {
             // States: idle → preparing → ready → recording
             property string dState: "idle"
 
-            enabled: root.sortformerAvailable && dState !== "preparing"
+            enabled: root.sortformerAvailable && dState !== "preparing" && fullRep.state !== "diarizing"
 
             contentItem: RowLayout {
                 spacing: 4
@@ -305,6 +307,7 @@ RowLayout {
                 }
                 PlasmaComponents.Label {
                     text: {
+                        if (fullRep.state === "diarizing") return i18n("Diarization in progress...")
                         switch (btnDiarize.dState) {
                             case "preparing": return i18n("Preparing...")
                             case "ready":     return i18n("Start diarization")

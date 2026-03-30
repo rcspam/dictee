@@ -745,8 +745,10 @@ if [ -f "$PIDFILE" ]; then
         fi
         rm -f "$MUT_FILE"
     fi
-    # Démuter le son
-    pactl set-sink-mute @DEFAULT_SINK@ 0
+    # Démuter le son (seulement si on avait muté — pas pour les apps/monitors)
+    if [ "$_IS_APP_SOURCE" = false ]; then
+        pactl set-sink-mute @DEFAULT_SINK@ 0
+    fi
 
     # Signaler au plasmoid
     write_state "transcribing"
@@ -770,7 +772,7 @@ if [ -f "$PIDFILE" ]; then
 
     # Diarisation live : copier le WAV et ouvrir dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
-        write_state "idle"
+        write_state "diarizing"
         # Ensure daemon is stopped and VRAM is freed (tray doesn't wait for switch-backend)
         for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
             systemctl --user stop "$svc" 2>/dev/null || true
@@ -799,6 +801,7 @@ if [ -f "$PIDFILE" ]; then
         # Launch diarization UI and wait — restore backend when done (even on crash)
         dictee-transcribe --file "$diarize_file" --diarize
         dictee-switch-backend diarize false
+        write_state "idle"
         exit 0
     fi
 
