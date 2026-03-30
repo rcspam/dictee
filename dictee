@@ -754,12 +754,34 @@ if [ -f "$PIDFILE" ]; then
     fi
 
     if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
+        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
     fi
 
     # Diarisation live : copier le WAV et ouvrir dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
         write_state "idle"
+        # Ensure daemon is stopped and VRAM is freed (tray doesn't wait for switch-backend)
+        for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
+            systemctl --user stop "$svc" 2>/dev/null || true
+        done
+        for _i in $(seq 1 10); do
+            if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
+                break
+            fi
+            sleep 0.5
+        done
+        # Check if VRAM is sufficient (need ~5 GB for Parakeet + Sortformer)
+        if command -v nvidia-smi >/dev/null 2>&1; then
+            free_mb=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
+            if [ -n "$free_mb" ] && [ "$free_mb" -lt 5120 ]; then
+                # Unload ollama models to free VRAM
+                if nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -q ollama; then
+                    ollama_model=$(grep '^DICTEE_OLLAMA_MODEL=' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf" 2>/dev/null | cut -d= -f2)
+                    curl -s http://localhost:11434/api/generate -d "{\"model\":\"${ollama_model:-translategemma}\",\"keep_alive\":0}" >/dev/null 2>&1 || true
+                    sleep 1
+                fi
+            fi
+        fi
         diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
         cp "$RECORDING_FILE" "$diarize_file"
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
@@ -808,7 +830,7 @@ if [ -f "$PIDFILE" ]; then
     if [ "$TRANSLATE" = true ]; then
         # Traduire et copier
         if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
+            notify-send --replace-id="$id" -t 5000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
         fi
 
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then

@@ -138,42 +138,80 @@ RowLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        visible: fullRep.state !== "offline" || btnDiarize.dState !== "idle"
+        visible: root.dicteeConfigured
 
-        PlasmaComponents.Button {
-            id: btnDictate
-            text: i18n("Dictation")
-            icon.name: "audio-input-microphone"
-            onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
+        Item {
             Layout.fillWidth: true
             Layout.preferredWidth: 0
-            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
-            palette.buttonText: fullRep.state === "recording" && root.activeButton === "dictate" ? "#e06c75" : Kirigami.Theme.textColor
-            SequentialAnimation {
-                running: fullRep.state === "recording" && root.activeButton === "dictate"
-                loops: Animation.Infinite
-                NumberAnimation { target: btnDictate; property: "opacity"; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
-                NumberAnimation { target: btnDictate; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+            implicitHeight: btnDictate.implicitHeight
+
+            PlasmaComponents.Button {
+                id: btnDictate
+                anchors.fill: parent
+                text: i18n("Dictation")
+                icon.name: "audio-input-microphone"
+                onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
+                enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
+                leftPadding: dictateDot.visible ? 20 : undefined
             }
-            onEnabledChanged: if (fullRep.state !== "recording") opacity = 1.0
+
+            Rectangle {
+                id: dictateDot
+                property bool active: fullRep.state === "recording" && root.activeButton === "dictate"
+                visible: active
+                width: 10; height: 10; radius: 5
+                color: "#ff0000"
+                z: 100
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                onActiveChanged: {
+                    if (active) { dictateDotAnim.start() }
+                    else { dictateDotAnim.stop(); opacity = 1.0 }
+                }
+            }
+            SequentialAnimation {
+                id: dictateDotAnim
+                loops: Animation.Infinite
+                NumberAnimation { target: dictateDot; property: "opacity"; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: dictateDot; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+            }
         }
 
-        PlasmaComponents.Button {
-            id: btnTranslate
-            text: i18n("Translate")
-            icon.name: "translate"
-            onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
+        Item {
             Layout.fillWidth: true
             Layout.preferredWidth: 0
-            enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
-            palette.buttonText: fullRep.state === "recording" && root.activeButton === "dictate-translate" ? "#e06c75" : Kirigami.Theme.textColor
-            SequentialAnimation {
-                running: fullRep.state === "recording" && root.activeButton === "dictate-translate"
-                loops: Animation.Infinite
-                NumberAnimation { target: btnTranslate; property: "opacity"; to: 0.4; duration: 800; easing.type: Easing.InOutSine }
-                NumberAnimation { target: btnTranslate; property: "opacity"; to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+            implicitHeight: btnTranslate.implicitHeight
+
+            PlasmaComponents.Button {
+                id: btnTranslate
+                anchors.fill: parent
+                text: i18n("Translate")
+                icon.name: "translate"
+                onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
+                enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
+                leftPadding: translateDot.visible ? 20 : undefined
             }
-            onEnabledChanged: if (fullRep.state !== "recording") opacity = 1.0
+
+            Rectangle {
+                id: translateDot
+                property bool active: fullRep.state === "recording" && root.activeButton === "dictate-translate"
+                visible: active
+                width: 10; height: 10; radius: 5
+                color: "#ff0000"
+                z: 100
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                onActiveChanged: {
+                    if (active) { translateDotAnim.start() }
+                    else { translateDotAnim.stop(); opacity = 1.0 }
+                }
+            }
+            SequentialAnimation {
+                id: translateDotAnim
+                loops: Animation.Infinite
+                NumberAnimation { target: translateDot; property: "opacity"; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: translateDot; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+            }
         }
 
         PlasmaComponents.Button {
@@ -188,22 +226,10 @@ RowLayout {
 
             contentItem: RowLayout {
                 spacing: 4
-                Rectangle {
-                    visible: fullRep.state === "recording" && root.activeButton === "diarize"
-                    width: 10; height: 10; radius: 5
-                    color: "#ff0000"
-                    SequentialAnimation on opacity {
-                        running: fullRep.state === "recording" && root.activeButton === "diarize"
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.2; duration: 600; easing.type: Easing.InOutSine }
-                        NumberAnimation { to: 1.0; duration: 600; easing.type: Easing.InOutSine }
-                    }
-                }
                 Kirigami.Icon {
                     source: "group"
                     Layout.preferredWidth: Kirigami.Units.iconSizes.small
                     Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                    visible: !(fullRep.state === "recording" && root.activeButton === "diarize")
                 }
                 PlasmaComponents.Label {
                     text: {

@@ -190,6 +190,7 @@ ICON_MAP = {
     "offline": "parakeet-offline",
     "recording": "parakeet-recording",
     "transcribing": "parakeet-transcribing",
+    "diarize": "parakeet-diarize",
 }
 
 
@@ -349,6 +350,7 @@ class DicteeTrayAppIndicator:
         self.state = "offline"
         self._prev_state = None
         self._daemon_active = False
+        self._diarize_was_recording = False
 
         # Créer l'indicateur
         icon_name = ICON_MAP.get("offline", "parakeet-offline")
@@ -455,6 +457,15 @@ class DicteeTrayAppIndicator:
         self.item_diarize_gtk.connect("toggled", self._on_diarize_toggled_gtk)
         self.menu.append(self.item_diarize_gtk)
 
+        self.item_diarize_lock_gtk = Gtk.CheckMenuItem(label=_("Keep diarization active"))
+        self.item_diarize_lock_gtk.set_sensitive(
+            sortformer_ok and self.item_diarize_gtk.get_active())
+        self.item_diarize_lock_gtk.set_active(False)
+        self.item_diarize_lock_gtk.set_tooltip_text(
+            _("When unchecked, diarization is disabled after each recording."))
+        self.item_diarize_lock_gtk.connect("toggled", self._on_diarize_lock_toggled_gtk)
+        self.menu.append(self.item_diarize_lock_gtk)
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
         item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
@@ -519,10 +530,10 @@ class DicteeTrayAppIndicator:
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
-        elif file_state == "offline":
-            self.state = "offline"
         elif self._daemon_active:
             self.state = "idle"
+        elif self.item_diarize_gtk.get_active():
+            self.state = "diarize"
         else:
             self.state = "offline"
 
@@ -539,8 +550,10 @@ class DicteeTrayAppIndicator:
             self.indicator.set_icon_full(icon_name, self.state)
 
         # Menu daemon
-        if self.state == "offline":
-            self.item_daemon.set_label(f"▶ {_('Start daemon')}")
+        if self.state in ("offline", "diarize"):
+            self.item_daemon.set_label(
+                f"▶ {_('Diarization ready')}" if self.state == "diarize"
+                else f"▶ {_('Start daemon')}")
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
                       "transcribing": _("Transcribing…")}
@@ -553,19 +566,31 @@ class DicteeTrayAppIndicator:
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
             else _("Start dictation"))
-        self.item_dictee.set_sensitive(self.state != "offline")
-        self.item_translate.set_sensitive(self.state != "offline")
+        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize"))
+        self.item_translate.set_sensitive(self.state not in ("offline", "diarize"))
         self.item_translate.set_visible(not is_busy)
         self.item_cancel.set_visible(is_busy)
 
         # Diarization requires Sortformer (backend auto-switches to Parakeet)
-        self.item_diarize_gtk.set_sensitive(_sortformer_available())
+        self.item_diarize_gtk.set_sensitive(_sortformer_available() and not is_busy)
+        self.item_diarize_lock_gtk.set_sensitive(
+            _sortformer_available() and not is_busy and self.item_diarize_gtk.get_active())
         if not _sortformer_available():
             self.item_diarize_gtk.set_tooltip_text(
                 _("Sortformer model not installed. Configure in dictee-setup."))
         else:
             self.item_diarize_gtk.set_tooltip_text(
                 _("Speaker identification (max 4). Switches to Parakeet automatically."))
+
+        # Auto-uncheck diarization after recording (unless locked)
+        if self.state == "recording" and self.item_diarize_gtk.get_active():
+            self._diarize_was_recording = True
+        if (self._diarize_was_recording
+                and self.state in ("idle", "offline", "diarize")
+                and self.item_diarize_gtk.get_active()
+                and not self.item_diarize_lock_gtk.get_active()):
+            self.item_diarize_gtk.set_active(False)
+            self._diarize_was_recording = False
 
         self._prev_state = self.state
 
@@ -588,8 +613,16 @@ class DicteeTrayAppIndicator:
             subprocess.Popen(["dictee-switch-backend", "translate", key])
 
     def _on_diarize_toggled_gtk(self, item):
-        val = "true" if item.get_active() else "false"
+        active = item.get_active()
+        val = "true" if active else "false"
         subprocess.Popen(["dictee-switch-backend", "diarize", val])
+        self.item_diarize_lock_gtk.set_sensitive(active)
+        if not active:
+            self.item_diarize_lock_gtk.set_active(False)
+
+    def _on_diarize_lock_toggled_gtk(self, item):
+        if item.get_active() and not self.item_diarize_gtk.get_active():
+            self.item_diarize_gtk.set_active(True)
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()
@@ -644,6 +677,7 @@ class DicteeTrayQt:
         self.state = "offline"
         self._prev_state = None
         self._daemon_active = False
+        self._diarize_was_recording = False
 
         # Charger les icônes
         self._icons = {}
@@ -741,6 +775,15 @@ class DicteeTrayQt:
             read_conf_value("DICTEE_DIARIZE", "false").lower() == "true")
         self.action_diarize_qt.toggled.connect(self._on_diarize_toggled_qt)
 
+        self.action_diarize_lock_qt = self.menu.addAction(_("Keep diarization active"))
+        self.action_diarize_lock_qt.setCheckable(True)
+        self.action_diarize_lock_qt.setEnabled(
+            sortformer_ok and self.action_diarize_qt.isChecked())
+        self.action_diarize_lock_qt.setChecked(False)
+        self.action_diarize_lock_qt.setToolTip(
+            _("When unchecked, diarization is disabled after each recording."))
+        self.action_diarize_lock_qt.toggled.connect(self._on_diarize_lock_toggled_qt)
+
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.action_postprocess = self.menu.addAction(_("Post-processing..."))
@@ -810,6 +853,13 @@ class DicteeTrayQt:
     def _on_diarize_toggled_qt(self, checked):
         val = "true" if checked else "false"
         subprocess.Popen(["dictee-switch-backend", "diarize", val])
+        self.action_diarize_lock_qt.setEnabled(checked)
+        if not checked:
+            self.action_diarize_lock_qt.setChecked(False)
+
+    def _on_diarize_lock_toggled_qt(self, checked):
+        if checked and not self.action_diarize_qt.isChecked():
+            self.action_diarize_qt.setChecked(True)
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()
@@ -839,10 +889,10 @@ class DicteeTrayQt:
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
-        elif file_state == "offline":
-            self.state = "offline"
         elif self._daemon_active:
             self.state = "idle"
+        elif self.action_diarize_qt.isChecked():
+            self.state = "diarize"
         else:
             self.state = "offline"
 
@@ -856,13 +906,18 @@ class DicteeTrayQt:
         tooltips = {
             "idle": _("Dictation — ready") + "\n" + _("Click = dictation, Ctrl+click = translation"),
             "offline": _("Dictation — offline"),
+            "diarize": _("Diarization ready") + "\n" + _("Use keyboard shortcut to record"),
             "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
             "transcribing": _("Dictation — transcribing"),
         }
         self.tray.setToolTip(tooltips.get(self.state, _("Dictation")))
 
         pad = "\u2003" * 6
-        if self.state == "offline":
+        if self.state == "diarize":
+            self.action_daemon.setText(f"  {_('Diarization ready')}{pad}▶")
+            self.action_daemon.setIcon(self._dot_icon("#9B59B6"))
+            self.action_daemon_hint.setText(f" {_('click to start daemon')}")
+        elif self.state == "offline":
             self.action_daemon.setText(f"  {_('Daemon stopped')}{pad}▶")
             self.action_daemon.setIcon(self._dot_icon("#e74c3c"))
             self.action_daemon_hint.setText(f" {_('click to start')}")
@@ -880,20 +935,32 @@ class DicteeTrayQt:
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
             else _("Start dictation"))
-        self.action_dictee.setEnabled(self.state != "offline")
+        self.action_dictee.setEnabled(self.state not in ("offline", "diarize"))
         self.action_translate.setText(_("Start translation"))
-        self.action_translate.setEnabled(self.state != "offline")
+        self.action_translate.setEnabled(self.state not in ("offline", "diarize"))
         self.action_translate.setVisible(not is_busy)
         self.action_cancel.setVisible(is_busy)
 
         # Diarization requires Sortformer (backend auto-switches to Parakeet)
-        self.action_diarize_qt.setEnabled(_sortformer_available())
+        self.action_diarize_qt.setEnabled(_sortformer_available() and not is_busy)
+        self.action_diarize_lock_qt.setEnabled(
+            _sortformer_available() and not is_busy and self.action_diarize_qt.isChecked())
         if not _sortformer_available():
             self.action_diarize_qt.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
         else:
             self.action_diarize_qt.setToolTip(
                 _("Speaker identification (max 4). Switches to Parakeet automatically."))
+
+        # Auto-uncheck diarization after recording (unless locked)
+        if self.state == "recording" and self.action_diarize_qt.isChecked():
+            self._diarize_was_recording = True
+        if (self._diarize_was_recording
+                and self.state in ("idle", "offline", "diarize")
+                and self.action_diarize_qt.isChecked()
+                and not self.action_diarize_lock_qt.isChecked()):
+            self.action_diarize_qt.setChecked(False)
+            self._diarize_was_recording = False
 
         self._prev_state = self.state
 
