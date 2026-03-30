@@ -772,7 +772,7 @@ if [ -f "$PIDFILE" ]; then
 
     # Diarisation live : copier le WAV et ouvrir dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
-        write_state "diarizing"
+        write_state "idle"
         # Ensure daemon is stopped and VRAM is freed (tray doesn't wait for switch-backend)
         for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
             systemctl --user stop "$svc" 2>/dev/null || true
@@ -798,10 +798,13 @@ if [ -f "$PIDFILE" ]; then
         diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
         cp "$RECORDING_FILE" "$diarize_file"
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
-        # Launch diarization UI and wait — restore backend when done (even on crash)
-        dictee-transcribe --file "$diarize_file" --diarize
-        dictee-switch-backend diarize false
-        write_state "idle"
+        # Remettre DIARIZE=false pour que F9 suivant fasse une dictée normale
+        # (ne pas redémarrer le daemon — dictee-transcribe gère la VRAM)
+        sed -i 's/^DICTEE_DIARIZE=.*/DICTEE_DIARIZE=false/' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
+
+        # Launch diarization UI in background — elle gère le daemon elle-même
+        dictee-transcribe --file "$diarize_file" --diarize &
+        disown
         exit 0
     fi
 
