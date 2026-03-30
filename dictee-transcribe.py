@@ -261,6 +261,143 @@ def _sortformer_available():
     return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
 
 
+class _DiarizeTranscribeWorker(QThread):
+    """Phase 2 worker: transcribe diarized segments via daemon socket."""
+    progress = Signal(int, int)    # (done, total)
+    finished = Signal(str)         # final output text
+    error = Signal(str)            # error message
+
+    def __init__(self, audio_path, diarize_output, sock_path, parent=None):
+        super().__init__(parent)
+        self._audio_path = audio_path
+        self._diarize_output = diarize_output
+        self._sock_path = sock_path
+
+    def run(self):
+        import wave, socket as sock_mod, tempfile, time as _time
+
+        # Wait for socket (max 15s)
+        for _ in range(60):
+            if os.path.exists(self._sock_path):
+                try:
+                    s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+                    s.settimeout(5)
+                    s.connect(self._sock_path)
+                    s.close()
+                    break
+                except (ConnectionRefusedError, OSError):
+                    pass
+            _time.sleep(0.25)
+        else:
+            self.error.emit("Daemon socket not available after 15s")
+            return
+
+        # Parse diarize-only output
+        raw_segments = []
+        for line in self._diarize_output.strip().split("\n"):
+            parts = line.strip().split()
+            if len(parts) >= 3:
+                try:
+                    raw_segments.append({
+                        "start": float(parts[0]), "end": float(parts[1]),
+                        "speaker": int(parts[2])
+                    })
+                except ValueError:
+                    continue
+
+        if not raw_segments:
+            self.error.emit("No speaker segments detected")
+            return
+
+        # Merge consecutive segments from same speaker
+        merged = []
+        for seg in sorted(raw_segments, key=lambda s: s["start"]):
+            if (merged and merged[-1]["speaker"] == seg["speaker"]
+                    and seg["start"] - merged[-1]["end"] < 0.5):
+                merged[-1]["end"] = max(merged[-1]["end"], seg["end"])
+            else:
+                merged.append(dict(seg))
+
+        # Split long segments (>5s)
+        MAX_SEG = 5.0
+        final = []
+        for seg in merged:
+            duration = seg["end"] - seg["start"]
+            if duration > MAX_SEG:
+                n = int(duration / MAX_SEG) + 1
+                chunk = duration / n
+                for i in range(n):
+                    final.append({
+                        "start": seg["start"] + i * chunk,
+                        "end": seg["start"] + (i + 1) * chunk,
+                        "speaker": seg["speaker"]
+                    })
+            else:
+                final.append(seg)
+        final.sort(key=lambda s: s["start"])
+
+        # Open audio and transcribe each segment
+        try:
+            w = wave.open(self._audio_path, "r")
+        except Exception as e:
+            self.error.emit(str(e))
+            return
+
+        rate = w.getframerate()
+        results = []
+        total = len(final)
+
+        for idx, seg in enumerate(final):
+            start_frame = int(seg["start"] * rate)
+            end_frame = min(int(seg["end"] * rate), w.getnframes())
+            length = end_frame - start_frame
+            if length < rate * 0.3:
+                self.progress.emit(idx + 1, total)
+                continue
+
+            w.setpos(start_frame)
+            frames = w.readframes(length)
+
+            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+            wo = wave.open(tmp.name, "w")
+            wo.setnchannels(w.getnchannels())
+            wo.setsampwidth(w.getsampwidth())
+            wo.setframerate(rate)
+            wo.writeframes(frames)
+            wo.close()
+
+            text = ""
+            try:
+                s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+                s.settimeout(30)
+                s.connect(self._sock_path)
+                s.sendall((tmp.name + "\n").encode())
+                data = b""
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                s.close()
+                text = data.decode("utf-8", errors="replace").strip()
+            except Exception as e:
+                _dbg(f"DiarizeWorker: socket error seg {idx}: {e}")
+            finally:
+                try:
+                    os.unlink(tmp.name)
+                except OSError:
+                    pass
+
+            if text:
+                results.append(
+                    f"[{seg['start']:.2f}s - {seg['end']:.2f}s] Speaker {seg['speaker']}: {text}")
+
+            self.progress.emit(idx + 1, total)
+
+        w.close()
+        self.finished.emit("\n".join(results))
+
+
 def _parse_diarize_output(text):
     """Parse transcribe-diarize output into segments."""
     segments = []
@@ -1039,17 +1176,40 @@ class TranscribeWindow(QDialog):
         self._process.finished.connect(self._on_finished)
 
         import shutil
-        cmd = "transcribe-diarize" if diarize else "transcribe"
-        _dbg(f"_on_transcribe: cmd={cmd}, ort_lib={os.path.isfile('/usr/lib/dictee/libonnxruntime.so')}")
-        if not shutil.which(cmd):
-            self._progress.setVisible(False)
-            self._lbl_status.setText(
-                _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
-            self._lbl_status.setVisible(True)
-            self._update_transcribe_btn()
-            self._process.deleteLater()
-            self._process = None
-            return
+        # Diarisation : pipeline en 2 phases (diarize-only → daemon transcription)
+        # Transcription seule : transcribe (batch)
+        if diarize:
+            cmd = "diarize_only"
+            fallback_cmd = "transcribe-diarize"  # ancien binaire si diarize-only absent
+            if not shutil.which(cmd):
+                if shutil.which(fallback_cmd):
+                    cmd = fallback_cmd
+                    self._diarize_two_phase = False
+                else:
+                    self._progress.setVisible(False)
+                    self._lbl_status.setText(
+                        _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
+                    self._lbl_status.setVisible(True)
+                    self._update_transcribe_btn()
+                    self._process.deleteLater()
+                    self._process = None
+                    return
+            else:
+                self._diarize_two_phase = True
+        else:
+            cmd = "transcribe"
+            self._diarize_two_phase = False
+            if not shutil.which(cmd):
+                self._progress.setVisible(False)
+                self._lbl_status.setText(
+                    _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
+                self._lbl_status.setVisible(True)
+                self._update_transcribe_btn()
+                self._process.deleteLater()
+                self._process = None
+                return
+        _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
+        self._diarize_audio_path = audio_path
         self._process.start(cmd, [audio_path])
 
     def _on_stdout(self):
@@ -1058,6 +1218,100 @@ class TranscribeWindow(QDialog):
         data = self._process.readAllStandardOutput()
         self._stdout_buf.append(data)
 
+    def _start_daemon(self):
+        """Start the configured ASR daemon."""
+        conf = _read_conf()
+        asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
+                   "whisper": "dictee-whisper", "canary": "dictee-canary"}
+        svc = svc_map.get(asr, "dictee")
+        subprocess.Popen(["systemctl", "--user", "start", svc])
+        return svc
+
+    def _restart_daemon_and_transcribe(self, diarize_output):
+        """Phase 2: restart daemon, then transcribe each diarized segment via socket (threaded)."""
+        audio_path = getattr(self, '_diarize_audio_path', '')
+        if not audio_path or not os.path.isfile(audio_path):
+            self._lbl_status.setText(_("Audio file not found for phase 2."))
+            self._update_transcribe_btn()
+            return
+
+        # Restart daemon
+        self._daemon_was_active = False
+        self._start_daemon()
+        sock_path = os.path.join(
+            os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "transcribe.sock")
+
+        self._lbl_status.setText(_("Waiting for daemon..."))
+
+        # Launch worker thread
+        self._diarize_worker = _DiarizeTranscribeWorker(
+            audio_path, diarize_output, sock_path, self)
+        self._diarize_worker.progress.connect(self._on_diarize_progress)
+        self._diarize_worker.finished.connect(self._on_diarize_done)
+        self._diarize_worker.error.connect(self._on_diarize_error)
+        self._diarize_worker.start()
+
+    def _on_diarize_progress(self, done, total):
+        self._lbl_status.setText(
+            _("Transcribing {done}/{total}...").format(done=done, total=total))
+
+    def _on_diarize_done(self, raw_output):
+        self._diarize_worker = None
+        self._finish_transcription(raw_output)
+
+    def _on_diarize_error(self, msg):
+        self._diarize_worker = None
+        self._progress.setVisible(False)
+        self._lbl_status.setText(msg)
+        self._update_transcribe_btn()
+
+    def _finish_transcription(self, raw_output):
+        """Common finish logic for both single-phase and two-phase diarization."""
+        self._progress.setVisible(False)
+        self._update_transcribe_btn()
+        exit_code = 0 if raw_output else 1
+
+        if not raw_output:
+            self._lbl_status.setText(_("No transcription result."))
+            self._raw_text = ""
+            self._segments = []
+            self._update_translate_btn()
+            return
+
+        self._retry_done = False
+        self._raw_text = raw_output
+        self._was_diarized = True
+        self._segments = _parse_diarize_output(raw_output)
+
+        # Auto-detect language
+        detect_text = " ".join(seg["text"] for seg in self._segments) if self._segments else raw_output
+        detected = _detect_language(detect_text)
+        _dbg(f"_finish_transcription: detected language={detected}")
+        for i in range(self._cmb_lang_src.count()):
+            if self._cmb_lang_src.itemData(i) == detected:
+                self._cmb_lang_src.setCurrentIndex(i)
+                break
+        if self._cmb_lang_tgt.currentData() == detected:
+            import locale as _locale
+            conf = _read_conf()
+            fallback = conf.get("DICTEE_LANG_TARGET", "")
+            if not fallback or fallback == detected:
+                sys_lang = _locale.getlocale()[0]
+                if sys_lang:
+                    fallback = sys_lang.split("_")[0]
+            if fallback and fallback != detected:
+                for i in range(self._cmb_lang_tgt.count()):
+                    if self._cmb_lang_tgt.itemData(i) == fallback:
+                        self._cmb_lang_tgt.setCurrentIndex(i)
+                        break
+
+        self._apply_format()
+        self._transcribe_elapsed = time.monotonic() - self._start_time
+        self._translate_elapsed = 0.0
+        self._update_translate_btn()
+        self._show_status()
+
     def _on_finished(self, exit_code, _exit_status):
         self._progress.setVisible(False)
         if self._process:
@@ -1065,18 +1319,22 @@ class TranscribeWindow(QDialog):
         self._process = None
         self._update_transcribe_btn()
 
+        raw_output = bytes(self._stdout_buf).decode("utf-8", errors="replace").strip()
+
+        # Two-phase diarization: diarize-only finished → transcribe segments via daemon
+        if getattr(self, '_diarize_two_phase', False) and exit_code == 0 and raw_output:
+            self._diarize_two_phase = False
+            _dbg(f"_on_finished: phase 1 done (diarize-only), segments:\n{raw_output}")
+            self._lbl_status.setText(_("Restarting daemon for transcription..."))
+            # Restart daemon
+            self._restart_daemon_and_transcribe(raw_output)
+            return
+
         # Restart daemon if we stopped it for VRAM
         if getattr(self, '_daemon_was_active', False):
             self._daemon_was_active = False
             _dbg("_on_finished: restarting transcribe-daemon")
-            conf = _read_conf()
-            asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
-            svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
-                       "whisper": "dictee-whisper", "canary": "dictee-canary"}
-            svc = svc_map.get(asr, "dictee")
-            subprocess.Popen(["systemctl", "--user", "start", svc])
-
-        raw_output = bytes(self._stdout_buf).decode("utf-8", errors="replace").strip()
+            self._start_daemon()
         _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
 
         if exit_code != 0:
