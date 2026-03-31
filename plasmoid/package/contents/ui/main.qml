@@ -8,7 +8,7 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
-    // State: "offline", "idle", "recording", "transcribing", "switching"
+    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
     property bool dicteeInstalled: true
     property bool dicteeConfigured: false
@@ -92,7 +92,7 @@ PlasmoidItem {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing") {
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
                         root.state = "idle"
@@ -116,10 +116,7 @@ PlasmoidItem {
                     }
                 }
                 if (parts.length >= 4) {
-                    root.diarizeEnabled = (parts[3] === "true")
-                }
-                if (parts.length >= 5) {
-                    root.currentAudioSource = parts[4] || ""
+                    root.currentAudioSource = parts[3] || ""
                 }
             } else if (source === checkInstalledCmd) {
                 var parts = stdout.trim().split("---")
@@ -156,9 +153,6 @@ PlasmoidItem {
             } else if (stdout.indexOf("DICTEE_DEBUG_ON") !== -1) {
                 root.debugEnabled = true
                 _dbg("debug enabled via DICTEE_DEBUG=true")
-            } else if (stdout.indexOf("DIARIZE_READY") !== -1) {
-                // Diarization backend ready
-                root.diarizeEnabled = true
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
@@ -252,10 +246,8 @@ PlasmoidItem {
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
     property bool micMuted: false
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
-    property bool diarizeEnabled: false  // read from config
-    property int diarizeResetCount: 0   // incremented to force diarize button reset
     property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE|$DICTEE_AUDIO_SOURCE\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE\"'"
     property string currentAudioSource: ""
     property var audioSourceList: []
     property string listAudioSourcesCmd: "dictee-audio-sources"
@@ -293,60 +285,50 @@ PlasmoidItem {
         if (debugEnabled) console.log("[dictee-plasmoid] " + msg)
     }
 
-    function cleanupDiarize() {
-        _dbg("cleanupDiarize (diarizeEnabled=" + root.diarizeEnabled + ")")
-        root.diarizeEnabled = false
-        root.diarizeResetCount++  // force diarize button reset in FullRepresentation
-        // Kill any running "diarize true" first (it would re-stop the daemon after we restart it)
-        executable.run("bash -c 'pkill -f \"dictee-switch-backend diarize true\" 2>/dev/null; sleep 0.2; dictee-switch-backend diarize false'")
-    }
-
     function parseState(output) {
         var newState = output.trim()
         if (newState === root.state || newState === "") return
         _dbg("state: " + root.state + " → " + newState)
-        if (newState === "diarizing") {
-            root.state = "diarizing"
-            diarizingTimer.restart()
-            return
-        }
+
+        // Stop all safety timers on any transition
+        transcribingTimer.stop()
+        recordingTimer.stop()
+        diarizingTimer.stop()
+        switchingTimer.stop()
+        preparingTimer.stop()
+        diarizeReadyTimer.stop()
+
         if (newState === "cancelled") {
-            transcribingTimer.stop()
-            recordingTimer.stop()
-            diarizingTimer.stop()
-            cleanupDiarize()
             root.activeButton = ""
             root.state = "idle"
             return
         }
-        if (newState === "recording") {
-            root.state = "recording"
+
+        root.state = newState
+
+        // Start safety timers for active states
+        switch (newState) {
+        case "recording":
             recordingTimer.restart()
-        } else if (newState === "transcribing" && root.state !== "transcribing") {
-            root.state = "transcribing"
-            recordingTimer.stop()
+            break
+        case "transcribing":
             transcribingTimer.restart()
-        } else if (newState === "switching") {
-            root.state = "switching"
-            transcribingTimer.stop()
-            recordingTimer.stop()
+            break
+        case "diarizing":
+            diarizingTimer.restart()
+            break
+        case "switching":
             switchingTimer.restart()
-        } else if (newState === "idle") {
-            // Return to idle from any active state
-            // Grace period: ignore idle within 2s of click (script hasn't started yet)
-            if (root.state === "recording" && (Date.now() - lastActionTime) < 2000) {
-                _dbg("idle ignored (grace period)")
-                return
-            }
-            if (root.state === "recording" || root.state === "transcribing" || root.state === "switching" || root.state === "diarizing") {
-                transcribingTimer.stop()
-                recordingTimer.stop()
-                switchingTimer.stop()
-                diarizingTimer.stop()
-                cleanupDiarize()
-                root.state = "idle"
-                root.activeButton = ""
-            }
+            break
+        case "preparing":
+            preparingTimer.restart()
+            break
+        case "diarize-ready":
+            diarizeReadyTimer.restart()
+            break
+        case "idle":
+            root.activeButton = ""
+            break
         }
     }
 
@@ -414,11 +396,8 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             if (root.state === "diarizing") {
-                _dbg("TIMEOUT: diarizing 120s — forcing cancel")
+                _dbg("TIMEOUT: diarizing 120s — cancelling")
                 executable.run("dictee --cancel")
-                cleanupDiarize()
-                root.activeButton = ""
-                root.state = "idle"
             }
         }
     }
@@ -437,6 +416,34 @@ PlasmoidItem {
         }
     }
 
+    // Timer de sécurité pour preparing (30s max)
+    Timer {
+        id: preparingTimer
+        interval: 30000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "preparing") {
+                _dbg("TIMEOUT: preparing 30s — cancelling")
+                executable.run("dictee --cancel")
+            }
+        }
+    }
+
+    // Timer de sécurité pour diarize-ready (120s max — user forgot?)
+    Timer {
+        id: diarizeReadyTimer
+        interval: 120000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "diarize-ready") {
+                _dbg("TIMEOUT: diarize-ready 120s — cancelling")
+                executable.run("dictee --cancel")
+            }
+        }
+    }
+
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
         barColor: root.barColor
@@ -447,7 +454,6 @@ PlasmoidItem {
 
     fullRepresentation: FullRepresentation {
         state: root.state
-        diarizeResetCount: root.diarizeResetCount
         dicteeInstalled: root.dicteeInstalled
         dicteeConfigured: root.dicteeConfigured
         barColor: root.barColor
@@ -457,44 +463,25 @@ PlasmoidItem {
         }
     }
 
-    property real lastActionTime: 0
-
     function handleAction(action) {
-        // Debounce: ignore actions within 800ms
-        var now = Date.now()
-        if (now - lastActionTime < 800) {
-            _dbg("action DEBOUNCED: " + action)
-            return
-        }
-        lastActionTime = now
         _dbg("action: " + action + " (state=" + root.state + ")")
 
         switch (action) {
         case "dictate":
-            if (root.state === "recording") {
-                if (!Plasmoid.configuration.pinPopup) root.expanded = false
-                root.state = "transcribing"
-                transcribingTimer.start()
-            } else if (root.state === "idle") {
-                root.state = "recording"
-            }
-            executable.run("dictee")
+            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+                root.expanded = false
+            executable.run(root.activeButton === "diarize" ? "dictee --diarize" : "dictee")
             break
         case "dictate-translate":
-            if (root.state === "recording") {
-                if (!Plasmoid.configuration.pinPopup) root.expanded = false
-                root.state = "transcribing"
-                transcribingTimer.start()
-            } else if (root.state === "idle") {
-                root.state = "recording"
-            }
+            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+                root.expanded = false
             executable.run("dictee --translate")
+            break
+        case "diarize-prepare":
+            executable.run("dictee-switch-backend diarize true")
             break
         case "cancel":
             executable.run("dictee --cancel")
-            cleanupDiarize()
-            root.activeButton = ""
-            root.state = "idle"
             break
         case "start-daemon":
             executable.run("bash -c '" +
@@ -505,22 +492,15 @@ PlasmoidItem {
                 "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc'")
-            root.state = "idle"
             break
         case "stop-daemon":
             executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
-            root.state = "offline"
             break
         case "reset": {
             var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
-            transcribingTimer.stop()
-            recordingTimer.stop()
-            diarizingTimer.stop()
-            cleanupDiarize()
             root.activeButton = ""
-            root.state = "idle"
             break
         }
         case "transcribe-file":
