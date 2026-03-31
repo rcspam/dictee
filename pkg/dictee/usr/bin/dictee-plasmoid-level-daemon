@@ -37,6 +37,11 @@ fi
 N_BARS="${1:-6}"
 AUDIO_SOURCE="${2:-${DICTEE_AUDIO_SOURCE:-}}"
 
+# Résoudre app:nom en nom d'application (les IDs PipeWire changent après sleep)
+if [[ "$AUDIO_SOURCE" == app:* ]]; then
+    AUDIO_SOURCE="${AUDIO_SOURCE#app:}"
+fi
+
 # Arguments parec pour la source audio
 PAREC_ARGS="--rate=16000 --channels=1 --format=s16le --latency-msec=40"
 if [ -n "$AUDIO_SOURCE" ]; then
@@ -50,7 +55,7 @@ if [ -n "$AUDIO_SOURCE" ]; then
             # Application (Firefox, etc.) — trouver le monitor du sink
             _sink=$(LANG=C pactl list sink-inputs 2>/dev/null | awk -v app="$AUDIO_SOURCE" '
                 /^\tSink:/ { sink=$NF }
-                /application.name =/ && index($0, "\"" app "\"") { print sink; exit }
+                /application.name =/ && tolower($0) ~ tolower(app) { print sink; exit }
             ')
             if [ -n "$_sink" ]; then
                 _sink_name=$(LANG=C pactl list sinks short 2>/dev/null | awk -v id="$_sink" '$1==id {print $2}')

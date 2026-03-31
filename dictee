@@ -49,6 +49,20 @@ CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
 DIARIZE="${DICTEE_DIARIZE:-false}"
 AUDIO_SOURCE="${DICTEE_AUDIO_SOURCE:-}"
+# Résoudre app:nom en ID numérique PipeWire (les IDs changent après sleep/hibernation)
+if [[ "$AUDIO_SOURCE" == app:* ]]; then
+    _APP_NAME="${AUDIO_SOURCE#app:}"
+    AUDIO_SOURCE=$(pw-dump 2>/dev/null | python3 -c "
+import json, sys
+for n in json.loads(sys.stdin.read()):
+    if n.get('type') != 'PipeWire:Interface:Node': continue
+    p = n.get('info', {}).get('props', {})
+    if p.get('media.class') == 'Stream/Output/Audio':
+        a = p.get('application.name', '').lower().split()
+        if a and a[0] == '$_APP_NAME':
+            print(n['id']); break
+" 2>/dev/null)
+fi
 # Déterminer si la source est un périphérique (alsa_*) ou une application (Firefox, etc.)
 # Les applications ne sont pas des sources pactl → mute/unmute sur @DEFAULT_SOURCE@
 case "$AUDIO_SOURCE" in
@@ -706,8 +720,36 @@ if [ "$CANCEL" = true ]; then
             notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
         fi
         rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    else
+        # Pas d'enregistrement en cours — gérer l'annulation de la diarisation
+        current=$(cat "$STATE_FILE" 2>/dev/null)
+        if [ "$current" = "cancelled" ] || [ "$current" = "diarizing" ]; then
+            # Tuer dictee-transcribe si en cours de diarisation
+            if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
+            if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
+            if pkill -f "diarize-only" 2>/dev/null; then true; fi
+            # Redémarrer le daemon ASR
+            _backend="${DICTEE_ASR_BACKEND:-parakeet}"
+            case "$_backend" in
+                parakeet) systemctl --user start dictee 2>/dev/null || true ;;
+                vosk)     systemctl --user start dictee-vosk 2>/dev/null || true ;;
+                whisper)  systemctl --user start dictee-whisper 2>/dev/null || true ;;
+                canary)   systemctl --user start dictee-canary 2>/dev/null || true ;;
+            esac
+            notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Diarisation annulée"
+            write_state "idle"
+        fi
     fi
     exit 0
+fi
+
+# Nettoyer un PIDFILE résiduel si le processus n'existe plus (crash, sleep, etc.)
+if [ -f "$PIDFILE" ]; then
+    _stale_pid=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -z "$_stale_pid" ] || ! kill -0 "$_stale_pid" 2>/dev/null; then
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$MUT_FILE"
+        write_state "idle"
+    fi
 fi
 
 if [ -f "$PIDFILE" ]; then
@@ -772,7 +814,7 @@ if [ -f "$PIDFILE" ]; then
 
     # Diarisation live : copier le WAV et ouvrir dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
-        write_state "idle"
+        write_state "diarizing"
         # Ensure daemon is stopped and VRAM is freed (tray doesn't wait for switch-backend)
         for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
             systemctl --user stop "$svc" 2>/dev/null || true
@@ -901,6 +943,33 @@ if [ -f "$PIDFILE" ]; then
 
 else
     # === DÉMARRAGE DE L'ENREGISTREMENT ===
+
+    # Bloquer si une opération est en cours (diarisation, transcription, switching)
+    _current=$(cat "$STATE_FILE" 2>/dev/null)
+    if [ "$_current" = "diarizing" ] || [ "$_current" = "transcribing" ] || [ "$_current" = "switching" ]; then
+        exit 0
+    fi
+
+    # Vérifier que le daemon ASR tourne avant de démarrer l'enregistrement
+    # (sauf en mode diarisation : le daemon est arrêté exprès pour libérer la VRAM)
+    if [ "$DIARIZE" != "true" ]; then
+        _backend="${DICTEE_ASR_BACKEND:-parakeet}"
+        case "$_backend" in
+            parakeet) _svc="dictee" ;;
+            vosk)     _svc="dictee-vosk" ;;
+            whisper)  _svc="dictee-whisper" ;;
+            canary)   _svc="dictee-canary" ;;
+            *)        _svc="dictee" ;;
+        esac
+        if ! systemctl --user is-active --quiet "$_svc" 2>/dev/null; then
+            trap - ERR
+            notify-send -t 5000 -i dialog-error -a Dictee "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_svc"
+            if command -v paplay >/dev/null 2>&1; then
+                paplay /usr/share/sounds/freedesktop/stereo/dialog-error.oga &
+            fi
+            exit 0
+        fi
+    fi
 
     # Verrou atomique : empêcher un double-démarrage (rebond clavier, double raccourci)
     exec 201>"${PIDFILE}.lock"

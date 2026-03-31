@@ -294,11 +294,13 @@ PlasmoidItem {
         var newState = output.trim()
         if (newState === "diarizing") {
             root.state = "diarizing"
+            diarizingTimer.restart()
             return
         }
         if (newState === "cancelled") {
             transcribingTimer.stop()
             recordingTimer.stop()
+            diarizingTimer.stop()
             cleanupDiarize()
             root.activeButton = ""
             root.state = "idle"
@@ -324,6 +326,7 @@ PlasmoidItem {
                 transcribingTimer.stop()
                 recordingTimer.stop()
                 switchingTimer.stop()
+                diarizingTimer.stop()
                 cleanupDiarize()
                 root.state = "idle"
                 root.activeButton = ""
@@ -386,6 +389,22 @@ PlasmoidItem {
         }
     }
 
+    // Timer de sécurité pour diarizing (120s max — si dictee-transcribe crash)
+    Timer {
+        id: diarizingTimer
+        interval: 120000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "diarizing") {
+                executable.run("dictee --cancel")
+                cleanupDiarize()
+                root.activeButton = ""
+                root.state = "idle"
+            }
+        }
+    }
+
     // Timer de sécurité pour switching (15s max — si dictee-switch-backend crash)
     Timer {
         id: switchingTimer
@@ -432,7 +451,7 @@ PlasmoidItem {
                 if (!Plasmoid.configuration.pinPopup) root.expanded = false
                 root.state = "transcribing"
                 transcribingTimer.start()
-            } else {
+            } else if (root.state === "idle") {
                 root.state = "recording"
             }
             executable.run("dictee")
@@ -442,7 +461,7 @@ PlasmoidItem {
                 if (!Plasmoid.configuration.pinPopup) root.expanded = false
                 root.state = "transcribing"
                 transcribingTimer.start()
-            } else {
+            } else if (root.state === "idle") {
                 root.state = "recording"
             }
             executable.run("dictee --translate")
@@ -468,23 +487,14 @@ PlasmoidItem {
             executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             root.state = "offline"
             break
-        case "reset":
-            executable.run("bash -c '" +
-                "echo idle > /dev/shm/.dictee_state; " +
-                "dictee --cancel 2>/dev/null; " +
-                "pkill -f transcribe-diarize 2>/dev/null; " +
-                "pkill -f dictee-transcribe 2>/dev/null; " +
-                "rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* /tmp/dictee_esc_listener_pid*; " +
-                "dictee-switch-backend diarize false 2>/dev/null; " +
-                "source ${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf 2>/dev/null; " +
-                "case \"${DICTEE_ASR_BACKEND:-parakeet}\" in " +
-                "  parakeet) systemctl --user start dictee.service ;; " +
-                "  vosk) systemctl --user start dictee-vosk.service ;; " +
-                "  whisper) systemctl --user start dictee-whisper.service ;; " +
-                "  canary) systemctl --user start dictee-canary.service ;; " +
-                "esac'")
+        case "reset": {
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
+            var svc = svcMap[root.currentAsrBackend] || "dictee"
+            executable.run("dictee-reset " + svc)
+        }
             transcribingTimer.stop()
             recordingTimer.stop()
+            diarizingTimer.stop()
             root.diarizeEnabled = false
             root.activeButton = ""
             root.state = "idle"

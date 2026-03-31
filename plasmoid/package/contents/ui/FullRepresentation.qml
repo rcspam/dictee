@@ -113,14 +113,7 @@ RowLayout {
                     return ""
                 }
             }
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 8
-        }
-
-        PlasmaComponents.ToolButton {
-            icon.name: "view-refresh"
-            display: PlasmaComponents.AbstractButton.IconOnly
-            PlasmaComponents.ToolTip { text: i18n("Reset") }
-            onClicked: fullRep.actionRequested("reset")
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 10
         }
 
         PlasmaComponents.ToolButton {
@@ -130,6 +123,20 @@ RowLayout {
                 text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
             }
             onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
+        }
+
+        Item { Layout.fillWidth: true }
+
+        PlasmaComponents.Button {
+            id: resetButton
+            text: i18n("! Reset")
+            font.bold: true
+            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.3
+            Kirigami.Theme.inherit: false
+            Kirigami.Theme.textColor: "#c0392b"
+            Kirigami.Theme.highlightColor: "#e74c3c"
+            PlasmaComponents.ToolTip { text: i18n("Reset everything — stop all processes, restart daemon") }
+            onClicked: fullRep.actionRequested("reset")
         }
 
         Item { Layout.fillWidth: true }
@@ -386,9 +393,9 @@ RowLayout {
         }
     }
 
-    // Raccourci ESC pour annuler (recording ou diarisation en préparation)
+    // Raccourci ESC pour annuler (recording, diarisation en préparation, ou diarizing)
     Keys.onEscapePressed: {
-        if (fullRep.state === "recording") {
+        if (fullRep.state === "recording" || fullRep.state === "diarizing") {
             fullRep.actionRequested("cancel")
         } else if (btnDiarize.dState === "preparing" || btnDiarize.dState === "ready") {
             fullRep.actionRequested("cancel")

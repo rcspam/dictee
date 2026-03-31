@@ -1,0 +1,51 @@
+#!/bin/bash
+# dictee-reset — Remet tout le système dictee à zéro et redémarre le daemon
+# Usage: dictee-reset [service-name]
+#   service-name: dictee, dictee-vosk, dictee-whisper, dictee-canary (défaut: dictee)
+
+set +e
+
+SVC="${1:-dictee}"
+_UID_SUFFIX="-$(id -u)"
+
+# 1. Écrire l'état idle
+echo "idle" > /dev/shm/.dictee_state
+
+# 2. Tuer l'enregistrement en cours
+if [ -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" ]; then
+    kill "$(cat "/tmp/recording_dictee_pid${_UID_SUFFIX}" 2>/dev/null)" 2>/dev/null
+fi
+
+# 3. Tuer le listener ESC
+if [ -f "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" ]; then
+    kill "$(cat "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" 2>/dev/null)" 2>/dev/null
+fi
+
+# 4. Tuer les processus de diarisation et transcription
+# (pkill -f avec notre propre PID exclu pour ne pas se suicider)
+_self=$$
+for pat in "transcribe-diarize" "dictee-transcribe" "diarize-only" "animation-speech-ctl"; do
+    pgrep -f "$pat" 2>/dev/null | while read -r p; do
+        if [ "$p" != "$_self" ]; then
+            kill "$p" 2>/dev/null
+        fi
+    done
+done
+
+# 5. Nettoyer les fichiers temporaires
+rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* \
+      /tmp/dictee_esc_listener_pid* /tmp/mut_dictee*
+
+# 6. Désactiver la diarisation
+dictee-switch-backend diarize false 2>/dev/null
+
+# 7. Arrêter tous les daemons ASR
+for s in dictee dictee-vosk dictee-whisper dictee-canary; do
+    systemctl --user stop "$s" 2>/dev/null
+done
+
+# 8. Restaurer l'audio
+pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
+
+# 9. Redémarrer le daemon demandé
+systemctl --user start "${SVC}.service"

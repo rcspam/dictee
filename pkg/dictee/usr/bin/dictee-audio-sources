@@ -48,8 +48,8 @@ for n in nodes:
         label = a
         if m and m != a:
             label += ' — ' + m[:50]
-        # pw-record --target ne résout pas node.name pour les app streams,
-        # il faut l'ID numérique PipeWire
-        nid = str(n['id'])
-        print(nid + '|' + icon + '|' + label)
+        # Sauvegarder app:nom au lieu de l'ID numérique — les IDs changent
+        # après sleep/hibernation ou redémarrage de l'app
+        app_key = 'app:' + a.lower().split()[0]
+        print(app_key + '|' + icon + '|' + label)
 " 2>/dev/null

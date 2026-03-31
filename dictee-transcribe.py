@@ -1119,6 +1119,17 @@ class TranscribeWindow(QDialog):
             svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
                        "whisper": "dictee-whisper", "canary": "dictee-canary"}
             subprocess.Popen(["systemctl", "--user", "enable", "--now", svc_map.get(asr, "dictee")])
+        # Restaurer l'état idle pour le plasmoid
+        _state_file = "/dev/shm/.dictee_state"
+        _state_lock = "/dev/shm/.dictee_state.lock"
+        try:
+            import fcntl
+            with open(_state_lock, "w") as lf:
+                fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with open(_state_file, "w") as sf:
+                    sf.write("idle")
+        except Exception:
+            pass
         # Close log file
         global _log_file
         if _log_file:
