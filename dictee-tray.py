@@ -397,7 +397,7 @@ class DicteeTrayAppIndicator:
         self.menu.append(self.item_translate)
 
         self.item_cancel = Gtk.MenuItem(label=_("Cancel"))
-        self.item_cancel.connect("activate", lambda _: subprocess.Popen(["dictee", "--cancel"]))
+        self.item_cancel.connect("activate", lambda _: self._cancel())
         self.menu.append(self.item_cancel)
 
         self.menu.append(Gtk.SeparatorMenuItem())
@@ -479,6 +479,10 @@ class DicteeTrayAppIndicator:
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
+        item_reset = Gtk.MenuItem(label=_("! Reset"))
+        item_reset.connect("activate", lambda _: self._reset())
+        self.menu.append(item_reset)
+
         item_quit = Gtk.MenuItem(label=_("Quit icon"))
         item_quit.connect("activate", lambda _: self.Gtk.main_quit())
         self.menu.append(item_quit)
@@ -521,6 +525,20 @@ class DicteeTrayAppIndicator:
     def _on_file_changed(self, _monitor, _file, _other, event):
         self._check_state()
         self._apply_state()
+
+    def _cancel(self):
+        """Cancel current operation and clean up diarize state."""
+        subprocess.Popen(["dictee", "--cancel"])
+        if self.item_diarize_gtk.get_active():
+            self.item_diarize_gtk.set_active(False)
+            subprocess.Popen(["dictee-switch-backend", "diarize", "false"])
+
+    def _reset(self):
+        """Reset everything — stop all processes, restart daemon."""
+        svc = _conf_to_service()
+        subprocess.Popen(["dictee-reset", svc])
+        if self.item_diarize_gtk.get_active():
+            self.item_diarize_gtk.set_active(False)
 
     def _check_daemon(self):
         self._daemon_active = daemon_is_active()
@@ -790,6 +808,7 @@ class DicteeTrayQt:
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.action_postprocess = self.menu.addAction(_("Post-processing..."))
         self.menu.addSeparator()
+        self.action_reset = self.menu.addAction(_("! Reset"))
         self.action_quit = self.menu.addAction(_("Quit icon"))
         self.menu.triggered.connect(self._on_menu_triggered)
 
@@ -811,7 +830,7 @@ class DicteeTrayQt:
         elif action == self.action_translate:
             subprocess.Popen(["dictee", "--translate"])
         elif action == self.action_cancel:
-            subprocess.Popen(["dictee", "--cancel"])
+            self._cancel()
         elif action == self.action_daemon:
             if self.state == "offline":
                 daemon_start()
@@ -828,6 +847,8 @@ class DicteeTrayQt:
             subprocess.Popen(["dictee-setup"])
         elif action == self.action_postprocess:
             subprocess.Popen(["dictee-setup", "--postprocess"])
+        elif action == self.action_reset:
+            self._reset()
         elif action == self.action_quit:
             self.app.quit()
 
@@ -839,8 +860,8 @@ class DicteeTrayQt:
             else:
                 subprocess.Popen(["dictee"])
         elif reason == self.QSystemTrayIcon.ActivationReason.MiddleClick:
-            if self.state in ("recording", "transcribing"):
-                subprocess.Popen(["dictee", "--cancel"])
+            if self.state in ("recording", "transcribing", "diarizing"):
+                self._cancel()
 
     def _on_asr_selected(self, action):
         key = action.data()
@@ -881,6 +902,20 @@ class DicteeTrayQt:
         for key, action in self._trans_actions.items():
             action.setChecked(key == current)
             action.setEnabled(_translate_backend_available(key))
+
+    def _cancel(self):
+        """Cancel current operation and clean up diarize state."""
+        subprocess.Popen(["dictee", "--cancel"])
+        if self.action_diarize_qt.isChecked():
+            self.action_diarize_qt.setChecked(False)
+            subprocess.Popen(["dictee-switch-backend", "diarize", "false"])
+
+    def _reset(self):
+        """Reset everything — stop all processes, restart daemon."""
+        svc = _conf_to_service()
+        subprocess.Popen(["dictee-reset", svc])
+        if self.action_diarize_qt.isChecked():
+            self.action_diarize_qt.setChecked(False)
 
     def _check_daemon(self):
         self._daemon_active = daemon_is_active()
@@ -939,9 +974,9 @@ class DicteeTrayQt:
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
             else _("Start dictation"))
-        self.action_dictee.setEnabled(self.state not in ("offline", "diarize"))
+        self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing"))
         self.action_translate.setText(_("Start translation"))
-        self.action_translate.setEnabled(self.state not in ("offline", "diarize"))
+        self.action_translate.setEnabled(self.state not in ("offline", "diarize", "diarizing"))
         self.action_translate.setVisible(not is_busy)
         self.action_cancel.setVisible(is_busy)
 
