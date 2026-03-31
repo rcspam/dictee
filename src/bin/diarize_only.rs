@@ -22,6 +22,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "sortformer")]
     {
+        let debug = env::var("DICTEE_DEBUG").unwrap_or_default() == "true";
+        macro_rules! dbg_print {
+            ($($arg:tt)*) => {
+                if debug { eprintln!("[DBG diarize-only] {}", format!($($arg)*)); }
+            };
+        }
+
         let args: Vec<String> = env::args().collect();
 
         if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -65,6 +72,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let audio_path = resolve_path(&positional_args[0])?;
+        dbg_print!("audio={}, sensitivity={:.2}", audio_path, sensitivity);
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         let default_sf = if std::path::Path::new("/usr/share/dictee/sortformer").exists() {
             "/usr/share/dictee/sortformer".to_string()
@@ -73,8 +81,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let sortformer_dir = positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_sf);
 
+        dbg_print!("sortformer_dir={}", sortformer_dir);
+
         // Convert to WAV 16kHz mono if needed
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
+        dbg_print!("wav={}, converted={}", wav_path, needs_cleanup);
 
         // Load audio
         let mut reader = hound::WavReader::open(&wav_path)?;
@@ -95,10 +106,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Load Sortformer — try CUDA first, fallback to CPU
         let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
         let diar_config = if (sensitivity - 0.5).abs() < 0.01 {
+            dbg_print!("config=callhome (default)");
             DiarizationConfig::callhome()
         } else {
             let onset = 0.4 + sensitivity * 0.3;
             let offset = 0.3 + sensitivity * 0.3;
+            dbg_print!("config=custom onset={:.3} offset={:.3}", onset, offset);
             DiarizationConfig::custom(onset, offset)
         };
         #[cfg(feature = "cuda")]
@@ -122,8 +135,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Sortformer::with_config(&sortformer_path, Some(cpu_cfg), diar_config)?
         };
 
+        dbg_print!("model loaded, audio={} samples, rate={}, channels={}", audio.len(), spec.sample_rate, spec.channels);
+
         // Run diarization — output: start end speaker_id
         let segments = sortformer.diarize(audio, spec.sample_rate, spec.channels)?;
+
+        let n_speakers: std::collections::HashSet<_> = segments.iter().map(|s| s.speaker_id).collect();
+        dbg_print!("done: {} segments, {} speakers", segments.len(), n_speakers.len());
 
         for seg in &segments {
             println!("{:.2} {:.2} {}", seg.start, seg.end, seg.speaker_id);

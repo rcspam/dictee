@@ -22,6 +22,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "sortformer")]
     {
+        let debug = env::var("DICTEE_DEBUG").unwrap_or_default() == "true";
+        macro_rules! dbg_print {
+            ($($arg:tt)*) => {
+                if debug { eprintln!("[DBG transcribe-diarize] {}", format!($($arg)*)); }
+            };
+        }
+
         let args: Vec<String> = env::args().collect();
 
         if args.iter().any(|a| a == "--help" || a == "-h") {
@@ -69,6 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let audio_path = resolve_path(&positional_args[0])?;
+        dbg_print!("audio={}, sensitivity={:.2}", audio_path, sensitivity);
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         let default_tdt = if std::path::Path::new("/usr/share/dictee/tdt/vocab.txt").exists() {
             "/usr/share/dictee/tdt".to_string()
@@ -83,8 +91,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let model_dir = positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_tdt);
         let sortformer_dir = positional_args.get(2).map(|s| s.to_string()).unwrap_or(default_sf);
 
+        dbg_print!("model_dir={}, sortformer_dir={}", model_dir, sortformer_dir);
+
         // Convert to WAV 16kHz mono if needed
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
+        dbg_print!("wav={}, converted={}", wav_path, needs_cleanup);
 
         // Load audio
         let mut reader = hound::WavReader::open(&wav_path)?;
@@ -133,8 +144,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             diar_config,
         )?;
 
+        dbg_print!("sortformer loaded, audio={} samples", audio.len());
+
         // Get speaker segments
         let speaker_segments = sortformer.diarize(audio.clone(), spec.sample_rate, spec.channels)?;
+        let n_spk: std::collections::HashSet<_> = speaker_segments.iter().map(|s| s.speaker_id).collect();
+        dbg_print!("diarization: {} segments, {} speakers", speaker_segments.len(), n_spk.len());
 
         // Load TDT for transcription
         let mut parakeet = ParakeetTDT::from_pretrained(&model_dir, Some(config))?;
