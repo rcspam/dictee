@@ -721,43 +721,17 @@ if [ -f "$PIDFILE" ]; then
     stop_recording
     notify_dictee 3000 audio-chat-none-symbolic "Enregistrement arrêté"
 
-    # Live diarization: copy WAV and open dictee-transcribe
+    # Live diarization: copy WAV and launch dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
-        _dbg "diarize: starting, stopping daemons for VRAM"
+        _dbg "diarize: launching dictee-transcribe"
         write_state "diarizing"
-        # Ensure daemon is stopped and VRAM is freed (tray doesn't wait for switch-backend)
-        for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
-            systemctl --user stop "$svc" 2>/dev/null || true
-        done
-        for _i in $(seq 1 10); do
-            if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
-                break
-            fi
-            sleep 0.5
-        done
-        # Check if VRAM is sufficient (need ~5 GB for Parakeet + Sortformer)
-        if command -v nvidia-smi >/dev/null 2>&1; then
-            free_mb=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
-            if [ -n "$free_mb" ] && [ "$free_mb" -lt 5120 ]; then
-                # Unload ollama models to free VRAM
-                if nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -q ollama; then
-                    ollama_model=$(grep '^DICTEE_OLLAMA_MODEL=' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf" 2>/dev/null | cut -d= -f2)
-                    curl -s http://localhost:11434/api/generate -d "{\"model\":\"${ollama_model:-translategemma}\",\"keep_alive\":0}" >/dev/null 2>&1 || true
-                    sleep 1
-                fi
-            fi
-        fi
         diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
         cp "$RECORDING_FILE" "$diarize_file"
         cleanup_session
-        # Reset DIARIZE=false so next F9 does a normal dictation
-        # (don't restart daemon — dictee-transcribe manages VRAM)
-        sed -i 's/^DICTEE_DIARIZE=.*/DICTEE_DIARIZE=false/' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
-
-        # Launch diarization UI in background — it manages the daemon itself
         _dbg "diarize: launching dictee-transcribe --file $diarize_file --diarize"
-        dictee-transcribe --file "$diarize_file" --diarize &
-        disown
+        systemd-run --user --no-block --collect \
+            --unit="dictee-transcribe-$$" \
+            dictee-transcribe --file "$diarize_file" --diarize
         exit 0
     fi
 
@@ -830,23 +804,26 @@ if [ -f "$PIDFILE" ]; then
 else
     # === START RECORDING ===
 
-    # Block if an operation is in progress (diarization, transcription, switching)
-    _current=$(cat "$STATE_FILE" 2>/dev/null)
-    _dbg "start-recording: current_state=$_current diarize=$DIARIZE"
-    if [ "$_current" = "diarizing" ] || [ "$_current" = "transcribing" ] || [ "$_current" = "switching" ]; then
-        _dbg "start-recording: BLOCKED (state=$_current)"
-        exit 0
-    fi
+    # Check state allows recording (only idle or diarize-ready are valid)
+    _current_state=$(cat "$STATE_FILE" 2>/dev/null)
+    _dbg "start-recording: current_state=$_current_state diarize=$DIARIZE"
+    case "$_current_state" in
+        idle|diarize-ready)
+            ;;  # OK to record
+        *)
+            _dbg "start-recording: BLOCKED (state=$_current_state)"
+            exit 0
+            ;;
+    esac
 
-    # Check that ASR daemon is running before starting recording
-    # (except in diarization mode: daemon is stopped on purpose to free VRAM)
-    if [ "$DIARIZE" != "true" ]; then
+    # Check daemon is running (skip in diarize mode — daemon is intentionally stopped)
+    if [ "$_current_state" != "diarize-ready" ]; then
         _backend="${DICTEE_ASR_BACKEND:-parakeet}"
-        _svc=$(asr_service "$_backend")
-        if ! systemctl --user is-active --quiet "$_svc" 2>/dev/null; then
-            _dbg "start-recording: BLOCKED — daemon $_svc not active"
+        _ASR_SERVICE=$(asr_service "$_backend")
+        if ! systemctl --user is-active --quiet "$_ASR_SERVICE" 2>/dev/null; then
+            _dbg "start-recording: BLOCKED — daemon $_ASR_SERVICE not active"
             trap - ERR
-            notify-send -t 5000 -i dialog-error -a Dictee "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_svc"
+            notify-send -t 5000 -i dialog-error -a Dictee "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_ASR_SERVICE"
             if command -v paplay >/dev/null 2>&1; then
                 paplay /usr/share/sounds/freedesktop/stereo/dialog-error.oga &
             fi
