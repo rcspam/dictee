@@ -224,7 +224,9 @@ ICON_MAP = {
     "recording": "parakeet-recording",
     "transcribing": "parakeet-transcribing",
     "diarize": "parakeet-diarize",
-    "diarizing": "parakeet-transcribing",  # same blue icon as transcribing
+    "diarizing": "parakeet-diarize",
+    "preparing": "parakeet-diarize",
+    "diarize-ready": "parakeet-diarize",
 }
 
 
@@ -343,7 +345,8 @@ def read_state():
     try:
         with open(STATE_FILE, "r") as f:
             state = f.read().strip()
-            if state in ("recording", "transcribing", "diarizing", "switching", "offline"):
+            if state in ("recording", "transcribing", "diarizing", "preparing",
+                         "diarize-ready", "switching", "offline"):
                 return state
             if state in ("cancelled", "idle"):
                 return "idle"
@@ -559,13 +562,10 @@ class DicteeTrayAppIndicator:
         self._check_state()
         self._apply_state()
 
-    def _cancel(self):
-        """Cancel current operation and clean up diarize state."""
+    def _cancel(self, *_args):
+        """Cancel current operation."""
         _dbg(f"cancel (gtk): state={self.state}")
         subprocess.Popen(["dictee", "--cancel"])
-        if self.item_diarize_gtk.get_active():
-            self.item_diarize_gtk.set_active(False)
-            subprocess.Popen(["dictee-switch-backend", "diarize", "false"])
 
     def _reset(self):
         """Reset everything — stop all processes, restart daemon."""
@@ -580,7 +580,7 @@ class DicteeTrayAppIndicator:
 
     def _check_state(self):
         file_state = read_state()
-        if file_state in ("recording", "transcribing", "diarizing"):
+        if file_state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
@@ -612,18 +612,20 @@ class DicteeTrayAppIndicator:
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
                       "transcribing": _("Transcribing…"),
-                      "diarizing": _("Diarization in progress…")}
+                      "diarizing": _("Diarization in progress…"),
+                      "preparing": _("Preparing diarization…"),
+                      "diarize-ready": _("Ready for diarization")}
             self.item_daemon.set_label(f"■ {labels.get(self.state, _('Daemon active'))}")
 
         # Menu dictée / traduction
-        is_busy = self.state in ("recording", "transcribing", "diarizing")
+        is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         self.item_dictee.set_label(
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
             else _("Start dictation"))
-        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing"))
-        self.item_translate.set_sensitive(self.state not in ("offline", "diarize", "diarizing"))
+        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
+        self.item_translate.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
         self.item_translate.set_visible(not is_busy)
         self.item_cancel.set_visible(is_busy)
 
@@ -896,7 +898,7 @@ class DicteeTrayQt:
             else:
                 subprocess.Popen(["dictee"])
         elif reason == self.QSystemTrayIcon.ActivationReason.MiddleClick:
-            if self.state in ("recording", "transcribing", "diarizing"):
+            if self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
                 self._cancel()
 
     def _on_asr_selected(self, action):
@@ -940,12 +942,9 @@ class DicteeTrayQt:
             action.setEnabled(_translate_backend_available(key))
 
     def _cancel(self):
-        """Cancel current operation and clean up diarize state."""
+        """Cancel current operation."""
         _dbg(f"cancel (qt): state={self.state}")
         subprocess.Popen(["dictee", "--cancel"])
-        if self.action_diarize_qt.isChecked():
-            self.action_diarize_qt.setChecked(False)
-            subprocess.Popen(["dictee-switch-backend", "diarize", "false"])
 
     def _reset(self):
         """Reset everything — stop all processes, restart daemon."""
@@ -960,7 +959,7 @@ class DicteeTrayQt:
 
     def _check_state(self):
         file_state = read_state()
-        if file_state in ("recording", "transcribing", "diarizing"):
+        if file_state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
@@ -984,6 +983,8 @@ class DicteeTrayQt:
             "offline": _("Dictation — offline"),
             "diarize": _("Diarization ready") + "\n" + _("Use keyboard shortcut to record"),
             "diarizing": _("Diarization in progress…"),
+            "preparing": _("Preparing diarization…"),
+            "diarize-ready": _("Ready for diarization"),
             "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
             "transcribing": _("Dictation — transcribing"),
         }
@@ -1001,21 +1002,25 @@ class DicteeTrayQt:
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
                       "transcribing": _("Transcribing…"),
-                      "diarizing": _("Diarization in progress…")}
+                      "diarizing": _("Diarization in progress…"),
+                      "preparing": _("Preparing diarization…"),
+                      "diarize-ready": _("Ready for diarization")}
             self.action_daemon.setText(
                 f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■")
-            self.action_daemon.setIcon(self._dot_icon("#9B59B6" if self.state == "diarizing" else "#2ecc71"))
+            violet_states = ("diarizing", "preparing", "diarize-ready")
+            self.action_daemon.setIcon(
+                self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
             self.action_daemon_hint.setText(f" {_('click to stop')}")
 
-        is_busy = self.state in ("recording", "transcribing", "diarizing")
+        is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         self.action_dictee.setText(
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
             else _("Start dictation"))
-        self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing"))
+        self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
         self.action_translate.setText(_("Start translation"))
-        self.action_translate.setEnabled(self.state not in ("offline", "diarize", "diarizing"))
+        self.action_translate.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
         self.action_translate.setVisible(not is_busy)
         self.action_cancel.setVisible(is_busy)
 
