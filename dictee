@@ -625,40 +625,65 @@ trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 
 # === CANCELLATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
-    _prev_state=$(cat "$STATE_FILE" 2>/dev/null)
-    _dbg "cancel: current_state=$_prev_state pidfile=$([ -f "$PIDFILE" ] && echo exists || echo absent)"
     trap - ERR
+    # Read and lock state atomically
+    _cancel_state=""
     (
         flock -n 200 || exit 0          # another cancel holds the lock → no-op
         current=$(cat "$STATE_FILE" 2>/dev/null)
-        if [ "$current" = "cancelled" ]; then exit 0; fi  # already cancelled
-        # Don't skip if diarize is active (preparing phase has idle state but needs cleanup)
-        if [ "$current" = "idle" ] && [ "$DIARIZE" != "true" ]; then exit 0; fi
+        case "$current" in
+            idle|offline|cancelled|"") exit 0 ;;  # nothing to cancel
+        esac
         echo "cancelled" > "$STATE_FILE"
-    ) 200>"$STATE_LOCK"
+        # Output previous state for the parent to use
+        echo "$current" >&3
+    ) 200>"$STATE_LOCK" 3>/tmp/.dictee_cancel_state_$$ || true
+    _cancel_state=$(cat /tmp/.dictee_cancel_state_$$ 2>/dev/null)
+    rm -f /tmp/.dictee_cancel_state_$$
 
-    if [ -f "$PIDFILE" ]; then
-        stop_animation quit
-        restore_audio
-        stop_recording
-        notify_dictee 3000 audio-chat-none-symbolic "Enregistrement annulé"
-        cleanup_session
-    elif [ "$_prev_state" = "diarizing" ] || [ "$DIARIZE" = "true" ]; then
-        # Diarization in progress or preparing (no PIDFILE) — kill processes and restart daemon
-        _dbg "cancel: diarize cleanup (prev_state=$_prev_state, DIARIZE=$DIARIZE)"
-        # Kill any running "diarize true" and diarization processes
-        if pkill -f "dictee-switch-backend diarize" 2>/dev/null; then true; fi
-        if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
-        if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
-        if pkill -f "diarize-only" 2>/dev/null; then true; fi
-        sleep 0.2
-        # Restore daemon
-        dictee-switch-backend diarize false 2>/dev/null || true
-        notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
-        cleanup_session
-        write_state "idle"
-        _dbg "cancel: diarisation cleanup done"
+    if [ -z "$_cancel_state" ]; then
+        _dbg "cancel: nothing to cancel"
+        exit 0
     fi
+
+    _dbg "cancel: state was $_cancel_state"
+
+    case "$_cancel_state" in
+        preparing|diarize-ready)
+            # Diarize preparation — kill switch-backend and restore daemon
+            if pkill -f "dictee-switch-backend diarize true" 2>/dev/null; then true; fi
+            dictee-switch-backend diarize false 2>/dev/null || true
+            notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
+            ;;
+        recording)
+            # Active recording — stop it
+            stop_animation quit
+            restore_audio
+            stop_recording
+            notify_dictee 3000 audio-chat-none-symbolic "Enregistrement annulé"
+            cleanup_session
+            # If diarize was prepared, restore daemon
+            _pre_b=$(grep '^DICTEE_PRE_DIARIZE_BACKEND=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2)
+            if [ -n "$_pre_b" ]; then
+                _dbg "cancel: recording had diarize prepared — restoring daemon"
+                dictee-switch-backend diarize false 2>/dev/null || true
+            else
+                write_state "idle"
+            fi
+            ;;
+        diarizing)
+            # Diarization in progress — kill processes and restore
+            if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
+            if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
+            if pkill -f "diarize-only" 2>/dev/null; then true; fi
+            sleep 0.2
+            dictee-switch-backend diarize false 2>/dev/null || true
+            notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
+            ;;
+        transcribing|switching)
+            write_state "idle"
+            ;;
+    esac
     _dbg "cancel: done"
     exit 0
 fi
