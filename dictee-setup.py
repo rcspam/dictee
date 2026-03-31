@@ -8297,9 +8297,9 @@ def main():
     args = parser.parse_args()
 
     global _SETUP_DEBUG
-    if args.debug:
+    if args.debug or os.environ.get("DICTEE_DEBUG") == "true":
         _SETUP_DEBUG = True
-        _dbg_setup("dictee-setup starting with --debug")
+        _dbg_setup("dictee-setup starting (debug via %s)" % ("--debug" if args.debug else "DICTEE_DEBUG"))
 
     app = QApplication([])
     app.setApplicationName("dictee-setup")

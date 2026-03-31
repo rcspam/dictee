@@ -28,9 +28,11 @@ fi
 
 # === DEBUG ===
 # Activer avec DICTEE_DEBUG=true dans dictee.conf ou en variable d'environnement
+# Exporter pour que les sous-processus (Rust, Python) en héritent
+export DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
 _DBG_LOG="/tmp/dictee-debug-$(id -u).log"
 _dbg() {
-    if [ "${DICTEE_DEBUG:-false}" = "true" ]; then
+    if [ "$DICTEE_DEBUG" = "true" ]; then
         printf '%s [dictee] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
     fi
 }

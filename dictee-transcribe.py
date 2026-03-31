@@ -2111,9 +2111,9 @@ def main():
     args = parser.parse_args()
 
     global DEBUG
-    if args.debug:
+    if args.debug or os.environ.get("DICTEE_DEBUG") == "true":
         DEBUG = True
-        _dbg("dictee-transcribe starting with --debug")
+        _dbg("dictee-transcribe starting (debug via %s)" % ("--debug" if args.debug else "DICTEE_DEBUG"))
 
     app = QApplication(sys.argv)
     app.setApplicationName("dictee-transcribe")
