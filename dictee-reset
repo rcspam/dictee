@@ -1,14 +1,14 @@
 #!/bin/bash
-# dictee-reset — Remet tout le système dictee à zéro et redémarre le daemon
+# dictee-reset — Reset the entire dictee system and restart the daemon
 # Usage: dictee-reset [service-name]
-#   service-name: dictee, dictee-vosk, dictee-whisper, dictee-canary (défaut: dictee)
+#   service-name: dictee, dictee-vosk, dictee-whisper, dictee-canary (default: dictee)
 
 set +e
 
 SVC="${1:-dictee}"
 _UID_SUFFIX="-$(id -u)"
 
-# Debug (utilise le même log que dictee)
+# Debug (uses the same log as dictee)
 _DBG_LOG="/tmp/dictee-debug-$(id -u).log"
 _DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 _DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
@@ -24,25 +24,24 @@ _dbg() {
 
 _dbg "reset: svc=$SVC"
 
-# 1. Écrire l'état idle
+# Kill a process from its PID file
+_kill_pidfile() {
+    local f="$1" label="${2:-process}"
+    [ -f "$f" ] || return 0
+    local pid
+    pid=$(cat "$f" 2>/dev/null) || return 0
+    [ -n "$pid" ] && { _dbg "reset: killing $label pid=$pid"; kill "$pid" 2>/dev/null; }
+}
+
+# 1. Write the idle state
 echo "idle" > /dev/shm/.dictee_state
 
-# 2. Tuer l'enregistrement en cours
-if [ -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" ]; then
-    _pid=$(cat "/tmp/recording_dictee_pid${_UID_SUFFIX}" 2>/dev/null)
-    _dbg "reset: killing recording pid=$_pid"
-    kill "$_pid" 2>/dev/null
-fi
+# 2. Kill the ongoing recording and ESC listener
+_kill_pidfile "/tmp/recording_dictee_pid${_UID_SUFFIX}" "recording"
+_kill_pidfile "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" "ESC listener"
 
-# 3. Tuer le listener ESC
-if [ -f "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" ]; then
-    _pid=$(cat "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" 2>/dev/null)
-    _dbg "reset: killing ESC listener pid=$_pid"
-    kill "$_pid" 2>/dev/null
-fi
-
-# 4. Tuer les processus de diarisation et transcription
-# (pkill -f avec notre propre PID exclu pour ne pas se suicider)
+# 4. Kill diarization and transcription processes
+# (pkill -f with our own PID excluded to avoid killing ourselves)
 _self=$$
 for pat in "transcribe-diarize" "dictee-transcribe" "diarize-only" "animation-speech-ctl"; do
     pgrep -f "$pat" 2>/dev/null | while read -r p; do
@@ -53,29 +52,29 @@ for pat in "transcribe-diarize" "dictee-transcribe" "diarize-only" "animation-sp
     done
 done
 
-# 5. Fermer les notifications persistantes
+# 5. Close persistent notifications
 _nid=$(cat "/tmp/notify_dictee${_UID_SUFFIX}" 2>/dev/null)
 if [ -n "$_nid" ]; then
     _dbg "reset: closing notification id=$_nid"
     notify-send --replace-id="$_nid" -t 1 -a Dictee "" 2>/dev/null || true
 fi
 
-# 6. Nettoyer les fichiers temporaires
+# 6. Clean up temporary files
 rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* \
       /tmp/dictee_esc_listener_pid* /tmp/mut_dictee*
 
-# 7. Désactiver la diarisation
+# 7. Disable diarization
 dictee-switch-backend diarize false 2>/dev/null
 
-# 8. Arrêter tous les daemons ASR
+# 8. Stop all ASR daemons
 for s in dictee dictee-vosk dictee-whisper dictee-canary; do
     systemctl --user stop "$s" 2>/dev/null
 done
 
-# 9. Restaurer l'audio
+# 9. Restore audio
 pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
 
-# 10. Redémarrer le daemon demandé
+# 10. Restart the requested daemon
 _dbg "reset: starting ${SVC}.service"
 systemctl --user start "${SVC}.service"
 _dbg "reset: done"

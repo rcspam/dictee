@@ -5,14 +5,14 @@ set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 
-# Debug (même log que dictee)
+# Debug (same log as dictee)
 _DBG_LOG="/tmp/dictee-debug-$(id -u).log"
 _dbg() {
     if [ "${DICTEE_DEBUG:-false}" = "true" ]; then
         printf '%s [switch-backend] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
     fi
 }
-# Charger DICTEE_DEBUG depuis la config si pas déjà défini
+# Load DICTEE_DEBUG from config if not already set
 if [ -f "$CONF" ] && [ "${DICTEE_DEBUG:-}" != "true" ]; then
     _d=$(grep '^DICTEE_DEBUG=' "$CONF" 2>/dev/null | cut -d= -f2)
     [ "$_d" = "true" ] && export DICTEE_DEBUG=true
@@ -53,6 +53,17 @@ fi
 
 _dbg "command=$1 ${2:-}"
 
+# Map ASR backend name to systemd service name
+_backend_to_svc() {
+    case "$1" in
+        parakeet) echo "dictee" ;;
+        canary)   echo "dictee-canary" ;;
+        vosk)     echo "dictee-vosk" ;;
+        whisper)  echo "dictee-whisper" ;;
+        *)        echo "dictee" ;;
+    esac
+}
+
 case "$1" in
 status)
     # Read current backends from config (disable -eu during source to tolerate malformed values)
@@ -60,13 +71,7 @@ status)
     source "$CONF"
     set -eu
     asr="${DICTEE_ASR_BACKEND:-parakeet}"
-    case "$asr" in
-        parakeet) svc="dictee" ;;
-        canary)   svc="dictee-canary" ;;
-        vosk)     svc="dictee-vosk" ;;
-        whisper)  svc="dictee-whisper" ;;
-        *)        svc="unknown" ;;
-    esac
+    svc=$(_backend_to_svc "$asr")
     svc_state=$(systemctl --user is-active "${svc}.service" 2>/dev/null) || true
     echo "ASR: $asr (${svc}.service, $svc_state)"
 
@@ -82,16 +87,10 @@ status)
 
 asr)
     if [ $# -lt 2 ]; then usage; fi
-    # Mapping backend -> service name
-    case "$2" in
-        parakeet) svc="dictee" ;;
-        canary)   svc="dictee-canary" ;;
-        vosk)     svc="dictee-vosk" ;;
-        whisper)  svc="dictee-whisper" ;;
-        *) echo "Error: unknown ASR backend '$2'" >&2; usage ;;
-    esac
+    case "$2" in parakeet|canary|vosk|whisper) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
+    svc=$(_backend_to_svc "$2")
 
-    # Check service exists
+    # Check that the service exists
     if ! systemctl --user list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}.service"; then
         echo "Error: ${svc}.service not found. Is the $2 backend installed?" >&2
         notify-send -t 5000 -i dialog-error -a Dictee "Backend $2 not installed" 2>/dev/null || true
@@ -100,7 +99,7 @@ asr)
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
 
-    # Signal transitional state to plasmoid/tray (protégé par flock)
+    # Signal transitional state to plasmoid/tray (protected by flock)
     STATE_FILE="/dev/shm/.dictee_state"
     STATE_LOCK="/dev/shm/.dictee_state.lock"
     _write_state() { ( flock -n 200 || return 1; echo "$1" > "$STATE_FILE"; ) 200>"$STATE_LOCK"; }
@@ -108,7 +107,7 @@ asr)
     _write_state "switching"
     _dbg "asr: switching to $2 (svc=$svc)"
 
-    # Stop all, start the right one
+    # Stop all daemons, start the right one
     for s in dictee dictee-canary dictee-vosk dictee-whisper; do
         if [ "$s" != "$svc" ]; then
             systemctl --user stop "${s}.service" 2>/dev/null || true
@@ -181,14 +180,14 @@ diarize)
 
     _dbg "diarize: val=$val current_asr=$current_asr"
     if [ "$val" = "true" ]; then
-        # Save current backend and stop daemon to free VRAM for transcribe-diarize CLI
+        # Save current backend and stop daemon to free VRAM for the transcribe-diarize CLI
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         set_conf "DICTEE_DIARIZE" "true"
-        # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI)
-        # Use disable to prevent auto-restart (re-enabled on diarize false)
+        # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI tool)
+        # Use disable to prevent auto-restart (re-enabled when diarize is set to false)
         _dbg "diarize: stopping all daemons for VRAM"
         systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
-        # Wait until GPU processes are gone (max 5s)
+        # Wait until GPU processes are gone (5s timeout)
         for i in $(seq 1 10); do
             if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
                 break
@@ -198,16 +197,11 @@ diarize)
         notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation activée" 2>/dev/null || true
     else
         set_conf "DICTEE_DIARIZE" "false"
-        # Restore previous backend daemon
+        # Restore the previous backend daemon
         pre_backend="${DICTEE_PRE_DIARIZE_BACKEND:-$current_asr}"
         if [ -n "$pre_backend" ]; then
             set_conf "DICTEE_ASR_BACKEND" "$pre_backend"
-            case "$pre_backend" in
-                vosk)    svc="dictee-vosk" ;;
-                whisper) svc="dictee-whisper" ;;
-                canary)  svc="dictee-canary" ;;
-                *)       svc="dictee" ;;
-            esac
+            svc=$(_backend_to_svc "$pre_backend")
             _dbg "diarize: restoring $pre_backend → $svc"
             systemctl --user enable --now "$svc" 2>/dev/null
             set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
