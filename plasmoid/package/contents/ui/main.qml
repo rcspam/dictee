@@ -83,18 +83,22 @@ PlasmoidItem {
                 if (stdout === "not-installed") {
                     root.dicteeInstalled = false
                     root.dicteeConfigured = false
+                    console.log("[dictee-plasmoid] daemonCheck: not-installed → offline")
                     root.state = "offline"
                 } else if (stdout === "not-configured") {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = false
+                    console.log("[dictee-plasmoid] daemonCheck: not-configured → offline")
                     root.state = "offline"
                 } else {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
                     if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing") {
+                        console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
+                        console.log("[dictee-plasmoid] daemonCheck: was offline → idle")
                         root.state = "idle"
                     }
                 }
@@ -288,7 +292,7 @@ PlasmoidItem {
     function parseState(output) {
         var newState = output.trim()
         if (newState === root.state || newState === "") return
-        _dbg("state: " + root.state + " → " + newState)
+        console.log("[dictee-plasmoid] parseState: " + root.state + " → " + newState)
 
         // Stop all safety timers on any transition
         transcribingTimer.stop()
