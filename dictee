@@ -119,6 +119,7 @@ notify_dictee() {
     local timeout="$1" icon="$2" msg="$3" body="${4:-}"
     local id
     id=$(cat "$ID_TMP_FILE" 2>/dev/null)
+    _dbg "notify: id=${id:-NONE} timeout=$timeout msg='$msg'"
     if [ -n "$id" ]; then
         notify-send --replace-id="$id" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null || true
     else
@@ -617,11 +618,11 @@ cleanup_on_error() {
     stop_escape_listener
     stop_recording force
     stop_animation quit
-    pkill -P $$ 2>/dev/null
     restore_audio
     notify_dictee 3000 audio-chat-none-symbolic "Enregistrement interrompu"
     cleanup_session
     rm -f "$LAST_WORD_FILE"
+    pkill -P $$ 2>/dev/null
 
     write_state "idle"
     exit $exit_code
