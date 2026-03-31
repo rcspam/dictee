@@ -52,12 +52,9 @@ for pat in "transcribe-diarize" "dictee-transcribe" "diarize-only" "animation-sp
     done
 done
 
-# 5. Close persistent notifications
-_nid=$(cat "/tmp/notify_dictee${_UID_SUFFIX}" 2>/dev/null)
-if [ -n "$_nid" ]; then
-    _dbg "reset: closing notification id=$_nid"
-    notify-send --replace-id="$_nid" -t 1 -a Dictee "" 2>/dev/null || true
-fi
+# 5. Close persistent notification (fixed ID — no file lookup needed)
+_dbg "reset: closing notification"
+notify-send --replace-id=424200 -t 1 -a Dictee "" 2>/dev/null || true
 
 # 6. Clean up temporary files
 rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* \
@@ -77,4 +74,11 @@ pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
 # 10. Restart the requested daemon
 _dbg "reset: starting ${SVC}.service"
 systemctl --user start "${SVC}.service"
+
+# 11. Kill any dictee/pw-record that started after our cleanup (race)
+pkill -f "pw-record.*tmp_recording_dictee" 2>/dev/null || true
+rm -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" "/tmp/recording_dictee_pid${_UID_SUFFIX}.lock"
+echo "idle" > /dev/shm/.dictee_state
+# Close notification again in case a racing dictee created one after step 5
+notify-send --replace-id=424200 -t 1 -a Dictee "" 2>/dev/null || true
 _dbg "reset: done"
