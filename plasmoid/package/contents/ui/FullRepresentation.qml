@@ -10,15 +10,6 @@ RowLayout {
     id: fullRep
 
     property string state: "offline"
-    property int diarizeResetCount: 0
-    onDiarizeResetCountChanged: {
-        // Reset diarize button when cancel/reset is triggered from main.qml
-        if (btnDiarize.dState !== "idle") {
-            btnDiarize.dState = "idle"
-            pulseAnim.stop()
-            btnDiarize.opacity = 1.0
-        }
-    }
     property bool dicteeInstalled: true
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
@@ -95,6 +86,10 @@ RowLayout {
                     return Kirigami.Theme.positiveTextColor
                 case "switching":
                     return Kirigami.Theme.neutralTextColor
+                case "preparing":
+                case "diarize-ready":
+                case "diarizing":
+                    return "#9B59B6"
                 default:
                     return Kirigami.Theme.positiveTextColor
                 }
@@ -116,6 +111,10 @@ RowLayout {
                     return i18n("Transcribing…")
                 case "switching":
                     return i18n("Switching backend…")
+                case "preparing":
+                    return i18n("Preparing diarization…")
+                case "diarize-ready":
+                    return i18n("Ready for diarization")
                 case "diarizing":
                     return i18n("Diarization in progress…")
                 default:
@@ -241,7 +240,7 @@ RowLayout {
                 text: i18n("Dictation")
                 icon.name: "audio-input-microphone"
                 onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
-                enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
+                enabled: fullRep.state === "idle" || fullRep.state === "recording"
                 leftPadding: dictateDot.visible ? 20 : undefined
             }
 
@@ -278,7 +277,7 @@ RowLayout {
                 text: i18n("Translate")
                 icon.name: "translate"
                 onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
-                enabled: (fullRep.state === "idle" || fullRep.state === "recording") && btnDiarize.dState === "idle"
+                enabled: fullRep.state === "idle" || fullRep.state === "recording"
                 leftPadding: translateDot.visible ? 20 : undefined
             }
 
@@ -309,11 +308,12 @@ RowLayout {
             Layout.fillWidth: true
             Layout.preferredWidth: 0
 
-            // States: idle → preparing → ready → recording
-            property string dState: "idle"
-            property bool cancelledDuringPrepare: false
-
-            enabled: root.sortformerAvailable && dState !== "preparing" && fullRep.state !== "diarizing"
+            enabled: root.sortformerAvailable && (
+                fullRep.state === "idle" ||
+                fullRep.state === "preparing" ||
+                fullRep.state === "diarize-ready" ||
+                (fullRep.state === "recording" && root.activeButton === "diarize")
+            )
 
             contentItem: RowLayout {
                 spacing: 4
@@ -324,107 +324,67 @@ RowLayout {
                 }
                 PlasmaComponents.Label {
                     text: {
-                        if (fullRep.state === "diarizing") return i18n("Diarization in progress...")
-                        switch (btnDiarize.dState) {
-                            case "preparing": return i18n("Preparing… (click to cancel)")
-                            case "ready":     return i18n("Start diarization")
-                            case "recording": return i18n("Stop diarization")
-                            default:          return i18n("Diarization")
+                        switch (fullRep.state) {
+                            case "preparing":     return i18n("Preparing… (click to cancel)")
+                            case "diarize-ready":  return i18n("Start diarization")
+                            case "diarizing":     return i18n("Diarization in progress...")
+                            default:
+                                if (fullRep.state === "recording" && root.activeButton === "diarize")
+                                    return i18n("Stop diarization")
+                                return i18n("Diarization")
                         }
                     }
                     color: {
-                        if (btnDiarize.dState === "ready") return "#98c379"
-                        if (btnDiarize.dState === "recording") return "#e06c75"
+                        if (fullRep.state === "diarize-ready") return "#98c379"
+                        if (fullRep.state === "recording" && root.activeButton === "diarize") return "#e06c75"
                         return Kirigami.Theme.textColor
                     }
                 }
             }
 
             onClicked: {
-                switch (dState) {
+                switch (fullRep.state) {
                     case "idle":
-                        // Step 1: prepare — stop daemons, free VRAM
-                        dState = "preparing"
-                        cancelledDuringPrepare = false
-                        root.diarizeEnabled = false
-                        pulseAnim.start()
-                        executable.run("bash -c 'dictee-switch-backend diarize true && echo DIARIZE_READY'")
+                        root.activeButton = "diarize"
+                        fullRep.actionRequested("diarize-prepare")
                         break
                     case "preparing":
-                    case "ready":
-                        // Cancel preparation/ready — restore daemon
-                        cancelledDuringPrepare = true
-                        dState = "idle"
-                        pulseAnim.stop()
-                        opacity = 1.0
                         fullRep.actionRequested("cancel")
                         break
-                    case "ready":
-                        // Step 2: start recording
-                        dState = "recording"
-                        root.diarizeEnabled = true
-                        root.activeButton = "diarize"
+                    case "diarize-ready":
                         fullRep.actionRequested("dictate")
                         break
                     case "recording":
-                        // Step 3: stop recording → diarize → open window
                         fullRep.actionRequested("dictate")
-                        dState = "idle"
                         break
                 }
             }
 
-            Connections {
-                target: root
-                function onDiarizeEnabledChanged() {
-                    if (root.diarizeEnabled && btnDiarize.dState === "preparing"
-                            && !btnDiarize.cancelledDuringPrepare) {
-                        // DIARIZE_READY received — backend ready
-                        btnDiarize.dState = "ready"
-                        pulseAnim.stop()
-                        btnDiarize.opacity = 1.0
-                    } else if (!root.diarizeEnabled) {
-                        // Reset (annulation ou reset global)
-                        btnDiarize.dState = "idle"
-                        pulseAnim.stop()
-                        btnDiarize.opacity = 1.0
-                    }
-                }
-            }
+            opacity: fullRep.state === "preparing" ? pulseAnim.pulseOpacity : 1.0
 
             SequentialAnimation {
                 id: pulseAnim
+                property real pulseOpacity: 1.0
+                running: fullRep.state === "preparing"
                 loops: Animation.Infinite
-                NumberAnimation { target: btnDiarize; property: "opacity"; to: 0.4; duration: 600; easing.type: Easing.InOutSine }
-                NumberAnimation { target: btnDiarize; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: pulseAnim; property: "pulseOpacity"; to: 0.4; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: pulseAnim; property: "pulseOpacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
             }
 
             QQC2.ToolTip.text: {
                 if (!root.sortformerAvailable)
                     return i18n("Sortformer model not installed. Configure in dictee-setup.")
-                switch (dState) {
+                switch (fullRep.state) {
                     case "preparing": return i18n("Freeing GPU memory...")
-                    case "ready":     return i18n("Click to start recording with speaker identification")
-                    case "recording": return i18n("Click to stop and identify speakers")
-                    default:          return i18n("Record and identify speakers (max 4)")
+                    case "diarize-ready": return i18n("Click to start recording with speaker identification")
+                    case "recording": return root.activeButton === "diarize"
+                        ? i18n("Click to stop and identify speakers")
+                        : i18n("Record and identify speakers (max 4)")
+                    default: return i18n("Record and identify speakers (max 4)")
                 }
             }
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
-        }
-    }
-
-    // ESC to cancel (recording, diarization preparing/ready, or diarizing)
-    Keys.onEscapePressed: {
-        var wasDiarizing = (btnDiarize.dState === "preparing" || btnDiarize.dState === "ready")
-        if (wasDiarizing) {
-            // Reset diarize button directly
-            btnDiarize.dState = "idle"
-            pulseAnim.stop()
-            btnDiarize.opacity = 1.0
-        }
-        if (fullRep.state === "recording" || fullRep.state === "diarizing" || wasDiarizing) {
-            fullRep.actionRequested("cancel")
         }
     }
 
@@ -610,9 +570,6 @@ RowLayout {
     }
 
 
-
-    // Focus pour recevoir ESC
-    Component.onCompleted: forceActiveFocus()
 
     }  // end ColumnLayout
 
