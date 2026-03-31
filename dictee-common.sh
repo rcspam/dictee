@@ -41,6 +41,7 @@ _dbg() {
 
 # Write state atomically (flock-protected)
 write_state() {
+    _dbg "state: $(cat "$STATE_FILE" 2>/dev/null) → $1"
     (
         flock -n 200 || return 1
         echo "$1" > "$STATE_FILE"
@@ -51,13 +52,22 @@ write_state() {
 # Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
 notify_dictee() {
     local timeout="$1" icon="$2" msg="$3" body="${4:-}"
-    _dbg "notify: timeout=$timeout msg='$msg'"
-    notify-send --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null || true
+    _dbg "notify: timeout=$timeout icon=$icon msg='$msg'"
+    local _nerr
+    _nerr=$(notify-send --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>&1) || {
+        _dbg "notify: FAILED — $_nerr"
+        return 0
+    }
 }
 
 # Silently close the persistent notification
 close_notification() {
-    notify-send --replace-id="$NOTIFY_ID" -t 1 -a Dictee "" 2>/dev/null || true
+    _dbg "notify: close"
+    local _nerr
+    _nerr=$(notify-send --replace-id="$NOTIFY_ID" -t 1 -a Dictee "" 2>&1) || {
+        _dbg "notify: close FAILED — $_nerr"
+        return 0
+    }
 }
 
 # Map ASR backend to systemd service name
