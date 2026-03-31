@@ -1677,7 +1677,7 @@ class TranscribeWindow(QDialog):
         # Two-phase diarization: diarize-only finished → transcribe segments via daemon
         if getattr(self, '_diarize_two_phase', False) and exit_code == 0 and raw_output:
             self._diarize_two_phase = False
-            _dbg(f"_on_finished: phase 1 done (diarize-only), segments={raw_output.count(chr(10))+1} lines")
+            _dbg(f"_on_finished: phase 1 done (diarize-only), segments:\n{raw_output}")
             self._lbl_status.setText(_("Restarting daemon for transcription..."))
             # Restart daemon
             self._restart_daemon_and_transcribe(raw_output)
