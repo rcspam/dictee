@@ -253,6 +253,7 @@ PlasmoidItem {
     property bool micMuted: false
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property bool diarizeEnabled: false  // read from config
+    property int diarizeResetCount: 0   // incremented to force diarize button reset
     property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
     property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_DIARIZE|$DICTEE_AUDIO_SOURCE\"'"
     property string currentAudioSource: ""
@@ -293,11 +294,11 @@ PlasmoidItem {
     }
 
     function cleanupDiarize() {
-        if (root.diarizeEnabled) {
-            _dbg("cleanupDiarize")
-            root.diarizeEnabled = false
-            executable.run("dictee-switch-backend diarize false")
-        }
+        _dbg("cleanupDiarize (diarizeEnabled=" + root.diarizeEnabled + ")")
+        root.diarizeEnabled = false
+        root.diarizeResetCount++  // force diarize button reset in FullRepresentation
+        // Kill any running "diarize true" first (it would re-stop the daemon after we restart it)
+        executable.run("bash -c 'pkill -f \"dictee-switch-backend diarize true\" 2>/dev/null; sleep 0.2; dictee-switch-backend diarize false'")
     }
 
     function parseState(output) {
@@ -446,6 +447,7 @@ PlasmoidItem {
 
     fullRepresentation: FullRepresentation {
         state: root.state
+        diarizeResetCount: root.diarizeResetCount
         dicteeInstalled: root.dicteeInstalled
         dicteeConfigured: root.dicteeConfigured
         barColor: root.barColor
@@ -513,14 +515,14 @@ PlasmoidItem {
             var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
-        }
             transcribingTimer.stop()
             recordingTimer.stop()
             diarizingTimer.stop()
-            root.diarizeEnabled = false
+            cleanupDiarize()
             root.activeButton = ""
             root.state = "idle"
             break
+        }
         case "transcribe-file":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")
             break

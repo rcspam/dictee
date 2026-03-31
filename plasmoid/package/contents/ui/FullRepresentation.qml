@@ -10,6 +10,15 @@ RowLayout {
     id: fullRep
 
     property string state: "offline"
+    property int diarizeResetCount: 0
+    onDiarizeResetCountChanged: {
+        // Reset diarize button when cancel/reset is triggered from main.qml
+        if (btnDiarize.dState !== "idle") {
+            btnDiarize.dState = "idle"
+            pulseAnim.stop()
+            btnDiarize.opacity = 1.0
+        }
+    }
     property bool dicteeInstalled: true
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
@@ -302,6 +311,7 @@ RowLayout {
 
             // States: idle → preparing → ready → recording
             property string dState: "idle"
+            property bool cancelledDuringPrepare: false
 
             enabled: root.sortformerAvailable && dState !== "preparing" && fullRep.state !== "diarizing"
 
@@ -316,7 +326,7 @@ RowLayout {
                     text: {
                         if (fullRep.state === "diarizing") return i18n("Diarization in progress...")
                         switch (btnDiarize.dState) {
-                            case "preparing": return i18n("Preparing...")
+                            case "preparing": return i18n("Preparing… (click to cancel)")
                             case "ready":     return i18n("Start diarization")
                             case "recording": return i18n("Stop diarization")
                             default:          return i18n("Diarization")
@@ -335,9 +345,19 @@ RowLayout {
                     case "idle":
                         // Step 1: prepare — stop daemons, free VRAM
                         dState = "preparing"
+                        cancelledDuringPrepare = false
                         root.diarizeEnabled = false
                         pulseAnim.start()
                         executable.run("bash -c 'dictee-switch-backend diarize true && echo DIARIZE_READY'")
+                        break
+                    case "preparing":
+                    case "ready":
+                        // Cancel preparation/ready — restore daemon
+                        cancelledDuringPrepare = true
+                        dState = "idle"
+                        pulseAnim.stop()
+                        opacity = 1.0
+                        fullRep.actionRequested("cancel")
                         break
                     case "ready":
                         // Step 2: start recording
@@ -357,8 +377,9 @@ RowLayout {
             Connections {
                 target: root
                 function onDiarizeEnabledChanged() {
-                    if (root.diarizeEnabled && btnDiarize.dState === "preparing") {
-                        // DIARIZE_READY received — backend prêt
+                    if (root.diarizeEnabled && btnDiarize.dState === "preparing"
+                            && !btnDiarize.cancelledDuringPrepare) {
+                        // DIARIZE_READY received — backend ready
                         btnDiarize.dState = "ready"
                         pulseAnim.stop()
                         btnDiarize.opacity = 1.0
@@ -393,11 +414,16 @@ RowLayout {
         }
     }
 
-    // Raccourci ESC pour annuler (recording, diarisation en préparation, ou diarizing)
+    // ESC to cancel (recording, diarization preparing/ready, or diarizing)
     Keys.onEscapePressed: {
-        if (fullRep.state === "recording" || fullRep.state === "diarizing") {
-            fullRep.actionRequested("cancel")
-        } else if (btnDiarize.dState === "preparing" || btnDiarize.dState === "ready") {
+        var wasDiarizing = (btnDiarize.dState === "preparing" || btnDiarize.dState === "ready")
+        if (wasDiarizing) {
+            // Reset diarize button directly
+            btnDiarize.dState = "idle"
+            pulseAnim.stop()
+            btnDiarize.opacity = 1.0
+        }
+        if (fullRep.state === "recording" || fullRep.state === "diarizing" || wasDiarizing) {
             fullRep.actionRequested("cancel")
         }
     }
