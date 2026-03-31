@@ -111,6 +111,90 @@ write_state() {
     ) 200>"$STATE_LOCK"
 }
 
+# === UTILITY FUNCTIONS ===
+
+# Send a notification, replacing the persistent one if ID exists
+# Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
+notify_dictee() {
+    local timeout="$1" icon="$2" msg="$3" body="${4:-}"
+    local id
+    id=$(cat "$ID_TMP_FILE" 2>/dev/null)
+    if [ -n "$id" ]; then
+        notify-send --replace-id="$id" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null || true
+    else
+        notify-send -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null || true
+    fi
+}
+
+# Silently close the persistent notification
+close_notification() {
+    local id
+    id=$(cat "$ID_TMP_FILE" 2>/dev/null)
+    if [ -n "$id" ]; then
+        notify-send --replace-id="$id" -t 1 -a Dictee "" 2>/dev/null || true
+    fi
+}
+
+# Stop the animation (quit or stop)
+stop_animation() {
+    local cmd="${1:-stop}"
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            if animation-speech-ctl "$cmd" 2>/dev/null; then true; fi
+        fi
+    fi
+}
+
+# Restore audio state (re-mute mic if it was muted, unmute sink)
+restore_audio() {
+    if [ -f "$MUT_FILE" ]; then
+        local was_muted=""
+        if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
+            if [ "$was_muted" = "1" ]; then
+                pactl set-source-mute "$_PA_SOURCE" 1
+            fi
+        fi
+        rm -f "$MUT_FILE"
+    fi
+    if [ "$_IS_APP_SOURCE" = false ]; then
+        pactl set-sink-mute @DEFAULT_SINK@ 0
+    fi
+}
+
+# Kill the recording process from PIDFILE
+# Usage: stop_recording [force]  — "force" adds SIGKILL escalation
+stop_recording() {
+    if [ ! -f "$PIDFILE" ]; then return; fi
+    local rec_pid=""
+    rec_pid=$(cat "$PIDFILE" 2>/dev/null) || true
+    if [ -n "$rec_pid" ]; then
+        if [ "${1:-}" = "force" ]; then
+            kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
+            sleep 0.1
+            kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
+        else
+            if kill "$rec_pid" 2>/dev/null; then true; fi
+        fi
+    fi
+    rm -f "$PIDFILE" "${PIDFILE}.lock"
+}
+
+# Remove all session temp files
+cleanup_session() {
+    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+}
+
+# Map ASR backend to systemd service name
+asr_service() {
+    case "${1:-${DICTEE_ASR_BACKEND:-parakeet}}" in
+        parakeet) echo "dictee" ;;
+        vosk)     echo "dictee-vosk" ;;
+        whisper)  echo "dictee-whisper" ;;
+        canary)   echo "dictee-canary" ;;
+        *)        echo "dictee" ;;
+    esac
+}
+
 # Text post-processing (regex rules + dictionary + optional LLM)
 if [ "${DICTEE_POSTPROCESS:-true}" = "true" ] && command -v dictee-postprocess >/dev/null 2>&1; then
     SUPPRIME="| dictee-postprocess"
@@ -531,44 +615,13 @@ cleanup_on_error() {
     echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> "/tmp/dictee-error${_UID_SUFFIX}.log"
 
     stop_escape_listener
-
-    # Kill pw-record and its children
-    if [ -f "$PIDFILE" ]; then
-        local rec_pid=$(cat "$PIDFILE")
-        kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
-        sleep 0.1
-        kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
-        rm -f "$PIDFILE" "${PIDFILE}.lock"
-    fi
-
-    # Stop animation
-    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
-        if command -v animation-speech-ctl >/dev/null 2>&1; then
-            animation-speech-ctl quit 2>/dev/null
-        fi
-    fi
-
-    # Kill all remaining child processes
+    stop_recording force
+    stop_animation quit
     pkill -P $$ 2>/dev/null
-
-    # Restore audio state
-    if [ "$_IS_APP_SOURCE" = false ]; then
-        pactl set-sink-mute @DEFAULT_SINK@ 0
-    fi
-    if [ -f "$MUT_FILE" ]; then
-        if [ "$(awk -F'=' '{print $2}' "$MUT_FILE" 2>/dev/null)" = "1" ]; then
-            pactl set-source-mute "$_PA_SOURCE" 1
-        fi
-        rm -f "$MUT_FILE"
-    fi
-
-    # Close persistent notification
-    local id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-    if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement interrompu"
-    fi
-
-    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$LAST_WORD_FILE"
+    restore_audio
+    notify_dictee 3000 audio-chat-none-symbolic "Enregistrement interrompu"
+    cleanup_session
+    rm -f "$LAST_WORD_FILE"
 
     write_state "idle"
     exit $exit_code
@@ -699,74 +752,25 @@ if [ "$CANCEL" = true ]; then
     ) 200>"$STATE_LOCK"
 
     if [ -f "$PIDFILE" ]; then
-        id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-
         stop_escape_listener
-
-        # Stop animation
-        if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
-            if command -v animation-speech-ctl >/dev/null 2>&1; then
-                if animation-speech-ctl quit 2>/dev/null; then true; fi
-            fi
-        fi
-
-        # Restore microphone state
-        if [ -f "$MUT_FILE" ]; then
-            was_muted=""
-            if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
-                if [ "$was_muted" = "1" ]; then
-                    pactl set-source-mute "$_PA_SOURCE" 1
-                fi
-            fi
-            rm -f "$MUT_FILE"
-        fi
-        pactl set-sink-mute @DEFAULT_SINK@ 0
-
-        # Stop recording
-        if [ -f "$PIDFILE" ]; then
-            cancel_pid=""
-            if cancel_pid=$(cat "$PIDFILE" 2>/dev/null); then
-                if [ -n "$cancel_pid" ]; then
-                    if kill "$cancel_pid" 2>/dev/null; then
-                        true
-                    fi
-                fi
-            fi
-            rm -f "$PIDFILE" "${PIDFILE}.lock"
-        fi
-
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
-        else
-            notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
-        fi
-        rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        stop_animation quit
+        restore_audio
+        stop_recording
+        notify_dictee 3000 audio-chat-none-symbolic "Enregistrement annulé"
+        cleanup_session
     else
         # No recording in progress — handle diarization cancellation
         current=$(cat "$STATE_FILE" 2>/dev/null)
         if [ "$current" = "cancelled" ] || [ "$current" = "diarizing" ]; then
-            # Kill dictee-transcribe if diarization is in progress
             if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
             if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
             if pkill -f "diarize-only" 2>/dev/null; then true; fi
-            # Restart ASR daemon
-            _backend="${DICTEE_ASR_BACKEND:-parakeet}"
-            case "$_backend" in
-                parakeet) systemctl --user start dictee 2>/dev/null || true ;;
-                vosk)     systemctl --user start dictee-vosk 2>/dev/null || true ;;
-                whisper)  systemctl --user start dictee-whisper 2>/dev/null || true ;;
-                canary)   systemctl --user start dictee-canary 2>/dev/null || true ;;
-            esac
-            # Close persistent recording notification if it exists
-            _cancel_id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-            if [ -n "$_cancel_id" ]; then
-                notify-send --replace-id="$_cancel_id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Diarisation annulée"
-            else
-                notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Diarisation annulée"
-            fi
-            rm -f "$ID_TMP_FILE"
+            _svc=$(asr_service)
+            systemctl --user start "$_svc" 2>/dev/null || true
+            notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
+            cleanup_session
             write_state "idle"
-            _dbg "cancel: diarisation killed, daemon $_backend restarted"
+            _dbg "cancel: diarisation killed, daemon $_svc restarted"
         fi
     fi
     _dbg "cancel: done"
@@ -778,12 +782,9 @@ if [ -f "$PIDFILE" ]; then
     _stale_pid=$(cat "$PIDFILE" 2>/dev/null)
     if [ -z "$_stale_pid" ] || ! kill -0 "$_stale_pid" 2>/dev/null; then
         _dbg "stale PIDFILE: pid=$_stale_pid (dead), cleaning up"
-        # Close persistent notification if it exists
-        _stale_nid=$(cat "$ID_TMP_FILE" 2>/dev/null)
-        if [ -n "$_stale_nid" ]; then
-            notify-send --replace-id="$_stale_nid" -t 1 -a Dictee "" 2>/dev/null || true
-        fi
-        rm -f "$PIDFILE" "${PIDFILE}.lock" "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$MUT_FILE"
+        close_notification
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$MUT_FILE"
+        cleanup_session
         write_state "idle"
     fi
 fi
@@ -805,49 +806,11 @@ if [ -f "$PIDFILE" ]; then
         TRANSLATE_BACKEND=$(cat "$TRANSLATE_BACKEND_FILE")
     fi
 
-    id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-
-    # Stop animation
-    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
-        if command -v animation-speech-ctl >/dev/null 2>&1; then
-            if animation-speech-ctl stop 2>/dev/null; then true; fi
-        fi
-    fi
-
-    # Restore microphone state
-    if [ -f "$MUT_FILE" ]; then
-        was_muted=""
-        if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
-            if [ "$was_muted" = "1" ]; then
-                pactl set-source-mute "$_PA_SOURCE" 1
-            fi
-        fi
-        rm -f "$MUT_FILE"
-    fi
-    # Unmute audio output (only if we muted it — not for apps/monitors)
-    if [ "$_IS_APP_SOURCE" = false ]; then
-        pactl set-sink-mute @DEFAULT_SINK@ 0
-    fi
-
-    # Signal plasmoid
+    stop_animation
+    restore_audio
     write_state "transcribing"
-
-    # Stop recording
-    if [ -f "$PIDFILE" ]; then
-        rec_pid=""
-        if rec_pid=$(cat "$PIDFILE" 2>/dev/null); then
-            if [ -n "$rec_pid" ]; then
-                if kill "$rec_pid" 2>/dev/null; then
-                    true
-                fi
-            fi
-        fi
-        rm -f "$PIDFILE" "${PIDFILE}.lock"
-    fi
-
-    if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
-    fi
+    stop_recording
+    notify_dictee 3000 audio-chat-none-symbolic "Enregistrement arrêté"
 
     # Live diarization: copy WAV and open dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
@@ -877,7 +840,7 @@ if [ -f "$PIDFILE" ]; then
         fi
         diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
         cp "$RECORDING_FILE" "$diarize_file"
-        rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        cleanup_session
         # Reset DIARIZE=false so next F9 does a normal dictation
         # (don't restart daemon — dictee-transcribe manages VRAM)
         sed -i 's/^DICTEE_DIARIZE=.*/DICTEE_DIARIZE=false/' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
@@ -892,25 +855,17 @@ if [ -f "$PIDFILE" ]; then
     _dbg "transcribe: sending $RECORDING_FILE to daemon"
     if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
         _dbg "transcribe: FAILED — daemon not responding"
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
-        else
-            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
-        fi
+        notify_dictee 5000 dialog-error "Transcription failed — daemon not responding"
         write_state "idle"
-        rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        cleanup_session
         exit 1
     fi
     _dbg "transcribe: raw result=${#raw} chars"
     if [ -z "$raw" ]; then
         _dbg "transcribe: FAILED — empty result"
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
-        else
-            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
-        fi
+        notify_dictee 5000 dialog-error "Transcription failed — empty result"
         write_state "idle"
-        rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        cleanup_session
         exit 1
     fi
     if [ -n "$SUPPRIME" ]; then
@@ -930,13 +885,9 @@ if [ -f "$PIDFILE" ]; then
     apply_continuation transcribed
 
     if [ "$TRANSLATE" = true ]; then
-        # Translate and copy
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
-        fi
+        notify_dictee 5000 audio-chat-none-symbolic "Traduction en cours..."
 
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
-            # Canary: built-in translation — single daemon call with target language
             translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
             _trans_label="canary"
         else
@@ -947,38 +898,21 @@ if [ -f "$PIDFILE" ]; then
             copy_to_clipboard "$translated"
             type_text "$translated"
             save_last_word "$translated"
-
-            if [ -n "$id" ]; then
-                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
-            else
-                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
-            fi
+            notify_dictee 5000 clipboard-paste-symbolic "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         else
-            # Translation failed — type the original text
             copy_to_clipboard "$transcribed"
             type_text "$transcribed"
             save_last_word "$transcribed"
-
-            if [ -n "$id" ]; then
-                notify-send --replace-id="$id" -t 5000 -i dialog-warning-symbolic -a Dictee "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
-            else
-                notify-send -t 5000 -i dialog-warning-symbolic -a Dictee "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
-            fi
+            notify_dictee 5000 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
         fi
     else
-        # Copy directly
         copy_to_clipboard "$transcribed"
         type_text "$transcribed"
         save_last_word "$transcribed"
-
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
-        else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
-        fi
+        notify_dictee 5000 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
     fi
 
-    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    cleanup_session
     write_state "idle"
 
     # Re-enable trap ERR
@@ -999,13 +933,7 @@ else
     # (except in diarization mode: daemon is stopped on purpose to free VRAM)
     if [ "$DIARIZE" != "true" ]; then
         _backend="${DICTEE_ASR_BACKEND:-parakeet}"
-        case "$_backend" in
-            parakeet) _svc="dictee" ;;
-            vosk)     _svc="dictee-vosk" ;;
-            whisper)  _svc="dictee-whisper" ;;
-            canary)   _svc="dictee-canary" ;;
-            *)        _svc="dictee" ;;
-        esac
+        _svc=$(asr_service "$_backend")
         if ! systemctl --user is-active --quiet "$_svc" 2>/dev/null; then
             _dbg "start-recording: BLOCKED — daemon $_svc not active"
             trap - ERR
@@ -1045,8 +973,7 @@ else
     # Launch animation (if mode speech or both, and if available)
     if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
-            SCRIPT_PATH="$(readlink -f "$0")"
-            if animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null; then true; fi
+            if animation-speech-ctl launch --on-escape "$(readlink -f "$0") --cancel" 2>/dev/null; then true; fi
         fi
     fi
 
