@@ -191,6 +191,7 @@ ICON_MAP = {
     "recording": "parakeet-recording",
     "transcribing": "parakeet-transcribing",
     "diarize": "parakeet-diarize",
+    "diarizing": "parakeet-transcribing",  # same blue icon as transcribing
 }
 
 
@@ -309,7 +310,7 @@ def read_state():
     try:
         with open(STATE_FILE, "r") as f:
             state = f.read().strip()
-            if state in ("recording", "transcribing", "switching", "offline"):
+            if state in ("recording", "transcribing", "diarizing", "switching", "offline"):
                 return state
             if state in ("cancelled", "idle"):
                 return "idle"
@@ -526,7 +527,7 @@ class DicteeTrayAppIndicator:
 
     def _check_state(self):
         file_state = read_state()
-        if file_state in ("recording", "transcribing"):
+        if file_state in ("recording", "transcribing", "diarizing"):
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
@@ -556,18 +557,19 @@ class DicteeTrayAppIndicator:
                 else f"▶ {_('Start daemon')}")
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
-                      "transcribing": _("Transcribing…")}
+                      "transcribing": _("Transcribing…"),
+                      "diarizing": _("Diarization in progress…")}
             self.item_daemon.set_label(f"■ {labels.get(self.state, _('Daemon active'))}")
 
         # Menu dictée / traduction
-        is_busy = self.state in ("recording", "transcribing")
+        is_busy = self.state in ("recording", "transcribing", "diarizing")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         self.item_dictee.set_label(
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
             else _("Start dictation"))
-        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize"))
-        self.item_translate.set_sensitive(self.state not in ("offline", "diarize"))
+        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing"))
+        self.item_translate.set_sensitive(self.state not in ("offline", "diarize", "diarizing"))
         self.item_translate.set_visible(not is_busy)
         self.item_cancel.set_visible(is_busy)
 
@@ -885,7 +887,7 @@ class DicteeTrayQt:
 
     def _check_state(self):
         file_state = read_state()
-        if file_state in ("recording", "transcribing"):
+        if file_state in ("recording", "transcribing", "diarizing"):
             self.state = file_state
         elif file_state == "switching":
             self.state = "idle"  # Stay idle during backend switch
@@ -907,6 +909,7 @@ class DicteeTrayQt:
             "idle": _("Dictation — ready") + "\n" + _("Click = dictation, Ctrl+click = translation"),
             "offline": _("Dictation — offline"),
             "diarize": _("Diarization ready") + "\n" + _("Use keyboard shortcut to record"),
+            "diarizing": _("Diarization in progress…"),
             "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
             "transcribing": _("Dictation — transcribing"),
         }
@@ -923,13 +926,14 @@ class DicteeTrayQt:
             self.action_daemon_hint.setText(f" {_('click to start')}")
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
-                      "transcribing": _("Transcribing…")}
+                      "transcribing": _("Transcribing…"),
+                      "diarizing": _("Diarization in progress…")}
             self.action_daemon.setText(
                 f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■")
-            self.action_daemon.setIcon(self._dot_icon("#2ecc71"))
+            self.action_daemon.setIcon(self._dot_icon("#9B59B6" if self.state == "diarizing" else "#2ecc71"))
             self.action_daemon_hint.setText(f" {_('click to stop')}")
 
-        is_busy = self.state in ("recording", "transcribing")
+        is_busy = self.state in ("recording", "transcribing", "diarizing")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         self.action_dictee.setText(
             _("Stop translation") if is_translating
