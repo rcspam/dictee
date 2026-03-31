@@ -145,26 +145,16 @@ translate)
     ;;
 
 diarize)
-    val="${2:-toggle}"
-    if [ "$val" = "toggle" ]; then
-        set +eu; source "$CONF"; set -eu
-        current="${DICTEE_DIARIZE:-false}"
-        if [ "$current" = "true" ]; then
-            val="false"
-        else
-            val="true"
-        fi
-    fi
+    val="${2:-true}"
     set +eu; source "$CONF"; set -eu
     current_asr="${DICTEE_ASR_BACKEND:-parakeet}"
 
     _dbg "diarize: val=$val current_asr=$current_asr"
     if [ "$val" = "true" ]; then
-        # Save current backend and stop daemon to free VRAM for the transcribe-diarize CLI
+        # Save current backend and stop daemon to free VRAM
+        write_state "preparing"
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
-        set_conf "DICTEE_DIARIZE" "true"
-        # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI tool)
-        # Use disable to prevent auto-restart (re-enabled when diarize is set to false)
+        # Stop all daemons and wait for VRAM release
         _dbg "diarize: stopping all daemons for VRAM"
         systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
         # Wait until GPU processes are gone (5s timeout)
@@ -174,9 +164,9 @@ diarize)
             fi
             sleep 0.5
         done
+        write_state "diarize-ready"
         notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation activée" 2>/dev/null || true
     else
-        set_conf "DICTEE_DIARIZE" "false"
         # Restore the previous backend daemon
         pre_backend="${DICTEE_PRE_DIARIZE_BACKEND:-$current_asr}"
         if [ -n "$pre_backend" ]; then
@@ -189,6 +179,7 @@ diarize)
         else
             notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation désactivée" 2>/dev/null || true
         fi
+        write_state "idle"
     fi
     echo "Diarization: $val"
     ;;
