@@ -30,6 +30,39 @@ for _d in LOCALE_DIRS:
 gettext.textdomain("dictee")
 _ = gettext.gettext
 
+# === Debug ===
+# Uses the same log file as shell scripts, activated by DICTEE_DEBUG=true
+
+_TRAY_DEBUG = os.environ.get("DICTEE_DEBUG") == "true"
+_DBG_LOG = f"/tmp/dictee-debug-{os.getuid()}.log"
+
+def _read_conf_debug():
+    """Read DICTEE_DEBUG from config if not already set via env."""
+    global _TRAY_DEBUG
+    if _TRAY_DEBUG:
+        return
+    conf = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+        "dictee.conf")
+    try:
+        with open(conf) as f:
+            for line in f:
+                if line.strip() == "DICTEE_DEBUG=true":
+                    _TRAY_DEBUG = True
+                    return
+    except FileNotFoundError:
+        pass
+
+_read_conf_debug()
+
+def _dbg(msg):
+    if not _TRAY_DEBUG:
+        return
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    with open(_DBG_LOG, "a") as f:
+        f.write(f"{ts} [dictee-tray] {msg}\n")
+
 # === Configuration ===
 
 STATE_FILE = "/dev/shm/.dictee_state"
@@ -528,6 +561,7 @@ class DicteeTrayAppIndicator:
 
     def _cancel(self):
         """Cancel current operation and clean up diarize state."""
+        _dbg(f"cancel (gtk): state={self.state}")
         subprocess.Popen(["dictee", "--cancel"])
         if self.item_diarize_gtk.get_active():
             self.item_diarize_gtk.set_active(False)
@@ -536,6 +570,7 @@ class DicteeTrayAppIndicator:
     def _reset(self):
         """Reset everything — stop all processes, restart daemon."""
         svc = _conf_to_service()
+        _dbg(f"reset (gtk): svc={svc}")
         subprocess.Popen(["dictee-reset", svc])
         if self.item_diarize_gtk.get_active():
             self.item_diarize_gtk.set_active(False)
@@ -559,6 +594,7 @@ class DicteeTrayAppIndicator:
     def _apply_state(self):
         if self.state == self._prev_state:
             return
+        _dbg(f"state (gtk): {self._prev_state} → {self.state}")
 
         # Icône
         icon_name = ICON_MAP.get(self.state, ICON_MAP["offline"])
@@ -905,6 +941,7 @@ class DicteeTrayQt:
 
     def _cancel(self):
         """Cancel current operation and clean up diarize state."""
+        _dbg(f"cancel (qt): state={self.state}")
         subprocess.Popen(["dictee", "--cancel"])
         if self.action_diarize_qt.isChecked():
             self.action_diarize_qt.setChecked(False)
@@ -913,6 +950,7 @@ class DicteeTrayQt:
     def _reset(self):
         """Reset everything — stop all processes, restart daemon."""
         svc = _conf_to_service()
+        _dbg(f"reset (qt): svc={svc}")
         subprocess.Popen(["dictee-reset", svc])
         if self.action_diarize_qt.isChecked():
             self.action_diarize_qt.setChecked(False)
@@ -936,6 +974,7 @@ class DicteeTrayQt:
     def _apply_state(self):
         if self.state == self._prev_state:
             return
+        _dbg(f"state (qt): {self._prev_state} → {self.state}")
 
         icon = self._icons.get(self.state, self._icons["offline"])
         self.tray.setIcon(icon)

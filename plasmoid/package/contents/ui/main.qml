@@ -153,6 +153,9 @@ PlasmoidItem {
                     root.micVolume = parseFloat(volMatch[1])
                 }
                 root.micMuted = stdout.indexOf("[MUTED]") !== -1
+            } else if (stdout.indexOf("DICTEE_DEBUG_ON") !== -1) {
+                root.debugEnabled = true
+                _dbg("debug enabled via DICTEE_DEBUG=true")
             } else if (stdout.indexOf("DIARIZE_READY") !== -1) {
                 // Diarization backend ready
                 root.diarizeEnabled = true
@@ -283,8 +286,15 @@ PlasmoidItem {
         "cat /dev/shm/.dictee_state 2>/dev/null #B"
     ]
 
+    // Debug — reads DICTEE_DEBUG from config, logs to journalctl --user -u plasma-plasmashell
+    property bool debugEnabled: false
+    function _dbg(msg) {
+        if (debugEnabled) console.log("[dictee-plasmoid] " + msg)
+    }
+
     function cleanupDiarize() {
         if (root.diarizeEnabled) {
+            _dbg("cleanupDiarize")
             root.diarizeEnabled = false
             executable.run("dictee-switch-backend diarize false")
         }
@@ -292,6 +302,8 @@ PlasmoidItem {
 
     function parseState(output) {
         var newState = output.trim()
+        if (newState === root.state || newState === "") return
+        _dbg("state: " + root.state + " → " + newState)
         if (newState === "diarizing") {
             root.state = "diarizing"
             diarizingTimer.restart()
@@ -319,9 +331,12 @@ PlasmoidItem {
             recordingTimer.stop()
             switchingTimer.restart()
         } else if (newState === "idle") {
-            // Retour à idle depuis n'importe quel état actif
-            // Grace period : ignorer idle dans les 2s après un clic (le script n'a pas encore démarré)
-            if (root.state === "recording" && (Date.now() - lastActionTime) < 2000) return
+            // Return to idle from any active state
+            // Grace period: ignore idle within 2s of click (script hasn't started yet)
+            if (root.state === "recording" && (Date.now() - lastActionTime) < 2000) {
+                _dbg("idle ignored (grace period)")
+                return
+            }
             if (root.state === "recording" || root.state === "transcribing" || root.state === "switching" || root.state === "diarizing") {
                 transcribingTimer.stop()
                 recordingTimer.stop()
@@ -384,6 +399,7 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             if (root.state === "recording") {
+                _dbg("TIMEOUT: recording 60s — forcing idle")
                 root.state = "idle"
             }
         }
@@ -397,6 +413,7 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             if (root.state === "diarizing") {
+                _dbg("TIMEOUT: diarizing 120s — forcing cancel")
                 executable.run("dictee --cancel")
                 cleanupDiarize()
                 root.activeButton = ""
@@ -413,6 +430,7 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             if (root.state === "switching") {
+                _dbg("TIMEOUT: switching 15s — forcing offline")
                 root.state = "offline"
             }
         }
@@ -442,8 +460,12 @@ PlasmoidItem {
     function handleAction(action) {
         // Debounce: ignore actions within 800ms
         var now = Date.now()
-        if (now - lastActionTime < 800) return
+        if (now - lastActionTime < 800) {
+            _dbg("action DEBOUNCED: " + action)
+            return
+        }
         lastActionTime = now
+        _dbg("action: " + action + " (state=" + root.state + ")")
 
         switch (action) {
         case "dictate":
@@ -536,8 +558,9 @@ PlasmoidItem {
             })() + "'")
     }
 
-    // Lancer le daemon audio au chargement pour éviter la latence
+    // Load debug flag and start audio daemon
     Component.onCompleted: {
+        executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")
         preStartAudioDaemon()
         refreshBackends()
     }
