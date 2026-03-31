@@ -6849,7 +6849,7 @@ class DicteeSetupDialog(QDialog):
             self._test_timer.stop()
 
     def _on_test_result(self, text):
-        _dbg_setup(f"_on_test_result: {text[:80]!r}")
+        _dbg_setup(f"_on_test_result: {len(text)} chars")
         if hasattr(self, '_test_timer'):
             self._test_timer.stop()
         self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
@@ -6908,7 +6908,7 @@ class DicteeSetupDialog(QDialog):
             self._test_timer_tr.stop()
 
     def _on_test_translate_result(self, text):
-        _dbg_setup(f"_on_test_translate_result: {text[:80]!r}")
+        _dbg_setup(f"_on_test_translate_result: {len(text)} chars")
         if hasattr(self, '_test_timer_tr'):
             self._test_timer_tr.stop()
         self.btn_test_translate.setText("🌐 " + _("Test translation"))
