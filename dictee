@@ -26,16 +26,11 @@ if [ -f "$DICTEE_CONF" ]; then
     source "$DICTEE_CONF"
 fi
 
-# === DEBUG ===
-# Enable with DICTEE_DEBUG=true in dictee.conf or as environment variable
-# Export so subprocesses (Rust, Python) inherit it
-export DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
-_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
-_dbg() {
-    if [ "$DICTEE_DEBUG" = "true" ]; then
-        printf '%s [dictee] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
-    fi
-}
+# === COMMON FUNCTIONS ===
+_DBG_CONTEXT="dictee"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
 
 # Parse --help before config guard (works without config)
 case "${1:-}" in
@@ -92,7 +87,6 @@ fi
 export DOTOOL_XKB_LAYOUT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
-_UID_SUFFIX="-$(id -u)"
 PIDFILE="/tmp/recording_dictee_pid${_UID_SUFFIX}"
 ID_TMP_FILE="/tmp/notify_dictee${_UID_SUFFIX}"
 MUT_FILE="/tmp/mut_dictee${_UID_SUFFIX}"
@@ -100,35 +94,7 @@ TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 LAST_WORD_FILE="/dev/shm/.dictee_last_word"
 
-# Shared state with plasmoid/tray (protected by flock)
-STATE_FILE="/dev/shm/.dictee_state"
-STATE_LOCK="/dev/shm/.dictee_state.lock"
-
-write_state() {
-    (
-        flock -n 200 || return 1
-        echo "$1" > "$STATE_FILE"
-    ) 200>"$STATE_LOCK"
-}
-
-# === UTILITY FUNCTIONS ===
-
-# Fixed notification ID — eliminates all race conditions with ID file passing.
-# All dictee notifications share this ID so they always replace each other.
-NOTIFY_ID=424200
-
-# Send a notification, always replacing the previous one
-# Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
-notify_dictee() {
-    local timeout="$1" icon="$2" msg="$3" body="${4:-}"
-    _dbg "notify: timeout=$timeout msg='$msg'"
-    notify-send --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null || true
-}
-
-# Silently close the persistent notification
-close_notification() {
-    notify-send --replace-id="$NOTIFY_ID" -t 1 -a Dictee "" 2>/dev/null || true
-}
+# === UTILITY FUNCTIONS (script-specific) ===
 
 # Stop the animation (quit or stop)
 stop_animation() {
@@ -177,17 +143,6 @@ stop_recording() {
 # Remove all session temp files
 cleanup_session() {
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"  # ID_TMP_FILE kept for legacy cleanup
-}
-
-# Map ASR backend to systemd service name
-asr_service() {
-    case "${1:-${DICTEE_ASR_BACKEND:-parakeet}}" in
-        parakeet) echo "dictee" ;;
-        vosk)     echo "dictee-vosk" ;;
-        whisper)  echo "dictee-whisper" ;;
-        canary)   echo "dictee-canary" ;;
-        *)        echo "dictee" ;;
-    esac
 }
 
 # Text post-processing (regex rules + dictionary + optional LLM)

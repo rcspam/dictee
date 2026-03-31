@@ -37,12 +37,11 @@ fi
 N_BARS="${1:-6}"
 AUDIO_SOURCE="${2:-${DICTEE_AUDIO_SOURCE:-}}"
 
-# Debug (same log as dictee)
-_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
-_DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
-_DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
-[ -f "$_DICTEE_CONF" ] && { _d=$(grep '^DICTEE_DEBUG=' "$_DICTEE_CONF" 2>/dev/null | cut -d= -f2); [ -n "$_d" ] && _DICTEE_DEBUG="$_d"; }
-_dbg() { [ "$_DICTEE_DEBUG" = "true" ] && printf '%s [level-daemon] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"; }
+# Common functions (debug)
+_DBG_CONTEXT="level-daemon"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
 
 _dbg "start: bars=$N_BARS source=$AUDIO_SOURCE"
 

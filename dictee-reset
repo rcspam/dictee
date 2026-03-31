@@ -6,21 +6,12 @@
 set +e
 
 SVC="${1:-dictee}"
-_UID_SUFFIX="-$(id -u)"
 
-# Debug (uses the same log as dictee)
-_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
-_DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
-_DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
-if [ -f "$_DICTEE_CONF" ]; then
-    _d=$(grep '^DICTEE_DEBUG=' "$_DICTEE_CONF" 2>/dev/null | cut -d= -f2)
-    [ -n "$_d" ] && _DICTEE_DEBUG="$_d"
-fi
-_dbg() {
-    if [ "$_DICTEE_DEBUG" = "true" ]; then
-        printf '%s [dictee-reset] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
-    fi
-}
+# Common functions (debug, state, notifications)
+_DBG_CONTEXT="reset"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
 
 _dbg "reset: svc=$SVC"
 
@@ -54,7 +45,7 @@ done
 
 # 5. Close persistent notification (fixed ID — no file lookup needed)
 _dbg "reset: closing notification"
-notify-send --replace-id=424200 -t 1 -a Dictee "" 2>/dev/null || true
+close_notification
 
 # 6. Clean up temporary files
 rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* \
@@ -80,5 +71,5 @@ pkill -f "pw-record.*tmp_recording_dictee" 2>/dev/null || true
 rm -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" "/tmp/recording_dictee_pid${_UID_SUFFIX}.lock"
 echo "idle" > /dev/shm/.dictee_state
 # Close notification again in case a racing dictee created one after step 5
-notify-send --replace-id=424200 -t 1 -a Dictee "" 2>/dev/null || true
+close_notification
 _dbg "reset: done"

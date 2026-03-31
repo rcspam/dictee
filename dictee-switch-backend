@@ -5,18 +5,11 @@ set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 
-# Debug (same log as dictee)
-_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
-_dbg() {
-    if [ "${DICTEE_DEBUG:-false}" = "true" ]; then
-        printf '%s [switch-backend] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
-    fi
-}
-# Load DICTEE_DEBUG from config if not already set
-if [ -f "$CONF" ] && [ "${DICTEE_DEBUG:-}" != "true" ]; then
-    _d=$(grep '^DICTEE_DEBUG=' "$CONF" 2>/dev/null | cut -d= -f2)
-    [ "$_d" = "true" ] && export DICTEE_DEBUG=true
-fi
+# Common functions (debug, state, notifications)
+_DBG_CONTEXT="switch-backend"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
 
 usage() {
     echo "Usage: dictee-switch-backend <command> [backend]"
@@ -53,16 +46,8 @@ fi
 
 _dbg "command=$1 ${2:-}"
 
-# Map ASR backend name to systemd service name
-_backend_to_svc() {
-    case "$1" in
-        parakeet) echo "dictee" ;;
-        canary)   echo "dictee-canary" ;;
-        vosk)     echo "dictee-vosk" ;;
-        whisper)  echo "dictee-whisper" ;;
-        *)        echo "dictee" ;;
-    esac
-}
+
+
 
 case "$1" in
 status)
@@ -71,7 +56,7 @@ status)
     source "$CONF"
     set -eu
     asr="${DICTEE_ASR_BACKEND:-parakeet}"
-    svc=$(_backend_to_svc "$asr")
+    svc=$(asr_service "$asr")
     svc_state=$(systemctl --user is-active "${svc}.service" 2>/dev/null) || true
     echo "ASR: $asr (${svc}.service, $svc_state)"
 
@@ -88,7 +73,7 @@ status)
 asr)
     if [ $# -lt 2 ]; then usage; fi
     case "$2" in parakeet|canary|vosk|whisper) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
-    svc=$(_backend_to_svc "$2")
+    svc=$(asr_service "$2")
 
     # Check that the service exists
     if ! systemctl --user list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}.service"; then
@@ -99,12 +84,7 @@ asr)
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
 
-    # Signal transitional state to plasmoid/tray (protected by flock)
-    STATE_FILE="/dev/shm/.dictee_state"
-    STATE_LOCK="/dev/shm/.dictee_state.lock"
-    _write_state() { ( flock -n 200 || return 1; echo "$1" > "$STATE_FILE"; ) 200>"$STATE_LOCK"; }
-
-    _write_state "switching"
+    write_state "switching"
     _dbg "asr: switching to $2 (svc=$svc)"
 
     # Stop all daemons, start the right one
@@ -116,10 +96,10 @@ asr)
     done
     if ! systemctl --user enable --now "${svc}.service" 2>/dev/null; then
         echo "Warning: ${svc}.service failed to start. Check: systemctl --user status ${svc}.service" >&2
-        _write_state "offline"
+        write_state "offline"
         _dbg "asr: $svc FAILED to start"
     else
-        _write_state "idle"
+        write_state "idle"
         _dbg "asr: $svc started OK"
     fi
 
@@ -201,7 +181,7 @@ diarize)
         pre_backend="${DICTEE_PRE_DIARIZE_BACKEND:-$current_asr}"
         if [ -n "$pre_backend" ]; then
             set_conf "DICTEE_ASR_BACKEND" "$pre_backend"
-            svc=$(_backend_to_svc "$pre_backend")
+            svc=$(asr_service "$pre_backend")
             _dbg "diarize: restoring $pre_backend → $svc"
             systemctl --user enable --now "$svc" 2>/dev/null
             set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
