@@ -53,7 +53,11 @@ LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
-DIARIZE="${DICTEE_DIARIZE:-false}"
+# --diarize flag: explicit from plasmoid, F9 never passes it
+DIARIZE="false"
+for _arg in "$@"; do
+    if [ "$_arg" = "--diarize" ]; then DIARIZE="true"; fi
+done
 AUDIO_SOURCE="${DICTEE_AUDIO_SOURCE:-}"
 _dbg "start: args=$* backend=${DICTEE_ASR_BACKEND:-parakeet} diarize=$DIARIZE audio_source=$AUDIO_SOURCE"
 # Resolve app:name to numeric PipeWire ID (IDs change after sleep/hibernation)
@@ -420,15 +424,11 @@ save_last_word() {
 TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
 TRANSLATE="${DICTEE_TRANSLATE:-false}"
 CANCEL=false
-NO_ESC_LISTENER=false
 
 for arg in "$@"; do
     case "$arg" in
     --cancel)
         CANCEL=true
-        ;;
-    --no-esc-listener)
-        NO_ESC_LISTENER=true
         ;;
     --translate)
         TRANSLATE=true
@@ -451,71 +451,6 @@ for arg in "$@"; do
 done
 
 # === FUNCTIONS ===
-
-# === ESCAPE LISTENER (/dev/input) ===
-
-ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid${_UID_SUFFIX}"
-
-start_escape_listener() {
-    # Launch a background listener that reads /dev/input to detect ESC
-    # Listens on all keyboards simultaneously. Requires 'input' group.
-    stop_escape_listener
-    # Find all physical keyboards (sysrq+kbd = real keyboard, exclude virtual)
-    local kbd_devs
-    kbd_devs=$(awk -f <(cat << 'AWKEOF'
-/^N:/ { name = $0 }
-/^H:.*sysrq.*kbd/ {
-    if (name !~ /virtual|Virtual|uinput/) {
-        match($0, /event[0-9]+/)
-        if (RSTART) print "/dev/input/" substr($0, RSTART, RLENGTH)
-    }
-}
-AWKEOF
-    ) /proc/bus/input/devices)
-    if [ -z "$kbd_devs" ]; then return; fi
-    local self_path
-    self_path="$(readlink -f "$0")"
-    nohup python3 -c "
-import struct, subprocess, signal, select, os
-signal.signal(signal.SIGTERM, lambda *_: exit(0))
-devs = '''$kbd_devs'''.strip().split('\n')
-fds = []
-for d in devs:
-    try:
-        fds.append(open(d, 'rb'))
-    except (PermissionError, FileNotFoundError):
-        pass
-if not fds:
-    exit(1)
-while True:
-    ready, _, _ = select.select(fds, [], [])
-    for f in ready:
-        data = f.read(24)
-        if len(data) < 24:
-            continue
-        _s, _u, t, code, val = struct.unpack('llHHi', data)
-        if t == 1 and code == 1 and val == 1:
-            for ff in fds:
-                ff.close()
-            subprocess.Popen(['$self_path', '--cancel'])
-            exit(0)
-" >/dev/null 2>&1 &
-    echo $! > "$ESC_LISTENER_PIDFILE"
-    disown $!
-}
-
-stop_escape_listener() {
-    if [ -f "$ESC_LISTENER_PIDFILE" ]; then
-        local pid=""
-        if pid=$(cat "$ESC_LISTENER_PIDFILE" 2>/dev/null); then
-            if [ -n "$pid" ]; then
-                if kill "$pid" 2>/dev/null; then true; fi
-                if pkill -P "$pid" 2>/dev/null; then true; fi
-            fi
-        fi
-        rm -f "$ESC_LISTENER_PIDFILE"
-    fi
-}
 
 # === CLIPBOARD ===
 
@@ -564,7 +499,6 @@ cleanup_on_error() {
     local err_line="${1:-unknown}"
     echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> "/tmp/dictee-error${_UID_SUFFIX}.log"
 
-    stop_escape_listener
     stop_recording force
     stop_animation quit
     restore_audio
@@ -704,7 +638,6 @@ if [ "$CANCEL" = true ]; then
     ) 200>"$STATE_LOCK"
 
     if [ -f "$PIDFILE" ]; then
-        stop_escape_listener
         stop_animation quit
         restore_audio
         stop_recording
@@ -748,8 +681,6 @@ if [ -f "$PIDFILE" ]; then
     # Disable trap ERR during this section (too many external commands
     # that can legitimately return non-zero: kill, pactl, ffmpeg, etc.)
     trap - ERR
-
-    stop_escape_listener
 
     # Retrieve options used at startup
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
@@ -904,8 +835,6 @@ else
         _dbg "start-recording: BLOCKED — lock held by another dictee"
         exit 0  # another dictee is already starting
     fi
-
-    if [ "$NO_ESC_LISTENER" = false ]; then start_escape_listener; fi
 
     # Save chosen options
     if [ "$TRANSLATE" = true ]; then
