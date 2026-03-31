@@ -742,7 +742,8 @@ trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 
 # === CANCELLATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
-    _dbg "cancel: current_state=$(cat "$STATE_FILE" 2>/dev/null) pidfile=$([ -f "$PIDFILE" ] && echo exists || echo absent)"
+    _prev_state=$(cat "$STATE_FILE" 2>/dev/null)
+    _dbg "cancel: current_state=$_prev_state pidfile=$([ -f "$PIDFILE" ] && echo exists || echo absent)"
     trap - ERR
     (
         flock -n 200 || exit 0          # another cancel holds the lock → no-op
@@ -759,20 +760,17 @@ if [ "$CANCEL" = true ]; then
         stop_recording
         notify_dictee 3000 audio-chat-none-symbolic "Enregistrement annulé"
         cleanup_session
-    else
-        # No recording in progress — handle diarization cancellation
-        current=$(cat "$STATE_FILE" 2>/dev/null)
-        if [ "$current" = "cancelled" ] || [ "$current" = "diarizing" ]; then
-            if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
-            if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
-            if pkill -f "diarize-only" 2>/dev/null; then true; fi
-            _svc=$(asr_service)
-            systemctl --user start "$_svc" 2>/dev/null || true
-            notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
-            cleanup_session
-            write_state "idle"
-            _dbg "cancel: diarisation killed, daemon $_svc restarted"
-        fi
+    elif [ "$_prev_state" = "diarizing" ]; then
+        # Diarization in progress (no PIDFILE) — kill processes and restart daemon
+        if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
+        if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
+        if pkill -f "diarize-only" 2>/dev/null; then true; fi
+        _svc=$(asr_service)
+        systemctl --user start "$_svc" 2>/dev/null || true
+        notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
+        cleanup_session
+        write_state "idle"
+        _dbg "cancel: diarisation killed, daemon $_svc restarted"
     fi
     _dbg "cancel: done"
     exit 0
