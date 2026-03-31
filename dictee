@@ -26,6 +26,15 @@ if [ -f "$DICTEE_CONF" ]; then
     source "$DICTEE_CONF"
 fi
 
+# === DEBUG ===
+# Activer avec DICTEE_DEBUG=true dans dictee.conf ou en variable d'environnement
+_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
+_dbg() {
+    if [ "${DICTEE_DEBUG:-false}" = "true" ]; then
+        printf '%s [dictee] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
+    fi
+}
+
 # Parse --help before config guard (works without config)
 case "${1:-}" in
     --help|-h)
@@ -49,6 +58,7 @@ CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
 DIARIZE="${DICTEE_DIARIZE:-false}"
 AUDIO_SOURCE="${DICTEE_AUDIO_SOURCE:-}"
+_dbg "start: args=$* backend=${DICTEE_ASR_BACKEND:-parakeet} diarize=$DIARIZE audio_source=$AUDIO_SOURCE"
 # Résoudre app:nom en ID numérique PipeWire (les IDs changent après sleep/hibernation)
 if [[ "$AUDIO_SOURCE" == app:* ]]; then
     _APP_NAME="${AUDIO_SOURCE#app:}"
@@ -62,6 +72,7 @@ for n in json.loads(sys.stdin.read()):
         if a and a[0] == '$_APP_NAME':
             print(n['id']); break
 " 2>/dev/null)
+    _dbg "resolved app:$_APP_NAME → PipeWire ID ${AUDIO_SOURCE:-NONE}"
 fi
 # Déterminer si la source est un périphérique (alsa_*) ou une application (Firefox, etc.)
 # Les applications ne sont pas des sources pactl → mute/unmute sur @DEFAULT_SOURCE@
@@ -668,6 +679,7 @@ trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 
 # === ANNULATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
+    _dbg "cancel: current_state=$(cat "$STATE_FILE" 2>/dev/null) pidfile=$([ -f "$PIDFILE" ] && echo exists || echo absent)"
     trap - ERR
     (
         flock -n 200 || exit 0          # un autre cancel tient le verrou → no-op
@@ -738,8 +750,10 @@ if [ "$CANCEL" = true ]; then
             esac
             notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Diarisation annulée"
             write_state "idle"
+            _dbg "cancel: diarisation killed, daemon $_backend restarted"
         fi
     fi
+    _dbg "cancel: done"
     exit 0
 fi
 
@@ -747,6 +761,7 @@ fi
 if [ -f "$PIDFILE" ]; then
     _stale_pid=$(cat "$PIDFILE" 2>/dev/null)
     if [ -z "$_stale_pid" ] || ! kill -0 "$_stale_pid" 2>/dev/null; then
+        _dbg "stale PIDFILE: pid=$_stale_pid (dead), cleaning up"
         rm -f "$PIDFILE" "${PIDFILE}.lock" "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$MUT_FILE"
         write_state "idle"
     fi
@@ -754,6 +769,7 @@ fi
 
 if [ -f "$PIDFILE" ]; then
     # === ARRÊT DE L'ENREGISTREMENT ===
+    _dbg "stop-recording: pid=$(cat "$PIDFILE" 2>/dev/null) translate=$TRANSLATE diarize=$DIARIZE"
     # Désactiver trap ERR pendant cette section (trop de commandes externes
     # qui peuvent retourner non-zéro légitimement : kill, pactl, ffmpeg, etc.)
     trap - ERR
@@ -814,6 +830,7 @@ if [ -f "$PIDFILE" ]; then
 
     # Diarisation live : copier le WAV et ouvrir dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
+        _dbg "diarize: starting, stopping daemons for VRAM"
         write_state "diarizing"
         # Ensure daemon is stopped and VRAM is freed (tray doesn't wait for switch-backend)
         for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
@@ -845,12 +862,15 @@ if [ -f "$PIDFILE" ]; then
         sed -i 's/^DICTEE_DIARIZE=.*/DICTEE_DIARIZE=false/' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 
         # Launch diarization UI in background — elle gère le daemon elle-même
+        _dbg "diarize: launching dictee-transcribe --file $diarize_file --diarize"
         dictee-transcribe --file "$diarize_file" --diarize &
         disown
         exit 0
     fi
 
+    _dbg "transcribe: sending $RECORDING_FILE to daemon"
     if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
+        _dbg "transcribe: FAILED — daemon not responding"
         if [ -n "$id" ]; then
             notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
         else
@@ -860,7 +880,9 @@ if [ -f "$PIDFILE" ]; then
         rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
         exit 1
     fi
+    _dbg "transcribe: raw result=${#raw} chars"
     if [ -z "$raw" ]; then
+        _dbg "transcribe: FAILED — empty result"
         if [ -n "$id" ]; then
             notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
         else
@@ -946,7 +968,9 @@ else
 
     # Bloquer si une opération est en cours (diarisation, transcription, switching)
     _current=$(cat "$STATE_FILE" 2>/dev/null)
+    _dbg "start-recording: current_state=$_current diarize=$DIARIZE"
     if [ "$_current" = "diarizing" ] || [ "$_current" = "transcribing" ] || [ "$_current" = "switching" ]; then
+        _dbg "start-recording: BLOCKED (state=$_current)"
         exit 0
     fi
 
@@ -962,6 +986,7 @@ else
             *)        _svc="dictee" ;;
         esac
         if ! systemctl --user is-active --quiet "$_svc" 2>/dev/null; then
+            _dbg "start-recording: BLOCKED — daemon $_svc not active"
             trap - ERR
             notify-send -t 5000 -i dialog-error -a Dictee "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_svc"
             if command -v paplay >/dev/null 2>&1; then
@@ -974,6 +999,7 @@ else
     # Verrou atomique : empêcher un double-démarrage (rebond clavier, double raccourci)
     exec 201>"${PIDFILE}.lock"
     if ! flock -n 201; then
+        _dbg "start-recording: BLOCKED — lock held by another dictee"
         exit 0  # un autre dictee est déjà en train de démarrer
     fi
 
@@ -1004,6 +1030,7 @@ else
     fi
 
     # Démarrer l'enregistrement EN PREMIER (avant notification/plasmoid pour ne rien perdre)
+    _dbg "start-recording: source=${AUDIO_SOURCE:-default} app=$_IS_APP_SOURCE translate=$TRANSLATE"
     if [ -n "$AUDIO_SOURCE" ]; then
         pw-record --target "$AUDIO_SOURCE" --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
     else
@@ -1014,6 +1041,7 @@ else
     # Vérifier que pw-record a bien démarré
     sleep 0.2
     if ! kill -0 $! 2>/dev/null; then
+        _dbg "start-recording: FAILED — pw-record died immediately"
         rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
         notify-send -t 5000 -i dialog-error -a Dictee "Recording failed — audio device unavailable" 2>/dev/null || true
         write_state "idle"
@@ -1022,6 +1050,7 @@ else
 
     # Signaler au plasmoid
     write_state "recording"
+    _dbg "start-recording: OK pid=$(cat "$PIDFILE" 2>/dev/null)"
 
     # Notification (sert aussi de délai pour pw-record)
     if [ "$TRANSLATE" = true ]; then

@@ -5,6 +5,19 @@ set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 
+# Debug (même log que dictee)
+_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
+_dbg() {
+    if [ "${DICTEE_DEBUG:-false}" = "true" ]; then
+        printf '%s [switch-backend] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
+    fi
+}
+# Charger DICTEE_DEBUG depuis la config si pas déjà défini
+if [ -f "$CONF" ] && [ "${DICTEE_DEBUG:-}" != "true" ]; then
+    _d=$(grep '^DICTEE_DEBUG=' "$CONF" 2>/dev/null | cut -d= -f2)
+    [ "$_d" = "true" ] && export DICTEE_DEBUG=true
+fi
+
 usage() {
     echo "Usage: dictee-switch-backend <command> [backend]"
     echo ""
@@ -37,6 +50,8 @@ fi
 if [ $# -lt 1 ]; then
     usage
 fi
+
+_dbg "command=$1 ${2:-}"
 
 case "$1" in
 status)
@@ -91,6 +106,7 @@ asr)
     _write_state() { ( flock -n 200 || return 1; echo "$1" > "$STATE_FILE"; ) 200>"$STATE_LOCK"; }
 
     _write_state "switching"
+    _dbg "asr: switching to $2 (svc=$svc)"
 
     # Stop all, start the right one
     for s in dictee dictee-canary dictee-vosk dictee-whisper; do
@@ -102,8 +118,10 @@ asr)
     if ! systemctl --user enable --now "${svc}.service" 2>/dev/null; then
         echo "Warning: ${svc}.service failed to start. Check: systemctl --user status ${svc}.service" >&2
         _write_state "offline"
+        _dbg "asr: $svc FAILED to start"
     else
         _write_state "idle"
+        _dbg "asr: $svc started OK"
     fi
 
     echo "ASR backend: $2 (${svc}.service)"
@@ -161,13 +179,14 @@ diarize)
     set +eu; source "$CONF"; set -eu
     current_asr="${DICTEE_ASR_BACKEND:-parakeet}"
 
+    _dbg "diarize: val=$val current_asr=$current_asr"
     if [ "$val" = "true" ]; then
         # Save current backend and stop daemon to free VRAM for transcribe-diarize CLI
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         set_conf "DICTEE_DIARIZE" "true"
         # Stop all daemons and wait for VRAM release (transcribe-diarize is a CLI)
         # Use disable to prevent auto-restart (re-enabled on diarize false)
-        echo "[diarize] stopping all daemons..." >> /tmp/dictee-diarize-debug.log
+        _dbg "diarize: stopping all daemons for VRAM"
         systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
         # Wait until GPU processes are gone (max 5s)
         for i in $(seq 1 10); do
@@ -189,6 +208,7 @@ diarize)
                 canary)  svc="dictee-canary" ;;
                 *)       svc="dictee" ;;
             esac
+            _dbg "diarize: restoring $pre_backend → $svc"
             systemctl --user enable --now "$svc" 2>/dev/null
             set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
             notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation désactivée — retour à $pre_backend" 2>/dev/null || true

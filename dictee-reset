@@ -8,17 +8,37 @@ set +e
 SVC="${1:-dictee}"
 _UID_SUFFIX="-$(id -u)"
 
+# Debug (utilise le même log que dictee)
+_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
+_DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
+_DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
+if [ -f "$_DICTEE_CONF" ]; then
+    _d=$(grep '^DICTEE_DEBUG=' "$_DICTEE_CONF" 2>/dev/null | cut -d= -f2)
+    [ -n "$_d" ] && _DICTEE_DEBUG="$_d"
+fi
+_dbg() {
+    if [ "$_DICTEE_DEBUG" = "true" ]; then
+        printf '%s [dictee-reset] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"
+    fi
+}
+
+_dbg "reset: svc=$SVC"
+
 # 1. Écrire l'état idle
 echo "idle" > /dev/shm/.dictee_state
 
 # 2. Tuer l'enregistrement en cours
 if [ -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" ]; then
-    kill "$(cat "/tmp/recording_dictee_pid${_UID_SUFFIX}" 2>/dev/null)" 2>/dev/null
+    _pid=$(cat "/tmp/recording_dictee_pid${_UID_SUFFIX}" 2>/dev/null)
+    _dbg "reset: killing recording pid=$_pid"
+    kill "$_pid" 2>/dev/null
 fi
 
 # 3. Tuer le listener ESC
 if [ -f "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" ]; then
-    kill "$(cat "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" 2>/dev/null)" 2>/dev/null
+    _pid=$(cat "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" 2>/dev/null)
+    _dbg "reset: killing ESC listener pid=$_pid"
+    kill "$_pid" 2>/dev/null
 fi
 
 # 4. Tuer les processus de diarisation et transcription
@@ -27,6 +47,7 @@ _self=$$
 for pat in "transcribe-diarize" "dictee-transcribe" "diarize-only" "animation-speech-ctl"; do
     pgrep -f "$pat" 2>/dev/null | while read -r p; do
         if [ "$p" != "$_self" ]; then
+            _dbg "reset: killing $pat pid=$p"
             kill "$p" 2>/dev/null
         fi
     done
@@ -48,4 +69,6 @@ done
 pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
 
 # 9. Redémarrer le daemon demandé
+_dbg "reset: starting ${SVC}.service"
 systemctl --user start "${SVC}.service"
+_dbg "reset: done"

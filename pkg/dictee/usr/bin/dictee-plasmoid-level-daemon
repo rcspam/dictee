@@ -37,9 +37,19 @@ fi
 N_BARS="${1:-6}"
 AUDIO_SOURCE="${2:-${DICTEE_AUDIO_SOURCE:-}}"
 
+# Debug (même log que dictee)
+_DBG_LOG="/tmp/dictee-debug-$(id -u).log"
+_DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
+_DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
+[ -f "$_DICTEE_CONF" ] && { _d=$(grep '^DICTEE_DEBUG=' "$_DICTEE_CONF" 2>/dev/null | cut -d= -f2); [ -n "$_d" ] && _DICTEE_DEBUG="$_d"; }
+_dbg() { [ "$_DICTEE_DEBUG" = "true" ] && printf '%s [level-daemon] %s\n' "$(date '+%H:%M:%S.%3N')" "$*" >> "$_DBG_LOG"; }
+
+_dbg "start: bars=$N_BARS source=$AUDIO_SOURCE"
+
 # Résoudre app:nom en nom d'application (les IDs PipeWire changent après sleep)
 if [[ "$AUDIO_SOURCE" == app:* ]]; then
     AUDIO_SOURCE="${AUDIO_SOURCE#app:}"
+    _dbg "resolved app: → $AUDIO_SOURCE"
 fi
 
 # Arguments parec pour la source audio
@@ -57,11 +67,17 @@ if [ -n "$AUDIO_SOURCE" ]; then
                 /^\tSink:/ { sink=$NF }
                 /application.name =/ && tolower($0) ~ tolower(app) { print sink; exit }
             ')
+            _dbg "app source: sink_id=$_sink"
             if [ -n "$_sink" ]; then
                 _sink_name=$(LANG=C pactl list sinks short 2>/dev/null | awk -v id="$_sink" '$1==id {print $2}')
                 if [ -n "$_sink_name" ]; then
                     PAREC_ARGS="$PAREC_ARGS --device=${_sink_name}.monitor"
+                    _dbg "app source: monitoring ${_sink_name}.monitor"
+                else
+                    _dbg "app source: WARNING — sink name not found for id=$_sink"
                 fi
+            else
+                _dbg "app source: WARNING — app '$AUDIO_SOURCE' not found in pactl"
             fi
             ;;
     esac
