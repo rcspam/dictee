@@ -808,8 +808,14 @@ else
     _current_state=$(cat "$STATE_FILE" 2>/dev/null)
     _dbg "start-recording: current_state=$_current_state diarize=$DIARIZE"
     case "$_current_state" in
-        idle|diarize-ready)
+        idle)
             ;;  # OK to record
+        diarize-ready)
+            if [ "$DIARIZE" != "true" ]; then
+                _dbg "start-recording: BLOCKED — diarize-ready requires --diarize flag"
+                exit 0
+            fi
+            ;;  # OK to record in diarize mode
         *)
             _dbg "start-recording: BLOCKED (state=$_current_state)"
             exit 0

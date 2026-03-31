@@ -179,6 +179,8 @@ diarize)
         else
             notify-send -t 3000 -i audio-speakers-symbolic -a Dictee "Diarisation désactivée" 2>/dev/null || true
         fi
+        # Clean up stale DICTEE_DIARIZE from config (no longer used, but might exist from older versions)
+        sed -i '/^DICTEE_DIARIZE=/d' "$CONF" 2>/dev/null || true
         write_state "idle"
     fi
     echo "Diarization: $val"
