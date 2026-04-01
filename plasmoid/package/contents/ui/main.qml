@@ -111,16 +111,32 @@ PlasmoidItem {
                 var parts = stdout.trim().split("|")
                 if (parts.length >= 3) {
                     root.currentAsrBackend = parts[0] || "parakeet"
-                    var tb = parts[1] || "trans"
-                    var te = parts[2] || "google"
-                    if (tb === "trans") {
-                        root.currentTranslateBackend = te
-                    } else {
-                        root.currentTranslateBackend = tb
+                    // Don't overwrite translate backend during grace period after user change
+                    if (Date.now() - root.backendUserChangeTime > 3000) {
+                        var tb = parts[1] || "trans"
+                        var te = parts[2] || "google"
+                        if (tb === "trans") {
+                            root.currentTranslateBackend = te
+                        } else {
+                            root.currentTranslateBackend = tb
+                        }
                     }
                 }
                 if (parts.length >= 4) {
                     root.currentAudioSource = parts[3] || ""
+                }
+                if (parts.length >= 5) {
+                    root.currentLangTarget = parts[4] || "en"
+                }
+                if (parts.length >= 6) {
+                    root.currentLangSource = parts[5] || "fr"
+                }
+            } else if (source.indexOf("dictee-translate-langs") !== -1) {
+                var langs = stdout.trim()
+                var newList = langs.length > 0 ? langs.split(",") : []
+                // Only update if the list actually changed (avoids resetting combo scroll)
+                if (JSON.stringify(newList) !== JSON.stringify(root.availableLangTarget)) {
+                    root.availableLangTarget = newList
                 }
             } else if (source === checkInstalledCmd) {
                 var parts = stdout.trim().split("---")
@@ -251,7 +267,12 @@ PlasmoidItem {
     property bool micMuted: false
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE\"'"
+    property string currentLangSource: "fr"
+    property string currentLangTarget: "en"
+    property var availableLangTarget: []
+    property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE\"'"
+    property string translateLangsCmd: "dictee-translate-langs"
     property string currentAudioSource: ""
     property var audioSourceList: []
     property string listAudioSourcesCmd: "dictee-audio-sources"
@@ -268,11 +289,17 @@ PlasmoidItem {
         "echo ---; " +
         "{ [ -d /usr/share/dictee/sortformer ] || [ -d \"$dd/sortformer\" ]; } && echo sortformer'"
 
+    property string lastTranslateBackendForLangs: ""
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
         executable.run(micVolumeCmd)
         executable.run(listAudioSourcesCmd)
+        // Only refresh translate langs when backend changes
+        if (root.currentTranslateBackend !== root.lastTranslateBackendForLangs) {
+            root.lastTranslateBackendForLangs = root.currentTranslateBackend
+            executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
+        }
     }
 
     // Ping-pong pour l'état aussi
@@ -544,6 +571,7 @@ PlasmoidItem {
             })() + "'")
     }
 
+    // Refresh translate langs + audio sources when popup opens
     // Load debug flag and start audio daemon
     Component.onCompleted: {
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")

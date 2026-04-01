@@ -23,9 +23,7 @@ RowLayout {
 
     // Rafraîchir les sources audio à l'ouverture, fermer les ComboBox à la fermeture
     onVisibleChanged: {
-        if (visible) {
-            executable.run(root.listAudioSourcesCmd)
-        } else {
+        if (!visible) {
             if (asrCombo.popup && asrCombo.popup.visible) asrCombo.popup.close()
             if (transCombo.popup && transCombo.popup.visible) transCombo.popup.close()
             if (audioSourceCombo.popup && audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
@@ -72,79 +70,99 @@ RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
+        // Daemon status group (framed)
         Rectangle {
-            width: Kirigami.Units.smallSpacing * 3
-            height: width
-            radius: width / 2
-            color: {
-                switch (fullRep.state) {
-                case "offline":
-                    return Kirigami.Theme.negativeTextColor
-                case "recording":
-                    return Kirigami.Theme.highlightColor
-                case "transcribing":
-                    return Kirigami.Theme.positiveTextColor
-                case "switching":
-                    return Kirigami.Theme.neutralTextColor
-                case "preparing":
-                case "diarize-ready":
-                case "diarizing":
-                    return "#9B59B6"
-                default:
-                    return Kirigami.Theme.positiveTextColor
+            Layout.preferredHeight: daemonRow.implicitHeight + Kirigami.Units.smallSpacing * 2
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 12
+            radius: 4
+            color: "transparent"
+            border.color: Kirigami.Theme.disabledTextColor
+            border.width: 1
+
+            RowLayout {
+                id: daemonRow
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                Rectangle {
+                    width: Kirigami.Units.smallSpacing * 3
+                    height: width
+                    radius: width / 2
+                    color: {
+                        switch (fullRep.state) {
+                        case "offline":
+                            return Kirigami.Theme.negativeTextColor
+                        case "recording":
+                            return Kirigami.Theme.highlightColor
+                        case "transcribing":
+                            return Kirigami.Theme.positiveTextColor
+                        case "switching":
+                            return Kirigami.Theme.neutralTextColor
+                        case "preparing":
+                        case "diarize-ready":
+                        case "diarizing":
+                            return "#9B59B6"
+                        default:
+                            return Kirigami.Theme.positiveTextColor
+                        }
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: {
+                        switch (fullRep.state) {
+                        case "offline":
+                            if (!fullRep.dicteeInstalled) return i18n("Not installed")
+                            if (!fullRep.dicteeConfigured) return i18n("Not configured")
+                            return i18n("Stopped")
+                        case "idle":
+                            return i18n("Active")
+                        case "recording":
+                            return i18n("Recording…")
+                        case "transcribing":
+                            return i18n("Transcribing…")
+                        case "switching":
+                            return i18n("Switching…")
+                        case "preparing":
+                            return i18n("Preparing…")
+                        case "diarize-ready":
+                            return i18n("Diarize ready")
+                        case "diarizing":
+                            return i18n("Diarizing…")
+                        default:
+                            return ""
+                        }
+                    }
+                    Layout.fillWidth: true
+                }
+
+                Item { Layout.fillWidth: true }
+
+                PlasmaComponents.ToolButton {
+                    icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
+                    display: PlasmaComponents.AbstractButton.IconOnly
+                    implicitHeight: Kirigami.Units.gridUnit * 1.5
+                    implicitWidth: implicitHeight
+                    PlasmaComponents.ToolTip {
+                        text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
+                    }
+                    onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
                 }
             }
-        }
-
-        PlasmaComponents.Label {
-            text: {
-                switch (fullRep.state) {
-                case "offline":
-                    if (!fullRep.dicteeInstalled) return i18n("Dictée not installed — install dictee package")
-                    if (!fullRep.dicteeConfigured) return i18n("Not configured — click Configure Dictée below")
-                    return i18n("Daemon stopped")
-                case "idle":
-                    return i18n("Daemon active")
-                case "recording":
-                    return i18n("Recording…")
-                case "transcribing":
-                    return i18n("Transcribing…")
-                case "switching":
-                    return i18n("Switching backend…")
-                case "preparing":
-                    return i18n("Preparing diarization…")
-                case "diarize-ready":
-                    return i18n("Ready for diarization")
-                case "diarizing":
-                    return i18n("Diarization in progress…")
-                default:
-                    return ""
-                }
-            }
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 10
-        }
-
-        PlasmaComponents.ToolButton {
-            icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
-            display: PlasmaComponents.AbstractButton.IconOnly
-            PlasmaComponents.ToolTip {
-                text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
-            }
-            onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
         }
 
         Item { Layout.fillWidth: true }
 
-        PlasmaComponents.Button {
-            id: resetButton
-            text: i18n("! Reset")
-            font.bold: true
-            font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.3
-            Kirigami.Theme.inherit: false
-            Kirigami.Theme.textColor: "#c0392b"
-            Kirigami.Theme.highlightColor: "#e74c3c"
-            PlasmaComponents.ToolTip { text: i18n("Reset everything — stop all processes, restart daemon") }
-            onClicked: fullRep.actionRequested("reset")
+        // Banner dictée (dark/light theme)
+        Image {
+            source: Kirigami.Theme.textColor.hslLightness > 0.5
+                ? "assets/banner-dark.svg" : "assets/banner-light.svg"
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+            Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+            fillMode: Image.PreserveAspectFit
+            smooth: true
         }
 
         Item { Layout.fillWidth: true }
@@ -472,8 +490,10 @@ RowLayout {
                     syncIndex()
                 }
             }
-            Layout.fillWidth: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
         }
+
+        Item { Layout.fillWidth: true }
 
         PlasmaComponents.Label {
             text: i18n("Translation:")
@@ -507,7 +527,10 @@ RowLayout {
             onActivated: function(index) {
                 var val = transModel.get(index).value
                 if (root.installedTranslate.indexOf(val) !== -1) {
+                    root.backendUserChangeTime = Date.now()
+                    root.currentTranslateBackend = val
                     executable.run("dictee-switch-backend translate " + val)
+                    executable.run(root.translateLangsCmd + " " + val)
                 } else {
                     // Revert
                     for (var i = 0; i < transModel.count; i++) {
@@ -517,8 +540,75 @@ RowLayout {
                     }
                 }
             }
-            Layout.fillWidth: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
             enabled: root.currentAsrBackend !== "canary"
+        }
+
+        PlasmaComponents.Label {
+            text: "→"
+            Layout.alignment: Qt.AlignVCenter
+            enabled: root.currentAsrBackend !== "canary"
+        }
+
+        QQC2.ComboBox {
+            id: langCombo
+            Kirigami.Theme.inherit: true
+            model: ListModel { id: langModel }
+            textRole: "text"
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            onPressedChanged: {
+                if (pressed) {
+                    root.lastTranslateBackendForLangs = ""
+                    root.availableLangTarget = []
+                    executable.run(root.translateLangsCmd + " " + root.currentTranslateBackend)
+                }
+            }
+            Connections {
+                target: root
+                function onAvailableLangTargetChanged() {
+                    var prev = root.currentLangTarget
+                    langModel.clear()
+                    for (var i = 0; i < root.availableLangTarget.length; i++) {
+                        var code = root.availableLangTarget[i]
+                        langModel.append({ text: code, value: code })
+                    }
+                    // Restore previous selection
+                    var found = false
+                    for (var j = 0; j < langModel.count; j++) {
+                        if (langModel.get(j).value === prev) {
+                            langCombo.currentIndex = j
+                            found = true
+                            break
+                        }
+                    }
+                    if (!found && langModel.count > 0) {
+                        langCombo.currentIndex = 0
+                        // Update config to match the fallback language
+                        var fallback = langModel.get(0).value
+                        root.currentLangTarget = fallback
+                        executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_LANG_TARGET=\" \"$conf\" && sed -i \"s|^DICTEE_LANG_TARGET=.*|DICTEE_LANG_TARGET=" + fallback + "|\" \"$conf\" || echo \"DICTEE_LANG_TARGET=" + fallback + "\" >> \"$conf\"'")
+                    }
+                }
+            }
+            delegate: QQC2.ItemDelegate {
+                width: parent ? parent.width : 0
+                text: model.value === "---" ? "───" : model.text
+                enabled: model.value !== "---" && model.value !== root.currentLangSource
+                opacity: model.value === "---" ? 0.3 : (enabled ? 1.0 : 0.4)
+            }
+            onActivated: function(index) {
+                if (index < 0 || index >= langModel.count) return
+                var val = langModel.get(index).value
+                if (val === "---" || val === root.currentLangSource) return
+                root.currentLangTarget = val
+                executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_LANG_TARGET=\" \"$conf\" && sed -i \"s|^DICTEE_LANG_TARGET=.*|DICTEE_LANG_TARGET=" + val + "|\" \"$conf\" || echo \"DICTEE_LANG_TARGET=" + val + "\" >> \"$conf\"'")
+            }
+            enabled: root.currentAsrBackend !== "canary"
+            QQC2.ToolTip.text: root.currentTranslateBackend === "libretranslate"
+                ? i18n("Target language — add languages in Configure Dictée (LibreTranslate)")
+                : i18n("Target language for translation")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
     }
 
@@ -559,13 +649,22 @@ RowLayout {
 
         Item { Layout.fillWidth: true }
 
-        QQC2.CheckBox {
-            text: i18n("Preview")
+        PlasmaComponents.ToolButton {
+            icon.name: "edit-reset"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            Kirigami.Theme.inherit: false
+            Kirigami.Theme.textColor: "#c0392b"
+            onClicked: fullRep.actionRequested("reset")
+            PlasmaComponents.ToolTip { text: i18n("Reset everything — stop all processes, restart daemon") }
+        }
+
+        PlasmaComponents.ToolButton {
+            icon.name: Plasmoid.configuration.previewMode ? "view-visible" : "view-hidden"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            checkable: true
             checked: Plasmoid.configuration.previewMode
             onToggled: Plasmoid.configuration.previewMode = checked
-            QQC2.ToolTip.text: i18n("Show live microphone animation preview")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            PlasmaComponents.ToolTip { text: i18n("Live microphone animation preview") }
         }
     }
 

@@ -1,0 +1,60 @@
+#!/bin/bash
+# dictee-translate-langs [backend] — List available target languages for a translation backend
+# Output: comma-separated language codes, preferred languages first
+# If backend argument given, use it. Otherwise read from config.
+set -euo pipefail
+
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
+if [ -f "$CONF" ]; then
+    set +eu; source "$CONF"; set -eu
+fi
+
+backend="${1:-${DICTEE_TRANSLATE_BACKEND:-trans}}"
+
+# Preferred order for Google/Bing/Ollama: en,fr,de,it,es,ar,zh,uk,ru then rest alphabetical
+reorder() {
+    local preferred="en,fr,es,de,it,pt,uk,ru,tr,ar,zh,hi,bn,ja,ko"
+    local all="$1"
+    local result=""
+    # Add preferred languages first (if present in all)
+    for p in ${preferred//,/ }; do
+        if echo ",$all," | grep -q ",$p,"; then
+            result="${result:+$result,}$p"
+        fi
+    done
+    # Add separator then remaining languages alphabetically
+    local rest=""
+    for lang in $(echo "$all" | tr ',' '\n' | sort); do
+        if ! echo ",$result," | grep -q ",$lang,"; then
+            rest="${rest:+$rest,}$lang"
+        fi
+    done
+    if [ -n "$rest" ]; then
+        echo "$result,---,$rest"
+    else
+        echo "$result"
+    fi
+}
+
+case "$backend" in
+    google|bing|trans)
+        # translate-shell: all supported codes (from trans -R)
+        set +o pipefail
+        all=$(trans -no-ansi -R 2>/dev/null | grep -oP '\b[a-z]{2}(-[A-Z]{2})?\b' | sort -u | paste -sd,)
+        set -o pipefail
+        reorder "$all"
+        ;;
+    ollama)
+        reorder "af,am,ar,as,az,be,bg,bn,bs,ca,cs,cy,da,de,el,en,es,et,eu,fa,fi,fr,ga,gl,gu,ha,he,hi,hr,hu,hy,id,ig,is,it,ja,ka,kk,km,kn,ko,ku,ky,lb,lo,lt,lv,mg,mi,mk,ml,mn,mr,ms,mt,my,ne,nl,no,ny,or,pa,pl,ps,pt,ro,ru,rw,sd,si,sk,sl,sn,so,sq,sr,st,sv,sw,ta,te,tg,th,ti,tk,tl,tr,uk,ur,uz,vi,xh,yo,zh,zu"
+        ;;
+    libretranslate)
+        # Only installed languages in Docker — en first, then rest alphabetical
+        langs="${DICTEE_LIBRETRANSLATE_LANGS:-}"
+        if [ -n "$langs" ]; then
+            reorder "$langs"
+        fi
+        ;;
+    *)
+        echo "en,fr,de,it,es,ar,zh,uk,ru"
+        ;;
+esac

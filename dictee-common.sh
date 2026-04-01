@@ -19,7 +19,10 @@ STATE_FILE="/dev/shm/.dictee_state"
 STATE_LOCK="/dev/shm/.dictee_state.lock"
 
 # Fixed notification ID — all dictee notifications replace each other
+# Fixed notification replace-id — all dictee notifications replace each other
 NOTIFY_ID=424200
+# Server-side notification ID (for D-Bus CloseNotification)
+NOTIFY_SERVER_ID=""
 
 # === DEBUG ===
 # Enable with DICTEE_DEBUG=true in dictee.conf or as environment variable
@@ -48,26 +51,30 @@ write_state() {
     ) 200>"$STATE_LOCK"
 }
 
+# Send a notification, replacing the previous one if possible.
+# Uses -p to get the KDE-assigned ID, then --replace-id on subsequent calls.
+# Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
 # Send a notification, always replacing the previous one
 # Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
 notify_dictee() {
     local timeout="$1" icon="$2" msg="$3" body="${4:-}"
     _dbg "notify: timeout=$timeout icon=$icon msg='$msg'"
-    local _nerr
-    _nerr=$(notify-send --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>&1) || {
-        _dbg "notify: FAILED — $_nerr"
-        return 0
-    }
+    local _sid
+    _sid=$(notify-send -p --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+    if [ -n "$_sid" ] && [ "$_sid" != "0" ]; then
+        NOTIFY_SERVER_ID="$_sid"
+    fi
 }
 
-# Silently close the persistent notification
+# Close notification via D-Bus (reliable, unlike notify-send --replace-id on expired notifs)
 close_notification() {
-    _dbg "notify: close"
-    local _nerr
-    _nerr=$(notify-send --replace-id="$NOTIFY_ID" -t 1 -a Dictee "" 2>&1) || {
-        _dbg "notify: close FAILED — $_nerr"
-        return 0
-    }
+    if [ -n "$NOTIFY_SERVER_ID" ]; then
+        _dbg "notify: close (dbus id=$NOTIFY_SERVER_ID)"
+        gdbus call --session --dest org.freedesktop.Notifications \
+            --object-path /org/freedesktop/Notifications \
+            --method org.freedesktop.Notifications.CloseNotification \
+            "$NOTIFY_SERVER_ID" >/dev/null 2>&1 || true
+    fi
 }
 
 # Map ASR backend to systemd service name

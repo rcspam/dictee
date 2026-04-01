@@ -3500,7 +3500,7 @@ class DicteeSetupDialog(QDialog):
         lay_lt.addWidget(lbl_lt_langs)
 
         saved_lt_langs = set(
-            conf.get("DICTEE_LIBRETRANSLATE_LANGS", "de,en,es,fr").split(","))
+            conf.get("DICTEE_LIBRETRANSLATE_LANGS", "en,fr,es,de,it,pt,uk,ru,tr,ar,zh,hi,bn,ja,ko").split(","))
         # Toujours inclure source et cible
         saved_lt_langs.add(conf.get("DICTEE_LANG_SOURCE", self._system_lang()))
         saved_lt_langs.add(conf.get("DICTEE_LANG_TARGET", "en"))

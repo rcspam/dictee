@@ -457,11 +457,11 @@ done
 copy_to_clipboard() {
     [ "$CLIPBOARD" = true ] || return 0
     if command -v wl-copy >/dev/null 2>&1 && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-        echo "$1" | wl-copy
+        echo -n "$1" | wl-copy
     elif command -v xclip >/dev/null 2>&1; then
-        echo "$1" | xclip -selection clipboard
+        echo -n "$1" | xclip -selection clipboard
     elif command -v xsel >/dev/null 2>&1; then
-        echo "$1" | xsel --clipboard --input
+        echo -n "$1" | xsel --clipboard --input
     fi
 }
 
@@ -502,7 +502,7 @@ cleanup_on_error() {
     stop_recording force
     stop_animation quit
     restore_audio
-    notify_dictee 3000 audio-chat-none-symbolic "Enregistrement interrompu"
+    notify_dictee 0 audio-chat-none-symbolic "Enregistrement interrompu"
     cleanup_session
     rm -f "$LAST_WORD_FILE"
     pkill -P $$ 2>/dev/null
@@ -591,11 +591,11 @@ translate() {
         fi
         ;;
     ollama)
+        trap - ERR
         local model="${DICTEE_OLLAMA_MODEL:-translategemma}"
         # Check if model is already downloaded
         if ! ollama list 2>/dev/null | grep -q "${model%%:*}"; then
-            local _dl_id
-            _dl_id=$(notify-send -p -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle ${model}..." "Premier lancement, veuillez patienter")
+            notify_dictee 0 emblem-downloads "Téléchargement du modèle ${model}…" "Premier lancement, veuillez patienter"
         fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
@@ -603,12 +603,21 @@ Produce only the ${LANG_TARGET} translation, without any additional explanations
 ${text}"
         # Add :latest only if no explicit tag
         [[ "$model" == *:* ]] || model="${model}:latest"
-        local _ollama_result
-        _ollama_result=$(timeout 30 ollama run "$model" "$prompt" 2>/dev/null)
-        # Close download notification if it existed
-        if [ -n "${_dl_id:-}" ]; then
-            notify-send --replace-id="$_dl_id" -t 1 -a Dictee "" 2>/dev/null || true
+        # Notify only if model needs loading into VRAM (cold start ~5s)
+        if ! ollama ps 2>/dev/null | grep -q "${model%%:*}"; then
+            notify_dictee 0 translate-symbolic "Chargement du modèle ${model%%:*}…"
         fi
+        local _ollama_result
+        _ollama_result=$(python3 - "$model" "$prompt" <<'PYEOF'
+import json, urllib.request, sys
+model, prompt = sys.argv[1], sys.argv[2]
+data = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+req = urllib.request.Request("http://localhost:11434/api/generate", data=data, headers={"Content-Type": "application/json"})
+resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+print(resp.get("response", "").strip())
+PYEOF
+        )
+        trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
         echo "$_ollama_result"
         ;;
     *)
@@ -653,14 +662,14 @@ if [ "$CANCEL" = true ]; then
             # Diarize preparation — kill switch-backend and restore daemon
             if pkill -f "dictee-switch-backend diarize true" 2>/dev/null; then true; fi
             dictee-switch-backend diarize false 2>/dev/null || true
-            notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
+            notify_dictee 0 audio-chat-none-symbolic "Diarisation annulée"
             ;;
         recording)
             # Active recording — stop it
             stop_animation quit
             restore_audio
             stop_recording
-            notify_dictee 3000 audio-chat-none-symbolic "Enregistrement annulé"
+            notify_dictee 0 audio-chat-none-symbolic "Enregistrement annulé"
             cleanup_session
             # If diarize was prepared, restore daemon
             _pre_b=$(grep '^DICTEE_PRE_DIARIZE_BACKEND=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2)
@@ -678,13 +687,14 @@ if [ "$CANCEL" = true ]; then
             if pkill -f "diarize-only" 2>/dev/null; then true; fi
             sleep 0.2
             dictee-switch-backend diarize false 2>/dev/null || true
-            notify_dictee 3000 audio-chat-none-symbolic "Diarisation annulée"
+            notify_dictee 0 audio-chat-none-symbolic "Diarisation annulée"
             ;;
         transcribing|switching)
             write_state "idle"
             ;;
     esac
     _dbg "cancel: done"
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     exit 0
 fi
 
@@ -714,12 +724,15 @@ if [ -f "$PIDFILE" ]; then
     if [ -f "$TRANSLATE_BACKEND_FILE" ]; then
         TRANSLATE_BACKEND=$(cat "$TRANSLATE_BACKEND_FILE")
     fi
-
     stop_animation
     restore_audio
     write_state "transcribing"
     stop_recording
-    notify_dictee 3000 audio-chat-none-symbolic "Enregistrement arrêté"
+    if [ "$TRANSLATE" = true ]; then
+        notify_dictee 0 audio-chat-none-symbolic "Transcription + traduction en cours…"
+    else
+        notify_dictee 0 audio-chat-none-symbolic "Enregistrement arrêté"
+    fi
 
     # Live diarization: copy WAV and launch dictee-transcribe
     if [ "$DIARIZE" = "true" ]; then
@@ -738,7 +751,7 @@ if [ -f "$PIDFILE" ]; then
     _dbg "transcribe: sending $RECORDING_FILE to daemon"
     if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
         _dbg "transcribe: FAILED — daemon not responding"
-        notify_dictee 5000 dialog-error "Transcription failed — daemon not responding"
+        notify_dictee 0 dialog-error "Transcription failed — daemon not responding"
         write_state "idle"
         cleanup_session
         exit 1
@@ -746,7 +759,7 @@ if [ -f "$PIDFILE" ]; then
     _dbg "transcribe: raw result=${#raw} chars"
     if [ -z "$raw" ]; then
         _dbg "transcribe: FAILED — empty result"
-        notify_dictee 5000 dialog-error "Transcription failed — empty result"
+        notify_dictee 0 dialog-error "Transcription failed — empty result"
         write_state "idle"
         cleanup_session
         exit 1
@@ -768,7 +781,7 @@ if [ -f "$PIDFILE" ]; then
     apply_continuation transcribed
 
     if [ "$TRANSLATE" = true ]; then
-        notify_dictee 5000 audio-chat-none-symbolic "Traduction en cours..."
+        notify_dictee 0 audio-chat-none-symbolic "Traduction en cours..."
 
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
             translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
@@ -779,24 +792,34 @@ if [ -f "$PIDFILE" ]; then
         fi
         if [ -n "$translated" ]; then
             copy_to_clipboard "$translated"
-            type_text "$translated"
+            # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
+            # dotool "type" cannot handle these characters, use clipboard paste
+            if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
+                sleep 0.1
+                printf 'key ctrl+V\n' | safe_dotool
+            else
+                type_text "$translated"
+            fi
             save_last_word "$translated"
-            notify_dictee 5000 clipboard-paste-symbolic "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            notify_dictee 0 clipboard-paste-symbolic "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         else
             copy_to_clipboard "$transcribed"
             type_text "$transcribed"
             save_last_word "$transcribed"
-            notify_dictee 5000 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            notify_dictee 0 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
         fi
     else
         copy_to_clipboard "$transcribed"
         type_text "$transcribed"
         save_last_word "$transcribed"
-        notify_dictee 5000 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
+        notify_dictee 0 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
     fi
 
     cleanup_session
     write_state "idle"
+
+    # Auto-close the result notification after 5 seconds
+    (sleep 5; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
 
     # Re-enable trap ERR
     trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
@@ -829,7 +852,7 @@ else
         if ! systemctl --user is-active --quiet "$_ASR_SERVICE" 2>/dev/null; then
             _dbg "start-recording: BLOCKED — daemon $_ASR_SERVICE not active"
             trap - ERR
-            notify-send -t 5000 -i dialog-error -a Dictee "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_ASR_SERVICE"
+            notify_dictee 0 dialog-error "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_ASR_SERVICE"
             if command -v paplay >/dev/null 2>&1; then
                 paplay /usr/share/sounds/freedesktop/stereo/dialog-error.oga &
             fi
