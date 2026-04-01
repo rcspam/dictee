@@ -72,10 +72,19 @@ def main():
                     break
                 data += chunk
 
-            wav_path = data.decode("utf-8").strip()
-            if not wav_path:
+            line = data.decode("utf-8").strip()
+            if not line:
                 conn.sendall(b"ERROR: chemin vide\n")
                 continue
+
+            # Parse: <wav_path>\ttimestamps  or  <wav_path>
+            timestamps_mode = False
+            if "\t" in line:
+                wav_path, params = line.split("\t", 1)
+                if params.strip() == "timestamps":
+                    timestamps_mode = True
+            else:
+                wav_path = line
 
             if not os.path.isfile(wav_path):
                 conn.sendall(f"ERROR: fichier introuvable: {wav_path}\n".encode())
@@ -87,8 +96,19 @@ def main():
                 language=language,
                 beam_size=5,
                 vad_filter=True,
+                word_timestamps=timestamps_mode,
             )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
+            if timestamps_mode:
+                lines = []
+                for seg in segments:
+                    if seg.words:
+                        for w in seg.words:
+                            lines.append(f"[{w.start:.2f}s - {w.end:.2f}s] {w.word.strip()}")
+                    else:
+                        lines.append(f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}")
+                text = "\n".join(lines)
+            else:
+                text = " ".join(seg.text.strip() for seg in segments).strip()
             conn.sendall((text + "\n").encode("utf-8"))
 
         except Exception:

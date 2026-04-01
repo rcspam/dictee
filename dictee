@@ -884,9 +884,10 @@ if [ -f "$PIDFILE" ]; then
             threshold=$(python3 -c "print(float('${buf_dur}') + float('${SILENCE_DURATION}'))")
             _dbg "audio-context: threshold=${threshold}s (buf=${buf_dur}s + silence=${SILENCE_DURATION}s)"
 
-            # Parakeet supports timestamps mode — split by time position
-            if [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
-                _dbg "audio-context: using timestamps mode (parakeet)"
+            # All backends support timestamps mode via daemon protocol
+            _backend="${DICTEE_ASR_BACKEND:-parakeet}"
+            if [ "$_backend" = "parakeet" ] || [ "$_backend" = "canary" ] || [ "$_backend" = "whisper" ]; then
+                _dbg "audio-context: using timestamps mode ($_backend)"
                 if ! timestamped=$(transcribe_with_timestamps "$COMBINED_FILE"); then
                     _dbg "audio-context: timestamps transcription failed, falling back to direct"
                     used_context=false
@@ -907,7 +908,7 @@ if [ -f "$PIDFILE" ]; then
                     _dbg "audio-context: extracted after threshold: ${#raw} chars"
                 fi
             else
-                # Non-parakeet backends: no timestamps, disable context for this push
+                # Vosk: no timestamps support, disable context for this push
                 _dbg "audio-context: backend ${DICTEE_ASR_BACKEND} has no timestamps, skipping context"
                 used_context=false
                 rm -f "$COMBINED_FILE"

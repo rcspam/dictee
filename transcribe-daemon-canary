@@ -51,6 +51,36 @@ def transcribe(model, wav_path, source_lang, target_lang=None):
     return model.recognize(wav_path, **kwargs)
 
 
+def transcribe_timestamps(model, wav_path, source_lang):
+    """Transcribe with word-level timestamps. Returns formatted lines."""
+    ts_model = model.with_timestamps()
+    result = ts_model.recognize(wav_path, language=source_lang)
+    if not result.tokens or not result.timestamps:
+        return result.text
+    # Group subword tokens into words and format as [start - end] word
+    lines = []
+    current_word = ""
+    word_start = 0.0
+    word_end = 0.0
+    for i, (token, ts) in enumerate(zip(result.tokens, result.timestamps)):
+        if not token.strip():
+            continue
+        # New word starts when token doesn't begin with subword marker
+        # or after punctuation
+        is_start = (not current_word or token.startswith(" ") or
+                    token in ".,;:!?…")
+        if is_start and current_word:
+            lines.append(f"[{word_start:.2f}s - {word_end:.2f}s] {current_word.strip()}")
+            current_word = ""
+        if not current_word:
+            word_start = ts
+        current_word += token
+        word_end = ts
+    if current_word:
+        lines.append(f"[{word_start:.2f}s - {word_end:.2f}s] {current_word.strip()}")
+    return "\n".join(lines)
+
+
 def main():
     sock_path = get_socket_path()
 
@@ -105,11 +135,14 @@ def main():
                 conn.close()
                 continue
 
-            # Parse: <wav_path>\tlang:<target>  or  <wav_path>
+            # Parse: <wav_path>\tlang:<target>  or  <wav_path>\ttimestamps  or  <wav_path>
             target_lang = None
+            timestamps_mode = False
             if "\t" in line:
                 wav_path, params = line.split("\t", 1)
-                if params.startswith("lang:"):
+                if params.strip() == "timestamps":
+                    timestamps_mode = True
+                elif params.startswith("lang:"):
                     target_lang = params[5:]
             else:
                 wav_path = line
@@ -119,7 +152,10 @@ def main():
                 conn.close()
                 continue
 
-            text = transcribe(model, wav_path, source_lang, target_lang)
+            if timestamps_mode:
+                text = transcribe_timestamps(model, wav_path, source_lang)
+            else:
+                text = transcribe(model, wav_path, source_lang, target_lang)
             conn.sendall(f"{text}\n".encode())
 
         except Exception as e:
