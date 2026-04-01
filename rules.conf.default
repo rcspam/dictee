@@ -15,6 +15,8 @@
 [*] /\([^)]*\)//g
 [*] /\[[^\]]*\]//g
 [*] /<unk>\s*//g
+# Strip leading punctuation (orphan dot/comma from ASR context bleed)
+[*] /^[.,;:!?\s]+//
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 2 — Filler words / hesitations
