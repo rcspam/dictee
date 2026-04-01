@@ -2,7 +2,7 @@
   <picture>
         <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
         <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
-    <img src="assets/banner-light.svg" alt="dictée" width="640">
+    <img src="assets/banner-light.svg" alt="dictée" width="512">
   </picture>
 </p>
 
@@ -254,7 +254,7 @@ Le widget Plasma et le tray incluent tous deux :
 
 <p align="center">
   <a href="https://youtu.be/-fWZZEO7mCA">
-    <img src="assets/demo.gif" alt="démo animation-speech — cliquez pour voir sur YouTube" width="640">
+    <img src="assets/demo.gif" alt="démo animation-speech — cliquez pour voir sur YouTube" width="512">
   </a>
 </p>
 
