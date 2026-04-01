@@ -842,6 +842,15 @@ class DicteeTrayQt:
             _("When unchecked, diarization is disabled after each recording."))
         self.action_diarize_lock_qt.toggled.connect(self._on_diarize_lock_toggled_qt)
 
+        # Audio context buffer toggle
+        self.action_context_qt = self.menu.addAction(_("Audio context"))
+        self.action_context_qt.setCheckable(True)
+        self.action_context_qt.setChecked(
+            read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true")
+        self.action_context_qt.setToolTip(
+            _("Accumulate audio from previous dictations to improve recognition."))
+        self.action_context_qt.toggled.connect(self._on_context_toggled_qt)
+
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.action_postprocess = self.menu.addAction(_("Post-processing..."))
@@ -921,6 +930,10 @@ class DicteeTrayQt:
     def _on_diarize_lock_toggled_qt(self, checked):
         if checked and not self.action_diarize_qt.isChecked():
             self.action_diarize_qt.setChecked(True)
+
+    def _on_context_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "context", val])
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()
