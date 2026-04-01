@@ -520,15 +520,15 @@ print(data.decode().strip())
 " "$sock" "$audio_path"
 }
 
-# Extract text from timestamped lines where start >= threshold
-# Input format: [0.42s - 1.85s] Some text here.
-# Returns only text from sentences starting after threshold
+# Extract text from timestamped lines where start >= threshold - margin
+# Input format: [0.42s - 1.85s] word
+# Margin of 0.5s avoids cutting first words due to timestamp alignment
 split_by_timestamp() {
     local timestamped="$1"
     local threshold="$2"
     echo "$timestamped" | python3 -c "
 import sys, re
-threshold = float(sys.argv[1])
+threshold = float(sys.argv[1]) - 0.5
 lines = sys.stdin.read().strip().split('\n')
 parts = []
 for line in lines:
@@ -899,7 +899,7 @@ if [ -f "$PIDFILE" ]; then
 
             if [ "$used_context" = true ] && [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
                 rm -f "$COMBINED_FILE"
-                _dbg "audio-context: timestamped result: $timestamped"
+                _dbg "audio-context: timestamped result: $(echo "$timestamped" | wc -l) words"
                 if [ -z "$timestamped" ]; then
                     _dbg "audio-context: WARNING — empty result with context, discarding buffer"
                     rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
@@ -909,7 +909,7 @@ if [ -f "$PIDFILE" ]; then
                     exit 1
                 fi
                 raw=$(split_by_timestamp "$timestamped" "$threshold")
-                _dbg "audio-context: extracted after threshold: '${raw}'"
+                _dbg "audio-context: extracted after threshold: ${#raw} chars"
             fi
         else
             _dbg "audio-context: concat failed, using recording directly"
