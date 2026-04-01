@@ -555,12 +555,6 @@ RowLayout {
             enabled: root.currentAsrBackend !== "canary"
         }
 
-        PlasmaComponents.Label {
-            text: "→"
-            Layout.alignment: Qt.AlignVCenter
-            enabled: root.currentAsrBackend !== "canary"
-        }
-
         QQC2.ComboBox {
             id: langCombo
             Kirigami.Theme.inherit: true
