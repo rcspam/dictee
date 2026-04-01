@@ -108,8 +108,6 @@ package() {
         install -Dm644 "$f" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$(basename "$f")"
     done
 
-    # Audio context marker
-    install -Dm644 assets/alpha-bravo.wav "$pkgdir/usr/share/dictee/assets/alpha-bravo.wav"
 
     # Locales (compiled in build())
     for lang in fr de es it pt uk; do

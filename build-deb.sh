@@ -47,10 +47,6 @@ if [ -d "./assets/logos" ]; then
     cp ./assets/logos/*.svg "$PKG_DIR/usr/share/dictee/assets/logos/"
 fi
 
-# Audio context marker
-if [ -f "./assets/alpha-bravo.wav" ]; then
-    cp ./assets/alpha-bravo.wav "$PKG_DIR/usr/share/dictee/assets/"
-fi
 
 # Compiler et copier les traductions
 echo "=== Compilation des traductions ==="
@@ -317,10 +313,6 @@ build_tarball() {
         cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
     fi
 
-    # Audio context marker
-    if [ -f "$PKG_DIR/usr/share/dictee/assets/alpha-bravo.wav" ]; then
-        cp "$PKG_DIR/usr/share/dictee/assets/alpha-bravo.wav" "$TARBALL_DIR/usr/share/dictee/assets/"
-    fi
 
     # ONNX Runtime CUDA libs (if available from last CUDA build)
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do

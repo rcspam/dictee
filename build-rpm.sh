@@ -131,10 +131,6 @@ prepare_buildroot() {
         cp ./assets/logos/*.svg "$buildroot/usr/share/dictee/assets/logos/"
     fi
 
-    # Audio context marker
-    if [ -f "./assets/alpha-bravo.wav" ]; then
-        cp ./assets/alpha-bravo.wav "$buildroot/usr/share/dictee/assets/"
-    fi
 
     # Plasmoid + rules
     mkdir -p "$buildroot/usr/share/dictee"
