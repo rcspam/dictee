@@ -494,6 +494,16 @@ RowLayout {
             Layout.preferredWidth: Kirigami.Units.gridUnit * 8
         }
 
+        QQC2.CheckBox {
+            id: chkAudioContext
+            text: i18n("Context")
+            checked: root.audioContextEnabled
+            onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
+            QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
+
         Item { Layout.fillWidth: true }
 
         PlasmaComponents.Label {
@@ -644,20 +654,6 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("setup")
             QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
-        }
-
-        PlasmaComponents.ToolButton {
-            id: btnAudioContext
-            checkable: true
-            checked: root.audioContextEnabled
-            icon.name: "media-record-symbolic"
-            display: PlasmaComponents.AbstractButton.IconOnly
-            Kirigami.Theme.inherit: false
-            Kirigami.Theme.textColor: checked ? "#98c379" : Kirigami.Theme.textColor
-            onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
-            QQC2.ToolTip.text: i18n("Audio context buffer")
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
