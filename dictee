@@ -460,6 +460,8 @@ trim_buffer() {
         _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
         if ffmpeg -y -loglevel error -sseof "-${timeout}" -i "$BUFFER_FILE" -ar 16000 -ac 1 "${BUFFER_FILE}.tmp"; then
             mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
+        else
+            _dbg "audio-context: WARNING — trim failed, using full buffer"
         fi
     fi
 }
@@ -472,7 +474,7 @@ build_combined() {
     ffmpeg -y -loglevel error \
         -i "$BUFFER_FILE" -i "$ALPHA_BRAVO" -i "$recording" \
         -filter_complex "[0][1][2]concat=n=3:v=0:a=1" \
-        -ar 16000 -ac 1 "$COMBINED_FILE"
+        -ar 16000 -ac 1 "$COMBINED_FILE" || return 1
 }
 
 # Split transcription on "Alpha Bravo" marker, return text after marker
@@ -853,6 +855,10 @@ if [ -f "$PIDFILE" ]; then
     _dbg "transcribe: raw result=${#raw} chars"
     if [ -z "$raw" ]; then
         _dbg "transcribe: FAILED — empty result"
+        if [ "$used_context" = true ]; then
+            _dbg "audio-context: WARNING — empty result with context, discarding buffer"
+            rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+        fi
         notify_dictee 0 dialog-error "Transcription failed — empty result"
         write_state "idle"
         cleanup_session
