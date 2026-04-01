@@ -19,6 +19,7 @@ usage() {
     echo "  asr <backend>             Switch ASR backend"
     echo "  translate <backend>       Switch translation backend"
     echo "  diarize [true|false|toggle]  Toggle speaker diarization"
+    echo "  context [true|false]      Toggle audio context buffer"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -191,6 +192,29 @@ diarize)
         write_state "idle"
     fi
     echo "Diarization: $val"
+    ;;
+
+context)
+    val="${2:-true}"
+    case "$val" in
+        true|false) ;;
+        toggle)
+            set +eu; source "$CONF"; set -eu
+            if [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ]; then val="false"; else val="true"; fi
+            ;;
+        *) echo "Error: context expects true, false, or toggle" >&2; usage ;;
+    esac
+    set_conf "DICTEE_AUDIO_CONTEXT" "$val"
+    _dbg "context: $val"
+    if [ "$val" = "true" ]; then
+        notify_dictee 0 audio-chat-symbolic "Audio context: ON"
+    else
+        notify_dictee 0 audio-chat-symbolic "Audio context: OFF"
+        # Clean up buffer files
+        rm -f "/dev/shm/.dictee_buffer-$(id -u).wav" "/dev/shm/.dictee_buffer_ts-$(id -u)"
+    fi
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    echo "Audio context: $val"
     ;;
 
 *) usage ;;
