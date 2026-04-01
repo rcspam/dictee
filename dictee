@@ -458,8 +458,9 @@ trim_buffer() {
     local dur_int=${duration%.*}
     if [ "${dur_int:-0}" -gt "$timeout" ]; then
         _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
-        ffmpeg -y -loglevel error -sseof "-${timeout}" -i "$BUFFER_FILE" -ar 16000 -ac 1 "${BUFFER_FILE}.tmp" && \
+        if ffmpeg -y -loglevel error -sseof "-${timeout}" -i "$BUFFER_FILE" -ar 16000 -ac 1 "${BUFFER_FILE}.tmp"; then
             mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
+        fi
     fi
 }
 
@@ -827,8 +828,8 @@ if [ -f "$PIDFILE" ]; then
     fi
 
     # Determine which file to send to daemon
-    local transcribe_file="$RECORDING_FILE"
-    local used_context=false
+    transcribe_file="$RECORDING_FILE"
+    used_context=false
     if audio_context_enabled && buffer_valid; then
         if build_combined "$RECORDING_FILE"; then
             transcribe_file="$COMBINED_FILE"
@@ -860,7 +861,6 @@ if [ -f "$PIDFILE" ]; then
 
     # If we used context, split on Alpha Bravo marker
     if [ "$used_context" = true ]; then
-        local split_result
         if split_result=$(split_on_marker "$raw"); then
             raw="$split_result"
         else
