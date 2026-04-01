@@ -891,21 +891,26 @@ if [ -f "$PIDFILE" ]; then
                     _dbg "audio-context: timestamps transcription failed, falling back to direct"
                     used_context=false
                 fi
-            fi
 
-            if [ "$used_context" = true ] && [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
-                rm -f "$COMBINED_FILE"
-                _dbg "audio-context: timestamped result: $(echo "$timestamped" | wc -l) words"
-                if [ -z "$timestamped" ]; then
-                    _dbg "audio-context: WARNING — empty result with context, discarding buffer"
-                    rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
-                    notify_dictee 0 dialog-error "Transcription failed — empty result"
-                    write_state "idle"
-                    cleanup_session
-                    exit 1
+                if [ "$used_context" = true ]; then
+                    rm -f "$COMBINED_FILE"
+                    _dbg "audio-context: timestamped result: $(echo "$timestamped" | wc -l) words"
+                    if [ -z "$timestamped" ]; then
+                        _dbg "audio-context: WARNING — empty result with context, discarding buffer"
+                        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+                        notify_dictee 0 dialog-error "Transcription failed — empty result"
+                        write_state "idle"
+                        cleanup_session
+                        exit 1
+                    fi
+                    raw=$(split_by_timestamp "$timestamped" "$threshold")
+                    _dbg "audio-context: extracted after threshold: ${#raw} chars"
                 fi
-                raw=$(split_by_timestamp "$timestamped" "$threshold")
-                _dbg "audio-context: extracted after threshold: ${#raw} chars"
+            else
+                # Non-parakeet backends: no timestamps, disable context for this push
+                _dbg "audio-context: backend ${DICTEE_ASR_BACKEND} has no timestamps, skipping context"
+                used_context=false
+                rm -f "$COMBINED_FILE"
             fi
         else
             _dbg "audio-context: concat failed, using recording directly"
