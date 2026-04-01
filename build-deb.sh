@@ -131,7 +131,7 @@ Version: 1.2.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
 Recommends: libcublas12 | libcublas-12-8 | libcublas-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cpu
 Provides: dictee
@@ -207,7 +207,7 @@ Version: 1.2.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
 Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cuda
 Provides: dictee

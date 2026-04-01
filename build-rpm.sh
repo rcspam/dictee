@@ -202,6 +202,7 @@ Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
+Requires:       sox
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Recommends:     (libcublas-12-8 or libcublas-12-6)
@@ -359,6 +360,7 @@ Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
+Requires:       sox
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Recommends:     python3-evdev

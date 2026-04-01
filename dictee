@@ -452,11 +452,11 @@ buffer_valid() {
 trim_buffer() {
     local timeout="${DICTEE_AUDIO_CONTEXT_TIMEOUT:-30}"
     local duration
-    duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$BUFFER_FILE" 2>/dev/null) || return 0
+    duration=$(soxi -D "$BUFFER_FILE" 2>/dev/null) || return 0
     local dur_int=${duration%.*}
     if [ "${dur_int:-0}" -gt "$timeout" ]; then
         _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
-        if ffmpeg -y -loglevel error -sseof "-${timeout}" -i "$BUFFER_FILE" -ar 16000 -ac 1 "${BUFFER_FILE}.tmp"; then
+        if sox "$BUFFER_FILE" "${BUFFER_FILE}.tmp" trim "=$((dur_int - timeout))" 2>/dev/null; then
             mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
         else
             _dbg "audio-context: WARNING — trim failed, using full buffer"
@@ -467,14 +467,13 @@ trim_buffer() {
 # Generate silence WAV (cached)
 generate_silence() {
     if [ ! -f "$SILENCE_FILE" ]; then
-        ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=16000:cl=mono \
-            -t "$SILENCE_DURATION" -ar 16000 -ac 1 "$SILENCE_FILE"
+        sox -n -r 16000 -c 1 -b 16 "$SILENCE_FILE" trim 0.0 "$SILENCE_DURATION"
     fi
 }
 
 # Get buffer duration in seconds (float)
 get_buffer_duration() {
-    ffprobe -v error -show_entries format=duration -of csv=p=0 "$BUFFER_FILE" 2>/dev/null
+    soxi -D "$BUFFER_FILE" 2>/dev/null
 }
 
 # Concatenate buffer + silence + new recording into combined file
@@ -483,10 +482,7 @@ build_combined() {
     trim_buffer
     generate_silence
     _dbg "audio-context: concat buffer + silence + recording"
-    ffmpeg -y -loglevel error \
-        -i "$BUFFER_FILE" -i "$SILENCE_FILE" -i "$recording" \
-        -filter_complex "[0][1][2]concat=n=3:v=0:a=1" \
-        -ar 16000 -ac 1 "$COMBINED_FILE" || return 1
+    sox "$BUFFER_FILE" "$SILENCE_FILE" "$recording" "$COMBINED_FILE" || return 1
 }
 
 # Resolve daemon socket path (same logic as transcribe-client)

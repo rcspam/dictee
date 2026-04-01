@@ -16,6 +16,7 @@ depends=(
     'python-pyqt6'
     'qt6-multimedia'
     'qt6-svg'
+    'sox'
 )
 optdepends=(
     'python-evdev: dictee-ptt key grab (recommended)'
