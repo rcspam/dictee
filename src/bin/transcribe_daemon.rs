@@ -75,7 +75,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(Ok(line)) = reader.lines().next() {
                     let line = line.trim().to_string();
                     let (audio_path, timestamps) = if let Some((path, mode)) = line.split_once('\t') {
-                        (path.trim(), mode.trim() == "diarize")
+                        let m = mode.trim();
+                        (path.trim(), m == "diarize" || m == "timestamps")
                     } else {
                         (line.as_str(), false)
                     };

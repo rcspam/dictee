@@ -102,10 +102,8 @@ LAST_WORD_FILE="/dev/shm/.dictee_last_word"
 BUFFER_FILE="/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav"
 BUFFER_TS_FILE="/dev/shm/.dictee_buffer_ts${_UID_SUFFIX}"
 COMBINED_FILE="/dev/shm/.dictee_combined${_UID_SUFFIX}.wav"
-ALPHA_BRAVO=""
-for _ab in "$(dirname "$(readlink -f "$0")")/assets/alpha-bravo.wav" /usr/share/dictee/assets/alpha-bravo.wav; do
-    if [ -f "$_ab" ]; then ALPHA_BRAVO="$_ab"; break; fi
-done
+SILENCE_FILE="/dev/shm/.dictee_silence${_UID_SUFFIX}.wav"
+SILENCE_DURATION="0.5"
 
 # === UTILITY FUNCTIONS (script-specific) ===
 
@@ -428,9 +426,9 @@ save_last_word() {
     fi
 }
 
-# Check if audio context buffer is enabled and marker exists
+# Check if audio context buffer is enabled
 audio_context_enabled() {
-    [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ] && [ -n "$ALPHA_BRAVO" ]
+    [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ]
 }
 
 # Check if buffer exists and is not expired
@@ -466,30 +464,79 @@ trim_buffer() {
     fi
 }
 
-# Concatenate buffer + marker + new recording into combined file
+# Generate silence WAV (cached)
+generate_silence() {
+    if [ ! -f "$SILENCE_FILE" ]; then
+        ffmpeg -y -loglevel error -f lavfi -i anullsrc=r=16000:cl=mono \
+            -t "$SILENCE_DURATION" -ar 16000 -ac 1 "$SILENCE_FILE"
+    fi
+}
+
+# Get buffer duration in seconds (float)
+get_buffer_duration() {
+    ffprobe -v error -show_entries format=duration -of csv=p=0 "$BUFFER_FILE" 2>/dev/null
+}
+
+# Concatenate buffer + silence + new recording into combined file
 build_combined() {
     local recording="$1"
     trim_buffer
-    _dbg "audio-context: concat buffer + alpha-bravo + recording"
+    generate_silence
+    _dbg "audio-context: concat buffer + silence + recording"
     ffmpeg -y -loglevel error \
-        -i "$BUFFER_FILE" -i "$ALPHA_BRAVO" -i "$recording" \
+        -i "$BUFFER_FILE" -i "$SILENCE_FILE" -i "$recording" \
         -filter_complex "[0][1][2]concat=n=3:v=0:a=1" \
         -ar 16000 -ac 1 "$COMBINED_FILE" || return 1
 }
 
-# Split transcription on "Alpha Bravo" marker, return text after marker
-split_on_marker() {
-    local text="$1"
-    local after
-    after=$(echo "$text" | sed -E 's/.*[.,[:space:]]*(([Aa]lpha|[Aa]lfa|ALPHA|ALFA)[[:space:]]*(BRAVO|[Bb]ravo))[.,[:space:]]*//')
-    if [ -n "$after" ] && [ "$after" != "$text" ]; then
-        _dbg "audio-context: marker found, extracted ${#after} chars"
-        echo "$after"
-        return 0
+# Resolve daemon socket path (same logic as transcribe-client)
+_daemon_socket() {
+    if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        echo "${XDG_RUNTIME_DIR}/transcribe.sock"
     else
-        _dbg "audio-context: WARNING — marker not found in transcription"
-        return 1
+        echo "/tmp/transcribe-$(id -u).sock"
     fi
+}
+
+# Send audio to daemon with timestamps mode, return timestamped lines
+transcribe_with_timestamps() {
+    local audio_path="$1"
+    local sock
+    sock=$(_daemon_socket)
+    python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(30)
+s.connect(sys.argv[1])
+s.sendall((sys.argv[2] + '\ttimestamps\n').encode())
+s.shutdown(socket.SHUT_WR)
+data = b''
+while True:
+    chunk = s.recv(4096)
+    if not chunk: break
+    data += chunk
+s.close()
+print(data.decode().strip())
+" "$sock" "$audio_path"
+}
+
+# Extract text from timestamped lines where start >= threshold
+# Input format: [0.42s - 1.85s] Some text here.
+# Returns only text from sentences starting after threshold
+split_by_timestamp() {
+    local timestamped="$1"
+    local threshold="$2"
+    echo "$timestamped" | python3 -c "
+import sys, re
+threshold = float(sys.argv[1])
+lines = sys.stdin.read().strip().split('\n')
+parts = []
+for line in lines:
+    m = re.match(r'\[(\d+\.\d+)s\s*-\s*\d+\.\d+s\]\s*(.*)', line)
+    if m and float(m.group(1)) >= threshold:
+        parts.append(m.group(2))
+print(' '.join(parts).strip())
+" "$threshold"
 }
 
 # Save recording as new buffer (only if transcription was non-empty)
@@ -829,27 +876,56 @@ if [ -f "$PIDFILE" ]; then
         exit 0
     fi
 
-    # Determine which file to send to daemon
-    transcribe_file="$RECORDING_FILE"
+    # Determine which file to send to daemon and how
     used_context=false
     if audio_context_enabled && buffer_valid; then
         if build_combined "$RECORDING_FILE"; then
-            transcribe_file="$COMBINED_FILE"
             used_context=true
             _dbg "audio-context: using combined file for transcription"
+
+            # Get time threshold: buffer duration + silence
+            buf_dur=$(get_buffer_duration) || buf_dur="0"
+            threshold=$(python3 -c "print(float('${buf_dur}') + float('${SILENCE_DURATION}'))")
+            _dbg "audio-context: threshold=${threshold}s (buf=${buf_dur}s + silence=${SILENCE_DURATION}s)"
+
+            # Parakeet supports timestamps mode — split by time position
+            if [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
+                _dbg "audio-context: using timestamps mode (parakeet)"
+                if ! timestamped=$(transcribe_with_timestamps "$COMBINED_FILE"); then
+                    _dbg "audio-context: timestamps transcription failed, falling back to direct"
+                    used_context=false
+                fi
+            fi
+
+            if [ "$used_context" = true ] && [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
+                rm -f "$COMBINED_FILE"
+                _dbg "audio-context: timestamped result: $timestamped"
+                if [ -z "$timestamped" ]; then
+                    _dbg "audio-context: WARNING — empty result with context, discarding buffer"
+                    rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+                    notify_dictee 0 dialog-error "Transcription failed — empty result"
+                    write_state "idle"
+                    cleanup_session
+                    exit 1
+                fi
+                raw=$(split_by_timestamp "$timestamped" "$threshold")
+                _dbg "audio-context: extracted after threshold: '${raw}'"
+            fi
         else
             _dbg "audio-context: concat failed, using recording directly"
         fi
     fi
 
-    _dbg "transcribe: sending $transcribe_file to daemon"
-    if ! raw=$(eval transcribe-client "$transcribe_file"); then
-        _dbg "transcribe: FAILED — daemon not responding"
-        notify_dictee 0 dialog-error "Transcription failed — daemon not responding"
-        write_state "idle"
-        rm -f "$COMBINED_FILE"
-        cleanup_session
-        exit 1
+    # Standard transcription (no context, or non-parakeet fallback)
+    if [ "$used_context" != true ]; then
+        _dbg "transcribe: sending $RECORDING_FILE to daemon"
+        if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
+            _dbg "transcribe: FAILED — daemon not responding"
+            notify_dictee 0 dialog-error "Transcription failed — daemon not responding"
+            write_state "idle"
+            cleanup_session
+            exit 1
+        fi
     fi
     rm -f "$COMBINED_FILE"
     _dbg "transcribe: raw result=${#raw} chars"
@@ -863,15 +939,6 @@ if [ -f "$PIDFILE" ]; then
         write_state "idle"
         cleanup_session
         exit 1
-    fi
-
-    # If we used context, split on Alpha Bravo marker
-    if [ "$used_context" = true ]; then
-        if split_result=$(split_on_marker "$raw"); then
-            raw="$split_result"
-        else
-            notify_dictee 0 dialog-error "Audio context: marker not found"
-        fi
     fi
     if [ -n "$SUPPRIME" ]; then
         echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp
