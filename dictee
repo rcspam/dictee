@@ -1012,11 +1012,11 @@ else
     # === START RECORDING ===
 
     # Check state allows recording (only idle or diarize-ready are valid)
-    _current_state=$(cat "$STATE_FILE" 2>/dev/null)
+    _current_state=$(cat "$STATE_FILE" 2>/dev/null || true)
     _dbg "start-recording: current_state=$_current_state diarize=$DIARIZE"
     case "$_current_state" in
-        idle)
-            ;;  # OK to record
+        idle|"")
+            ;;  # OK to record (empty = first boot, no state file yet)
         diarize-ready)
             if [ "$DIARIZE" != "true" ]; then
                 _dbg "start-recording: BLOCKED — diarize-ready requires --diarize flag"
