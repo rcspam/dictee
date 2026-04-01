@@ -20,6 +20,11 @@
             <default>false</default>
         </entry>
 
+        <!-- Audio context buffer (accumulate audio from previous dictations) -->
+        <entry name="audioContext" type="Bool">
+            <default>false</default>
+        </entry>
+
         <!-- Pin popup (keep open when clicking outside) -->
         <entry name="pinPopup" type="Bool">
             <default>false</default>

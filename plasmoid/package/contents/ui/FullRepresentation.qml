@@ -406,6 +406,45 @@ RowLayout {
         }
     }
 
+    // Audio context toggle
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: Kirigami.Units.smallSpacing
+        visible: root.dicteeConfigured
+
+        PlasmaComponents.Button {
+            id: btnAudioContext
+            Layout.fillWidth: true
+            Layout.preferredWidth: 0
+            checkable: true
+            checked: root.audioContextEnabled
+            flat: true
+
+            contentItem: RowLayout {
+                spacing: 4
+                Kirigami.Icon {
+                    source: "media-record-symbolic"
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                }
+                PlasmaComponents.Label {
+                    text: i18n("Audio context")
+                    color: btnAudioContext.checked ? "#98c379" : Kirigami.Theme.textColor
+                }
+            }
+
+            onToggled: {
+                executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
+            }
+
+            QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition.")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
+
+        Item { Layout.fillWidth: true }
+    }
+
     // Separateur avant transcription
     Kirigami.Separator {
         Layout.fillWidth: true

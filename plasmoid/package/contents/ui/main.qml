@@ -131,6 +131,9 @@ PlasmoidItem {
                 if (parts.length >= 6) {
                     root.currentLangSource = parts[5] || "fr"
                 }
+                if (parts.length >= 7) {
+                    root.audioContextEnabled = (parts[6] === "true")
+                }
             } else if (source.indexOf("dictee-translate-langs") !== -1) {
                 var langs = stdout.trim()
                 var newList = langs.length > 0 ? langs.split(",") : []
@@ -271,8 +274,9 @@ PlasmoidItem {
     property string currentLangTarget: "en"
     property var availableLangTarget: []
     property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT\"'"
     property string translateLangsCmd: "dictee-translate-langs"
+    property bool audioContextEnabled: false
     property string currentAudioSource: ""
     property var audioSourceList: []
     property string listAudioSourcesCmd: "dictee-audio-sources"
