@@ -98,6 +98,15 @@ TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 LAST_WORD_FILE="/dev/shm/.dictee_last_word"
 
+# Audio context buffer
+BUFFER_FILE="/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav"
+BUFFER_TS_FILE="/dev/shm/.dictee_buffer_ts${_UID_SUFFIX}"
+COMBINED_FILE="/dev/shm/.dictee_combined${_UID_SUFFIX}.wav"
+ALPHA_BRAVO=""
+for _ab in "$(dirname "$(readlink -f "$0")")/assets/alpha-bravo.wav" /usr/share/dictee/assets/alpha-bravo.wav; do
+    if [ -f "$_ab" ]; then ALPHA_BRAVO="$_ab"; break; fi
+done
+
 # === UTILITY FUNCTIONS (script-specific) ===
 
 # Stop the animation (quit or stop)
@@ -417,6 +426,75 @@ save_last_word() {
     else
         rm -f "$LAST_WORD_FILE"
     fi
+}
+
+# Check if audio context buffer is enabled and marker exists
+audio_context_enabled() {
+    [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ] && [ -n "$ALPHA_BRAVO" ]
+}
+
+# Check if buffer exists and is not expired
+buffer_valid() {
+    if [ ! -f "$BUFFER_FILE" ] || [ ! -f "$BUFFER_TS_FILE" ]; then
+        return 1
+    fi
+    local ts now timeout
+    ts=$(cat "$BUFFER_TS_FILE" 2>/dev/null) || return 1
+    now=$(date +%s)
+    timeout="${DICTEE_AUDIO_CONTEXT_TIMEOUT:-30}"
+    if [ $((now - ts)) -gt "$timeout" ]; then
+        _dbg "audio-context: buffer expired (age=$((now - ts))s > ${timeout}s)"
+        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+        return 1
+    fi
+    return 0
+}
+
+# Trim buffer to max duration (DICTEE_AUDIO_CONTEXT_TIMEOUT seconds)
+trim_buffer() {
+    local timeout="${DICTEE_AUDIO_CONTEXT_TIMEOUT:-30}"
+    local duration
+    duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$BUFFER_FILE" 2>/dev/null) || return 0
+    local dur_int=${duration%.*}
+    if [ "${dur_int:-0}" -gt "$timeout" ]; then
+        _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
+        ffmpeg -y -loglevel error -sseof "-${timeout}" -i "$BUFFER_FILE" -ar 16000 -ac 1 "${BUFFER_FILE}.tmp" && \
+            mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
+    fi
+}
+
+# Concatenate buffer + marker + new recording into combined file
+build_combined() {
+    local recording="$1"
+    trim_buffer
+    _dbg "audio-context: concat buffer + alpha-bravo + recording"
+    ffmpeg -y -loglevel error \
+        -i "$BUFFER_FILE" -i "$ALPHA_BRAVO" -i "$recording" \
+        -filter_complex "[0][1][2]concat=n=3:v=0:a=1" \
+        -ar 16000 -ac 1 "$COMBINED_FILE"
+}
+
+# Split transcription on "Alpha Bravo" marker, return text after marker
+split_on_marker() {
+    local text="$1"
+    local after
+    after=$(echo "$text" | sed -E 's/.*[.,[:space:]]*[Aa]lpha[[:space:]]+[Bb]ravo[.,[:space:]]*//')
+    if [ -n "$after" ] && [ "$after" != "$text" ]; then
+        _dbg "audio-context: marker found, extracted ${#after} chars"
+        echo "$after"
+        return 0
+    else
+        _dbg "audio-context: WARNING — marker not found in transcription"
+        return 1
+    fi
+}
+
+# Save recording as new buffer (only if transcription was non-empty)
+save_buffer() {
+    local recording="$1"
+    cp "$recording" "$BUFFER_FILE"
+    date +%s > "$BUFFER_TS_FILE"
+    _dbg "audio-context: buffer saved ($(stat -c%s "$BUFFER_FILE") bytes)"
 }
 
 # Parse arguments — dictee.conf values serve as defaults,
@@ -748,14 +826,29 @@ if [ -f "$PIDFILE" ]; then
         exit 0
     fi
 
-    _dbg "transcribe: sending $RECORDING_FILE to daemon"
-    if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
+    # Determine which file to send to daemon
+    local transcribe_file="$RECORDING_FILE"
+    local used_context=false
+    if audio_context_enabled && buffer_valid; then
+        if build_combined "$RECORDING_FILE"; then
+            transcribe_file="$COMBINED_FILE"
+            used_context=true
+            _dbg "audio-context: using combined file for transcription"
+        else
+            _dbg "audio-context: concat failed, using recording directly"
+        fi
+    fi
+
+    _dbg "transcribe: sending $transcribe_file to daemon"
+    if ! raw=$(eval transcribe-client "$transcribe_file"); then
         _dbg "transcribe: FAILED — daemon not responding"
         notify_dictee 0 dialog-error "Transcription failed — daemon not responding"
         write_state "idle"
+        rm -f "$COMBINED_FILE"
         cleanup_session
         exit 1
     fi
+    rm -f "$COMBINED_FILE"
     _dbg "transcribe: raw result=${#raw} chars"
     if [ -z "$raw" ]; then
         _dbg "transcribe: FAILED — empty result"
@@ -763,6 +856,16 @@ if [ -f "$PIDFILE" ]; then
         write_state "idle"
         cleanup_session
         exit 1
+    fi
+
+    # If we used context, split on Alpha Bravo marker
+    if [ "$used_context" = true ]; then
+        local split_result
+        if split_result=$(split_on_marker "$raw"); then
+            raw="$split_result"
+        else
+            notify_dictee 0 dialog-error "Audio context: marker not found"
+        fi
     fi
     if [ -n "$SUPPRIME" ]; then
         echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp
@@ -779,6 +882,11 @@ if [ -f "$PIDFILE" ]; then
 
     # Cross-push continuation: adapt text if previous sentence was incomplete
     apply_continuation transcribed
+
+    # Save recording as buffer for next push (only if non-empty transcription)
+    if audio_context_enabled && [ -n "$transcribed" ]; then
+        save_buffer "$RECORDING_FILE"
+    fi
 
     if [ "$TRANSLATE" = true ]; then
         notify_dictee 0 audio-chat-none-symbolic "Traduction en cours..."
