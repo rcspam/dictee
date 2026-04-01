@@ -481,7 +481,7 @@ build_combined() {
 split_on_marker() {
     local text="$1"
     local after
-    after=$(echo "$text" | sed -E 's/.*[.,[:space:]]*[Aa]lpha[[:space:]]+[Bb]ravo[.,[:space:]]*//')
+    after=$(echo "$text" | sed -E 's/.*[.,[:space:]]*[Aa]lpha[[:space:]]*[Bb]ravo[.,[:space:]]*//')
     if [ -n "$after" ] && [ "$after" != "$text" ]; then
         _dbg "audio-context: marker found, extracted ${#after} chars"
         echo "$after"
