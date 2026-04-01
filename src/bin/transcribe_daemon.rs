@@ -71,17 +71,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(mut stream) => {
                 let reader = BufReader::new(&stream);
 
-                // Read the request: "path.wav\n" or "path.wav\tdiarize\n"
+                // Read the request: "path.wav\n", "path.wav\tdiarize\n", or "path.wav\ttimestamps\n"
                 if let Some(Ok(line)) = reader.lines().next() {
                     let line = line.trim().to_string();
-                    let (audio_path, timestamps) = if let Some((path, mode)) = line.split_once('\t') {
-                        let m = mode.trim();
-                        (path.trim(), m == "diarize" || m == "timestamps")
+                    let (audio_path, mode) = if let Some((path, m)) = line.split_once('\t') {
+                        (path.trim(), m.trim())
                     } else {
-                        (line.as_str(), false)
+                        (line.as_str(), "plain")
                     };
 
-                    match transcribe_file(&mut parakeet, audio_path, timestamps) {
+                    match transcribe_file(&mut parakeet, audio_path, mode) {
                         Ok(text) => {
                             let _ = writeln!(stream, "{}", text);
                         }
@@ -103,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn transcribe_file(
     parakeet: &mut ParakeetTDT,
     audio_path: &str,
-    timestamps: bool,
+    mode: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut reader = hound::WavReader::open(audio_path)?;
     let spec = reader.spec();
@@ -116,21 +115,28 @@ fn transcribe_file(
             .collect::<Result<Vec<_>, _>>()?,
     };
 
+    let ts_mode = match mode {
+        "timestamps" => TimestampMode::Words,
+        "diarize" => TimestampMode::Sentences,
+        _ => TimestampMode::Sentences,
+    };
+
     let result = parakeet.transcribe_samples(
         audio,
         spec.sample_rate,
         spec.channels,
-        Some(TimestampMode::Sentences),
+        Some(ts_mode),
     )?;
 
-    if timestamps {
-        // Return timestamped sentences for diarization matching
-        let lines: Vec<String> = result.tokens.iter()
-            .map(|t| format!("[{:.2}s - {:.2}s] {}", t.start, t.end, t.text))
-            .collect();
-        Ok(lines.join("\n"))
-    } else {
-        Ok(result.text.trim().to_string())
+    match mode {
+        "diarize" | "timestamps" => {
+            // Return timestamped tokens (words or sentences)
+            let lines: Vec<String> = result.tokens.iter()
+                .map(|t| format!("[{:.2}s - {:.2}s] {}", t.start, t.end, t.text))
+                .collect();
+            Ok(lines.join("\n"))
+        }
+        _ => Ok(result.text.trim().to_string()),
     }
 }
 
