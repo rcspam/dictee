@@ -26,7 +26,7 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout,
+        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -37,7 +37,7 @@ except ImportError:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QTabWidget, QLineEdit, QLayout,
+        QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
@@ -222,7 +222,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
                 llm_postprocess=False, llm_model="ministral:3b",
-                llm_timeout=10, llm_cpu=False):
+                llm_timeout=10, llm_cpu=False,
+                audio_context=False, audio_context_timeout=30):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     import tempfile as _tmpmod
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
@@ -300,6 +301,9 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write(f"DICTEE_LLM_TIMEOUT={llm_timeout}\n")
             if llm_cpu:
                 f.write("DICTEE_LLM_CPU=true\n")
+        # Audio context buffer
+        f.write(f"DICTEE_AUDIO_CONTEXT={'true' if audio_context else 'false'}\n")
+        f.write(f"DICTEE_AUDIO_CONTEXT_TIMEOUT={audio_context_timeout}\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
       try:
@@ -2189,6 +2193,32 @@ class DicteeSetupDialog(QDialog):
         self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
         lay_opt.addWidget(self.chk_clipboard)
+
+        # Audio context buffer
+        self.chk_audio_context = QCheckBox(_("Audio context buffer"))
+        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "false") == "true")
+        self.chk_audio_context.setToolTip(
+            _("Accumulate audio from previous dictations to improve recognition\n"
+              "of short or technical words at the start of sentences."))
+        lay_opt.addWidget(self.chk_audio_context)
+
+        lay_ctx = QHBoxLayout()
+        lay_ctx.setSpacing(8)
+        lbl_ctx = QLabel(_("Context duration (seconds):"))
+        lbl_ctx.setToolTip(
+            _("Maximum duration of accumulated audio context.\n"
+              "Also the inactivity timeout: the buffer expires\n"
+              "after this many seconds without a non-empty dictation."))
+        self.spin_audio_context_timeout = QSpinBox()
+        self.spin_audio_context_timeout.setRange(5, 120)
+        self.spin_audio_context_timeout.setValue(
+            int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
+        self.spin_audio_context_timeout.setSuffix(" s")
+        lay_ctx.addWidget(lbl_ctx)
+        lay_ctx.addWidget(self.spin_audio_context_timeout)
+        lay_ctx.addStretch()
+        lay_opt.addLayout(lay_ctx)
+
         layout.addWidget(grp_options)
 
         # -- Services section --
@@ -8094,6 +8124,10 @@ class DicteeSetupDialog(QDialog):
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "ministral:3b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
 
+        # Audio context buffer
+        audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else False
+        audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
+
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
                     asr_backend, whisper_model, whisper_lang, vosk_model,
@@ -8110,7 +8144,9 @@ class DicteeSetupDialog(QDialog):
                     pp_dict=pp_dict,
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
                     llm_postprocess=llm_postprocess,
-                    llm_model=llm_model, llm_cpu=llm_cpu)
+                    llm_model=llm_model, llm_cpu=llm_cpu,
+                    audio_context=audio_context,
+                    audio_context_timeout=audio_context_timeout)
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
