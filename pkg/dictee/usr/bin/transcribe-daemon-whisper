@@ -31,7 +31,7 @@ def main():
 
     # — Paramètres via variables d'environnement —
     model_size = os.environ.get("DICTEE_WHISPER_MODEL", "small")
-    language = os.environ.get("DICTEE_WHISPER_LANG") or None
+    language = os.environ.get("DICTEE_WHISPER_LANG") or os.environ.get("DICTEE_LANG_SOURCE") or None
 
     # — Suppression d'un socket résiduel —
     if os.path.exists(sock_path):

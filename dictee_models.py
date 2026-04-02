@@ -163,7 +163,11 @@ def load_config():
 
 
 def whisper_model_cached(model_id):
-    """Check if a Whisper model is already downloaded in HuggingFace cache."""
+    """Check if a Whisper model is fully downloaded in HuggingFace cache.
+
+    A model is considered complete only if model.bin (CTranslate2 format)
+    exists in the snapshot directory. Partial downloads are not counted.
+    """
     if not os.path.isdir(HF_CACHE):
         return False
     candidates = [
@@ -173,8 +177,12 @@ def whisper_model_cached(model_id):
     ]
     for c in candidates:
         snap = os.path.join(HF_CACHE, c, "snapshots")
-        if os.path.isdir(snap) and os.listdir(snap):
-            return True
+        if not os.path.isdir(snap):
+            continue
+        for rev in os.listdir(snap):
+            model_bin = os.path.join(snap, rev, "model.bin")
+            if os.path.isfile(model_bin) or os.path.islink(model_bin):
+                return True
     return False
 
 

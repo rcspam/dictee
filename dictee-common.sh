@@ -30,7 +30,7 @@ NOTIFY_SERVER_ID=""
 _DBG_LOG="/tmp/dictee-debug-$(id -u).log"
 
 if [ "${DICTEE_DEBUG:-}" != "true" ] && [ -f "$DICTEE_CONF" ]; then
-    _d=$(grep '^DICTEE_DEBUG=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2)
+    _d=$(grep '^DICTEE_DEBUG=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2 || true)
     [ "$_d" = "true" ] && DICTEE_DEBUG=true
 fi
 export DICTEE_DEBUG="${DICTEE_DEBUG:-false}"

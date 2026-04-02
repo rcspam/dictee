@@ -95,7 +95,8 @@ asr)
             systemctl --user disable "${s}.service" 2>/dev/null || true
         fi
     done
-    if ! systemctl --user enable --now "${svc}.service" 2>/dev/null; then
+    systemctl --user enable "${svc}.service" 2>/dev/null || true
+    if ! systemctl --user restart "${svc}.service" 2>/dev/null; then
         echo "Warning: ${svc}.service failed to start. Check: systemctl --user status ${svc}.service" >&2
         write_state "offline"
         _dbg "asr: $svc FAILED to start"
@@ -104,8 +105,17 @@ asr)
         _dbg "asr: $svc started OK"
     fi
 
-    echo "ASR backend: $2 (${svc}.service)"
-    notify_dictee 0 audio-chat-symbolic "Backend ASR: $2"
+    # Build notification with model name for Whisper/Vosk
+    _notify_detail=""
+    if [ "$2" = "whisper" ]; then
+        _wm=$(grep '^DICTEE_WHISPER_MODEL=' "$CONF" 2>/dev/null | cut -d= -f2 || true)
+        [ -n "$_wm" ] && _notify_detail=" (${_wm})"
+    elif [ "$2" = "vosk" ]; then
+        _vm=$(grep '^DICTEE_VOSK_MODEL=' "$CONF" 2>/dev/null | cut -d= -f2 || true)
+        [ -n "$_vm" ] && _notify_detail=" (${_vm})"
+    fi
+    echo "ASR backend: $2${_notify_detail} (${svc}.service)"
+    notify_dictee 0 audio-chat-symbolic "Backend ASR: $2${_notify_detail}"
     (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     ;;
 

@@ -27,7 +27,7 @@ try:
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
-        QStyledItemDelegate, QStyleOptionViewItem,
+        QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -238,17 +238,13 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         f.write(f"DICTEE_LANG_TARGET={lang_target}\n")
         f.write(f"DICTEE_CLIPBOARD={'true' if clipboard else 'false'}\n")
         f.write(f"DICTEE_ANIMATION={animation}\n")
-        if asr_backend == "vosk":
-            # Always write the short code (e.g. "fr", "en") — daemon resolves it
-            reverse = {v: k for k, v in VOSK_MODELS.items()}
-            code = reverse.get(vosk_model, vosk_model)
-            f.write(f"DICTEE_VOSK_MODEL={code}\n")
-        elif asr_backend == "whisper":
-            f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
-            if whisper_lang:
-                f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
-        elif asr_backend == "canary":
-            f.write(f"DICTEE_CANARY_LANG={lang_source}\n")
+        # Always save all backend configs so switching doesn't lose settings
+        reverse = {v: k for k, v in VOSK_MODELS.items()}
+        code = reverse.get(vosk_model, vosk_model)
+        f.write(f"DICTEE_VOSK_MODEL={code}\n")
+        f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
+        if whisper_lang:
+            f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
         if backend == "trans":
             f.write(f"DICTEE_TRANS_ENGINE={trans_engine}\n")
         elif backend == "libretranslate":
@@ -823,10 +819,8 @@ WHISPER_MODELS = [
     ("tiny", "tiny — 39M, fastest, lowest quality"),
     ("small", "small — 244M, good balance"),
     ("medium", "medium — 769M, better quality"),
-    ("large-v3", "large-v3 — 1.5B, best generic quality"),
-    ("large-v3-turbo", "large-v3-turbo — 809M, fast + good quality"),
-    ("bofenghuang/whisper-large-v3-french", "large-v3-french — 1.5B, best French (WER 3.98%)"),
-    ("bofenghuang/whisper-large-v3-french-distil-dec16", "large-v3-french-distil — 1.5B, fast French"),
+    ("large-v3", "large-v3 — 1.5B, best quality, multilingual"),
+    ("Systran/faster-distil-whisper-large-v3", "distil-large-v3 — 756M, fast (English only)"),
 ]
 
 
@@ -2047,35 +2041,61 @@ class ScrollGuardFilter(QObject):
 
 
 class _CheckMarkDelegate(QStyledItemDelegate):
-    """Combo item delegate that paints ✓ in green and ✗ in red."""
+    """Combo item delegate that paints ✓ in green and ✗ in red in the dropdown list."""
 
-    def paint(self, painter, option, index):
-        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
-        is_cached = index.data(Qt.ItemDataRole.UserRole + 1)
-        # Let Qt draw the background/selection
-        self.initStyleOption(option, index)
-        option.text = ""
-        style = option.widget.style() if option.widget else QApplication.style()
-        style.drawControl(style.ControlElement.CE_ItemViewItem, option, painter)
-        # Draw text with colored prefix
-        painter.save()
-        rect = option.rect.adjusted(4, 0, 0, 0)
+    @staticmethod
+    def _draw_colored_text(painter, rect, text, palette):
+        """Draw text with colored ✓/✗ prefix."""
         if text.startswith("✓"):
             painter.setPen(QColor("#4a4"))
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "✓")
-            painter.setPen(option.palette.text().color())
+            painter.setPen(palette.text().color())
             rect = rect.adjusted(painter.fontMetrics().horizontalAdvance("✓ "), 0, 0, 0)
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text[2:])
         elif text.startswith("✗"):
             painter.setPen(QColor("#a44"))
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "✗")
-            painter.setPen(option.palette.text().color())
+            painter.setPen(palette.text().color())
             rect = rect.adjusted(painter.fontMetrics().horizontalAdvance("✗ "), 0, 0, 0)
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text[2:])
         else:
-            painter.setPen(option.palette.text().color())
+            painter.setPen(palette.text().color())
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+
+    def paint(self, painter, option, index):
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        self.initStyleOption(option, index)
+        option.text = ""
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(style.ControlElement.CE_ItemViewItem, option, painter)
+        painter.save()
+        self._draw_colored_text(painter, option.rect.adjusted(4, 0, 0, 0), text, option.palette)
         painter.restore()
+
+
+class _CheckMarkComboBox(QComboBox):
+    """QComboBox that paints ✓ in green and ✗ in red, both in dropdown and closed state."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setItemDelegate(_CheckMarkDelegate(self))
+
+    def paintEvent(self, event):
+        from PyQt6.QtWidgets import QStyle
+        painter = QStylePainter(self)
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        opt.currentText = ""
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, opt)
+        text_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            opt,
+            QStyle.SubControl.SC_ComboBoxEditField,
+            self,
+        )
+        text = self.currentText()
+        _CheckMarkDelegate._draw_colored_text(painter, text_rect.adjusted(2, 0, 0, 0), text, self.palette())
+        painter.end()
 
 
 class DicteeSetupDialog(QDialog):
@@ -3228,8 +3248,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_install_vosk.clicked.connect(lambda: self._install_venv("vosk", VOSK_VENV, "vosk"))
 
         lbl_vosk_lang = QLabel(_("Language:"))
-        self.cmb_vosk_lang = QComboBox()
-        self.cmb_vosk_lang.setItemDelegate(_CheckMarkDelegate(self.cmb_vosk_lang))
+        self.cmb_vosk_lang = _CheckMarkComboBox()
         self._refresh_vosk_lang_combo()
         cur_vosk = self.conf.get("DICTEE_VOSK_MODEL", "fr")
         idx = self.cmb_vosk_lang.findData(cur_vosk)
@@ -3237,32 +3256,40 @@ class DicteeSetupDialog(QDialog):
             self.cmb_vosk_lang.setCurrentIndex(idx)
         row_vosk.addWidget(lbl_vosk_lang)
         self.cmb_vosk_lang.currentIndexChanged.connect(lambda: (
-            self._update_src_languages(), self._update_vosk_dl_button(),
+            self._update_src_languages(), self._update_vosk_status(),
             self._update_vosk_model_in_conf(self.cmb_vosk_lang.currentData())
             if self.cmb_vosk_lang.currentData() and self._vosk_model_installed(self.cmb_vosk_lang.currentData())
             else None))
         row_vosk.addWidget(self.cmb_vosk_lang)
 
-        self.btn_dl_vosk_model = QPushButton(_("Download model"))
+        self.btn_dl_vosk_model = QPushButton()
         self.btn_dl_vosk_model.setFixedWidth(150)
-        self.btn_dl_vosk_model.clicked.connect(self._on_vosk_model_download)
+        self.btn_dl_vosk_model.clicked.connect(self._on_vosk_model_button)
         row_vosk.addWidget(self.btn_dl_vosk_model)
 
         row_vosk.addStretch()
         row_vosk.addWidget(self.btn_install_vosk)
         vosk_outer.addLayout(row_vosk)
 
+        self._vosk_progress_row = QWidget()
+        vosk_prog_lay = QHBoxLayout(self._vosk_progress_row)
+        vosk_prog_lay.setContentsMargins(24, 0, 0, 0)
         self.progress_vosk_model = QProgressBar()
         self.progress_vosk_model.setRange(0, 0)
-        self.progress_vosk_model.setVisible(False)
-        vosk_outer.addWidget(self.progress_vosk_model)
+        self._btn_cancel_vosk = QPushButton(_("Cancel"))
+        self._btn_cancel_vosk.setFixedWidth(80)
+        self._btn_cancel_vosk.clicked.connect(self._cancel_vosk_download)
+        vosk_prog_lay.addWidget(self.progress_vosk_model)
+        vosk_prog_lay.addWidget(self._btn_cancel_vosk)
+        self._vosk_progress_row.setVisible(False)
+        vosk_outer.addWidget(self._vosk_progress_row)
 
         self._lbl_vosk_status = QLabel()
         self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
-        self._lbl_vosk_status.setVisible(False)
         vosk_outer.addWidget(self._lbl_vosk_status)
 
-        self._update_vosk_dl_button()
+        self.cmb_vosk_lang.currentIndexChanged.connect(self._update_vosk_status)
+        self._update_vosk_status()
 
         parent_layout.addWidget(self.w_vosk_options)
 
@@ -3323,28 +3350,62 @@ class DicteeSetupDialog(QDialog):
             if idx >= 0:
                 self.cmb_vosk_lang.setCurrentIndex(idx)
 
-    def _update_vosk_dl_button(self):
-        """Affiche/masque le bouton télécharger selon si le modèle est installé."""
-        code = self.cmb_vosk_lang.currentData()
-        if code and self._vosk_model_installed(code):
-            self.btn_dl_vosk_model.setVisible(False)
-        else:
-            self.btn_dl_vosk_model.setVisible(True)
-            self.btn_dl_vosk_model.setEnabled(True)
-            self.btn_dl_vosk_model.setText(_("Download model"))
-
-    def _update_vosk_status_label(self):
-        """Update the status label below the Vosk combo."""
+    def _update_vosk_status(self):
+        """Update button text and status label for the selected Vosk model."""
         code = self.cmb_vosk_lang.currentData()
         if not code:
-            self._lbl_vosk_status.setText("")
             return
         if self._vosk_model_installed(code):
+            self.btn_dl_vosk_model.setText(_("Delete"))
             self._lbl_vosk_status.setText(
-                "<span style='color: #4a4;'>✓</span> " + _("Model downloaded and ready to use."))
+                "<span style='color: #4a4;'>✓</span> = " + _("model downloaded and ready to use"))
         else:
+            self.btn_dl_vosk_model.setText(_("Download"))
             self._lbl_vosk_status.setText(
-                "<span style='color: #a44;'>✗</span> " + _("Model not downloaded. Click 'Download model' to install it."))
+                "<span style='color: #4a4;'>✓</span> = " + _("downloaded") +
+                " — " + _("select a language and click 'Download' to install it"))
+        self.btn_dl_vosk_model.setVisible(True)
+        self.btn_dl_vosk_model.setEnabled(True)
+
+    def _on_vosk_model_button(self):
+        """Download or delete the selected Vosk model."""
+        code = self.cmb_vosk_lang.currentData()
+        if not code:
+            return
+        if self._vosk_model_installed(code):
+            reply = QMessageBox.question(self, _("Delete"),
+                _("Delete Vosk model '{}'?").format(VOSK_MODELS.get(code, code)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                import shutil
+                model_name = VOSK_MODELS.get(code, "")
+                model_dir = os.path.join(DICTEE_DATA_DIR, "vosk-models", model_name)
+                if os.path.isdir(model_dir):
+                    shutil.rmtree(model_dir)
+                self._refresh_vosk_lang_combo()
+                self._update_vosk_status()
+        else:
+            self._on_vosk_model_download()
+
+    def _cancel_vosk_download(self):
+        """Cancel ongoing Vosk model download and clean partial files."""
+        thread = getattr(self, '_vosk_dl_thread', None)
+        if thread and thread.isRunning():
+            thread.terminate()
+            thread.wait(3000)
+        # Clean partial zip/directory
+        code = self.cmb_vosk_lang.currentData()
+        if code:
+            import glob
+            model_name = VOSK_MODELS.get(code, "")
+            vosk_dir = os.path.join(DICTEE_DATA_DIR, "vosk-models")
+            for pattern in [f"{model_name}.zip", f"{model_name}.zip.*"]:
+                for f in glob.glob(os.path.join(vosk_dir, pattern)):
+                    os.remove(f)
+        self._vosk_progress_row.setVisible(False)
+        self.btn_dl_vosk_model.setEnabled(True)
+        self._refresh_vosk_lang_combo()
+        self._update_vosk_status()
 
     def _on_vosk_model_download(self):
         _dbg_setup("_on_vosk_model_download")
@@ -3355,7 +3416,7 @@ class DicteeSetupDialog(QDialog):
         model_name = VOSK_MODELS[code]
         self.btn_dl_vosk_model.setEnabled(False)
         self.btn_dl_vosk_model.setText(_("Downloading…"))
-        self.progress_vosk_model.setVisible(True)
+        self._vosk_progress_row.setVisible(True)
 
         self._vosk_dl_thread = _VoskModelDownloadThread(model_name)
         self._vosk_dl_thread.progress.connect(
@@ -3365,11 +3426,10 @@ class DicteeSetupDialog(QDialog):
 
     def _on_vosk_model_download_finished(self, success, message):
         _dbg_setup(f"_on_vosk_model_download_finished: success={success}, msg={message!r}")
-        self.progress_vosk_model.setVisible(False)
+        self._vosk_progress_row.setVisible(False)
         if success:
             self._refresh_vosk_lang_combo()
-            self._update_vosk_dl_button()
-            self._update_vosk_status_label()
+            self._update_vosk_status()
             self._update_src_languages()
             # Update conf + restart daemon with the newly downloaded model
             code = self.cmb_vosk_lang.currentData()
@@ -3377,7 +3437,7 @@ class DicteeSetupDialog(QDialog):
                 self._update_vosk_model_in_conf(code)
         else:
             self.btn_dl_vosk_model.setEnabled(True)
-            self.btn_dl_vosk_model.setText(_("Download model"))
+            self.btn_dl_vosk_model.setText(_("Download"))
             _dbg_setup(f"Vosk download error: {message!r}")
             QMessageBox.critical(self, _("Download error"), message or _("Unknown error"))
 
@@ -3409,46 +3469,113 @@ class DicteeSetupDialog(QDialog):
             self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
 
         lbl_wh_model = QLabel(_("Model:"))
-        self.cmb_whisper_model = QComboBox()
-        self.cmb_whisper_model.setItemDelegate(_CheckMarkDelegate(self.cmb_whisper_model))
+        self.cmb_whisper_model = _CheckMarkComboBox()
         self._populate_whisper_combo()
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
         for i in range(self.cmb_whisper_model.count()):
             if self.cmb_whisper_model.itemData(i) == cur_wh:
                 self.cmb_whisper_model.setCurrentIndex(i)
                 break
-        self.cmb_whisper_model.currentIndexChanged.connect(self._update_whisper_status_label)
+        self.cmb_whisper_model.currentIndexChanged.connect(self._update_whisper_status)
 
-        self.btn_download_whisper = QPushButton(_("Download"))
-        self.btn_download_whisper.setFixedWidth(100)
-        self.btn_download_whisper.setToolTip(_("Pre-download the selected model (otherwise downloaded on first use)"))
-        self.btn_download_whisper.clicked.connect(self._download_whisper_model)
+        self.btn_download_whisper = QPushButton()
+        self.btn_download_whisper.setFixedWidth(150)
+        self.btn_download_whisper.clicked.connect(self._on_whisper_model_button)
 
-        lbl_wh_lang = QLabel(_("Language:"))
+        lbl_wh_lang = QLabel(_("Transcription language:"))
         self.txt_whisper_lang = QComboBox()
         self.txt_whisper_lang.setEditable(True)
-        self.txt_whisper_lang.addItems(["", "fr", "en", "es", "de", "it", "pt", "ru", "zh", "ja", "ko", "ar"])
+        # Common languages
+        self.txt_whisper_lang.addItem("", "")
+        _whisper_common = [
+            ("fr", "Français"), ("en", "English"), ("es", "Español"),
+            ("de", "Deutsch"), ("it", "Italiano"), ("pt", "Português"),
+            ("ru", "Русский"), ("zh", "中文"), ("ja", "日本語"),
+            ("ko", "한국어"), ("ar", "العربية"),
+        ]
+        for code, name in _whisper_common:
+            self.txt_whisper_lang.addItem(f"{code} — {name}", code)
+        # Separator + all other Whisper languages
+        self.txt_whisper_lang.insertSeparator(self.txt_whisper_lang.count())
+        _whisper_all = [
+            ("af", "Afrikaans"), ("am", "Amharic"), ("az", "Azerbaijani"),
+            ("ba", "Bashkir"), ("be", "Belarusian"), ("bg", "Bulgarian"),
+            ("bn", "Bengali"), ("bo", "Tibetan"), ("br", "Breton"),
+            ("bs", "Bosnian"), ("ca", "Catalan"), ("cs", "Czech"),
+            ("cy", "Welsh"), ("da", "Danish"), ("el", "Greek"),
+            ("et", "Estonian"), ("eu", "Basque"), ("fa", "Persian"),
+            ("fi", "Finnish"), ("fo", "Faroese"), ("gl", "Galician"),
+            ("gu", "Gujarati"), ("ha", "Hausa"), ("haw", "Hawaiian"),
+            ("he", "Hebrew"), ("hi", "Hindi"), ("hr", "Croatian"),
+            ("ht", "Haitian Creole"), ("hu", "Hungarian"), ("hy", "Armenian"),
+            ("id", "Indonesian"), ("is", "Icelandic"), ("jw", "Javanese"),
+            ("ka", "Georgian"), ("kk", "Kazakh"), ("km", "Khmer"),
+            ("kn", "Kannada"), ("lb", "Luxembourgish"), ("ln", "Lingala"),
+            ("lo", "Lao"), ("lt", "Lithuanian"), ("lv", "Latvian"),
+            ("mg", "Malagasy"), ("mi", "Maori"), ("mk", "Macedonian"),
+            ("ml", "Malayalam"), ("mn", "Mongolian"), ("mr", "Marathi"),
+            ("ms", "Malay"), ("mt", "Maltese"), ("my", "Myanmar"),
+            ("ne", "Nepali"), ("nl", "Dutch"), ("nn", "Nynorsk"),
+            ("no", "Norwegian"), ("oc", "Occitan"), ("pa", "Panjabi"),
+            ("pl", "Polish"), ("ps", "Pashto"), ("ro", "Romanian"),
+            ("sa", "Sanskrit"), ("sd", "Sindhi"), ("si", "Sinhala"),
+            ("sk", "Slovak"), ("sl", "Slovenian"), ("sn", "Shona"),
+            ("so", "Somali"), ("sq", "Albanian"), ("sr", "Serbian"),
+            ("su", "Sundanese"), ("sv", "Swedish"), ("sw", "Swahili"),
+            ("ta", "Tamil"), ("te", "Telugu"), ("tg", "Tajik"),
+            ("th", "Thai"), ("tk", "Turkmen"), ("tl", "Tagalog"),
+            ("tr", "Turkish"), ("tt", "Tatar"), ("uk", "Ukrainian"),
+            ("ur", "Urdu"), ("uz", "Uzbek"), ("vi", "Vietnamese"),
+            ("yi", "Yiddish"), ("yo", "Yoruba"),
+        ]
+        for code, name in _whisper_all:
+            self.txt_whisper_lang.addItem(f"{code} — {name}", code)
         cur_wl = self.conf.get("DICTEE_WHISPER_LANG", "")
-        self.txt_whisper_lang.setCurrentText(cur_wl)
-        lbl_auto = QLabel(_("(empty = auto-detect)"))
+        idx = self.txt_whisper_lang.findData(cur_wl)
+        if idx >= 0:
+            self.txt_whisper_lang.setCurrentIndex(idx)
+        else:
+            self.txt_whisper_lang.setCurrentText(cur_wl)
+        lbl_auto = QLabel(_("(empty = uses source language)"))
         lbl_auto.setStyleSheet("color: gray;")
 
+        # Row 1: language
+        row_lang = QHBoxLayout()
+        row_lang.setContentsMargins(24, 0, 0, 0)
+        row_lang.addWidget(lbl_wh_lang)
+        row_lang.addWidget(self.txt_whisper_lang)
+        row_lang.addWidget(lbl_auto)
+        row_lang.addStretch()
+        whisper_outer.addLayout(row_lang)
+
+        # Row 2: model + download + install
         row.addWidget(lbl_wh_model)
         row.addWidget(self.cmb_whisper_model)
         row.addWidget(self.btn_download_whisper)
-        row.addWidget(lbl_wh_lang)
-        row.addWidget(self.txt_whisper_lang)
-        row.addWidget(lbl_auto)
         row.addStretch()
         row.addWidget(self.btn_install_whisper)
         whisper_outer.addLayout(row)
 
-        # Status label below the combo row
+        # Progress row (hidden by default)
+        self._whisper_progress_row = QWidget()
+        progress_lay = QHBoxLayout(self._whisper_progress_row)
+        progress_lay.setContentsMargins(24, 0, 0, 0)
+        self._whisper_progress = QProgressBar()
+        self._whisper_progress.setRange(0, 0)  # indeterminate
+        self._btn_cancel_whisper = QPushButton(_("Cancel"))
+        self._btn_cancel_whisper.setFixedWidth(80)
+        self._btn_cancel_whisper.clicked.connect(self._cancel_whisper_download)
+        progress_lay.addWidget(self._whisper_progress)
+        progress_lay.addWidget(self._btn_cancel_whisper)
+        self._whisper_progress_row.setVisible(False)
+        whisper_outer.addWidget(self._whisper_progress_row)
+
+        # Status label
         self._lbl_whisper_status = QLabel()
         self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
         self._lbl_whisper_status.setWordWrap(True)
-        self._lbl_whisper_status.setVisible(False)
         whisper_outer.addWidget(self._lbl_whisper_status)
+        self._update_whisper_status()
 
         parent_layout.addWidget(self.w_whisper_options)
 
@@ -3463,48 +3590,93 @@ class DicteeSetupDialog(QDialog):
                 idx = self.cmb_whisper_model.count() - 1
                 self.cmb_whisper_model.setItemData(idx, True, Qt.ItemDataRole.UserRole + 1)
 
-    def _update_whisper_status_label(self):
-        """Update the status label below the Whisper combo."""
+    def _update_whisper_status(self):
+        """Update button text and status label for the selected Whisper model."""
         model_id = self.cmb_whisper_model.currentData()
         if not model_id:
-            self._lbl_whisper_status.setText("")
             return
-        if self._whisper_model_cached(model_id):
+        cached = self._whisper_model_cached(model_id)
+        if cached:
+            self.btn_download_whisper.setText(_("Delete"))
             self._lbl_whisper_status.setText(
-                "<span style='color: #4a4;'>✓</span> " + _("Model downloaded and ready to use."))
+                "<span style='color: #4a4;'>✓</span> = " + _("model downloaded and ready to use"))
         else:
+            self.btn_download_whisper.setText(_("Download"))
             self._lbl_whisper_status.setText(
-                "<span style='color: #a44;'>✗</span> " + _("Model not downloaded. Click 'Download' or it will be downloaded on first use (~1-3 min)."))
+                "<span style='color: #4a4;'>✓</span> = " + _("downloaded") +
+                " — " + _("select a model and click 'Download' to install it"))
 
-    def _download_whisper_model(self):
-        """Pre-download the selected Whisper model."""
+    def _on_whisper_model_button(self):
+        """Download or delete the selected Whisper model."""
         model_id = self.cmb_whisper_model.currentData()
         if not model_id:
             return
         if self._whisper_model_cached(model_id):
-            QMessageBox.information(self, _("Already downloaded"),
-                _("Model '{}' is already in cache.").format(model_id))
-            return
-        self.btn_download_whisper.setEnabled(False)
-        self.btn_download_whisper.setText(_("Downloading…"))
-        thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
-        thread.finished.connect(self._on_whisper_download_done)
-        self._venv_threads["whisper_dl"] = thread
-        thread.start()
+            # Delete
+            reply = QMessageBox.question(self, _("Delete"),
+                _("Delete model '{}'?").format(model_id),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                self._delete_whisper_model(model_id)
+        else:
+            # Download
+            self.btn_download_whisper.setEnabled(False)
+            self.btn_download_whisper.setText(_("Downloading…"))
+            self._whisper_progress_row.setVisible(True)
+            thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
+            thread.finished.connect(self._on_whisper_download_done)
+            self._venv_threads["whisper_dl"] = thread
+            thread.start()
+
+    def _cancel_whisper_download(self):
+        """Cancel ongoing Whisper model download and clean partial files."""
+        thread = self._venv_threads.get("whisper_dl")
+        if thread and thread.isRunning():
+            thread.terminate()
+            thread.wait(3000)
+        # Clean partial downloads (HuggingFace .incomplete files)
+        model_id = self.cmb_whisper_model.currentData()
+        if model_id:
+            import glob
+            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+            for pattern in [f"models--Systran--faster-whisper-{model_id}",
+                            f"models--{model_id.replace('/', '--')}"]:
+                for f in glob.glob(os.path.join(cache_dir, pattern, "**", "*.incomplete"), recursive=True):
+                    os.remove(f)
+        self._whisper_progress_row.setVisible(False)
+        self._refresh_whisper_after_change()
+
+    def _delete_whisper_model(self, model_id):
+        """Delete a Whisper model from HuggingFace cache."""
+        import shutil
+        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+        candidates = [
+            f"models--Systran--faster-whisper-{model_id}",
+            f"models--{model_id.replace('/', '--')}",
+            f"models--openai--whisper-{model_id}",
+        ]
+        for c in candidates:
+            path = os.path.join(cache_dir, c)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+        self._refresh_whisper_after_change()
 
     def _on_whisper_download_done(self, ok, msg):
+        self._refresh_whisper_after_change()
+        if not ok:
+            QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _refresh_whisper_after_change(self):
+        """Refresh combo, button and status after download/delete."""
+        self._whisper_progress_row.setVisible(False)
         self.btn_download_whisper.setEnabled(True)
-        self.btn_download_whisper.setText(_("Download"))
-        # Refresh combo ✓ marks and status label
         cur_data = self.cmb_whisper_model.currentData()
         self._populate_whisper_combo()
         for i in range(self.cmb_whisper_model.count()):
             if self.cmb_whisper_model.itemData(i) == cur_data:
                 self.cmb_whisper_model.setCurrentIndex(i)
                 break
-        self._update_whisper_status_label()
-        if not ok:
-            QMessageBox.warning(self, _("Download failed"), msg)
+        self._update_whisper_status()
 
     def _build_canary_options(self, parent_layout):
         """Build Canary 1B v2 sub-options (GPU only, model download)."""
@@ -3809,7 +3981,7 @@ class DicteeSetupDialog(QDialog):
             _("Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"))
         lay_ollama.addWidget(self.chk_ollama_cpu)
 
-        self.btn_ollama_pull = QPushButton(_("Download model"))
+        self.btn_ollama_pull = QPushButton(_("Download"))
         self.btn_ollama_pull.setVisible(False)
         self.btn_ollama_pull.clicked.connect(self._on_ollama_pull)
         lay_ollama.addWidget(self.btn_ollama_pull)
@@ -7466,7 +7638,7 @@ class DicteeSetupDialog(QDialog):
                 hw_info
             )
             self.btn_ollama_pull.setVisible(True)
-            self.btn_ollama_pull.setText(_("Download model"))
+            self.btn_ollama_pull.setText(_("Download"))
             self.btn_ollama_pull.setEnabled(True)
 
     def _on_ollama_pull(self):
@@ -7487,7 +7659,7 @@ class DicteeSetupDialog(QDialog):
         if success:
             self._check_ollama_status()
         else:
-            self.btn_ollama_pull.setText(_("Download model"))
+            self.btn_ollama_pull.setText(_("Download"))
             self.btn_ollama_pull.setEnabled(True)
             QMessageBox.critical(self, _("Download error"), message)
 
@@ -8271,7 +8443,7 @@ class DicteeSetupDialog(QDialog):
             asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
 
         whisper_model = self.cmb_whisper_model.currentData() or "small"
-        whisper_lang = self.txt_whisper_lang.currentText().strip()
+        whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
         # Audio source
