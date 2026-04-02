@@ -3223,7 +3223,13 @@ class DicteeSetupDialog(QDialog):
         self.progress_vosk_model.setVisible(False)
         vosk_outer.addWidget(self.progress_vosk_model)
 
+        self._lbl_vosk_status = QLabel()
+        self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
+        vosk_outer.addWidget(self._lbl_vosk_status)
+
+        self.cmb_vosk_lang.currentIndexChanged.connect(self._update_vosk_status_label)
         self._update_vosk_dl_button()
+        self._update_vosk_status_label()
 
         parent_layout.addWidget(self.w_vosk_options)
 
@@ -3291,6 +3297,19 @@ class DicteeSetupDialog(QDialog):
             self.btn_dl_vosk_model.setEnabled(True)
             self.btn_dl_vosk_model.setText(_("Download model"))
 
+    def _update_vosk_status_label(self):
+        """Update the status label below the Vosk combo."""
+        code = self.cmb_vosk_lang.currentData()
+        if not code:
+            self._lbl_vosk_status.setText("")
+            return
+        if self._vosk_model_installed(code):
+            self._lbl_vosk_status.setText(
+                "<span style='color: #4a4;'>✓</span> " + _("Model downloaded and ready to use."))
+        else:
+            self._lbl_vosk_status.setText(
+                "<span style='color: #a44;'>✗</span> " + _("Model not downloaded. Click 'Download model' to install it."))
+
     def _on_vosk_model_download(self):
         _dbg_setup("_on_vosk_model_download")
         """Télécharge le modèle Vosk sélectionné."""
@@ -3314,6 +3333,7 @@ class DicteeSetupDialog(QDialog):
         if success:
             self._refresh_vosk_lang_combo()
             self._update_vosk_dl_button()
+            self._update_vosk_status_label()
             self._update_src_languages()
             # Update conf + restart daemon with the newly downloaded model
             code = self.cmb_vosk_lang.currentData()
@@ -3396,7 +3416,7 @@ class DicteeSetupDialog(QDialog):
         parent_layout.addWidget(self.w_whisper_options)
 
     def _populate_whisper_combo(self):
-        """Populate the Whisper model combo with ✓ marks for cached models."""
+        """Populate the Whisper model combo with colored ✓ for cached models."""
         self.cmb_whisper_model.clear()
         for model_id, label in WHISPER_MODELS:
             cached = self._whisper_model_cached(model_id)
