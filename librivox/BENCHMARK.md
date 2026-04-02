@@ -55,19 +55,25 @@ Machine : Tuxedo InfinityBook Pro 16 Gen8, Intel i7-13xxxHX, NVIDIA RTX 4070 Lap
 
 | Backend | WER | Temps (920s audio) | RTF | GPU/CPU |
 |---|---|---|---|---|
-| **Canary Rust** | **6.5%** | 42.7s | 0.046x | GPU |
+| **Whisper large-v3** | **5.6%** | 90.7s | 0.099x | GPU |
+| **Canary Rust** | 6.5% | 42.7s | 0.046x | GPU |
 | **Parakeet TDT** | 8.0% | 11.3s | 0.012x | GPU |
-| **Vosk** | 12.8% | 114.1s | 0.124x | CPU |
-| **Whisper** (faster-whisper) | 13.7% | 32.2s | 0.035x | GPU |
+| Whisper medium | 10.1% | 72.6s | 0.079x | GPU |
+| Vosk | 12.8% | 114.1s | 0.124x | CPU |
+| Whisper small | 13.7% | 48.9s | 0.053x | GPU |
+| Whisper tiny | 32.2% | 20.1s | 0.022x | GPU |
 
 RTF = Real-Time Factor (temps traitement / durée audio). Plus bas = plus rapide.
 
 ### Observations
 
-- **Canary** : meilleure qualité (6.5% WER) mais ~4× plus lent que Parakeet (décodeur autorégressif)
-- **Parakeet** : meilleur compromis vitesse/qualité (8.0% WER, le plus rapide)
-- **Vosk** : qualité honorable en CPU-only (12.8%), mais 10× plus lent
-- **Whisper** : étonnamment le moins précis (13.7%), vitesse intermédiaire
+- **Whisper large-v3** : meilleure qualité absolue (5.6% WER) mais le plus lent des GPU
+- **Canary Rust** : excellent compromis qualité/vitesse (6.5% WER, 2× plus rapide que Whisper large)
+- **Parakeet** : le plus rapide de tous (8.0% WER, 11.3s pour 15min audio)
+- **Whisper medium** : bon compromis (10.1% WER, moitié du temps de large-v3)
+- **Vosk** : CPU-only, qualité correcte (12.8%), adapté aux machines sans GPU
+- **Whisper small** : le défaut, qualité modeste (13.7%)
+- **Whisper tiny** : trop peu précis pour du français (32.2%)
 - Pour la dictée push-to-talk (segments 3-5s), tous les backends GPU sont <100ms — la différence est imperceptible
 - L'écart Canary/Parakeet se creuse sur les segments longs (>15s)
 
