@@ -54,6 +54,11 @@ impl CanaryDecoder {
         false
     }
 
+    /// Look up raw vocab text for a token ID (including special tokens).
+    pub fn vocab_lookup(&self, id: usize) -> Option<&str> {
+        self.vocab.get(&id).map(|s| s.as_str())
+    }
+
     /// Decode a slice of token IDs into a string, filtering special tokens.
     pub fn decode(&self, token_ids: &[i64]) -> String {
         let mut result = String::new();

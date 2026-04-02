@@ -104,6 +104,7 @@ BUFFER_TS_FILE="/dev/shm/.dictee_buffer_ts${_UID_SUFFIX}"
 COMBINED_FILE="/dev/shm/.dictee_combined${_UID_SUFFIX}.wav"
 SILENCE_FILE="/dev/shm/.dictee_silence${_UID_SUFFIX}.wav"
 SILENCE_DURATION="0.5"
+BUFFER_TEXT_FILE="/dev/shm/.dictee_buffer_text${_UID_SUFFIX}"
 
 # === UTILITY FUNCTIONS (script-specific) ===
 
@@ -442,7 +443,7 @@ buffer_valid() {
     timeout="${DICTEE_AUDIO_CONTEXT_TIMEOUT:-30}"
     if [ $((now - ts)) -gt "$timeout" ]; then
         _dbg "audio-context: buffer expired (age=$((now - ts))s > ${timeout}s)"
-        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE" "$BUFFER_TEXT_FILE"
         return 1
     fi
     return 0
@@ -541,6 +542,90 @@ save_buffer() {
     cp "$recording" "$BUFFER_FILE"
     date +%s > "$BUFFER_TS_FILE"
     _dbg "audio-context: buffer saved ($(stat -c%s "$BUFFER_FILE") bytes)"
+}
+
+# Extract the "new" part from a combined transcription using the solo transcription as guide.
+# The combined = [buffer text] + [new text with context-aware homophones].
+# The solo = [new text without context].
+# Strategy: find where the solo text starts in the combined, return that part from combined.
+# Falls back to solo if matching fails.
+extract_new_from_combined() {
+    local combined_text="$1"
+    local solo_text="$2"
+    python3 -c "
+import re, sys
+combined = sys.argv[1]
+solo = sys.argv[2]
+def norm(s):
+    return re.sub(r'[^\w\s]', '', s.lower()).split()
+cw = norm(combined)
+sw = norm(solo)
+if not sw or not cw:
+    print(solo)
+    sys.exit()
+# Find the LAST position in combined where solo starts (skip buffer part)
+# Search backwards: the new text is at the end of the combined
+best_pos = -1
+match_words = min(3, len(sw))
+for i in range(len(cw) - match_words, -1, -1):
+    matches = sum(1 for j in range(match_words) if cw[i+j] == sw[j])
+    if matches >= match_words - 1:  # allow 1 mismatch in first 3 words
+        best_pos = i
+        break
+if best_pos < 0:
+    # No match found — solo text not found in combined, use solo (safe)
+    print(solo)
+else:
+    # Return from best_pos onwards in original combined text
+    words = combined.split()
+    result = ' '.join(words[best_pos:]).strip()
+    # Sanity: result should be roughly similar length to solo (±50%)
+    if len(result) < len(solo) * 0.5 or len(result) > len(solo) * 1.8:
+        print(solo)  # something went wrong, use safe fallback
+    else:
+        print(result)
+" "$combined_text" "$solo_text"
+}
+
+# Strip buffer text from the beginning of combined transcription.
+# Used by Canary whose proportional timestamps prevent timestamp-based splitting.
+# Falls back to full text if stripping fails.
+strip_buffer_text() {
+    local combined_text="$1"
+    local buf_text
+    buf_text=$(cat "$BUFFER_TEXT_FILE" 2>/dev/null) || { echo "$combined_text"; return; }
+    if [ -z "$buf_text" ]; then echo "$combined_text"; return; fi
+    python3 -c "
+import re, sys
+buf = sys.argv[1]
+combined = sys.argv[2]
+def norm(s):
+    return re.sub(r'[^\w\s]', '', s.lower()).split()
+bw = norm(buf)
+cw = norm(combined)
+if not bw or not cw:
+    print(combined)
+    sys.exit()
+# Find longest prefix match (allowing minor mismatches from retranscription)
+n = 0
+mismatches = 0
+max_mismatches = max(1, len(bw) // 5)  # allow ~20% mismatch
+for i in range(min(len(bw), len(cw))):
+    if cw[i] == bw[i]:
+        n = i + 1
+    else:
+        mismatches += 1
+        if mismatches <= max_mismatches:
+            n = i + 1  # skip mismatch, keep going
+        else:
+            break
+# Only strip if we matched at least 60% of buffer words
+if n >= len(bw) * 0.6:
+    words = combined.split()
+    print(' '.join(words[n:]).strip())
+else:
+    print(combined)
+" "$buf_text" "$combined_text"
 }
 
 # Parse arguments — dictee.conf values serve as defaults,
@@ -884,10 +969,43 @@ if [ -f "$PIDFILE" ]; then
             threshold=$(python3 -c "print(float('${buf_dur}') + float('${SILENCE_DURATION}'))")
             _dbg "audio-context: threshold=${threshold}s (buf=${buf_dur}s + silence=${SILENCE_DURATION}s)"
 
-            # Parakeet and Whisper support timestamps mode via daemon protocol
-            # Canary (AED model) does not produce word-level timestamps
             _backend="${DICTEE_ASR_BACKEND:-parakeet}"
-            if [ "$_backend" = "parakeet" ] || [ "$_backend" = "whisper" ]; then
+            if [ "$_backend" = "vosk" ]; then
+                # Vosk: no timestamps, no context
+                _dbg "audio-context: backend vosk has no timestamps, skipping context"
+                used_context=false
+                rm -f "$COMBINED_FILE"
+            elif [ "$_backend" = "canary" ]; then
+                # Canary: dual transcription mode
+                # 1. Transcribe combined (buffer+silence+new) → context-aware result
+                # 2. Transcribe recording alone → safe fallback
+                # 3. Extract the new part from the combined using the solo as reference
+                _dbg "audio-context: canary dual-transcription mode"
+                solo_text=""
+                combined_text=""
+                if eval transcribe-client "$RECORDING_FILE" > /dev/shm/.dictee_solo$$ 2>/dev/null; then
+                    solo_text=$(cat /dev/shm/.dictee_solo$$)
+                    rm -f /dev/shm/.dictee_solo$$
+                fi
+                if [ -n "$solo_text" ] && eval transcribe-client "$COMBINED_FILE" > /dev/shm/.dictee_comb$$ 2>/dev/null; then
+                    combined_text=$(cat /dev/shm/.dictee_comb$$)
+                    rm -f /dev/shm/.dictee_comb$$
+                fi
+                rm -f "$COMBINED_FILE"
+                if [ -n "$combined_text" ] && [ -n "$solo_text" ]; then
+                    raw=$(extract_new_from_combined "$combined_text" "$solo_text")
+                    _dbg "audio-context: canary extracted ${#raw} chars (solo=${#solo_text}, combined=${#combined_text})"
+                    # If extraction failed or is empty, use solo (safe fallback)
+                    if [ -z "$raw" ]; then
+                        _dbg "audio-context: extraction empty, using solo transcription"
+                        raw="$solo_text"
+                    fi
+                else
+                    _dbg "audio-context: canary dual-transcription failed, falling back to direct"
+                    used_context=false
+                fi
+            else
+                # Parakeet/Whisper: precise acoustic timestamps — split by timestamp threshold
                 _dbg "audio-context: using timestamps mode ($_backend)"
                 if ! timestamped=$(transcribe_with_timestamps "$COMBINED_FILE"); then
                     _dbg "audio-context: timestamps transcription failed, falling back to direct"
@@ -899,7 +1017,7 @@ if [ -f "$PIDFILE" ]; then
                     _dbg "audio-context: timestamped result: $(echo "$timestamped" | wc -l) words"
                     if [ -z "$timestamped" ]; then
                         _dbg "audio-context: WARNING — empty result with context, discarding buffer"
-                        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+                        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE" "$BUFFER_TEXT_FILE"
                         notify_dictee 0 dialog-error "Transcription failed — empty result"
                         write_state "idle"
                         cleanup_session
@@ -908,11 +1026,6 @@ if [ -f "$PIDFILE" ]; then
                     raw=$(split_by_timestamp "$timestamped" "$threshold")
                     _dbg "audio-context: extracted after threshold: ${#raw} chars"
                 fi
-            else
-                # Vosk/Canary: no word-level timestamps, disable context for this push
-                _dbg "audio-context: backend ${DICTEE_ASR_BACKEND} has no timestamps, skipping context"
-                used_context=false
-                rm -f "$COMBINED_FILE"
             fi
         else
             _dbg "audio-context: concat failed, using recording directly"
@@ -936,7 +1049,7 @@ if [ -f "$PIDFILE" ]; then
         _dbg "transcribe: FAILED — empty result"
         if [ "$used_context" = true ]; then
             _dbg "audio-context: WARNING — empty result with context, discarding buffer"
-            rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE"
+            rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE" "$BUFFER_TEXT_FILE"
         fi
         notify_dictee 0 dialog-error "Transcription failed — empty result"
         write_state "idle"
@@ -962,6 +1075,7 @@ if [ -f "$PIDFILE" ]; then
     # Save recording as buffer for next push (only if non-empty transcription)
     if audio_context_enabled && [ -n "$transcribed" ]; then
         save_buffer "$RECORDING_FILE"
+        echo "$transcribed" > "$BUFFER_TEXT_FILE"
     fi
 
     if [ "$TRANSLATE" = true ]; then

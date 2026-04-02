@@ -44,6 +44,14 @@ impl AsrBackend {
             let _ = c.set_context_text(text);
         }
     }
+
+    /// Check if decoder context is set (Canary: last_token_ids present)
+    fn has_context(&self) -> bool {
+        match self {
+            AsrBackend::Canary(c) => c.last_token_ids().is_some(),
+            AsrBackend::Parakeet(_) => false,
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -144,17 +152,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(Ok(line)) = reader.lines().next() {
                     let line = line.trim().to_string();
                     let (audio_path, mode_str, context) = parse_request(&line);
+                    eprintln!("[daemon] request: path={} mode={} context={}", audio_path, mode_str, context.is_some());
 
                     // Set decoder context if provided (Canary decodercontext)
                     if let Some(ctx) = context {
                         backend.set_context(&ctx);
                     }
 
+                    let has_ctx = backend.has_context();
+                    eprintln!("[daemon] has_context={}", has_ctx);
+
                     match transcribe_file(&mut backend, audio_path, mode_str) {
                         Ok(text) => {
+                            eprintln!("[daemon] result: {} chars", text.len());
                             let _ = writeln!(stream, "{}", text);
                         }
                         Err(e) => {
+                            eprintln!("[daemon] error: {}", e);
                             let _ = writeln!(stream, "ERROR: {}", e);
                         }
                     }

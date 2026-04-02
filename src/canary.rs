@@ -23,6 +23,7 @@ const PNC_ID: i64 = 5; // <|pnc|>
 const NOPNC_ID: i64 = 6; // <|nopnc|>
 const NOITN_ID: i64 = 9; // <|noitn|>
 const NOTIMESTAMP_ID: i64 = 11; // <|notimestamp|>
+const TIMESTAMP_ID: i64 = 10; // <|timestamp|>
 const NODIARIZE_ID: i64 = 13; // <|nodiarize|>
 
 // ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ impl CanaryPrompt {
         prompt.push(self.target_lang_id);
         prompt.push(pnc_id);
         prompt.push(NOITN_ID);
-        prompt.push(NOTIMESTAMP_ID);
+        prompt.push(NOTIMESTAMP_ID); // ONNX export does not emit timestamp tokens (<|N|> IDs 207-1106)
         prompt.push(NODIARIZE_ID);
         prompt
     }
@@ -390,13 +391,22 @@ impl Transcriber for Canary {
         // 3. Build prompt (with optional context from previous transcription)
         let context = self.last_token_ids.as_deref();
         let prompt_ids = self.prompt.build(context);
+        eprintln!("[canary] prompt: {} IDs (context: {} tokens)", prompt_ids.len(), context.map_or(0, |c| c.len()));
 
         // 4. Greedy decode
         let (generated_ids, logprobs) =
             self.greedy_decode(&encoder_embeddings, &encoder_mask, &prompt_ids)?;
 
-        // 5. Save generated IDs for potential reuse as context
-        self.last_token_ids = Some(generated_ids.clone());
+        // Note: ONNX Canary does not emit timestamp tokens (<|N|> IDs 207-1106).
+        // Verified 2026-04-02: <|timestamp|> flag has no effect on ONNX export.
+        // For audio context buffer, text-stripping is used instead of timestamp-based splitting.
+
+        // 5. Do NOT auto-accumulate context for push-to-talk dictation.
+        //    Canary's decodercontext is designed for chunk-boundary deduplication,
+        //    which causes truncation of repeated words in independent recordings.
+        //    Context is only used when explicitly set via set_context_text/set_context_ids.
+        //    After each transcription, clear auto-context to avoid interference.
+        self.last_token_ids = None;
 
         // 6. Decode tokens to text with timestamps
         let mut result = self.decoder.decode_with_timestamps(
