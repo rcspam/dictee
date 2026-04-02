@@ -27,6 +27,7 @@ try:
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
+        QStyledItemDelegate, QStyleOptionViewItem,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -2045,6 +2046,38 @@ class ScrollGuardFilter(QObject):
         return False
 
 
+class _CheckMarkDelegate(QStyledItemDelegate):
+    """Combo item delegate that paints ✓ in green and ✗ in red."""
+
+    def paint(self, painter, option, index):
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        is_cached = index.data(Qt.ItemDataRole.UserRole + 1)
+        # Let Qt draw the background/selection
+        self.initStyleOption(option, index)
+        option.text = ""
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(style.ControlElement.CE_ItemViewItem, option, painter)
+        # Draw text with colored prefix
+        painter.save()
+        rect = option.rect.adjusted(4, 0, 0, 0)
+        if text.startswith("✓"):
+            painter.setPen(QColor("#4a4"))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "✓")
+            painter.setPen(option.palette.text().color())
+            rect = rect.adjusted(painter.fontMetrics().horizontalAdvance("✓ "), 0, 0, 0)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text[2:])
+        elif text.startswith("✗"):
+            painter.setPen(QColor("#a44"))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "✗")
+            painter.setPen(option.palette.text().color())
+            rect = rect.adjusted(painter.fontMetrics().horizontalAdvance("✗ "), 0, 0, 0)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text[2:])
+        else:
+            painter.setPen(option.palette.text().color())
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+        painter.restore()
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -3196,6 +3229,7 @@ class DicteeSetupDialog(QDialog):
 
         lbl_vosk_lang = QLabel(_("Language:"))
         self.cmb_vosk_lang = QComboBox()
+        self.cmb_vosk_lang.setItemDelegate(_CheckMarkDelegate(self.cmb_vosk_lang))
         self._refresh_vosk_lang_combo()
         cur_vosk = self.conf.get("DICTEE_VOSK_MODEL", "fr")
         idx = self.cmb_vosk_lang.findData(cur_vosk)
@@ -3225,11 +3259,10 @@ class DicteeSetupDialog(QDialog):
 
         self._lbl_vosk_status = QLabel()
         self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
+        self._lbl_vosk_status.setVisible(False)
         vosk_outer.addWidget(self._lbl_vosk_status)
 
-        self.cmb_vosk_lang.currentIndexChanged.connect(self._update_vosk_status_label)
         self._update_vosk_dl_button()
-        self._update_vosk_status_label()
 
         parent_layout.addWidget(self.w_vosk_options)
 
@@ -3281,6 +3314,9 @@ class DicteeSetupDialog(QDialog):
             installed = self._vosk_model_installed(code)
             prefix = "✓" if installed else "✗"
             self.cmb_vosk_lang.addItem(f"{prefix}  {code} — {name}", code)
+            if installed:
+                idx = self.cmb_vosk_lang.count() - 1
+                self.cmb_vosk_lang.setItemData(idx, True, Qt.ItemDataRole.UserRole + 1)
         self.cmb_vosk_lang.blockSignals(False)
         if current:
             idx = self.cmb_vosk_lang.findData(current)
@@ -3374,6 +3410,7 @@ class DicteeSetupDialog(QDialog):
 
         lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = QComboBox()
+        self.cmb_whisper_model.setItemDelegate(_CheckMarkDelegate(self.cmb_whisper_model))
         self._populate_whisper_combo()
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
         for i in range(self.cmb_whisper_model.count()):
@@ -3410,8 +3447,8 @@ class DicteeSetupDialog(QDialog):
         self._lbl_whisper_status = QLabel()
         self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
         self._lbl_whisper_status.setWordWrap(True)
+        self._lbl_whisper_status.setVisible(False)
         whisper_outer.addWidget(self._lbl_whisper_status)
-        self._update_whisper_status_label()
 
         parent_layout.addWidget(self.w_whisper_options)
 
@@ -3422,6 +3459,9 @@ class DicteeSetupDialog(QDialog):
             cached = self._whisper_model_cached(model_id)
             prefix = "✓ " if cached else "   "
             self.cmb_whisper_model.addItem(prefix + label, model_id)
+            if cached:
+                idx = self.cmb_whisper_model.count() - 1
+                self.cmb_whisper_model.setItemData(idx, True, Qt.ItemDataRole.UserRole + 1)
 
     def _update_whisper_status_label(self):
         """Update the status label below the Whisper combo."""
