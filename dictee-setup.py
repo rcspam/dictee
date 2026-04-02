@@ -2052,8 +2052,8 @@ class DicteeSetupDialog(QDialog):
         self._wizard_finished = False
         self._conf_existed_before_wizard = os.path.exists(CONF_PATH)
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumSize(710, 680)
-        self.resize(710, 700)
+        self.setMinimumSize(1100, 750)
+        self.resize(1100, 750)
         self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
