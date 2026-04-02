@@ -8432,6 +8432,8 @@ def main():
                "  dictee-setup --wizard         Force wizard mode\n"
                "  dictee-setup --postprocess    Open post-processing dialog\n"
                "  dictee-setup --translation    Open on translation section\n"
+               "  dictee-setup --models         List installed models\n"
+               "  dictee-setup --models --json  List models (JSON)\n"
                "  dictee-setup --debug          Enable debug logging\n")
     parser.add_argument("--wizard", action="store_true",
                         help="Force wizard mode (step-by-step configuration)")
@@ -8439,9 +8441,23 @@ def main():
                         help="Open post-processing dialog directly")
     parser.add_argument("--translation", action="store_true",
                         help="Open on the translation configuration section")
+    parser.add_argument("--models", action="store_true",
+                        help="List all installed ASR models and exit")
+    parser.add_argument("--json", action="store_true",
+                        help="Output in JSON format (with --models)")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-setup.log")
     args = parser.parse_args()
+
+    if args.models:
+        from dictee_models import find_all_models, print_table
+        import json as json_mod
+        models = find_all_models()
+        if args.json:
+            print(json_mod.dumps(models, indent=2))
+        else:
+            print_table(models)
+        sys.exit(0)
 
     global _SETUP_DEBUG
     if args.debug or os.environ.get("DICTEE_DEBUG") == "true":
