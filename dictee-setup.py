@@ -3328,21 +3328,11 @@ class DicteeSetupDialog(QDialog):
     @staticmethod
     def _whisper_model_cached(model_id):
         """Check if a Whisper model is already downloaded in HuggingFace cache."""
-        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-        if not os.path.isdir(cache_dir):
+        try:
+            from dictee_models import whisper_model_cached
+            return whisper_model_cached(model_id)
+        except ImportError:
             return False
-        # faster-whisper uses Systran/faster-whisper-<size> for generic models
-        # or the full repo id for custom models
-        candidates = [
-            f"models--Systran--faster-whisper-{model_id}",
-            f"models--{model_id.replace('/', '--')}",
-            f"models--openai--whisper-{model_id}",
-        ]
-        for c in candidates:
-            snap = os.path.join(cache_dir, c, "snapshots")
-            if os.path.isdir(snap) and os.listdir(snap):
-                return True
-        return False
 
     def _build_whisper_options(self, parent_layout):
         """Build Whisper install + model/language widgets."""
@@ -3466,11 +3456,11 @@ class DicteeSetupDialog(QDialog):
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present."""
-        sys_dir = "/usr/share/dictee/canary"
-        for d in [sys_dir, CANARY_MODEL_DIR]:
-            if os.path.isfile(os.path.join(d, "encoder-model.onnx")):
-                return True
-        return False
+        try:
+            from dictee_models import canary_model_installed
+            return canary_model_installed()
+        except ImportError:
+            return os.path.isfile(os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx"))
 
     def _update_canary_model_status(self):
         """Update Canary model status label."""
