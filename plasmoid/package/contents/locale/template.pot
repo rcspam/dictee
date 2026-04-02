@@ -17,6 +17,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
+#: plasmoid/package/contents/ui/FullRepresentation.qml:47
+msgid "Dictée"
+msgstr ""
+
 #: plasmoid/package/contents/ui/configGeneral.qml:119
 msgid "Calibration done!"
 msgstr ""
@@ -331,8 +335,24 @@ msgstr ""
 msgid "Translate"
 msgstr ""
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:237
-msgid "Preparing..."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:128
+msgid "Preparing…"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:130
+msgid "Diarize ready"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:132
+msgid "Diarizing…"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:346
+msgid "Preparing… (click to cancel)"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:348
+msgid "Diarization in progress..."
 msgstr ""
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:238
@@ -430,4 +450,56 @@ msgstr ""
 
 #: plasmoid/package/contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
+msgstr ""
+
+#: plasmoid/package/contents/ui/main.qml:63
+msgid "Switching…"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Context"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Accumulate audio from previous dictations to improve recognition of short or technical words."
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Active"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Stopped"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not installed"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not configured"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Audio input level"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Live microphone animation preview"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Microphone — click to mute"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language for translation"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Reset everything — stop all processes, restart daemon"
 msgstr ""

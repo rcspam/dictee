@@ -229,6 +229,7 @@ ICON_MAP = {
     "diarizing": "parakeet-diarize",
     "preparing": "parakeet-diarize",
     "diarize-ready": "parakeet-diarize",
+    "switching": "parakeet-active-dark" if _DARK else "parakeet-active",
 }
 
 
@@ -390,6 +391,7 @@ class DicteeTrayAppIndicator:
         self._prev_state = None
         self._daemon_active = False
         self._diarize_was_recording = False
+        self._start_retries = 0
 
         # Créer l'indicateur
         icon_name = ICON_MAP.get("offline", "parakeet-offline")
@@ -505,6 +507,14 @@ class DicteeTrayAppIndicator:
         self.item_diarize_lock_gtk.connect("toggled", self._on_diarize_lock_toggled_gtk)
         self.menu.append(self.item_diarize_lock_gtk)
 
+        self.item_context_gtk = Gtk.CheckMenuItem(label=_("Audio context"))
+        self.item_context_gtk.set_active(
+            read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true")
+        self.item_context_gtk.set_tooltip_text(
+            _("Accumulate audio from previous dictations to improve recognition."))
+        self.item_context_gtk.connect("toggled", self._on_context_toggled_gtk)
+        self.menu.append(self.item_context_gtk)
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
         item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
@@ -571,7 +581,7 @@ class DicteeTrayAppIndicator:
 
     def _reset(self):
         """Reset everything — stop all processes, restart daemon."""
-        svc = _conf_to_service()
+        svc = _conf_asr_service()
         _dbg(f"reset (gtk): svc={svc}")
         subprocess.Popen(["dictee-reset", svc])
         if self.item_diarize_gtk.get_active():
@@ -684,6 +694,10 @@ class DicteeTrayAppIndicator:
         if item.get_active() and not self.item_diarize_gtk.get_active():
             self.item_diarize_gtk.set_active(True)
 
+    def _on_context_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "context", val])
+
     def _delayed_daemon_refresh(self):
         self._check_daemon()
         self._check_state()
@@ -738,6 +752,7 @@ class DicteeTrayQt:
         self._prev_state = None
         self._daemon_active = False
         self._diarize_was_recording = False
+        self._start_retries = 0
 
         # Charger les icônes
         self._icons = {}
@@ -963,7 +978,7 @@ class DicteeTrayQt:
 
     def _reset(self):
         """Reset everything — stop all processes, restart daemon."""
-        svc = _conf_to_service()
+        svc = _conf_asr_service()
         _dbg(f"reset (qt): svc={svc}")
         subprocess.Popen(["dictee-reset", svc])
         if self.action_diarize_qt.isChecked():

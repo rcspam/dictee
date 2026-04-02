@@ -17,6 +17,10 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+#: plasmoid/package/contents/ui/FullRepresentation.qml:47
+msgid "Dictée"
+msgstr "Dictée"
+
 #: plasmoid/package/contents/ui/configGeneral.qml:119
 msgid "Calibration done!"
 msgstr "Kalibrierung abgeschlossen!"
@@ -341,9 +345,25 @@ msgstr "Diktat"
 msgid "Translate"
 msgstr "Übersetzen"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:237
-msgid "Preparing..."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:128
+msgid "Preparing…"
 msgstr "Vorbereitung..."
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:130
+msgid "Diarize ready"
+msgstr "Diarisierung bereit"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:132
+msgid "Diarizing…"
+msgstr "Diarisierung…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:346
+msgid "Preparing… (click to cancel)"
+msgstr "Vorbereitung… (klicken zum Abbrechen)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:348
+msgid "Diarization in progress..."
+msgstr "Diarisierung läuft..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:238
 msgid "Start diarization"
@@ -411,7 +431,10 @@ msgstr "Dictée konfigurieren"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:479
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
-msgstr "dictee-setup öffnen, um ASR, Übersetzung und Tastenkombinationen zu konfigurieren"
+msgstr ""
+"dictee-setup öffnen, um ASR, Übersetzung und Kurzbefehle zu "
+"konfigurierendictee-setup öffnen, um ASR, Übersetzung und "
+"Tastenkombinationen zu konfigurieren"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:487
 msgid "Preview"
@@ -441,6 +464,61 @@ msgstr "Dictée nicht installiert"
 #: plasmoid/package/contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
 msgstr "Dictée nicht konfiguriert — dictee-setup ausführen"
+
+#: plasmoid/package/contents/ui/main.qml:63
+msgid "Switching…"
+msgstr "Wechsel…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Context"
+msgstr "Kontext"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid ""
+"Accumulate audio from previous dictations to improve recognition of short or "
+"technical words."
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Active"
+msgstr "Aktiv"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Stopped"
+msgstr "Gestoppt"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not installed"
+msgstr "Nicht installiert"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not configured"
+msgstr "Nicht konfiguriert"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Audio input level"
+msgstr "Audio-Eingangspegel"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Live microphone animation preview"
+msgstr "Live-Vorschau der Mikrofonanimation"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Microphone — click to mute"
+msgstr "Mikrofon — klicken zum Stummschalten"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language for translation"
+msgstr "Zielsprache für Übersetzung"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
+msgstr ""
+"Zielsprache — Sprachen in Dictée konfigurieren hinzufügen (LibreTranslate)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Reset everything — stop all processes, restart daemon"
+msgstr "Alles zurücksetzen — Prozesse stoppen, Daemon neu starten"
 
 #~ msgid "Voice dictation"
 #~ msgstr "Sprachdiktat"

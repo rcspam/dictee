@@ -18,6 +18,10 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
 "n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
+#: plasmoid/package/contents/ui/FullRepresentation.qml:47
+msgid "Dictée"
+msgstr "Dictée"
+
 #: plasmoid/package/contents/ui/configGeneral.qml:119
 msgid "Calibration done!"
 msgstr "Калібрування завершено!"
@@ -342,9 +346,25 @@ msgstr "Диктант"
 msgid "Translate"
 msgstr "Перекласти"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:237
-msgid "Preparing..."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:128
+msgid "Preparing…"
 msgstr "Підготовка..."
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:130
+msgid "Diarize ready"
+msgstr "Діаризація готова"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:132
+msgid "Diarizing…"
+msgstr "Діаризація…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:346
+msgid "Preparing… (click to cancel)"
+msgstr "Підготовка… (натисніть для скасування)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:348
+msgid "Diarization in progress..."
+msgstr "Діаризація триває..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:238
 msgid "Start diarization"
@@ -412,7 +432,9 @@ msgstr "Налаштувати Dictée"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:479
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
-msgstr "Відкрити dictee-setup для налаштування ASR, перекладу, комбінацій клавіш"
+msgstr ""
+"Відкрити dictee-setup для налаштування ASR, перекладу і комбінаційВідкрити "
+"dictee-setup для налаштування ASR, перекладу, комбінацій клавіш"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:487
 msgid "Preview"
@@ -442,6 +464,60 @@ msgstr "Dictée не встановлено"
 #: plasmoid/package/contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
 msgstr "Dictée не налаштовано — запустіть dictee-setup"
+
+#: plasmoid/package/contents/ui/main.qml:63
+msgid "Switching…"
+msgstr "Перемикання…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Context"
+msgstr "Контекст"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid ""
+"Accumulate audio from previous dictations to improve recognition of short or "
+"technical words."
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Active"
+msgstr "Активний"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Stopped"
+msgstr "Зупинено"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not installed"
+msgstr "Не встановлено"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not configured"
+msgstr "Не налаштовано"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Audio input level"
+msgstr "Рівень аудіовходу"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Live microphone animation preview"
+msgstr "Попередній перегляд анімації мікрофона"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Microphone — click to mute"
+msgstr "Мікрофон — натисніть для вимкнення"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language for translation"
+msgstr "Мова перекладу"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
+msgstr "Мова перекладу — додати мови в Налаштування Dictée (LibreTranslate)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Reset everything — stop all processes, restart daemon"
+msgstr "Скинути все — зупинити процеси, перезапустити демон"
 
 #~ msgid "Voice dictation"
 #~ msgstr "Голосовий диктант"

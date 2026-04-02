@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 PKG_DIR="pkg/dictee"
 
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
@@ -25,9 +25,15 @@ cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
-cp ./transcribe-daemon-canary "$PKG_DIR/usr/bin/transcribe-daemon-canary"
 cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$PKG_DIR/usr/bin/dictee-transcribe"
+cp ./dictee-reset "$PKG_DIR/usr/bin/dictee-reset"
+cp ./dictee-translate-langs "$PKG_DIR/usr/bin/dictee-translate-langs"
+cp ./dictee-audio-sources "$PKG_DIR/usr/bin/dictee-audio-sources"
+mkdir -p "$PKG_DIR/usr/lib/dictee"
+cp ./dictee-common.sh "$PKG_DIR/usr/lib/dictee/dictee-common.sh"
+cp ./dictee_models.py "$PKG_DIR/usr/lib/dictee/dictee_models.py"
+cp ./dictee.conf.example "$PKG_DIR/usr/share/dictee/dictee.conf.example"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-reset" "$PKG_DIR/usr/bin/dictee-translate-langs" "$PKG_DIR/usr/bin/dictee-audio-sources"
 
 # Copier les fichiers de post-traitement par défaut
 cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
@@ -123,7 +129,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.2.0
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -180,8 +186,8 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 
-    # Cleanup CUDA libs for CPU build
-    rm -rf "$PKG_DIR/usr/lib/dictee" "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
+    # Cleanup CUDA libs for CPU build (keep shared scripts/modules)
+    rm -f "$PKG_DIR/usr/lib/dictee/"*.so "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
     echo "Built: dictee-cuda_${VERSION}_amd64.deb"
 }
 
@@ -199,7 +205,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.2.0
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -269,7 +275,6 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee-switch-backend" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-postprocess" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-transcribe" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-vosk" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$TARBALL_DIR/usr/bin/"
@@ -278,6 +283,14 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dotool" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dotoold" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-reset" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$TARBALL_DIR/usr/bin/"
+
+    # Shared libraries
+    mkdir -p "$TARBALL_DIR/usr/lib/dictee"
+    cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$TARBALL_DIR/usr/lib/dictee/"
+    cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$TARBALL_DIR/usr/lib/dictee/"
 
     # Udev rules (dotool)
     cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$TARBALL_DIR/etc/udev/rules.d/"
@@ -307,6 +320,7 @@ build_tarball() {
     cp "$PKG_DIR/usr/share/dictee/rules.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/dictionary.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/continuation.conf.default" "$TARBALL_DIR/usr/share/dictee/"
+    cp "$PKG_DIR/usr/share/dictee/dictee.conf.example" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/assets/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/"
     if [ -d "$PKG_DIR/usr/share/dictee/assets/logos" ]; then
         mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/logos"

@@ -23,7 +23,6 @@ const PNC_ID: i64 = 5; // <|pnc|>
 const NOPNC_ID: i64 = 6; // <|nopnc|>
 const NOITN_ID: i64 = 9; // <|noitn|>
 const NOTIMESTAMP_ID: i64 = 11; // <|notimestamp|>
-const TIMESTAMP_ID: i64 = 10; // <|timestamp|>
 const NODIARIZE_ID: i64 = 13; // <|nodiarize|>
 
 // ---------------------------------------------------------------------------
@@ -391,7 +390,9 @@ impl Transcriber for Canary {
         // 3. Build prompt (with optional context from previous transcription)
         let context = self.last_token_ids.as_deref();
         let prompt_ids = self.prompt.build(context);
-        eprintln!("[canary] prompt: {} IDs (context: {} tokens)", prompt_ids.len(), context.map_or(0, |c| c.len()));
+        if std::env::var("DICTEE_DEBUG").unwrap_or_default() == "true" {
+            eprintln!("[canary] prompt: {} IDs (context: {} tokens)", prompt_ids.len(), context.map_or(0, |c| c.len()));
+        }
 
         // 4. Greedy decode
         let (generated_ids, logprobs) =

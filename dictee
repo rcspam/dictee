@@ -729,10 +729,8 @@ transcribe_canary_translate() {
     # Send WAV path + target language to Canary daemon via extended protocol
     local audio_file="$1"
     local target_lang="$2"
-    local sock_path="${XDG_RUNTIME_DIR:-/tmp}/transcribe.sock"
-    if [ ! -S "$sock_path" ]; then
-        sock_path="/tmp/transcribe-$(id -u).sock"
-    fi
+    local sock_path
+    sock_path=$(_daemon_socket)
     printf '%s\tlang:%s\n' "$audio_file" "$target_lang" | \
         python3 -c "
 import socket, sys

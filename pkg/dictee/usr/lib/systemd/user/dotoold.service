@@ -3,6 +3,7 @@ Description=dotool daemon (virtual keyboard input)
 Documentation=https://git.sr.ht/~geb/dotool
 
 [Service]
+Type=simple
 ExecStart=/usr/bin/dotoold
 Restart=on-failure
 RestartSec=2

@@ -17,6 +17,10 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+#: plasmoid/package/contents/ui/FullRepresentation.qml:47
+msgid "Dictée"
+msgstr "Dictée"
+
 #: plasmoid/package/contents/ui/configGeneral.qml:119
 msgid "Calibration done!"
 msgstr "Calibração concluída!"
@@ -36,8 +40,8 @@ msgstr "Intervalo de sondagem (ms):"
 #: plasmoid/package/contents/ui/configGeneral.qml:207
 msgid "How often the widget checks if the daemon is running (in milliseconds)."
 msgstr ""
-"Com que frequência o widget verifica se o daemon está em execução (em "
-"milissegundos)."
+"Frequência de verificação do daemon (em milissegundos).Com que frequência o "
+"widget verifica se o daemon está em execução (em milissegundos)."
 
 #: plasmoid/package/contents/ui/configGeneral.qml:212
 msgid "Show last transcription:"
@@ -343,9 +347,25 @@ msgstr "Ditado"
 msgid "Translate"
 msgstr "Traduzir"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:237
-msgid "Preparing..."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:128
+msgid "Preparing…"
 msgstr "A preparar..."
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:130
+msgid "Diarize ready"
+msgstr "Diarização pronta"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:132
+msgid "Diarizing…"
+msgstr "Diarizando…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:346
+msgid "Preparing… (click to cancel)"
+msgstr "A preparar… (clique para cancelar)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:348
+msgid "Diarization in progress..."
+msgstr "Diarização em curso..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:238
 msgid "Start diarization"
@@ -405,7 +425,10 @@ msgstr "Pós-processamento..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:469
 msgid "Configure post-processing rules (regex, dictionary, continuation)"
-msgstr "Configurar regras de pós-processamento (regex, dicionário, continuação)"
+msgstr ""
+"Configurar regras de pós-processamento (regex, dicionário, "
+"continuação)Configurar regras de pós-processamento (regex, dicionário, "
+"continuação)"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:475
 msgid "Configure Dictée"
@@ -443,6 +466,60 @@ msgstr "Dictée não instalado"
 #: plasmoid/package/contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
 msgstr "Dictée não configurado — execute dictee-setup"
+
+#: plasmoid/package/contents/ui/main.qml:63
+msgid "Switching…"
+msgstr "A mudar…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Context"
+msgstr "Contexto"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid ""
+"Accumulate audio from previous dictations to improve recognition of short or "
+"technical words."
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Active"
+msgstr "Ativo"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Stopped"
+msgstr "Parado"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not installed"
+msgstr "Não instalado"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not configured"
+msgstr "Não configurado"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Audio input level"
+msgstr "Nível de entrada de áudio"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Live microphone animation preview"
+msgstr "Pré-visualização da animação do microfone"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Microphone — click to mute"
+msgstr "Microfone — clique para silenciar"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language for translation"
+msgstr "Língua alvo para tradução"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
+msgstr "Língua alvo — adicionar línguas em Configurar Dictée (LibreTranslate)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Reset everything — stop all processes, restart daemon"
+msgstr "Reiniciar tudo — parar processos, reiniciar daemon"
 
 #~ msgid "Voice dictation"
 #~ msgstr "Ditado por voz"

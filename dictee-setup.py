@@ -18,6 +18,11 @@ import sys
 import locale
 import tempfile
 
+# Allow importing dictee_models from /usr/lib/dictee (packaged installs)
+_lib_dir = "/usr/lib/dictee"
+if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
+    sys.path.insert(0, _lib_dir)
+
 try:
     from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, pyqtSignal as Signal
     from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont

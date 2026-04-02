@@ -9,6 +9,12 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 
+macro_rules! dbg_print {
+    ($debug:expr, $($arg:tt)*) => {
+        if $debug { eprintln!($($arg)*); }
+    };
+}
+
 /// User-specific socket path using XDG_RUNTIME_DIR or /tmp fallback.
 fn socket_path() -> String {
     if let Ok(dir) = env::var("XDG_RUNTIME_DIR") {
@@ -55,6 +61,7 @@ impl AsrBackend {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let debug = env::var("DICTEE_DEBUG").unwrap_or_default() == "true";
     let socket_path = socket_path();
     let args: Vec<String> = env::args().collect();
 
@@ -158,7 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(Ok(line)) = reader.lines().next() {
                     let line = line.trim().to_string();
                     let (audio_path, mode_str, context) = parse_request(&line);
-                    eprintln!("[daemon] request: path={} mode={} context={}", audio_path, mode_str, context.is_some());
+                    dbg_print!(debug, "[daemon] request: path={} mode={} context={}", audio_path, mode_str, context.is_some());
 
                     // Set decoder context if provided (Canary decodercontext)
                     if let Some(ctx) = context {
@@ -166,11 +173,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     let has_ctx = backend.has_context();
-                    eprintln!("[daemon] has_context={}", has_ctx);
+                    dbg_print!(debug, "[daemon] has_context={}", has_ctx);
 
                     match transcribe_file(&mut backend, audio_path, mode_str) {
                         Ok(text) => {
-                            eprintln!("[daemon] result: {} chars", text.len());
+                            dbg_print!(debug, "[daemon] result: {} chars", text.len());
                             let _ = writeln!(stream, "{}", text);
                         }
                         Err(e) => {

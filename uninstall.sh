@@ -29,7 +29,8 @@ done
 echo "→ Suppression des binaires"
 for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
            transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
-           dictee-switch-backend dictee-test-rules transcribe-daemon-canary \
+           dictee-switch-backend dictee-test-rules \
+           dictee-transcribe dictee-reset dictee-translate-langs dictee-audio-sources \
            transcribe-daemon-vosk transcribe-daemon-whisper \
            dictee-plasmoid-level dictee-plasmoid-level-daemon dictee-plasmoid-level-fft \
            dotool dotoold; do
@@ -91,7 +92,7 @@ done
 # Icônes
 echo "→ Suppression des icônes"
 for icon in parakeet-active parakeet-active-dark parakeet-inactive parakeet-inactive-dark \
-             parakeet-offline parakeet-recording parakeet-transcribing \
+             parakeet-offline parakeet-recording parakeet-transcribing parakeet-diarize \
              dictee dictee-setup dictee-tray; do
     rm -f "$REAL_HOME/.local/share/icons/hicolor/scalable/apps/$icon.svg"
 done

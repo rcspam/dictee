@@ -1,6 +1,6 @@
 [Unit]
-Description=Parakeet Transcribe Tray Icon
-After=dictee.service
+Description=Dictée Tray Icon
+After=dictee.service dictee-vosk.service dictee-whisper.service dictee-canary.service
 BindsTo=graphical-session.target
 
 [Service]

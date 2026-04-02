@@ -42,6 +42,17 @@ except ImportError:
 # --- Config ---
 
 CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
+STATE_FILE = "/dev/shm/.dictee_state"
+
+
+def read_state():
+    """Lit l'état courant de dictee depuis le fichier d'état."""
+    try:
+        return open(STATE_FILE).read().strip()
+    except (FileNotFoundError, PermissionError):
+        return "offline"
+
+
 DICTEE_BIN = None  # auto-detect
 _UID_SUFFIX = f"-{os.getuid()}"
 PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
@@ -146,7 +157,7 @@ def find_dictee_bin():
 
 def run_dictee_async(*args, no_animation=False):
     """Lance dictee en subprocess non-bloquant."""
-    cmd = [DICTEE_BIN, "--no-esc-listener"] + list(args)
+    cmd = [DICTEE_BIN] + list(args)
     env = None
     if no_animation:
         env = os.environ.copy()
@@ -239,8 +250,9 @@ class PttState:
 
         # ESC : annuler
         if code == KEY_ESC and value == KEY_DOWN:
-            if self.recording or self.recording_translate:
-                print("[ptt] ESC → cancel")
+            state = read_state()
+            if self.recording or self.recording_translate or state in ("recording", "preparing", "diarize-ready", "diarizing"):
+                print(f"[ptt] ESC: state={state}, recording={self.recording} — sending cancel")
                 run_dictee_async("--cancel")
                 self.recording = False
                 self.recording_translate = False

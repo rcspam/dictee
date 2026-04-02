@@ -17,6 +17,10 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+#: plasmoid/package/contents/ui/FullRepresentation.qml:47
+msgid "Dictée"
+msgstr "Dictée"
+
 #: plasmoid/package/contents/ui/configGeneral.qml:119
 msgid "Calibration done!"
 msgstr "Calibrazione completata!"
@@ -36,8 +40,8 @@ msgstr "Intervallo di polling (ms):"
 #: plasmoid/package/contents/ui/configGeneral.qml:207
 msgid "How often the widget checks if the daemon is running (in milliseconds)."
 msgstr ""
-"Ogni quanto il widget verifica se il daemon è in esecuzione (in "
-"millisecondi)."
+"Frequenza di controllo del daemon (in millisecondi).Ogni quanto il widget "
+"verifica se il daemon è in esecuzione (in millisecondi)."
 
 #: plasmoid/package/contents/ui/configGeneral.qml:212
 msgid "Show last transcription:"
@@ -343,9 +347,25 @@ msgstr "Dettatura"
 msgid "Translate"
 msgstr "Traduci"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:237
-msgid "Preparing..."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:128
+msgid "Preparing…"
 msgstr "Preparazione..."
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:130
+msgid "Diarize ready"
+msgstr "Diarizzazione pronta"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:132
+msgid "Diarizing…"
+msgstr "Diarizzazione…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:346
+msgid "Preparing… (click to cancel)"
+msgstr "Preparazione… (clicca per annullare)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:348
+msgid "Diarization in progress..."
+msgstr "Diarizzazione in corso..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:238
 msgid "Start diarization"
@@ -369,7 +389,9 @@ msgstr "Liberazione della memoria GPU..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:298
 msgid "Click to start recording with speaker identification"
-msgstr "Clicca per avviare la registrazione con identificazione degli interlocutori"
+msgstr ""
+"Clicca per avviare la registrazione con identificazione dei parlantiClicca "
+"per avviare la registrazione con identificazione degli interlocutori"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:299
 msgid "Click to stop and identify speakers"
@@ -405,7 +427,10 @@ msgstr "Post-elaborazione..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:469
 msgid "Configure post-processing rules (regex, dictionary, continuation)"
-msgstr "Configura le regole di post-elaborazione (regex, dizionario, continuazione)"
+msgstr ""
+"Configurare le regole di post-elaborazione (regex, dizionario, "
+"continuazione)Configura le regole di post-elaborazione (regex, dizionario, "
+"continuazione)"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:475
 msgid "Configure Dictée"
@@ -443,6 +468,62 @@ msgstr "Dictée non installato"
 #: plasmoid/package/contents/ui/main.qml:58
 msgid "Dictée not configured — run dictee-setup"
 msgstr "Dictée non configurato — esegui dictee-setup"
+
+#: plasmoid/package/contents/ui/main.qml:63
+msgid "Switching…"
+msgstr "Cambio…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Context"
+msgstr "Contesto"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid ""
+"Accumulate audio from previous dictations to improve recognition of short or "
+"technical words."
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Active"
+msgstr "Attivo"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Stopped"
+msgstr "Fermo"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not installed"
+msgstr "Non installato"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Not configured"
+msgstr "Non configurato"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Audio input level"
+msgstr "Livello ingresso audio"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Live microphone animation preview"
+msgstr "Anteprima dal vivo dell'animazione microfono"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Microphone — click to mute"
+msgstr "Microfono — clicca per silenziare"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language for translation"
+msgstr "Lingua di destinazione per la traduzione"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
+msgstr ""
+"Lingua di destinazione — aggiungere lingue in Configura Dictée "
+"(LibreTranslate)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml
+msgid "Reset everything — stop all processes, restart daemon"
+msgstr "Ripristina tutto — arresta i processi, riavvia il daemon"
 
 #~ msgid "Voice dictation"
 #~ msgstr "Dettatura vocale"

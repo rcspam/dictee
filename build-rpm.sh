@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -20,9 +20,8 @@ cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
-cp ./transcribe-daemon-canary "$PKG_DIR/usr/bin/transcribe-daemon-canary"
 cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$PKG_DIR/usr/bin/dictee-transcribe"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -72,9 +71,15 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/transcribe-daemon-vosk" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$buildroot/usr/bin/"
-    cp "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-transcribe" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-reset" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$buildroot/usr/bin/"
     chmod 755 "$buildroot/usr/bin/"*
+    # Shared libraries
+    mkdir -p "$buildroot/usr/lib/dictee"
+    cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$buildroot/usr/lib/dictee/"
+    cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$buildroot/usr/lib/dictee/"
 
     # Patcher shebangs pour packaging RPM (guidelines Fedora)
     # /usr/bin/env python3 → /usr/bin/python3 pour utiliser le Python système
@@ -85,8 +90,8 @@ prepare_buildroot() {
         "$buildroot/usr/bin/dictee-postprocess" \
         "$buildroot/usr/bin/transcribe-daemon-vosk" \
         "$buildroot/usr/bin/transcribe-daemon-whisper" \
-        "$buildroot/usr/bin/transcribe-daemon-canary" \
         "$buildroot/usr/bin/dictee-transcribe" \
+        "$buildroot/usr/bin/dictee-audio-sources" \
         "$buildroot/usr/bin/dictee-plasmoid-level" \
         "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \
         "$buildroot/usr/bin/dictee-plasmoid-level-fft"
@@ -142,6 +147,7 @@ prepare_buildroot() {
     echo "$VERSION build $BUILD_HASH" > "$buildroot/usr/share/dictee/VERSION"
     cp ./dictionary.conf.default "$buildroot/usr/share/dictee/dictionary.conf.default"
     cp ./continuation.conf.default "$buildroot/usr/share/dictee/continuation.conf.default"
+    cp ./dictee.conf.example "$buildroot/usr/share/dictee/dictee.conf.example"
 
     # Doc
     mkdir -p "$buildroot/usr/share/doc/dictee"
@@ -385,6 +391,7 @@ Features:
 %files
 /usr/bin/*
 /etc/udev/rules.d/80-dotool.rules
+/usr/lib/dictee/*
 /usr/lib/systemd/user/*.service
 /usr/lib/systemd/user-preset/*.preset
 /usr/share/man/man1/*.gz

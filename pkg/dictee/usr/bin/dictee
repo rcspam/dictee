@@ -20,11 +20,17 @@
 
 # === CONFIGURATION ===
 
-# Charger la configuration (dictee-setup)
+# Load configuration (dictee-setup)
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 if [ -f "$DICTEE_CONF" ]; then
     source "$DICTEE_CONF"
 fi
+
+# === COMMON FUNCTIONS ===
+_DBG_CONTEXT="dictee"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
 
 # Parse --help before config guard (works without config)
 case "${1:-}" in
@@ -39,7 +45,7 @@ if [ ! -f "$DICTEE_CONF" ] || ! grep -q "DICTEE_SETUP_DONE=true" "$DICTEE_CONF" 
     exec dictee-setup --wizard
 fi
 
-# Exporter OLLAMA_NUM_GPU si défini dans la config (mode CPU forcé)
+# Export OLLAMA_NUM_GPU if defined in config (forced CPU mode)
 [ -n "$OLLAMA_NUM_GPU" ] && export OLLAMA_NUM_GPU
 
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
@@ -47,8 +53,36 @@ LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIMATION="${DICTEE_ANIMATION:-speech}"
+# --diarize flag: explicit from plasmoid, F9 never passes it
+DIARIZE="false"
+for _arg in "$@"; do
+    if [ "$_arg" = "--diarize" ]; then DIARIZE="true"; fi
+done
+AUDIO_SOURCE="${DICTEE_AUDIO_SOURCE:-}"
+_dbg "start: args=$* backend=${DICTEE_ASR_BACKEND:-parakeet} diarize=$DIARIZE audio_source=$AUDIO_SOURCE"
+# Resolve app:name to numeric PipeWire ID (IDs change after sleep/hibernation)
+if [[ "$AUDIO_SOURCE" == app:* ]]; then
+    _APP_NAME="${AUDIO_SOURCE#app:}"
+    AUDIO_SOURCE=$(pw-dump 2>/dev/null | python3 -c "
+import json, sys
+for n in json.loads(sys.stdin.read()):
+    if n.get('type') != 'PipeWire:Interface:Node': continue
+    p = n.get('info', {}).get('props', {})
+    if p.get('media.class') == 'Stream/Output/Audio':
+        a = p.get('application.name', '').lower().split()
+        if a and a[0] == '$_APP_NAME':
+            print(n['id']); break
+" 2>/dev/null)
+    _dbg "resolved app:$_APP_NAME → PipeWire ID ${AUDIO_SOURCE:-NONE}"
+fi
+# Determine if source is a device (alsa_*) or an application (Firefox, etc.)
+# Applications are not pactl sources → mute/unmute on @DEFAULT_SOURCE@
+case "$AUDIO_SOURCE" in
+    ''|alsa_input.*) _PA_SOURCE="${AUDIO_SOURCE:-@DEFAULT_SOURCE@}"; _IS_APP_SOURCE=false ;;
+    *)               _PA_SOURCE="@DEFAULT_SOURCE@"; _IS_APP_SOURCE=true ;;
+esac
 
-# Détection du layout clavier pour dotool (localectl > setxkbmap > us)
+# Keyboard layout detection for dotool (localectl > setxkbmap > us)
 if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
     DOTOOL_XKB_LAYOUT=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
     [ -z "$DOTOOL_XKB_LAYOUT" ] && DOTOOL_XKB_LAYOUT=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
@@ -57,7 +91,6 @@ fi
 export DOTOOL_XKB_LAYOUT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
-_UID_SUFFIX="-$(id -u)"
 PIDFILE="/tmp/recording_dictee_pid${_UID_SUFFIX}"
 ID_TMP_FILE="/tmp/notify_dictee${_UID_SUFFIX}"
 MUT_FILE="/tmp/mut_dictee${_UID_SUFFIX}"
@@ -65,44 +98,92 @@ TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 LAST_WORD_FILE="/dev/shm/.dictee_last_word"
 
-# État partagé avec plasmoid/tray (protégé par flock)
-STATE_FILE="/dev/shm/.dictee_state"
-STATE_LOCK="/dev/shm/.dictee_state.lock"
+# Audio context buffer
+BUFFER_FILE="/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav"
+BUFFER_TS_FILE="/dev/shm/.dictee_buffer_ts${_UID_SUFFIX}"
+COMBINED_FILE="/dev/shm/.dictee_combined${_UID_SUFFIX}.wav"
+SILENCE_FILE="/dev/shm/.dictee_silence${_UID_SUFFIX}.wav"
+SILENCE_DURATION="0.5"
+BUFFER_TEXT_FILE="/dev/shm/.dictee_buffer_text${_UID_SUFFIX}"
 
-write_state() {
-    (
-        flock -n 200 || return 1
-        echo "$1" > "$STATE_FILE"
-    ) 200>"$STATE_LOCK"
+# === UTILITY FUNCTIONS (script-specific) ===
+
+# Stop the animation (quit or stop)
+stop_animation() {
+    local cmd="${1:-stop}"
+    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+        if command -v animation-speech-ctl >/dev/null 2>&1; then
+            if animation-speech-ctl "$cmd" 2>/dev/null; then true; fi
+        fi
+    fi
 }
 
-# Post-traitement du texte (règles regex + dictionnaire + LLM optionnel)
+# Restore audio state (re-mute mic if it was muted, unmute sink)
+restore_audio() {
+    if [ -f "$MUT_FILE" ]; then
+        local was_muted=""
+        if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
+            if [ "$was_muted" = "1" ]; then
+                pactl set-source-mute "$_PA_SOURCE" 1
+            fi
+        fi
+        rm -f "$MUT_FILE"
+    fi
+    if [ "$_IS_APP_SOURCE" = false ]; then
+        pactl set-sink-mute @DEFAULT_SINK@ 0
+    fi
+}
+
+# Kill the recording process from PIDFILE
+# Usage: stop_recording [force]  — "force" adds SIGKILL escalation
+stop_recording() {
+    if [ ! -f "$PIDFILE" ]; then return; fi
+    local rec_pid=""
+    rec_pid=$(cat "$PIDFILE" 2>/dev/null) || true
+    if [ -n "$rec_pid" ]; then
+        if [ "${1:-}" = "force" ]; then
+            kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
+            sleep 0.1
+            kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
+        else
+            if kill "$rec_pid" 2>/dev/null; then true; fi
+        fi
+    fi
+    rm -f "$PIDFILE" "${PIDFILE}.lock"
+}
+
+# Remove all session temp files
+cleanup_session() {
+    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"  # ID_TMP_FILE kept for legacy cleanup
+}
+
+# Text post-processing (regex rules + dictionary + optional LLM)
 if [ "${DICTEE_POSTPROCESS:-true}" = "true" ] && command -v dictee-postprocess >/dev/null 2>&1; then
     SUPPRIME="| dictee-postprocess"
 else
     SUPPRIME=""
 fi
 
-# Wrapper dotool safe pour trap ERR
+# Safe dotool wrapper for trap ERR
 safe_dotool() {
     if dotool 2>/dev/null; then true; fi
 }
 
-# Tape du texte via dotool, avec gestion des sauts de ligne et sanitisation
-# dotool ne supporte pas : U+00A0, U+202F, …, —, –, tab
-# On les remplace par leurs équivalents ASCII avant envoi
+# Type text via dotool, with line break handling and sanitization
+# dotool does not support: U+00A0, U+202F, …, —, –, tab
+# Replace them with ASCII equivalents before sending
 type_text() {
     local text="$1"
-    # Sanitiser les caractères non supportés par dotool (sans subshell pour préserver \n)
+    # Sanitize unsupported dotool characters (no subshell to preserve \n)
     text="${text//$'\xc2\xa0'/ }"
     text="${text//$'\xe2\x80\xaf'/ }"
     text="${text//$'\xe2\x80\xa6'/...}"
     text="${text//$'\xe2\x80\x94'/--}"
     text="${text//$'\xe2\x80\x93'/-}"
-    # Convertir en commandes dotool : "type ..." + "key enter/tab" entre segments
+    # Convert to dotool commands: "type ..." + "key enter/tab" between segments
     printf '%s\n' "$text" | awk -v RS='\n' '{
         if (NR > 1) print "key enter"
-        # Découper sur les tabs
+        # Split on tabs
         n = split($0, parts, "\t")
         for (i = 1; i <= n; i++) {
             if (i > 1) print "key tab"
@@ -111,16 +192,16 @@ type_text() {
     }' | safe_dotool
 }
 
-# Continuation inter-appuis : détection de phrase incomplète
-# Mots de classes fermées qui indiquent une phrase non terminée — chargés depuis
-# continuation.conf.default (système) + ~/.config/dictee/continuation.conf (utilisateur)
+# Cross-push continuation: incomplete sentence detection
+# Closed-class words indicating an unfinished sentence — loaded from
+# continuation.conf.default (system) + ~/.config/dictee/continuation.conf (user)
 load_continuation_words() {
     local file
     for file in "$@"; do
         [ -f "$file" ] || continue
         while IFS= read -r line; do
-            line="${line%%#*}"             # supprimer commentaires
-            line="${line#"${line%%[! ]*}"}" # trim début
+            line="${line%%#*}"             # remove comments
+            line="${line#"${line%%[! ]*}"}" # trim leading whitespace
             [[ "$line" == \[* ]] || continue
             local tag="${line%%]*}"
             tag="${tag#[}"
@@ -128,7 +209,7 @@ load_continuation_words() {
             [[ "$tag" == keyword* ]] && continue
             local words="${line#*]}"
             local var="CONTINUATION_WORDS_${tag^^}"
-            # Ajouter les mots (cumulatif)
+            # Append words (cumulative)
             eval "${var}=\"\${${var}:-\" \"}\${words} \""
         done < "$file"
     done
@@ -176,15 +257,15 @@ if [ -n "$_CONT_KEYWORD" ]; then
 fi
 
 apply_continuation() {
-    # Usage : apply_continuation VARNAME
-    # Modifie la variable en place (pas de subshell)
-    # Marqueurs du buffer :
-    #   , → virgule (toujours continuation, espace + minuscule)
-    #   .N → point(s) (continuation si dernier mot est de classe fermée, sinon espace + garder casse)
-    #   F → fin de phrase (! ; : » )) — espace + garder casse
-    #   _ → pas de ponctuation (mi-phrase, espace + minuscule)
+    # Usage: apply_continuation VARNAME
+    # Modifies the variable in place (no subshell)
+    # Buffer markers:
+    #   , → comma (always continuation, space + lowercase)
+    #   .N → period(s) (continuation if last word is closed-class, else space + keep case)
+    #   F → end of sentence (! ; : » )) — space + keep case
+    #   _ → no punctuation (mid-sentence, space + lowercase)
     local -n _ref="$1"
-    # Si le texte commence par \n (commande "à la ligne"), ne pas modifier
+    # If text starts with \n ("new line" voice command), do not modify
     if [[ "$_ref" == $'\n'* ]]; then return; fi
     if [ ! -f "$LAST_WORD_FILE" ]; then return; fi
     local saved
@@ -192,8 +273,8 @@ apply_continuation() {
     local last_char="${saved%%:*}"
     local last_word="${saved#*:}"
 
-    # Supprimer les espaces en début (éviter doubles espaces si texte
-    # précédent avait un espace final, ex: "Bonjour, ")
+    # Strip leading spaces (avoid double spaces if previous text
+    # had a trailing space, e.g.: "Bonjour, ")
     _ref="${_ref#"${_ref%%[! ]*}"}"
 
     # Continuation keyword: remove last punctuation + lowercase
@@ -219,12 +300,12 @@ apply_continuation() {
         return
     fi
 
-    # Si le push commence par une ponctuation (commande vocale "virgule",
-    # "point", etc.), l'attacher au texte précédent sans espace.
+    # If the push starts with punctuation (voice command "comma",
+    # "period", etc.), attach it to previous text without space.
     local fc="${_ref:0:1}"
     if [[ "$fc" == [,.\;!?:] ]]; then
-        # Si le précédent était un point/ponctuation, l'effacer :
-        # l'utilisateur corrige explicitement la ponctuation
+        # If previous was a period/punctuation, erase it:
+        # user is explicitly correcting the punctuation
         if [[ "$last_char" == .* ]]; then
             local bs_count="${last_char#.}"
             bs_count="${bs_count:-1}"
@@ -234,10 +315,10 @@ apply_continuation() {
         elif [[ "$last_char" == [,F] ]]; then
             printf 'key backspace\n' | safe_dotool
         fi
-        # Minuscule seulement après , ; : (continuation)
-        # Garder la casse après . ! ? (nouvelle phrase)
-        # Exception : si le prefix contient \n (ex: ":\n"), c'est un nouveau
-        # paragraphe → garder la casse (majuscule)
+        # Lowercase only after , ; : (continuation)
+        # Keep case after . ! ? (new sentence)
+        # Exception: if prefix contains \n (e.g.: ":\n"), it's a new
+        # paragraph → keep case (uppercase)
         if [[ "$fc" == [,\;:] ]]; then
             local prefix="${_ref%%[A-Za-zÀ-ÿ]*}"
             if [[ "$prefix" != *$'\n'* ]]; then
@@ -251,10 +332,10 @@ apply_continuation() {
     fi
 
     if [ "$last_char" = "," ]; then
-        # Après virgule : toujours continuer (espace + minuscule)
+        # After comma: always continue (space + lowercase)
         _ref=" ${_ref,}"
     elif [[ "$last_char" == .* ]]; then
-        # Après point(s) : continuer seulement si le dernier mot est de classe fermée
+        # After period(s): continue only if last word is closed-class
         # Marker format: .N where N = number of backspaces (1, 2, or 3)
         local lower="${last_word,,}"
         local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
@@ -270,29 +351,29 @@ apply_continuation() {
             printf '%s' "$bs_cmd" | safe_dotool
             _ref=" ${_ref,}"
         else
-            # Phrase terminée : espace, garder la casse
+            # Sentence complete: space, keep case
             _ref=" ${_ref}"
         fi
     elif [ "$last_char" = "F" ]; then
-        # Après ! ? … ; : » ) : phrase terminée, espace + garder la casse
+        # After ! ? … ; : » ): sentence complete, space + keep case
         _ref=" ${_ref}"
     elif [ "$last_char" = "_" ]; then
-        # Pas de ponctuation : mi-phrase, espace + minuscule
+        # No punctuation: mid-sentence, space + lowercase
         _ref=" ${_ref,}"
     fi
 }
 
 save_last_word() {
-    # Sauver le marqueur de ponctuation et le dernier mot pour la continuation
-    # Marqueurs : , . F (fin: ! ? … ; : » )) _ (pas de ponctuation)
+    # Save punctuation marker and last word for continuation
+    # Markers: , . F (end: ! ? … ; : » )) _ (no punctuation)
     local text="$1"
-    # Si le texte contient un \n (commande vocale "à la ligne"),
-    # ne pas sauver : le prochain appui est indépendant
+    # If text contains \n ("new line" voice command),
+    # don't save: next push is independent
     if [[ "$text" == *$'\n'* ]]; then
         rm -f "$LAST_WORD_FILE"
         return
     fi
-    # Supprimer les espaces de fin (bash pur, pas de subshell)
+    # Strip trailing spaces (pure bash, no subshell)
     local trimmed="${text%"${text##*[! ]}"}"
     if [ -z "$trimmed" ]; then
         rm -f "$LAST_WORD_FILE"
@@ -301,7 +382,7 @@ save_last_word() {
 
     local marker="" stripped=""
 
-    # Vérifier les patterns multi-caractères d'abord (points de suspension)
+    # Check multi-character patterns first (ellipsis)
     # Marker encodes backspace count: .3 = "...", .2 = "..", .1 = "…" or "."
     if [[ "$trimmed" == *... ]]; then
         marker=".3"
@@ -329,7 +410,7 @@ save_last_word() {
         esac
     fi
 
-    # Extraire le dernier mot (avant la ponctuation)
+    # Extract the last word (before punctuation)
     if [ "$marker" != "_" ]; then
         stripped="${stripped%"${stripped##*[! ]}"}"
     fi
@@ -346,20 +427,217 @@ save_last_word() {
     fi
 }
 
-# Parse arguments — les valeurs de dictee.conf servent de défaut,
-# les arguments CLI les surchargent.
+# Check if audio context buffer is enabled
+audio_context_enabled() {
+    [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ]
+}
+
+# Check if buffer exists and is not expired
+buffer_valid() {
+    if [ ! -f "$BUFFER_FILE" ] || [ ! -f "$BUFFER_TS_FILE" ]; then
+        return 1
+    fi
+    local ts now timeout
+    ts=$(cat "$BUFFER_TS_FILE" 2>/dev/null) || return 1
+    now=$(date +%s)
+    timeout="${DICTEE_AUDIO_CONTEXT_TIMEOUT:-30}"
+    if [ $((now - ts)) -gt "$timeout" ]; then
+        _dbg "audio-context: buffer expired (age=$((now - ts))s > ${timeout}s)"
+        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE" "$BUFFER_TEXT_FILE"
+        return 1
+    fi
+    return 0
+}
+
+# Trim buffer to max duration (DICTEE_AUDIO_CONTEXT_TIMEOUT seconds)
+trim_buffer() {
+    local timeout="${DICTEE_AUDIO_CONTEXT_TIMEOUT:-30}"
+    local duration
+    duration=$(soxi -D "$BUFFER_FILE" 2>/dev/null) || return 0
+    local dur_int=${duration%.*}
+    if [ "${dur_int:-0}" -gt "$timeout" ]; then
+        _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
+        if sox "$BUFFER_FILE" "${BUFFER_FILE}.tmp" trim "=$((dur_int - timeout))" 2>/dev/null; then
+            mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
+        else
+            _dbg "audio-context: WARNING — trim failed, using full buffer"
+        fi
+    fi
+}
+
+# Generate silence WAV (cached)
+generate_silence() {
+    if [ ! -f "$SILENCE_FILE" ]; then
+        sox -n -r 16000 -c 1 -b 16 "$SILENCE_FILE" trim 0.0 "$SILENCE_DURATION"
+    fi
+}
+
+# Get buffer duration in seconds (float)
+get_buffer_duration() {
+    soxi -D "$BUFFER_FILE" 2>/dev/null
+}
+
+# Concatenate buffer + silence + new recording into combined file
+build_combined() {
+    local recording="$1"
+    trim_buffer
+    generate_silence
+    _dbg "audio-context: concat buffer + silence + recording"
+    sox "$BUFFER_FILE" "$SILENCE_FILE" "$recording" "$COMBINED_FILE" || return 1
+}
+
+# Resolve daemon socket path (same logic as transcribe-client)
+_daemon_socket() {
+    if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        echo "${XDG_RUNTIME_DIR}/transcribe.sock"
+    else
+        echo "/tmp/transcribe-$(id -u).sock"
+    fi
+}
+
+# Send audio to daemon with timestamps mode, return timestamped lines
+transcribe_with_timestamps() {
+    local audio_path="$1"
+    local sock
+    sock=$(_daemon_socket)
+    python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(30)
+s.connect(sys.argv[1])
+s.sendall((sys.argv[2] + '\ttimestamps\n').encode())
+s.shutdown(socket.SHUT_WR)
+data = b''
+while True:
+    chunk = s.recv(4096)
+    if not chunk: break
+    data += chunk
+s.close()
+print(data.decode().strip())
+" "$sock" "$audio_path"
+}
+
+# Extract text from timestamped lines where start >= threshold - margin
+# Input format: [0.42s - 1.85s] word
+# Margin of 0.5s avoids cutting first words due to timestamp alignment
+split_by_timestamp() {
+    local timestamped="$1"
+    local threshold="$2"
+    echo "$timestamped" | python3 -c "
+import sys, re
+threshold = float(sys.argv[1]) - 0.5
+lines = sys.stdin.read().strip().split('\n')
+parts = []
+for line in lines:
+    m = re.match(r'\[(\d+\.\d+)s\s*-\s*\d+\.\d+s\]\s*(.*)', line)
+    if m and float(m.group(1)) >= threshold:
+        parts.append(m.group(2))
+print(' '.join(parts).strip())
+" "$threshold"
+}
+
+# Save recording as new buffer (only if transcription was non-empty)
+save_buffer() {
+    local recording="$1"
+    cp "$recording" "$BUFFER_FILE"
+    date +%s > "$BUFFER_TS_FILE"
+    _dbg "audio-context: buffer saved ($(stat -c%s "$BUFFER_FILE") bytes)"
+}
+
+# Extract the "new" part from a combined transcription using the solo transcription as guide.
+# The combined = [buffer text] + [new text with context-aware homophones].
+# The solo = [new text without context].
+# Strategy: find where the solo text starts in the combined, return that part from combined.
+# Falls back to solo if matching fails.
+extract_new_from_combined() {
+    local combined_text="$1"
+    local solo_text="$2"
+    python3 -c "
+import re, sys
+combined = sys.argv[1]
+solo = sys.argv[2]
+def norm(s):
+    return re.sub(r'[^\w\s]', '', s.lower()).split()
+cw = norm(combined)
+sw = norm(solo)
+if not sw or not cw:
+    print(solo)
+    sys.exit()
+# Find the LAST position in combined where solo starts (skip buffer part)
+# Search backwards: the new text is at the end of the combined
+best_pos = -1
+match_words = min(3, len(sw))
+for i in range(len(cw) - match_words, -1, -1):
+    matches = sum(1 for j in range(match_words) if cw[i+j] == sw[j])
+    if matches >= match_words - 1:  # allow 1 mismatch in first 3 words
+        best_pos = i
+        break
+if best_pos < 0:
+    # No match found — solo text not found in combined, use solo (safe)
+    print(solo)
+else:
+    # Return from best_pos onwards in original combined text
+    words = combined.split()
+    result = ' '.join(words[best_pos:]).strip()
+    # Sanity: result should be roughly similar length to solo (±50%)
+    if len(result) < len(solo) * 0.5 or len(result) > len(solo) * 1.8:
+        print(solo)  # something went wrong, use safe fallback
+    else:
+        print(result)
+" "$combined_text" "$solo_text"
+}
+
+# Strip buffer text from the beginning of combined transcription.
+# Used by Canary whose proportional timestamps prevent timestamp-based splitting.
+# Falls back to full text if stripping fails.
+strip_buffer_text() {
+    local combined_text="$1"
+    local buf_text
+    buf_text=$(cat "$BUFFER_TEXT_FILE" 2>/dev/null) || { echo "$combined_text"; return; }
+    if [ -z "$buf_text" ]; then echo "$combined_text"; return; fi
+    python3 -c "
+import re, sys
+buf = sys.argv[1]
+combined = sys.argv[2]
+def norm(s):
+    return re.sub(r'[^\w\s]', '', s.lower()).split()
+bw = norm(buf)
+cw = norm(combined)
+if not bw or not cw:
+    print(combined)
+    sys.exit()
+# Find longest prefix match (allowing minor mismatches from retranscription)
+n = 0
+mismatches = 0
+max_mismatches = max(1, len(bw) // 5)  # allow ~20% mismatch
+for i in range(min(len(bw), len(cw))):
+    if cw[i] == bw[i]:
+        n = i + 1
+    else:
+        mismatches += 1
+        if mismatches <= max_mismatches:
+            n = i + 1  # skip mismatch, keep going
+        else:
+            break
+# Only strip if we matched at least 60% of buffer words
+if n >= len(bw) * 0.6:
+    words = combined.split()
+    print(' '.join(words[n:]).strip())
+else:
+    print(combined)
+" "$buf_text" "$combined_text"
+}
+
+# Parse arguments — dictee.conf values serve as defaults,
+# CLI arguments override them.
 TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
 TRANSLATE="${DICTEE_TRANSLATE:-false}"
 CANCEL=false
-NO_ESC_LISTENER=false
 
 for arg in "$@"; do
     case "$arg" in
     --cancel)
         CANCEL=true
-        ;;
-    --no-esc-listener)
-        NO_ESC_LISTENER=true
         ;;
     --translate)
         TRANSLATE=true
@@ -381,99 +659,34 @@ for arg in "$@"; do
     esac
 done
 
-# === FONCTIONS ===
-
-# === ÉCOUTE ESCAPE (/dev/input) ===
-
-ESC_LISTENER_PIDFILE="/tmp/dictee_esc_listener_pid${_UID_SUFFIX}"
-
-start_escape_listener() {
-    # Lance un listener en arrière-plan qui lit /dev/input pour détecter ESC
-    # Écoute tous les claviers simultanément. Nécessite le groupe 'input'.
-    stop_escape_listener
-    # Trouver tous les claviers physiques (sysrq+kbd = vrai clavier, exclure virtuels)
-    local kbd_devs
-    kbd_devs=$(awk -f <(cat << 'AWKEOF'
-/^N:/ { name = $0 }
-/^H:.*sysrq.*kbd/ {
-    if (name !~ /virtual|Virtual|uinput/) {
-        match($0, /event[0-9]+/)
-        if (RSTART) print "/dev/input/" substr($0, RSTART, RLENGTH)
-    }
-}
-AWKEOF
-    ) /proc/bus/input/devices)
-    if [ -z "$kbd_devs" ]; then return; fi
-    local self_path
-    self_path="$(readlink -f "$0")"
-    nohup python3 -c "
-import struct, subprocess, signal, select, os
-signal.signal(signal.SIGTERM, lambda *_: exit(0))
-devs = '''$kbd_devs'''.strip().split('\n')
-fds = []
-for d in devs:
-    try:
-        fds.append(open(d, 'rb'))
-    except (PermissionError, FileNotFoundError):
-        pass
-if not fds:
-    exit(1)
-while True:
-    ready, _, _ = select.select(fds, [], [])
-    for f in ready:
-        data = f.read(24)
-        if len(data) < 24:
-            continue
-        _s, _u, t, code, val = struct.unpack('llHHi', data)
-        if t == 1 and code == 1 and val == 1:
-            for ff in fds:
-                ff.close()
-            subprocess.Popen(['$self_path', '--cancel'])
-            exit(0)
-" >/dev/null 2>&1 &
-    echo $! > "$ESC_LISTENER_PIDFILE"
-    disown $!
-}
-
-stop_escape_listener() {
-    if [ -f "$ESC_LISTENER_PIDFILE" ]; then
-        local pid=""
-        if pid=$(cat "$ESC_LISTENER_PIDFILE" 2>/dev/null); then
-            if [ -n "$pid" ]; then
-                if kill "$pid" 2>/dev/null; then true; fi
-                if pkill -P "$pid" 2>/dev/null; then true; fi
-            fi
-        fi
-        rm -f "$ESC_LISTENER_PIDFILE"
-    fi
-}
+# === FUNCTIONS ===
 
 # === CLIPBOARD ===
 
 copy_to_clipboard() {
     [ "$CLIPBOARD" = true ] || return 0
     if command -v wl-copy >/dev/null 2>&1 && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
-        echo "$1" | wl-copy
+        echo -n "$1" | wl-copy
     elif command -v xclip >/dev/null 2>&1; then
-        echo "$1" | xclip -selection clipboard
+        echo -n "$1" | xclip -selection clipboard
     elif command -v xsel >/dev/null 2>&1; then
-        echo "$1" | xsel --clipboard --input
+        echo -n "$1" | xsel --clipboard --input
     fi
 }
 
-# === DÉPENDANCES ===
+# === DEPENDENCIES ===
 
 check_dependencies() {
     local missing=()
     command -v pw-record >/dev/null || missing+=("pipewire")
-    # wl-copy / xclip / xsel est optionnel (copie dans le presse-papier en bonus)
+    # wl-copy / xclip / xsel is optional (clipboard copy as bonus)
     command -v dotool >/dev/null || missing+=("dotool")
     if ! command -v pactl >/dev/null; then
         missing+=("pulseaudio-utils or pipewire-pulse")
     fi
     command -v notify-send >/dev/null || missing+=("libnotify-bin")
 
-    # Vérifier le backend de traduction si --translate
+    # Check translation backend if --translate
     if [ "$TRANSLATE" = true ]; then
         if [ "$TRANSLATE_BACKEND" = "trans" ]; then
             command -v trans >/dev/null || missing+=("translate-shell")
@@ -495,41 +708,13 @@ cleanup_on_error() {
     local err_line="${1:-unknown}"
     echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> "/tmp/dictee-error${_UID_SUFFIX}.log"
 
-    stop_escape_listener
-
-    # Tuer pw-record et ses enfants
-    if [ -f "$PIDFILE" ]; then
-        local rec_pid=$(cat "$PIDFILE")
-        kill -- -"$rec_pid" 2>/dev/null || kill "$rec_pid" 2>/dev/null
-        sleep 0.1
-        kill -9 -- -"$rec_pid" 2>/dev/null || kill -9 "$rec_pid" 2>/dev/null
-        rm -f "$PIDFILE" "${PIDFILE}.lock"
-    fi
-
-    # Arrêter l'animation
-    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
-        if command -v animation-speech-ctl >/dev/null 2>&1; then
-            animation-speech-ctl quit 2>/dev/null
-        fi
-    fi
-
-    # Tuer tous les processus enfants restants
+    stop_recording force
+    stop_animation quit
+    restore_audio
+    notify_dictee 0 audio-chat-none-symbolic "Enregistrement interrompu"
+    cleanup_session
+    rm -f "$LAST_WORD_FILE"
     pkill -P $$ 2>/dev/null
-
-    # Restaurer l'état audio
-    pactl set-sink-mute @DEFAULT_SINK@ 0
-    if [ -f "$MUT_FILE" ]; then
-        [[ $(awk -F"=" '{print $2}' "$MUT_FILE") == 1 ]] && pactl set-source-mute @DEFAULT_SOURCE@ 1
-        rm -f "$MUT_FILE"
-    fi
-
-    # Fermer la notification persistante
-    local id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-    if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement interrompu"
-    fi
-
-    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$LAST_WORD_FILE"
 
     write_state "idle"
     exit $exit_code
@@ -544,10 +729,8 @@ transcribe_canary_translate() {
     # Send WAV path + target language to Canary daemon via extended protocol
     local audio_file="$1"
     local target_lang="$2"
-    local sock_path="${XDG_RUNTIME_DIR:-/tmp}/transcribe.sock"
-    if [ ! -S "$sock_path" ]; then
-        sock_path="/tmp/transcribe-$(id -u).sock"
-    fi
+    local sock_path
+    sock_path=$(_daemon_socket)
     printf '%s\tlang:%s\n' "$audio_file" "$target_lang" | \
         python3 -c "
 import socket, sys
@@ -577,7 +760,7 @@ translate() {
     libretranslate)
         local port="${DICTEE_LIBRETRANSLATE_PORT:-5000}"
         local base_url="http://localhost:${port}"
-        # Vérifier que LibreTranslate est accessible et que les langues sont disponibles
+        # Check that LibreTranslate is reachable and languages are available
         local avail_langs
         if ! avail_langs=$(curl -s --max-time 3 --connect-timeout 2 "${base_url}/languages" 2>/dev/null) || [ -z "$avail_langs" ]; then
             echo "Erreur LibreTranslate: serveur inaccessible sur le port ${port}. Vérifier que le conteneur Docker est démarré et le réseau disponible." >&2
@@ -600,7 +783,7 @@ translate() {
             echo "Erreur LibreTranslate: langue(s) non disponible(s): ${missing} (disponibles: ${supported}). Relancer le conteneur Docker avec --load-only incluant ces langues." >&2
             return 1
         fi
-        # Échapper le texte pour JSON
+        # Escape text for JSON
         local json_text
         json_text=$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
         local result
@@ -615,18 +798,34 @@ translate() {
         fi
         ;;
     ollama)
+        trap - ERR
         local model="${DICTEE_OLLAMA_MODEL:-translategemma}"
-        # Vérifier si le modèle est déjà téléchargé
+        # Check if model is already downloaded
         if ! ollama list 2>/dev/null | grep -q "${model%%:*}"; then
-            notify-send -t 0 -i emblem-downloads -a Dictee "Téléchargement du modèle ${model}..." "Premier lancement, veuillez patienter"
+            notify_dictee 0 emblem-downloads "Téléchargement du modèle ${model}…" "Premier lancement, veuillez patienter"
         fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
 ${text}"
-        # Ajouter :latest seulement si pas de tag explicite
+        # Add :latest only if no explicit tag
         [[ "$model" == *:* ]] || model="${model}:latest"
-        timeout 30 ollama run "$model" "$prompt" 2>/dev/null
+        # Notify only if model needs loading into VRAM (cold start ~5s)
+        if ! ollama ps 2>/dev/null | grep -q "${model%%:*}"; then
+            notify_dictee 0 translate-symbolic "Chargement du modèle ${model%%:*}…"
+        fi
+        local _ollama_result
+        _ollama_result=$(python3 - "$model" "$prompt" <<'PYEOF'
+import json, urllib.request, sys
+model, prompt = sys.argv[1], sys.argv[2]
+data = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+req = urllib.request.Request("http://localhost:11434/api/generate", data=data, headers={"Content-Type": "application/json"})
+resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+print(resp.get("response", "").strip())
+PYEOF
+        )
+        trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
+        echo "$_ollama_result"
         ;;
     *)
         echo "Backend traduction inconnu: $backend" >&2
@@ -640,140 +839,219 @@ ${text}"
 check_dependencies
 trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 
-# === ANNULATION (idempotent via flock) ===
+# === CANCELLATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
     trap - ERR
+    # Read and lock state atomically
+    _cancel_state=""
     (
-        flock -n 200 || exit 0          # un autre cancel tient le verrou → no-op
+        flock -n 200 || exit 0          # another cancel holds the lock → no-op
         current=$(cat "$STATE_FILE" 2>/dev/null)
-        if [ "$current" = "cancelled" ]; then exit 0; fi  # déjà annulé
-        if [ "$current" = "idle" ]; then exit 0; fi        # rien à annuler
+        case "$current" in
+            idle|offline|cancelled|"") exit 0 ;;  # nothing to cancel
+        esac
         echo "cancelled" > "$STATE_FILE"
-    ) 200>"$STATE_LOCK"
+        # Output previous state for the parent to use
+        echo "$current" >&3
+    ) 200>"$STATE_LOCK" 3>/tmp/.dictee_cancel_state_$$ || true
+    _cancel_state=$(cat /tmp/.dictee_cancel_state_$$ 2>/dev/null)
+    rm -f /tmp/.dictee_cancel_state_$$
 
-    if [ -f "$PIDFILE" ]; then
-        id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-
-        stop_escape_listener
-
-        # Arrêter l'animation
-        if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
-            if command -v animation-speech-ctl >/dev/null 2>&1; then
-                if animation-speech-ctl quit 2>/dev/null; then true; fi
-            fi
-        fi
-
-        # Restaurer l'état du micro
-        if [ -f "$MUT_FILE" ]; then
-            was_muted=""
-            if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
-                if [ "$was_muted" = "1" ]; then
-                    pactl set-source-mute @DEFAULT_SOURCE@ 1
-                fi
-            fi
-            rm -f "$MUT_FILE"
-        fi
-        pactl set-sink-mute @DEFAULT_SINK@ 0
-
-        # Arrêter l'enregistrement
-        if [ -f "$PIDFILE" ]; then
-            cancel_pid=""
-            if cancel_pid=$(cat "$PIDFILE" 2>/dev/null); then
-                if [ -n "$cancel_pid" ]; then
-                    if kill "$cancel_pid" 2>/dev/null; then
-                        true
-                    fi
-                fi
-            fi
-            rm -f "$PIDFILE" "${PIDFILE}.lock"
-        fi
-
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
-        else
-            notify-send -t 3000 -i audio-chat-none-symbolic -a Dictee "Enregistrement annulé"
-        fi
-        rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    if [ -z "$_cancel_state" ]; then
+        _dbg "cancel: nothing to cancel"
+        exit 0
     fi
+
+    _dbg "cancel: state was $_cancel_state"
+
+    case "$_cancel_state" in
+        preparing|diarize-ready)
+            # Diarize preparation — kill switch-backend and restore daemon
+            if pkill -f "dictee-switch-backend diarize true" 2>/dev/null; then true; fi
+            dictee-switch-backend diarize false 2>/dev/null || true
+            notify_dictee 0 audio-chat-none-symbolic "Diarisation annulée"
+            ;;
+        recording)
+            # Active recording — stop it
+            stop_animation quit
+            restore_audio
+            stop_recording
+            notify_dictee 0 audio-chat-none-symbolic "Enregistrement annulé"
+            cleanup_session
+            # If diarize was prepared, restore daemon
+            _pre_b=$(grep '^DICTEE_PRE_DIARIZE_BACKEND=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2)
+            if [ -n "$_pre_b" ]; then
+                _dbg "cancel: recording had diarize prepared — restoring daemon"
+                dictee-switch-backend diarize false 2>/dev/null || true
+            else
+                write_state "idle"
+            fi
+            ;;
+        diarizing)
+            # Diarization in progress — kill processes and restore
+            if pkill -f "dictee-transcribe.*--diarize" 2>/dev/null; then true; fi
+            if pkill -f "transcribe-diarize" 2>/dev/null; then true; fi
+            if pkill -f "diarize-only" 2>/dev/null; then true; fi
+            sleep 0.2
+            dictee-switch-backend diarize false 2>/dev/null || true
+            notify_dictee 0 audio-chat-none-symbolic "Diarisation annulée"
+            ;;
+        transcribing|switching)
+            write_state "idle"
+            ;;
+    esac
+    _dbg "cancel: done"
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     exit 0
 fi
 
+# Clean up stale PIDFILE if process no longer exists (crash, sleep, etc.)
 if [ -f "$PIDFILE" ]; then
-    # === ARRÊT DE L'ENREGISTREMENT ===
-    # Désactiver trap ERR pendant cette section (trop de commandes externes
-    # qui peuvent retourner non-zéro légitimement : kill, pactl, ffmpeg, etc.)
+    _stale_pid=$(cat "$PIDFILE" 2>/dev/null)
+    if [ -z "$_stale_pid" ] || ! kill -0 "$_stale_pid" 2>/dev/null; then
+        _dbg "stale PIDFILE: pid=$_stale_pid (dead), cleaning up"
+        close_notification
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$MUT_FILE"
+        cleanup_session
+        write_state "idle"
+    fi
+fi
+
+if [ -f "$PIDFILE" ]; then
+    # === STOP RECORDING ===
+    _dbg "stop-recording: pid=$(cat "$PIDFILE" 2>/dev/null) translate=$TRANSLATE diarize=$DIARIZE"
+    # Disable trap ERR during this section (too many external commands
+    # that can legitimately return non-zero: kill, pactl, ffmpeg, etc.)
     trap - ERR
 
-    stop_escape_listener
-
-    # Récupérer les options utilisées au démarrage
+    # Retrieve options used at startup
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
         TRANSLATE=true
     fi
     if [ -f "$TRANSLATE_BACKEND_FILE" ]; then
         TRANSLATE_BACKEND=$(cat "$TRANSLATE_BACKEND_FILE")
     fi
-
-    id=$(cat "$ID_TMP_FILE" 2>/dev/null)
-
-    # Arrêter l'animation
-    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
-        if command -v animation-speech-ctl >/dev/null 2>&1; then
-            if animation-speech-ctl stop 2>/dev/null; then true; fi
-        fi
-    fi
-
-    # Restaurer l'état du micro
-    if [ -f "$MUT_FILE" ]; then
-        was_muted=""
-        if was_muted=$(awk -F"=" '{print $2}' "$MUT_FILE" 2>/dev/null); then
-            if [ "$was_muted" = "1" ]; then
-                pactl set-source-mute @DEFAULT_SOURCE@ 1
-            fi
-        fi
-        rm -f "$MUT_FILE"
-    fi
-    # Démuter le son
-    pactl set-sink-mute @DEFAULT_SINK@ 0
-
-    # Signaler au plasmoid
+    stop_animation
+    restore_audio
     write_state "transcribing"
+    stop_recording
+    if [ "$TRANSLATE" = true ]; then
+        notify_dictee 0 audio-chat-none-symbolic "Transcription + traduction en cours…"
+    else
+        notify_dictee 0 audio-chat-none-symbolic "Enregistrement arrêté"
+    fi
 
-    # Arrêter l'enregistrement
-    if [ -f "$PIDFILE" ]; then
-        rec_pid=""
-        if rec_pid=$(cat "$PIDFILE" 2>/dev/null); then
-            if [ -n "$rec_pid" ]; then
-                if kill "$rec_pid" 2>/dev/null; then
-                    true
+    # Live diarization: copy WAV and launch dictee-transcribe
+    if [ "$DIARIZE" = "true" ]; then
+        _dbg "diarize: launching dictee-transcribe"
+        write_state "diarizing"
+        diarize_file="/tmp/dictee-diarize-$(date +%s).wav"
+        cp "$RECORDING_FILE" "$diarize_file"
+        cleanup_session
+        _dbg "diarize: launching dictee-transcribe --file $diarize_file --diarize"
+        systemd-run --user --no-block --collect \
+            --unit="dictee-transcribe-$$" \
+            dictee-transcribe --file "$diarize_file" --diarize
+        exit 0
+    fi
+
+    # Determine which file to send to daemon and how
+    used_context=false
+    if audio_context_enabled && buffer_valid; then
+        if build_combined "$RECORDING_FILE"; then
+            used_context=true
+            _dbg "audio-context: using combined file for transcription"
+
+            # Get time threshold: buffer duration + silence
+            buf_dur=$(get_buffer_duration) || buf_dur="0"
+            threshold=$(python3 -c "print(float('${buf_dur}') + float('${SILENCE_DURATION}'))")
+            _dbg "audio-context: threshold=${threshold}s (buf=${buf_dur}s + silence=${SILENCE_DURATION}s)"
+
+            _backend="${DICTEE_ASR_BACKEND:-parakeet}"
+            if [ "$_backend" = "vosk" ]; then
+                # Vosk: no timestamps, no context
+                _dbg "audio-context: backend vosk has no timestamps, skipping context"
+                used_context=false
+                rm -f "$COMBINED_FILE"
+            elif [ "$_backend" = "canary" ]; then
+                # Canary: dual transcription mode
+                # 1. Transcribe combined (buffer+silence+new) → context-aware result
+                # 2. Transcribe recording alone → safe fallback
+                # 3. Extract the new part from the combined using the solo as reference
+                _dbg "audio-context: canary dual-transcription mode"
+                solo_text=""
+                combined_text=""
+                if eval transcribe-client "$RECORDING_FILE" > /dev/shm/.dictee_solo$$ 2>/dev/null; then
+                    solo_text=$(cat /dev/shm/.dictee_solo$$)
+                    rm -f /dev/shm/.dictee_solo$$
+                fi
+                if [ -n "$solo_text" ] && eval transcribe-client "$COMBINED_FILE" > /dev/shm/.dictee_comb$$ 2>/dev/null; then
+                    combined_text=$(cat /dev/shm/.dictee_comb$$)
+                    rm -f /dev/shm/.dictee_comb$$
+                fi
+                rm -f "$COMBINED_FILE"
+                if [ -n "$combined_text" ] && [ -n "$solo_text" ]; then
+                    raw=$(extract_new_from_combined "$combined_text" "$solo_text")
+                    _dbg "audio-context: canary extracted ${#raw} chars (solo=${#solo_text}, combined=${#combined_text})"
+                    # If extraction failed or is empty, use solo (safe fallback)
+                    if [ -z "$raw" ]; then
+                        _dbg "audio-context: extraction empty, using solo transcription"
+                        raw="$solo_text"
+                    fi
+                else
+                    _dbg "audio-context: canary dual-transcription failed, falling back to direct"
+                    used_context=false
+                fi
+            else
+                # Parakeet/Whisper: precise acoustic timestamps — split by timestamp threshold
+                _dbg "audio-context: using timestamps mode ($_backend)"
+                if ! timestamped=$(transcribe_with_timestamps "$COMBINED_FILE"); then
+                    _dbg "audio-context: timestamps transcription failed, falling back to direct"
+                    used_context=false
+                fi
+
+                if [ "$used_context" = true ]; then
+                    rm -f "$COMBINED_FILE"
+                    _dbg "audio-context: timestamped result: $(echo "$timestamped" | wc -l) words"
+                    if [ -z "$timestamped" ]; then
+                        _dbg "audio-context: WARNING — empty result with context, discarding buffer"
+                        rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE" "$BUFFER_TEXT_FILE"
+                        notify_dictee 0 dialog-error "Transcription failed — empty result"
+                        write_state "idle"
+                        cleanup_session
+                        exit 1
+                    fi
+                    raw=$(split_by_timestamp "$timestamped" "$threshold")
+                    _dbg "audio-context: extracted after threshold: ${#raw} chars"
                 fi
             fi
-        fi
-        rm -f "$PIDFILE" "${PIDFILE}.lock"
-    fi
-
-    if [ -n "$id" ]; then
-        notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Enregistrement arrêté"
-    fi
-
-    if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
         else
-            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — daemon not responding" 2>/dev/null || true
+            _dbg "audio-context: concat failed, using recording directly"
         fi
-        write_state "idle"
-        rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
-        exit 1
     fi
+
+    # Standard transcription (no context, or non-parakeet fallback)
+    if [ "$used_context" != true ]; then
+        _dbg "transcribe: sending $RECORDING_FILE to daemon"
+        if ! raw=$(eval transcribe-client "$RECORDING_FILE"); then
+            _dbg "transcribe: FAILED — daemon not responding"
+            notify_dictee 0 dialog-error "Transcription failed — daemon not responding"
+            write_state "idle"
+            cleanup_session
+            exit 1
+        fi
+    fi
+    rm -f "$COMBINED_FILE"
+    _dbg "transcribe: raw result=${#raw} chars"
     if [ -z "$raw" ]; then
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
-        else
-            notify-send -t 5000 -i dialog-error -a Dictee "Transcription failed — empty result" 2>/dev/null || true
+        _dbg "transcribe: FAILED — empty result"
+        if [ "$used_context" = true ]; then
+            _dbg "audio-context: WARNING — empty result with context, discarding buffer"
+            rm -f "$BUFFER_FILE" "$BUFFER_TS_FILE" "$BUFFER_TEXT_FILE"
         fi
+        notify_dictee 0 dialog-error "Transcription failed — empty result"
         write_state "idle"
-        rm -f "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+        cleanup_session
         exit 1
     fi
     if [ -n "$SUPPRIME" ]; then
@@ -785,21 +1063,23 @@ if [ -f "$PIDFILE" ]; then
         transcribed="$raw"
     fi
 
-    # Supprimer les espaces de fin (jamais significatifs, évite les doubles espaces
-    # quand la continuation ajoute un espace au push suivant)
+    # Strip trailing spaces (never significant, avoids double spaces
+    # when continuation adds a space on next push)
     transcribed="${transcribed%"${transcribed##*[! ]}"}"
 
-    # Continuation inter-appuis : adapter le texte si phrase précédente incomplète
+    # Cross-push continuation: adapt text if previous sentence was incomplete
     apply_continuation transcribed
 
+    # Save recording as buffer for next push (only if non-empty transcription)
+    if audio_context_enabled && [ -n "$transcribed" ]; then
+        save_buffer "$RECORDING_FILE"
+        echo "$transcribed" > "$BUFFER_TEXT_FILE"
+    fi
+
     if [ "$TRANSLATE" = true ]; then
-        # Traduire et copier
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 30000 -i audio-chat-none-symbolic -a Dictee "Traduction en cours..."
-        fi
+        notify_dictee 0 audio-chat-none-symbolic "Traduction en cours..."
 
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
-            # Canary: built-in translation — single daemon call with target language
             translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
             _trans_label="canary"
         else
@@ -808,103 +1088,137 @@ if [ -f "$PIDFILE" ]; then
         fi
         if [ -n "$translated" ]; then
             copy_to_clipboard "$translated"
-            type_text "$translated"
-            save_last_word "$translated"
-
-            if [ -n "$id" ]; then
-                notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+            # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
+            # dotool "type" cannot handle these characters, use clipboard paste
+            if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
+                sleep 0.1
+                printf 'key ctrl+V\n' | safe_dotool
             else
-                notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
+                type_text "$translated"
             fi
+            save_last_word "$translated"
+            notify_dictee 0 clipboard-paste-symbolic "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         else
-            # Traduction échouée — taper le texte original
             copy_to_clipboard "$transcribed"
             type_text "$transcribed"
             save_last_word "$transcribed"
-
-            if [ -n "$id" ]; then
-                notify-send --replace-id="$id" -t 5000 -i dialog-warning-symbolic -a Dictee "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
-            else
-                notify-send -t 5000 -i dialog-warning-symbolic -a Dictee "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
-            fi
+            notify_dictee 0 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
         fi
     else
-        # Copier directement
         copy_to_clipboard "$transcribed"
         type_text "$transcribed"
         save_last_word "$transcribed"
-
-        if [ -n "$id" ]; then
-            notify-send --replace-id="$id" -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
-        else
-            notify-send -t 5000 -i clipboard-paste-symbolic -a Dictee "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
-        fi
+        notify_dictee 0 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
     fi
 
-    rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE"
+    cleanup_session
     write_state "idle"
 
-    # Réactiver trap ERR
+    # Auto-close the result notification after 5 seconds
+    (sleep 5; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+
+    # Re-enable trap ERR
     trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 
 else
-    # === DÉMARRAGE DE L'ENREGISTREMENT ===
+    # === START RECORDING ===
 
-    # Verrou atomique : empêcher un double-démarrage (rebond clavier, double raccourci)
-    exec 201>"${PIDFILE}.lock"
-    if ! flock -n 201; then
-        exit 0  # un autre dictee est déjà en train de démarrer
+    # Check state allows recording (only idle or diarize-ready are valid)
+    _current_state=$(cat "$STATE_FILE" 2>/dev/null || true)
+    _dbg "start-recording: current_state=$_current_state diarize=$DIARIZE"
+    case "$_current_state" in
+        idle|"")
+            ;;  # OK to record (empty = first boot, no state file yet)
+        diarize-ready)
+            if [ "$DIARIZE" != "true" ]; then
+                _dbg "start-recording: BLOCKED — diarize-ready requires --diarize flag"
+                exit 0
+            fi
+            ;;  # OK to record in diarize mode
+        *)
+            _dbg "start-recording: BLOCKED (state=$_current_state)"
+            exit 0
+            ;;
+    esac
+
+    # Check daemon is running (skip in diarize mode — daemon is intentionally stopped)
+    if [ "$_current_state" != "diarize-ready" ]; then
+        _backend="${DICTEE_ASR_BACKEND:-parakeet}"
+        _ASR_SERVICE=$(asr_service "$_backend")
+        if ! systemctl --user is-active --quiet "$_ASR_SERVICE" 2>/dev/null; then
+            _dbg "start-recording: BLOCKED — daemon $_ASR_SERVICE not active"
+            trap - ERR
+            notify_dictee 0 dialog-error "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_ASR_SERVICE"
+            if command -v paplay >/dev/null 2>&1; then
+                paplay /usr/share/sounds/freedesktop/stereo/dialog-error.oga &
+            fi
+            exit 0
+        fi
     fi
 
-    if [ "$NO_ESC_LISTENER" = false ]; then start_escape_listener; fi
+    # Atomic lock: prevent double-start (key bounce, double shortcut)
+    exec 201>"${PIDFILE}.lock"
+    if ! flock -n 201; then
+        _dbg "start-recording: BLOCKED — lock held by another dictee"
+        exit 0  # another dictee is already starting
+    fi
 
-    # Sauvegarder les options choisies
+    # Save chosen options
     if [ "$TRANSLATE" = true ]; then
         touch "$TRANSLATE_FLAG_FILE"
         echo "$TRANSLATE_BACKEND" >"$TRANSLATE_BACKEND_FILE"
     fi
 
-    # Vérifier si le micro est muté et le démuter
-    if pactl get-source-mute @DEFAULT_SOURCE@ | grep -q -i -E 'oui|yes'; then
-        pactl set-source-mute @DEFAULT_SOURCE@ 0
-        echo "MUT=1" >"$MUT_FILE"
+    # Audio management: no mute if capturing an application (numeric node ID)
+    if [ "$_IS_APP_SOURCE" = false ]; then
+        # Source = microphone: unmute mic, mute output (anti-feedback)
+        if pactl get-source-mute "$_PA_SOURCE" | grep -q -i -E 'oui|yes'; then
+            pactl set-source-mute "$_PA_SOURCE" 0
+            echo "MUT=1" >"$MUT_FILE"
+        fi
+        pactl set-sink-mute @DEFAULT_SINK@ 1
     fi
-    # Muter le son (pour éviter le feedback)
-    pactl set-sink-mute @DEFAULT_SINK@ 1
 
-    # Lancer l'animation (si mode speech ou both, et si disponible)
+    # Launch animation (if mode speech or both, and if available)
     if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
-            SCRIPT_PATH="$(readlink -f "$0")"
-            if animation-speech-ctl launch --on-escape "$SCRIPT_PATH --cancel" 2>/dev/null; then true; fi
+            if animation-speech-ctl launch --on-escape "$(readlink -f "$0") --cancel" 2>/dev/null; then true; fi
         fi
     fi
 
-    # Démarrer l'enregistrement EN PREMIER (avant notification/plasmoid pour ne rien perdre)
-    pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
-    echo $! >"$PIDFILE"
-
-    # Vérifier que pw-record a bien démarré
-    sleep 0.2
-    if ! kill -0 $! 2>/dev/null; then
-        rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
-        notify-send -t 5000 -i dialog-error -a Dictee "Recording failed — audio device unavailable" 2>/dev/null || true
-        write_state "idle"
-        exit 1
-    fi
-
-    # Signaler au plasmoid
-    write_state "recording"
-
-    # Notification (sert aussi de délai pour pw-record)
+    # Send notification FIRST and save ID atomically (must be available before
+    _dbg "start-recording: source=${AUDIO_SOURCE:-default} app=$_IS_APP_SOURCE translate=$TRANSLATE"
     if [ "$TRANSLATE" = true ]; then
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
             _rec_trans_label="canary"
         else
             _rec_trans_label="$TRANSLATE_BACKEND"
         fi
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement $LANG_LABEL ($_rec_trans_label) (${DICTEE_ASR_BACKEND:-parakeet})" >"$ID_TMP_FILE"
+        notify_dictee 0 audio-chat-symbolic "Enregistrement $LANG_LABEL ($_rec_trans_label) (${DICTEE_ASR_BACKEND:-parakeet})"
     else
-        notify-send -p -t 0 -i audio-chat-symbolic -a Dictee "Enregistrement démarré (${DICTEE_ASR_BACKEND:-parakeet})" >"$ID_TMP_FILE"
+        notify_dictee 0 audio-chat-symbolic "Enregistrement démarré (${DICTEE_ASR_BACKEND:-parakeet})"
     fi
+
+    # Start recording
+    if [ -n "$AUDIO_SOURCE" ]; then
+        pw-record --target "$AUDIO_SOURCE" --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    else
+        pw-record --rate 16000 --channels 1 --format s16 "$RECORDING_FILE" &
+    fi
+    echo $! >"$PIDFILE"
+
+    # Verify pw-record started successfully
+    sleep 0.2
+    if ! kill -0 $! 2>/dev/null; then
+        _dbg "start-recording: FAILED — pw-record died immediately"
+        close_notification
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
+        cleanup_session
+        write_state "idle"
+        exit 1
+    fi
+
+    # Signal plasmoid
+    write_state "recording"
+    _dbg "start-recording: OK pid=$(cat "$PIDFILE" 2>/dev/null)"
 fi

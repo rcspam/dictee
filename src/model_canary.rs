@@ -29,6 +29,7 @@ impl Default for CanaryModelConfig {
 }
 
 impl CanaryModelConfig {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

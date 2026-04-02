@@ -65,6 +65,12 @@ PlasmoidItem {
             return i18n("Transcribing…")
         case "switching":
             return i18n("Switching backend…")
+        case "preparing":
+            return i18n("Preparing…")
+        case "diarize-ready":
+            return i18n("Diarize ready")
+        case "diarizing":
+            return i18n("Diarizing…")
         default:
             return ""
         }

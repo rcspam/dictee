@@ -42,7 +42,6 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-ptt" "$PREFIX/bin/dictee-ptt"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-postprocess" "$PREFIX/bin/dictee-postprocess"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-switch-backend" "$PREFIX/bin/dictee-switch-backend"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-test-rules" "$PREFIX/bin/dictee-test-rules"
-install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-canary" "$PREFIX/bin/transcribe-daemon-canary"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-transcribe" "$PREFIX/bin/dictee-transcribe"
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-vosk" "$PREFIX/bin/transcribe-daemon-vosk"
 install -Dm755 "$SCRIPT_DIR/usr/bin/transcribe-daemon-whisper" "$PREFIX/bin/transcribe-daemon-whisper"
@@ -51,16 +50,28 @@ install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-plasmoid-level-daemon" "$PREFIX/bin/d
 install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-plasmoid-level-fft" "$PREFIX/bin/dictee-plasmoid-level-fft"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotool" "$PREFIX/bin/dotool"
 install -Dm755 "$SCRIPT_DIR/usr/bin/dotoold" "$PREFIX/bin/dotoold"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-reset" "$PREFIX/bin/dictee-reset"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-translate-langs" "$PREFIX/bin/dictee-translate-langs"
+install -Dm755 "$SCRIPT_DIR/usr/bin/dictee-audio-sources" "$PREFIX/bin/dictee-audio-sources"
+
+# Shared libraries (dictee-common.sh, dictee_models.py)
+echo "→ Installation des fichiers partagés dans /usr/lib/dictee/"
+install -d /usr/lib/dictee
+[ -f "$SCRIPT_DIR/usr/lib/dictee/dictee-common.sh" ] && install -Dm644 "$SCRIPT_DIR/usr/lib/dictee/dictee-common.sh" "/usr/lib/dictee/dictee-common.sh"
+[ -f "$SCRIPT_DIR/usr/lib/dictee/dictee_models.py" ] && install -Dm644 "$SCRIPT_DIR/usr/lib/dictee/dictee_models.py" "/usr/lib/dictee/dictee_models.py"
 
 # ONNX Runtime CUDA libs (if present in the tarball — CUDA variant only)
 if [ -d "$SCRIPT_DIR/usr/lib/dictee" ]; then
-    echo "→ Installation des libs CUDA ONNX Runtime"
-    install -d /usr/lib/dictee
     for lib in "$SCRIPT_DIR/usr/lib/dictee/"*.so; do
-        [ -f "$lib" ] && install -Dm644 "$lib" "/usr/lib/dictee/$(basename "$lib")"
+        if [ -f "$lib" ]; then
+            echo "→ Installation des libs CUDA ONNX Runtime"
+            install -Dm644 "$lib" "/usr/lib/dictee/$(basename "$lib")"
+        fi
     done
-    echo "/usr/lib/dictee" > /etc/ld.so.conf.d/dictee.conf
-    ldconfig 2>/dev/null || true
+    if ls /usr/lib/dictee/*.so 1>/dev/null 2>&1; then
+        echo "/usr/lib/dictee" > /etc/ld.so.conf.d/dictee.conf
+        ldconfig 2>/dev/null || true
+    fi
 fi
 
 # Udev rules (dotool — accès uinput pour le groupe input)

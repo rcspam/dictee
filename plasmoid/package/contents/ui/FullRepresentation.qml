@@ -44,7 +44,7 @@ RowLayout {
 
         PlasmaExtras.Heading {
             level: 3
-            text: "Dictée"
+            text: i18n("Dictée")
             Layout.fillWidth: true
         }
 

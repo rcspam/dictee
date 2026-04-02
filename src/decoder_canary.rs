@@ -33,6 +33,7 @@ impl CanaryDecoder {
     /// Build a CanaryDecoder from a pre-built HashMap (useful for tests).
     ///
     /// The `▁` character is replaced with a space, same as [`from_vocabulary`].
+    #[allow(dead_code)]
     pub fn from_vocab_map(vocab: HashMap<usize, String>) -> Self {
         let vocab = vocab
             .into_iter()
@@ -55,11 +56,13 @@ impl CanaryDecoder {
     }
 
     /// Look up raw vocab text for a token ID (including special tokens).
+    #[allow(dead_code)]
     pub fn vocab_lookup(&self, id: usize) -> Option<&str> {
         self.vocab.get(&id).map(|s| s.as_str())
     }
 
     /// Decode a slice of token IDs into a string, filtering special tokens.
+    #[allow(dead_code)]
     pub fn decode(&self, token_ids: &[i64]) -> String {
         let mut result = String::new();
         for &id in token_ids {
