@@ -159,19 +159,21 @@ def _is_translate_enabled():
 
 def _asr_service_exists(key):
     """Check if an ASR backend is actually usable (binary+model/venv installed)."""
-    if key == "parakeet":
-        if not shutil.which("transcribe-daemon"):
-            return False
-        data_dir = os.path.join(
-            os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
-            "dictee", "tdt",
-        )
-        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(data_dir)
     data_dir = os.path.join(
         os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
         "dictee",
     )
-    venv_map = {"vosk": "vosk-env", "whisper": "whisper-env", "canary": "canary-env"}
+    if key == "parakeet":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(os.path.join(data_dir, "tdt"))
+    if key == "canary":
+        # Canary uses the same Rust binary as Parakeet (transcribe-daemon --canary)
+        if not shutil.which("transcribe-daemon"):
+            return False
+        return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
+    # Vosk/Whisper: check venv
+    venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)
     if venv:
         return os.path.isdir(os.path.join(data_dir, venv, "lib"))

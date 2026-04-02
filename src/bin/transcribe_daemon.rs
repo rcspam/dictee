@@ -88,8 +88,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         || args.iter().any(|a| a == "--canary");
 
     let source_lang = env::var("DICTEE_LANG_SOURCE").unwrap_or_else(|_| "fr".to_string());
-    let target_lang =
-        env::var("DICTEE_LANG_TARGET").unwrap_or_else(|_| source_lang.clone());
+    // For Canary: default target = source (transcription, not translation).
+    // Translation is requested per-request via the socket protocol (lang:XX).
+    // DICTEE_LANG_TARGET from dictee.conf is for external translation backends, not Canary.
+    let target_lang = if use_canary {
+        source_lang.clone()
+    } else {
+        env::var("DICTEE_LANG_TARGET").unwrap_or_else(|_| source_lang.clone())
+    };
 
     // Find model directory
     let model_dir = args

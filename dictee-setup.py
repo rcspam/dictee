@@ -798,8 +798,13 @@ ASSETS_DIR = _find_assets_dir()
 
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
-CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")
-CANARY_PACKAGES = ["onnx-asr>=0.11.0", "onnxruntime-gpu", "nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
+CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")  # Legacy, kept for cleanup
+CANARY_MODEL_DIR = os.path.join(DICTEE_DATA_DIR, "canary")
+CANARY_HF_REPO = "istupakov/canary-1b-v2-onnx"
+CANARY_MODEL_FILES = [
+    "encoder-model.onnx", "encoder-model.onnx.data", "decoder-model.onnx",
+    "vocab.txt", "config.json",
+]
 
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
@@ -813,7 +818,15 @@ VOSK_MODELS = {
     "ja": "vosk-model-small-ja-0.22",
 }
 
-WHISPER_MODELS = ["tiny", "small", "medium", "large-v3"]
+WHISPER_MODELS = [
+    ("tiny", "tiny — 39M, fastest, lowest quality"),
+    ("small", "small — 244M, good balance"),
+    ("medium", "medium — 769M, better quality"),
+    ("large-v3", "large-v3 — 1.5B, best generic quality"),
+    ("large-v3-turbo", "large-v3-turbo — 809M, fast + good quality"),
+    ("bofenghuang/whisper-large-v3-french", "large-v3-french — 1.5B, best French (WER 3.98%)"),
+    ("bofenghuang/whisper-large-v3-french-distil-dec16", "large-v3-french-distil — 1.5B, fast French"),
+]
 
 
 def venv_is_installed(venv_path):
@@ -864,34 +877,77 @@ class VenvInstallThread(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
-class _CanaryInstallThread(QThread):
-    """Thread to create a venv and install multiple packages for Canary."""
+class _CanaryDownloadThread(QThread):
+    """Thread to download Canary ONNX model files from HuggingFace."""
     finished = Signal(bool, str)
     progress = Signal(str)
 
-    def __init__(self, venv_path, packages):
+    def __init__(self, model_dir, hf_repo, files):
+        super().__init__()
+        self.model_dir = model_dir
+        self.hf_repo = hf_repo
+        self.files = files
+
+    def run(self):
+        import urllib.request
+        try:
+            os.makedirs(self.model_dir, exist_ok=True)
+            base_url = f"https://huggingface.co/{self.hf_repo}/resolve/main"
+            for i, fname in enumerate(self.files, 1):
+                dest = os.path.join(self.model_dir, fname)
+                if os.path.exists(dest):
+                    self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
+                    continue
+                self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
+                url = f"{base_url}/{fname}"
+                tmp = dest + ".part"
+                urllib.request.urlretrieve(url, tmp)
+                os.rename(tmp, dest)
+            # Generate tokenizer.json if missing (needed for decodercontext)
+            tokenizer_path = os.path.join(self.model_dir, "tokenizer.json")
+            if not os.path.exists(tokenizer_path):
+                vocab_path = os.path.join(self.model_dir, "vocab.txt")
+                if os.path.exists(vocab_path):
+                    self.progress.emit(_("Generating tokenizer.json…"))
+                    self._generate_tokenizer(vocab_path, tokenizer_path)
+            self.finished.emit(True, "")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+    @staticmethod
+    def _generate_tokenizer(vocab_path, tokenizer_path):
+        """Generate a tokenizer.json from vocab.txt for SentencePiece-like decoding."""
+        import json
+        vocab = {}
+        with open(vocab_path) as f:
+            for line in f:
+                parts = line.strip().rsplit(" ", 1)
+                if len(parts) == 2:
+                    vocab[int(parts[1])] = parts[0]
+        # Minimal tokenizer format
+        tokenizer = {"model": {"type": "Unigram", "vocab": [[t, 0.0] for t in vocab.values()]}}
+        with open(tokenizer_path, "w") as f:
+            json.dump(tokenizer, f)
+
+
+class _WhisperDownloadThread(QThread):
+    """Thread to pre-download a Whisper model using faster-whisper in the venv."""
+    finished = Signal(bool, str)
+
+    def __init__(self, venv_path, model_id):
         super().__init__()
         self.venv_path = venv_path
-        self.packages = packages
+        self.model_id = model_id
 
     def run(self):
         try:
-            self.progress.emit(_("Creating virtual environment…"))
-            os.makedirs(self.venv_path, exist_ok=True)
-            result = subprocess.run(
-                ["python3", "-m", "venv", self.venv_path],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode != 0:
-                self.finished.emit(False, result.stderr.strip())
+            python = os.path.join(self.venv_path, "bin", "python3")
+            if not os.path.isfile(python):
+                self.finished.emit(False, _("Whisper venv not installed. Install Whisper engine first."))
                 return
-            pip = os.path.join(self.venv_path, "bin", "pip")
-            self.progress.emit(_("Upgrading pip…"))
-            subprocess.run([pip, "install", "--upgrade", "pip"],
-                           capture_output=True, text=True, timeout=120)
-            self.progress.emit(_("Installing Canary packages…"))
+            # faster-whisper downloads the model on first WhisperModel() instantiation
             result = subprocess.run(
-                [pip, "install"] + self.packages,
+                [python, "-c", f"from faster_whisper import WhisperModel; WhisperModel('{self.model_id}', device='cpu')"],
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode != 0:
@@ -899,7 +955,7 @@ class _CanaryInstallThread(QThread):
                 return
             self.finished.emit(True, "")
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Installation timed out."))
+            self.finished.emit(False, _("Download timed out."))
         except Exception as e:
             self.finished.emit(False, str(e))
 
@@ -2465,9 +2521,9 @@ class DicteeSetupDialog(QDialog):
                         _("faster-whisper is not installed. Please click 'Install Whisper' above."))
                     return False
             elif asr == "canary":
-                if not venv_is_installed(CANARY_VENV):
+                if not self._canary_model_installed():
                     QMessageBox.warning(self, _("Setup required"),
-                        _("Canary is not installed. Please click 'Install Canary' above."))
+                        _("Canary model not downloaded. Please click 'Download Canary model' above."))
                     return False
         elif idx == 2:
             # Shortcuts page: user must be in 'input' group
@@ -3269,6 +3325,25 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"Vosk download error: {message!r}")
             QMessageBox.critical(self, _("Download error"), message or _("Unknown error"))
 
+    @staticmethod
+    def _whisper_model_cached(model_id):
+        """Check if a Whisper model is already downloaded in HuggingFace cache."""
+        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+        if not os.path.isdir(cache_dir):
+            return False
+        # faster-whisper uses Systran/faster-whisper-<size> for generic models
+        # or the full repo id for custom models
+        candidates = [
+            f"models--Systran--faster-whisper-{model_id}",
+            f"models--{model_id.replace('/', '--')}",
+            f"models--openai--whisper-{model_id}",
+        ]
+        for c in candidates:
+            snap = os.path.join(cache_dir, c, "snapshots")
+            if os.path.isdir(snap) and os.listdir(snap):
+                return True
+        return False
+
     def _build_whisper_options(self, parent_layout):
         """Build Whisper install + model/language widgets."""
         self.w_whisper_options = QWidget()
@@ -3289,12 +3364,21 @@ class DicteeSetupDialog(QDialog):
 
         lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = QComboBox()
-        for m in WHISPER_MODELS:
-            self.cmb_whisper_model.addItem(m)
+        for model_id, label in WHISPER_MODELS:
+            cached = self._whisper_model_cached(model_id)
+            prefix = "✓ " if cached else "  "
+            self.cmb_whisper_model.addItem(prefix + label, model_id)
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
-        idx = self.cmb_whisper_model.findText(cur_wh)
-        if idx >= 0:
-            self.cmb_whisper_model.setCurrentIndex(idx)
+        for i in range(self.cmb_whisper_model.count()):
+            if self.cmb_whisper_model.itemData(i) == cur_wh:
+                self.cmb_whisper_model.setCurrentIndex(i)
+                break
+
+        self.btn_download_whisper = QPushButton(_("Download"))
+        self.btn_download_whisper.setFixedWidth(100)
+        self.btn_download_whisper.setToolTip(_("Pre-download the selected model (otherwise downloaded on first use)"))
+        self.btn_download_whisper.clicked.connect(self._download_whisper_model)
+
         lbl_wh_lang = QLabel(_("Language:"))
         self.txt_whisper_lang = QComboBox()
         self.txt_whisper_lang.setEditable(True)
@@ -3306,6 +3390,7 @@ class DicteeSetupDialog(QDialog):
 
         row.addWidget(lbl_wh_model)
         row.addWidget(self.cmb_whisper_model)
+        row.addWidget(self.btn_download_whisper)
         row.addWidget(lbl_wh_lang)
         row.addWidget(self.txt_whisper_lang)
         row.addWidget(lbl_auto)
@@ -3315,8 +3400,41 @@ class DicteeSetupDialog(QDialog):
 
         parent_layout.addWidget(self.w_whisper_options)
 
+    def _download_whisper_model(self):
+        """Pre-download the selected Whisper model."""
+        model_id = self.cmb_whisper_model.currentData()
+        if not model_id:
+            return
+        if self._whisper_model_cached(model_id):
+            QMessageBox.information(self, _("Already downloaded"),
+                _("Model '{}' is already in cache.").format(model_id))
+            return
+        self.btn_download_whisper.setEnabled(False)
+        self.btn_download_whisper.setText(_("Downloading…"))
+        thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
+        thread.finished.connect(self._on_whisper_download_done)
+        self._venv_threads["whisper_dl"] = thread
+        thread.start()
+
+    def _on_whisper_download_done(self, ok, msg):
+        self.btn_download_whisper.setEnabled(True)
+        self.btn_download_whisper.setText(_("Download"))
+        # Refresh model list to update ✓ marks
+        cur_data = self.cmb_whisper_model.currentData()
+        self.cmb_whisper_model.clear()
+        for model_id, label in WHISPER_MODELS:
+            cached = self._whisper_model_cached(model_id)
+            prefix = "✓ " if cached else "  "
+            self.cmb_whisper_model.addItem(prefix + label, model_id)
+        for i in range(self.cmb_whisper_model.count()):
+            if self.cmb_whisper_model.itemData(i) == cur_data:
+                self.cmb_whisper_model.setCurrentIndex(i)
+                break
+        if not ok:
+            QMessageBox.warning(self, _("Download failed"), msg)
+
     def _build_canary_options(self, parent_layout):
-        """Build Canary 1B v2 sub-options (GPU only, venv install)."""
+        """Build Canary 1B v2 sub-options (GPU only, model download)."""
         self.w_canary_options = QWidget()
         canary_lay = QVBoxLayout(self.w_canary_options)
         canary_lay.setContentsMargins(0, 4, 0, 0)
@@ -3330,54 +3448,57 @@ class DicteeSetupDialog(QDialog):
         lbl_info.setWordWrap(True)
         canary_lay.addWidget(lbl_info)
 
-        # Venv status
-        self._lbl_canary_venv = QLabel()
-        canary_lay.addWidget(self._lbl_canary_venv)
+        # Model status
+        self._lbl_canary_model = QLabel()
+        canary_lay.addWidget(self._lbl_canary_model)
 
-        # Install button
+        # Download button
         row = QHBoxLayout()
-        self.btn_install_canary = QPushButton(_("Install Canary environment (~1.5 GB)"))
-        self.btn_install_canary.clicked.connect(self._install_canary_venv)
+        self.btn_install_canary = QPushButton(_("Download Canary model (~4.7 GB)"))
+        self.btn_install_canary.clicked.connect(self._download_canary_model)
         row.addStretch()
         row.addWidget(self.btn_install_canary)
         canary_lay.addLayout(row)
 
-        self._update_canary_venv_status()
+        self._update_canary_model_status()
         self.w_canary_options.setVisible(False)
         parent_layout.addWidget(self.w_canary_options)
 
-    def _update_canary_venv_status(self):
-        """Update Canary venv status label."""
-        if venv_is_installed(CANARY_VENV):
-            self._lbl_canary_venv.setText("✓ " + _("Canary environment installed"))
-            self._lbl_canary_venv.setStyleSheet("color: #4a4;")
-            self.btn_install_canary.setText(_("Reinstall Canary environment"))
+    def _canary_model_installed(self):
+        """Check if Canary ONNX model files are present."""
+        sys_dir = "/usr/share/dictee/canary"
+        for d in [sys_dir, CANARY_MODEL_DIR]:
+            if os.path.isfile(os.path.join(d, "encoder-model.onnx")):
+                return True
+        return False
+
+    def _update_canary_model_status(self):
+        """Update Canary model status label."""
+        if self._canary_model_installed():
+            self._lbl_canary_model.setText("✓ " + _("Canary model installed"))
+            self._lbl_canary_model.setStyleSheet("color: #4a4;")
+            self.btn_install_canary.setText(_("Re-download Canary model"))
         else:
-            self._lbl_canary_venv.setText("✗ " + _("Canary environment not installed"))
-            self._lbl_canary_venv.setStyleSheet("color: #a44;")
+            self._lbl_canary_model.setText("✗ " + _("Canary model not installed"))
+            self._lbl_canary_model.setStyleSheet("color: #a44;")
 
-    def _install_canary_venv(self):
-        _dbg_setup("_install_canary_venv")
-        """Install Canary venv with onnx-asr + GPU deps."""
+    def _download_canary_model(self):
+        _dbg_setup("_download_canary_model")
         self.btn_install_canary.setEnabled(False)
-        self.btn_install_canary.setText(_("Installing..."))
+        self.btn_install_canary.setText(_("Downloading..."))
 
-        # VenvInstallThread takes a single pip_package string;
-        # pip install handles multiple space-separated package specs
-        # when passed as separate args, so we join with space for display
-        # but actually install in sequence via a small wrapper
-        thread = _CanaryInstallThread(CANARY_VENV, CANARY_PACKAGES)
-        thread.finished.connect(self._on_canary_install_done)
+        thread = _CanaryDownloadThread(CANARY_MODEL_DIR, CANARY_HF_REPO, CANARY_MODEL_FILES)
+        thread.finished.connect(self._on_canary_download_done)
         thread.progress.connect(lambda msg: self.btn_install_canary.setText(msg))
         self._venv_threads["canary"] = thread
         thread.start()
 
-    def _on_canary_install_done(self, ok, msg):
-        _dbg_setup(f"_on_canary_install_done: ok={ok}, msg={msg!r}")
+    def _on_canary_download_done(self, ok, msg):
+        _dbg_setup(f"_on_canary_download_done: ok={ok}, msg={msg!r}")
         self.btn_install_canary.setEnabled(True)
-        self._update_canary_venv_status()
+        self._update_canary_model_status()
         if not ok:
-            QMessageBox.warning(self, _("Installation failed"), msg)
+            QMessageBox.warning(self, _("Download failed"), msg)
 
     def _build_visual_section(self, lay_vis, conf):
         """Build visual feedback checkboxes and install button."""
@@ -8076,7 +8197,7 @@ class DicteeSetupDialog(QDialog):
         else:
             asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
 
-        whisper_model = self.cmb_whisper_model.currentText()
+        whisper_model = self.cmb_whisper_model.currentData() or "small"
         whisper_lang = self.txt_whisper_lang.currentText().strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 

@@ -41,7 +41,8 @@ def find_model_dir():
         os.makedirs(base, exist_ok=True)
 
     # Use configured model (full name like "vosk-model-small-fr-0.22" or short code like "fr")
-    wanted = os.environ.get("DICTEE_VOSK_MODEL", "")
+    # Falls back to DICTEE_LANG_SOURCE to pick the right language model
+    wanted = os.environ.get("DICTEE_VOSK_MODEL", "") or os.environ.get("DICTEE_LANG_SOURCE", "")
 
     # Search for a model directory matching the requested model
     if wanted:
