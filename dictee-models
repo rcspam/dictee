@@ -141,6 +141,23 @@ def find_whisper_models():
     return models
 
 
+def load_config():
+    """Load dictee.conf to identify active backend and models."""
+    conf_path = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+        "dictee.conf",
+    )
+    conf = {}
+    if os.path.isfile(conf_path):
+        with open(conf_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    conf[k] = v
+    return conf
+
+
 def find_all_models():
     """Find all models across all backends."""
     all_models = []
@@ -158,13 +175,36 @@ def print_table(models):
         print("No models found.")
         return
 
+    conf = load_config()
+    active_backend = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+    active_whisper = conf.get("DICTEE_WHISPER_MODEL", "small")
+    active_vosk = conf.get("DICTEE_VOSK_MODEL", "") or conf.get("DICTEE_LANG_SOURCE", "fr")
+
     total_size = sum(m["size_mb"] for m in models)
 
-    print(f"{'Backend':<12} {'Model':<45} {'Size':>7} {'Location':<8} Path")
-    print("-" * 110)
+    print(f"Active backend: {active_backend}")
+    if active_backend == "whisper":
+        print(f"Active Whisper model: {active_whisper}")
+    elif active_backend == "vosk":
+        print(f"Active Vosk model: {active_vosk}")
+    print()
+    print(f"{'':>2} {'Backend':<12} {'Model':<45} {'Size':>7} {'Location':<8} Path")
+    print("-" * 112)
     for m in models:
         size_str = f"{m['size_mb']} MB" if m["size_mb"] < 1024 else f"{m['size_mb']/1024:.1f} GB"
-        print(f"{m['backend']:<12} {m['name']:<45} {size_str:>7} {m['location']:<8} {m['path']}")
+        # Mark active model
+        active = ""
+        if m["backend"] == active_backend and m["backend"] in ("parakeet", "canary", "sortformer"):
+            active = "▶ "
+        elif m["backend"] == "whisper" and active_backend == "whisper":
+            # Match active whisper model
+            name_lower = m["name"].lower()
+            if active_whisper in name_lower or active_whisper.replace("/", "--") in name_lower.replace("/", "--"):
+                active = "▶ "
+        elif m["backend"] == "vosk" and active_backend == "vosk":
+            if active_vosk in m["name"]:
+                active = "▶ "
+        print(f"{active:>2}{m['backend']:<12} {m['name']:<45} {size_str:>7} {m['location']:<8} {m['path']}")
 
     total_str = f"{total_size:.0f} MB" if total_size < 1024 else f"{total_size/1024:.1f} GB"
     print(f"\n{len(models)} models, {total_str} total")
