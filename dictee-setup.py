@@ -3411,10 +3411,10 @@ class DicteeSetupDialog(QDialog):
             return
         if self._whisper_model_cached(model_id):
             self._lbl_whisper_status.setText(
-                "<span style='color: #4a4;'>✓ " + _("Model downloaded and ready to use.") + "</span>")
+                "<span style='color: #4a4;'>✓</span> " + _("Model downloaded and ready to use."))
         else:
             self._lbl_whisper_status.setText(
-                "<span style='color: #a44;'>✗ " + _("Model not downloaded. Click 'Download' or it will be downloaded on first use (~1-3 min).") + "</span>")
+                "<span style='color: #a44;'>✗</span> " + _("Model not downloaded. Click 'Download' or it will be downloaded on first use (~1-3 min)."))
 
     def _download_whisper_model(self):
         """Pre-download the selected Whisper model."""
