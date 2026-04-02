@@ -3354,15 +3354,13 @@ class DicteeSetupDialog(QDialog):
 
         lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = QComboBox()
-        for model_id, label in WHISPER_MODELS:
-            cached = self._whisper_model_cached(model_id)
-            prefix = "✓ " if cached else "  "
-            self.cmb_whisper_model.addItem(prefix + label, model_id)
+        self._populate_whisper_combo()
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
         for i in range(self.cmb_whisper_model.count()):
             if self.cmb_whisper_model.itemData(i) == cur_wh:
                 self.cmb_whisper_model.setCurrentIndex(i)
                 break
+        self.cmb_whisper_model.currentIndexChanged.connect(self._update_whisper_status_label)
 
         self.btn_download_whisper = QPushButton(_("Download"))
         self.btn_download_whisper.setFixedWidth(100)
@@ -3388,7 +3386,38 @@ class DicteeSetupDialog(QDialog):
         row.addWidget(self.btn_install_whisper)
         whisper_outer.addLayout(row)
 
+        # Status label below the combo row
+        self._lbl_whisper_status = QLabel()
+        self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
+        self._lbl_whisper_status.setWordWrap(True)
+        whisper_outer.addWidget(self._lbl_whisper_status)
+        self._update_whisper_status_label()
+
         parent_layout.addWidget(self.w_whisper_options)
+
+    def _populate_whisper_combo(self):
+        """Populate the Whisper model combo with ✓ marks for cached models."""
+        self.cmb_whisper_model.clear()
+        for model_id, label in WHISPER_MODELS:
+            cached = self._whisper_model_cached(model_id)
+            icon_text = "✓  " if cached else "    "
+            self.cmb_whisper_model.addItem(icon_text + label, model_id)
+            if cached:
+                idx = self.cmb_whisper_model.count() - 1
+                self.cmb_whisper_model.setItemData(idx, QColor("#4a4"), Qt.ForegroundRole)
+
+    def _update_whisper_status_label(self):
+        """Update the status label below the Whisper combo."""
+        model_id = self.cmb_whisper_model.currentData()
+        if not model_id:
+            self._lbl_whisper_status.setText("")
+            return
+        if self._whisper_model_cached(model_id):
+            self._lbl_whisper_status.setText(
+                "<span style='color: #4a4;'>✓ " + _("Model downloaded and ready to use.") + "</span>")
+        else:
+            self._lbl_whisper_status.setText(
+                "<span style='color: #a44;'>✗ " + _("Model not downloaded. Click 'Download' or it will be downloaded on first use (~1-3 min).") + "</span>")
 
     def _download_whisper_model(self):
         """Pre-download the selected Whisper model."""
@@ -3409,17 +3438,14 @@ class DicteeSetupDialog(QDialog):
     def _on_whisper_download_done(self, ok, msg):
         self.btn_download_whisper.setEnabled(True)
         self.btn_download_whisper.setText(_("Download"))
-        # Refresh model list to update ✓ marks
+        # Refresh combo ✓ marks and status label
         cur_data = self.cmb_whisper_model.currentData()
-        self.cmb_whisper_model.clear()
-        for model_id, label in WHISPER_MODELS:
-            cached = self._whisper_model_cached(model_id)
-            prefix = "✓ " if cached else "  "
-            self.cmb_whisper_model.addItem(prefix + label, model_id)
+        self._populate_whisper_combo()
         for i in range(self.cmb_whisper_model.count()):
             if self.cmb_whisper_model.itemData(i) == cur_data:
                 self.cmb_whisper_model.setCurrentIndex(i)
                 break
+        self._update_whisper_status_label()
         if not ok:
             QMessageBox.warning(self, _("Download failed"), msg)
 
