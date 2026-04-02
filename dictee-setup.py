@@ -3404,7 +3404,7 @@ class DicteeSetupDialog(QDialog):
             self.cmb_whisper_model.addItem(icon_text + label, model_id)
             if cached:
                 idx = self.cmb_whisper_model.count() - 1
-                self.cmb_whisper_model.setItemData(idx, QColor("#4a4"), Qt.ForegroundRole)
+                self.cmb_whisper_model.setItemData(idx, QColor("#4a4"), Qt.ItemDataRole.ForegroundRole)
 
     def _update_whisper_status_label(self):
         """Update the status label below the Whisper combo."""
