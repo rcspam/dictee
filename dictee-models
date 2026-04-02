@@ -1,6 +1,0 @@
-#!/usr/bin/env python3
-"""dictee-models — List all installed ASR models. See dictee-models.py for the library."""
-import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(os.path.realpath(__file__))))
-from dictee_models import main
-main()
