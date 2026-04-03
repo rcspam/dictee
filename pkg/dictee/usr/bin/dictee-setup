@@ -801,7 +801,7 @@ ASSETS_DIR = _find_assets_dir()
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
 CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")  # Legacy, kept for cleanup
-CANARY_MODEL_DIR = os.path.join(DICTEE_DATA_DIR, "canary")
+CANARY_MODEL_DIR = os.path.join(MODEL_DIR, "canary")
 CANARY_HF_REPO = "istupakov/canary-1b-v2-onnx"
 CANARY_MODEL_FILES = [
     "encoder-model.onnx", "encoder-model.onnx.data", "decoder-model.onnx",
@@ -891,10 +891,19 @@ class _CanaryDownloadThread(QThread):
     def run(self):
         import urllib.request
         try:
-            os.makedirs(self.model_dir, exist_ok=True)
+            model_dir = self.model_dir
+            try:
+                os.makedirs(model_dir, exist_ok=True)
+                # Test write access
+                _test = os.path.join(model_dir, ".write_test")
+                open(_test, "w").close()
+                os.remove(_test)
+            except (PermissionError, OSError):
+                model_dir = model_dir.replace(MODEL_DIR, DICTEE_DATA_DIR)
+                os.makedirs(model_dir, exist_ok=True)
             base_url = f"https://huggingface.co/{self.hf_repo}/resolve/main"
             for i, fname in enumerate(self.files, 1):
-                dest = os.path.join(self.model_dir, fname)
+                dest = os.path.join(model_dir, fname)
                 if os.path.exists(dest):
                     self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
                     continue
@@ -904,9 +913,9 @@ class _CanaryDownloadThread(QThread):
                 urllib.request.urlretrieve(url, tmp)
                 os.rename(tmp, dest)
             # Generate tokenizer.json if missing (needed for decodercontext)
-            tokenizer_path = os.path.join(self.model_dir, "tokenizer.json")
+            tokenizer_path = os.path.join(model_dir, "tokenizer.json")
             if not os.path.exists(tokenizer_path):
-                vocab_path = os.path.join(self.model_dir, "vocab.txt")
+                vocab_path = os.path.join(model_dir, "vocab.txt")
                 if os.path.exists(vocab_path):
                     self.progress.emit(_("Generating tokenizer.json…"))
                     self._generate_tokenizer(vocab_path, tokenizer_path)
@@ -2084,6 +2093,14 @@ class _CheckMarkComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setItemDelegate(_CheckMarkDelegate(self))
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(12)
+
+    def showPopup(self):
+        super().showPopup()
+        popup = self.view().window()
+        if popup and popup.width() > 400:
+            popup.setFixedWidth(400)
 
     def paintEvent(self, event):
         from PyQt6.QtWidgets import QStyle
@@ -2209,6 +2226,7 @@ class DicteeSetupDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._main_scroll = scroll
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -3057,8 +3075,10 @@ class DicteeSetupDialog(QDialog):
         lay_sc.addWidget(lbl_mode)
 
         self.cmb_ptt_mode = QComboBox()
-        self.cmb_ptt_mode.addItem(_("Hold (push-to-talk) — hold key to record, release to transcribe"), "hold")
-        self.cmb_ptt_mode.addItem(_("Toggle — press to start, press again to stop"), "toggle")
+        self.cmb_ptt_mode.addItem(_("Hold (push-to-talk)"), "hold")
+        self.cmb_ptt_mode.addItem(_("Toggle (press twice)"), "toggle")
+        self.cmb_ptt_mode.setToolTip(_("Hold: hold key to record, release to transcribe\n"
+                                       "Toggle: press to start, press again to stop"))
         existing_mode = self.conf.get("DICTEE_PTT_MODE", "hold" if self.wizard_mode else "toggle")
         idx = self.cmb_ptt_mode.findData(existing_mode)
         if idx >= 0:
@@ -3193,7 +3213,7 @@ class DicteeSetupDialog(QDialog):
         for model in ASR_MODELS:
             row = QHBoxLayout()
             row.setSpacing(8)
-            row.setContentsMargins(24, 0, 0, 0)
+            row.setContentsMargins(8, 0, 0, 0)
 
             installed = model_is_installed(model)
             required = _(" (required)") if model["required"] else ""
@@ -3210,16 +3230,21 @@ class DicteeSetupDialog(QDialog):
             btn_info = self._HelpLabel(model["help"])
             row.addWidget(btn_info)
 
-            btn = QPushButton(_("Download") if not installed else _("Installed"))
-            btn.setFixedWidth(120)
+            btn = QPushButton(_("Re-download") if installed else _("Download"))
+            btn.setFixedWidth(110)
             # Sortformer requires TDT — disable if TDT not installed
             tdt_installed = model_is_installed(ASR_MODELS[0])
-            if installed:
-                btn.setEnabled(False)
-            elif model["id"] == "sortformer" and not tdt_installed:
+            if model["id"] == "sortformer" and not tdt_installed and not installed:
                 btn.setEnabled(False)
                 btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
             row.addWidget(btn)
+
+            btn_del = QPushButton()
+            btn_del.setIcon(QIcon.fromTheme("edit-delete"))
+            btn_del.setFixedWidth(28)
+            btn_del.setToolTip(_("Delete model"))
+            btn_del.setVisible(installed)
+            row.addWidget(btn_del)
 
             lay_parakeet.addLayout(row)
 
@@ -3228,8 +3253,12 @@ class DicteeSetupDialog(QDialog):
             progress.setVisible(False)
             lay_parakeet.addWidget(progress)
 
-            self._model_widgets[model["id"]] = {"label": lbl, "button": btn, "progress": progress, "model": model}
+            self._model_widgets[model["id"]] = {
+                "label": lbl, "button": btn, "btn_delete": btn_del,
+                "progress": progress, "model": model,
+            }
             btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
+            btn_del.clicked.connect(lambda checked, m=model: self._on_model_delete(m))
 
         parent_layout.addWidget(self.w_parakeet_options)
 
@@ -3243,37 +3272,41 @@ class DicteeSetupDialog(QDialog):
         row_vosk = QHBoxLayout()
         row_vosk.setContentsMargins(24, 0, 0, 0)
         vosk_installed = venv_is_installed(VOSK_VENV)
-        if vosk_installed:
-            # Venv OK — pas besoin de l'afficher, le combo ✓/✗ suffit
-            self.btn_install_vosk = QWidget()  # placeholder invisible
-            self.btn_install_vosk.setFixedWidth(0)
-        else:
-            self.btn_install_vosk = QPushButton(_("Install Vosk engine"))
-            self.btn_install_vosk.setFixedWidth(150)
-            self.btn_install_vosk.clicked.connect(lambda: self._install_venv("vosk", VOSK_VENV, "vosk"))
+        self.btn_install_vosk = QPushButton()
+        self.btn_install_vosk.clicked.connect(lambda: self._install_venv("vosk", VOSK_VENV, "vosk"))
+        self._update_venv_button(self.btn_install_vosk, "Vosk", vosk_installed)
 
         lbl_vosk_lang = QLabel(_("Language:"))
         self.cmb_vosk_lang = _CheckMarkComboBox()
+        self.cmb_vosk_lang.setMaximumWidth(250)
         self._refresh_vosk_lang_combo()
         cur_vosk = self.conf.get("DICTEE_VOSK_MODEL", "fr")
         idx = self.cmb_vosk_lang.findData(cur_vosk)
         if idx >= 0:
             self.cmb_vosk_lang.setCurrentIndex(idx)
-        row_vosk.addWidget(lbl_vosk_lang)
         self.cmb_vosk_lang.currentIndexChanged.connect(lambda: (
             self._update_src_languages(), self._update_vosk_status(),
             self._update_vosk_model_in_conf(self.cmb_vosk_lang.currentData())
             if self.cmb_vosk_lang.currentData() and self._vosk_model_installed(self.cmb_vosk_lang.currentData())
             else None))
-        row_vosk.addWidget(self.cmb_vosk_lang)
 
         self.btn_dl_vosk_model = QPushButton()
         self.btn_dl_vosk_model.setFixedWidth(150)
         self.btn_dl_vosk_model.clicked.connect(self._on_vosk_model_button)
-        row_vosk.addWidget(self.btn_dl_vosk_model)
 
+        self._lbl_vosk_status = QLabel()
+        self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
+
+        # Group config widgets to disable when venv not installed
+        self._vosk_config_widgets = [lbl_vosk_lang, self.cmb_vosk_lang, self.btn_dl_vosk_model,
+                                     self._lbl_vosk_status]
+        row_vosk.addWidget(lbl_vosk_lang)
+        row_vosk.addWidget(self.cmb_vosk_lang)
+        row_vosk.addWidget(self.btn_dl_vosk_model)
         row_vosk.addStretch()
         row_vosk.addWidget(self.btn_install_vosk)
+        for w in self._vosk_config_widgets:
+            w.setEnabled(vosk_installed)
         vosk_outer.addLayout(row_vosk)
 
         self._vosk_progress_row = QWidget()
@@ -3289,8 +3322,6 @@ class DicteeSetupDialog(QDialog):
         self._vosk_progress_row.setVisible(False)
         vosk_outer.addWidget(self._vosk_progress_row)
 
-        self._lbl_vosk_status = QLabel()
-        self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
         vosk_outer.addWidget(self._lbl_vosk_status)
 
         self.cmb_vosk_lang.currentIndexChanged.connect(self._update_vosk_status)
@@ -3345,7 +3376,11 @@ class DicteeSetupDialog(QDialog):
         for code, name in VOSK_MODELS.items():
             installed = self._vosk_model_installed(code)
             prefix = "✓" if installed else "✗"
-            self.cmb_vosk_lang.addItem(f"{prefix}  {code} — {name}", code)
+            # Short label: just code + language name (no full model name)
+            lang_name = {"fr": "Français", "en": "English", "de": "Deutsch",
+                         "es": "Español", "it": "Italiano", "pt": "Português",
+                         "ru": "Русский", "zh": "中文", "ja": "日本語"}.get(code, code)
+            self.cmb_vosk_lang.addItem(f"{prefix}  {code} — {lang_name}", code)
             if installed:
                 idx = self.cmb_vosk_lang.count() - 1
                 self.cmb_vosk_lang.setItemData(idx, True, Qt.ItemDataRole.UserRole + 1)
@@ -3360,17 +3395,15 @@ class DicteeSetupDialog(QDialog):
         code = self.cmb_vosk_lang.currentData()
         if not code:
             return
+        venv_ok = venv_is_installed(VOSK_VENV)
         if self._vosk_model_installed(code):
             self.btn_dl_vosk_model.setText(_("Delete"))
-            self._lbl_vosk_status.setText(
-                "<span style='color: #4a4;'>✓</span> = " + _("model downloaded and ready to use"))
+            self._lbl_vosk_status.setText('<span style="color: green;">✓</span> ' + _("Model downloaded and ready"))
         else:
             self.btn_dl_vosk_model.setText(_("Download"))
-            self._lbl_vosk_status.setText(
-                "<span style='color: #4a4;'>✓</span> = " + _("downloaded") +
-                " — " + _("select a language and click 'Download' to install it"))
+            self._lbl_vosk_status.setText(_("Select a language and click Download"))
         self.btn_dl_vosk_model.setVisible(True)
-        self.btn_dl_vosk_model.setEnabled(True)
+        self.btn_dl_vosk_model.setEnabled(venv_ok)
 
     def _on_vosk_model_button(self):
         """Download or delete the selected Vosk model."""
@@ -3465,16 +3498,13 @@ class DicteeSetupDialog(QDialog):
         row = QHBoxLayout()
         row.setContentsMargins(24, 0, 0, 0)
         whisper_installed = venv_is_installed(WHISPER_VENV)
-        if whisper_installed:
-            self.btn_install_whisper = QWidget()
-            self.btn_install_whisper.setFixedWidth(0)
-        else:
-            self.btn_install_whisper = QPushButton(_("Install Whisper engine"))
-            self.btn_install_whisper.setFixedWidth(150)
-            self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
+        self.btn_install_whisper = QPushButton()
+        self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
+        self._update_venv_button(self.btn_install_whisper, "Whisper", whisper_installed)
 
-        lbl_wh_model = QLabel(_("Model:"))
+        self._lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = _CheckMarkComboBox()
+        self.cmb_whisper_model.setMaximumWidth(350)
         self._populate_whisper_combo()
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
         for i in range(self.cmb_whisper_model.count()):
@@ -3554,11 +3584,23 @@ class DicteeSetupDialog(QDialog):
         whisper_outer.addLayout(row_lang)
 
         # Row 2: model + download + install
-        row.addWidget(lbl_wh_model)
+        row.addWidget(self._lbl_wh_model)
         row.addWidget(self.cmb_whisper_model)
         row.addWidget(self.btn_download_whisper)
         row.addStretch()
         row.addWidget(self.btn_install_whisper)
+
+        self._lbl_whisper_status = QLabel()
+        self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
+        self._lbl_whisper_status.setWordWrap(True)
+
+        # Group config widgets to disable when venv not installed
+        self._whisper_config_widgets = [self._lbl_wh_model, self.cmb_whisper_model,
+                                        self.btn_download_whisper, lbl_wh_lang,
+                                        self.txt_whisper_lang, lbl_auto,
+                                        self._lbl_whisper_status]
+        for w in self._whisper_config_widgets:
+            w.setEnabled(whisper_installed)
         whisper_outer.addLayout(row)
 
         # Progress row (hidden by default)
@@ -3575,10 +3617,6 @@ class DicteeSetupDialog(QDialog):
         self._whisper_progress_row.setVisible(False)
         whisper_outer.addWidget(self._whisper_progress_row)
 
-        # Status label
-        self._lbl_whisper_status = QLabel()
-        self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
-        self._lbl_whisper_status.setWordWrap(True)
         whisper_outer.addWidget(self._lbl_whisper_status)
         self._update_whisper_status()
 
@@ -3600,16 +3638,15 @@ class DicteeSetupDialog(QDialog):
         model_id = self.cmb_whisper_model.currentData()
         if not model_id:
             return
+        venv_ok = venv_is_installed(WHISPER_VENV)
         cached = self._whisper_model_cached(model_id)
         if cached:
             self.btn_download_whisper.setText(_("Delete"))
-            self._lbl_whisper_status.setText(
-                "<span style='color: #4a4;'>✓</span> = " + _("model downloaded and ready to use"))
+            self._lbl_whisper_status.setText('<span style="color: green;">✓</span> ' + _("Model downloaded and ready"))
         else:
             self.btn_download_whisper.setText(_("Download"))
-            self._lbl_whisper_status.setText(
-                "<span style='color: #4a4;'>✓</span> = " + _("downloaded") +
-                " — " + _("select a model and click 'Download' to install it"))
+            self._lbl_whisper_status.setText(_("Select a model and click Download"))
+        self.btn_download_whisper.setEnabled(venv_ok)
 
     def _on_whisper_model_button(self):
         """Download or delete the selected Whisper model."""
@@ -3702,12 +3739,18 @@ class DicteeSetupDialog(QDialog):
         self._lbl_canary_model = QLabel()
         canary_lay.addWidget(self._lbl_canary_model)
 
-        # Download button
+        # Download + Delete buttons
         row = QHBoxLayout()
         self.btn_install_canary = QPushButton(_("Download Canary model (~4.7 GB)"))
         self.btn_install_canary.clicked.connect(self._download_canary_model)
+        self.btn_delete_canary = QPushButton()
+        self.btn_delete_canary.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_delete_canary.setFixedWidth(28)
+        self.btn_delete_canary.setToolTip(_("Delete model"))
+        self.btn_delete_canary.clicked.connect(self._delete_canary_model)
         row.addStretch()
         row.addWidget(self.btn_install_canary)
+        row.addWidget(self.btn_delete_canary)
         canary_lay.addLayout(row)
 
         self._update_canary_model_status()
@@ -3715,22 +3758,27 @@ class DicteeSetupDialog(QDialog):
         parent_layout.addWidget(self.w_canary_options)
 
     def _canary_model_installed(self):
-        """Check if Canary ONNX model files are present."""
+        """Check if Canary ONNX model files are present (user dir first, then system)."""
         try:
             from dictee_models import canary_model_installed
             return canary_model_installed()
         except ImportError:
-            return os.path.isfile(os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx"))
+            user_path = os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")
+            sys_path = os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx")
+            return os.path.isfile(user_path) or os.path.isfile(sys_path)
 
     def _update_canary_model_status(self):
         """Update Canary model status label."""
-        if self._canary_model_installed():
+        installed = self._canary_model_installed()
+        if installed:
             self._lbl_canary_model.setText("✓ " + _("Canary model installed"))
             self._lbl_canary_model.setStyleSheet("color: #4a4;")
             self.btn_install_canary.setText(_("Re-download Canary model"))
         else:
             self._lbl_canary_model.setText("✗ " + _("Canary model not installed"))
             self._lbl_canary_model.setStyleSheet("color: #a44;")
+            self.btn_install_canary.setText(_("Download Canary model (~4.7 GB)"))
+        self.btn_delete_canary.setVisible(installed)
 
     def _download_canary_model(self):
         _dbg_setup("_download_canary_model")
@@ -3749,6 +3797,22 @@ class DicteeSetupDialog(QDialog):
         self._update_canary_model_status()
         if not ok:
             QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _delete_canary_model(self):
+        """Delete Canary model after confirmation."""
+        reply = QMessageBox.question(
+            self, _("Delete model"),
+            _("Delete Canary model and free disk space?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import shutil
+        for d in (CANARY_MODEL_DIR, os.path.join(DICTEE_DATA_DIR, "canary")):
+            if os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)
+                os.makedirs(d, exist_ok=True)
+        self._update_canary_model_status()
 
     def _build_visual_section(self, lay_vis, conf):
         """Build visual feedback checkboxes and install button."""
@@ -8027,9 +8091,10 @@ class DicteeSetupDialog(QDialog):
         w["progress"].setVisible(False)
         model = w["model"]
         if success:
-            w["button"].setText(_("Installed"))
-            w["button"].setEnabled(False)
+            w["button"].setText(_("Re-download"))
+            w["button"].setEnabled(True)
             w["button"].setToolTip("")
+            w["btn_delete"].setVisible(True)
             w["label"].setText(f'<span style="color: green;">✓</span> {model["name"]}<br>'
                                f'<span style="font-size: 9.5pt; color: gray;">{model["desc"]}</span>')
             # If TDT just installed, enable Sortformer button
@@ -8043,15 +8108,57 @@ class DicteeSetupDialog(QDialog):
             w["button"].setEnabled(True)
             QMessageBox.critical(self, _("Download error"), message)
 
+    def _on_model_delete(self, model):
+        """Delete an ASR model after confirmation."""
+        mid = model["id"]
+        name = model["name"]
+        reply = QMessageBox.question(
+            self, _("Delete model"),
+            _("Delete {name} and free disk space?").format(name=name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import shutil
+        # Delete from both system and user dirs
+        for base in (MODEL_DIR, DICTEE_DATA_DIR):
+            model_dir = model["dir"].replace(MODEL_DIR, base)
+            if os.path.isdir(model_dir):
+                shutil.rmtree(model_dir, ignore_errors=True)
+                os.makedirs(model_dir, exist_ok=True)
+        w = self._model_widgets[mid]
+        required = _(" (required)") if model["required"] else ""
+        w["label"].setText(f'<span style="color: orange;">⚠</span> {name}<br>'
+                           f'<span style="font-size: 9.5pt; color: gray;">{model["desc"]}{required}</span>')
+        w["button"].setText(_("Download"))
+        w["btn_delete"].setVisible(False)
+        # If TDT deleted, disable Sortformer download
+        if mid == "tdt" and "sortformer" in self._model_widgets:
+            dep_w = self._model_widgets["sortformer"]
+            if not model_is_installed(dep_w["model"]):
+                dep_w["button"].setEnabled(False)
+                dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
+
     # -- Installation venv ASR --
+
+    def _update_venv_button(self, btn, engine_name, installed):
+        """Style a venv install button: red when not installed, green label when installed."""
+        if installed:
+            btn.setText(f"✓ {engine_name} " + _("installed"))
+            btn.setStyleSheet("QPushButton { color: #4a4; font-weight: bold; }")
+            btn.setEnabled(False)
+        else:
+            btn.setText(_("Install {name} engine").format(name=engine_name))
+            btn.setStyleSheet("QPushButton { color: white; background-color: #c44; font-weight: bold; }"
+                              "QPushButton:hover { background-color: #a33; }")
+            btn.setEnabled(True)
 
     def _install_venv(self, name, venv_path, pip_package):
         _dbg_setup(f"_install_venv: {name}, path={venv_path}, pkg={pip_package}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
-        if not isinstance(btn, QPushButton):
-            return
         btn.setEnabled(False)
         btn.setText(_("Installing…"))
+        btn.setStyleSheet("QPushButton { color: white; background-color: #c84; font-weight: bold; }")
         thread = VenvInstallThread(venv_path, pip_package)
         thread.progress.connect(lambda text: btn.setText(text))
         thread.finished.connect(lambda ok, msg, n=name: self._on_venv_installed(n, ok, msg))
@@ -8061,14 +8168,14 @@ class DicteeSetupDialog(QDialog):
     def _on_venv_installed(self, name, success, message):
         _dbg_setup(f"_on_venv_installed: {name}, success={success}, msg={message!r}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
+        engine = "Vosk" if name == "vosk" else "Whisper"
+        config_widgets = self._vosk_config_widgets if name == "vosk" else self._whisper_config_widgets
         if success:
-            if isinstance(btn, QPushButton):
-                btn.setText(_("Installed"))
-                btn.setEnabled(False)
+            self._update_venv_button(btn, engine, True)
+            for w in config_widgets:
+                w.setEnabled(True)
         else:
-            if isinstance(btn, QPushButton):
-                btn.setText(_("Install"))
-                btn.setEnabled(True)
+            self._update_venv_button(btn, engine, False)
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 

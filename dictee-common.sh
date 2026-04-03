@@ -56,18 +56,46 @@ write_state() {
 # Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
 # Send a notification, always replacing the previous one
 # Usage: notify_dictee TIMEOUT ICON MESSAGE [BODY]
+_NOTIFY_SID_FILE="/tmp/.dictee_notify_sid${_UID_SUFFIX}"
+
 notify_dictee() {
     local timeout="$1" icon="$2" msg="$3" body="${4:-}"
     _dbg "notify: timeout=$timeout icon=$icon msg='$msg'"
+    # Read server ID from previous async notification if available
+    if [ -f "$_NOTIFY_SID_FILE" ]; then
+        local _prev
+        _prev=$(cat "$_NOTIFY_SID_FILE" 2>/dev/null)
+        if [ -n "$_prev" ] && [ "$_prev" != "0" ]; then
+            NOTIFY_SERVER_ID="$_prev"
+        fi
+    fi
     local _sid
     _sid=$(notify-send -p --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
     if [ -n "$_sid" ] && [ "$_sid" != "0" ]; then
         NOTIFY_SERVER_ID="$_sid"
+        echo "$_sid" > "$_NOTIFY_SID_FILE"
     fi
+}
+
+# Non-blocking notification (for recording start — don't delay pw-record)
+notify_dictee_async() {
+    local timeout="$1" icon="$2" msg="$3" body="${4:-}"
+    _dbg "notify-async: timeout=$timeout icon=$icon msg='$msg'"
+    (
+        local _sid
+        _sid=$(notify-send -p --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+        if [ -n "$_sid" ] && [ "$_sid" != "0" ]; then
+            echo "$_sid" > "$_NOTIFY_SID_FILE"
+        fi
+    ) &
 }
 
 # Close notification via D-Bus (reliable, unlike notify-send --replace-id on expired notifs)
 close_notification() {
+    # Read server ID from async file if not yet available
+    if [ -z "$NOTIFY_SERVER_ID" ] && [ -f "$_NOTIFY_SID_FILE" ]; then
+        NOTIFY_SERVER_ID=$(cat "$_NOTIFY_SID_FILE" 2>/dev/null)
+    fi
     if [ -n "$NOTIFY_SERVER_ID" ]; then
         _dbg "notify: close (dbus id=$NOTIFY_SERVER_ID)"
         gdbus call --session --dest org.freedesktop.Notifications \

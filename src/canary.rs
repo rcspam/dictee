@@ -248,6 +248,13 @@ impl Canary {
         self.last_token_ids.as_deref()
     }
 
+    /// Change the target language for translation without reloading the model.
+    pub fn set_target_lang(&mut self, target_lang: &str) -> Result<()> {
+        let target_lang_id = lang_to_token_id(target_lang)?;
+        self.prompt.target_lang_id = target_lang_id;
+        Ok(())
+    }
+
     pub fn model_dir(&self) -> &Path {
         &self.model_dir
     }

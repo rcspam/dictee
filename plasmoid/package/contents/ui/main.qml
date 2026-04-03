@@ -305,11 +305,9 @@ PlasmoidItem {
         executable.run(checkInstalledCmd)
         executable.run(micVolumeCmd)
         executable.run(listAudioSourcesCmd)
-        // Only refresh translate langs when backend changes
-        if (root.currentTranslateBackend !== root.lastTranslateBackendForLangs) {
-            root.lastTranslateBackendForLangs = root.currentTranslateBackend
-            executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
-        }
+        // Refresh translate langs (always — combo may be empty on first open)
+        root.lastTranslateBackendForLangs = root.currentTranslateBackend
+        executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
     }
 
     // Ping-pong pour l'état aussi
@@ -568,6 +566,11 @@ PlasmoidItem {
             cmd += " " + root.currentAudioSource
         }
         executable.run(cmd)
+    }
+
+    onCurrentTranslateBackendChanged: {
+        // Refresh available target languages when translation backend changes
+        executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
     }
 
     onCurrentAudioSourceChanged: {

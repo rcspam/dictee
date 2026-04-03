@@ -55,18 +55,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let home = env::var("HOME").unwrap_or_else(|_| "/root".to_string());
         let nemotron_dir = env::var("NEMOTRON_DIR").unwrap_or_else(|_| {
-            if Path::new("/usr/share/dictee/nemotron").exists() {
-                "/usr/share/dictee/nemotron".to_string()
-            } else {
-                format!("{}/.local/share/dictee/nemotron", home)
-            }
+            let user = format!("{}/.local/share/dictee/nemotron", home);
+            if Path::new(&user).exists() { user }
+            else { "/usr/share/dictee/nemotron".to_string() }
         });
         let sortformer_dir = env::var("SORTFORMER_DIR").unwrap_or_else(|_| {
-            if Path::new("/usr/share/dictee/sortformer").exists() {
-                "/usr/share/dictee/sortformer".to_string()
-            } else {
-                format!("{}/.local/share/dictee/sortformer", home)
-            }
+            let user = format!("{}/.local/share/dictee/sortformer", home);
+            if Path::new(&user).exists() { user }
+            else { "/usr/share/dictee/sortformer".to_string() }
         });
 
         let audio: Vec<f32> = if args.len() > 1 {

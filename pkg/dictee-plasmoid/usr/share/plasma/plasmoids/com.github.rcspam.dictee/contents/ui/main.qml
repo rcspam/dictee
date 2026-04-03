@@ -8,7 +8,7 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
-    // State: "offline", "idle", "recording", "transcribing", "switching"
+    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
     property bool dicteeInstalled: true
     property bool dicteeConfigured: false
@@ -65,6 +65,12 @@ PlasmoidItem {
             return i18n("Transcribing…")
         case "switching":
             return i18n("Switching backend…")
+        case "preparing":
+            return i18n("Preparing…")
+        case "diarize-ready":
+            return i18n("Diarize ready")
+        case "diarizing":
+            return i18n("Diarizing…")
         default:
             return ""
         }
@@ -83,18 +89,22 @@ PlasmoidItem {
                 if (stdout === "not-installed") {
                     root.dicteeInstalled = false
                     root.dicteeConfigured = false
+                    console.log("[dictee-plasmoid] daemonCheck: not-installed → offline")
                     root.state = "offline"
                 } else if (stdout === "not-configured") {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = false
+                    console.log("[dictee-plasmoid] daemonCheck: not-configured → offline")
                     root.state = "offline"
                 } else {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing") {
+                        console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
+                        console.log("[dictee-plasmoid] daemonCheck: was offline → idle")
                         root.state = "idle"
                     }
                 }
@@ -107,13 +117,35 @@ PlasmoidItem {
                 var parts = stdout.trim().split("|")
                 if (parts.length >= 3) {
                     root.currentAsrBackend = parts[0] || "parakeet"
-                    var tb = parts[1] || "trans"
-                    var te = parts[2] || "google"
-                    if (tb === "trans") {
-                        root.currentTranslateBackend = te
-                    } else {
-                        root.currentTranslateBackend = tb
+                    // Don't overwrite translate backend during grace period after user change
+                    if (Date.now() - root.backendUserChangeTime > 3000) {
+                        var tb = parts[1] || "trans"
+                        var te = parts[2] || "google"
+                        if (tb === "trans") {
+                            root.currentTranslateBackend = te
+                        } else {
+                            root.currentTranslateBackend = tb
+                        }
                     }
+                }
+                if (parts.length >= 4) {
+                    root.currentAudioSource = parts[3] || ""
+                }
+                if (parts.length >= 5) {
+                    root.currentLangTarget = parts[4] || "en"
+                }
+                if (parts.length >= 6) {
+                    root.currentLangSource = parts[5] || "fr"
+                }
+                if (parts.length >= 7) {
+                    root.audioContextEnabled = (parts[6] === "true")
+                }
+            } else if (source.indexOf("dictee-translate-langs") !== -1) {
+                var langs = stdout.trim()
+                var newList = langs.length > 0 ? langs.split(",") : []
+                // Only update if the list actually changed (avoids resetting combo scroll)
+                if (JSON.stringify(newList) !== JSON.stringify(root.availableLangTarget)) {
+                    root.availableLangTarget = newList
                 }
             } else if (source === checkInstalledCmd) {
                 var parts = stdout.trim().split("---")
@@ -127,6 +159,29 @@ PlasmoidItem {
                         root.installedTranslate = trList
                     }
                 }
+                if (parts.length > 2) {
+                    root.sortformerAvailable = parts[2].trim().indexOf("sortformer") !== -1
+                }
+            } else if (source === listAudioSourcesCmd) {
+                var lines = stdout.trim().split("\n").filter(function(s) { return s.length > 0 })
+                var sources = []
+                for (var i = 0; i < lines.length; i++) {
+                    var p = lines[i].split("|")
+                    if (p.length >= 3) {
+                        sources.push({ value: p[0], icon: p[1], label: p[2] })
+                    }
+                }
+                root.audioSourceList = sources
+            } else if (source === micVolumeCmd) {
+                // Parse "Volume: 0.50" or "Volume: 0.50 [MUTED]"
+                var volMatch = stdout.match(/Volume:\s+(\d+\.?\d*)/)
+                if (volMatch) {
+                    root.micVolume = parseFloat(volMatch[1])
+                }
+                root.micMuted = stdout.indexOf("[MUTED]") !== -1
+            } else if (stdout.indexOf("DICTEE_DEBUG_ON") !== -1) {
+                root.debugEnabled = true
+                _dbg("debug enabled via DICTEE_DEBUG=true")
             } else if (source.indexOf("transcribe-client --last") !== -1) {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
@@ -191,7 +246,7 @@ PlasmoidItem {
     Timer {
         id: audioTimer
         interval: 80
-        running: root.effectiveState === "recording"
+        running: root.effectiveState === "recording" || root.expanded
         repeat: true
         onTriggered: {
             if (!root.audioReadPending) {
@@ -216,7 +271,21 @@ PlasmoidItem {
     property string currentTranslateBackend: "google"
     property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE\"'"
+    property bool sortformerAvailable: false  // updated by checkInstalledCmd
+    property real micVolume: 0.5  // microphone volume (0.0-1.5)
+    property bool micMuted: false
+    property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
+    property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
+    property string currentLangSource: "fr"
+    property string currentLangTarget: "en"
+    property var availableLangTarget: []
+    property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT\"'"
+    property string translateLangsCmd: "dictee-translate-langs"
+    property bool audioContextEnabled: false
+    property string currentAudioSource: ""
+    property var audioSourceList: []
+    property string listAudioSourcesCmd: "dictee-audio-sources"
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
         "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
@@ -225,12 +294,20 @@ PlasmoidItem {
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
-        "command -v ollama >/dev/null 2>&1 && echo ollama; " +
-        "command -v docker >/dev/null 2>&1 && echo libretranslate'"
+        "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
+        "command -v docker >/dev/null 2>&1 && echo libretranslate; " +
+        "echo ---; " +
+        "{ [ -d /usr/share/dictee/sortformer ] || [ -d \"$dd/sortformer\" ]; } && echo sortformer'"
 
+    property string lastTranslateBackendForLangs: ""
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
+        executable.run(micVolumeCmd)
+        executable.run(listAudioSourcesCmd)
+        // Refresh translate langs (always — combo may be empty on first open)
+        root.lastTranslateBackendForLangs = root.currentTranslateBackend
+        executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
     }
 
     // Ping-pong pour l'état aussi
@@ -241,34 +318,56 @@ PlasmoidItem {
         "cat /dev/shm/.dictee_state 2>/dev/null #B"
     ]
 
+    // Debug — reads DICTEE_DEBUG from config, logs to journalctl --user -u plasma-plasmashell
+    property bool debugEnabled: false
+    function _dbg(msg) {
+        if (debugEnabled) console.log("[dictee-plasmoid] " + msg)
+    }
+
     function parseState(output) {
         var newState = output.trim()
+        if (newState === root.state || newState === "") return
+        console.log("[dictee-plasmoid] parseState: " + root.state + " → " + newState)
+
+        // Stop all safety timers on any transition
+        transcribingTimer.stop()
+        recordingTimer.stop()
+        diarizingTimer.stop()
+        switchingTimer.stop()
+        preparingTimer.stop()
+        diarizeReadyTimer.stop()
+
         if (newState === "cancelled") {
-            transcribingTimer.stop()
-            recordingTimer.stop()
+            root.activeButton = ""
             root.state = "idle"
             return
         }
-        if (newState === "recording") {
-            root.state = "recording"
+
+        root.state = newState
+
+        // Start safety timers for active states
+        switch (newState) {
+        case "recording":
             recordingTimer.restart()
-        } else if (newState === "transcribing" && root.state !== "transcribing") {
-            root.state = "transcribing"
-            recordingTimer.stop()
+            break
+        case "transcribing":
             transcribingTimer.restart()
-        } else if (newState === "switching") {
-            root.state = "switching"
-            transcribingTimer.stop()
-            recordingTimer.stop()
+            break
+        case "diarizing":
+            diarizingTimer.restart()
+            break
+        case "switching":
             switchingTimer.restart()
-        } else if (newState === "idle") {
-            // Retour à idle depuis n'importe quel état actif
-            if (root.state === "recording" || root.state === "transcribing" || root.state === "switching") {
-                transcribingTimer.stop()
-                recordingTimer.stop()
-                switchingTimer.stop()
-                root.state = "idle"
-            }
+            break
+        case "preparing":
+            preparingTimer.restart()
+            break
+        case "diarize-ready":
+            diarizeReadyTimer.restart()
+            break
+        case "idle":
+            root.activeButton = ""
+            break
         }
     }
 
@@ -322,7 +421,22 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             if (root.state === "recording") {
+                _dbg("TIMEOUT: recording 60s — forcing idle")
                 root.state = "idle"
+            }
+        }
+    }
+
+    // Timer de sécurité pour diarizing (120s max — si dictee-transcribe crash)
+    Timer {
+        id: diarizingTimer
+        interval: 120000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "diarizing") {
+                _dbg("TIMEOUT: diarizing 120s — cancelling")
+                executable.run("dictee --cancel")
             }
         }
     }
@@ -335,7 +449,36 @@ PlasmoidItem {
         repeat: false
         onTriggered: {
             if (root.state === "switching") {
+                _dbg("TIMEOUT: switching 15s — forcing offline")
                 root.state = "offline"
+            }
+        }
+    }
+
+    // Timer de sécurité pour preparing (30s max)
+    Timer {
+        id: preparingTimer
+        interval: 30000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "preparing") {
+                _dbg("TIMEOUT: preparing 30s — cancelling")
+                executable.run("dictee --cancel")
+            }
+        }
+    }
+
+    // Timer de sécurité pour diarize-ready (120s max — user forgot?)
+    Timer {
+        id: diarizeReadyTimer
+        interval: 120000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "diarize-ready") {
+                _dbg("TIMEOUT: diarize-ready 120s — cancelling")
+                executable.run("dictee --cancel")
             }
         }
     }
@@ -359,38 +502,25 @@ PlasmoidItem {
         }
     }
 
-    property real lastActionTime: 0
-
     function handleAction(action) {
-        // Debounce: ignore actions within 800ms
-        var now = Date.now()
-        if (now - lastActionTime < 800) return
-        lastActionTime = now
+        _dbg("action: " + action + " (state=" + root.state + ")")
 
         switch (action) {
         case "dictate":
-            if (root.state === "recording") {
-                if (!Plasmoid.configuration.pinPopup) root.expanded = false
-                root.state = "transcribing"
-                transcribingTimer.start()
-            } else {
-                root.state = "recording"
-            }
-            executable.run("dictee")
+            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+                root.expanded = false
+            executable.run(root.activeButton === "diarize" ? "dictee --diarize" : "dictee")
             break
         case "dictate-translate":
-            if (root.state === "recording") {
-                if (!Plasmoid.configuration.pinPopup) root.expanded = false
-                root.state = "transcribing"
-                transcribingTimer.start()
-            } else {
-                root.state = "recording"
-            }
+            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+                root.expanded = false
             executable.run("dictee --translate")
+            break
+        case "diarize-prepare":
+            executable.run("dictee-switch-backend diarize true")
             break
         case "cancel":
             executable.run("dictee --cancel")
-            root.state = "idle"
             break
         case "start-daemon":
             executable.run("bash -c '" +
@@ -401,17 +531,19 @@ PlasmoidItem {
                 "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc'")
-            root.state = "idle"
             break
         case "stop-daemon":
             executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
-            root.state = "offline"
             break
-        case "reset":
-            executable.run("bash -c 'echo idle > /dev/shm/.dictee_state; dictee --cancel 2>/dev/null'")
-            transcribingTimer.stop()
-            recordingTimer.stop()
-            root.state = "idle"
+        case "reset": {
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
+            var svc = svcMap[root.currentAsrBackend] || "dictee"
+            executable.run("dictee-reset " + svc)
+            root.activeButton = ""
+            break
+        }
+        case "transcribe-file":
+            executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")
             break
         case "setup":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")
@@ -430,11 +562,32 @@ PlasmoidItem {
         } else if (style === "waveform") {
             cmd += " " + Plasmoid.configuration.waveformBars
         }
+        if (root.currentAudioSource) {
+            cmd += " " + root.currentAudioSource
+        }
         executable.run(cmd)
     }
 
-    // Lancer le daemon audio au chargement pour éviter la latence
+    onCurrentTranslateBackendChanged: {
+        // Refresh available target languages when translation backend changes
+        executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
+    }
+
+    onCurrentAudioSourceChanged: {
+        // Relancer le daemon level avec la nouvelle source (stop + délai + start)
+        executable.run("bash -c 'dictee-plasmoid-level stop; sleep 0.3; " +
+            "dictee-plasmoid-level " +
+            (function() {
+                var style = Plasmoid.configuration.animationStyle || "bars"
+                var bars = (style === "waveform") ? Plasmoid.configuration.waveformBars : Plasmoid.configuration.barCount
+                return bars + (root.currentAudioSource ? " " + root.currentAudioSource : "")
+            })() + "'")
+    }
+
+    // Refresh translate langs + audio sources when popup opens
+    // Load debug flag and start audio daemon
     Component.onCompleted: {
+        executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")
         preStartAudioDaemon()
         refreshBackends()
     }

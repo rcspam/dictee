@@ -10,6 +10,7 @@ ExecStart=/usr/bin/transcribe-daemon --canary
 Restart=on-failure
 RestartSec=5
 Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=ORT_DYLIB_PATH=/usr/lib/dictee/libonnxruntime.so
 
 [Install]
 WantedBy=default.target

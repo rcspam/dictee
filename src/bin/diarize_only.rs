@@ -74,10 +74,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let audio_path = resolve_path(&positional_args[0])?;
         dbg_print!("audio={}, sensitivity={:.2}", audio_path, sensitivity);
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-        let default_sf = if std::path::Path::new("/usr/share/dictee/sortformer").exists() {
-            "/usr/share/dictee/sortformer".to_string()
-        } else {
-            format!("{}/.local/share/dictee/sortformer", home)
+        let default_sf = {
+            let user = format!("{}/.local/share/dictee/sortformer", home);
+            if std::path::Path::new(&user).exists() { user }
+            else { "/usr/share/dictee/sortformer".to_string() }
         };
         let sortformer_dir = positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_sf);
 

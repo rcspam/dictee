@@ -119,7 +119,9 @@ build_plasmoid
 # Build CUDA version
 build_cuda() {
     echo "=== [CUDA] Compiling binaries with GPU support ==="
-    cargo build --release --features "cuda,sortformer" \
+    # CRITICAL: --no-default-features disables ort-defaults (static linking)
+    # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
+    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -133,8 +135,8 @@ Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
-Recommends: libcublas12 | libcublas-12-8 | libcublas-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, libcudart12 | cuda-cudart-12-8 | cuda-cudart-12-6, libcublas12 | libcublas-12-8 | libcublas-12-6, libcufft11 | libcufft-12-8 | libcufft-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, libnvrtc12 | libnvrtc-12-8 | libnvrtc-12-6
+Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -157,9 +159,34 @@ EOF
     cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
 
-    # ONNX Runtime CUDA provider libs
+    # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "=== Copie des libs CUDA ONNX Runtime ==="
     mkdir -p "$PKG_DIR/usr/lib/dictee"
+
+    # Search paths for libonnxruntime.so (not produced by load-dynamic build)
+    ORT_LIB=""
+    for candidate in \
+        "target/release/libonnxruntime.so" \
+        "onnxruntime-linux-x64-gpu-*/lib/libonnxruntime.so" \
+        "$HOME/.cache/ort.pyke.io/dfbin/*/libonnxruntime.so"; do
+        # shellcheck disable=SC2086
+        for f in $candidate; do
+            if [ -f "$f" ]; then
+                ORT_LIB="$f"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$ORT_LIB" ]; then
+        echo "ERROR: libonnxruntime.so not found! Download ONNX Runtime GPU from:"
+        echo "  https://github.com/microsoft/onnxruntime/releases"
+        echo "Extract it in the project root (onnxruntime-linux-x64-gpu-*/lib/)"
+        exit 1
+    fi
+    echo "Using libonnxruntime.so from: $ORT_LIB"
+    cp -L "$ORT_LIB" "$PKG_DIR/usr/lib/dictee/"
+
+    # Provider libs from cargo build output
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
         src="target/release/$lib"
         if [ -L "$src" ]; then
@@ -328,17 +355,15 @@ build_tarball() {
     fi
 
 
-    # ONNX Runtime CUDA libs (if available from last CUDA build)
-    for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-        src="target/release/$lib"
-        if [ -L "$src" ]; then
-            mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-            cp -L "$src" "$TARBALL_DIR/usr/lib/dictee/"
-        elif [ -f "$src" ]; then
-            mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-            cp "$src" "$TARBALL_DIR/usr/lib/dictee/"
-        fi
-    done
+    # ONNX Runtime CUDA libs (copy from deb pkg if available)
+    if [ -d "$PKG_DIR/usr/lib/dictee" ]; then
+        mkdir -p "$TARBALL_DIR/usr/lib/dictee"
+        for lib in libonnxruntime.so libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+            if [ -f "$PKG_DIR/usr/lib/dictee/$lib" ]; then
+                cp "$PKG_DIR/usr/lib/dictee/$lib" "$TARBALL_DIR/usr/lib/dictee/"
+            fi
+        done
+    fi
 
     # Scripts d'installation
     cp install.sh "$TARBALL_DIR/"

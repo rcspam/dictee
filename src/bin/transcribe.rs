@@ -30,13 +30,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model_dir = if args.len() > 2 {
         args[2].clone()
     } else {
-        let sys_dir = "/usr/share/dictee/tdt";
         let user_dir = format!("{}/.local/share/dictee/tdt",
             std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
-        if std::path::Path::new(sys_dir).join("vocab.txt").exists() {
-            sys_dir.to_string()
-        } else {
+        let sys_dir = "/usr/share/dictee/tdt";
+        if std::path::Path::new(&user_dir).join("vocab.txt").exists() {
             user_dir
+        } else {
+            sys_dir.to_string()
         }
     };
 

@@ -203,7 +203,8 @@ if [ -d "/run/user/$REAL_UID" ]; then
     _run="sudo -u $REAL_USER XDG_RUNTIME_DIR=/run/user/$REAL_UID DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
     $_run systemctl --user daemon-reload 2>/dev/null || true
     $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
-    $_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+    # Enable non-ASR services
+    $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
     $_run systemctl --user restart dotoold 2>/dev/null || true
     echo "  ↳ dotoold démarré"
     $_run systemctl --user restart dictee-ptt 2>/dev/null || true
@@ -214,17 +215,29 @@ if [ -d "/run/user/$REAL_UID" ]; then
     else
         echo "  ↳ dictee-tray : en attente de configuration (dictee-setup)"
     fi
-    $_run systemctl --user start dictee 2>/dev/null || true
-    echo "  ↳ dictee (daemon ASR) démarré"
-    # Restart active ASR services after upgrade
-    for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
-        if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
-            echo "  ↳ Redémarrage de $svc"
-            $_run systemctl --user restart "$svc" 2>/dev/null || true
-        fi
-    done
+    # Start the correct ASR daemon based on user config
+    _asr_backend="parakeet"
+    if [ -f "$REAL_HOME/.config/dictee.conf" ]; then
+        _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$REAL_HOME/.config/dictee.conf" | cut -d= -f2)
+    fi
+    case "$_asr_backend" in
+        vosk)    _asr_svc="dictee-vosk" ;;
+        whisper) _asr_svc="dictee-whisper" ;;
+        canary)  _asr_svc="dictee-canary" ;;
+        *)       _asr_svc="dictee" ;;
+    esac
+    $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
+    $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
+    echo "  ↳ $_asr_svc démarré (backend: $_asr_backend)"
     # Enable GNOME AppIndicator extension for tray icon
     $_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Refresh icon cache (needed on GNOME)
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    fi
 fi
 
 echo ""

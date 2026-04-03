@@ -165,7 +165,9 @@ build_rpm_cuda() {
     # Recompiler en CUDA si nécessaire
     if ! nm target/release/transcribe 2>/dev/null | grep -q cuda; then
         echo "Recompilation CUDA..."
-        cargo build --release --features "cuda,sortformer" \
+        # CRITICAL: --no-default-features disables ort-defaults (static linking)
+        # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
+        cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
             --bin transcribe \
             --bin transcribe-daemon \
             --bin transcribe-client \
@@ -176,9 +178,34 @@ build_rpm_cuda() {
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
 
-    # ONNX Runtime CUDA provider libs
+    # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "Copie des libs CUDA ONNX Runtime..."
     mkdir -p "$buildroot/usr/lib/dictee"
+
+    # Search paths for libonnxruntime.so (not produced by load-dynamic build)
+    ORT_LIB=""
+    for candidate in \
+        "target/release/libonnxruntime.so" \
+        "onnxruntime-linux-x64-gpu-*/lib/libonnxruntime.so" \
+        "$HOME/.cache/ort.pyke.io/dfbin/*/libonnxruntime.so"; do
+        # shellcheck disable=SC2086
+        for f in $candidate; do
+            if [ -f "$f" ]; then
+                ORT_LIB="$f"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$ORT_LIB" ]; then
+        echo "ERROR: libonnxruntime.so not found! Download ONNX Runtime GPU from:"
+        echo "  https://github.com/microsoft/onnxruntime/releases"
+        echo "Extract it in the project root (onnxruntime-linux-x64-gpu-*/lib/)"
+        exit 1
+    fi
+    echo "Using libonnxruntime.so from: $ORT_LIB"
+    cp -L "$ORT_LIB" "$buildroot/usr/lib/dictee/"
+
+    # Provider libs from cargo build output
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
         src="target/release/$lib"
         if [ -L "$src" ]; then
@@ -205,10 +232,13 @@ Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
+Requires:       (libcudart12 or cuda-cudart-12-8 or cuda-cudart-12-6)
+Requires:       (libcublas-12-8 or libcublas-12-6)
+Requires:       (libcufft11 or libcufft-12-8 or libcufft-12-6)
+Requires:       (libcudnn9-cuda-12 or libcudnn9-cuda-11)
+Requires:       (libnvrtc12 or libnvrtc-12-8 or libnvrtc-12-6)
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
-Recommends:     (libcublas-12-8 or libcublas-12-6)
-Recommends:     (libcudnn9-cuda-12 or libcudnn9-cuda-11)
 Recommends:     nvidia-gpu-firmware
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
@@ -282,8 +312,19 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         fi
     fi
 
+    # Install plasmoid if KDE Plasma 6 is available
+    if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+    fi
+
     # Enable GNOME AppIndicator extension for tray icon
     \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Refresh icon cache (needed on GNOME)
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    fi
 
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
@@ -296,6 +337,21 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     if [ -f "\$_user_home/.config/dictee.conf" ]; then
         \$_run systemctl --user restart dictee-tray 2>/dev/null || true
     fi
+    # Start the correct ASR daemon based on user config
+    _asr_backend="parakeet"
+    if [ -f "\$_user_home/.config/dictee.conf" ]; then
+        _asr_backend=\$(grep -s '^DICTEE_ASR_BACKEND=' "\$_user_home/.config/dictee.conf" | cut -d= -f2)
+    fi
+    case "\$_asr_backend" in
+        vosk)    _asr_svc="dictee-vosk" ;;
+        whisper) _asr_svc="dictee-whisper" ;;
+        canary)  _asr_svc="dictee-canary" ;;
+        *)       _asr_svc="dictee" ;;
+    esac
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
+    \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
 
 %postun
@@ -434,8 +490,19 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         fi
     fi
 
+    # Install plasmoid if KDE Plasma 6 is available
+    if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+    fi
+
     # Enable GNOME AppIndicator extension for tray icon
     \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Refresh icon cache (needed on GNOME)
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    fi
 
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
@@ -448,6 +515,21 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     if [ -f "\$_user_home/.config/dictee.conf" ]; then
         \$_run systemctl --user restart dictee-tray 2>/dev/null || true
     fi
+    # Start the correct ASR daemon based on user config
+    _asr_backend="parakeet"
+    if [ -f "\$_user_home/.config/dictee.conf" ]; then
+        _asr_backend=\$(grep -s '^DICTEE_ASR_BACKEND=' "\$_user_home/.config/dictee.conf" | cut -d= -f2)
+    fi
+    case "\$_asr_backend" in
+        vosk)    _asr_svc="dictee-vosk" ;;
+        whisper) _asr_svc="dictee-whisper" ;;
+        canary)  _asr_svc="dictee-canary" ;;
+        *)       _asr_svc="dictee" ;;
+    esac
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
+    \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
 
 %postun
