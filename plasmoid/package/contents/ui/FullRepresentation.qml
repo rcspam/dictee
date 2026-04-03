@@ -241,6 +241,17 @@ RowLayout {
         Layout.fillWidth: true
     }
 
+    // Message when not configured
+    PlasmaComponents.Label {
+        Layout.fillWidth: true
+        visible: !root.dicteeConfigured
+        text: i18n("Press the Configure Dictée button below to get started.")
+        color: "#e90"
+        wrapMode: Text.WordWrap
+        horizontalAlignment: Text.AlignHCenter
+        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
+    }
+
     // Boutons dictee
     RowLayout {
         Layout.fillWidth: true
@@ -645,11 +656,20 @@ RowLayout {
         PlasmaComponents.Button {
             text: i18n("Configure Dictée")
             icon.name: "configure"
-            flat: true
+            flat: root.dicteeConfigured
             onClicked: fullRep.actionRequested("setup")
             QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
+
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: "#e90"
+                border.width: 2
+                radius: 4
+                visible: !root.dicteeConfigured
+            }
         }
 
         Item { Layout.fillWidth: true }
