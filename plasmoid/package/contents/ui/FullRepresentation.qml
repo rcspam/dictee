@@ -412,6 +412,7 @@ RowLayout {
                     default: return i18n("Record and identify speakers (max 4)")
                 }
             }
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -511,6 +512,7 @@ RowLayout {
             checked: root.audioContextEnabled
             onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
             QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -623,6 +625,7 @@ RowLayout {
             QQC2.ToolTip.text: root.currentTranslateBackend === "libretranslate"
                 ? i18n("Target language — add languages in Configure Dictée (LibreTranslate)")
                 : i18n("Target language for translation")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -639,6 +642,7 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("transcribe-file")
             QQC2.ToolTip.text: i18n("Open an audio file for transcription")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -649,6 +653,7 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("postprocess")
             QQC2.ToolTip.text: i18n("Configure post-processing rules (regex, dictionary, continuation)")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -659,6 +664,7 @@ RowLayout {
             flat: root.dicteeConfigured
             onClicked: fullRep.actionRequested("setup")
             QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
 
@@ -749,8 +755,9 @@ RowLayout {
                     executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
                 }
                 QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+    
                 QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.delay: 300
+            QQC2.ToolTip.delay: 300
             }
 
             // Level meter — barre verticale alignée sur le slider
@@ -781,7 +788,7 @@ RowLayout {
 
                 QQC2.ToolTip.text: i18n("Audio input level")
                 QQC2.ToolTip.visible: levelMeterMouse.containsMouse
-                QQC2.ToolTip.delay: 300
+            QQC2.ToolTip.delay: 300
                 MouseArea {
                     id: levelMeterMouse
                     anchors.fill: parent
