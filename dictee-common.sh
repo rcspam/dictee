@@ -35,6 +35,14 @@ if [ "${DICTEE_DEBUG:-}" != "true" ] && [ -f "$DICTEE_CONF" ]; then
 fi
 export DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
 
+# Read notification settings live from conf (called by notify_dictee)
+_read_notify_conf() {
+    if [ -f "$DICTEE_CONF" ]; then
+        DICTEE_NOTIFICATIONS=$(grep '^DICTEE_NOTIFICATIONS=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2 || true)
+        DICTEE_NOTIFICATIONS_TEXT=$(grep '^DICTEE_NOTIFICATIONS_TEXT=' "$DICTEE_CONF" 2>/dev/null | cut -d= -f2 || true)
+    fi
+}
+
 _dbg() {
     [ "$DICTEE_DEBUG" = "true" ] || return 0
     printf '%s [%s] %s\n' "$(date '+%H:%M:%S.%3N')" "${_DBG_CONTEXT:-dictee}" "$*" >> "$_DBG_LOG"
@@ -60,7 +68,15 @@ _NOTIFY_SID_FILE="/tmp/.dictee_notify_sid${_UID_SUFFIX}"
 
 notify_dictee() {
     local timeout="$1" icon="$2" msg="$3" body="${4:-}"
-    _dbg "notify: timeout=$timeout icon=$icon msg='$msg'"
+    _read_notify_conf
+    # Skip if notifications disabled
+    if [ "${DICTEE_NOTIFICATIONS:-true}" = "false" ]; then
+        _dbg "notify: SKIPPED (disabled) msg='$msg'"
+        return
+    fi
+    # Strip body text if text display disabled
+    if [ "${DICTEE_NOTIFICATIONS_TEXT:-true}" = "false" ]; then body=""; fi
+    _dbg "notify: timeout=$timeout icon=$icon msg='$msg' body='${body:0:80}'"
     # Read server ID from previous async notification if available
     if [ -f "$_NOTIFY_SID_FILE" ]; then
         local _prev
@@ -80,6 +96,14 @@ notify_dictee() {
 # Non-blocking notification (for recording start — don't delay pw-record)
 notify_dictee_async() {
     local timeout="$1" icon="$2" msg="$3" body="${4:-}"
+    _read_notify_conf
+    # Skip if notifications disabled
+    if [ "${DICTEE_NOTIFICATIONS:-true}" = "false" ]; then
+        _dbg "notify-async: SKIPPED (disabled) msg='$msg'"
+        return
+    fi
+    # Strip body text if text display disabled
+    if [ "${DICTEE_NOTIFICATIONS_TEXT:-true}" = "false" ]; then body=""; fi
     _dbg "notify-async: timeout=$timeout icon=$icon msg='$msg'"
     (
         local _sid

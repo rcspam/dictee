@@ -843,6 +843,15 @@ trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 # === CANCELLATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
     trap - ERR
+    # If PIDFILE exists but state is still idle, wait briefly for recording to start
+    if [ -f "$PIDFILE" ]; then
+        for _w in 1 2; do
+            _cs=$(cat "$STATE_FILE" 2>/dev/null)
+            if [ "$_cs" != "idle" ] && [ "$_cs" != "" ]; then break; fi
+            _dbg "cancel: waiting for state (PIDFILE exists, state=$_cs, attempt=$_w)"
+            sleep 0.05
+        done
+    fi
     # Read and lock state atomically
     _cancel_state=""
     (
@@ -946,7 +955,13 @@ if [ -f "$PIDFILE" ]; then
     _rms=$(sox "$RECORDING_FILE" -n stat 2>&1 | awk '/RMS.*amplitude/{print $3; exit}')
     if [ -n "$_rms" ] && awk "BEGIN{exit(!($_rms < 0.03))}" 2>/dev/null; then
         _dbg "silence detected (RMS=$_rms) — skipping transcription"
-        notify_dictee 2000 audio-volume-muted-symbolic "Silence détecté — rien à transcrire"
+        notify_dictee 0 audio-volume-muted-symbolic "Silence détecté — rien à transcrire"
+        _close_id="${NOTIFY_SERVER_ID:-$(cat "$_NOTIFY_SID_FILE" 2>/dev/null)}"
+        if [ -n "$_close_id" ]; then
+            (sleep 2; gdbus call --session --dest org.freedesktop.Notifications \
+                --object-path /org/freedesktop/Notifications \
+                --method org.freedesktop.Notifications.CloseNotification "$_close_id" >/dev/null 2>&1) &
+        fi
         cleanup_session
         write_state "idle"
         exit 0
