@@ -995,6 +995,24 @@ class _WhisperDownloadThread(QThread):
             self.finished.emit(False, str(e))
 
 
+class _RuleTranscribeThread(QThread):
+    """Thread pour transcrire un WAV lors du test de règle de post-traitement."""
+    finished_sig = Signal(str)
+
+    def __init__(self, wav_path):
+        super().__init__()
+        self.wav_path = wav_path
+
+    def run(self):
+        try:
+            result = subprocess.run(
+                ["transcribe-client", self.wav_path],
+                capture_output=True, text=True, timeout=30)
+            self.finished_sig.emit(result.stdout.strip())
+        except Exception:
+            self.finished_sig.emit("")
+
+
 ASR_MODELS = [
     {
         "id": "tdt",
@@ -3268,7 +3286,8 @@ class DicteeSetupDialog(QDialog):
         # Warning + button to change ASR backend
         _lbl_warn = QLabel(
             "<p style='font-size: 10pt; color: #e90;'>"
-            + _("To use an external translation service, you need to switch to a different ASR engine.")
+            + _("Canary transcribes and translates in a single pass — both are handled by the same ASR model. "
+                "To use a separate translation service instead, switch to a different ASR engine.")
             + "</p>")
         _lbl_warn.setWordWrap(True)
         self._canary_trans_card.layout().addWidget(_lbl_warn)
@@ -3901,21 +3920,36 @@ class DicteeSetupDialog(QDialog):
             if self.cmb_vosk_lang.currentData() and self._vosk_model_installed(self.cmb_vosk_lang.currentData())
             else None))
 
-        self.btn_dl_vosk_model = QPushButton()
+        self.btn_dl_vosk_model = QPushButton(_("Download"))
         self.btn_dl_vosk_model.setFixedWidth(150)
-        self.btn_dl_vosk_model.clicked.connect(self._on_vosk_model_button)
+        self.btn_dl_vosk_model.clicked.connect(self._on_vosk_model_download)
+
+        self.btn_del_vosk_model = QPushButton()
+        self.btn_del_vosk_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_vosk_model.setFixedWidth(28)
+        self.btn_del_vosk_model.setToolTip(_("Delete model"))
+        self.btn_del_vosk_model.setVisible(False)
+        self.btn_del_vosk_model.clicked.connect(self._on_vosk_model_delete)
 
         self._lbl_vosk_status = QLabel()
         self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
 
         # Group config widgets to disable when venv not installed
         self._vosk_config_widgets = [lbl_vosk_lang, self.cmb_vosk_lang, self.btn_dl_vosk_model,
-                                     self._lbl_vosk_status]
+                                     self.btn_del_vosk_model, self._lbl_vosk_status]
         row_vosk.addWidget(lbl_vosk_lang)
         row_vosk.addWidget(self.cmb_vosk_lang)
         row_vosk.addWidget(self.btn_dl_vosk_model)
+        row_vosk.addWidget(self.btn_del_vosk_model)
         row_vosk.addStretch()
         row_vosk.addWidget(self.btn_install_vosk)
+        self.btn_del_vosk_venv = QPushButton()
+        self.btn_del_vosk_venv.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_vosk_venv.setFixedWidth(28)
+        self.btn_del_vosk_venv.setToolTip(_("Uninstall Vosk engine"))
+        self.btn_del_vosk_venv.setVisible(vosk_installed)
+        self.btn_del_vosk_venv.clicked.connect(lambda: self._delete_venv("vosk"))
+        row_vosk.addWidget(self.btn_del_vosk_venv)
         for w in self._vosk_config_widgets:
             w.setEnabled(vosk_installed)
         vosk_outer.addLayout(row_vosk)
@@ -4007,34 +4041,31 @@ class DicteeSetupDialog(QDialog):
         if not code:
             return
         venv_ok = venv_is_installed(VOSK_VENV)
-        if self._vosk_model_installed(code):
-            self.btn_dl_vosk_model.setText(_("Delete"))
+        installed = self._vosk_model_installed(code)
+        if installed:
             self._lbl_vosk_status.setText('<span style="color: green;">✓</span> ' + _("Model downloaded and ready"))
         else:
-            self.btn_dl_vosk_model.setText(_("Download"))
             self._lbl_vosk_status.setText(_("Select a language and click Download"))
-        self.btn_dl_vosk_model.setVisible(True)
+        self.btn_dl_vosk_model.setText(_("Download"))
+        self.btn_dl_vosk_model.setVisible(not installed)
         self.btn_dl_vosk_model.setEnabled(venv_ok)
+        self.btn_del_vosk_model.setVisible(installed)
 
-    def _on_vosk_model_button(self):
-        """Download or delete the selected Vosk model."""
+    def _on_vosk_model_delete(self):
+        """Delete the selected Vosk model after confirmation."""
         code = self.cmb_vosk_lang.currentData()
-        if not code:
+        if not code or not self._vosk_model_installed(code):
             return
-        if self._vosk_model_installed(code):
-            reply = QMessageBox.question(self, _("Delete"),
-                _("Delete Vosk model '{}'?").format(VOSK_MODELS.get(code, code)),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                import shutil
-                model_name = VOSK_MODELS.get(code, "")
-                model_dir = os.path.join(DICTEE_DATA_DIR, "vosk-models", model_name)
-                if os.path.isdir(model_dir):
-                    shutil.rmtree(model_dir)
-                self._refresh_vosk_lang_combo()
-                self._update_vosk_status()
-        else:
-            self._on_vosk_model_download()
+        reply = QMessageBox.question(self, _("Delete"),
+            _("Delete Vosk model '{}'?").format(VOSK_MODELS.get(code, code)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            model_name = VOSK_MODELS.get(code, "")
+            model_dir = os.path.join(DICTEE_DATA_DIR, "vosk-models", model_name)
+            if os.path.isdir(model_dir):
+                shutil.rmtree(model_dir)
+            self._refresh_vosk_lang_combo()
+            self._update_vosk_status()
 
     def _cancel_vosk_download(self):
         """Cancel ongoing Vosk model download and clean partial files."""
@@ -4124,9 +4155,16 @@ class DicteeSetupDialog(QDialog):
                 break
         self.cmb_whisper_model.currentIndexChanged.connect(self._update_whisper_status)
 
-        self.btn_download_whisper = QPushButton()
+        self.btn_download_whisper = QPushButton(_("Download"))
         self.btn_download_whisper.setFixedWidth(150)
-        self.btn_download_whisper.clicked.connect(self._on_whisper_model_button)
+        self.btn_download_whisper.clicked.connect(self._on_whisper_model_download)
+
+        self.btn_del_whisper_model = QPushButton()
+        self.btn_del_whisper_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_model.setFixedWidth(28)
+        self.btn_del_whisper_model.setToolTip(_("Delete model"))
+        self.btn_del_whisper_model.setVisible(False)
+        self.btn_del_whisper_model.clicked.connect(self._on_whisper_model_delete)
 
         lbl_wh_lang = QLabel(_("Transcription language:"))
         self.txt_whisper_lang = QComboBox()
@@ -4194,12 +4232,20 @@ class DicteeSetupDialog(QDialog):
         row_lang.addStretch()
         whisper_outer.addLayout(row_lang)
 
-        # Row 2: model + download + install
+        # Row 2: model + download + delete + install
         row.addWidget(self._lbl_wh_model)
         row.addWidget(self.cmb_whisper_model)
         row.addWidget(self.btn_download_whisper)
+        row.addWidget(self.btn_del_whisper_model)
         row.addStretch()
         row.addWidget(self.btn_install_whisper)
+        self.btn_del_whisper_venv = QPushButton()
+        self.btn_del_whisper_venv.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_venv.setFixedWidth(28)
+        self.btn_del_whisper_venv.setToolTip(_("Uninstall Whisper engine"))
+        self.btn_del_whisper_venv.setVisible(whisper_installed)
+        self.btn_del_whisper_venv.clicked.connect(lambda: self._delete_venv("whisper"))
+        row.addWidget(self.btn_del_whisper_venv)
 
         self._lbl_whisper_status = QLabel()
         self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
@@ -4207,8 +4253,8 @@ class DicteeSetupDialog(QDialog):
 
         # Group config widgets to disable when venv not installed
         self._whisper_config_widgets = [self._lbl_wh_model, self.cmb_whisper_model,
-                                        self.btn_download_whisper, lbl_wh_lang,
-                                        self.txt_whisper_lang, lbl_auto,
+                                        self.btn_download_whisper, self.btn_del_whisper_model,
+                                        lbl_wh_lang, self.txt_whisper_lang, lbl_auto,
                                         self._lbl_whisper_status]
         for w in self._whisper_config_widgets:
             w.setEnabled(whisper_installed)
@@ -4252,34 +4298,37 @@ class DicteeSetupDialog(QDialog):
         venv_ok = venv_is_installed(WHISPER_VENV)
         cached = self._whisper_model_cached(model_id)
         if cached:
-            self.btn_download_whisper.setText(_("Delete"))
             self._lbl_whisper_status.setText('<span style="color: green;">✓</span> ' + _("Model downloaded and ready"))
         else:
-            self.btn_download_whisper.setText(_("Download"))
             self._lbl_whisper_status.setText(_("Select a model and click Download"))
+        self.btn_download_whisper.setText(_("Download"))
+        self.btn_download_whisper.setVisible(not cached)
         self.btn_download_whisper.setEnabled(venv_ok)
+        self.btn_del_whisper_model.setVisible(cached)
 
-    def _on_whisper_model_button(self):
-        """Download or delete the selected Whisper model."""
+    def _on_whisper_model_delete(self):
+        """Delete the selected Whisper model after confirmation."""
+        model_id = self.cmb_whisper_model.currentData()
+        if not model_id or not self._whisper_model_cached(model_id):
+            return
+        reply = QMessageBox.question(self, _("Delete"),
+            _("Delete model '{}'?").format(model_id),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self._delete_whisper_model(model_id)
+
+    def _on_whisper_model_download(self):
+        """Download the selected Whisper model."""
         model_id = self.cmb_whisper_model.currentData()
         if not model_id:
             return
-        if self._whisper_model_cached(model_id):
-            # Delete
-            reply = QMessageBox.question(self, _("Delete"),
-                _("Delete model '{}'?").format(model_id),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                self._delete_whisper_model(model_id)
-        else:
-            # Download
-            self.btn_download_whisper.setEnabled(False)
-            self.btn_download_whisper.setText(_("Downloading…"))
-            self._whisper_progress_row.setVisible(True)
-            thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
-            thread.finished.connect(self._on_whisper_download_done)
-            self._venv_threads["whisper_dl"] = thread
-            thread.start()
+        self.btn_download_whisper.setEnabled(False)
+        self.btn_download_whisper.setText(_("Downloading…"))
+        self._whisper_progress_row.setVisible(True)
+        thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
+        thread.finished.connect(self._on_whisper_download_done)
+        self._venv_threads["whisper_dl"] = thread
+        thread.start()
 
     def _cancel_whisper_download(self):
         """Cancel ongoing Whisper model download and clean partial files."""
@@ -5622,10 +5671,11 @@ class DicteeSetupDialog(QDialog):
                 self._pw_proc.terminate()
                 self._pw_proc.wait()
             # Transcrire dans un thread pour ne pas bloquer l'UI
-            self._rule_transcribe_thread = QThread()
-            self._rule_transcribe_thread.run = lambda: self._rule_transcribe_worker(tmpwav)
-            self._rule_transcribe_thread.finished.connect(
-                lambda: self._rule_transcribe_done(tmpwav))
+            self._rule_transcribe_thread = _RuleTranscribeThread(tmpwav)
+            self._rule_transcribe_thread.finished_sig.connect(
+                lambda result, wav=tmpwav: (
+                    setattr(self, '_rule_transcribe_result', result),
+                    self._rule_transcribe_done(wav)))
             self._rule_transcribe_thread.start()
             return
 
@@ -7954,7 +8004,8 @@ class DicteeSetupDialog(QDialog):
         if trans_backend.startswith("trans:"):
             trans_engine = trans_backend.split(":", 1)[1]
             trans_backend = "trans"
-        lt_port = int(self.spin_lt_port.currentText()) if hasattr(self, 'spin_lt_port') else 5000
+        _lt_txt = self.spin_lt_port.currentText() if hasattr(self, 'spin_lt_port') else ""
+        lt_port = int(_lt_txt) if _lt_txt.isdigit() else 5000
         ollama_model = self.cmb_ollama_model.currentText() if hasattr(self, 'cmb_ollama_model') else "translategemma"
         pp_enabled = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else False
 
@@ -8054,7 +8105,8 @@ class DicteeSetupDialog(QDialog):
         backend = self.cmb_trans_backend.currentData()
         if backend == "libretranslate":
             # Langues installées dans Docker
-            port = int(self.spin_lt_port.currentText()) if hasattr(self, 'spin_lt_port') else 5000
+            _lt_txt = self.spin_lt_port.currentText() if hasattr(self, 'spin_lt_port') else ""
+            port = int(_lt_txt) if _lt_txt.isdigit() else 5000
             avail = libretranslate_available_languages(port=port)
             allowed = set(avail) if avail else None
         else:
@@ -8402,7 +8454,8 @@ class DicteeSetupDialog(QDialog):
             return
 
         if docker_container_running():
-            port = self.spin_lt_port.currentText()
+            port_text = self.spin_lt_port.currentText()
+            port = int(port_text) if port_text.isdigit() else 5000
             # Taille du conteneur (image + données modèles)
             size_info = _docker_container_size()
             size_str = f" — {size_info}" if size_info else ""
@@ -8413,7 +8466,7 @@ class DicteeSetupDialog(QDialog):
                 ('<small style="color: #888;"> ' + size_str + '</small>' if size_str else '')
             )
             # Vérifier que les langues source/cible sont disponibles
-            avail = libretranslate_available_languages(port=int(port))
+            avail = libretranslate_available_languages(port=port)
             if avail:
                 src = self.combo_src.currentData()
                 tgt = self.combo_tgt.currentData()
@@ -8473,8 +8526,9 @@ class DicteeSetupDialog(QDialog):
             self.lbl_lt_langs_hint.setVisible(False)
             return
         selected = set(self._get_lt_selected_langs())
-        port = self.spin_lt_port.currentText()
-        installed = set(libretranslate_available_languages(port=int(port)))
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
+        installed = set(libretranslate_available_languages(port=port))
         if selected != installed and installed:
             added = selected - installed
             removed = installed - selected
@@ -8498,7 +8552,8 @@ class DicteeSetupDialog(QDialog):
         if self._lt_is_busy():
             return
         languages = ",".join(self._get_lt_selected_langs())
-        port = int(self.spin_lt_port.currentText())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
 
         # Sauvegarder immédiatement dans la config
         self._save_lt_langs_to_config(languages)
@@ -8614,7 +8669,8 @@ class DicteeSetupDialog(QDialog):
         _dbg_setup("_on_lt_start")
         if self._lt_is_busy():
             return
-        port = int(self.spin_lt_port.currentText())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
         languages = ",".join(self._get_lt_selected_langs())
         self._save_lt_langs_to_config(languages)
 
@@ -8793,16 +8849,49 @@ class DicteeSetupDialog(QDialog):
     def _on_venv_installed(self, name, success, message):
         _dbg_setup(f"_on_venv_installed: {name}, success={success}, msg={message!r}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
+        btn_del = self.btn_del_vosk_venv if name == "vosk" else self.btn_del_whisper_venv
         engine = "Vosk" if name == "vosk" else "Whisper"
         config_widgets = self._vosk_config_widgets if name == "vosk" else self._whisper_config_widgets
         if success:
             self._update_venv_button(btn, engine, True)
+            btn_del.setVisible(True)
             for w in config_widgets:
                 w.setEnabled(True)
         else:
             self._update_venv_button(btn, engine, False)
+            btn_del.setVisible(False)
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
+
+    def _delete_venv(self, name):
+        """Delete a Vosk or Whisper venv after user confirmation."""
+        engine = "Vosk" if name == "vosk" else "Whisper"
+        venv_path = VOSK_VENV if name == "vosk" else WHISPER_VENV
+        btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
+        btn_del = self.btn_del_vosk_venv if name == "vosk" else self.btn_del_whisper_venv
+        config_widgets = self._vosk_config_widgets if name == "vosk" else self._whisper_config_widgets
+        ret = QMessageBox.question(
+            self, _("Uninstall {name} engine").format(name=engine),
+            _("Delete the {name} virtual environment?\n\n{path}\n\nDownloaded models will be kept.").format(
+                name=engine, path=venv_path),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            if os.path.isdir(venv_path):
+                shutil.rmtree(venv_path)
+            # Stop the systemd service if running
+            svc = "dictee-vosk.service" if name == "vosk" else "dictee-whisper.service"
+            subprocess.run(["systemctl", "--user", "stop", svc],
+                           capture_output=True, timeout=5)
+        except Exception as exc:
+            QMessageBox.critical(self, _("Error"), str(exc))
+            return
+        self._update_venv_button(btn, engine, False)
+        btn_del.setVisible(False)
+        for w in config_widgets:
+            w.setEnabled(False)
 
     def _mark_dirty(self):
         self._dirty = True
@@ -9114,6 +9203,7 @@ class DicteeSetupDialog(QDialog):
             sock_path = os.path.join(runtime_dir, "dictee", "transcribe.sock")
         if not os.path.exists(sock_path):
             sock_path = "/tmp/transcribe.sock"
+        s = None
         try:
             s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
             s.settimeout(30)
@@ -9125,7 +9215,6 @@ class DicteeSetupDialog(QDialog):
                 if not chunk:
                     break
                 data += chunk
-            s.close()
             text = data.decode("utf-8").strip()
             if text:
                 self._test_input.setPlainText(text)
@@ -9133,6 +9222,11 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.warning(self._pp_parent, "dictee",
                                 _("Cannot connect to ASR daemon: {err}").format(err=str(e)))
         finally:
+            if s is not None:
+                try:
+                    s.close()
+                except OSError:
+                    pass
             try:
                 os.unlink(wav_path)
             except OSError:
@@ -9352,7 +9446,8 @@ class DicteeSetupDialog(QDialog):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
         selected = set(self._get_lt_selected_langs())
         running = docker_container_running()
-        port = int(self.spin_lt_port.currentText())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
 
         if running:
             # Vérifier si les langues ont changé
