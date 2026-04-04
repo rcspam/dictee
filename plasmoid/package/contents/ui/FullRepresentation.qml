@@ -92,19 +92,19 @@ RowLayout {
                     color: {
                         switch (fullRep.state) {
                         case "offline":
-                            return Kirigami.Theme.negativeTextColor
+                            return "#e74c3c"  // rouge
                         case "recording":
-                            return Kirigami.Theme.highlightColor
+                            return "#3498db"  // bleu
                         case "transcribing":
-                            return Kirigami.Theme.positiveTextColor
+                            return "#2ecc71"  // vert
                         case "switching":
-                            return Kirigami.Theme.neutralTextColor
+                            return "#e67e22"  // orange
                         case "preparing":
                         case "diarize-ready":
                         case "diarizing":
-                            return "#9B59B6"
+                            return "#9B59B6"  // violet
                         default:
-                            return Kirigami.Theme.positiveTextColor
+                            return "#2ecc71"  // vert (idle)
                         }
                     }
                 }

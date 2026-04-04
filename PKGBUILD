@@ -110,6 +110,16 @@ package() {
         install -Dm644 "$f" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$(basename "$f")"
     done
 
+    # Assets (wizard banners + logos)
+    install -d "$pkgdir/usr/share/dictee/assets"
+    install -Dm644 assets/banner-dark.svg "$pkgdir/usr/share/dictee/assets/banner-dark.svg"
+    install -Dm644 assets/banner-light.svg "$pkgdir/usr/share/dictee/assets/banner-light.svg"
+    if [ -d assets/logos ]; then
+        install -d "$pkgdir/usr/share/dictee/assets/logos"
+        for f in assets/logos/*.svg; do
+            [ -f "$f" ] && install -Dm644 "$f" "$pkgdir/usr/share/dictee/assets/logos/$(basename "$f")"
+        done
+    fi
 
     # Locales (compiled in build())
     for lang in fr de es it pt uk; do
