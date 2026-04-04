@@ -44,6 +44,7 @@ except ImportError:
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
+        QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
@@ -8824,7 +8825,6 @@ class DicteeSetupDialog(QDialog):
             dep_w = self._model_widgets["sortformer"]
             if not model_is_installed(dep_w["model"]):
                 dep_w["button"].setEnabled(False)
-                dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
                 dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
 
     # -- Installation venv ASR --
