@@ -494,7 +494,7 @@ class DicteeTrayAppIndicator:
             self.item_diarize_gtk.set_tooltip_text(
                 _("Sortformer model not installed. Configure in dictee-setup."))
         self.item_diarize_gtk.set_active(
-            read_conf_value("DICTEE_DIARIZE", "false").lower() == "true")
+            read_state() in ("preparing", "diarize-ready"))
         self.item_diarize_gtk.connect("toggled", self._on_diarize_toggled_gtk)
         self.menu.append(self.item_diarize_gtk)
 
@@ -594,8 +594,8 @@ class DicteeTrayAppIndicator:
         file_state = read_state()
         if file_state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
             self.state = file_state
-        elif file_state == "switching":
-            self.state = "idle"  # Stay idle during backend switch
+        elif file_state in ("idle", "switching"):
+            self.state = "idle"
         elif self._daemon_active:
             self.state = "idle"
         elif self.item_diarize_gtk.get_active():
@@ -635,8 +635,9 @@ class DicteeTrayAppIndicator:
         self.item_dictee.set_label(
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
+            else _("Start diarization") if self.state == "diarize-ready"
             else _("Start dictation"))
-        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
+        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing"))
         self.item_translate.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
         self.item_translate.set_visible(not is_busy)
         self.item_cancel.set_visible(is_busy)
@@ -847,7 +848,7 @@ class DicteeTrayQt:
             self.action_diarize_qt.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
         self.action_diarize_qt.setChecked(
-            read_conf_value("DICTEE_DIARIZE", "false").lower() == "true")
+            read_state() in ("preparing", "diarize-ready"))
         self.action_diarize_qt.toggled.connect(self._on_diarize_toggled_qt)
 
         self.action_diarize_lock_qt = self.menu.addAction(_("Keep diarization active"))
@@ -991,8 +992,8 @@ class DicteeTrayQt:
         file_state = read_state()
         if file_state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
             self.state = file_state
-        elif file_state == "switching":
-            self.state = "idle"  # Stay idle during backend switch
+        elif file_state in ("idle", "switching"):
+            self.state = "idle"
         elif self._daemon_active:
             self.state = "idle"
         elif self.action_diarize_qt.isChecked():
@@ -1047,8 +1048,9 @@ class DicteeTrayQt:
         self.action_dictee.setText(
             _("Stop translation") if is_translating
             else _("Stop dictation") if is_busy
+            else _("Start diarization") if self.state == "diarize-ready"
             else _("Start dictation"))
-        self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
+        self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing"))
         self.action_translate.setText(_("Start translation"))
         self.action_translate.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
         self.action_translate.setVisible(not is_busy)

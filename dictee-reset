@@ -48,11 +48,12 @@ _dbg "reset: closing notification"
 close_notification
 
 # 6. Clean up temporary files
-rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* \
-      /tmp/dictee_esc_listener_pid* /tmp/mut_dictee*
+rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/dictee_diarize* \
+      /tmp/notify_dictee* /tmp/dictee_esc_listener_pid* /tmp/mut_dictee*
 
-# 7. Disable diarization
-dictee-switch-backend diarize false 2>/dev/null
+# 7. Clean diarization state (without restarting a daemon — step 10 does that)
+sed -i '/^DICTEE_PRE_DIARIZE_BACKEND=/d' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf" 2>/dev/null || true
+sed -i '/^DICTEE_DIARIZE=/d' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf" 2>/dev/null || true
 
 # 8. Stop all ASR daemons
 for s in dictee dictee-vosk dictee-whisper dictee-canary; do
