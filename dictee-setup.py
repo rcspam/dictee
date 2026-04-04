@@ -306,6 +306,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         # Audio context buffer
         f.write(f"DICTEE_AUDIO_CONTEXT={'true' if audio_context else 'false'}\n")
         f.write(f"DICTEE_AUDIO_CONTEXT_TIMEOUT={audio_context_timeout}\n")
+        f.write("DICTEE_SETUP_DONE=true\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
       try:
@@ -2183,9 +2184,14 @@ class _CheckMarkComboBox(QComboBox):
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
-        self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
+        _conf_exists = os.path.exists(CONF_PATH)
+        _setup_done = False
+        if _conf_exists:
+            _tmp = load_config()
+            _setup_done = (_tmp.get("DICTEE_SETUP_DONE", "") == "true")
+        self.wizard_mode = wizard or not _conf_exists or not _setup_done
         self._wizard_finished = False
-        self._conf_existed_before_wizard = os.path.exists(CONF_PATH)
+        self._conf_existed_before_wizard = _conf_exists
         self.setWindowTitle(_("Voice dictation configuration"))
         self.setMinimumSize(1100, 750)
         self.resize(1100, 750)
@@ -2419,14 +2425,11 @@ class DicteeSetupDialog(QDialog):
         lay_srv.setSpacing(6)
         lay_srv.setContentsMargins(16, 16, 16, 12)
         self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        self.chk_tray = QCheckBox(_("Show notification area icon"))
         self.chk_daemon.setChecked(any(
             self._is_service_enabled(s)
             for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
         ))
-        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
         lay_srv.addWidget(self.chk_daemon)
-        lay_srv.addWidget(self.chk_tray)
         layout.addWidget(grp_services)
 
         # -- Post-processing button --
@@ -2557,6 +2560,8 @@ class DicteeSetupDialog(QDialog):
         nav = QHBoxLayout()
         nav.setContentsMargins(20, 8, 20, 16)
 
+        self._is_first_setup = (self.conf.get("DICTEE_SETUP_DONE", "") != "true")
+
         self.btn_prev = QPushButton(_("Previous"))
         self.btn_prev.clicked.connect(self._wizard_prev)
         nav.addWidget(self.btn_prev)
@@ -2564,6 +2569,12 @@ class DicteeSetupDialog(QDialog):
         self.lbl_step = QLabel()
         self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nav.addWidget(self.lbl_step, 1)
+
+        self.btn_cancel_wizard = QPushButton(_("Quit setup"))
+        self.btn_cancel_wizard.clicked.connect(self.close)
+        self.btn_cancel_wizard.setVisible(self._is_first_setup)
+        nav.addWidget(self.btn_cancel_wizard)
+        nav.addSpacing(20)
 
         self.btn_next = QPushButton(_("Next"))
         self.btn_next.clicked.connect(self._wizard_next)
@@ -2639,12 +2650,8 @@ class DicteeSetupDialog(QDialog):
 
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
-            # Last page → Finish: mark setup as done
-            try:
-                with open(CONF_PATH, "a") as f:
-                    f.write("DICTEE_SETUP_DONE=true\n")
-            except OSError:
-                pass
+            # Last page → Finish: save config (includes DICTEE_SETUP_DONE)
+            self._on_apply()
             self._wizard_finished = True
             self.accept()
         else:
@@ -3486,15 +3493,12 @@ class DicteeSetupDialog(QDialog):
         lay_srv.setSpacing(6)
         lay_srv.setContentsMargins(16, 16, 16, 12)
         self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        self.chk_tray = QCheckBox(_("Show notification area icon"))
         # In wizard, check by default (first install)
         self.chk_daemon.setChecked(any(
             self._is_service_enabled(s)
             for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
         ) or self.wizard_mode)
-        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray") or self.wizard_mode)
         lay_srv.addWidget(self.chk_daemon)
-        lay_srv.addWidget(self.chk_tray)
         lay.addWidget(grp_srv)
 
         # Options
@@ -3977,10 +3981,14 @@ class DicteeSetupDialog(QDialog):
     # -- Vosk model management --
 
     def _update_vosk_model_in_conf(self, lang_code):
-        """Write DICTEE_VOSK_MODEL into dictee.conf and restart daemon if needed."""
+        """Write DICTEE_VOSK_MODEL into dictee.conf (or memory in wizard mode)."""
         # Always write the short code — daemon resolves to full name
         reverse = {v: k for k, v in VOSK_MODELS.items()}
         code = reverse.get(lang_code, lang_code)
+        # In wizard mode, only update in-memory conf
+        if self.wizard_mode:
+            self.conf["DICTEE_VOSK_MODEL"] = code
+            return
         # Update conf file in-place
         lines = []
         found = False
@@ -4146,7 +4154,7 @@ class DicteeSetupDialog(QDialog):
 
         self._lbl_wh_model = QLabel(_("Model:"))
         self.cmb_whisper_model = _CheckMarkComboBox()
-        self.cmb_whisper_model.setMaximumWidth(350)
+        self.cmb_whisper_model.setMinimumWidth(420)
         self._populate_whisper_combo()
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
         for i in range(self.cmb_whisper_model.count()):
@@ -4494,19 +4502,25 @@ class DicteeSetupDialog(QDialog):
         self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
         self.chk_gnome_ext.setEnabled(False)
 
-        anim = conf.get("DICTEE_ANIMATION", "speech")
+        anim = conf.get("DICTEE_ANIMATION", "")
         self.chk_anim_speech.setChecked(anim in ("speech", "both"))
         self.chk_plasmoid.setChecked(anim in ("plasmoid", "both"))
 
-        # Smart pre-check based on desktop
-        if not os.path.exists(CONF_PATH):
+        # Smart pre-check based on desktop (first setup only)
+        if not anim:
+            _is_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
             if self.de_type == "kde":
                 self.chk_plasmoid.setChecked(True)
-            else:
+            elif self.de_type != "gnome" and _is_wayland:
                 self.chk_anim_speech.setChecked(True)
+
+        self.chk_tray = QCheckBox(_("Show notification area icon"))
+        self.chk_tray.setChecked(
+            self._is_service_enabled("dictee-tray") or self.wizard_mode)
 
         lay_vis.addWidget(self.chk_anim_speech)
         lay_vis.addWidget(self.chk_plasmoid)
+        lay_vis.addWidget(self.chk_tray)
         lay_vis.addWidget(self.chk_gnome_ext)
 
         # GNOME / compositors without wlr-layer-shell warning
@@ -7921,18 +7935,7 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
-        # Wizard annulé : supprimer la conf et arrêter les services
-        if (self.wizard_mode and not self._wizard_finished
-                and not self._conf_existed_before_wizard):
-            if os.path.exists(CONF_PATH):
-                try:
-                    os.unlink(CONF_PATH)
-                except OSError:
-                    pass
-            for svc in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary",
-                        "dictee-tray", "dictee-ptt"):
-                subprocess.run(["systemctl", "--user", "disable", "--now", svc],
-                               capture_output=True)
+        # Wizard annulé : rien n'a été écrit sur disque, rien à nettoyer
         super().closeEvent(event)
 
     # ── Test dictation ────────────────────────────────────────────
@@ -8569,7 +8572,11 @@ class DicteeSetupDialog(QDialog):
         self._lt_action_thread.start()
 
     def _save_lt_langs_to_config(self, langs):
-        """Met à jour DICTEE_LIBRETRANSLATE_LANGS dans dictee.conf (écriture atomique)."""
+        """Met à jour DICTEE_LIBRETRANSLATE_LANGS dans dictee.conf (ou mémoire en mode wizard)."""
+        # In wizard mode, only update in-memory conf
+        if self.wizard_mode:
+            self.conf["DICTEE_LIBRETRANSLATE_LANGS"] = langs
+            return
         os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
         if not os.path.exists(CONF_PATH):
             with open(CONF_PATH, "w") as f:
@@ -9413,13 +9420,7 @@ class DicteeSetupDialog(QDialog):
 
         self._dirty = False
 
-        # En mode normal, ré-ajouter DICTEE_SETUP_DONE (save_config réécrit tout)
-        if not self.wizard_mode:
-            try:
-                with open(CONF_PATH, "a") as f:
-                    f.write("DICTEE_SETUP_DONE=true\n")
-            except OSError:
-                pass
+        # DICTEE_SETUP_DONE est écrit par save_config()
 
         # Proposer de démarrer/redémarrer LibreTranslate si nécessaire
         # Proposer de démarrer/redémarrer LibreTranslate si nécessaire
