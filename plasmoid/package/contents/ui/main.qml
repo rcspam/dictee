@@ -40,6 +40,8 @@ PlasmoidItem {
             return Kirigami.Theme.highlightColor
         case "transcribing":
             return Kirigami.Theme.positiveTextColor
+        case "offline":
+            return Kirigami.Theme.negativeTextColor
         case "idle":
             return Kirigami.Theme.textColor
         default:
@@ -530,10 +532,10 @@ PlasmoidItem {
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
                 "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
                 "fi; " +
-                "systemctl --user enable --now $svc'")
+                "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
         case "stop-daemon":
-            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
+            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
             var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }

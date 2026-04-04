@@ -230,7 +230,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 pp_rules=True, pp_continuation=True,
                 llm_postprocess=False, llm_model="ministral:3b",
                 llm_timeout=10, llm_cpu=False,
-                audio_context=False, audio_context_timeout=30):
+                audio_context=False, audio_context_timeout=30,
+                notifications=True, notifications_text=True):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     import tempfile as _tmpmod
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
@@ -307,6 +308,11 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         # Audio context buffer
         f.write(f"DICTEE_AUDIO_CONTEXT={'true' if audio_context else 'false'}\n")
         f.write(f"DICTEE_AUDIO_CONTEXT_TIMEOUT={audio_context_timeout}\n")
+        # Notifications
+        if not notifications:
+            f.write("DICTEE_NOTIFICATIONS=false\n")
+        if not notifications_text:
+            f.write("DICTEE_NOTIFICATIONS_TEXT=false\n")
         f.write("DICTEE_SETUP_DONE=true\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
@@ -2420,18 +2426,20 @@ class DicteeSetupDialog(QDialog):
 
         layout.addWidget(grp_options)
 
-        # -- Services section --
-        grp_services = QGroupBox(_("Startup services"))
-        lay_srv = QVBoxLayout(grp_services)
-        lay_srv.setSpacing(6)
-        lay_srv.setContentsMargins(16, 16, 16, 12)
-        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        self.chk_daemon.setChecked(any(
-            self._is_service_enabled(s)
-            for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
-        ))
-        lay_srv.addWidget(self.chk_daemon)
-        layout.addWidget(grp_services)
+        # -- Notifications section --
+        grp_notif = QGroupBox(_("Notifications"))
+        lay_notif = QVBoxLayout(grp_notif)
+        lay_notif.setSpacing(6)
+        lay_notif.setContentsMargins(16, 16, 16, 12)
+        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
+        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
+        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
+        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
+        lay_notif.addWidget(self.chk_notifications)
+        lay_notif.addWidget(self.chk_notifications_text)
+        layout.addWidget(grp_notif)
 
         # -- Post-processing button --
         btn_postprocess = QPushButton(_("Post-processing..."))
@@ -3487,20 +3495,21 @@ class DicteeSetupDialog(QDialog):
         self._build_visual_section(lay_vis, conf)
         lay.addWidget(grp_vis)
 
-        # Services
-        grp_srv = QGroupBox(_("Startup services"))
-        grp_srv.setStyleSheet(_grp_style)
-        lay_srv = QVBoxLayout(grp_srv)
-        lay_srv.setSpacing(6)
-        lay_srv.setContentsMargins(16, 16, 16, 12)
-        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        # In wizard, check by default (first install)
-        self.chk_daemon.setChecked(any(
-            self._is_service_enabled(s)
-            for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
-        ) or self.wizard_mode)
-        lay_srv.addWidget(self.chk_daemon)
-        lay.addWidget(grp_srv)
+        # Notifications
+        grp_notif = QGroupBox(_("Notifications"))
+        grp_notif.setStyleSheet(_grp_style)
+        lay_notif = QVBoxLayout(grp_notif)
+        lay_notif.setSpacing(6)
+        lay_notif.setContentsMargins(16, 16, 16, 12)
+        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
+        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
+        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
+        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
+        lay_notif.addWidget(self.chk_notifications)
+        lay_notif.addWidget(self.chk_notifications_text)
+        lay.addWidget(grp_notif)
 
         # Options
         self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
@@ -9362,7 +9371,9 @@ class DicteeSetupDialog(QDialog):
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu,
                     audio_context=audio_context,
-                    audio_context_timeout=audio_context_timeout)
+                    audio_context_timeout=audio_context_timeout,
+                    notifications=self.chk_notifications.isChecked(),
+                    notifications_text=self.chk_notifications_text.isChecked())
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
@@ -9371,8 +9382,7 @@ class DicteeSetupDialog(QDialog):
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
-        if self.chk_daemon.isChecked():
-            for svc_name in asr_services.values():
+        for svc_name in asr_services.values():
                 if svc_name == active_svc:
                     # Enable (boot) puis restart (maintenant)
                     en = subprocess.run(
@@ -9395,9 +9405,6 @@ class DicteeSetupDialog(QDialog):
                                       "It may still be loading the model.").format(svc=svc_name)
                 else:
                     subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
-        else:
-            for svc_name in asr_services.values():
-                subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
 
         # Tray
         action = "enable" if self.chk_tray.isChecked() else "disable"

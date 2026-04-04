@@ -328,11 +328,12 @@ def daemon_start():
 
 
 def daemon_stop():
-    """Arrête tous les services daemon et nettoie l'état failed."""
+    """Arrête tous les services daemon, disable, et écrit offline."""
+    _write_state("offline")
     for svc in SERVICES:
         try:
             subprocess.run(
-                ["systemctl", "--user", "stop", svc],
+                ["systemctl", "--user", "disable", "--now", svc],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             subprocess.run(

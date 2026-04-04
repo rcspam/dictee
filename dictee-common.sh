@@ -51,10 +51,17 @@ _dbg() {
 # === SHARED FUNCTIONS ===
 
 # Write state atomically (flock-protected)
+# Never overwrite "offline" with "idle" (user explicitly stopped the daemon)
 write_state() {
     _dbg "state: $(cat "$STATE_FILE" 2>/dev/null) → $1"
     (
         flock -n 200 || return 1
+        if [ "$1" = "idle" ]; then
+            _cur=$(cat "$STATE_FILE" 2>/dev/null)
+            if [ "$_cur" = "offline" ]; then
+                return 0
+            fi
+        fi
         echo "$1" > "$STATE_FILE"
     ) 200>"$STATE_LOCK"
 }
