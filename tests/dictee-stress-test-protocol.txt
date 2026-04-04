@@ -1,0 +1,567 @@
+================================================================================
+  DICTEE — PROTOCOLE DE STRESS TEST MANUEL
+  Version 1.0 — 2026-04-04
+================================================================================
+
+Ce document decrit les tests manuels a effectuer avec une interaction
+utilisateur reelle (micro, F9, plasmoid, tray). Le script automatise
+(/tmp/dictee-stress-test.sh) couvre les tests sans interaction.
+
+Chaque test indique : prerequis, actions, resultat attendu, severite (P0-P3).
+
+Legende severite :
+  P0 = critique (perte de donnees, crash systeme, daemon mort)
+  P1 = majeur (texte perdu, etat bloque, necessitant reset manuel)
+  P2 = mineur (notification manquante, delai excessif, UI desynchro)
+  P3 = cosmetique (texte mal formate, animation residuelle)
+
+
+================================================================================
+  PARTIE B1 — TESTS F9 (PUSH-TO-TALK)
+================================================================================
+
+--- TEST M01 : Double-tap F9 rapide (<200ms entre les deux) ---------------
+[P1] Prerequis : daemon actif, etat idle
+Action        : Appuyer F9, relacher, appuyer F9 en moins de 200ms
+Attendu       : Le premier F9 demarre l'enregistrement. Le deuxieme F9
+                arrete l'enregistrement et lance la transcription.
+                Pas de blocage, pas de double enregistrement.
+Verifier      : cat /dev/shm/.dictee_state → doit passer par
+                idle → recording → transcribing → idle
+Risque        : Race condition si le PIDFILE n'est pas encore ecrit quand
+                le 2e F9 arrive.
+
+--- TEST M02 : Triple-tap F9 ultra-rapide (<100ms entre chaque) -----------
+[P1] Prerequis : daemon actif, etat idle
+Action        : Appuyer F9 trois fois tres rapidement
+Attendu       : Au pire : demarre puis arrete l'enregistrement.
+                Le 3e appui ne doit PAS demarrer un 2e enregistrement
+                pendant que la transcription est en cours.
+Verifier      : state ne doit jamais etre "recording" apres "transcribing"
+                sauf si transcribing s'est termine normalement.
+
+--- TEST M03 : F9 pendant backend switch -----------------------------------
+[P2] Prerequis : lancer dictee-switch-backend asr whisper
+Action        : Appuyer F9 pendant que le switch est en cours (etat=switching)
+Attendu       : F9 ignore (etat != idle). Pas de crash. Notification
+                eventuelle "Operation en cours".
+Verifier      : state = idle ou switching apres le switch
+
+--- TEST M04 : F9 mashing (10 appuis en 3 secondes) -----------------------
+[P1] Prerequis : daemon actif, etat idle
+Action        : Marteler F9 pendant 3 secondes (10+ appuis)
+Attendu       : Au maximum 1 enregistrement actif a la fois. Pas de
+                processus orphelins pw-record. Etat final = idle.
+Verifier      : pgrep -c pw-record ≤ 1 pendant le test
+                state = idle apres 30 secondes
+
+--- TEST M05 : F9 avec micro muet -----------------------------------------
+[P2] Prerequis : couper le micro AVANT le test (pactl set-source-mute @DEFAULT_SOURCE@ 1)
+Action        : F9 → parler 3s → F9
+Attendu       : dictee detecte le silence (RMS < 0.03), affiche
+                "Silence detecte — rien a transcrire", retour idle.
+                Le micro doit etre re-mute apres (il etait mute avant).
+Verifier      : pactl get-source-mute → Oui/Yes apres le test
+
+--- TEST M06 : Enregistrement tres court (<0.5s) --------------------------
+[P2] Prerequis : daemon actif
+Action        : F9 → attendre 0.3s → F9
+Attendu       : Silence detecte OU transcription vide. Notification
+                d'erreur ou de silence. Pas de crash. Etat final = idle.
+
+--- TEST M07 : Enregistrement tres long (>60s) ----------------------------
+[P2] Prerequis : daemon actif, texte long a lire (ex: poeme)
+Action        : F9 → parler pendant 60-90 secondes → F9
+Attendu       : Transcription complete. Temps de transcription
+                proportionnel (Parakeet GPU: <5s pour 60s d'audio).
+                Notification avec texte complet.
+Verifier      : le texte transcrit contient des passages du debut ET
+                de la fin de l'enregistrement
+
+
+================================================================================
+  PARTIE B2 — TESTS PLASMOID / TRAY
+================================================================================
+
+--- TEST M08 : Diarize depuis plasmoid → F9 pour enregistrer → tray reset --
+[P1] Prerequis : plasmoid et tray actifs
+Action        : 1. Cliquer "Diarize" dans le plasmoid
+                2. Attendre etat diarize-ready
+                3. Appuyer F9 pour enregistrer
+                4. Parler 5s
+                5. Appuyer F9 pour arreter
+                6. Pendant la diarisation, cliquer "Reset" dans le tray
+Attendu       : La diarisation est interrompue. Le daemon ASR est
+                restaure. Etat final = idle. Pas de processus orphelins.
+Verifier      : pgrep -f "transcribe-diarize|diarize-only" → rien
+                systemctl --user is-active dictee.service → active
+
+--- TEST M09 : Fermer le popup plasmoid pendant l'enregistrement -----------
+[P2] Prerequis : plasmoid actif, enregistrement en cours
+Action        : 1. Cliquer sur le plasmoid pour ouvrir le popup
+                2. Appuyer F9 pour demarrer l'enregistrement
+                3. Cliquer ailleurs pour fermer le popup plasmoid
+                4. Appuyer F9 pour arreter
+Attendu       : L'enregistrement continue meme si le popup est ferme.
+                La transcription s'effectue normalement.
+
+--- TEST M10 : Switch backend depuis le plasmoid pendant l'enregistrement --
+[P1] Prerequis : enregistrement en cours (etat recording)
+Action        : Utiliser le menu du plasmoid pour switcher de backend
+Attendu       : Soit le switch est rejete (etat recording), soit
+                l'enregistrement est annule proprement avant le switch.
+                JAMAIS de daemon mort + enregistrement orphelin.
+
+--- TEST M11 : Annulation ESC pendant chaque phase ------------------------
+[P1] Prerequis : enregistrement en cours OU transcription en cours
+Action        : Appuyer ESC pendant :
+                a) l'enregistrement (etat recording)
+                b) la transcription (etat transcribing)
+                c) la diarisation (etat diarizing)
+                d) la preparation diarize (etat preparing)
+Attendu       : Dans tous les cas : annulation propre, etat → idle,
+                pas de processus orphelins, notification "annule".
+
+--- TEST M12 : Deconnexion audio pendant l'enregistrement ------------------
+[P1] Prerequis : micro USB connecte et selectionne comme source
+Action        : 1. F9 pour demarrer l'enregistrement
+                2. Debrancher le micro USB
+                3. Observer le comportement
+Attendu       : pw-record devrait echouer, dictee devrait detecter
+                l'erreur et revenir a idle avec notification.
+                PAS de boucle infinie ni de blocage.
+
+
+================================================================================
+  PARTIE B3 — PHRASES DE STRESS POST-TRAITEMENT
+================================================================================
+
+Instructions : Prononcer chaque phrase apres avoir appuye F9.
+Verifier le texte tape dans un editeur de texte (Kate, Gedit, etc.).
+
+L'objectif est de tester les regles de post-traitement (elisions, commandes
+vocales, nombres, dictionnaire, continuation, typographie).
+
+
+--- PHRASE S01 : Commandes vocales multiples (FR) --------------------------
+Prononcer : "Bonjour virgule je suis heureux point a la ligne comment
+             allez-vous point d'interrogation"
+Attendu   : Bonjour, je suis heureux.
+            Comment allez-vous ?
+
+--- PHRASE S02 : Guillemets et parentheses ---------------------------------
+Prononcer : "Il a dit ouvrez les guillemets c'est magnifique fermez les
+             guillemets ouvrez la parenthese vraiment fermez la parenthese"
+Attendu   : Il a dit « c'est magnifique » (vraiment)
+
+--- PHRASE S03 : Points de suspension et tirets ----------------------------
+Prononcer : "Et donc trois petits points la suite arrivera tiret peut-etre"
+Attendu   : Et donc... la suite arrivera - peut-etre
+
+--- PHRASE S04 : Elisions manquantes (je/me/te/se/le/la/ne/de/que/ce) -----
+Prononcer : "Je ai compris que le homme ne est pas la parce que ce est
+             difficile de entendre"
+Attendu   : J'ai compris que l'homme n'est pas la parce que c'est
+            difficile d'entendre
+
+--- PHRASE S05 : H aspire (PAS d'elision) ----------------------------------
+Prononcer : "Le hamster de la Hollande est en haut de la haie"
+Attendu   : Le hamster de la Hollande est en haut de la haie
+            (pas de l'hamster, pas d'Hollande, pas d'haut, pas d'haie)
+
+--- PHRASE S06 : Nombres melanges au texte ---------------------------------
+Prononcer : "Il y avait vingt-trois personnes dont douze enfants et
+             onze adultes"
+Attendu   : Il y avait 23 personnes dont 12 enfants et 11 adultes
+            (si text2num est installe, sinon les nombres restent en lettres)
+
+--- PHRASE S07 : Phrase tres longue sans ponctuation -----------------------
+Prononcer : "Je pense que quand on considere tous les facteurs importants
+             qui influencent la decision il faut prendre en compte le fait
+             que les circonstances changent constamment et que par
+             consequent il est necessaire de rester flexible dans notre
+             approche afin de pouvoir nous adapter rapidement aux nouvelles
+             situations qui se presentent"
+Attendu   : La phrase entiere avec ponctuation native de l'ASR.
+            Aucune troncature.
+
+--- PHRASE S08 : Mot unique ------------------------------------------------
+Prononcer : "Bonjour"
+Attendu   : bonjour (minuscule, pas de point — short text correction)
+
+--- PHRASE S09 : Deux mots -------------------------------------------------
+Prononcer : "Merci beaucoup"
+Attendu   : merci beaucoup (minuscule, pas de point — short text correction)
+
+--- PHRASE S10 : Phrases qui ressemblent a des commandes -------------------
+Prononcer : "La peche a la ligne est mon passe-temps prefere"
+Attendu   : La peche a la ligne est mon passe-temps prefere
+            ("a la ligne" en milieu de phrase ne doit PAS creer un saut)
+
+--- PHRASE S11 : Phrase qui ressemble a "virgule" --------------------------
+Prononcer : "La virgule est un signe de ponctuation important"
+Attendu   : La virgule est un signe de ponctuation important
+            (le mot "virgule" ne doit PAS etre remplace par une virgule
+             quand il fait partie d'une phrase complete)
+
+--- PHRASE S12 : Markdown (titres) -----------------------------------------
+Prononcer : "diese titre principal a la ligne diese diese sous-titre"
+Attendu   : # Titre principal
+            ## Sous-titre
+
+--- PHRASE S13 : Tabulation et tiret bas -----------------------------------
+Prononcer : "nom tabulation prenom tabulation age a la ligne
+             Dupont tabulation Jean tabulation quarante-deux"
+Attendu   : Nom[TAB]Prenom[TAB]Age
+            Dupont[TAB]Jean[TAB]42
+
+--- PHRASE S14 : Continuation (cross-push) — phrase incomplete -------------
+Prononcer en 2 pushes :
+  Push 1 : "Je pense que"
+  Push 2 : "c'est une bonne idee"
+Attendu   : "Je pense que c'est une bonne idee"
+            (pas de point apres "que", minuscule sur "c'est",
+             espace automatique entre les deux pushes)
+
+--- PHRASE S15 : Continuation — phrase complete ----------------------------
+Prononcer en 2 pushes :
+  Push 1 : "Voici la reponse."
+  Push 2 : "Passons au sujet suivant."
+Attendu   : "Voici la reponse. Passons au sujet suivant."
+            (le point est conserve, majuscule sur "Passons",
+             espace entre les deux phrases)
+
+--- PHRASE S16 : Continuation — mot-cle (contre-point) ---------------------
+Prononcer en 2 pushes :
+  Push 1 : "Le chat est noir."
+  Push 2 : "Contre-point et blanc aussi"
+Attendu   : "Le chat est noir et blanc aussi"
+            (le point apres "noir" est supprime par backspace,
+             "et" en minuscule, pas de "Contre-point" dans le texte)
+
+--- PHRASE S17 : Ponctuation en debut de push (correction) -----------------
+Prononcer en 2 pushes :
+  Push 1 : "La reunion est prevue"
+  Push 2 : "virgule si possible demain"
+Attendu   : "La reunion est prevue, si possible demain"
+            (la virgule remplace le point genere par l'ASR,
+             "si" en minuscule)
+
+--- PHRASE S18 : Caracteres speciaux et apostrophes ------------------------
+Prononcer : "L'ete dernier n'est-ce pas c'etait formidable
+             aujourd'hui aussi"
+Attendu   : L'ete dernier, n'est-ce pas, c'etait formidable,
+            aujourd'hui aussi (apostrophes preservees)
+
+--- PHRASE S19 : Hesitations melangees au texte ----------------------------
+Prononcer : "Alors euh je pensais que euh ben on pourrait euh peut-etre
+             euh aller au cinema"
+Attendu   : Alors, je pensais que on pourrait peut-etre aller au cinema
+            (tous les "euh" et "ben" supprimes, espaces nettoyes)
+
+--- PHRASE S20 : Nouveau paragraphe ----------------------------------------
+Prononcer : "Premier paragraphe point nouveau paragraphe
+             Deuxieme paragraphe"
+Attendu   : Premier paragraphe.
+
+            Deuxieme paragraphe
+            (double saut de ligne apres "nouveau paragraphe")
+
+--- PHRASE S21 : Point d'exclamation et ponctuation typographique FR -------
+Prononcer : "Quelle surprise point d'exclamation"
+Attendu   : Quelle surprise !
+            (espace fine insecable avant ! en typographie francaise)
+
+--- PHRASE S22 : Cyrillique accidentel (misdetection Parakeet) -------------
+Prononcer : Juste "a la ligne" tres rapidement (audio court <1s)
+Attendu   : Un saut de ligne. PAS de texte cyrillique (Parakeet transcrit
+            parfois du cyrillique sur un audio tres court).
+Note      : Ce test verifie les regles Cyrillic catch-all dans rules.conf
+
+--- PHRASE S23 : Melange de langues FR/EN ----------------------------------
+Prononcer : "Le meeting est schedule pour next week virgule
+             on fera un update"
+Attendu   : Le meeting est schedule pour next week, on fera un update
+            (les mots anglais sont preserves, "virgule" est traduite
+             en ponctuation)
+
+--- PHRASE S24 : Nombres ordinaux et grands nombres ------------------------
+Prononcer : "C'est le vingt et unieme siecle et il y a sept milliards
+             huit cent millions d'habitants"
+Attendu   : C'est le 21e siecle et il y a 7 800 000 000 d'habitants
+            (si text2num est installe)
+
+--- PHRASE S25 : Phrase vide (silence pur) ---------------------------------
+Prononcer : [rien — rester silencieux pendant 2s]
+Attendu   : "Silence detecte — rien a transcrire" (notification)
+            Aucun texte tape. Etat → idle.
+
+--- PHRASE S26 : Commande vocale seule (sans texte autour) -----------------
+Prononcer : "a la ligne"
+Attendu   : Un saut de ligne tape. Rien d'autre.
+
+--- PHRASE S27 : Repetition de mots (dedup ASR) ----------------------------
+Prononcer : "Bonjour bonjour bonjour comment ca va"
+Attendu   : Le texte tel quel (pas de deduplication — c'est intentionnel).
+            Les ASR ne dedupliquent pas normalement.
+
+
+================================================================================
+  PARTIE B4 — TESTS D'ENVIRONNEMENT DEGRADE
+================================================================================
+
+--- TEST M13 : Aucun peripherique audio ------------------------------------
+[P1] Prerequis : debrancher tous les micros, desactiver l'audio interne
+                 (ou PIPEWIRE_REMOTE=invalid)
+Action        : F9 pour demarrer l'enregistrement
+Attendu       : Notification d'erreur (pw-record echoue).
+                Etat → idle. Pas de blocage.
+
+--- TEST M14 : Daemon ASR tue pendant la transcription ---------------------
+[P1] Prerequis : enregistrement en cours de transcription
+Action        : 1. F9 → parler 3s → F9 (demarre transcription)
+                2. Immediatement : systemctl --user stop dictee.service
+Attendu       : transcribe-client echoue, notification d'erreur,
+                etat → idle. Pas de blocage infini.
+
+--- TEST M15 : systemctl --user daemon-reload pendant utilisation ----------
+[P2] Prerequis : daemon actif
+Action        : systemctl --user daemon-reload pendant un cycle F9
+Attendu       : Pas d'impact immediat (daemon-reload ne touche pas
+                les services actifs). La prochaine transcription
+                devrait fonctionner normalement.
+
+--- TEST M16 : Reseau coupe avec traduction Google/Bing --------------------
+[P2] Prerequis : traduction activee (Google ou Bing)
+Action        : 1. Couper le Wi-Fi/Ethernet
+                2. F9 → parler → F9
+Attendu       : La transcription fonctionne (locale). La traduction
+                echoue avec notification. Le texte original est tape
+                a la place. Etat → idle.
+
+--- TEST M17 : VRAM insuffisante (Canary + diarize) -----------------------
+[P2] Prerequis : GPU avec peu de VRAM libre (ex: ollama charge un modele)
+Action        : Activer diarize, puis enregistrer
+Attendu       : ORT Runtime devrait echouer proprement avec une erreur
+                CUDA OOM. Notification d'erreur. Daemon restaure.
+
+--- TEST M18 : Suspension/reprise systeme pendant enregistrement -----------
+[P1] Prerequis : enregistrement en cours
+Action        : Fermer le capot du laptop (suspend to RAM), rouvrir
+Attendu       : Apres reprise, l'enregistrement est probablement
+                corrompu. dictee devrait detecter un probleme (PID stale
+                ou audio corrompu) et revenir a idle apres F9.
+Verifier      : pas de processus orphelins pw-record, etat stable
+
+
+================================================================================
+  PARTIE B5 — SCENARIOS COMBINÉS VICIEUX (interactions croisées)
+================================================================================
+
+Ces tests combinent plusieurs mecanismes simultanement pour debusquer des
+race conditions et des etats incoherents entre les composants.
+
+
+--- TEST C01 : F9 pendant que le tray prepare la diarisation ----------------
+[P0] Actions    : 1. Cocher "Live diarization" dans le tray
+                  2. IMMEDIATEMENT appuyer F9 (avant que diarize-ready)
+Attendu         : F9 est ignore (etat=preparing, pas idle ni diarize-ready)
+                  OU F9 attend la fin du prepare et demarre en mode diarize.
+                  JAMAIS d'enregistrement normal pendant le prepare.
+Resultat        : [ ]
+
+--- TEST C02 : ESC pendant le prepare diarize puis F9 immédiat ---------------
+[P1] Actions    : 1. Cliquer diarize dans plasmoid
+                  2. Appuyer ESC pendant "preparing" (<2s)
+                  3. Immediatement F9
+Attendu         : ESC annule le prepare, daemon restaure, F9 fait une
+                  dictee normale. Pas de diarization residuelle.
+Resultat        : [ ]
+
+--- TEST C03 : Switch backend pendant diarize-ready ---------------------------
+[P1] Actions    : 1. Preparer diarize depuis le tray
+                  2. Attendre diarize-ready
+                  3. Depuis un terminal : dictee-switch-backend asr whisper
+Attendu         : Le switch est rejete OU annule le diarize d'abord.
+                  Pas de daemon mort. Etat coherent apres.
+Resultat        : [ ]
+
+--- TEST C04 : Diarize plasmoid + clic tray dictee simultanement ---------------
+[P1] Actions    : 1. Cliquer diarize dans le plasmoid → diarize-ready
+                  2. Cliquer "Start dictation" dans le tray (pas diarize)
+Attendu         : L'enregistrement demarre en mode diarize (l'etat
+                  diarize-ready force le mode diarize). La fenetre
+                  dictee-transcribe s'ouvre a la fin.
+Resultat        : [ ]
+
+--- TEST C05 : F9 traduction + diarize active --------------------------------
+[P1] Actions    : 1. Activer diarize depuis le tray
+                  2. Attendre diarize-ready
+                  3. Appuyer le raccourci traduction (F9+Ctrl ou raccourci custom)
+Attendu         : La traduction est ignoree en mode diarize (pas de sens),
+                  OU la diarization est prioritaire.
+                  Pas de double operation translate + diarize.
+Resultat        : [ ]
+
+--- TEST C06 : Fermer dictee-transcribe PENDANT la diarization ----------------
+[P0] Actions    : 1. Diarize → enregistrer → arreter → fenetre s'ouvre
+                  2. Pendant que Sortformer tourne (barre de progression),
+                     fermer la fenetre (Alt+F4)
+Attendu         : Le processus transcribe-diarize/diarize-only est tue.
+                  Le daemon ASR est restaure (diarize false).
+                  Etat → idle. Pas de VRAM bloquee.
+Resultat        : [ ]
+
+--- TEST C07 : Reset plasmoid pendant transcription fichier -------------------
+[P1] Actions    : 1. Ouvrir dictee-transcribe (bouton "Transcribe file")
+                  2. Charger un fichier audio long (>30s)
+                  3. Cliquer "Transcribe"
+                  4. Pendant la transcription, cliquer Reset dans le plasmoid
+Attendu         : dictee-reset tue dictee-transcribe. Daemon restaure.
+                  Etat → idle.
+Resultat        : [ ]
+
+--- TEST C08 : Double diarize (plasmoid ET tray en meme temps) ----------------
+[P1] Actions    : 1. Cocher diarize dans le tray
+                  2. Cliquer diarize dans le plasmoid (quasi-simultane)
+Attendu         : Un seul dictee-switch-backend diarize true s'execute.
+                  Pas de double stop daemon. Etat = diarize-ready.
+Resultat        : [ ]
+
+--- TEST C09 : F9 pendant que dictee-transcribe est ouvert --------------------
+[P2] Actions    : 1. Ouvrir dictee-transcribe (fenetre de transcription)
+                  2. Appuyer F9 pour dicter normalement
+Attendu         : F9 fonctionne normalement (dictee-transcribe n'affecte
+                  pas le daemon socket). Le texte est tape au curseur.
+                  dictee-transcribe reste ouvert et fonctionnel.
+Resultat        : [ ]
+
+--- TEST C10 : Suspend laptop pendant diarize-ready ---------------------------
+[P1] Actions    : 1. Activer diarize → diarize-ready
+                  2. Fermer le capot (suspend)
+                  3. Rouvrir 10s plus tard
+                  4. F9 pour enregistrer
+Attendu         : Le PipeWire est peut-etre reinitialise. L'enregistrement
+                  devrait fonctionner ou echouer proprement. Pas de blocage.
+                  Si echec, reset ramene a idle.
+Resultat        : [ ]
+
+--- TEST C11 : Tray diarize → plasmoid reset → tray diarize check -----------
+[P2] Actions    : 1. Cocher diarize dans le tray
+                  2. Cliquer Reset dans le plasmoid
+                  3. Verifier la checkbox diarize dans le tray
+Attendu         : La checkbox diarize est decochee (reset desactive tout).
+                  Le daemon est actif. Etat = idle.
+Resultat        : [ ]
+
+--- TEST C12 : Enchainer 4 backends rapidement --------------------------------
+[P1] Actions    : 1. dictee-switch-backend asr parakeet
+                  2. (attendre 1s) dictee-switch-backend asr vosk
+                  3. (attendre 1s) dictee-switch-backend asr whisper
+                  4. (attendre 1s) dictee-switch-backend asr canary
+                  5. F9 → parler → F9
+Attendu         : Le dernier backend (canary) est actif. F9 transcrit.
+                  Un seul daemon actif. Pas de residus des 3 premiers.
+Resultat        : [ ]
+
+--- TEST C13 : F9 pendant que dictee-setup wizard est ouvert ------------------
+[P2] Actions    : 1. Ouvrir dictee-setup --wizard
+                  2. Appuyer F9
+Attendu         : F9 fonctionne normalement (dictee-setup ne bloque pas
+                  le daemon). Attention : en v1.3 le wizard ne touche plus
+                  dictee.conf pendant le wizard, donc le daemon est intact.
+Resultat        : [ ]
+
+--- TEST C14 : Couper PipeWire pendant l'enregistrement -----------------------
+[P0] Actions    : 1. F9 → enregistrer
+                  2. systemctl --user restart pipewire.service
+                  3. F9 pour arreter
+Attendu         : pw-record echoue/s'arrete. dictee detecte un WAV vide
+                  ou corrompu → silence detecte → idle. Pas de blocage.
+Resultat        : [ ]
+
+--- TEST C15 : Diarize avec Vosk/Whisper (backends Python) --------------------
+[P1] Actions    : 1. Switcher sur vosk : dictee-switch-backend asr vosk
+                  2. Activer diarize
+                  3. F9 → parler → F9
+Attendu         : La diarization fonctionne (Sortformer est independant
+                  du backend ASR). Le daemon vosk est stoppe pour VRAM,
+                  puis restaure apres. Fenetre dictee-transcribe s'ouvre.
+Resultat        : [ ]
+
+--- TEST C16 : Traduction LibreTranslate hors Docker -------------------------
+[P2] Actions    : 1. Activer traduction LibreTranslate
+                  2. Arreter Docker : docker stop crawl4ai (ou le container LT)
+                  3. F9 → parler → F9
+Attendu         : Transcription OK (locale). Traduction echoue avec erreur
+                  de connexion. Le texte original est tape. Notification
+                  d'erreur traduction. Etat → idle.
+Resultat        : [ ]
+
+--- TEST C17 : Audio context buffer + diarize ---------------------------------
+[P2] Actions    : 1. Activer le contexte audio dans le setup
+                  2. F9 → "Bonjour" → F9 (remplit le buffer)
+                  3. Activer diarize
+                  4. F9 → parler → F9
+Attendu         : La diarization n'utilise PAS le buffer audio (elle a son
+                  propre pipeline). Pas de crash. Fenetre s'ouvre.
+                  Apres diarize, le buffer audio est toujours la pour F9.
+Resultat        : [ ]
+
+--- TEST C18 : Marteler F9 pendant la diarization (Sortformer tourne) ---------
+[P0] Actions    : 1. Diarize → enregistrer → arreter → diarizing en cours
+                  2. Marteler F9 pendant que Sortformer tourne
+Attendu         : F9 est ignore (etat = diarizing). Pas d'enregistrement
+                  pendant la diarisation. Pas de crash.
+Resultat        : [ ]
+
+
+================================================================================
+  PARTIE B5 — CHECKLIST GLOBALE POST-TEST
+================================================================================
+
+Apres tous les tests, verifier :
+
+[ ] Etat final : cat /dev/shm/.dictee_state → idle
+[ ] Pas de processus orphelins :
+      pgrep -f "pw-record.*tmp_recording" → rien
+      pgrep -f "transcribe-diarize"       → rien
+      pgrep -f "animation-speech"         → rien
+      pgrep -f "dictee-transcribe"        → rien
+[ ] Daemon actif : systemctl --user is-active dictee.service → active
+[ ] Fichiers temporaires nettoyes :
+      ls /tmp/recording_dictee_pid*       → rien
+      ls /tmp/dictee_translate*           → rien
+      ls /tmp/dictee_diarize*             → rien
+[ ] Micro dans l'etat d'avant les tests :
+      pactl get-source-mute @DEFAULT_SOURCE@
+[ ] Sortie audio non mutee :
+      pactl get-sink-mute @DEFAULT_SINK@  → non/no
+[ ] Configuration non modifiee (backup restaure) :
+      diff ~/.config/dictee.conf ~/.config/dictee.conf.stress-backup
+[ ] Aucune erreur dans le log debug :
+      grep -i "error\|panic\|segfault" /tmp/dictee-debug-$(id -u).log
+
+
+================================================================================
+  NOTES
+================================================================================
+
+1. Les tests automatises (/tmp/dictee-stress-test.sh) logguent dans
+   /tmp/dictee-stress-results.log avec horodatage.
+
+2. Pour les tests manuels, noter les resultats dans une copie de ce
+   fichier avec [OK], [FAIL], ou [SKIP] a cote de chaque test.
+
+3. Les phrases de stress (S01-S27) peuvent etre testees rapidement en
+   les prononcant dans un terminal avec Kate/Gedit/KWrite ouvert a cote.
+
+4. En cas de blocage : dictee-reset restaure tout l'etat du systeme.
+
+5. Le script automatise sauvegarde et restaure dictee.conf. Les tests
+   manuels ne modifient pas la configuration sauf si vous changez de
+   backend manuellement.
+
+6. Pour reproduire un bug, activer le debug :
+     echo "DICTEE_DEBUG=true" >> ~/.config/dictee.conf
+   Puis consulter /tmp/dictee-debug-$(id -u).log
