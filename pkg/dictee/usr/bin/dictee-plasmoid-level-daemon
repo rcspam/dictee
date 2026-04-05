@@ -1,6 +1,6 @@
 #!/bin/bash
-# dictee-plasmoid-level-daemon — Daemon audio pour le plasmoid Dictee.
-# Capture le micro via parec, calcule les bandes FFT via dictee-plasmoid-level-fft.
+# dictee-plasmoid-level-daemon — Audio daemon for the Dictee plasmoid.
+# Captures the microphone via parec, computes FFT bands via dictee-plasmoid-level-fft.
 # Usage: dictee-level-daemon [N_BARS]
 #        dictee-level-daemon stop
 
@@ -9,7 +9,7 @@ BANDS_FILE="/dev/shm/.dictee_audio_bands"
 BARS_COUNT_FILE="/dev/shm/.dictee_level_bars"
 
 cleanup() {
-    # Tuer parec si encore actif
+    # Kill parec if still running
     [ -n "$PAREC_PID" ] && kill "$PAREC_PID" 2>/dev/null
     [ -n "$FFT_PID" ] && kill "$FFT_PID" 2>/dev/null
     rm -f "$PID_FILE" "$BANDS_FILE" "$BARS_COUNT_FILE"
@@ -35,31 +35,77 @@ if [ "${1:-}" = "stop" ]; then
 fi
 
 N_BARS="${1:-6}"
+AUDIO_SOURCE="${2:-${DICTEE_AUDIO_SOURCE:-}}"
 
-# Arrêter l'ancien daemon
+# Common functions (debug)
+_DBG_CONTEXT="level-daemon"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
+
+_dbg "start: bars=$N_BARS source=$AUDIO_SOURCE"
+
+# Resolve app:name to application name (PipeWire IDs change after sleep)
+if [[ "$AUDIO_SOURCE" == app:* ]]; then
+    AUDIO_SOURCE="${AUDIO_SOURCE#app:}"
+    _dbg "resolved app: → $AUDIO_SOURCE"
+fi
+
+# parec arguments for the audio source
+PAREC_ARGS="--rate=16000 --channels=1 --format=s16le --latency-msec=40"
+if [ -n "$AUDIO_SOURCE" ]; then
+    # Check if it's a PulseAudio source (alsa_*) or an application
+    case "$AUDIO_SOURCE" in
+        alsa_*|*.monitor)
+            # Source or monitor — use parec --device directly
+            PAREC_ARGS="$PAREC_ARGS --device=$AUDIO_SOURCE"
+            ;;
+        *)
+            # Application (Firefox, etc.) — find the sink's monitor
+            _sink=$(LANG=C pactl list sink-inputs 2>/dev/null | awk -v app="$AUDIO_SOURCE" '
+                /^\tSink:/ { sink=$NF }
+                /application.name =/ && tolower($0) ~ tolower(app) { print sink; exit }
+            ')
+            _dbg "app source: sink_id=$_sink"
+            if [ -n "$_sink" ]; then
+                _sink_name=$(LANG=C pactl list sinks short 2>/dev/null | awk -v id="$_sink" '$1==id {print $2}')
+                if [ -n "$_sink_name" ]; then
+                    PAREC_ARGS="$PAREC_ARGS --device=${_sink_name}.monitor"
+                    _dbg "app source: monitoring ${_sink_name}.monitor"
+                else
+                    _dbg "app source: WARNING — sink name not found for id=$_sink"
+                fi
+            else
+                _dbg "app source: WARNING — app '$AUDIO_SOURCE' not found in pactl"
+            fi
+            ;;
+    esac
+fi
+
+# Stop the previous daemon
 stop_existing
 
-# Écrire PID
+# Write PID
 echo $$ > "$PID_FILE"
 echo "$N_BARS" > "$BARS_COUNT_FILE"
 
 trap cleanup TERM INT HUP
 
-# Initialiser la sortie
+# Initialize output
 printf '%s' "$(printf '0 %.0s' $(seq 1 "$N_BARS"))" > "$BANDS_FILE"
 
-# Vérifier que parec est disponible
+# Check that parec is available
 if ! command -v parec >/dev/null 2>&1; then
     echo "parec non trouvé (installer pulseaudio-utils)" >&2
     cleanup
 fi
 
-# Vérifier que dictee-plasmoid-level-fft est disponible
+# Check that dictee-plasmoid-level-fft is available
 if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
-    # Fallback : mode RMS simple sans FFT
-    parec --rate=16000 --channels=1 --format=s16le --latency-msec=40 2>/dev/null | \
+    # Fallback: simple RMS mode without FFT
+    parec $PAREC_ARGS 2>/dev/null | \
     while true; do
-        # Lire 2560 octets (1280 samples × 2 bytes = 80ms à 16kHz)
+        # Read 2560 bytes (1280 samples x 2 bytes = 80ms at 16kHz)
         chunk=$(dd bs=2560 count=1 2>/dev/null | od -An -td2 -w2 | \
             awk -v n="$N_BARS" '
             BEGIN { for(i=0;i<n;i++) sum[i]=0; cnt=0 }
@@ -67,7 +113,7 @@ if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
             END {
                 for(i=0;i<n;i++) {
                     avg = (cnt>0) ? sum[i]/(cnt/n)/32768.0 : 0
-                    # Amplifier pour visibilité
+                    # Amplify for visibility
                     avg = avg * 8
                     if(avg > 1) avg = 1
                     printf "%.3f ", avg
@@ -81,8 +127,8 @@ if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
     cleanup
 fi
 
-# Mode FFT : parec → dictee-plasmoid-level-fft
-parec --rate=16000 --channels=1 --format=s16le --latency-msec=40 2>/dev/null | \
+# FFT mode: parec -> dictee-plasmoid-level-fft
+parec $PAREC_ARGS 2>/dev/null | \
     dictee-plasmoid-level-fft "$N_BARS" "$BANDS_FILE" &
 PAREC_PID=$!
 

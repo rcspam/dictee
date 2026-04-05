@@ -1,8 +1,8 @@
 # Maintainer: rcspam <rcspams@gmail.com>
 pkgname=dictee
-pkgver=1.2.0
+pkgver=1.3.0
 pkgrel=1
-_tag=1.2.0
+_tag=1.3.0
 pkgdesc="Fast push-to-talk voice dictation for Linux with NVIDIA Parakeet, Vosk and faster-whisper"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
@@ -16,6 +16,7 @@ depends=(
     'python-pyqt6'
     'qt6-multimedia'
     'qt6-svg'
+    'sox'
 )
 optdepends=(
     'python-evdev: dictee-ptt key grab (recommended)'
@@ -76,7 +77,10 @@ package() {
     install -Dm755 dictee-switch-backend "$pkgdir/usr/bin/dictee-switch-backend"
     install -Dm755 dictee-postprocess.py "$pkgdir/usr/bin/dictee-postprocess"
     install -Dm755 dictee-test-rules "$pkgdir/usr/bin/dictee-test-rules"
-    install -Dm755 transcribe-daemon-canary "$pkgdir/usr/bin/transcribe-daemon-canary"
+    install -Dm755 dictee-transcribe.py "$pkgdir/usr/bin/dictee-transcribe"
+    install -Dm755 dictee-reset "$pkgdir/usr/bin/dictee-reset"
+    install -Dm755 dictee-translate-langs "$pkgdir/usr/bin/dictee-translate-langs"
+    install -Dm755 pkg/dictee/usr/bin/dictee-audio-sources "$pkgdir/usr/bin/dictee-audio-sources"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-fft "$pkgdir/usr/bin/dictee-plasmoid-level-fft"
@@ -106,6 +110,17 @@ package() {
         install -Dm644 "$f" "$pkgdir/usr/share/icons/hicolor/scalable/apps/$(basename "$f")"
     done
 
+    # Assets (wizard banners + logos)
+    install -d "$pkgdir/usr/share/dictee/assets"
+    install -Dm644 assets/banner-dark.svg "$pkgdir/usr/share/dictee/assets/banner-dark.svg"
+    install -Dm644 assets/banner-light.svg "$pkgdir/usr/share/dictee/assets/banner-light.svg"
+    if [ -d assets/logos ]; then
+        install -d "$pkgdir/usr/share/dictee/assets/logos"
+        for f in assets/logos/*.svg; do
+            [ -f "$f" ] && install -Dm644 "$f" "$pkgdir/usr/share/dictee/assets/logos/$(basename "$f")"
+        done
+    fi
+
     # Locales (compiled in build())
     for lang in fr de es it pt uk; do
         if [ -f "po/$lang.mo" ]; then
@@ -122,7 +137,12 @@ package() {
         install -Dm644 dictee.plasmoid "$pkgdir/usr/share/dictee/dictee.plasmoid"
     fi
 
+    # Shared libraries
+    install -Dm644 dictee-common.sh "$pkgdir/usr/lib/dictee/dictee-common.sh"
+    install -Dm644 dictee_models.py "$pkgdir/usr/lib/dictee/dictee_models.py"
+
     # Default config files
+    install -Dm644 dictee.conf.example "$pkgdir/usr/share/dictee/dictee.conf.example"
     install -Dm644 rules.conf.default "$pkgdir/usr/share/dictee/rules.conf.default"
     install -Dm644 dictionary.conf.default "$pkgdir/usr/share/dictee/dictionary.conf.default"
     install -Dm644 continuation.conf.default "$pkgdir/usr/share/dictee/continuation.conf.default"

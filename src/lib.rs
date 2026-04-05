@@ -44,12 +44,15 @@
 //! - Bit Depth: 16-bit PCM or 32-bit float
 
 mod audio;
+mod canary;
 mod config;
 mod decoder;
+mod decoder_canary;
 mod decoder_tdt;
 mod error;
 mod execution;
 mod model;
+mod model_canary;
 mod model_eou;
 mod model_nemotron;
 mod model_tdt;
@@ -78,3 +81,4 @@ pub use model_eou::ParakeetEOUModel;
 pub use model_nemotron::{NemotronEncoderCache, NemotronModel, NemotronModelConfig};
 pub use nemotron::{Nemotron, SentencePieceVocab};
 pub use parakeet_eou::ParakeetEOU;
+pub use canary::Canary;

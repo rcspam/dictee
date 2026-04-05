@@ -11,6 +11,7 @@ KCM.SimpleKCM {
     property alias cfg_pollingInterval: pollingIntervalSpin.value
     property alias cfg_showLastTranscription: showTranscriptionCheck.checked
     property alias cfg_previewMode: previewModeCheck.checked
+    property alias cfg_audioContext: audioContextCheck.checked
     property double cfg_audioSensitivity: 2.0
     property double cfg_barSensitivity: 2.0
     property double cfg_waveSensitivity: 2.0
@@ -222,6 +223,11 @@ KCM.SimpleKCM {
         QQC2.CheckBox {
             id: previewModeCheck
             Kirigami.FormData.label: i18n("Preview mode (test with mic):")
+        }
+
+        QQC2.CheckBox {
+            id: audioContextCheck
+            Kirigami.FormData.label: i18n("Audio context buffer:")
         }
 
         // === Volume micro ===

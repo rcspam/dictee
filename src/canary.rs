@@ -1,0 +1,566 @@
+use crate::audio;
+use crate::config::PreprocessorConfig;
+use crate::decoder::TranscriptionResult;
+use crate::decoder_canary::CanaryDecoder;
+use crate::error::{Error, Result};
+use crate::execution::ModelConfig as ExecutionConfig;
+use crate::model_canary::CanaryModel;
+use crate::timestamps::{process_timestamps, TimestampMode};
+use crate::transcriber::Transcriber;
+use crate::vocab::Vocabulary;
+use ndarray::{Array2, Array4};
+use std::path::{Path, PathBuf};
+
+// ---------------------------------------------------------------------------
+// Special token IDs — Canary-1B-v2 vocab.txt
+// ---------------------------------------------------------------------------
+const SPACE_TOKEN_ID: i64 = 16053; // ▁ (SentencePiece space prefix)
+const STARTOFCONTEXT_ID: i64 = 7; // <|startofcontext|>
+const STARTOFTRANSCRIPT_ID: i64 = 4; // <|startoftranscript|>
+const ENDOFTEXT_ID: i64 = 3; // <|endoftext|> (EOS)
+const EMO_UNDEFINED_ID: i64 = 16; // <|emo:undefined|>
+const PNC_ID: i64 = 5; // <|pnc|>
+const NOPNC_ID: i64 = 6; // <|nopnc|>
+const NOITN_ID: i64 = 9; // <|noitn|>
+const NOTIMESTAMP_ID: i64 = 11; // <|notimestamp|>
+const NODIARIZE_ID: i64 = 13; // <|nodiarize|>
+
+// ---------------------------------------------------------------------------
+// Language token mapping
+// ---------------------------------------------------------------------------
+
+/// Map a language code (ISO 639-1) to the Canary-1B-v2 token ID.
+fn lang_to_token_id(lang: &str) -> Result<i64> {
+    match lang {
+        "en" => Ok(64),
+        "fr" => Ok(71),
+        "de" => Ok(78),
+        "es" => Ok(171),
+        "it" => Ok(87),
+        "pt" => Ok(138),
+        "uk" => Ok(182),
+        _ => Err(Error::Config(format!(
+            "Unsupported Canary language code: '{lang}'. \
+             Supported: en, fr, de, es, it, pt, uk"
+        ))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CanaryPrompt — builds the decoder prompt with optional context
+// ---------------------------------------------------------------------------
+
+/// Canary decoder prompt builder.
+///
+/// Builds the token sequence fed to the decoder at the start of auto-regressive
+/// generation.  When `decodercontext` IDs are provided, they are inserted
+/// between `<|startofcontext|>` and `<|startoftranscript|>`.
+pub struct CanaryPrompt {
+    source_lang_id: i64,
+    target_lang_id: i64,
+    pnc: bool,
+}
+
+impl CanaryPrompt {
+    /// Create a new prompt builder.
+    ///
+    /// # Arguments
+    /// * `source_lang` — ISO 639-1 language code of the audio (e.g. "fr")
+    /// * `target_lang` — ISO 639-1 language code for the output text (same as
+    ///   source for ASR, different for translation)
+    /// * `pnc` — whether to request punctuation & capitalisation
+    pub fn new(source_lang: &str, target_lang: &str, pnc: bool) -> Result<Self> {
+        let source_lang_id = lang_to_token_id(source_lang)?;
+        let target_lang_id = lang_to_token_id(target_lang)?;
+        Ok(Self {
+            source_lang_id,
+            target_lang_id,
+            pnc,
+        })
+    }
+
+    /// Build the full prompt token sequence.
+    ///
+    /// Format (with context):
+    /// ```text
+    /// [▁, BOCTX, ...context_ids..., BOS, emo, src_lang, tgt_lang, pnc, noitn, nots, nodiar]
+    /// ```
+    ///
+    /// Without context the context region is simply empty:
+    /// ```text
+    /// [▁, BOCTX, BOS, emo, src_lang, tgt_lang, pnc, noitn, nots, nodiar]
+    /// ```
+    pub fn build(&self, context_ids: Option<&[i64]>) -> Vec<i64> {
+        let pnc_id = if self.pnc { PNC_ID } else { NOPNC_ID };
+
+        let mut prompt = Vec::with_capacity(16);
+        prompt.push(SPACE_TOKEN_ID);
+        prompt.push(STARTOFCONTEXT_ID);
+        if let Some(ctx) = context_ids {
+            prompt.extend_from_slice(ctx);
+        }
+        prompt.push(STARTOFTRANSCRIPT_ID);
+        prompt.push(EMO_UNDEFINED_ID);
+        prompt.push(self.source_lang_id);
+        prompt.push(self.target_lang_id);
+        prompt.push(pnc_id);
+        prompt.push(NOITN_ID);
+        prompt.push(NOTIMESTAMP_ID); // ONNX export does not emit timestamp tokens (<|N|> IDs 207-1106)
+        prompt.push(NODIARIZE_ID);
+        prompt
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Canary — AED model with decoder-context support
+// ---------------------------------------------------------------------------
+
+/// Canary AED (Attention Encoder-Decoder) model for ASR / translation.
+///
+/// Wraps a [`CanaryModel`] (ONNX encoder + decoder) with prompt building,
+/// greedy auto-regressive decoding, and optional decoder-context from a
+/// previous transcription.
+pub struct Canary {
+    model: CanaryModel,
+    decoder: CanaryDecoder,
+    prompt: CanaryPrompt,
+    preprocessor_config: PreprocessorConfig,
+    tokenizer: Option<tokenizers::Tokenizer>,
+    /// Token IDs generated by the last transcription, reusable as context.
+    last_token_ids: Option<Vec<i64>>,
+    model_dir: PathBuf,
+}
+
+impl Canary {
+    /// Load a Canary model from a directory.
+    ///
+    /// The directory must contain:
+    /// - `encoder-model.onnx` (or variant)
+    /// - `decoder-model.onnx` (or variant)
+    /// - `vocab.txt`
+    /// - optionally `tokenizer.json` (needed for `set_context_text`)
+    ///
+    /// # Arguments
+    /// * `path`        — model directory
+    /// * `config`      — optional ONNX Runtime execution configuration
+    /// * `source_lang` — ISO 639-1 language code of the audio
+    /// * `target_lang` — ISO 639-1 target language code
+    pub fn from_pretrained<P: AsRef<Path>>(
+        path: P,
+        config: Option<ExecutionConfig>,
+        source_lang: &str,
+        target_lang: &str,
+    ) -> Result<Self> {
+        let path = path.as_ref();
+
+        if !path.is_dir() {
+            return Err(Error::Config(format!(
+                "Canary model path must be a directory: {}",
+                path.display()
+            )));
+        }
+
+        let vocab_path = path.join("vocab.txt");
+        if !vocab_path.exists() {
+            return Err(Error::Config(format!(
+                "vocab.txt not found in {}",
+                path.display()
+            )));
+        }
+
+        let preprocessor_config = PreprocessorConfig {
+            feature_extractor_type: "ParakeetFeatureExtractor".to_string(),
+            feature_size: 128,
+            hop_length: 160,
+            n_fft: 512,
+            padding_side: "right".to_string(),
+            padding_value: 0.0,
+            preemphasis: 0.97,
+            processor_class: "ParakeetProcessor".to_string(),
+            return_attention_mask: true,
+            sampling_rate: 16000,
+            win_length: 400,
+        };
+
+        let exec_config = config.unwrap_or_default();
+
+        let vocab = Vocabulary::from_file(&vocab_path)?;
+        let model = CanaryModel::from_pretrained(path, exec_config)?;
+        let decoder = CanaryDecoder::from_vocabulary(&vocab);
+
+        let prompt = CanaryPrompt::new(source_lang, target_lang, true)?;
+
+        // Attempt to load tokenizer.json (optional — only needed for
+        // set_context_text).
+        let tokenizer_path = path.join("tokenizer.json");
+        let tokenizer = if tokenizer_path.exists() {
+            Some(
+                tokenizers::Tokenizer::from_file(&tokenizer_path)
+                    .map_err(|e| Error::Tokenizer(format!("Failed to load tokenizer.json: {e}")))?,
+            )
+        } else {
+            None
+        };
+
+        Ok(Self {
+            model,
+            decoder,
+            prompt,
+            preprocessor_config,
+            tokenizer,
+            last_token_ids: None,
+            model_dir: path.to_path_buf(),
+        })
+    }
+
+    /// Set decoder context from a text string.
+    ///
+    /// The text is encoded to token IDs via `tokenizer.json`.  This requires
+    /// that the tokenizer was found during `from_pretrained`.
+    pub fn set_context_text(&mut self, text: &str) -> Result<()> {
+        let tokenizer = self.tokenizer.as_ref().ok_or_else(|| {
+            Error::Tokenizer(
+                "tokenizer.json not loaded — cannot encode context text".to_string(),
+            )
+        })?;
+
+        let encoding = tokenizer
+            .encode(text, false)
+            .map_err(|e| Error::Tokenizer(format!("Failed to encode context text: {e}")))?;
+
+        let ids: Vec<i64> = encoding.get_ids().iter().map(|&id| id as i64).collect();
+        self.last_token_ids = Some(ids);
+        Ok(())
+    }
+
+    /// Set decoder context from raw token IDs (no tokenizer needed).
+    pub fn set_context_ids(&mut self, ids: Vec<i64>) {
+        self.last_token_ids = Some(ids);
+    }
+
+    /// Clear decoder context so the next transcription runs without context.
+    pub fn clear_context(&mut self) {
+        self.last_token_ids = None;
+    }
+
+    /// Return the token IDs from the last transcription (if any).
+    pub fn last_token_ids(&self) -> Option<&[i64]> {
+        self.last_token_ids.as_deref()
+    }
+
+    /// Change the target language for translation without reloading the model.
+    pub fn set_target_lang(&mut self, target_lang: &str) -> Result<()> {
+        let target_lang_id = lang_to_token_id(target_lang)?;
+        self.prompt.target_lang_id = target_lang_id;
+        Ok(())
+    }
+
+    pub fn model_dir(&self) -> &Path {
+        &self.model_dir
+    }
+
+    pub fn preprocessor_config(&self) -> &PreprocessorConfig {
+        &self.preprocessor_config
+    }
+
+    /// Greedy auto-regressive decode loop.
+    ///
+    /// Feeds the full prompt on the first step, then one token at a time,
+    /// accumulating KV-cache (`decoder_mems`).  Stops on `<|endoftext|>` or
+    /// when `max_sequence_length` is reached.
+    ///
+    /// # Returns
+    /// * `generated_ids` — token IDs produced by the decoder (excluding prompt)
+    /// * `logprobs`      — log-probability of each generated token
+    fn greedy_decode(
+        &mut self,
+        encoder_embeddings: &ndarray::Array3<f32>,
+        encoder_mask: &Array2<i64>,
+        prompt_ids: &[i64],
+    ) -> Result<(Vec<i64>, Vec<f32>)> {
+        let max_len = self.model.config.max_sequence_length;
+        let n_layers = self.model.config.n_layers_decoder_mems;
+        let hidden_dim = self.model.config.decoder_hidden_dim;
+
+        // Initial KV-cache: empty — shape (n_layers, 1, 0, hidden_dim)
+        let mut decoder_mems = Array4::<f32>::zeros((n_layers, 1, 0, hidden_dim));
+
+        let mut generated_ids: Vec<i64> = Vec::new();
+        let mut logprobs: Vec<f32> = Vec::new();
+
+        if prompt_ids.is_empty() {
+            return Err(Error::Model("Empty prompt".to_string()));
+        }
+
+        // First step: feed the full prompt
+        let prompt_arr = Array2::from_shape_vec(
+            (1, prompt_ids.len()),
+            prompt_ids.to_vec(),
+        )
+        .map_err(|e| Error::Model(format!("Failed to build prompt array: {e}")))?;
+
+        let (logits, new_mems) = self.model.run_decoder(
+            prompt_arr,
+            encoder_embeddings.clone(),
+            encoder_mask.clone(),
+            decoder_mems,
+        )?;
+        decoder_mems = new_mems;
+
+        // logits shape: (1, 1, vocab_size) — take argmax of last position
+        let logits_slice = logits.as_slice().ok_or_else(|| {
+            Error::Model("Logits array is not contiguous".to_string())
+        })?;
+        let vocab_size = self.model.config.vocab_size;
+        // Last position logits
+        let start = logits_slice.len().saturating_sub(vocab_size);
+        let step_logits = &logits_slice[start..];
+        let (best_id, best_logprob) = argmax_with_logprob(step_logits);
+        let mut last_token = best_id as i64;
+
+        if last_token == ENDOFTEXT_ID {
+            return Ok((generated_ids, logprobs));
+        }
+        generated_ids.push(last_token);
+        logprobs.push(best_logprob);
+
+        // Subsequent steps: feed single token
+        for _ in 1..max_len {
+            let input_ids = Array2::from_shape_vec((1, 1), vec![last_token])
+                .map_err(|e| Error::Model(format!("Failed to build input_ids: {e}")))?;
+
+            let (logits, new_mems) = self.model.run_decoder(
+                input_ids,
+                encoder_embeddings.clone(),
+                encoder_mask.clone(),
+                decoder_mems,
+            )?;
+            decoder_mems = new_mems;
+
+            let logits_slice = logits.as_slice().ok_or_else(|| {
+                Error::Model("Logits array is not contiguous".to_string())
+            })?;
+            let start = logits_slice.len().saturating_sub(vocab_size);
+            let step_logits = &logits_slice[start..];
+            let (best_id, best_logprob) = argmax_with_logprob(step_logits);
+            last_token = best_id as i64;
+
+            if last_token == ENDOFTEXT_ID {
+                break;
+            }
+            generated_ids.push(last_token);
+            logprobs.push(best_logprob);
+        }
+
+        Ok((generated_ids, logprobs))
+    }
+}
+
+/// Argmax over a log-softmax slice, returning (index, value).
+fn argmax_with_logprob(logits: &[f32]) -> (usize, f32) {
+    let mut best_idx = 0usize;
+    let mut best_val = f32::NEG_INFINITY;
+    for (i, &v) in logits.iter().enumerate() {
+        if v > best_val {
+            best_val = v;
+            best_idx = i;
+        }
+    }
+    (best_idx, best_val)
+}
+
+// ---------------------------------------------------------------------------
+// Transcriber trait implementation
+// ---------------------------------------------------------------------------
+
+impl Transcriber for Canary {
+    fn transcribe_samples(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        mode: Option<TimestampMode>,
+    ) -> Result<TranscriptionResult> {
+        // 1. Extract mel features
+        let features =
+            audio::extract_features_raw(audio, sample_rate, channels, &self.preprocessor_config)?;
+
+        // Compute audio duration for proportional timestamps
+        let encoder_frames = features.shape()[0];
+        let audio_duration_s = encoder_frames as f32
+            * self.preprocessor_config.hop_length as f32
+            / self.preprocessor_config.sampling_rate as f32;
+
+        // 2. Run encoder
+        let (encoder_embeddings, encoder_mask) = self.model.run_encoder(features)?;
+
+        // 3. Build prompt (with optional context from previous transcription)
+        let context = self.last_token_ids.as_deref();
+        let prompt_ids = self.prompt.build(context);
+        if std::env::var("DICTEE_DEBUG").unwrap_or_default() == "true" {
+            eprintln!("[canary] prompt: {} IDs (context: {} tokens)", prompt_ids.len(), context.map_or(0, |c| c.len()));
+        }
+
+        // 4. Greedy decode
+        let (generated_ids, logprobs) =
+            self.greedy_decode(&encoder_embeddings, &encoder_mask, &prompt_ids)?;
+
+        // Note: ONNX Canary does not emit timestamp tokens (<|N|> IDs 207-1106).
+        // Verified 2026-04-02: <|timestamp|> flag has no effect on ONNX export.
+        // For audio context buffer, text-stripping is used instead of timestamp-based splitting.
+
+        // 5. Do NOT auto-accumulate context for push-to-talk dictation.
+        //    Canary's decodercontext is designed for chunk-boundary deduplication,
+        //    which causes truncation of repeated words in independent recordings.
+        //    Context is only used when explicitly set via set_context_text/set_context_ids.
+        //    After each transcription, clear auto-context to avoid interference.
+        self.last_token_ids = None;
+
+        // 6. Decode tokens to text with timestamps
+        let mut result = self.decoder.decode_with_timestamps(
+            &generated_ids,
+            &logprobs,
+            encoder_frames,
+            audio_duration_s,
+        );
+
+        // 7. Apply timestamp mode conversion
+        let mode = mode.unwrap_or(TimestampMode::Tokens);
+        result.tokens = process_timestamps(&result.tokens, mode);
+
+        // Rebuild full text from processed tokens
+        result.text = if mode == TimestampMode::Tokens {
+            result
+                .tokens
+                .iter()
+                .map(|t| t.text.as_str())
+                .collect::<String>()
+                .trim()
+                .to_string()
+        } else if mode == TimestampMode::Words {
+            let mut out = String::new();
+            for (i, word) in result.tokens.iter().map(|t| t.text.as_str()).enumerate() {
+                let is_standalone_punct = word.len() == 1
+                    && word
+                        .chars()
+                        .all(|c| matches!(c, '.' | ',' | '!' | '?' | ';' | ':' | ')'));
+                if i > 0 && !is_standalone_punct {
+                    out.push(' ');
+                }
+                out.push_str(word);
+            }
+            out
+        } else {
+            result
+                .tokens
+                .iter()
+                .map(|t| t.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+
+        Ok(result)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lang_to_token_id() {
+        assert_eq!(lang_to_token_id("en").unwrap(), 64);
+        assert_eq!(lang_to_token_id("fr").unwrap(), 71);
+        assert_eq!(lang_to_token_id("de").unwrap(), 78);
+        assert_eq!(lang_to_token_id("es").unwrap(), 171);
+        assert_eq!(lang_to_token_id("it").unwrap(), 87);
+        assert_eq!(lang_to_token_id("pt").unwrap(), 138);
+        assert_eq!(lang_to_token_id("uk").unwrap(), 182);
+
+        let err = lang_to_token_id("xx");
+        assert!(err.is_err());
+        if let Err(Error::Config(msg)) = err {
+            assert!(msg.contains("Unsupported Canary language code"));
+            assert!(msg.contains("xx"));
+        } else {
+            panic!("Expected Error::Config for unknown language");
+        }
+    }
+
+    #[test]
+    fn test_build_prompt_no_context() {
+        let prompt = CanaryPrompt::new("fr", "fr", true).unwrap();
+        let ids = prompt.build(None);
+
+        // Expected: [▁, BOCTX, BOS, emo, fr, fr, pnc, noitn, nots, nodiar]
+        assert_eq!(ids.len(), 10);
+        assert_eq!(ids[0], SPACE_TOKEN_ID); // ▁
+        assert_eq!(ids[1], STARTOFCONTEXT_ID); // <|startofcontext|>
+        assert_eq!(ids[2], STARTOFTRANSCRIPT_ID); // <|startoftranscript|>
+        assert_eq!(ids[3], EMO_UNDEFINED_ID); // <|emo:undefined|>
+        assert_eq!(ids[4], 71); // fr
+        assert_eq!(ids[5], 71); // fr
+        assert_eq!(ids[6], PNC_ID); // <|pnc|>
+        assert_eq!(ids[7], NOITN_ID); // <|noitn|>
+        assert_eq!(ids[8], NOTIMESTAMP_ID); // <|notimestamp|>
+        assert_eq!(ids[9], NODIARIZE_ID); // <|nodiarize|>
+    }
+
+    #[test]
+    fn test_build_prompt_with_context() {
+        let prompt = CanaryPrompt::new("fr", "fr", true).unwrap();
+        let context = vec![100, 200, 300];
+        let ids = prompt.build(Some(&context));
+
+        // Expected: [▁, BOCTX, 100, 200, 300, BOS, emo, fr, fr, pnc, noitn, nots, nodiar]
+        assert_eq!(ids.len(), 13);
+        assert_eq!(ids[0], SPACE_TOKEN_ID);
+        assert_eq!(ids[1], STARTOFCONTEXT_ID);
+        assert_eq!(ids[2], 100); // context
+        assert_eq!(ids[3], 200);
+        assert_eq!(ids[4], 300);
+        assert_eq!(ids[5], STARTOFTRANSCRIPT_ID);
+        assert_eq!(ids[6], EMO_UNDEFINED_ID);
+        assert_eq!(ids[7], 71); // fr
+        assert_eq!(ids[8], 71); // fr
+        assert_eq!(ids[9], PNC_ID);
+    }
+
+    #[test]
+    fn test_build_prompt_translation() {
+        let prompt = CanaryPrompt::new("fr", "en", true).unwrap();
+        let ids = prompt.build(None);
+
+        assert_eq!(ids.len(), 10);
+        assert_eq!(ids[4], 71); // source = fr
+        assert_eq!(ids[5], 64); // target = en
+    }
+
+    #[test]
+    fn test_build_prompt_nopnc() {
+        let prompt = CanaryPrompt::new("en", "en", false).unwrap();
+        let ids = prompt.build(None);
+
+        assert_eq!(ids[6], NOPNC_ID); // <|nopnc|> instead of <|pnc|>
+    }
+
+    #[test]
+    fn test_argmax_with_logprob() {
+        let logits = vec![-2.0, -0.5, -1.0, -3.0];
+        let (idx, val) = argmax_with_logprob(&logits);
+        assert_eq!(idx, 1);
+        assert!((val - (-0.5)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_argmax_with_logprob_single() {
+        let logits = vec![-1.0];
+        let (idx, val) = argmax_with_logprob(&logits);
+        assert_eq!(idx, 0);
+        assert!((val - (-1.0)).abs() < 1e-6);
+    }
+}

@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 PKG_DIR="pkg/dictee"
 
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
@@ -25,8 +25,15 @@ cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
-cp ./transcribe-daemon-canary "$PKG_DIR/usr/bin/transcribe-daemon-canary"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/transcribe-daemon-canary"
+cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
+cp ./dictee-reset "$PKG_DIR/usr/bin/dictee-reset"
+cp ./dictee-translate-langs "$PKG_DIR/usr/bin/dictee-translate-langs"
+cp ./dictee-audio-sources "$PKG_DIR/usr/bin/dictee-audio-sources"
+mkdir -p "$PKG_DIR/usr/lib/dictee"
+cp ./dictee-common.sh "$PKG_DIR/usr/lib/dictee/dictee-common.sh"
+cp ./dictee_models.py "$PKG_DIR/usr/lib/dictee/dictee_models.py"
+cp ./dictee.conf.example "$PKG_DIR/usr/share/dictee/dictee.conf.example"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-reset" "$PKG_DIR/usr/bin/dictee-translate-langs" "$PKG_DIR/usr/bin/dictee-audio-sources"
 
 # Copier les fichiers de post-traitement par défaut
 cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
@@ -45,6 +52,7 @@ if [ -d "./assets/logos" ]; then
     mkdir -p "$PKG_DIR/usr/share/dictee/assets/logos"
     cp ./assets/logos/*.svg "$PKG_DIR/usr/share/dictee/assets/logos/"
 fi
+
 
 # Compiler et copier les traductions
 echo "=== Compilation des traductions ==="
@@ -111,6 +119,8 @@ build_plasmoid
 # Build CUDA version
 build_cuda() {
     echo "=== [CUDA] Compiling binaries with GPU support ==="
+    # CRITICAL: --no-default-features disables ort-defaults (static linking)
+    # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
     cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
@@ -121,12 +131,12 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.2.0
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
-Recommends: libcublas12 | libcublas-12-8 | libcublas-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, libcudart12 | cuda-cudart-12-8 | cuda-cudart-12-6, libcublas12 | libcublas-12-8 | libcublas-12-6, libcufft11 | libcufft-12-8 | libcufft-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, libnvrtc12 | libnvrtc-12-8 | libnvrtc-12-6
+Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -149,25 +159,34 @@ EOF
     cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
 
-    # ONNX Runtime libs (load-dynamic nécessite libonnxruntime.so)
-    echo "=== Copie des libs ONNX Runtime + CUDA ==="
+    # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
+    echo "=== Copie des libs CUDA ONNX Runtime ==="
     mkdir -p "$PKG_DIR/usr/lib/dictee"
 
-    # Lib ORT principale (requise par load-dynamic)
-    ORT_TGZ="onnxruntime-linux-x64-gpu-1.23.0.tgz"
-    ORT_DIR="onnxruntime-linux-x64-gpu-1.23.0"
-    if [ ! -d "$ORT_DIR" ]; then
-        if [ ! -f "$ORT_TGZ" ]; then
-            echo "Téléchargement d'ONNX Runtime GPU 1.23.0..."
-            curl -LO "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/$ORT_TGZ"
-        fi
-        tar xzf "$ORT_TGZ"
+    # Search paths for libonnxruntime.so (not produced by load-dynamic build)
+    ORT_LIB=""
+    for candidate in \
+        "target/release/libonnxruntime.so" \
+        "onnxruntime-linux-x64-gpu-*/lib/libonnxruntime.so" \
+        "$HOME/.cache/ort.pyke.io/dfbin/*/libonnxruntime.so"; do
+        # shellcheck disable=SC2086
+        for f in $candidate; do
+            if [ -f "$f" ]; then
+                ORT_LIB="$f"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$ORT_LIB" ]; then
+        echo "ERROR: libonnxruntime.so not found! Download ONNX Runtime GPU from:"
+        echo "  https://github.com/microsoft/onnxruntime/releases"
+        echo "Extract it in the project root (onnxruntime-linux-x64-gpu-*/lib/)"
+        exit 1
     fi
-    cp "$ORT_DIR/lib/libonnxruntime.so.1.23.0" "$PKG_DIR/usr/lib/dictee/"
-    ln -sf libonnxruntime.so.1.23.0 "$PKG_DIR/usr/lib/dictee/libonnxruntime.so.1"
-    ln -sf libonnxruntime.so.1 "$PKG_DIR/usr/lib/dictee/libonnxruntime.so"
+    echo "Using libonnxruntime.so from: $ORT_LIB"
+    cp -L "$ORT_LIB" "$PKG_DIR/usr/lib/dictee/"
 
-    # Provider libs
+    # Provider libs from cargo build output
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
         if [ -f "$ORT_DIR/lib/$lib" ]; then
             cp "$ORT_DIR/lib/$lib" "$PKG_DIR/usr/lib/dictee/"
@@ -208,8 +227,8 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 
-    # Cleanup CUDA libs for CPU build
-    rm -rf "$PKG_DIR/usr/lib/dictee" "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
+    # Cleanup CUDA libs for CPU build (keep shared scripts/modules)
+    rm -f "$PKG_DIR/usr/lib/dictee/"*.so "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
     echo "Built: dictee-cuda_${VERSION}_amd64.deb"
 }
 
@@ -227,11 +246,11 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.2.0
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg
+Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
 Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
 Conflicts: dictee-cuda
 Provides: dictee
@@ -297,7 +316,7 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee-switch-backend" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-postprocess" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-transcribe" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-vosk" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$TARBALL_DIR/usr/bin/"
@@ -305,6 +324,14 @@ build_tarball() {
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dotool" "$TARBALL_DIR/usr/bin/"
     cp "$PKG_DIR/usr/bin/dotoold" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-reset" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$TARBALL_DIR/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$TARBALL_DIR/usr/bin/"
+
+    # Shared libraries
+    mkdir -p "$TARBALL_DIR/usr/lib/dictee"
+    cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$TARBALL_DIR/usr/lib/dictee/"
+    cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$TARBALL_DIR/usr/lib/dictee/"
 
     # Udev rules (dotool)
     cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$TARBALL_DIR/etc/udev/rules.d/"
@@ -334,36 +361,22 @@ build_tarball() {
     cp "$PKG_DIR/usr/share/dictee/rules.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/dictionary.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/continuation.conf.default" "$TARBALL_DIR/usr/share/dictee/"
+    cp "$PKG_DIR/usr/share/dictee/dictee.conf.example" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/assets/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/"
     if [ -d "$PKG_DIR/usr/share/dictee/assets/logos" ]; then
         mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/logos"
         cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
     fi
 
-    # ONNX Runtime + CUDA libs (si le build CUDA a téléchargé le tgz ORT)
-    ORT_DIR="onnxruntime-linux-x64-gpu-1.23.0"
-    if [ -d "$ORT_DIR" ]; then
+
+    # ONNX Runtime CUDA libs (copy from deb pkg if available)
+    if [ -d "$PKG_DIR/usr/lib/dictee" ]; then
         mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-        cp "$ORT_DIR/lib/libonnxruntime.so.1.23.0" "$TARBALL_DIR/usr/lib/dictee/"
-        ln -sf libonnxruntime.so.1.23.0 "$TARBALL_DIR/usr/lib/dictee/libonnxruntime.so.1"
-        ln -sf libonnxruntime.so.1 "$TARBALL_DIR/usr/lib/dictee/libonnxruntime.so"
-        for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-            if [ -f "$ORT_DIR/lib/$lib" ]; then
-                cp "$ORT_DIR/lib/$lib" "$TARBALL_DIR/usr/lib/dictee/"
+        for lib in libonnxruntime.so libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+            if [ -f "$PKG_DIR/usr/lib/dictee/$lib" ]; then
+                cp "$PKG_DIR/usr/lib/dictee/$lib" "$TARBALL_DIR/usr/lib/dictee/"
             fi
         done
-        # CUDA runtime libs
-        for lib in libcufft.so.11 libcudart.so.12; do
-            sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/dictee \
-                           "$HOME"/.cache/uv/archive-v0/*/nvidia/*/lib \
-                           "$HOME"/.local/share/dictee/*/lib/python*/site-packages/nvidia/*/lib \
-                      -name "$lib" -type f 2>/dev/null | head -1)
-            if [ -n "$sys_lib" ]; then
-                cp -L "$sys_lib" "$TARBALL_DIR/usr/lib/dictee/$lib"
-            fi
-        done
-        mkdir -p "$TARBALL_DIR/etc/ld.so.conf.d"
-        echo "/usr/lib/dictee" > "$TARBALL_DIR/etc/ld.so.conf.d/dictee.conf"
     fi
 
     # Scripts d'installation

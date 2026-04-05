@@ -102,7 +102,8 @@ fi
 # Répertoire modèles — accessible en écriture pour dictee-setup (user)
 echo ""
 echo "=== Répertoire des modèles ==="
-for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR"; do
+CANARY_DIR="$MODEL_DIR/canary"
+for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
     mkdir -p "$d"
     chmod 777 "$d"
 done
@@ -177,6 +178,21 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         echo "✓ AppIndicator activé pour $user" || true
 done
 
+# Install plasmoid if KDE Plasma 6 is available
+echo ""
+echo "=== Plasmoid KDE Plasma ==="
+if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+        echo "✓ Plasmoid installé pour $user"
+    done
+else
+    echo "KDE Plasma 6 non détecté ou plasmoid absent — ignoré"
+fi
+
 # Rafraîchir le cache d'icônes (nécessaire sur GNOME)
 echo ""
 echo "=== Cache d'icônes ==="
@@ -208,8 +224,8 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Appliquer les presets (auto-enable au premier install)
         $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
-        # Activer tous les services essentiels
-        $_run systemctl --user enable dotoold dictee-ptt dictee-tray dictee 2>/dev/null || true
+        # Activer les services essentiels (hors ASR — géré par backend)
+        $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
         # Démarrer/redémarrer les services
         $_run systemctl --user restart dotoold 2>/dev/null || true
         echo "  ↳ dotoold démarré"
@@ -222,15 +238,23 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         else
             echo "  ↳ dictee-tray : en attente de configuration (dictee-setup)"
         fi
-        $_run systemctl --user start dictee 2>/dev/null || true
-        echo "  ↳ dictee (daemon ASR) démarré"
-        # Redémarrer les autres services actifs après upgrade
-        for svc in dictee dictee-vosk dictee-whisper dictee-canary; do
-            if $_run systemctl --user is-active --quiet "$svc" 2>/dev/null; then
-                echo "  ↳ Redémarrage de $svc"
-                $_run systemctl --user restart "$svc" 2>/dev/null || true
-            fi
-        done
+        # Démarrer le bon daemon ASR selon la config utilisateur
+        _asr_backend="parakeet"
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$_user_home/.config/dictee.conf" | cut -d= -f2)
+        fi
+        case "$_asr_backend" in
+            vosk)    _asr_svc="dictee-vosk" ;;
+            whisper) _asr_svc="dictee-whisper" ;;
+            canary)  _asr_svc="dictee-canary" ;;
+            *)       _asr_svc="dictee" ;;
+        esac
+        # Stop all ASR daemons, enable+start the configured one
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
+        $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
+        echo "  ↳ $_asr_svc démarré (backend: $_asr_backend)"
     fi
 done
 

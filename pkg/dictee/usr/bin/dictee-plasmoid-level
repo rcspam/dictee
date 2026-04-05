@@ -14,6 +14,7 @@ if [ "${1:-}" = "stop" ]; then
 fi
 
 BARS="${1:-}"
+AUDIO_SOURCE="${2:-}"
 
 # Daemon en cours ?
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
@@ -32,9 +33,9 @@ fi
     fi
 
     if [ -n "$BARS" ] && [ "$BARS" -eq "$BARS" ] 2>/dev/null && [ "$BARS" -gt 1 ]; then
-        nohup dictee-plasmoid-level-daemon "$BARS" >/dev/null 2>&1 &
+        nohup dictee-plasmoid-level-daemon "$BARS" "$AUDIO_SOURCE" >/dev/null 2>&1 &
     else
-        nohup dictee-plasmoid-level-daemon >/dev/null 2>&1 &
+        nohup dictee-plasmoid-level-daemon 6 "$AUDIO_SOURCE" >/dev/null 2>&1 &
     fi
 
     echo "0"

@@ -1,25 +1,50 @@
-.TH TRANSCRIBE-DAEMON 1 "February 2025" "dictee 0.99" "User Commands"
+.TH TRANSCRIBE-DAEMON 1 "April 2026" "dictee 1.3.0" "User Commands"
 .SH NAME
 transcribe-daemon \- speech recognition daemon with preloaded model
 .SH SYNOPSIS
 .B transcribe-daemon
 .RI [ model_dir ]
+.RI [ --canary ]
 .SH DESCRIPTION
 .B transcribe-daemon
-starts a daemon that keeps the Parakeet TDT model loaded in memory,
+starts a daemon that keeps an ASR model loaded in memory,
 allowing fast repeated transcriptions via
 .BR transcribe-client (1).
 .PP
-The daemon listens on a Unix socket at /tmp/transcribe.sock
+The daemon listens on a Unix socket at $XDG_RUNTIME_DIR/transcribe.sock
+(or /tmp/transcribe-UID.sock as fallback).
+.PP
+Supports two backends: Parakeet TDT (default) and Canary AED (with --canary flag).
+The backend can also be selected via the DICTEE_ASR_BACKEND environment variable.
 .SH OPTIONS
 .TP
 .I model_dir
-Path to TDT model directory (default: /usr/share/dictee/tdt)
+Path to model directory (default: /usr/share/dictee/tdt or /canary)
+.TP
+.B --canary
+Use Canary AED backend instead of Parakeet TDT. Canary supports 25 languages
+and built-in translation.
+.SH ENVIRONMENT
+.TP
+.B DICTEE_ASR_BACKEND
+Set to "canary" to use Canary backend (alternative to --canary flag).
+.TP
+.B DICTEE_LANG_SOURCE
+Source language code (default: fr).
+.TP
+.B DICTEE_DEBUG
+Set to "true" to enable debug logging.
 .SH SYSTEMD
-To run as a user service:
+Four mutually exclusive services:
 .PP
 .RS
-systemctl --user enable --now dictee
+systemctl --user enable --now dictee          # Parakeet
+.br
+systemctl --user enable --now dictee-canary   # Canary
+.br
+systemctl --user enable --now dictee-vosk     # Vosk
+.br
+systemctl --user enable --now dictee-whisper  # Whisper
 .RE
 .SH SEE ALSO
 .BR transcribe-client (1),

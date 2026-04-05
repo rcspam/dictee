@@ -18,6 +18,11 @@ import sys
 import locale
 import tempfile
 
+# Allow importing dictee_models from /usr/lib/dictee (packaged installs)
+_lib_dir = "/usr/lib/dictee"
+if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
+    sys.path.insert(0, _lib_dir)
+
 try:
     from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, pyqtSignal as Signal
     from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
@@ -26,7 +31,8 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout,
+        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
+        QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
@@ -37,7 +43,8 @@ except ImportError:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QTabWidget, QLineEdit, QLayout,
+        QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
+        QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 
@@ -222,7 +229,9 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
                 llm_postprocess=False, llm_model="ministral:3b",
-                llm_timeout=10, llm_cpu=False):
+                llm_timeout=10, llm_cpu=False,
+                audio_context=False, audio_context_timeout=30,
+                notifications=True, notifications_text=True):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     import tempfile as _tmpmod
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
@@ -236,17 +245,13 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         f.write(f"DICTEE_LANG_TARGET={lang_target}\n")
         f.write(f"DICTEE_CLIPBOARD={'true' if clipboard else 'false'}\n")
         f.write(f"DICTEE_ANIMATION={animation}\n")
-        if asr_backend == "vosk":
-            # Always write the short code (e.g. "fr", "en") — daemon resolves it
-            reverse = {v: k for k, v in VOSK_MODELS.items()}
-            code = reverse.get(vosk_model, vosk_model)
-            f.write(f"DICTEE_VOSK_MODEL={code}\n")
-        elif asr_backend == "whisper":
-            f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
-            if whisper_lang:
-                f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
-        elif asr_backend == "canary":
-            f.write(f"DICTEE_CANARY_LANG={lang_source}\n")
+        # Always save all backend configs so switching doesn't lose settings
+        reverse = {v: k for k, v in VOSK_MODELS.items()}
+        code = reverse.get(vosk_model, vosk_model)
+        f.write(f"DICTEE_VOSK_MODEL={code}\n")
+        f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
+        if whisper_lang:
+            f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
         if backend == "trans":
             f.write(f"DICTEE_TRANS_ENGINE={trans_engine}\n")
         elif backend == "libretranslate":
@@ -300,6 +305,15 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write(f"DICTEE_LLM_TIMEOUT={llm_timeout}\n")
             if llm_cpu:
                 f.write("DICTEE_LLM_CPU=true\n")
+        # Audio context buffer
+        f.write(f"DICTEE_AUDIO_CONTEXT={'true' if audio_context else 'false'}\n")
+        f.write(f"DICTEE_AUDIO_CONTEXT_TIMEOUT={audio_context_timeout}\n")
+        # Notifications
+        if not notifications:
+            f.write("DICTEE_NOTIFICATIONS=false\n")
+        if not notifications_text:
+            f.write("DICTEE_NOTIFICATIONS_TEXT=false\n")
+        f.write("DICTEE_SETUP_DONE=true\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
       try:
@@ -794,8 +808,13 @@ ASSETS_DIR = _find_assets_dir()
 
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
-CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")
-CANARY_PACKAGES = ["onnx-asr>=0.11.0", "onnxruntime-gpu", "nvidia-cublas-cu12", "nvidia-cudnn-cu12"]
+CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")  # Legacy, kept for cleanup
+CANARY_MODEL_DIR = os.path.join(MODEL_DIR, "canary")
+CANARY_HF_REPO = "istupakov/canary-1b-v2-onnx"
+CANARY_MODEL_FILES = [
+    "encoder-model.onnx", "encoder-model.onnx.data", "decoder-model.onnx",
+    "vocab.txt", "config.json",
+]
 
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
@@ -809,7 +828,13 @@ VOSK_MODELS = {
     "ja": "vosk-model-small-ja-0.22",
 }
 
-WHISPER_MODELS = ["tiny", "small", "medium", "large-v3"]
+WHISPER_MODELS = [
+    ("tiny", "tiny — 39M, fastest, lowest quality"),
+    ("small", "small — 244M, good balance"),
+    ("medium", "medium — 769M, better quality"),
+    ("large-v3", "large-v3 — 1.5B, best quality, multilingual"),
+    ("Systran/faster-distil-whisper-large-v3", "distil-large-v3 — 756M, fast (English only)"),
+]
 
 
 def venv_is_installed(venv_path):
@@ -860,34 +885,112 @@ class VenvInstallThread(QThread):
         except Exception as e:
             self.finished.emit(False, str(e))
 
-class _CanaryInstallThread(QThread):
-    """Thread to create a venv and install multiple packages for Canary."""
+class _CanaryDownloadThread(QThread):
+    """Thread to download Canary ONNX model files from HuggingFace."""
     finished = Signal(bool, str)
     progress = Signal(str)
 
-    def __init__(self, venv_path, packages):
+    def __init__(self, model_dir, hf_repo, files):
+        super().__init__()
+        self.model_dir = model_dir
+        self.hf_repo = hf_repo
+        self.files = files
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        import urllib.request
+        try:
+            model_dir = self.model_dir
+            try:
+                os.makedirs(model_dir, exist_ok=True)
+                _test = os.path.join(model_dir, ".write_test")
+                open(_test, "w").close()
+                os.remove(_test)
+            except (PermissionError, OSError):
+                model_dir = model_dir.replace(MODEL_DIR, DICTEE_DATA_DIR)
+                os.makedirs(model_dir, exist_ok=True)
+            base_url = f"https://huggingface.co/{self.hf_repo}/resolve/main"
+            for i, fname in enumerate(self.files, 1):
+                if self._cancelled:
+                    self.finished.emit(False, _("Cancelled"))
+                    return
+                dest = os.path.join(model_dir, fname)
+                if os.path.exists(dest):
+                    self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
+                    continue
+                self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
+                url = f"{base_url}/{fname}"
+                tmp = dest + ".part"
+                resp = urllib.request.urlopen(url, timeout=1800)
+                total_size = int(resp.headers.get("Content-Length", 0))
+                downloaded = 0
+                with open(tmp, "wb") as f:
+                    while True:
+                        if self._cancelled:
+                            f.close()
+                            os.remove(tmp)
+                            self.finished.emit(False, _("Cancelled"))
+                            return
+                        chunk = resp.read(256 * 1024)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            pct = int(downloaded * 100 / total_size)
+                            size_mb = downloaded / (1024 * 1024)
+                            total_mb = total_size / (1024 * 1024)
+                            self.progress.emit(
+                                f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                os.rename(tmp, dest)
+            # Generate tokenizer.json if missing (needed for decodercontext)
+            tokenizer_path = os.path.join(model_dir, "tokenizer.json")
+            if not os.path.exists(tokenizer_path):
+                vocab_path = os.path.join(model_dir, "vocab.txt")
+                if os.path.exists(vocab_path):
+                    self.progress.emit(_("Generating tokenizer.json…"))
+                    self._generate_tokenizer(vocab_path, tokenizer_path)
+            self.finished.emit(True, "")
+        except Exception as e:
+            self.finished.emit(False, str(e))
+
+    @staticmethod
+    def _generate_tokenizer(vocab_path, tokenizer_path):
+        """Generate a tokenizer.json from vocab.txt for SentencePiece-like decoding."""
+        import json
+        vocab = {}
+        with open(vocab_path) as f:
+            for line in f:
+                parts = line.strip().rsplit(" ", 1)
+                if len(parts) == 2:
+                    vocab[int(parts[1])] = parts[0]
+        # Minimal tokenizer format
+        tokenizer = {"model": {"type": "Unigram", "vocab": [[t, 0.0] for t in vocab.values()]}}
+        with open(tokenizer_path, "w") as f:
+            json.dump(tokenizer, f)
+
+
+class _WhisperDownloadThread(QThread):
+    """Thread to pre-download a Whisper model using faster-whisper in the venv."""
+    finished = Signal(bool, str)
+
+    def __init__(self, venv_path, model_id):
         super().__init__()
         self.venv_path = venv_path
-        self.packages = packages
+        self.model_id = model_id
 
     def run(self):
         try:
-            self.progress.emit(_("Creating virtual environment…"))
-            os.makedirs(self.venv_path, exist_ok=True)
-            result = subprocess.run(
-                ["python3", "-m", "venv", self.venv_path],
-                capture_output=True, text=True, timeout=60,
-            )
-            if result.returncode != 0:
-                self.finished.emit(False, result.stderr.strip())
+            python = os.path.join(self.venv_path, "bin", "python3")
+            if not os.path.isfile(python):
+                self.finished.emit(False, _("Whisper venv not installed. Install Whisper engine first."))
                 return
-            pip = os.path.join(self.venv_path, "bin", "pip")
-            self.progress.emit(_("Upgrading pip…"))
-            subprocess.run([pip, "install", "--upgrade", "pip"],
-                           capture_output=True, text=True, timeout=120)
-            self.progress.emit(_("Installing Canary packages…"))
+            # faster-whisper downloads the model on first WhisperModel() instantiation
             result = subprocess.run(
-                [pip, "install"] + self.packages,
+                [python, "-c", f"from faster_whisper import WhisperModel; WhisperModel('{self.model_id}', device='cpu')"],
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode != 0:
@@ -895,9 +998,27 @@ class _CanaryInstallThread(QThread):
                 return
             self.finished.emit(True, "")
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Installation timed out."))
+            self.finished.emit(False, _("Download timed out."))
         except Exception as e:
             self.finished.emit(False, str(e))
+
+
+class _RuleTranscribeThread(QThread):
+    """Thread pour transcrire un WAV lors du test de règle de post-traitement."""
+    finished_sig = Signal(str)
+
+    def __init__(self, wav_path):
+        super().__init__()
+        self.wav_path = wav_path
+
+    def run(self):
+        try:
+            result = subprocess.run(
+                ["transcribe-client", self.wav_path],
+                capture_output=True, text=True, timeout=30)
+            self.finished_sig.emit(result.stdout.strip())
+        except Exception:
+            self.finished_sig.emit("")
 
 
 ASR_MODELS = [
@@ -983,6 +1104,10 @@ class ModelDownloadThread(QThread):
     def __init__(self, model):
         super().__init__()
         self.model = model
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
 
     def run(self):
         import urllib.request
@@ -991,7 +1116,6 @@ class ModelDownloadThread(QThread):
             try:
                 os.makedirs(model_dir, exist_ok=True)
             except PermissionError:
-                # Fallback to user directory if system dir is not writable
                 model_dir = model_dir.replace(MODEL_DIR,
                     os.path.join(os.path.expanduser("~/.local/share/dictee")))
                 os.makedirs(model_dir, exist_ok=True)
@@ -999,6 +1123,9 @@ class ModelDownloadThread(QThread):
                                if not os.path.isfile(os.path.join(model_dir, f[1]))])
             done = 0
             for url, filename in self.model["files"]:
+                if self._cancelled:
+                    self.finished.emit(False, _("Cancelled"))
+                    return
                 dest = os.path.join(model_dir, filename)
                 if os.path.isfile(dest):
                     continue
@@ -1006,8 +1133,14 @@ class ModelDownloadThread(QThread):
                 resp = urllib.request.urlopen(url, timeout=1800)
                 total_size = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
-                with open(dest, "wb") as f:
+                tmp = dest + ".part"
+                with open(tmp, "wb") as f:
                     while True:
+                        if self._cancelled:
+                            f.close()
+                            os.remove(tmp)
+                            self.finished.emit(False, _("Cancelled"))
+                            return
                         chunk = resp.read(256 * 1024)
                         if not chunk:
                             break
@@ -1019,6 +1152,7 @@ class ModelDownloadThread(QThread):
                             total_mb = total_size / (1024 * 1024)
                             self.progress.emit(
                                 f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                os.rename(tmp, dest)
                 done += 1
                 if total_files > 1:
                     self.progress.emit(_("Downloaded {done}/{total}").format(
@@ -1028,7 +1162,10 @@ class ModelDownloadThread(QThread):
             self.finished.emit(False, _("Permission denied on {dir}").format(
                 dir=model_dir))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            if self._cancelled:
+                self.finished.emit(False, _("Cancelled"))
+            else:
+                self.finished.emit(False, str(e))
 
 
 # === LibreTranslate (Docker) ===
@@ -1985,15 +2122,86 @@ class ScrollGuardFilter(QObject):
         return False
 
 
+class _CheckMarkDelegate(QStyledItemDelegate):
+    """Combo item delegate that paints ✓ in green and ✗ in red in the dropdown list."""
+
+    @staticmethod
+    def _draw_colored_text(painter, rect, text, palette):
+        """Draw text with colored ✓/✗ prefix."""
+        if text.startswith("✓"):
+            painter.setPen(QColor("#4a4"))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "✓")
+            painter.setPen(palette.text().color())
+            rect = rect.adjusted(painter.fontMetrics().horizontalAdvance("✓ "), 0, 0, 0)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text[2:])
+        elif text.startswith("✗"):
+            painter.setPen(QColor("#a44"))
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "✗")
+            painter.setPen(palette.text().color())
+            rect = rect.adjusted(painter.fontMetrics().horizontalAdvance("✗ "), 0, 0, 0)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text[2:])
+        else:
+            painter.setPen(palette.text().color())
+            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+
+    def paint(self, painter, option, index):
+        text = index.data(Qt.ItemDataRole.DisplayRole) or ""
+        self.initStyleOption(option, index)
+        option.text = ""
+        style = option.widget.style() if option.widget else QApplication.style()
+        style.drawControl(style.ControlElement.CE_ItemViewItem, option, painter)
+        painter.save()
+        self._draw_colored_text(painter, option.rect.adjusted(4, 0, 0, 0), text, option.palette)
+        painter.restore()
+
+
+class _CheckMarkComboBox(QComboBox):
+    """QComboBox that paints ✓ in green and ✗ in red, both in dropdown and closed state."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setItemDelegate(_CheckMarkDelegate(self))
+        self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(12)
+
+    def showPopup(self):
+        super().showPopup()
+        popup = self.view().window()
+        if popup and popup.width() > 400:
+            popup.setFixedWidth(400)
+
+    def paintEvent(self, event):
+        from PyQt6.QtWidgets import QStyle
+        painter = QStylePainter(self)
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        opt.currentText = ""
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, opt)
+        text_rect = self.style().subControlRect(
+            QStyle.ComplexControl.CC_ComboBox,
+            opt,
+            QStyle.SubControl.SC_ComboBoxEditField,
+            self,
+        )
+        text = self.currentText()
+        _CheckMarkDelegate._draw_colored_text(painter, text_rect.adjusted(2, 0, 0, 0), text, self.palette())
+        painter.end()
+
+
 class DicteeSetupDialog(QDialog):
-    def __init__(self, wizard=False, open_postprocess=False):
+    def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
-        self.wizard_mode = wizard or not os.path.exists(CONF_PATH)
+        _conf_exists = os.path.exists(CONF_PATH)
+        _setup_done = False
+        if _conf_exists:
+            _tmp = load_config()
+            _setup_done = (_tmp.get("DICTEE_SETUP_DONE", "") == "true")
+        self.wizard_mode = wizard or not _conf_exists or not _setup_done
         self._wizard_finished = False
-        self._conf_existed_before_wizard = os.path.exists(CONF_PATH)
+        self._conf_existed_before_wizard = _conf_exists
         self.setWindowTitle(_("Voice dictation configuration"))
-        self.setMinimumSize(710, 680)
-        self.resize(710, 700)
+        self.setMinimumSize(1100, 750)
+        self.resize(1100, 750)
         self.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         self.de_name, self.de_type = detect_desktop()
         self._install_thread = None
@@ -2004,6 +2212,7 @@ class DicteeSetupDialog(QDialog):
         self._test_thread = None
         self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
+        self._open_translation = open_translation
 
         self.conf = load_config()
 
@@ -2023,10 +2232,24 @@ class DicteeSetupDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
+        _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
         if getattr(self, '_open_postprocess', False):
             self._open_postprocess = False
             self.hide()
             QTimer.singleShot(50, self._open_postprocess_dialog)
+        elif getattr(self, '_open_translation', False):
+            self._open_translation = False
+            if self.wizard_mode and self._conf_existed_before_wizard and hasattr(self, 'stack'):
+                # Jump to translation page (page 3) only if config already exists
+                self.stack.setCurrentIndex(3)
+            elif hasattr(self, '_main_scroll') and hasattr(self, '_grp_translate'):
+                # Classic mode: scroll to translation section
+                def _scroll_to_translation():
+                    target = self._grp_translate
+                    # Map widget position to scroll area coordinates
+                    pos = target.mapTo(self._main_scroll.widget(), target.rect().topLeft())
+                    self._main_scroll.verticalScrollBar().setValue(pos.y())
+                QTimer.singleShot(100, _scroll_to_translation)
 
     @property
     def _pp_parent(self):
@@ -2076,6 +2299,7 @@ class DicteeSetupDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._main_scroll = scroll
         content = QWidget()
         layout = QVBoxLayout(content)
@@ -2118,6 +2342,7 @@ class DicteeSetupDialog(QDialog):
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
+            _dbg_setup(f"_on_asr_changed: {backend}")
             self.w_parakeet_options.setVisible(backend == "parakeet")
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
@@ -2147,7 +2372,7 @@ class DicteeSetupDialog(QDialog):
         layout.addWidget(grp_visual)
 
         # -- Section traduction --
-        grp_translate = QGroupBox()
+        self._grp_translate = grp_translate = QGroupBox()
         lay_tr = QVBoxLayout(grp_translate)
         lay_tr.setSpacing(6)
         lay_tr.setContentsMargins(16, 16, 16, 12)
@@ -2173,23 +2398,48 @@ class DicteeSetupDialog(QDialog):
         self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
         lay_opt.addWidget(self.chk_clipboard)
+
+        # Audio context buffer
+        self.chk_audio_context = QCheckBox(_("Audio context buffer"))
+        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "false") == "true")
+        self.chk_audio_context.setToolTip(
+            _("Accumulate audio from previous dictations to improve recognition\n"
+              "of short or technical words at the start of sentences."))
+        lay_opt.addWidget(self.chk_audio_context)
+
+        lay_ctx = QHBoxLayout()
+        lay_ctx.setSpacing(8)
+        lbl_ctx = QLabel(_("Context duration (seconds):"))
+        lbl_ctx.setToolTip(
+            _("Maximum duration of accumulated audio context.\n"
+              "Also the inactivity timeout: the buffer expires\n"
+              "after this many seconds without a non-empty dictation."))
+        self.spin_audio_context_timeout = QSpinBox()
+        self.spin_audio_context_timeout.setRange(5, 120)
+        self.spin_audio_context_timeout.setValue(
+            int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
+        self.spin_audio_context_timeout.setSuffix(" s")
+        lay_ctx.addWidget(lbl_ctx)
+        lay_ctx.addWidget(self.spin_audio_context_timeout)
+        lay_ctx.addStretch()
+        lay_opt.addLayout(lay_ctx)
+
         layout.addWidget(grp_options)
 
-        # -- Services section --
-        grp_services = QGroupBox(_("Startup services"))
-        lay_srv = QVBoxLayout(grp_services)
-        lay_srv.setSpacing(6)
-        lay_srv.setContentsMargins(16, 16, 16, 12)
-        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        self.chk_tray = QCheckBox(_("Show notification area icon"))
-        self.chk_daemon.setChecked(any(
-            self._is_service_enabled(s)
-            for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
-        ))
-        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray"))
-        lay_srv.addWidget(self.chk_daemon)
-        lay_srv.addWidget(self.chk_tray)
-        layout.addWidget(grp_services)
+        # -- Notifications section --
+        grp_notif = QGroupBox(_("Notifications"))
+        lay_notif = QVBoxLayout(grp_notif)
+        lay_notif.setSpacing(6)
+        lay_notif.setContentsMargins(16, 16, 16, 12)
+        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
+        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
+        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
+        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
+        lay_notif.addWidget(self.chk_notifications)
+        lay_notif.addWidget(self.chk_notifications_text)
+        layout.addWidget(grp_notif)
 
         # -- Post-processing button --
         btn_postprocess = QPushButton(_("Post-processing..."))
@@ -2239,6 +2489,7 @@ class DicteeSetupDialog(QDialog):
         self.setMaximumHeight(content_h + buttons_h + 10)
 
     def _on_launch_wizard(self):
+        _dbg_setup("_on_launch_wizard")
         """Ferme le dialog et relance en mode wizard."""
         self.reject()
         exe = os.path.abspath(sys.argv[0])
@@ -2255,19 +2506,34 @@ class DicteeSetupDialog(QDialog):
             return bg.lightness() < 128
         return True
 
+    @staticmethod
+    def _render_svg(svg_path, width):
+        """Render an SVG at exact width, preserving aspect ratio. Returns QPixmap."""
+        from PyQt6.QtSvg import QSvgRenderer
+        from PyQt6.QtCore import QRectF
+        renderer = QSvgRenderer(svg_path)
+        if not renderer.isValid():
+            return QPixmap()
+        sz = renderer.defaultSize()
+        ratio = width / sz.width()
+        height = int(sz.height() * ratio)
+        # Render at 2x for HiDPI sharpness
+        scale = 2
+        img = QImage(width * scale, height * scale, QImage.Format.Format_ARGB32_Premultiplied)
+        img.fill(0)
+        painter = QPainter(img)
+        renderer.render(painter, QRectF(0, 0, width * scale, height * scale))
+        painter.end()
+        pix = QPixmap.fromImage(img)
+        pix.setDevicePixelRatio(scale)
+        return pix
+
     def _logo_pixmap(self, width):
         """Retourne un QPixmap du logo adapté au thème, à la largeur demandée."""
-        from PyQt6.QtCore import QByteArray
         if not ASSETS_DIR:
             return QPixmap()
         fname = "banner-dark.svg" if self._is_dark_theme() else "banner-light.svg"
-        svg_path = os.path.join(ASSETS_DIR, fname)
-        with open(svg_path, "rb") as f:
-            svg_data = f.read()
-        img = QImage()
-        img.loadFromData(QByteArray(svg_data))
-        pix = QPixmap.fromImage(img)
-        return pix.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation)
+        return self._render_svg(os.path.join(ASSETS_DIR, fname), width)
 
     def _make_logo_header(self):
         """Crée un QLabel header avec le logo banner (200px de large)."""
@@ -2296,10 +2562,14 @@ class DicteeSetupDialog(QDialog):
         self._build_wizard_page3(conf)
         self._build_wizard_page4(conf)
         self._build_wizard_page5(conf)
+        self._build_wizard_page6(conf)
+        self._build_wizard_page7(conf)
 
         # Navigation bar
         nav = QHBoxLayout()
         nav.setContentsMargins(20, 8, 20, 16)
+
+        self._is_first_setup = (self.conf.get("DICTEE_SETUP_DONE", "") != "true")
 
         self.btn_prev = QPushButton(_("Previous"))
         self.btn_prev.clicked.connect(self._wizard_prev)
@@ -2308,6 +2578,12 @@ class DicteeSetupDialog(QDialog):
         self.lbl_step = QLabel()
         self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nav.addWidget(self.lbl_step, 1)
+
+        self.btn_cancel_wizard = QPushButton(_("Quit setup"))
+        self.btn_cancel_wizard.clicked.connect(self.close)
+        self.btn_cancel_wizard.setVisible(self._is_first_setup)
+        nav.addWidget(self.btn_cancel_wizard)
+        nav.addSpacing(20)
 
         self.btn_next = QPushButton(_("Next"))
         self.btn_next.clicked.connect(self._wizard_next)
@@ -2333,8 +2609,24 @@ class DicteeSetupDialog(QDialog):
         else:
             self.btn_next.setText(_("Next"))
             self.btn_next.setStyleSheet("")
-        # Refresh translation backend visibility on page 3
-        if idx == 3 and hasattr(self, 'cmb_trans_backend'):
+        # Resync translation card styles when arriving on page 4
+        if idx == 4 and hasattr(self, '_trans_cards'):
+            asr = getattr(self, '_wizard_asr', 'parakeet')
+            is_can = (asr == "canary")
+            current = getattr(self, '_wizard_trans', '')
+            for bid, card in self._trans_cards.items():
+                card.setEnabled(not is_can)
+                if is_can:
+                    card.setStyleSheet(self._card_style(False) + " QFrame#radioCard { opacity: 0.4; }")
+                else:
+                    card.setStyleSheet(self._card_style(bid == current))
+            if hasattr(self, '_canary_trans_card'):
+                self._canary_trans_card.setVisible(is_can)
+        # Refresh translation config header on page 5
+        if idx == 5 and hasattr(self, '_lbl_trans_config_header'):
+            self._update_trans_config_header()
+        # Refresh translation backend visibility on page 4/5
+        if idx in (4, 5) and hasattr(self, 'cmb_trans_backend'):
             data = self.cmb_trans_backend.currentData()
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
@@ -2348,8 +2640,8 @@ class DicteeSetupDialog(QDialog):
                     self.ollama_widget.setParent(None)
             if data == "libretranslate":
                 self._check_lt_status()
-        # Start/stop audio level thread on page 4 (index 4)
-        if idx == 4:
+        # Start/stop audio level thread on page 6 (index 6)
+        if idx == 6:
             self._start_audio_level()
         else:
             self._stop_audio_level()
@@ -2367,12 +2659,8 @@ class DicteeSetupDialog(QDialog):
 
         idx = self.stack.currentIndex()
         if idx == self.stack.count() - 1:
-            # Last page → Finish: mark setup as done
-            try:
-                with open(CONF_PATH, "a") as f:
-                    f.write("DICTEE_SETUP_DONE=true\n")
-            except OSError:
-                pass
+            # Last page → Finish: save config (includes DICTEE_SETUP_DONE)
+            self._on_apply()
             self._wizard_finished = True
             self.accept()
         else:
@@ -2389,8 +2677,8 @@ class DicteeSetupDialog(QDialog):
 
     def _validate_wizard_page(self, idx):
         """Valide la page courante avant d'avancer. Retourne True si OK."""
-        if idx == 1:
-            # ASR page: verify a model is installed for selected backend
+        if idx == 2:
+            # Download page: verify a model is installed for selected backend
             asr = self._wizard_asr
             if asr == "parakeet":
                 for m in ASR_MODELS:
@@ -2418,11 +2706,11 @@ class DicteeSetupDialog(QDialog):
                         _("faster-whisper is not installed. Please click 'Install Whisper' above."))
                     return False
             elif asr == "canary":
-                if not venv_is_installed(CANARY_VENV):
+                if not self._canary_model_installed():
                     QMessageBox.warning(self, _("Setup required"),
-                        _("Canary is not installed. Please click 'Install Canary' above."))
+                        _("Canary model not downloaded. Please click 'Download Canary model' above."))
                     return False
-        elif idx == 2:
+        elif idx == 3:
             # Shortcuts page: user must be in 'input' group
             # Check /etc/group (persistent) instead of 'groups' (session-only)
             user = os.environ.get("USER", "")
@@ -2437,8 +2725,8 @@ class DicteeSetupDialog(QDialog):
                     _("Your user must be in the 'input' group for keyboard shortcuts.\n"
                       "Please click 'Fix' above."))
                 return False
-        elif idx == 3:
-            # Translation page: if libretranslate, user must be in 'docker' group
+        elif idx == 5:
+            # Translation config page: if libretranslate, user must be in 'docker' group
             if hasattr(self, 'cmb_translate_backend'):
                 backend = self.cmb_translate_backend.currentData()
                 if backend == "libretranslate":
@@ -2462,6 +2750,7 @@ class DicteeSetupDialog(QDialog):
 
         projects = [
             ("parakeet.svg", "Parakeet"),
+            ("canary.svg", "Canary"),
             ("kde-plasma.svg", "Plasma 6 plasmoid"),
             ("libretranslate.svg", "LibreTranslate"),
         ]
@@ -2478,13 +2767,9 @@ class DicteeSetupDialog(QDialog):
             if not os.path.isfile(svg_path):
                 continue
 
-            # Charger le SVG
-            with open(svg_path, "rb") as f:
-                svg_data = f.read()
-            img = QImage()
-            img.loadFromData(QByteArray(svg_data))
-            pix = QPixmap.fromImage(img)
-            pix = pix.scaledToWidth(64, Qt.TransformationMode.SmoothTransformation)
+            pix = self._render_svg(svg_path, 64)
+            if pix.isNull():
+                continue
 
             # Stacked widget: icon + name
             cell = QWidget()
@@ -2502,16 +2787,8 @@ class DicteeSetupDialog(QDialog):
             lbl_name.setStyleSheet("font-size: 13px; opacity: 0.7;")
             cell_lay.addWidget(lbl_name)
 
-            grid.addWidget(cell, row, col)
+            grid.addWidget(cell, 0, col)
             col += 1
-            if col >= 3:
-                col = 0
-                row += 1
-
-        # Center the bottom row (2 éléments sur 3 colonnes)
-        if row == 1 and col <= 2:
-            grid.setColumnStretch(0, 1)
-            grid.setColumnStretch(2, 1)
 
         # Wrapper pour centrer horizontalement la grille
         wrapper = QWidget()
@@ -2554,14 +2831,7 @@ class DicteeSetupDialog(QDialog):
         lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
         lay.addWidget(lbl_ver)
 
-        lay.addSpacing(16)
-
-        # Grille de logos des projets sous-jacents
-        logos_widget = self._build_project_logos()
-        if logos_widget:
-            lay.addWidget(logos_widget)
-
-        lay.addSpacing(16)
+        lay.addStretch(3)
 
         # Tagline — headline + subtitle
         lbl_headline = QLabel(
@@ -2578,43 +2848,172 @@ class DicteeSetupDialog(QDialog):
         lbl_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(lbl_sub)
 
-        lay.addStretch(3)
+        lay.addSpacing(24)
+
+        # Grille de logos des projets sous-jacents
+        logos_widget = self._build_project_logos()
+        if logos_widget:
+            lay.addWidget(logos_widget)
+
+        lay.addStretch(1)
         self.stack.addWidget(page)
 
     # -- Wizard Page 1: ASR --
 
+    def _get_system_info(self):
+        """Detect system hardware for recommendations."""
+        import os
+        ram_gb = 0
+        try:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        ram_gb = round(int(line.split()[1]) / 1024 / 1024, 1)
+                        break
+        except OSError:
+            pass
+        gpu_total, gpu_free = get_gpu_vram_gb()
+        gpu_name = ""
+        if gpu_total > 0:
+            try:
+                r = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                                   capture_output=True, text=True, timeout=3)
+                if r.returncode == 0:
+                    gpu_name = r.stdout.strip().split("\n")[0]
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            if not gpu_name:
+                gpu_name = _("GPU detected")
+        return ram_gb, gpu_name, gpu_total, gpu_free
+
+    def _get_recommended_backend(self, ram_gb, gpu_total):
+        """Return recommended backend id based on hardware."""
+        if gpu_total >= 8:
+            return "canary"
+        if gpu_total >= 4:
+            return "parakeet"
+        if ram_gb < 4:
+            return "vosk"
+        return "parakeet"
+
     def _build_wizard_page1(self, conf):
         page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setSpacing(12)
-        lay.setContentsMargins(24, 0, 24, 16)
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(0, 0, 0, 0)
+        page_lay.setSpacing(0)
 
-        # Header logo compact
-        lay.addWidget(self._make_logo_header())
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setSpacing(10)
+        lay.setContentsMargins(24, 16, 24, 16)
 
-        lbl_asr = QLabel("<b>" + _("Choose a speech recognition engine:") + "</b>")
-        lay.addWidget(lbl_asr)
+        # Header: logo left, system config card right
+        from PyQt6.QtWidgets import QGridLayout
+        ram_gb, gpu_name, gpu_total, gpu_free = self._get_system_info()
+        recommended = self._get_recommended_backend(ram_gb, gpu_total)
 
-        self._wizard_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        header = QHBoxLayout()
+        header.setSpacing(16)
+        lbl_logo = QLabel()
+        lbl_logo.setPixmap(self._logo_pixmap(280))
+        lbl_logo.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header.addWidget(lbl_logo)
+        header.addStretch()
+
+        # System config card — no background, just border
+        hw_card = QGroupBox(_("Your configuration"))
+        hw_card.setStyleSheet(
+            "QGroupBox { border: 1px solid #555; border-radius: 6px;"
+            " padding: 12px 10px 8px 10px; margin-top: 8px; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; }")
+        hw_lay = QVBoxLayout(hw_card)
+        hw_lay.setSpacing(4)
+        hw_lay.setContentsMargins(8, 4, 8, 4)
+
+        hw_lines = []
+        if ram_gb > 0:
+            hw_lines.append(f"RAM : <b>{ram_gb} Go</b>")
+        if gpu_name:
+            hw_lines.append(f"GPU : <b>{gpu_name}</b>")
+            hw_lines.append(f"VRAM : <b>{gpu_total} Go</b> ({gpu_free} Go " + _("free") + ")")
+        else:
+            hw_lines.append(_("No dedicated GPU"))
+
+        rec_names = {"parakeet": "Parakeet-TDT", "vosk": "Vosk",
+                     "whisper": "faster-whisper", "canary": "Canary 1B v2"}
+        hw_lines.append("")
+        hw_lines.append(_("Recommended") + " : <b>" + rec_names[recommended] + "</b>")
+
+        hw_lbl = QLabel("<br>".join(hw_lines))
+        hw_lbl.setWordWrap(True)
+        hw_lay.addWidget(hw_lbl)
+        header.addWidget(hw_card)
+        lay.addLayout(header)
+
+        lbl_title = QLabel(
+            "<h2>" + _("Choose a speech recognition engine") + "</h2>")
+        lay.addWidget(lbl_title)
+
+        self._wizard_asr = conf.get("DICTEE_ASR_BACKEND", recommended)
         self._asr_cards = {}
 
-        gpu_total, _free = get_gpu_vram_gb()
+        # Backend cards with bullet-point advantages
         backends = [
-            ("parakeet", "Parakeet-TDT 0.6B", _("25 languages, ~2.5 GB, ~0.8s") + " — " + _("recommended"), "~2.5 Go"),
-            ("vosk", "Vosk", _("9+ languages, ~50 MB, ~1.5s") + " — " + _("lightweight"), "~50 Mo"),
-            ("whisper", "faster-whisper", _("99 languages, ~500 MB–3 GB, ~0.3s"), "~0.5–3 Go"),
+            ("parakeet", "Parakeet-TDT 0.6B v3", [
+                _("25 languages (FR, EN, DE, ES, IT, PT...)"),
+                _("Excellent transcription quality (WER ~8% FR, ~2% EN)"),
+                _("Runs on CPU or GPU (GPU 5x faster)"),
+                _("Speaker diarization with Sortformer add-on"),
+                _("100% local, no internet needed"),
+            ], "2.5 Go | RAM ~1.5 Go | CPU ~0.8s / GPU ~0.16s"),
+            ("vosk", "Vosk", [
+                _("9 languages available"),
+                _("Very lightweight (50 Mo per language)"),
+                _("Minimal RAM usage (~200 Mo)"),
+                _("Ideal for older or low-resource machines"),
+                _("100% local, CPU only"),
+            ], "~50 Mo | RAM ~200 Mo | CPU ~1.5s"),
+            ("whisper", "faster-whisper", [
+                _("99 languages (widest coverage)"),
+                _("Multiple model sizes (tiny to large-v3)"),
+                _("Good for rare languages"),
+                _("Runs on CPU or GPU"),
+                _("100% local, no internet needed"),
+            ], "39 Mo–3 Go | CPU ~0.3s (small)"),
         ]
         if gpu_total > 0:
             backends.append(
-                ("canary", "Canary 1B v2", _("25 langs, GPU, built-in translation ↔ EN") + " — " + _("GPU only"), "~1.5 Go"),
-            )
-        for backend_id, name, desc, size in backends:
-            card = self._make_radio_card(name, desc, backend_id == self._wizard_asr)
-            card.mousePressEvent = lambda e, bid=backend_id: self._select_asr_radio(bid)
-            self._asr_cards[backend_id] = card
-            lay.addWidget(card)
+                ("canary", "Canary 1B v2", [
+                    _("25 languages with built-in translation (25 langs to/from English)"),
+                    "<span style='color: #ec0;'>" + _("No external translation service needed") + "</span>",
+                    _("Excellent accuracy, comparable to Parakeet"),
+                    _("Speaker diarization with Sortformer add-on"),
+                    _("100% local, requires NVIDIA GPU (6+ Go VRAM)"),
+                ], "4.7 Go | VRAM ~5.3 Go | GPU ~0.7s"))
 
-        # cuDNN warning (GPU detected but cuDNN missing)
+        # Grid layout: 2x2 square cards
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        for i, (backend_id, name, advantages, specs) in enumerate(backends):
+            is_rec = (backend_id == recommended)
+            is_sel = (backend_id == self._wizard_asr)
+            card = self._make_asr_card_v2(backend_id, name, advantages, specs, is_rec, is_sel)
+            card.mousePressEvent = lambda e, bid=backend_id: self._on_card_click(bid)
+            card.setMinimumHeight(220)
+            self._asr_cards[backend_id] = card
+            row, col = positions[i]
+            grid.addWidget(card, row, col)
+        if len(backends) < 4:
+            spacer = QWidget()
+            grid.addWidget(spacer, 1, 1)
+        lay.addLayout(grid)
+
+        # cuDNN warning
         gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
         if gpu_detected and not cudnn_ok:
             warn_frame = QFrame()
@@ -2623,41 +3022,30 @@ class DicteeSetupDialog(QDialog):
                 " border-radius: 6px; padding: 8px; }")
             warn_lay = QVBoxLayout(warn_frame)
             warn_lay.setContentsMargins(8, 6, 8, 6)
-            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
+            warn_lbl = QLabel(cudnn_msg.replace("\n", "<br>"))
             warn_lbl.setWordWrap(True)
             warn_lbl.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             warn_lay.addWidget(warn_lbl)
             lay.addWidget(warn_frame)
 
-        # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("QFrame { color: #444; }")
-        lay.addWidget(sep)
-
-        # Sub-options container
-        self.w_wizard_asr_sub = QWidget()
-        lay_sub = QVBoxLayout(self.w_wizard_asr_sub)
-        lay_sub.setContentsMargins(16, 0, 0, 0)
-        lay_sub.setSpacing(4)
-
-        # Parakeet models
-        self._build_parakeet_options(lay_sub)
-
-        # Vosk options
-        self._build_vosk_options(lay_sub)
-
-        # Whisper options
-        self._build_whisper_options(lay_sub)
-
-        # Canary options
-        self._build_canary_options(lay_sub)
-
-        lay.addWidget(self.w_wizard_asr_sub)
-        self._update_asr_sub_visibility()
+        # Notes
+        lbl_notes = QLabel(
+            "<p style='font-size: 11pt;'>"
+            + _("All engines can be installed side by side if your system allows it. "
+                "You can switch between them at any time.")
+            + "</p><p style='font-size: 11pt;'>"
+            + _("Translation services (Google, LibreTranslate, Ollama) can be configured "
+                "at the next step for engines without built-in translation.")
+            + "</p>")
+        lbl_notes.setWordWrap(True)
+        lbl_notes.setStyleSheet(
+            "QLabel { border: 1px solid #555; border-radius: 6px; padding: 10px; }")
+        lay.addWidget(lbl_notes)
 
         lay.addStretch()
+        scroll.setWidget(content)
+        page_lay.addWidget(scroll)
         self.stack.addWidget(page)
 
     def _update_asr_sub_visibility(self):
@@ -2667,36 +3055,138 @@ class DicteeSetupDialog(QDialog):
         self.w_whisper_options.setVisible(asr == "whisper")
         self.w_canary_options.setVisible(asr == "canary")
 
+    def _on_card_click(self, backend_id):
+        """Handle card click: single=select, rapid double=select+next."""
+        import time
+        now = time.monotonic()
+        last = getattr(self, '_last_card_click_time', 0)
+        last_bid = getattr(self, '_last_card_click_bid', None)
+        self._last_card_click_time = now
+        self._last_card_click_bid = backend_id
+        self._select_asr_radio(backend_id)
+        if backend_id == last_bid and (now - last) < 0.4:
+            self._wizard_next()
+
     def _select_asr_radio(self, backend_id):
+        prev = getattr(self, '_wizard_asr', None)
         self._wizard_asr = backend_id
-        for bid, card in self._asr_cards.items():
-            card.setStyleSheet(self._card_style(bid == backend_id))
+        # Only update the 2 cards that changed (avoid full repaint)
+        if prev and prev in self._asr_cards and prev != backend_id:
+            self._asr_cards[prev].setStyleSheet(self._card_style(False))
+        if backend_id in self._asr_cards:
+            self._asr_cards[backend_id].setStyleSheet(self._card_style(True))
         self._update_asr_sub_visibility()
+        if hasattr(self, '_lbl_download_header'):
+            self._update_download_page_header()
         if hasattr(self, 'combo_src'):
             self._update_src_languages()
         self._update_canary_translation_visibility()
 
-    # -- Wizard Page 2: Shortcuts --
+    # Backend info for the download page (reused from page 1 cards)
+    _BACKEND_INFO = {
+        "parakeet": {
+            "title": "Parakeet-TDT 0.6B v3",
+            "advantages": [
+                "25 languages (FR, EN, DE, ES, IT, PT...)",
+                "Excellent transcription quality (WER ~8% FR, ~2% EN)",
+                "Runs on CPU or GPU (GPU 5x faster)",
+                "Speaker diarization with Sortformer add-on",
+                "100% local, no internet needed",
+            ],
+            "specs": "2.5 Go | RAM ~1.5 Go | CPU ~0.8s / GPU ~0.16s",
+        },
+        "vosk": {
+            "title": "Vosk",
+            "advantages": [
+                "9 languages available",
+                "Very lightweight (50 Mo per language)",
+                "Minimal RAM usage (~200 Mo)",
+                "Ideal for older or low-resource machines",
+                "100% local, CPU only",
+            ],
+            "specs": "~50 Mo | RAM ~200 Mo | CPU ~1.5s",
+        },
+        "whisper": {
+            "title": "faster-whisper",
+            "advantages": [
+                "99 languages (widest coverage)",
+                "Multiple model sizes (tiny to large-v3)",
+                "Good for rare languages",
+                "Runs on CPU or GPU",
+                "100% local, no internet needed",
+            ],
+            "specs": "39 Mo–3 Go | CPU ~0.3s (small)",
+        },
+        "canary": {
+            "title": "Canary 1B v2",
+            "advantages": [
+                "25 languages with built-in translation (25 langs to/from English)",
+                "No external translation service needed",
+                "Excellent accuracy, comparable to Parakeet",
+                "Speaker diarization with Sortformer add-on",
+                "100% local, requires NVIDIA GPU (6+ Go VRAM)",
+            ],
+            "specs": "4.7 Go | VRAM ~5.3 Go | GPU ~0.7s",
+        },
+    }
+
+    def _update_download_page_header(self):
+        """Update the download page header to match the selected backend."""
+        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
+        info = self._BACKEND_INFO.get(asr, self._BACKEND_INFO["parakeet"])
+        bullets = "".join(f"<li>{_(a)}</li>" for a in info["advantages"])
+        self._lbl_download_header.setText(
+            f"<h2>{_('Setting up')} {info['title']}</h2>"
+            f"<ul style='font-size: 11pt; margin: 0; padding-left: 16px;'>{bullets}</ul>"
+            f"<p style='font-size: 10pt; color: #999;'>{info['specs']}</p>")
+
+    # -- Wizard Page 2: Download models --
 
     def _build_wizard_page2(self, conf):
         page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setSpacing(12)
-        lay.setContentsMargins(24, 0, 24, 16)
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(0, 0, 0, 0)
+        page_lay.setSpacing(0)
 
-        lay.addWidget(self._make_logo_header())
+        page_lay.addWidget(self._make_logo_header())
 
-        lbl = QLabel("<h2>" + _("Keyboard shortcuts") + "</h2>"
-                     "<p>" + _("Configure the keyboard shortcuts for voice dictation.") + "</p>")
-        lbl.setWordWrap(True)
-        lay.addWidget(lbl)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setSpacing(10)
+        lay.setContentsMargins(24, 8, 24, 16)
 
-        self._build_shortcut_section(lay)
+        # Dynamic header — updated when backend changes
+        self._lbl_download_header = QLabel()
+        self._lbl_download_header.setWordWrap(True)
+        lay.addWidget(self._lbl_download_header)
+        self._update_download_page_header()
+
+        lay.addSpacing(20)
+
+        # Sub-options container (shows only the selected backend)
+        self.w_wizard_asr_sub = QWidget()
+        lay_sub = QVBoxLayout(self.w_wizard_asr_sub)
+        lay_sub.setContentsMargins(0, 0, 0, 0)
+        lay_sub.setSpacing(4)
+
+        self._build_parakeet_options(lay_sub)
+        self._build_vosk_options(lay_sub)
+        self._build_whisper_options(lay_sub)
+        self._build_canary_options(lay_sub)
+
+        lay.addWidget(self.w_wizard_asr_sub)
+        self._update_asr_sub_visibility()
 
         lay.addStretch()
+        scroll.setWidget(content)
+        page_lay.addWidget(scroll)
         self.stack.addWidget(page)
 
-    # -- Wizard Page 3: Translation --
+    # -- Wizard Page 3: Shortcuts --
 
     def _build_wizard_page3(self, conf):
         page = QWidget()
@@ -2706,19 +3196,266 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(self._make_logo_header())
 
-        lbl = QLabel("<h2>" + _("Translation") + "</h2>"
-                     "<p>" + _("Configure the translation backend (optional).") + "</p>")
+        lbl = QLabel("<h2>" + _("Keyboard shortcuts") + "</h2>"
+                     "<p style='font-size: 11pt;'>"
+                     + _("Configure the keyboard shortcuts for voice dictation.") + "</p>")
         lbl.setWordWrap(True)
         lay.addWidget(lbl)
 
-        self._build_translation_section(lay, conf)
+        self._build_shortcut_section(lay)
 
         lay.addStretch()
         self.stack.addWidget(page)
 
-    # -- Wizard Page 4: Mic, Visual, Services --
+    # -- Wizard Page 4: Translation --
+
+    _TRANS_BACKEND_INFO = {
+        "libretranslate": {
+            "title": "LibreTranslate",
+            "advantages": [
+                _("100% local, no data sent to the internet"),
+                _("Runs in Docker, automatic setup"),
+                _("~20 languages available"),
+                _("Fast (~0.2s per sentence)"),
+            ],
+            "specs": _("Local") + " | Docker | RAM ~2 Go",
+        },
+        "ollama": {
+            "title": "Ollama",
+            "advantages": [
+                _("100% local, no data sent to the internet"),
+                _("Uses LLM models (translategemma, etc.)"),
+                _("Good quality for common language pairs"),
+                _("Slower than other backends (~2-3s)"),
+            ],
+            "specs": _("Local") + " | RAM ~4 Go | GPU " + _("recommended"),
+        },
+        "google": {
+            "title": "Google Translate",
+            "advantages": [
+                _("Best translation quality"),
+                _("100+ languages supported"),
+                _("Very fast (~0.3s)"),
+                _("Free via translate-shell"),
+            ],
+            "specs": _("Internet required") + " | translate-shell",
+        },
+        "bing": {
+            "title": "Bing Translate",
+            "advantages": [
+                _("Good translation quality"),
+                _("Alternative to Google"),
+                _("Fast (~1-2s)"),
+                _("Free via translate-shell"),
+            ],
+            "specs": _("Internet required") + " | translate-shell",
+        },
+    }
 
     def _build_wizard_page4(self, conf):
+        page = QWidget()
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(0, 0, 0, 0)
+        page_lay.setSpacing(0)
+
+        page_lay.addWidget(self._make_logo_header())
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setSpacing(10)
+        lay.setContentsMargins(24, 8, 24, 16)
+
+        title_row = QHBoxLayout()
+        lbl_title = QLabel("<h2>" + _("Translation") + "</h2>"
+                           "<p style='font-size: 11pt;'>"
+                           + _("Choose a translation backend (optional). "
+                               "Used when you press the translation shortcut.")
+                           + "</p>")
+        lbl_title.setWordWrap(True)
+        title_row.addWidget(lbl_title, 1)
+        btn_help_tr = self._HelpLabel(
+            _("How to translate:") + "\n\n"
+            + _("Keyboard shortcut: configure in the shortcuts page") + "\n"
+            + _("Plasmoid: long press or translation button") + "\n"
+            + _("CLI: dictee --translate") + "\n"
+            + _("Direct: transcribe-client | trans -b :en")
+        )
+        title_row.addWidget(btn_help_tr)
+        lay.addLayout(title_row)
+
+        asr = self._wizard_asr if hasattr(self, '_wizard_asr') else conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        is_canary = (asr == "canary")
+
+        # Canary card — same style as other cards but green border, shown above the grid
+        self._canary_trans_card = self._make_asr_card_v2(
+            "canary-trans", "Canary 1B v2",
+            [_("Built-in translation (25 languages to/from English)"),
+             _("No external service needed"),
+             _("Active — translation is handled by the Canary engine")],
+            _("Integrated") + " | " + _("No configuration needed"),
+            False, True)
+        self._canary_trans_card.setStyleSheet(self._card_style(True))
+        # Warning + button to change ASR backend
+        _lbl_warn = QLabel(
+            "<p style='font-size: 10pt; color: #e90;'>"
+            + _("Canary transcribes and translates in a single pass — both are handled by the same ASR model. "
+                "To use a separate translation service instead, switch to a different ASR engine.")
+            + "</p>")
+        _lbl_warn.setWordWrap(True)
+        self._canary_trans_card.layout().addWidget(_lbl_warn)
+        _btn_change = QPushButton(_("Change ASR backend"))
+        _btn_change.setStyleSheet(
+            "QPushButton { border: 2px solid #888; border-radius: 6px; padding: 6px 16px; }"
+            "QPushButton:hover { border-color: #aaa; }")
+        _btn_change.clicked.connect(lambda: self.stack.setCurrentIndex(1))
+        self._canary_trans_card.layout().addWidget(_btn_change)
+        self._canary_trans_card.setVisible(is_canary)
+        lay.addWidget(self._canary_trans_card)
+
+        # Current selection
+        existing = conf.get("DICTEE_TRANSLATE_BACKEND", "")
+        existing_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
+        if existing == "trans":
+            self._wizard_trans = existing_engine
+        elif existing in ("libretranslate", "ollama"):
+            self._wizard_trans = existing
+        elif self.wizard_mode:
+            self._wizard_trans = "google"
+        else:
+            self._wizard_trans = "google"
+
+        self._trans_cards = {}
+
+        # Grid 2x2: LT, Ollama / Google, Bing
+        from PyQt6.QtWidgets import QGridLayout
+        grid = QGridLayout()
+        grid.setSpacing(10)
+        trans_backends = [
+            ("libretranslate", 0, 0),
+            ("ollama", 0, 1),
+            ("google", 1, 0),
+            ("bing", 1, 1),
+        ]
+        for bid, row, col in trans_backends:
+            info = self._TRANS_BACKEND_INFO[bid]
+            selected = (bid == self._wizard_trans and not is_canary)
+            card = self._make_asr_card_v2(
+                bid, info["title"], info["advantages"], info["specs"],
+                False, selected)
+            card.mousePressEvent = lambda e, b=bid: self._on_trans_card_click(b)
+            card.setMinimumHeight(180)
+            if is_canary:
+                card.setEnabled(False)
+                card.setStyleSheet(self._card_style(False) + " QFrame#radioCard { opacity: 0.4; }")
+            self._trans_cards[bid] = card
+            grid.addWidget(card, row, col)
+        self._trans_grid = grid
+        lay.addLayout(grid)
+
+
+        lay.addStretch()
+        scroll.setWidget(content)
+        page_lay.addWidget(scroll)
+        self.stack.addWidget(page)
+
+    def _on_trans_card_click(self, backend_id):
+        """Handle translation card click."""
+        import time
+        now = time.monotonic()
+        last = getattr(self, '_last_trans_click_time', 0)
+        last_bid = getattr(self, '_last_trans_click_bid', None)
+        self._last_trans_click_time = now
+        self._last_trans_click_bid = backend_id
+        self._select_trans_radio(backend_id)
+        if backend_id == last_bid and (now - last) < 0.4:
+            self._wizard_next()
+
+    def _select_trans_radio(self, backend_id):
+        prev = getattr(self, '_wizard_trans', None)
+        self._wizard_trans = backend_id
+        if hasattr(self, '_lbl_trans_config_header'):
+            self._update_trans_config_header()
+        if prev and prev in self._trans_cards and prev != backend_id:
+            self._trans_cards[prev].setStyleSheet(self._card_style(False))
+        if backend_id in self._trans_cards:
+            self._trans_cards[backend_id].setStyleSheet(self._card_style(True))
+        # Update cmb_trans_backend if it exists (for _on_apply compatibility)
+        if hasattr(self, 'cmb_trans_backend'):
+            data_map = {"google": "trans:google", "bing": "trans:bing",
+                        "libretranslate": "libretranslate", "ollama": "ollama"}
+            idx = self.cmb_trans_backend.findData(data_map.get(backend_id, backend_id))
+            if idx >= 0:
+                self.cmb_trans_backend.setCurrentIndex(idx)
+
+    def _on_trans_disabled_toggled(self, checked):
+        if checked:
+            prev = getattr(self, '_wizard_trans', None)
+            if prev and prev in self._trans_cards:
+                self._trans_cards[prev].setStyleSheet(self._card_style(False))
+            self._wizard_trans = ""
+
+    # -- Wizard Page 5: Translation config --
+
+    def _build_wizard_page5(self, conf):
+        page = QWidget()
+        page_lay = QVBoxLayout(page)
+        page_lay.setContentsMargins(0, 0, 0, 0)
+        page_lay.setSpacing(0)
+
+        page_lay.addWidget(self._make_logo_header())
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        lay = QVBoxLayout(content)
+        lay.setSpacing(10)
+        lay.setContentsMargins(24, 8, 24, 16)
+
+        self._lbl_trans_config_header = QLabel()
+        self._lbl_trans_config_header.setWordWrap(True)
+        lay.addWidget(self._lbl_trans_config_header)
+        self._update_trans_config_header()
+
+        self._build_translation_section(lay, conf)
+
+        lay.addStretch()
+        scroll.setWidget(content)
+        page_lay.addWidget(scroll)
+        self.stack.addWidget(page)
+
+    def _update_trans_config_header(self):
+        """Update translation config page header based on selected backend."""
+        asr = getattr(self, '_wizard_asr', 'parakeet')
+        if asr == "canary":
+            self._lbl_trans_config_header.setText(
+                f"<h2>{_('Setting up')} Canary 1B v2</h2>"
+                f"<p style='font-size: 11pt;'>"
+                + _("Translation is integrated into the Canary engine. "
+                    "Configure source and target languages below.")
+                + "</p>")
+            return
+        trans = getattr(self, '_wizard_trans', 'google')
+        names = {"google": "Google Translate", "bing": "Bing Translate",
+                 "libretranslate": "LibreTranslate", "ollama": "Ollama"}
+        name = names.get(trans, trans)
+        info = self._TRANS_BACKEND_INFO.get(trans, {})
+        advantages = info.get("advantages", [])
+        bullets = "".join(f"<li>{_(a)}</li>" for a in advantages)
+        specs = info.get("specs", "")
+        self._lbl_trans_config_header.setText(
+            f"<h2>{_('Setting up')} {name}</h2>"
+            f"<ul style='font-size: 11pt; margin: 0; padding-left: 16px;'>{bullets}</ul>"
+            f"<p style='font-size: 10pt; color: #999;'>{specs}</p>")
+
+    # -- Wizard Page 6: Mic, Visual, Services --
+
+    def _build_wizard_page6(self, conf):
         page = QWidget()
         page_lay = QVBoxLayout(page)
         page_lay.setContentsMargins(0, 0, 0, 0)
@@ -2736,45 +3473,47 @@ class DicteeSetupDialog(QDialog):
 
         # Microphone
         lbl = QLabel("<h2>" + _("Microphone, display and services") + "</h2>")
+        lbl.setStyleSheet("font-size: 12pt;")
         lbl.setWordWrap(True)
         lay.addWidget(lbl)
 
+        _grp_style = "QGroupBox { font-size: 12pt; } QCheckBox { font-size: 11pt; } QLabel { font-size: 11pt; }"
         grp_mic = QGroupBox(_("Microphone"))
+        grp_mic.setStyleSheet(_grp_style)
         lay_mic = QVBoxLayout(grp_mic)
         lay_mic.setSpacing(6)
         lay_mic.setContentsMargins(16, 16, 16, 12)
         self._build_mic_section(lay_mic, conf)
         lay.addWidget(grp_mic)
 
-        # Post-processing: not in wizard (accessible via main config after setup)
-
         # Visual feedback
         grp_vis = QGroupBox(_("Visual feedback"))
+        grp_vis.setStyleSheet(_grp_style)
         lay_vis = QVBoxLayout(grp_vis)
         lay_vis.setSpacing(6)
         lay_vis.setContentsMargins(16, 16, 16, 12)
         self._build_visual_section(lay_vis, conf)
         lay.addWidget(grp_vis)
 
-        # Services
-        grp_srv = QGroupBox(_("Startup services"))
-        lay_srv = QVBoxLayout(grp_srv)
-        lay_srv.setSpacing(6)
-        lay_srv.setContentsMargins(16, 16, 16, 12)
-        self.chk_daemon = QCheckBox(_("Start transcription daemon at startup"))
-        self.chk_tray = QCheckBox(_("Show notification area icon"))
-        # In wizard, check by default (first install)
-        self.chk_daemon.setChecked(any(
-            self._is_service_enabled(s)
-            for s in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
-        ) or self.wizard_mode)
-        self.chk_tray.setChecked(self._is_service_enabled("dictee-tray") or self.wizard_mode)
-        lay_srv.addWidget(self.chk_daemon)
-        lay_srv.addWidget(self.chk_tray)
-        lay.addWidget(grp_srv)
+        # Notifications
+        grp_notif = QGroupBox(_("Notifications"))
+        grp_notif.setStyleSheet(_grp_style)
+        lay_notif = QVBoxLayout(grp_notif)
+        lay_notif.setSpacing(6)
+        lay_notif.setContentsMargins(16, 16, 16, 12)
+        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
+        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
+        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
+        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
+        lay_notif.addWidget(self.chk_notifications)
+        lay_notif.addWidget(self.chk_notifications_text)
+        lay.addWidget(grp_notif)
 
         # Options
         self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setStyleSheet("font-size: 11pt;")
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
         lay.addWidget(self.chk_clipboard)
 
@@ -2783,9 +3522,9 @@ class DicteeSetupDialog(QDialog):
         page_lay.addWidget(scroll)
         self.stack.addWidget(page)
 
-    # -- Wizard Page 5: Test --
+    # -- Wizard Page 7: Test --
 
-    def _build_wizard_page5(self, conf):
+    def _build_wizard_page7(self, conf):
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setSpacing(12)
@@ -2794,7 +3533,7 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._make_logo_header())
 
         lbl = QLabel("<h2>" + _("Test") + "</h2>"
-                     "<p>" + _("Let's verify that everything works correctly.") + "</p>")
+                     "<p style='font-size: 11pt;'>" + _("Let's verify that everything works correctly.") + "</p>")
         lbl.setWordWrap(True)
         lay.addWidget(lbl)
 
@@ -2861,6 +3600,77 @@ class DicteeSetupDialog(QDialog):
 
     # ── Shared widget builders ────────────────────────────────────
 
+    def _is_backend_installed(self, backend_id):
+        """Check if a backend's model/engine is installed."""
+        if backend_id == "parakeet":
+            return model_is_installed(ASR_MODELS[0])
+        if backend_id == "vosk":
+            return venv_is_installed(VOSK_VENV)
+        if backend_id == "whisper":
+            return venv_is_installed(WHISPER_VENV)
+        if backend_id == "canary":
+            return self._canary_model_installed()
+        return False
+
+    def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
+        """Build a square ASR card with name, bullet-point advantages and specs."""
+        card = QFrame()
+        card.setObjectName("radioCard")
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card.setStyleSheet(self._card_style(selected))
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 12, 14, 10)
+        lay.setSpacing(6)
+
+        # Title row + recommended top-right
+        title_row = QHBoxLayout()
+        lbl_title = QLabel(f"<b style='font-size: 13pt;'>{name}</b>")
+        title_row.addWidget(lbl_title)
+        title_row.addStretch()
+        if is_recommended:
+            lbl_rec = QLabel(f"<span style='color: #e90; font-size: 11pt; font-weight: bold;'>{_('Recommended')}</span>")
+            title_row.addWidget(lbl_rec)
+        lay.addLayout(title_row)
+
+        # Bullet-point advantages
+        bullets = "<ul style='margin: 0; padding-left: 16px; font-size: 11pt;'>"
+        for adv in advantages:
+            bullets += f"<li>{adv}</li>"
+        bullets += "</ul>"
+        lbl_adv = QLabel(bullets)
+        lbl_adv.setWordWrap(True)
+        lay.addWidget(lbl_adv, 1)
+
+        # Bottom row: specs left, installed right
+        bottom_row = QHBoxLayout()
+        lbl_specs = QLabel(f"<span style='font-size: 9pt; color: #999;'>{specs}</span>")
+        lbl_specs.setWordWrap(True)
+        bottom_row.addWidget(lbl_specs, 1)
+        if self._is_backend_installed(backend_id):
+            lbl_inst = QLabel(f"<span style='color: #5a5; font-size: 11pt; font-weight: bold;'>{_('Installed')}</span>")
+            bottom_row.addWidget(lbl_inst)
+        lay.addLayout(bottom_row)
+        return card
+
+    def _make_asr_card(self, title, description, specs, selected=False):
+        """Build a rich ASR backend card with title, description and specs."""
+        card = QFrame()
+        card.setObjectName("radioCard")
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+        card.setStyleSheet(self._card_style(selected))
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(4)
+        lbl_title = QLabel(f"<b style='font-size: 12pt;'>{title}</b>")
+        lbl_desc = QLabel(f"<span style='font-size: 10pt;'>{description}</span>")
+        lbl_desc.setWordWrap(True)
+        lbl_specs = QLabel(f"<span style='font-size: 9pt; color: #999;'>{specs}</span>")
+        lbl_specs.setWordWrap(True)
+        lay.addWidget(lbl_title)
+        lay.addWidget(lbl_desc)
+        lay.addWidget(lbl_specs)
+        return card
+
     def _make_radio_card(self, title, description, selected=False):
         card = QFrame()
         card.setObjectName("radioCard")
@@ -2896,8 +3706,10 @@ class DicteeSetupDialog(QDialog):
         lay_sc.addWidget(lbl_mode)
 
         self.cmb_ptt_mode = QComboBox()
-        self.cmb_ptt_mode.addItem(_("Hold (push-to-talk) — hold key to record, release to transcribe"), "hold")
-        self.cmb_ptt_mode.addItem(_("Toggle — press to start, press again to stop"), "toggle")
+        self.cmb_ptt_mode.addItem(_("Hold (push-to-talk)"), "hold")
+        self.cmb_ptt_mode.addItem(_("Toggle (press twice)"), "toggle")
+        self.cmb_ptt_mode.setToolTip(_("Hold: hold key to record, release to transcribe\n"
+                                       "Toggle: press to start, press again to stop"))
         existing_mode = self.conf.get("DICTEE_PTT_MODE", "hold" if self.wizard_mode else "toggle")
         idx = self.cmb_ptt_mode.findData(existing_mode)
         if idx >= 0:
@@ -2945,18 +3757,21 @@ class DicteeSetupDialog(QDialog):
         existing_key_tr = int(self.conf.get("DICTEE_PTT_KEY_TRANSLATE", 0))
         existing_key = int(self.conf.get("DICTEE_PTT_KEY", 67))
 
-        if not existing_key_tr and not self.wizard_mode:
-            self.cmb_translate_mode.setCurrentIndex(4)  # disabled
+        if self.wizard_mode and not existing_mod:
+            # First wizard: default to same key + Alt
+            self.cmb_translate_mode.setCurrentIndex(0)
         elif existing_mod == "alt":
             self.cmb_translate_mode.setCurrentIndex(0)
         elif existing_mod == "ctrl":
             self.cmb_translate_mode.setCurrentIndex(1)
         elif existing_mod == "shift":
             self.cmb_translate_mode.setCurrentIndex(2)
-        elif existing_key_tr != existing_key:
+        elif existing_key_tr and existing_key_tr != existing_key:
             self.cmb_translate_mode.setCurrentIndex(3)  # separate
+        elif not existing_key_tr:
+            self.cmb_translate_mode.setCurrentIndex(4)  # disabled
         else:
-            self.cmb_translate_mode.setCurrentIndex(0)  # default alt
+            self.cmb_translate_mode.setCurrentIndex(0)
 
         lay_sc.addWidget(self.cmb_translate_mode)
 
@@ -3027,48 +3842,67 @@ class DicteeSetupDialog(QDialog):
         self.w_parakeet_options = QWidget()
         lay_parakeet = QVBoxLayout(self.w_parakeet_options)
         lay_parakeet.setContentsMargins(0, 4, 0, 0)
-        lay_parakeet.setSpacing(4)
+        lay_parakeet.setSpacing(6)
+
+        _model_descriptions = {
+            "tdt": _("Main transcription model. Required for all dictation modes. "
+                     "Supports 25 languages with native punctuation and capitalization."),
+            "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
+                            "in a recording. Optional — only needed for speaker identification."),
+            "nemotron": _("Real-time English streaming with speaker diarization. "
+                          "English only. Processes audio in live chunks for low-latency results. "
+                          "Optional — only needed for live English transcription with speaker identification."),
+        }
 
         for model in ASR_MODELS:
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            row.setContentsMargins(24, 0, 0, 0)
-
             installed = model_is_installed(model)
-            required = _(" (required)") if model["required"] else ""
 
-            lbl = QLabel()
-            icon = '<span style="color: green;">✓</span>' if installed \
-                else '<span style="color: orange;">⚠</span>'
-            line2 = model["desc"] + (required if not installed else "")
-            lbl.setText(f'{icon} {model["name"]}<br>'
-                        f'<span style="font-size: 9.5pt; color: gray;">{line2}</span>')
-            lbl.setWordWrap(True)
-            row.addWidget(lbl, 1)
+            # Description label above the button
+            desc_text = _model_descriptions.get(model["id"], "")
+            if desc_text:
+                lbl_desc = QLabel(f"<p style='font-size: 11pt;'><b>{model['name']}</b> — {desc_text}</p>")
+                lbl_desc.setWordWrap(True)
+                lay_parakeet.addWidget(lbl_desc)
 
-            btn_info = self._HelpLabel(model["help"])
-            row.addWidget(btn_info)
+            # Button + delete on same row
+            btn_row = QHBoxLayout()
 
-            btn = QPushButton(_("Download") if not installed else _("Installed"))
-            btn.setFixedWidth(120)
-            # Sortformer requires TDT — disable if TDT not installed
+            btn = QPushButton()
+            self._update_venv_button(btn, model["name"], installed)
+            btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
+
+            # Sortformer requires TDT
             tdt_installed = model_is_installed(ASR_MODELS[0])
-            if installed:
-                btn.setEnabled(False)
-            elif model["id"] == "sortformer" and not tdt_installed:
+            if model["id"] == "sortformer" and not tdt_installed and not installed:
                 btn.setEnabled(False)
                 btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
-            row.addWidget(btn)
 
-            lay_parakeet.addLayout(row)
+            btn_del = QPushButton()
+            btn_del.setIcon(QIcon.fromTheme("edit-delete"))
+            btn_del.setFixedWidth(28)
+            btn_del.setToolTip(_("Delete model"))
+            btn_del.setVisible(installed)
+            btn_del.clicked.connect(lambda checked, m=model: self._on_model_delete(m))
+
+            btn_cancel = QPushButton(_("Cancel"))
+            btn_cancel.setFixedWidth(80)
+            btn_cancel.setVisible(False)
+            btn_cancel.clicked.connect(lambda checked, m=model["id"]: self._on_model_cancel(m))
+
+            btn_row.addWidget(btn, 1)
+            btn_row.addWidget(btn_del)
+            btn_row.addWidget(btn_cancel)
+            lay_parakeet.addLayout(btn_row)
 
             progress = QProgressBar()
             progress.setRange(0, 100)
             progress.setVisible(False)
             lay_parakeet.addWidget(progress)
 
-            self._model_widgets[model["id"]] = {"label": lbl, "button": btn, "progress": progress, "model": model}
-            btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
+            self._model_widgets[model["id"]] = {
+                "label": None, "button": btn, "btn_delete": btn_del,
+                "btn_cancel": btn_cancel, "progress": progress, "model": model,
+            }
 
         parent_layout.addWidget(self.w_parakeet_options)
 
@@ -3082,55 +3916,89 @@ class DicteeSetupDialog(QDialog):
         row_vosk = QHBoxLayout()
         row_vosk.setContentsMargins(24, 0, 0, 0)
         vosk_installed = venv_is_installed(VOSK_VENV)
-        if vosk_installed:
-            # Venv OK — pas besoin de l'afficher, le combo ✓/✗ suffit
-            self.btn_install_vosk = QWidget()  # placeholder invisible
-            self.btn_install_vosk.setFixedWidth(0)
-        else:
-            self.btn_install_vosk = QPushButton(_("Install Vosk engine"))
-            self.btn_install_vosk.setFixedWidth(150)
-            self.btn_install_vosk.clicked.connect(lambda: self._install_venv("vosk", VOSK_VENV, "vosk"))
+        self.btn_install_vosk = QPushButton()
+        self.btn_install_vosk.clicked.connect(lambda: self._install_venv("vosk", VOSK_VENV, "vosk"))
+        self._update_venv_button(self.btn_install_vosk, "Vosk", vosk_installed)
 
         lbl_vosk_lang = QLabel(_("Language:"))
-        self.cmb_vosk_lang = QComboBox()
+        self.cmb_vosk_lang = _CheckMarkComboBox()
+        self.cmb_vosk_lang.setMaximumWidth(250)
         self._refresh_vosk_lang_combo()
         cur_vosk = self.conf.get("DICTEE_VOSK_MODEL", "fr")
         idx = self.cmb_vosk_lang.findData(cur_vosk)
         if idx >= 0:
             self.cmb_vosk_lang.setCurrentIndex(idx)
-        row_vosk.addWidget(lbl_vosk_lang)
         self.cmb_vosk_lang.currentIndexChanged.connect(lambda: (
-            self._update_src_languages(), self._update_vosk_dl_button(),
+            self._update_src_languages(), self._update_vosk_status(),
             self._update_vosk_model_in_conf(self.cmb_vosk_lang.currentData())
             if self.cmb_vosk_lang.currentData() and self._vosk_model_installed(self.cmb_vosk_lang.currentData())
             else None))
-        row_vosk.addWidget(self.cmb_vosk_lang)
 
-        self.btn_dl_vosk_model = QPushButton(_("Download model"))
+        self.btn_dl_vosk_model = QPushButton(_("Download"))
         self.btn_dl_vosk_model.setFixedWidth(150)
         self.btn_dl_vosk_model.clicked.connect(self._on_vosk_model_download)
-        row_vosk.addWidget(self.btn_dl_vosk_model)
 
+        self.btn_del_vosk_model = QPushButton()
+        self.btn_del_vosk_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_vosk_model.setFixedWidth(28)
+        self.btn_del_vosk_model.setToolTip(_("Delete model"))
+        self.btn_del_vosk_model.setVisible(False)
+        self.btn_del_vosk_model.clicked.connect(self._on_vosk_model_delete)
+
+        self._lbl_vosk_status = QLabel()
+        self._lbl_vosk_status.setContentsMargins(24, 0, 0, 0)
+
+        # Group config widgets to disable when venv not installed
+        self._vosk_config_widgets = [lbl_vosk_lang, self.cmb_vosk_lang, self.btn_dl_vosk_model,
+                                     self.btn_del_vosk_model, self._lbl_vosk_status]
+        row_vosk.addWidget(lbl_vosk_lang)
+        row_vosk.addWidget(self.cmb_vosk_lang)
+        row_vosk.addWidget(self.btn_dl_vosk_model)
+        row_vosk.addWidget(self.btn_del_vosk_model)
         row_vosk.addStretch()
         row_vosk.addWidget(self.btn_install_vosk)
+        self.btn_del_vosk_venv = QPushButton()
+        self.btn_del_vosk_venv.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_vosk_venv.setFixedWidth(28)
+        self.btn_del_vosk_venv.setToolTip(_("Uninstall Vosk engine"))
+        self.btn_del_vosk_venv.setVisible(vosk_installed)
+        self.btn_del_vosk_venv.clicked.connect(lambda: self._delete_venv("vosk"))
+        row_vosk.addWidget(self.btn_del_vosk_venv)
+        for w in self._vosk_config_widgets:
+            w.setEnabled(vosk_installed)
         vosk_outer.addLayout(row_vosk)
 
+        self._vosk_progress_row = QWidget()
+        vosk_prog_lay = QHBoxLayout(self._vosk_progress_row)
+        vosk_prog_lay.setContentsMargins(24, 0, 0, 0)
         self.progress_vosk_model = QProgressBar()
         self.progress_vosk_model.setRange(0, 0)
-        self.progress_vosk_model.setVisible(False)
-        vosk_outer.addWidget(self.progress_vosk_model)
+        self._btn_cancel_vosk = QPushButton(_("Cancel"))
+        self._btn_cancel_vosk.setFixedWidth(80)
+        self._btn_cancel_vosk.clicked.connect(self._cancel_vosk_download)
+        vosk_prog_lay.addWidget(self.progress_vosk_model)
+        vosk_prog_lay.addWidget(self._btn_cancel_vosk)
+        self._vosk_progress_row.setVisible(False)
+        vosk_outer.addWidget(self._vosk_progress_row)
 
-        self._update_vosk_dl_button()
+        vosk_outer.addWidget(self._lbl_vosk_status)
+
+        self.cmb_vosk_lang.currentIndexChanged.connect(self._update_vosk_status)
+        self._update_vosk_status()
 
         parent_layout.addWidget(self.w_vosk_options)
 
     # -- Vosk model management --
 
     def _update_vosk_model_in_conf(self, lang_code):
-        """Write DICTEE_VOSK_MODEL into dictee.conf and restart daemon if needed."""
+        """Write DICTEE_VOSK_MODEL into dictee.conf (or memory in wizard mode)."""
         # Always write the short code — daemon resolves to full name
         reverse = {v: k for k, v in VOSK_MODELS.items()}
         code = reverse.get(lang_code, lang_code)
+        # In wizard mode, only update in-memory conf
+        if self.wizard_mode:
+            self.conf["DICTEE_VOSK_MODEL"] = code
+            return
         # Update conf file in-place
         lines = []
         found = False
@@ -3171,24 +4039,74 @@ class DicteeSetupDialog(QDialog):
         for code, name in VOSK_MODELS.items():
             installed = self._vosk_model_installed(code)
             prefix = "✓" if installed else "✗"
-            self.cmb_vosk_lang.addItem(f"{prefix}  {code} — {name}", code)
+            # Short label: just code + language name (no full model name)
+            lang_name = {"fr": "Français", "en": "English", "de": "Deutsch",
+                         "es": "Español", "it": "Italiano", "pt": "Português",
+                         "ru": "Русский", "zh": "中文", "ja": "日本語"}.get(code, code)
+            self.cmb_vosk_lang.addItem(f"{prefix}  {code} — {lang_name}", code)
+            if installed:
+                idx = self.cmb_vosk_lang.count() - 1
+                self.cmb_vosk_lang.setItemData(idx, True, Qt.ItemDataRole.UserRole + 1)
         self.cmb_vosk_lang.blockSignals(False)
         if current:
             idx = self.cmb_vosk_lang.findData(current)
             if idx >= 0:
                 self.cmb_vosk_lang.setCurrentIndex(idx)
 
-    def _update_vosk_dl_button(self):
-        """Affiche/masque le bouton télécharger selon si le modèle est installé."""
+    def _update_vosk_status(self):
+        """Update button text and status label for the selected Vosk model."""
         code = self.cmb_vosk_lang.currentData()
-        if code and self._vosk_model_installed(code):
-            self.btn_dl_vosk_model.setVisible(False)
+        if not code:
+            return
+        venv_ok = venv_is_installed(VOSK_VENV)
+        installed = self._vosk_model_installed(code)
+        if installed:
+            self._lbl_vosk_status.setText('<span style="color: green;">✓</span> ' + _("Model downloaded and ready"))
         else:
-            self.btn_dl_vosk_model.setVisible(True)
-            self.btn_dl_vosk_model.setEnabled(True)
-            self.btn_dl_vosk_model.setText(_("Download model"))
+            self._lbl_vosk_status.setText(_("Select a language and click Download"))
+        self.btn_dl_vosk_model.setText(_("Download"))
+        self.btn_dl_vosk_model.setVisible(not installed)
+        self.btn_dl_vosk_model.setEnabled(venv_ok)
+        self.btn_del_vosk_model.setVisible(installed)
+
+    def _on_vosk_model_delete(self):
+        """Delete the selected Vosk model after confirmation."""
+        code = self.cmb_vosk_lang.currentData()
+        if not code or not self._vosk_model_installed(code):
+            return
+        reply = QMessageBox.question(self, _("Delete"),
+            _("Delete Vosk model '{}'?").format(VOSK_MODELS.get(code, code)),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            model_name = VOSK_MODELS.get(code, "")
+            model_dir = os.path.join(DICTEE_DATA_DIR, "vosk-models", model_name)
+            if os.path.isdir(model_dir):
+                shutil.rmtree(model_dir)
+            self._refresh_vosk_lang_combo()
+            self._update_vosk_status()
+
+    def _cancel_vosk_download(self):
+        """Cancel ongoing Vosk model download and clean partial files."""
+        thread = getattr(self, '_vosk_dl_thread', None)
+        if thread and thread.isRunning():
+            thread.terminate()
+            thread.wait(3000)
+        # Clean partial zip/directory
+        code = self.cmb_vosk_lang.currentData()
+        if code:
+            import glob
+            model_name = VOSK_MODELS.get(code, "")
+            vosk_dir = os.path.join(DICTEE_DATA_DIR, "vosk-models")
+            for pattern in [f"{model_name}.zip", f"{model_name}.zip.*"]:
+                for f in glob.glob(os.path.join(vosk_dir, pattern)):
+                    os.remove(f)
+        self._vosk_progress_row.setVisible(False)
+        self.btn_dl_vosk_model.setEnabled(True)
+        self._refresh_vosk_lang_combo()
+        self._update_vosk_status()
 
     def _on_vosk_model_download(self):
+        _dbg_setup("_on_vosk_model_download")
         """Télécharge le modèle Vosk sélectionné."""
         code = self.cmb_vosk_lang.currentData()
         if not code or self._vosk_model_installed(code):
@@ -3196,7 +4114,7 @@ class DicteeSetupDialog(QDialog):
         model_name = VOSK_MODELS[code]
         self.btn_dl_vosk_model.setEnabled(False)
         self.btn_dl_vosk_model.setText(_("Downloading…"))
-        self.progress_vosk_model.setVisible(True)
+        self._vosk_progress_row.setVisible(True)
 
         self._vosk_dl_thread = _VoskModelDownloadThread(model_name)
         self._vosk_dl_thread.progress.connect(
@@ -3205,10 +4123,11 @@ class DicteeSetupDialog(QDialog):
         self._vosk_dl_thread.start()
 
     def _on_vosk_model_download_finished(self, success, message):
-        self.progress_vosk_model.setVisible(False)
+        _dbg_setup(f"_on_vosk_model_download_finished: success={success}, msg={message!r}")
+        self._vosk_progress_row.setVisible(False)
         if success:
             self._refresh_vosk_lang_combo()
-            self._update_vosk_dl_button()
+            self._update_vosk_status()
             self._update_src_languages()
             # Update conf + restart daemon with the newly downloaded model
             code = self.cmb_vosk_lang.currentData()
@@ -3216,9 +4135,18 @@ class DicteeSetupDialog(QDialog):
                 self._update_vosk_model_in_conf(code)
         else:
             self.btn_dl_vosk_model.setEnabled(True)
-            self.btn_dl_vosk_model.setText(_("Download model"))
-            print(f"[DEBUG] Vosk download error: {message!r}", file=sys.stderr)
+            self.btn_dl_vosk_model.setText(_("Download"))
+            _dbg_setup(f"Vosk download error: {message!r}")
             QMessageBox.critical(self, _("Download error"), message or _("Unknown error"))
+
+    @staticmethod
+    def _whisper_model_cached(model_id):
+        """Check if a Whisper model is already downloaded in HuggingFace cache."""
+        try:
+            from dictee_models import whisper_model_cached
+            return whisper_model_cached(model_id)
+        except ImportError:
+            return False
 
     def _build_whisper_options(self, parent_layout):
         """Build Whisper install + model/language widgets."""
@@ -3230,103 +4158,352 @@ class DicteeSetupDialog(QDialog):
         row = QHBoxLayout()
         row.setContentsMargins(24, 0, 0, 0)
         whisper_installed = venv_is_installed(WHISPER_VENV)
-        if whisper_installed:
-            self.btn_install_whisper = QWidget()
-            self.btn_install_whisper.setFixedWidth(0)
-        else:
-            self.btn_install_whisper = QPushButton(_("Install Whisper engine"))
-            self.btn_install_whisper.setFixedWidth(150)
-            self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
+        self.btn_install_whisper = QPushButton()
+        self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
+        self._update_venv_button(self.btn_install_whisper, "Whisper", whisper_installed)
 
-        lbl_wh_model = QLabel(_("Model:"))
-        self.cmb_whisper_model = QComboBox()
-        for m in WHISPER_MODELS:
-            self.cmb_whisper_model.addItem(m)
+        self._lbl_wh_model = QLabel(_("Model:"))
+        self.cmb_whisper_model = _CheckMarkComboBox()
+        self.cmb_whisper_model.setMinimumWidth(420)
+        self._populate_whisper_combo()
         cur_wh = self.conf.get("DICTEE_WHISPER_MODEL", "small")
-        idx = self.cmb_whisper_model.findText(cur_wh)
-        if idx >= 0:
-            self.cmb_whisper_model.setCurrentIndex(idx)
-        lbl_wh_lang = QLabel(_("Language:"))
+        for i in range(self.cmb_whisper_model.count()):
+            if self.cmb_whisper_model.itemData(i) == cur_wh:
+                self.cmb_whisper_model.setCurrentIndex(i)
+                break
+        self.cmb_whisper_model.currentIndexChanged.connect(self._update_whisper_status)
+
+        self.btn_download_whisper = QPushButton(_("Download"))
+        self.btn_download_whisper.setFixedWidth(150)
+        self.btn_download_whisper.clicked.connect(self._on_whisper_model_download)
+
+        self.btn_del_whisper_model = QPushButton()
+        self.btn_del_whisper_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_model.setFixedWidth(28)
+        self.btn_del_whisper_model.setToolTip(_("Delete model"))
+        self.btn_del_whisper_model.setVisible(False)
+        self.btn_del_whisper_model.clicked.connect(self._on_whisper_model_delete)
+
+        lbl_wh_lang = QLabel(_("Transcription language:"))
         self.txt_whisper_lang = QComboBox()
         self.txt_whisper_lang.setEditable(True)
-        self.txt_whisper_lang.addItems(["", "fr", "en", "es", "de", "it", "pt", "ru", "zh", "ja", "ko", "ar"])
+        # Common languages
+        self.txt_whisper_lang.addItem("", "")
+        _whisper_common = [
+            ("fr", "Français"), ("en", "English"), ("es", "Español"),
+            ("de", "Deutsch"), ("it", "Italiano"), ("pt", "Português"),
+            ("ru", "Русский"), ("zh", "中文"), ("ja", "日本語"),
+            ("ko", "한국어"), ("ar", "العربية"),
+        ]
+        for code, name in _whisper_common:
+            self.txt_whisper_lang.addItem(f"{code} — {name}", code)
+        # Separator + all other Whisper languages
+        self.txt_whisper_lang.insertSeparator(self.txt_whisper_lang.count())
+        _whisper_all = [
+            ("af", "Afrikaans"), ("am", "Amharic"), ("az", "Azerbaijani"),
+            ("ba", "Bashkir"), ("be", "Belarusian"), ("bg", "Bulgarian"),
+            ("bn", "Bengali"), ("bo", "Tibetan"), ("br", "Breton"),
+            ("bs", "Bosnian"), ("ca", "Catalan"), ("cs", "Czech"),
+            ("cy", "Welsh"), ("da", "Danish"), ("el", "Greek"),
+            ("et", "Estonian"), ("eu", "Basque"), ("fa", "Persian"),
+            ("fi", "Finnish"), ("fo", "Faroese"), ("gl", "Galician"),
+            ("gu", "Gujarati"), ("ha", "Hausa"), ("haw", "Hawaiian"),
+            ("he", "Hebrew"), ("hi", "Hindi"), ("hr", "Croatian"),
+            ("ht", "Haitian Creole"), ("hu", "Hungarian"), ("hy", "Armenian"),
+            ("id", "Indonesian"), ("is", "Icelandic"), ("jw", "Javanese"),
+            ("ka", "Georgian"), ("kk", "Kazakh"), ("km", "Khmer"),
+            ("kn", "Kannada"), ("lb", "Luxembourgish"), ("ln", "Lingala"),
+            ("lo", "Lao"), ("lt", "Lithuanian"), ("lv", "Latvian"),
+            ("mg", "Malagasy"), ("mi", "Maori"), ("mk", "Macedonian"),
+            ("ml", "Malayalam"), ("mn", "Mongolian"), ("mr", "Marathi"),
+            ("ms", "Malay"), ("mt", "Maltese"), ("my", "Myanmar"),
+            ("ne", "Nepali"), ("nl", "Dutch"), ("nn", "Nynorsk"),
+            ("no", "Norwegian"), ("oc", "Occitan"), ("pa", "Panjabi"),
+            ("pl", "Polish"), ("ps", "Pashto"), ("ro", "Romanian"),
+            ("sa", "Sanskrit"), ("sd", "Sindhi"), ("si", "Sinhala"),
+            ("sk", "Slovak"), ("sl", "Slovenian"), ("sn", "Shona"),
+            ("so", "Somali"), ("sq", "Albanian"), ("sr", "Serbian"),
+            ("su", "Sundanese"), ("sv", "Swedish"), ("sw", "Swahili"),
+            ("ta", "Tamil"), ("te", "Telugu"), ("tg", "Tajik"),
+            ("th", "Thai"), ("tk", "Turkmen"), ("tl", "Tagalog"),
+            ("tr", "Turkish"), ("tt", "Tatar"), ("uk", "Ukrainian"),
+            ("ur", "Urdu"), ("uz", "Uzbek"), ("vi", "Vietnamese"),
+            ("yi", "Yiddish"), ("yo", "Yoruba"),
+        ]
+        for code, name in _whisper_all:
+            self.txt_whisper_lang.addItem(f"{code} — {name}", code)
         cur_wl = self.conf.get("DICTEE_WHISPER_LANG", "")
-        self.txt_whisper_lang.setCurrentText(cur_wl)
-        lbl_auto = QLabel(_("(empty = auto-detect)"))
+        idx = self.txt_whisper_lang.findData(cur_wl)
+        if idx >= 0:
+            self.txt_whisper_lang.setCurrentIndex(idx)
+        else:
+            self.txt_whisper_lang.setCurrentText(cur_wl)
+        lbl_auto = QLabel(_("(empty = uses source language)"))
         lbl_auto.setStyleSheet("color: gray;")
 
-        row.addWidget(lbl_wh_model)
+        # Row 1: language
+        row_lang = QHBoxLayout()
+        row_lang.setContentsMargins(24, 0, 0, 0)
+        row_lang.addWidget(lbl_wh_lang)
+        row_lang.addWidget(self.txt_whisper_lang)
+        row_lang.addWidget(lbl_auto)
+        row_lang.addStretch()
+        whisper_outer.addLayout(row_lang)
+
+        # Row 2: model + download + delete + install
+        row.addWidget(self._lbl_wh_model)
         row.addWidget(self.cmb_whisper_model)
-        row.addWidget(lbl_wh_lang)
-        row.addWidget(self.txt_whisper_lang)
-        row.addWidget(lbl_auto)
+        row.addWidget(self.btn_download_whisper)
+        row.addWidget(self.btn_del_whisper_model)
         row.addStretch()
         row.addWidget(self.btn_install_whisper)
+        self.btn_del_whisper_venv = QPushButton()
+        self.btn_del_whisper_venv.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_venv.setFixedWidth(28)
+        self.btn_del_whisper_venv.setToolTip(_("Uninstall Whisper engine"))
+        self.btn_del_whisper_venv.setVisible(whisper_installed)
+        self.btn_del_whisper_venv.clicked.connect(lambda: self._delete_venv("whisper"))
+        row.addWidget(self.btn_del_whisper_venv)
+
+        self._lbl_whisper_status = QLabel()
+        self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
+        self._lbl_whisper_status.setWordWrap(True)
+
+        # Group config widgets to disable when venv not installed
+        self._whisper_config_widgets = [self._lbl_wh_model, self.cmb_whisper_model,
+                                        self.btn_download_whisper, self.btn_del_whisper_model,
+                                        lbl_wh_lang, self.txt_whisper_lang, lbl_auto,
+                                        self._lbl_whisper_status]
+        for w in self._whisper_config_widgets:
+            w.setEnabled(whisper_installed)
         whisper_outer.addLayout(row)
+
+        # Progress row (hidden by default)
+        self._whisper_progress_row = QWidget()
+        progress_lay = QHBoxLayout(self._whisper_progress_row)
+        progress_lay.setContentsMargins(24, 0, 0, 0)
+        self._whisper_progress = QProgressBar()
+        self._whisper_progress.setRange(0, 0)  # indeterminate
+        self._btn_cancel_whisper = QPushButton(_("Cancel"))
+        self._btn_cancel_whisper.setFixedWidth(80)
+        self._btn_cancel_whisper.clicked.connect(self._cancel_whisper_download)
+        progress_lay.addWidget(self._whisper_progress)
+        progress_lay.addWidget(self._btn_cancel_whisper)
+        self._whisper_progress_row.setVisible(False)
+        whisper_outer.addWidget(self._whisper_progress_row)
+
+        whisper_outer.addWidget(self._lbl_whisper_status)
+        self._update_whisper_status()
 
         parent_layout.addWidget(self.w_whisper_options)
 
+    def _populate_whisper_combo(self):
+        """Populate the Whisper model combo with colored ✓ for cached models."""
+        self.cmb_whisper_model.clear()
+        for model_id, label in WHISPER_MODELS:
+            cached = self._whisper_model_cached(model_id)
+            prefix = "✓ " if cached else "   "
+            self.cmb_whisper_model.addItem(prefix + label, model_id)
+            if cached:
+                idx = self.cmb_whisper_model.count() - 1
+                self.cmb_whisper_model.setItemData(idx, True, Qt.ItemDataRole.UserRole + 1)
+
+    def _update_whisper_status(self):
+        """Update button text and status label for the selected Whisper model."""
+        model_id = self.cmb_whisper_model.currentData()
+        if not model_id:
+            return
+        venv_ok = venv_is_installed(WHISPER_VENV)
+        cached = self._whisper_model_cached(model_id)
+        if cached:
+            self._lbl_whisper_status.setText('<span style="color: green;">✓</span> ' + _("Model downloaded and ready"))
+        else:
+            self._lbl_whisper_status.setText(_("Select a model and click Download"))
+        self.btn_download_whisper.setText(_("Download"))
+        self.btn_download_whisper.setVisible(not cached)
+        self.btn_download_whisper.setEnabled(venv_ok)
+        self.btn_del_whisper_model.setVisible(cached)
+
+    def _on_whisper_model_delete(self):
+        """Delete the selected Whisper model after confirmation."""
+        model_id = self.cmb_whisper_model.currentData()
+        if not model_id or not self._whisper_model_cached(model_id):
+            return
+        reply = QMessageBox.question(self, _("Delete"),
+            _("Delete model '{}'?").format(model_id),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self._delete_whisper_model(model_id)
+
+    def _on_whisper_model_download(self):
+        """Download the selected Whisper model."""
+        model_id = self.cmb_whisper_model.currentData()
+        if not model_id:
+            return
+        self.btn_download_whisper.setEnabled(False)
+        self.btn_download_whisper.setText(_("Downloading…"))
+        self._whisper_progress_row.setVisible(True)
+        thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
+        thread.finished.connect(self._on_whisper_download_done)
+        self._venv_threads["whisper_dl"] = thread
+        thread.start()
+
+    def _cancel_whisper_download(self):
+        """Cancel ongoing Whisper model download and clean partial files."""
+        thread = self._venv_threads.get("whisper_dl")
+        if thread and thread.isRunning():
+            thread.terminate()
+            thread.wait(3000)
+        # Clean partial downloads (HuggingFace .incomplete files)
+        model_id = self.cmb_whisper_model.currentData()
+        if model_id:
+            import glob
+            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+            for pattern in [f"models--Systran--faster-whisper-{model_id}",
+                            f"models--{model_id.replace('/', '--')}"]:
+                for f in glob.glob(os.path.join(cache_dir, pattern, "**", "*.incomplete"), recursive=True):
+                    os.remove(f)
+        self._whisper_progress_row.setVisible(False)
+        self._refresh_whisper_after_change()
+
+    def _delete_whisper_model(self, model_id):
+        """Delete a Whisper model from HuggingFace cache."""
+        import shutil
+        cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+        candidates = [
+            f"models--Systran--faster-whisper-{model_id}",
+            f"models--{model_id.replace('/', '--')}",
+            f"models--openai--whisper-{model_id}",
+        ]
+        for c in candidates:
+            path = os.path.join(cache_dir, c)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+        self._refresh_whisper_after_change()
+
+    def _on_whisper_download_done(self, ok, msg):
+        self._refresh_whisper_after_change()
+        if not ok:
+            QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _refresh_whisper_after_change(self):
+        """Refresh combo, button and status after download/delete."""
+        self._whisper_progress_row.setVisible(False)
+        self.btn_download_whisper.setEnabled(True)
+        cur_data = self.cmb_whisper_model.currentData()
+        self._populate_whisper_combo()
+        for i in range(self.cmb_whisper_model.count()):
+            if self.cmb_whisper_model.itemData(i) == cur_data:
+                self.cmb_whisper_model.setCurrentIndex(i)
+                break
+        self._update_whisper_status()
+
     def _build_canary_options(self, parent_layout):
-        """Build Canary 1B v2 sub-options (GPU only, venv install)."""
+        """Build Canary 1B v2 sub-options (GPU only, model download)."""
         self.w_canary_options = QWidget()
         canary_lay = QVBoxLayout(self.w_canary_options)
         canary_lay.setContentsMargins(0, 4, 0, 0)
         canary_lay.setSpacing(6)
 
-        lbl_info = QLabel(_(
-            "Canary 1B v2 — 25 languages, GPU-accelerated transcription "
-            "with built-in translation (all languages ↔ English, 48 pairs).\n"
-            "No external translation service needed."
-        ))
-        lbl_info.setWordWrap(True)
-        canary_lay.addWidget(lbl_info)
+        canary_installed = self._canary_model_installed()
 
-        # Venv status
-        self._lbl_canary_venv = QLabel()
-        canary_lay.addWidget(self._lbl_canary_venv)
-
-        # Install button
+        # Button + delete on same row
         row = QHBoxLayout()
-        self.btn_install_canary = QPushButton(_("Install Canary environment (~1.5 GB)"))
-        self.btn_install_canary.clicked.connect(self._install_canary_venv)
-        row.addStretch()
-        row.addWidget(self.btn_install_canary)
+        self.btn_install_canary = QPushButton()
+        self.btn_install_canary.clicked.connect(self._download_canary_model)
+        self._update_venv_button(self.btn_install_canary, "Canary", canary_installed)
+
+        self.btn_delete_canary = QPushButton()
+        self.btn_delete_canary.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_delete_canary.setFixedWidth(28)
+        self.btn_delete_canary.setToolTip(_("Delete model"))
+        self.btn_delete_canary.clicked.connect(self._delete_canary_model)
+        self.btn_delete_canary.setVisible(canary_installed)
+
+        self.btn_cancel_canary = QPushButton(_("Cancel"))
+        self.btn_cancel_canary.setFixedWidth(80)
+        self.btn_cancel_canary.setVisible(False)
+        self.btn_cancel_canary.clicked.connect(self._cancel_canary_download)
+
+        row.addWidget(self.btn_install_canary, 1)
+        row.addWidget(self.btn_delete_canary)
+        row.addWidget(self.btn_cancel_canary)
         canary_lay.addLayout(row)
 
-        self._update_canary_venv_status()
         self.w_canary_options.setVisible(False)
         parent_layout.addWidget(self.w_canary_options)
 
-    def _update_canary_venv_status(self):
-        """Update Canary venv status label."""
-        if venv_is_installed(CANARY_VENV):
-            self._lbl_canary_venv.setText("✓ " + _("Canary environment installed"))
-            self._lbl_canary_venv.setStyleSheet("color: #4a4;")
-            self.btn_install_canary.setText(_("Reinstall Canary environment"))
-        else:
-            self._lbl_canary_venv.setText("✗ " + _("Canary environment not installed"))
-            self._lbl_canary_venv.setStyleSheet("color: #a44;")
+    def _canary_model_installed(self):
+        """Check if Canary ONNX model files are present (user dir first, then system)."""
+        try:
+            from dictee_models import canary_model_installed
+            return canary_model_installed()
+        except ImportError:
+            user_path = os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")
+            sys_path = os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx")
+            return os.path.isfile(user_path) or os.path.isfile(sys_path)
 
-    def _install_canary_venv(self):
-        """Install Canary venv with onnx-asr + GPU deps."""
+    def _update_canary_model_status(self):
+        """Update Canary model status button."""
+        installed = self._canary_model_installed()
+        self._update_venv_button(self.btn_install_canary, "Canary", installed)
+        self.btn_delete_canary.setVisible(installed)
+
+    def _cancel_canary_download(self):
+        thread = self._venv_threads.get("canary")
+        if thread and thread.isRunning():
+            thread.cancel()
+
+    def _download_canary_model(self):
+        _dbg_setup("_download_canary_model")
         self.btn_install_canary.setEnabled(False)
-        self.btn_install_canary.setText(_("Installing..."))
+        self.btn_install_canary.setText(_("Downloading..."))
+        self.btn_install_canary.setStyleSheet("QPushButton { color: white; background-color: #c84; font-weight: bold; }")
+        self.btn_delete_canary.setVisible(False)
+        self.btn_cancel_canary.setVisible(True)
 
-        # VenvInstallThread takes a single pip_package string;
-        # pip install handles multiple space-separated package specs
-        # when passed as separate args, so we join with space for display
-        # but actually install in sequence via a small wrapper
-        thread = _CanaryInstallThread(CANARY_VENV, CANARY_PACKAGES)
-        thread.finished.connect(self._on_canary_install_done)
+        thread = _CanaryDownloadThread(CANARY_MODEL_DIR, CANARY_HF_REPO, CANARY_MODEL_FILES)
+        thread.finished.connect(self._on_canary_download_done)
         thread.progress.connect(lambda msg: self.btn_install_canary.setText(msg))
         self._venv_threads["canary"] = thread
         thread.start()
 
-    def _on_canary_install_done(self, ok, msg):
+    def _on_canary_download_done(self, ok, msg):
+        _dbg_setup(f"_on_canary_download_done: ok={ok}, msg={msg!r}")
         self.btn_install_canary.setEnabled(True)
-        self._update_canary_venv_status()
-        if not ok:
-            QMessageBox.warning(self, _("Installation failed"), msg)
+        self.btn_cancel_canary.setVisible(False)
+        self._update_canary_model_status()
+        if not ok and msg != _("Cancelled"):
+            QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _delete_canary_model(self):
+        """Delete Canary model after confirmation."""
+        reply = QMessageBox.question(
+            self, _("Delete model"),
+            _("Delete Canary model and free disk space?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import shutil
+        failed = False
+        for d in (CANARY_MODEL_DIR, os.path.join(DICTEE_DATA_DIR, "canary")):
+            if os.path.isdir(d):
+                try:
+                    shutil.rmtree(d)
+                    os.makedirs(d, exist_ok=True)
+                except PermissionError:
+                    # Try with pkexec for system dirs
+                    r = subprocess.run(["pkexec", "rm", "-rf", d],
+                                       capture_output=True, timeout=10)
+                    if r.returncode == 0:
+                        os.makedirs(d, mode=0o777, exist_ok=True)
+                    else:
+                        failed = True
+        if failed:
+            QMessageBox.warning(self, _("Delete failed"),
+                _("Could not delete model files (permission denied)."))
+        self._update_canary_model_status()
 
     def _build_visual_section(self, lay_vis, conf):
         """Build visual feedback checkboxes and install button."""
@@ -3335,19 +4512,25 @@ class DicteeSetupDialog(QDialog):
         self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
         self.chk_gnome_ext.setEnabled(False)
 
-        anim = conf.get("DICTEE_ANIMATION", "speech")
+        anim = conf.get("DICTEE_ANIMATION", "")
         self.chk_anim_speech.setChecked(anim in ("speech", "both"))
         self.chk_plasmoid.setChecked(anim in ("plasmoid", "both"))
 
-        # Smart pre-check based on desktop
-        if not os.path.exists(CONF_PATH):
+        # Smart pre-check based on desktop (first setup only)
+        if not anim:
+            _is_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
             if self.de_type == "kde":
                 self.chk_plasmoid.setChecked(True)
-            else:
+            elif self.de_type != "gnome" and _is_wayland:
                 self.chk_anim_speech.setChecked(True)
+
+        self.chk_tray = QCheckBox(_("Show notification area icon"))
+        self.chk_tray.setChecked(
+            self._is_service_enabled("dictee-tray") or self.wizard_mode)
 
         lay_vis.addWidget(self.chk_anim_speech)
         lay_vis.addWidget(self.chk_plasmoid)
+        lay_vis.addWidget(self.chk_tray)
         lay_vis.addWidget(self.chk_gnome_ext)
 
         # GNOME / compositors without wlr-layer-shell warning
@@ -3382,34 +4565,7 @@ class DicteeSetupDialog(QDialog):
 
     def _build_translation_section(self, lay_tr, conf):
         """Build translation backend selection, languages, sub-options."""
-        lay_tr_title = QHBoxLayout()
-        lay_tr_title.setContentsMargins(0, 0, 0, 0)
-        lay_tr_title.setSpacing(6)
-        lbl_tr_title = QLabel("<b>" + _("Translation") + "</b>")
-        lay_tr_title.addWidget(lbl_tr_title)
-        btn_help_tr = self._HelpLabel(
-            _("How to translate:") + "\n\n"
-            + _("• Keyboard shortcut: configure above (Dictation + Translation)") + "\n"
-            + _("• Plasmoid: long press or translation button") + "\n"
-            + _("• CLI: dictee --translate") + "\n"
-            + _("• Direct: transcribe-client | trans -b :en")
-        )
-        lay_tr_title.addWidget(btn_help_tr)
-        lay_tr_title.addStretch()
-        lay_tr.addLayout(lay_tr_title)
-
-        # Canary translation notice (shown when ASR=canary)
-        self._canary_translation_notice = QLabel(_(
-            "Translation is built into the Canary engine — no external service needed.\n"
-            "Supported: 25 languages ↔ English (48 pairs).\n"
-            "For other pairs (e.g. FR→DE), switch to a different ASR backend."
-        ))
-        self._canary_translation_notice.setWordWrap(True)
-        self._canary_translation_notice.setStyleSheet(
-            "background: #1a3a1a; border: 1px solid #2a5a2a;"
-            " border-radius: 6px; padding: 8px;")
-        self._canary_translation_notice.setVisible(False)
-        lay_tr.addWidget(self._canary_translation_notice)
+        # Title and help are on the cards page (page 4), not here
 
         # Languages
         form_lang = QFormLayout()
@@ -3427,13 +4583,18 @@ class DicteeSetupDialog(QDialog):
         self._set_combo_by_data(self.combo_src, default_src, 0)
         self._set_combo_by_data(self.combo_tgt, default_tgt, 1)
 
-        form_lang.addRow(_("Source language:"), self.combo_src)
-        form_lang.addRow(_("Target language:"), self.combo_tgt)
+        _lbl_src = QLabel(_("Source language:"))
+        _lbl_src.setStyleSheet("font-size: 11pt;")
+        _lbl_tgt = QLabel(_("Target language:"))
+        _lbl_tgt.setStyleSheet("font-size: 11pt;")
+        form_lang.addRow(_lbl_src, self.combo_src)
+        form_lang.addRow(_lbl_tgt, self.combo_tgt)
         lay_tr.addLayout(form_lang)
         lay_tr.addSpacing(4)
 
         # Backend ComboBox
         lbl_backend = QLabel(_("Backend:"))
+        lbl_backend.setStyleSheet("font-size: 11pt;")
         lay_tr.addWidget(lbl_backend)
 
         self.cmb_trans_backend = QComboBox()
@@ -3479,7 +4640,7 @@ class DicteeSetupDialog(QDialog):
         lay_lt.addWidget(lbl_lt_langs)
 
         saved_lt_langs = set(
-            conf.get("DICTEE_LIBRETRANSLATE_LANGS", "de,en,es,fr").split(","))
+            conf.get("DICTEE_LIBRETRANSLATE_LANGS", "en,fr,es,de,it,pt,uk,ru,tr,ar,zh,hi,bn,ja,ko").split(","))
         # Toujours inclure source et cible
         saved_lt_langs.add(conf.get("DICTEE_LANG_SOURCE", self._system_lang()))
         saved_lt_langs.add(conf.get("DICTEE_LANG_TARGET", "en"))
@@ -3564,7 +4725,7 @@ class DicteeSetupDialog(QDialog):
             _("Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"))
         lay_ollama.addWidget(self.chk_ollama_cpu)
 
-        self.btn_ollama_pull = QPushButton(_("Download model"))
+        self.btn_ollama_pull = QPushButton(_("Download"))
         self.btn_ollama_pull.setVisible(False)
         self.btn_ollama_pull.clicked.connect(self._on_ollama_pull)
         lay_ollama.addWidget(self.btn_ollama_pull)
@@ -3599,7 +4760,7 @@ class DicteeSetupDialog(QDialog):
 
         def _on_trans_backend_changed():
             data = self.cmb_trans_backend.currentData()
-            print(f"[DEBUG] _on_trans_backend_changed: data={data}")
+            _dbg_setup(f"_on_trans_backend_changed: data={data}")
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
                 if self.ollama_widget.parent() is None:
@@ -3610,7 +4771,7 @@ class DicteeSetupDialog(QDialog):
                 if self.ollama_widget.parent() is not None:
                     self._tr_layout.removeWidget(self.ollama_widget)
                     self.ollama_widget.setParent(None)
-            print(f"[DEBUG] ollama visible={self.ollama_widget.isVisible()}, lt visible={self.lt_widget.isVisible()}")
+            _dbg_setup(f"ollama visible={self.ollama_widget.isVisible()}, lt visible={self.lt_widget.isVisible()}")
             if data == "libretranslate":
                 self._check_lt_status()
             if data == "ollama":
@@ -4534,10 +5695,11 @@ class DicteeSetupDialog(QDialog):
                 self._pw_proc.terminate()
                 self._pw_proc.wait()
             # Transcrire dans un thread pour ne pas bloquer l'UI
-            self._rule_transcribe_thread = QThread()
-            self._rule_transcribe_thread.run = lambda: self._rule_transcribe_worker(tmpwav)
-            self._rule_transcribe_thread.finished.connect(
-                lambda: self._rule_transcribe_done(tmpwav))
+            self._rule_transcribe_thread = _RuleTranscribeThread(tmpwav)
+            self._rule_transcribe_thread.finished_sig.connect(
+                lambda result, wav=tmpwav: (
+                    setattr(self, '_rule_transcribe_result', result),
+                    self._rule_transcribe_done(wav)))
             self._rule_transcribe_thread.start()
             return
 
@@ -6562,16 +7724,25 @@ class DicteeSetupDialog(QDialog):
         self._audio_devices = QMediaDevices.audioInputs()
         self.cmb_audio_source = QComboBox()
         self.cmb_audio_source.addItem(_("System default"), "")
-        for dev in self._audio_devices:
-            self.cmb_audio_source.addItem(dev.description(), dev.id().data().decode())
+        self._populate_audio_sources()
         if saved_src:
             idx = self.cmb_audio_source.findData(saved_src)
             if idx >= 0:
                 self.cmb_audio_source.setCurrentIndex(idx)
         self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
 
+        # Refresh button to update application list
+        lay_src = QHBoxLayout()
+        lay_src.setSpacing(4)
+        lay_src.addWidget(self.cmb_audio_source, 1)
+        btn_refresh = QPushButton("⟳")
+        btn_refresh.setFixedWidth(32)
+        btn_refresh.setToolTip(_("Refresh audio sources"))
+        btn_refresh.clicked.connect(self._refresh_audio_sources)
+        lay_src.addWidget(btn_refresh)
+
         lay_mic.addWidget(QLabel(_("Audio source:")))
-        lay_mic.addWidget(self.cmb_audio_source)
+        lay_mic.addLayout(lay_src)
 
         # Volume slider
         lay_vol = QHBoxLayout()
@@ -6594,6 +7765,59 @@ class DicteeSetupDialog(QDialog):
         # In wizard mode, start audio level only when page 4 becomes visible
         if not self.wizard_mode:
             self._start_audio_level()
+
+    def _populate_audio_sources(self):
+        """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
+        # ── Devices (microphones) ──
+        for dev in self._audio_devices:
+            self.cmb_audio_source.addItem(
+                "🎤 " + dev.description(), dev.id().data().decode())
+        # ── Monitors + Applications (PipeWire/PulseAudio) ──
+        try:
+            import json
+            out = subprocess.check_output(
+                ["pw-dump"], timeout=3, stderr=subprocess.DEVNULL)
+            nodes = json.loads(out)
+            for node in nodes:
+                if node.get("type") != "PipeWire:Interface:Node":
+                    continue
+                props = node.get("info", {}).get("props", {})
+                media_class = props.get("media.class", "")
+                node_name = props.get("node.name", "")
+                # Monitors (audio output loopback)
+                if media_class == "Audio/Source" and node_name.endswith(".monitor"):
+                    desc = props.get("node.description",
+                                     props.get("node.nick", node_name))
+                    self.cmb_audio_source.addItem(
+                        "🔊 Monitor: " + desc, node_name)
+                # Applications playing audio
+                elif media_class == "Stream/Output/Audio":
+                    app = props.get("application.name", "?")
+                    media = props.get("media.name", "")
+                    label = f"📺 {app}"
+                    if media and media != app:
+                        # Truncate long media names
+                        if len(media) > 50:
+                            media = media[:47] + "..."
+                        label += f" — {media}"
+                    # Use node.name (stable) instead of id (ephemeral)
+                    self.cmb_audio_source.addItem(label, node_name)
+        except Exception:
+            pass  # pw-dump unavailable — Qt devices only
+
+    def _refresh_audio_sources(self):
+        """Refresh the audio source list (re-scan devices + apps)."""
+        saved = self.cmb_audio_source.currentData()
+        self.cmb_audio_source.blockSignals(True)
+        self.cmb_audio_source.clear()
+        self.cmb_audio_source.addItem(_("System default"), "")
+        self._audio_devices = QMediaDevices.audioInputs()
+        self._populate_audio_sources()
+        if saved:
+            idx = self.cmb_audio_source.findData(saved)
+            if idx >= 0:
+                self.cmb_audio_source.setCurrentIndex(idx)
+        self.cmb_audio_source.blockSignals(False)
 
     # ── Wizard checks (page 5) ───────────────────────────────────
 
@@ -6721,23 +7945,13 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
-        # Wizard annulé : supprimer la conf et arrêter les services
-        if (self.wizard_mode and not self._wizard_finished
-                and not self._conf_existed_before_wizard):
-            if os.path.exists(CONF_PATH):
-                try:
-                    os.unlink(CONF_PATH)
-                except OSError:
-                    pass
-            for svc in ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary",
-                        "dictee-tray", "dictee-ptt"):
-                subprocess.run(["systemctl", "--user", "disable", "--now", svc],
-                               capture_output=True)
+        # Wizard annulé : rien n'a été écrit sur disque, rien à nettoyer
         super().closeEvent(event)
 
     # ── Test dictation ────────────────────────────────────────────
 
     def _on_test_dictee(self):
+        _dbg_setup("_on_test_dictee")
         if self._test_thread and self._test_thread.isRunning():
             self._test_thread.stop()
             self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
@@ -6765,6 +7979,7 @@ class DicteeSetupDialog(QDialog):
             self._test_timer.stop()
 
     def _on_test_result(self, text):
+        _dbg_setup(f"_on_test_result: {len(text)} chars")
         if hasattr(self, '_test_timer'):
             self._test_timer.stop()
         self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
@@ -6773,6 +7988,7 @@ class DicteeSetupDialog(QDialog):
     # ── Test translation (Canary) ────────────────────────────────
 
     def _on_test_translate(self):
+        _dbg_setup("_on_test_translate")
         if self._test_thread and self._test_thread.isRunning():
             self._test_thread.stop()
             self.btn_test_translate.setText("🌐 " + _("Test translation"))
@@ -6801,7 +8017,8 @@ class DicteeSetupDialog(QDialog):
         if trans_backend.startswith("trans:"):
             trans_engine = trans_backend.split(":", 1)[1]
             trans_backend = "trans"
-        lt_port = int(self.spin_lt_port.currentText()) if hasattr(self, 'spin_lt_port') else 5000
+        _lt_txt = self.spin_lt_port.currentText() if hasattr(self, 'spin_lt_port') else ""
+        lt_port = int(_lt_txt) if _lt_txt.isdigit() else 5000
         ollama_model = self.cmb_ollama_model.currentText() if hasattr(self, 'cmb_ollama_model') else "translategemma"
         pp_enabled = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else False
 
@@ -6822,6 +8039,7 @@ class DicteeSetupDialog(QDialog):
             self._test_timer_tr.stop()
 
     def _on_test_translate_result(self, text):
+        _dbg_setup(f"_on_test_translate_result: {len(text)} chars")
         if hasattr(self, '_test_timer_tr'):
             self._test_timer_tr.stop()
         self.btn_test_translate.setText("🌐 " + _("Test translation"))
@@ -6900,7 +8118,8 @@ class DicteeSetupDialog(QDialog):
         backend = self.cmb_trans_backend.currentData()
         if backend == "libretranslate":
             # Langues installées dans Docker
-            port = int(self.spin_lt_port.currentText()) if hasattr(self, 'spin_lt_port') else 5000
+            _lt_txt = self.spin_lt_port.currentText() if hasattr(self, 'spin_lt_port') else ""
+            port = int(_lt_txt) if _lt_txt.isdigit() else 5000
             avail = libretranslate_available_languages(port=port)
             allowed = set(avail) if avail else None
         else:
@@ -6922,16 +8141,36 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_canary_translation_notice'):
             self._canary_translation_notice.setVisible(is_canary)
 
-        # Masquer les backends traduction (sauf ollama qui est géré dynamiquement)
-        for w_name in ('cmb_trans_backend', 'lt_widget'):
-            w = getattr(self, w_name, None)
-            if w:
-                w.setVisible(not is_canary)
+        # Masquer la ComboBox backend traduction si Canary
+        w = getattr(self, 'cmb_trans_backend', None)
+        if w:
+            w.setVisible(not is_canary)
+        # lt_widget: visible seulement si pas Canary ET backend == libretranslate
+        w = getattr(self, 'lt_widget', None)
+        if w:
+            if is_canary:
+                w.setVisible(False)
+            else:
+                current_backend = getattr(self, 'cmb_trans_backend', None)
+                if current_backend:
+                    w.setVisible(current_backend.currentData() == "libretranslate")
         if is_canary and hasattr(self, 'ollama_widget') and self.ollama_widget.parent() is not None:
             self._tr_layout.removeWidget(self.ollama_widget)
             self.ollama_widget.setParent(None)
 
         # Contrainte langue : Canary traduit uniquement via l'anglais
+        if hasattr(self, '_canary_trans_card'):
+            self._canary_trans_card.setVisible(is_canary)
+        if hasattr(self, '_trans_cards'):
+            current = getattr(self, '_wizard_trans', '')
+            for bid, card in self._trans_cards.items():
+                card.setEnabled(not is_canary)
+                if is_canary:
+                    card.setStyleSheet(self._card_style(False) + " QFrame#radioCard { opacity: 0.4; }")
+                else:
+                    card.setStyleSheet(self._card_style(bid == current))
+        if hasattr(self, '_chk_trans_disabled'):
+            self._chk_trans_disabled.setEnabled(not is_canary)
         if is_canary and hasattr(self, 'combo_src') and hasattr(self, 'combo_tgt'):
             src = self.combo_src.currentData()
             if src != "en":
@@ -7055,6 +8294,7 @@ class DicteeSetupDialog(QDialog):
             self.lbl_anim_status.setText(" — ".join(parts))
 
     def _on_install_animation(self):
+        _dbg_setup("_on_install_animation")
         self.btn_install_anim.setEnabled(False)
         self.btn_install_anim.setText(_("Downloading…"))
         self.progress_anim.setVisible(True)
@@ -7065,6 +8305,7 @@ class DicteeSetupDialog(QDialog):
         self._install_thread.start()
 
     def _on_install_finished(self, success, message):
+        _dbg_setup(f"_on_install_finished: success={success}, msg={message!r}")
         self.progress_anim.setVisible(False)
         if success:
             self._check_animation_speech()
@@ -7080,6 +8321,7 @@ class DicteeSetupDialog(QDialog):
             self._check_ollama_status()
 
     def _check_ollama_status(self):
+        _dbg_setup("_check_ollama_status")
         if not ollama_is_installed():
             self.lbl_ollama_status.setText(
                 '<span style="color: red;">⚠ ' +
@@ -7144,10 +8386,11 @@ class DicteeSetupDialog(QDialog):
                 hw_info
             )
             self.btn_ollama_pull.setVisible(True)
-            self.btn_ollama_pull.setText(_("Download model"))
+            self.btn_ollama_pull.setText(_("Download"))
             self.btn_ollama_pull.setEnabled(True)
 
     def _on_ollama_pull(self):
+        _dbg_setup(f"_on_ollama_pull: model={self.combo_ollama_model.currentData()}")
         model = self.combo_ollama_model.currentData()
         self.btn_ollama_pull.setEnabled(False)
         self.progress_ollama.setVisible(True)
@@ -7159,11 +8402,12 @@ class DicteeSetupDialog(QDialog):
         self._ollama_pull_thread.start()
 
     def _on_ollama_pull_finished(self, success, message):
+        _dbg_setup(f"_on_ollama_pull_finished: success={success}, msg={message!r}")
         self.progress_ollama.setVisible(False)
         if success:
             self._check_ollama_status()
         else:
-            self.btn_ollama_pull.setText(_("Download model"))
+            self.btn_ollama_pull.setText(_("Download"))
             self.btn_ollama_pull.setEnabled(True)
             QMessageBox.critical(self, _("Download error"), message)
 
@@ -7175,6 +8419,7 @@ class DicteeSetupDialog(QDialog):
             self._check_lt_status()
 
     def _check_lt_status(self):
+        _dbg_setup("_check_lt_status")
         if not docker_is_installed():
             self.lbl_lt_status.setText(
                 '<span style="color: red;">⚠ ' +
@@ -7222,7 +8467,8 @@ class DicteeSetupDialog(QDialog):
             return
 
         if docker_container_running():
-            port = self.spin_lt_port.currentText()
+            port_text = self.spin_lt_port.currentText()
+            port = int(port_text) if port_text.isdigit() else 5000
             # Taille du conteneur (image + données modèles)
             size_info = _docker_container_size()
             size_str = f" — {size_info}" if size_info else ""
@@ -7233,7 +8479,7 @@ class DicteeSetupDialog(QDialog):
                 ('<small style="color: #888;"> ' + size_str + '</small>' if size_str else '')
             )
             # Vérifier que les langues source/cible sont disponibles
-            avail = libretranslate_available_languages(port=int(port))
+            avail = libretranslate_available_languages(port=port)
             if avail:
                 src = self.combo_src.currentData()
                 tgt = self.combo_tgt.currentData()
@@ -7293,8 +8539,9 @@ class DicteeSetupDialog(QDialog):
             self.lbl_lt_langs_hint.setVisible(False)
             return
         selected = set(self._get_lt_selected_langs())
-        port = self.spin_lt_port.currentText()
-        installed = set(libretranslate_available_languages(port=int(port)))
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
+        installed = set(libretranslate_available_languages(port=port))
         if selected != installed and installed:
             added = selected - installed
             removed = installed - selected
@@ -7318,7 +8565,8 @@ class DicteeSetupDialog(QDialog):
         if self._lt_is_busy():
             return
         languages = ",".join(self._get_lt_selected_langs())
-        port = int(self.spin_lt_port.currentText())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
 
         # Sauvegarder immédiatement dans la config
         self._save_lt_langs_to_config(languages)
@@ -7334,7 +8582,11 @@ class DicteeSetupDialog(QDialog):
         self._lt_action_thread.start()
 
     def _save_lt_langs_to_config(self, langs):
-        """Met à jour DICTEE_LIBRETRANSLATE_LANGS dans dictee.conf (écriture atomique)."""
+        """Met à jour DICTEE_LIBRETRANSLATE_LANGS dans dictee.conf (ou mémoire en mode wizard)."""
+        # In wizard mode, only update in-memory conf
+        if self.wizard_mode:
+            self.conf["DICTEE_LIBRETRANSLATE_LANGS"] = langs
+            return
         os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
         if not os.path.exists(CONF_PATH):
             with open(CONF_PATH, "w") as f:
@@ -7375,6 +8627,7 @@ class DicteeSetupDialog(QDialog):
         self._check_lt_status()
 
     def _on_setup_docker(self):
+        _dbg_setup("_on_setup_docker")
         """Start Docker daemon + add user to docker group in one pkexec call."""
         user = os.environ.get("USER", "")
         if not user:
@@ -7391,6 +8644,7 @@ class DicteeSetupDialog(QDialog):
         self._docker_setup_thread.start()
 
     def _on_setup_docker_finished(self, success, message):
+        _dbg_setup(f"_on_setup_docker_finished: success={success}, msg={message!r}")
         self.progress_lt.setVisible(False)
         if success:
             global _docker_use_sg
@@ -7408,6 +8662,7 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.critical(self, _("Error"), message)
 
     def _on_lt_pull(self):
+        _dbg_setup("_on_lt_pull: downloading LibreTranslate image")
         self.btn_lt_pull.setEnabled(False)
         self.progress_lt.setVisible(True)
 
@@ -7418,6 +8673,7 @@ class DicteeSetupDialog(QDialog):
         self._docker_pull_thread.start()
 
     def _on_lt_pull_finished(self, success, message):
+        _dbg_setup(f"_on_lt_pull_finished: success={success}, msg={message!r}")
         self.progress_lt.setVisible(False)
         if success:
             self._check_lt_status()
@@ -7427,9 +8683,11 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.critical(self, _("Download error"), message)
 
     def _on_lt_start(self):
+        _dbg_setup("_on_lt_start")
         if self._lt_is_busy():
             return
-        port = int(self.spin_lt_port.currentText())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
         languages = ",".join(self._get_lt_selected_langs())
         self._save_lt_langs_to_config(languages)
 
@@ -7444,6 +8702,7 @@ class DicteeSetupDialog(QDialog):
         self._lt_action_thread.start()
 
     def _on_lt_stop(self):
+        _dbg_setup("_on_lt_stop")
         if self._lt_is_busy():
             return
 
@@ -7476,6 +8735,7 @@ class DicteeSetupDialog(QDialog):
             '<span style="color: #888;">⏳ ' + text + '</span>')
 
     def _on_lt_action_finished(self, success, message):
+        _dbg_setup(f"_on_lt_action_finished: success={success}, msg={message!r}")
         self._lt_set_buttons_busy(False)
         self._lt_starting_after_apply = False
         _lt_langs_cache["time"] = 0
@@ -7485,10 +8745,20 @@ class DicteeSetupDialog(QDialog):
 
     # -- Modèles ASR --
 
+    def _on_model_cancel(self, mid):
+        """Cancel an ongoing model download."""
+        thread = self._model_threads.get(mid)
+        if thread and thread.isRunning():
+            thread.cancel()
+
     def _on_model_download(self, model):
+        _dbg_setup(f"_on_model_download: {model}")
         mid = model["id"]
         w = self._model_widgets[mid]
         w["button"].setEnabled(False)
+        w["button"].setStyleSheet("QPushButton { color: white; background-color: #c84; font-weight: bold; }")
+        w["btn_delete"].setVisible(False)
+        w["btn_cancel"].setVisible(True)
         w["progress"].setVisible(True)
 
         thread = ModelDownloadThread(model)
@@ -7512,34 +8782,80 @@ class DicteeSetupDialog(QDialog):
                 pass
 
     def _on_model_download_finished(self, mid, success, message):
+        _dbg_setup(f"_on_model_download_finished: {mid}, success={success}, msg={message!r}")
         w = self._model_widgets[mid]
         w["progress"].setVisible(False)
+        w["btn_cancel"].setVisible(False)
         model = w["model"]
         if success:
-            w["button"].setText(_("Installed"))
-            w["button"].setEnabled(False)
+            self._update_venv_button(w["button"], model["name"], True)
             w["button"].setToolTip("")
-            w["label"].setText(f'<span style="color: green;">✓</span> {model["name"]}<br>'
-                               f'<span style="font-size: 9.5pt; color: gray;">{model["desc"]}</span>')
+            w["btn_delete"].setVisible(True)
             # If TDT just installed, enable Sortformer button
             if mid == "tdt" and "sortformer" in self._model_widgets:
                 dep_w = self._model_widgets["sortformer"]
                 if not model_is_installed(dep_w["model"]):
-                    dep_w["button"].setEnabled(True)
+                    self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
                     dep_w["button"].setToolTip("")
         else:
-            w["button"].setText(_("Download"))
-            w["button"].setEnabled(True)
-            QMessageBox.critical(self, _("Download error"), message)
+            self._update_venv_button(w["button"], model["name"], False)
+            if message != _("Cancelled"):
+                QMessageBox.critical(self, _("Download error"), message)
+
+    def _on_model_delete(self, model):
+        """Delete an ASR model after confirmation."""
+        mid = model["id"]
+        name = model["name"]
+        reply = QMessageBox.question(
+            self, _("Delete model"),
+            _("Delete {name} and free disk space?").format(name=name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        import shutil
+        # Delete from both system and user dirs
+        for base in (MODEL_DIR, DICTEE_DATA_DIR):
+            model_dir = model["dir"].replace(MODEL_DIR, base)
+            if os.path.isdir(model_dir):
+                try:
+                    shutil.rmtree(model_dir)
+                    os.makedirs(model_dir, exist_ok=True)
+                except PermissionError:
+                    r = subprocess.run(["pkexec", "rm", "-rf", model_dir],
+                                       capture_output=True, timeout=10)
+                    if r.returncode == 0:
+                        os.makedirs(model_dir, mode=0o777, exist_ok=True)
+        w = self._model_widgets[mid]
+        self._update_venv_button(w["button"], name, False)
+        w["btn_delete"].setVisible(False)
+        # If TDT deleted, disable Sortformer download
+        if mid == "tdt" and "sortformer" in self._model_widgets:
+            dep_w = self._model_widgets["sortformer"]
+            if not model_is_installed(dep_w["model"]):
+                dep_w["button"].setEnabled(False)
+                dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
 
     # -- Installation venv ASR --
 
+    def _update_venv_button(self, btn, engine_name, installed):
+        """Style a venv install button: red when not installed, green label when installed."""
+        if installed:
+            btn.setText(f"✓ {engine_name} " + _("installed"))
+            btn.setStyleSheet("QPushButton { color: #4a4; font-weight: bold; }")
+            btn.setEnabled(False)
+        else:
+            btn.setText(_("Install {name} engine").format(name=engine_name))
+            btn.setStyleSheet("QPushButton { color: white; background-color: #c44; font-weight: bold; }"
+                              "QPushButton:hover { background-color: #a33; }")
+            btn.setEnabled(True)
+
     def _install_venv(self, name, venv_path, pip_package):
+        _dbg_setup(f"_install_venv: {name}, path={venv_path}, pkg={pip_package}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
-        if not isinstance(btn, QPushButton):
-            return
         btn.setEnabled(False)
         btn.setText(_("Installing…"))
+        btn.setStyleSheet("QPushButton { color: white; background-color: #c84; font-weight: bold; }")
         thread = VenvInstallThread(venv_path, pip_package)
         thread.progress.connect(lambda text: btn.setText(text))
         thread.finished.connect(lambda ok, msg, n=name: self._on_venv_installed(n, ok, msg))
@@ -7547,17 +8863,51 @@ class DicteeSetupDialog(QDialog):
         thread.start()
 
     def _on_venv_installed(self, name, success, message):
+        _dbg_setup(f"_on_venv_installed: {name}, success={success}, msg={message!r}")
         btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
+        btn_del = self.btn_del_vosk_venv if name == "vosk" else self.btn_del_whisper_venv
+        engine = "Vosk" if name == "vosk" else "Whisper"
+        config_widgets = self._vosk_config_widgets if name == "vosk" else self._whisper_config_widgets
         if success:
-            if isinstance(btn, QPushButton):
-                btn.setText(_("Installed"))
-                btn.setEnabled(False)
+            self._update_venv_button(btn, engine, True)
+            btn_del.setVisible(True)
+            for w in config_widgets:
+                w.setEnabled(True)
         else:
-            if isinstance(btn, QPushButton):
-                btn.setText(_("Install"))
-                btn.setEnabled(True)
-            print(f"[DEBUG] Venv install error ({name}): {message!r}", file=sys.stderr)
+            self._update_venv_button(btn, engine, False)
+            btn_del.setVisible(False)
+            _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
+
+    def _delete_venv(self, name):
+        """Delete a Vosk or Whisper venv after user confirmation."""
+        engine = "Vosk" if name == "vosk" else "Whisper"
+        venv_path = VOSK_VENV if name == "vosk" else WHISPER_VENV
+        btn = self.btn_install_vosk if name == "vosk" else self.btn_install_whisper
+        btn_del = self.btn_del_vosk_venv if name == "vosk" else self.btn_del_whisper_venv
+        config_widgets = self._vosk_config_widgets if name == "vosk" else self._whisper_config_widgets
+        ret = QMessageBox.question(
+            self, _("Uninstall {name} engine").format(name=engine),
+            _("Delete the {name} virtual environment?\n\n{path}\n\nDownloaded models will be kept.").format(
+                name=engine, path=venv_path),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            if os.path.isdir(venv_path):
+                shutil.rmtree(venv_path)
+            # Stop the systemd service if running
+            svc = "dictee-vosk.service" if name == "vosk" else "dictee-whisper.service"
+            subprocess.run(["systemctl", "--user", "stop", svc],
+                           capture_output=True, timeout=5)
+        except Exception as exc:
+            QMessageBox.critical(self, _("Error"), str(exc))
+            return
+        self._update_venv_button(btn, engine, False)
+        btn_del.setVisible(False)
+        for w in config_widgets:
+            w.setEnabled(False)
 
     def _mark_dirty(self):
         self._dirty = True
@@ -7869,6 +9219,7 @@ class DicteeSetupDialog(QDialog):
             sock_path = os.path.join(runtime_dir, "dictee", "transcribe.sock")
         if not os.path.exists(sock_path):
             sock_path = "/tmp/transcribe.sock"
+        s = None
         try:
             s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
             s.settimeout(30)
@@ -7880,7 +9231,6 @@ class DicteeSetupDialog(QDialog):
                 if not chunk:
                     break
                 data += chunk
-            s.close()
             text = data.decode("utf-8").strip()
             if text:
                 self._test_input.setPlainText(text)
@@ -7888,6 +9238,11 @@ class DicteeSetupDialog(QDialog):
             QMessageBox.warning(self._pp_parent, "dictee",
                                 _("Cannot connect to ASR daemon: {err}").format(err=str(e)))
         finally:
+            if s is not None:
+                try:
+                    s.close()
+                except OSError:
+                    pass
             try:
                 os.unlink(wav_path)
             except OSError:
@@ -7896,7 +9251,20 @@ class DicteeSetupDialog(QDialog):
     # -- Appliquer --
 
     def _on_apply(self):
-        trans_data = self.cmb_trans_backend.currentData()
+        _dbg_setup("_on_apply: saving configuration")
+        # Wizard translation cards override cmb_trans_backend
+        if self.wizard_mode and hasattr(self, '_wizard_trans'):
+            wt = self._wizard_trans
+            if hasattr(self, '_chk_trans_disabled') and self._chk_trans_disabled.isChecked():
+                wt = ""
+            if wt in ("google", "bing"):
+                trans_data = f"trans:{wt}"
+            elif wt in ("libretranslate", "ollama"):
+                trans_data = wt
+            else:
+                trans_data = "trans:google"
+        else:
+            trans_data = self.cmb_trans_backend.currentData()
         if trans_data == "ollama":
             backend = "ollama"
         elif trans_data == "libretranslate":
@@ -7933,8 +9301,8 @@ class DicteeSetupDialog(QDialog):
         else:
             asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
 
-        whisper_model = self.cmb_whisper_model.currentText()
-        whisper_lang = self.txt_whisper_lang.currentText().strip()
+        whisper_model = self.cmb_whisper_model.currentData() or "small"
+        whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
         # Audio source
@@ -7981,6 +9349,10 @@ class DicteeSetupDialog(QDialog):
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "ministral:3b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
 
+        # Audio context buffer
+        audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else False
+        audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
+
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
                     asr_backend, whisper_model, whisper_lang, vosk_model,
@@ -7997,7 +9369,11 @@ class DicteeSetupDialog(QDialog):
                     pp_dict=pp_dict,
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
                     llm_postprocess=llm_postprocess,
-                    llm_model=llm_model, llm_cpu=llm_cpu)
+                    llm_model=llm_model, llm_cpu=llm_cpu,
+                    audio_context=audio_context,
+                    audio_context_timeout=audio_context_timeout,
+                    notifications=self.chk_notifications.isChecked(),
+                    notifications_text=self.chk_notifications_text.isChecked())
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
@@ -8006,8 +9382,7 @@ class DicteeSetupDialog(QDialog):
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
-        if self.chk_daemon.isChecked():
-            for svc_name in asr_services.values():
+        for svc_name in asr_services.values():
                 if svc_name == active_svc:
                     # Enable (boot) puis restart (maintenant)
                     en = subprocess.run(
@@ -8030,9 +9405,6 @@ class DicteeSetupDialog(QDialog):
                                       "It may still be loading the model.").format(svc=svc_name)
                 else:
                     subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
-        else:
-            for svc_name in asr_services.values():
-                subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
 
         # Tray
         action = "enable" if self.chk_tray.isChecked() else "disable"
@@ -8055,13 +9427,7 @@ class DicteeSetupDialog(QDialog):
 
         self._dirty = False
 
-        # En mode normal, ré-ajouter DICTEE_SETUP_DONE (save_config réécrit tout)
-        if not self.wizard_mode:
-            try:
-                with open(CONF_PATH, "a") as f:
-                    f.write("DICTEE_SETUP_DONE=true\n")
-            except OSError:
-                pass
+        # DICTEE_SETUP_DONE est écrit par save_config()
 
         # Proposer de démarrer/redémarrer LibreTranslate si nécessaire
         # Proposer de démarrer/redémarrer LibreTranslate si nécessaire
@@ -8088,7 +9454,8 @@ class DicteeSetupDialog(QDialog):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
         selected = set(self._get_lt_selected_langs())
         running = docker_container_running()
-        port = int(self.spin_lt_port.currentText())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
 
         if running:
             # Vérifier si les langues ont changé
@@ -8134,6 +9501,7 @@ class DicteeSetupDialog(QDialog):
                 self._on_lt_start()
 
     def _on_ok(self):
+        _dbg_setup("_on_ok")
         if self._dirty:
             self._on_apply()
         # Ne pas fermer si LibreTranslate est en cours de démarrage
@@ -8142,9 +9510,67 @@ class DicteeSetupDialog(QDialog):
         self.accept()
 
 
+_SETUP_DEBUG = False
+_setup_log_file = None
+
+
+def _dbg_setup(msg):
+    """Print debug message if --debug is enabled."""
+    if not _SETUP_DEBUG:
+        return
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    line = f"[DBG {ts}] {msg}"
+    print(line, file=sys.stderr)
+    global _setup_log_file
+    if _setup_log_file is None:
+        _setup_log_file = open("/tmp/dictee-setup.log", "a", encoding="utf-8")
+    _setup_log_file.write(line + "\n")
+    _setup_log_file.flush()
+
+
 def main():
-    wizard_flag = "--wizard" in sys.argv
-    postprocess_flag = "--postprocess" in sys.argv
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Dictee — Voice dictation configuration",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Examples:\n"
+               "  dictee-setup                  Open configuration\n"
+               "  dictee-setup --wizard         Force wizard mode\n"
+               "  dictee-setup --postprocess    Open post-processing dialog\n"
+               "  dictee-setup --translation    Open on translation section\n"
+               "  dictee-setup --models         List installed models\n"
+               "  dictee-setup --models --json  List models (JSON)\n"
+               "  dictee-setup --debug          Enable debug logging\n")
+    parser.add_argument("--wizard", action="store_true",
+                        help="Force wizard mode (step-by-step configuration)")
+    parser.add_argument("--postprocess", action="store_true",
+                        help="Open post-processing dialog directly")
+    parser.add_argument("--translation", action="store_true",
+                        help="Open on the translation configuration section")
+    parser.add_argument("--models", action="store_true",
+                        help="List all installed ASR models and exit")
+    parser.add_argument("--json", action="store_true",
+                        help="Output in JSON format (with --models)")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug logging to stderr and /tmp/dictee-setup.log")
+    args = parser.parse_args()
+
+    if args.models:
+        from dictee_models import find_all_models, print_table
+        import json as json_mod
+        models = find_all_models()
+        if args.json:
+            print(json_mod.dumps(models, indent=2))
+        else:
+            print_table(models)
+        sys.exit(0)
+
+    global _SETUP_DEBUG
+    if args.debug or os.environ.get("DICTEE_DEBUG") == "true":
+        _SETUP_DEBUG = True
+        _dbg_setup("dictee-setup starting (debug via %s)" % ("--debug" if args.debug else "DICTEE_DEBUG"))
+
     app = QApplication([])
     app.setApplicationName("dictee-setup")
     app.setDesktopFileName("dictee-setup")
@@ -8158,7 +9584,9 @@ def main():
         # Text and background too similar — force readable contrast
         txt_color = "white" if _win_light < 128 else "black"
         app.setStyleSheet(f"QMessageBox QLabel {{ color: {txt_color}; }}")
-    dialog = DicteeSetupDialog(wizard=wizard_flag, open_postprocess=postprocess_flag)
+    _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
+    dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
+                               open_translation=args.translation)
     dialog.show()
     app.exec()
 

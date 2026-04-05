@@ -1,0 +1,31 @@
+.TH DICTEE-RESET "1" "April 2026" "dictee 1.3.0"
+.SH NOM
+dictee-reset \- réinitialiser l'état du système dictée et redémarrer le daemon
+.SH SYNOPSIS
+.B dictee-reset
+[\fISERVICE\fR]
+.SH DESCRIPTION
+Arrête tous les processus dictée, nettoie les fichiers d'état et redémarre le daemon ASR configuré.
+Utile quand le système est dans un état incohérent après un crash ou un blocage.
+.PP
+Si \fISERVICE\fR est spécifié, redémarre ce service spécifique au lieu de celui
+configuré dans \fI~/.config/dictee.conf\fR.
+.SH ACTIONS
+.TP
+Arrête tous les daemons ASR (dictee, dictee-vosk, dictee-whisper, dictee-canary)
+.TP
+Tue les processus de transcription ou d'enregistrement en cours
+.TP
+Nettoie les fichiers d'état dans /dev/shm/ et /tmp/
+.TP
+Redémarre le daemon configuré
+.SH FICHIERS
+.TP
+.I /dev/shm/.dictee_state
+Fichier d'état runtime
+.TP
+.I ~/.config/dictee.conf
+Configuration utilisateur
+.SH VOIR AUSSI
+.BR dictee (1),
+.BR dictee-switch-backend (1)

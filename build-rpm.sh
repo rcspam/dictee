@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -20,8 +20,8 @@ cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
-cp ./transcribe-daemon-canary "$PKG_DIR/usr/bin/transcribe-daemon-canary"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/transcribe-daemon-canary"
+cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -71,8 +71,15 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/transcribe-daemon-vosk" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$buildroot/usr/bin/"
-    cp "$PKG_DIR/usr/bin/transcribe-daemon-canary" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-transcribe" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-reset" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$buildroot/usr/bin/"
     chmod 755 "$buildroot/usr/bin/"*
+    # Shared libraries
+    mkdir -p "$buildroot/usr/lib/dictee"
+    cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$buildroot/usr/lib/dictee/"
+    cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$buildroot/usr/lib/dictee/"
 
     # Patcher shebangs pour packaging RPM (guidelines Fedora)
     # /usr/bin/env python3 → /usr/bin/python3 pour utiliser le Python système
@@ -83,7 +90,8 @@ prepare_buildroot() {
         "$buildroot/usr/bin/dictee-postprocess" \
         "$buildroot/usr/bin/transcribe-daemon-vosk" \
         "$buildroot/usr/bin/transcribe-daemon-whisper" \
-        "$buildroot/usr/bin/transcribe-daemon-canary" \
+        "$buildroot/usr/bin/dictee-transcribe" \
+        "$buildroot/usr/bin/dictee-audio-sources" \
         "$buildroot/usr/bin/dictee-plasmoid-level" \
         "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \
         "$buildroot/usr/bin/dictee-plasmoid-level-fft"
@@ -128,6 +136,7 @@ prepare_buildroot() {
         cp ./assets/logos/*.svg "$buildroot/usr/share/dictee/assets/logos/"
     fi
 
+
     # Plasmoid + rules
     mkdir -p "$buildroot/usr/share/dictee"
     cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$buildroot/usr/share/dictee/" 2>/dev/null || true
@@ -138,6 +147,7 @@ prepare_buildroot() {
     echo "$VERSION build $BUILD_HASH" > "$buildroot/usr/share/dictee/VERSION"
     cp ./dictionary.conf.default "$buildroot/usr/share/dictee/dictionary.conf.default"
     cp ./continuation.conf.default "$buildroot/usr/share/dictee/continuation.conf.default"
+    cp ./dictee.conf.example "$buildroot/usr/share/dictee/dictee.conf.example"
 
     # Doc
     mkdir -p "$buildroot/usr/share/doc/dictee"
@@ -155,6 +165,8 @@ build_rpm_cuda() {
     # Recompiler en CUDA si nécessaire
     if ! nm target/release/transcribe 2>/dev/null | grep -q cuda; then
         echo "Recompilation CUDA..."
+        # CRITICAL: --no-default-features disables ort-defaults (static linking)
+        # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
         cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
             --bin transcribe \
             --bin transcribe-daemon \
@@ -166,25 +178,34 @@ build_rpm_cuda() {
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
 
-    # ONNX Runtime libs (load-dynamic nécessite libonnxruntime.so)
-    echo "Copie des libs ONNX Runtime + CUDA..."
+    # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
+    echo "Copie des libs CUDA ONNX Runtime..."
     mkdir -p "$buildroot/usr/lib/dictee"
 
-    # Lib ORT principale (requise par load-dynamic)
-    ORT_TGZ="onnxruntime-linux-x64-gpu-1.23.0.tgz"
-    ORT_DIR="onnxruntime-linux-x64-gpu-1.23.0"
-    if [ ! -d "$ORT_DIR" ]; then
-        if [ ! -f "$ORT_TGZ" ]; then
-            echo "Téléchargement d'ONNX Runtime GPU 1.23.0..."
-            curl -LO "https://github.com/microsoft/onnxruntime/releases/download/v1.23.0/$ORT_TGZ"
-        fi
-        tar xzf "$ORT_TGZ"
+    # Search paths for libonnxruntime.so (not produced by load-dynamic build)
+    ORT_LIB=""
+    for candidate in \
+        "target/release/libonnxruntime.so" \
+        "onnxruntime-linux-x64-gpu-*/lib/libonnxruntime.so" \
+        "$HOME/.cache/ort.pyke.io/dfbin/*/libonnxruntime.so"; do
+        # shellcheck disable=SC2086
+        for f in $candidate; do
+            if [ -f "$f" ]; then
+                ORT_LIB="$f"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$ORT_LIB" ]; then
+        echo "ERROR: libonnxruntime.so not found! Download ONNX Runtime GPU from:"
+        echo "  https://github.com/microsoft/onnxruntime/releases"
+        echo "Extract it in the project root (onnxruntime-linux-x64-gpu-*/lib/)"
+        exit 1
     fi
-    cp "$ORT_DIR/lib/libonnxruntime.so.1.23.0" "$buildroot/usr/lib/dictee/"
-    ln -sf libonnxruntime.so.1.23.0 "$buildroot/usr/lib/dictee/libonnxruntime.so.1"
-    ln -sf libonnxruntime.so.1 "$buildroot/usr/lib/dictee/libonnxruntime.so"
+    echo "Using libonnxruntime.so from: $ORT_LIB"
+    cp -L "$ORT_LIB" "$buildroot/usr/lib/dictee/"
 
-    # Provider libs
+    # Provider libs from cargo build output
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
         if [ -f "$ORT_DIR/lib/$lib" ]; then
             cp "$ORT_DIR/lib/$lib" "$buildroot/usr/lib/dictee/"
@@ -224,10 +245,14 @@ Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
+Requires:       sox
+Requires:       (libcudart12 or cuda-cudart-12-8 or cuda-cudart-12-6)
+Requires:       (libcublas-12-8 or libcublas-12-6)
+Requires:       (libcufft11 or libcufft-12-8 or libcufft-12-6)
+Requires:       (libcudnn9-cuda-12 or libcudnn9-cuda-11)
+Requires:       (libnvrtc12 or libnvrtc-12-8 or libnvrtc-12-6)
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
-Recommends:     (libcublas-12-8 or libcublas-12-6)
-Recommends:     (libcudnn9-cuda-12 or libcudnn9-cuda-11)
 Recommends:     nvidia-gpu-firmware
 Recommends:     python3-evdev
 Recommends:     wl-clipboard
@@ -301,8 +326,19 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         fi
     fi
 
+    # Install plasmoid if KDE Plasma 6 is available
+    if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+    fi
+
     # Enable GNOME AppIndicator extension for tray icon
     \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Refresh icon cache (needed on GNOME)
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    fi
 
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
@@ -315,6 +351,21 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     if [ -f "\$_user_home/.config/dictee.conf" ]; then
         \$_run systemctl --user restart dictee-tray 2>/dev/null || true
     fi
+    # Start the correct ASR daemon based on user config
+    _asr_backend="parakeet"
+    if [ -f "\$_user_home/.config/dictee.conf" ]; then
+        _asr_backend=\$(grep -s '^DICTEE_ASR_BACKEND=' "\$_user_home/.config/dictee.conf" | cut -d= -f2)
+    fi
+    case "\$_asr_backend" in
+        vosk)    _asr_svc="dictee-vosk" ;;
+        whisper) _asr_svc="dictee-whisper" ;;
+        canary)  _asr_svc="dictee-canary" ;;
+        *)       _asr_svc="dictee" ;;
+    esac
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
+    \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
 
 %postun
@@ -329,8 +380,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     # Clean locales
@@ -381,6 +432,7 @@ Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
+Requires:       sox
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Recommends:     python3-evdev
@@ -409,6 +461,7 @@ Features:
 %files
 /usr/bin/*
 /etc/udev/rules.d/80-dotool.rules
+/usr/lib/dictee/*
 /usr/lib/systemd/user/*.service
 /usr/lib/systemd/user-preset/*.preset
 /usr/share/man/man1/*.gz
@@ -451,8 +504,19 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         fi
     fi
 
+    # Install plasmoid if KDE Plasma 6 is available
+    if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "\$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+    fi
+
     # Enable GNOME AppIndicator extension for tray icon
     \$_run gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null || true
+
+    # Refresh icon cache (needed on GNOME)
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    fi
 
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
@@ -465,6 +529,21 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     if [ -f "\$_user_home/.config/dictee.conf" ]; then
         \$_run systemctl --user restart dictee-tray 2>/dev/null || true
     fi
+    # Start the correct ASR daemon based on user config
+    _asr_backend="parakeet"
+    if [ -f "\$_user_home/.config/dictee.conf" ]; then
+        _asr_backend=\$(grep -s '^DICTEE_ASR_BACKEND=' "\$_user_home/.config/dictee.conf" | cut -d= -f2)
+    fi
+    case "\$_asr_backend" in
+        vosk)    _asr_svc="dictee-vosk" ;;
+        whisper) _asr_svc="dictee-whisper" ;;
+        canary)  _asr_svc="dictee-canary" ;;
+        *)       _asr_svc="dictee" ;;
+    esac
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
+    \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
 
 %postun
@@ -476,8 +555,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     for lang in fr de es it uk pt; do

@@ -42,7 +42,7 @@ Item {
     }
     Layout.preferredHeight: Kirigami.Units.iconSizes.medium
 
-    opacity: state === "offline" ? 0.4 : 1.0
+    opacity: state === "offline" ? 0.7 : 1.0
 
     Behavior on opacity {
         NumberAnimation { duration: 300 }
@@ -70,6 +70,11 @@ Item {
         onWidthChanged: if (width > 0 && height > 0) requestPaint()
         onHeightChanged: if (width > 0 && height > 0) requestPaint()
         onVisibleChanged: if (visible && width > 0 && height > 0) requestPaint()
+
+        Connections {
+            target: compact
+            function onBarColorChanged() { if (idleWaveform.visible && idleWaveform.width > 0) idleWaveform.requestPaint() }
+        }
 
         onPaint: {
             var ctx = getContext("2d")

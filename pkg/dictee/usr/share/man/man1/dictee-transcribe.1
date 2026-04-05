@@ -1,0 +1,35 @@
+.TH DICTEE-TRANSCRIBE "1" "April 2026" "dictee 1.3.0"
+.SH NAME
+dictee-transcribe \- graphical audio file transcription with optional diarization
+.SH SYNOPSIS
+.B dictee-transcribe
+[\fIFILE\fR]
+.SH DESCRIPTION
+PyQt6 graphical interface for transcribing audio files. Supports all ASR backends
+(Parakeet, Canary, Vosk, Whisper) via the daemon socket protocol.
+.PP
+Features include speaker diarization (max 4 speakers), integrated audio player
+with speaker segment markers, per-tab translation, and export to text/SRT/JSON.
+.SH OPTIONS
+.TP
+.I FILE
+Optional audio file to load on startup. Supported formats: WAV, MP3, FLAC, OGG, M4A, WebM, Opus.
+.SH DIARIZATION
+Two-phase diarization: phase 1 uses the Sortformer model to detect speakers,
+phase 2 sends the full audio to the ASR daemon for transcription with speaker labels.
+.PP
+A sensitivity slider controls speaker detection threshold (0\-100%).
+.SH TRANSLATION
+Integrated translation via Google/Bing (translate-shell), Ollama, or LibreTranslate.
+Each translation creates a new tab that can be exported independently.
+.SH FILES
+.TP
+.I ~/.config/dictee.conf
+ASR backend and translation configuration
+.TP
+.I /tmp/dictee-transcribe.log
+Debug log (when DICTEE_DEBUG=true)
+.SH SEE ALSO
+.BR dictee (1),
+.BR dictee-setup (1),
+.BR transcribe-daemon (1)

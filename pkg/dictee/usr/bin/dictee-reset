@@ -1,0 +1,75 @@
+#!/bin/bash
+# dictee-reset — Reset the entire dictee system and restart the daemon
+# Usage: dictee-reset [service-name]
+#   service-name: dictee, dictee-vosk, dictee-whisper, dictee-canary (default: dictee)
+
+set +e
+
+SVC="${1:-dictee}"
+
+# Common functions (debug, state, notifications)
+_DBG_CONTEXT="reset"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
+
+_dbg "reset: svc=$SVC"
+
+# Kill a process from its PID file
+_kill_pidfile() {
+    local f="$1" label="${2:-process}"
+    [ -f "$f" ] || return 0
+    local pid
+    pid=$(cat "$f" 2>/dev/null) || return 0
+    [ -n "$pid" ] && { _dbg "reset: killing $label pid=$pid"; kill "$pid" 2>/dev/null; }
+}
+
+# 1. Write the idle state
+echo "idle" > /dev/shm/.dictee_state
+
+# 2. Kill the ongoing recording and ESC listener
+_kill_pidfile "/tmp/recording_dictee_pid${_UID_SUFFIX}" "recording"
+_kill_pidfile "/tmp/dictee_esc_listener_pid${_UID_SUFFIX}" "ESC listener"
+
+# 4. Kill diarization and transcription processes
+# (pkill -f with our own PID excluded to avoid killing ourselves)
+_self=$$
+for pat in "transcribe-diarize" "dictee-transcribe" "diarize-only" "animation-speech-ctl"; do
+    pgrep -f "$pat" 2>/dev/null | while read -r p; do
+        if [ "$p" != "$_self" ]; then
+            _dbg "reset: killing $pat pid=$p"
+            kill "$p" 2>/dev/null
+        fi
+    done
+done
+
+# 5. Close persistent notification (fixed ID — no file lookup needed)
+_dbg "reset: closing notification"
+close_notification
+
+# 6. Clean up temporary files
+rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/notify_dictee* \
+      /tmp/dictee_esc_listener_pid* /tmp/mut_dictee*
+
+# 7. Disable diarization
+dictee-switch-backend diarize false 2>/dev/null
+
+# 8. Stop all ASR daemons
+for s in dictee dictee-vosk dictee-whisper dictee-canary; do
+    systemctl --user stop "$s" 2>/dev/null
+done
+
+# 9. Restore audio
+pactl set-sink-mute @DEFAULT_SINK@ 0 2>/dev/null
+
+# 10. Restart the requested daemon
+_dbg "reset: starting ${SVC}.service"
+systemctl --user start "${SVC}.service"
+
+# 11. Kill any dictee/pw-record that started after our cleanup (race)
+pkill -f "pw-record.*tmp_recording_dictee" 2>/dev/null || true
+rm -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" "/tmp/recording_dictee_pid${_UID_SUFFIX}.lock"
+echo "idle" > /dev/shm/.dictee_state
+# Close notification again in case a racing dictee created one after step 5
+close_notification
+_dbg "reset: done"

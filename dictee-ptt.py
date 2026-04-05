@@ -42,6 +42,17 @@ except ImportError:
 # --- Config ---
 
 CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
+STATE_FILE = "/dev/shm/.dictee_state"
+
+
+def read_state():
+    """Lit l'état courant de dictee depuis le fichier d'état."""
+    try:
+        return open(STATE_FILE).read().strip()
+    except (FileNotFoundError, PermissionError):
+        return "offline"
+
+
 DICTEE_BIN = None  # auto-detect
 _UID_SUFFIX = f"-{os.getuid()}"
 PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
@@ -146,7 +157,7 @@ def find_dictee_bin():
 
 def run_dictee_async(*args, no_animation=False):
     """Lance dictee en subprocess non-bloquant."""
-    cmd = [DICTEE_BIN, "--no-esc-listener"] + list(args)
+    cmd = [DICTEE_BIN] + list(args)
     env = None
     if no_animation:
         env = os.environ.copy()
@@ -239,8 +250,9 @@ class PttState:
 
         # ESC : annuler
         if code == KEY_ESC and value == KEY_DOWN:
-            if self.recording or self.recording_translate:
-                print("[ptt] ESC → cancel")
+            state = read_state()
+            if self.recording or self.recording_translate or state in ("recording", "preparing", "diarize-ready", "diarizing"):
+                print(f"[ptt] ESC: state={state}, recording={self.recording} — sending cancel")
                 run_dictee_async("--cancel")
                 self.recording = False
                 self.recording_translate = False
@@ -306,6 +318,8 @@ class PttState:
             if value == KEY_DOWN and not self.recording:
                 if not self._check_debounce(now):
                     return
+                if read_state() == "offline":
+                    return
                 self.last_down_time = now
                 print("[ptt] hold: start")
                 run_dictee_async(no_animation=True)
@@ -322,9 +336,12 @@ class PttState:
                     run_dictee_async("--cancel")
                 else:
                     # Écrire "transcribing" immédiatement pour stopper l'animation
+                    # (sauf si offline — l'utilisateur a explicitement arrêté le daemon)
                     try:
-                        with open("/dev/shm/.dictee_state", "w") as f:
-                            f.write("transcribing\n")
+                        cur = open(STATE_FILE).read().strip() if os.path.isfile(STATE_FILE) else ""
+                        if cur != "offline":
+                            with open(STATE_FILE, "w") as f:
+                                f.write("transcribing\n")
                     except OSError:
                         pass
                     print("[ptt] hold: stop")
@@ -334,6 +351,9 @@ class PttState:
         else:  # toggle
             if value == KEY_DOWN:
                 if not self._check_debounce(now):
+                    return
+                # Block if daemon offline
+                if not self.recording and read_state() == "offline":
                     return
                 self.last_down_time = now
                 if not self.recording:
@@ -350,6 +370,8 @@ class PttState:
         if self.mode == "hold":
             if value == KEY_DOWN and not self.recording_translate:
                 if not self._check_debounce(now):
+                    return
+                if read_state() == "offline":
                     return
                 self.last_down_time = now
                 print("[ptt] hold: start+translate")
@@ -368,8 +390,10 @@ class PttState:
                 else:
                     # Écrire "transcribing" immédiatement pour stopper l'animation
                     try:
-                        with open("/dev/shm/.dictee_state", "w") as f:
-                            f.write("transcribing\n")
+                        cur = open(STATE_FILE).read().strip() if os.path.isfile(STATE_FILE) else ""
+                        if cur != "offline":
+                            with open(STATE_FILE, "w") as f:
+                                f.write("transcribing\n")
                     except OSError:
                         pass
                     print("[ptt] hold: stop+translate")
@@ -379,6 +403,9 @@ class PttState:
         else:  # toggle
             if value == KEY_DOWN:
                 if not self._check_debounce(now):
+                    return
+                # Block if daemon offline
+                if not self.recording_translate and read_state() == "offline":
                     return
                 self.last_down_time = now
                 if not self.recording_translate:

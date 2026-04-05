@@ -5,6 +5,12 @@ set -euo pipefail
 
 CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 
+# Common functions (debug, state, notifications)
+_DBG_CONTEXT="switch-backend"
+for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
+    [ -f "$_p/dictee-common.sh" ] && { source "$_p/dictee-common.sh"; break; }
+done
+
 usage() {
     echo "Usage: dictee-switch-backend <command> [backend]"
     echo ""
@@ -12,6 +18,8 @@ usage() {
     echo "  status                    Show current backends"
     echo "  asr <backend>             Switch ASR backend"
     echo "  translate <backend>       Switch translation backend"
+    echo "  diarize [true|false|toggle]  Toggle speaker diarization"
+    echo "  context [true|false]      Toggle audio context buffer"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -37,6 +45,11 @@ if [ $# -lt 1 ]; then
     usage
 fi
 
+_dbg "command=$1 ${2:-}"
+
+
+
+
 case "$1" in
 status)
     # Read current backends from config (disable -eu during source to tolerate malformed values)
@@ -44,13 +57,7 @@ status)
     source "$CONF"
     set -eu
     asr="${DICTEE_ASR_BACKEND:-parakeet}"
-    case "$asr" in
-        parakeet) svc="dictee" ;;
-        canary)   svc="dictee-canary" ;;
-        vosk)     svc="dictee-vosk" ;;
-        whisper)  svc="dictee-whisper" ;;
-        *)        svc="unknown" ;;
-    esac
+    svc=$(asr_service "$asr")
     svc_state=$(systemctl --user is-active "${svc}.service" 2>/dev/null) || true
     echo "ASR: $asr (${svc}.service, $svc_state)"
 
@@ -66,47 +73,50 @@ status)
 
 asr)
     if [ $# -lt 2 ]; then usage; fi
-    # Mapping backend -> service name
-    case "$2" in
-        parakeet) svc="dictee" ;;
-        canary)   svc="dictee-canary" ;;
-        vosk)     svc="dictee-vosk" ;;
-        whisper)  svc="dictee-whisper" ;;
-        *) echo "Error: unknown ASR backend '$2'" >&2; usage ;;
-    esac
+    case "$2" in parakeet|canary|vosk|whisper) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
+    svc=$(asr_service "$2")
 
-    # Check service exists
+    # Check that the service exists
     if ! systemctl --user list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}.service"; then
         echo "Error: ${svc}.service not found. Is the $2 backend installed?" >&2
-        notify-send -t 5000 -i dialog-error -a Dictee "Backend $2 not installed" 2>/dev/null || true
+        notify_dictee 0 dialog-error "Backend $2 not installed"
         exit 1
     fi
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
 
-    # Signal transitional state to plasmoid/tray (protégé par flock)
-    STATE_FILE="/dev/shm/.dictee_state"
-    STATE_LOCK="/dev/shm/.dictee_state.lock"
-    _write_state() { ( flock -n 200 || return 1; echo "$1" > "$STATE_FILE"; ) 200>"$STATE_LOCK"; }
+    write_state "switching"
+    _dbg "asr: switching to $2 (svc=$svc)"
 
-    _write_state "switching"
-
-    # Stop all, start the right one
+    # Stop all daemons, start the right one
     for s in dictee dictee-canary dictee-vosk dictee-whisper; do
         if [ "$s" != "$svc" ]; then
             systemctl --user stop "${s}.service" 2>/dev/null || true
             systemctl --user disable "${s}.service" 2>/dev/null || true
         fi
     done
-    if ! systemctl --user enable --now "${svc}.service" 2>/dev/null; then
+    systemctl --user enable "${svc}.service" 2>/dev/null || true
+    if ! systemctl --user restart "${svc}.service" 2>/dev/null; then
         echo "Warning: ${svc}.service failed to start. Check: systemctl --user status ${svc}.service" >&2
-        _write_state "offline"
+        write_state "offline"
+        _dbg "asr: $svc FAILED to start"
     else
-        _write_state "idle"
+        write_state "idle"
+        _dbg "asr: $svc started OK"
     fi
 
-    echo "ASR backend: $2 (${svc}.service)"
-    notify-send -t 3000 -i audio-chat-symbolic -a Dictee "Backend ASR: $2" 2>/dev/null || true
+    # Build notification with model name for Whisper/Vosk
+    _notify_detail=""
+    if [ "$2" = "whisper" ]; then
+        _wm=$(grep '^DICTEE_WHISPER_MODEL=' "$CONF" 2>/dev/null | cut -d= -f2 || true)
+        [ -n "$_wm" ] && _notify_detail=" (${_wm})"
+    elif [ "$2" = "vosk" ]; then
+        _vm=$(grep '^DICTEE_VOSK_MODEL=' "$CONF" 2>/dev/null | cut -d= -f2 || true)
+        [ -n "$_vm" ] && _notify_detail=" (${_vm})"
+    fi
+    echo "ASR backend: $2${_notify_detail} (${svc}.service)"
+    notify_dictee 0 audio-chat-symbolic "Backend ASR: $2${_notify_detail}"
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     ;;
 
 translate)
@@ -123,17 +133,20 @@ translate)
         ollama)
             if ! command -v ollama >/dev/null 2>&1; then
                 echo "Error: ollama is not installed. See https://ollama.com" >&2
-                notify-send -t 5000 -i dialog-error -a Dictee "Ollama non installé" "Installez ollama depuis https://ollama.com" 2>/dev/null || true
+                notify_dictee 0 dialog-error "Ollama non installé" "Installez ollama depuis https://ollama.com"
                 exit 1
             fi
             set +eu; source "$CONF"; set -eu
             model="${DICTEE_OLLAMA_MODEL:-translategemma}"
             base="${model%%:*}"
+            set +o pipefail
             if ! ollama list 2>/dev/null | grep -q "$base"; then
+                set -o pipefail
                 echo "Error: model '$model' not downloaded. Run: ollama pull $model" >&2
-                notify-send -t 5000 -i dialog-warning -a Dictee "Modèle Ollama manquant" "Configurez Ollama dans dictee-setup" 2>/dev/null || true
+                notify_dictee 0 dialog-warning "Modèle Ollama manquant" "Configurez Ollama dans dictee-setup"
                 exit 1
             fi
+            set -o pipefail
             set_conf "DICTEE_TRANSLATE_BACKEND" "ollama"
             ;;
         libretranslate)
@@ -143,7 +156,75 @@ translate)
     esac
 
     echo "Translate backend: $2"
-    notify-send -t 3000 -i translate-symbolic -a Dictee "Traduction: $2" 2>/dev/null || true
+    notify_dictee 0 translate-symbolic "Traduction: $2"
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    ;;
+
+diarize)
+    val="${2:-true}"
+    set +eu; source "$CONF"; set -eu
+    current_asr="${DICTEE_ASR_BACKEND:-parakeet}"
+
+    _dbg "diarize: val=$val current_asr=$current_asr"
+    if [ "$val" = "true" ]; then
+        # Save current backend and stop daemon to free VRAM
+        write_state "preparing"
+        set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
+        # Stop all daemons and wait for VRAM release
+        _dbg "diarize: stopping all daemons for VRAM"
+        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
+        # Wait until GPU processes are gone (5s timeout)
+        for i in $(seq 1 10); do
+            if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
+                break
+            fi
+            sleep 0.5
+        done
+        write_state "diarize-ready"
+        notify_dictee 0 audio-speakers-symbolic "Diarisation activée"
+        (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    else
+        # Restore the previous backend daemon
+        pre_backend="${DICTEE_PRE_DIARIZE_BACKEND:-$current_asr}"
+        if [ -n "$pre_backend" ]; then
+            set_conf "DICTEE_ASR_BACKEND" "$pre_backend"
+            svc=$(asr_service "$pre_backend")
+            _dbg "diarize: restoring $pre_backend → $svc"
+            systemctl --user enable --now "$svc" 2>/dev/null
+            set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
+            notify_dictee 0 audio-speakers-symbolic "Diarisation désactivée — retour à $pre_backend"
+        else
+            notify_dictee 0 audio-speakers-symbolic "Diarisation désactivée"
+        fi
+        (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+        # Clean up stale DICTEE_DIARIZE from config (no longer used, but might exist from older versions)
+        sed -i '/^DICTEE_DIARIZE=/d' "$CONF" 2>/dev/null || true
+        write_state "idle"
+    fi
+    echo "Diarization: $val"
+    ;;
+
+context)
+    val="${2:-true}"
+    case "$val" in
+        true|false) ;;
+        toggle)
+            set +eu; source "$CONF"; set -eu
+            if [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ]; then val="false"; else val="true"; fi
+            ;;
+        *) echo "Error: context expects true, false, or toggle" >&2; usage ;;
+    esac
+    set_conf "DICTEE_AUDIO_CONTEXT" "$val"
+    _dbg "context: $val"
+    if [ "$val" = "true" ]; then
+        notify_dictee 0 audio-chat-symbolic "Audio context: ON"
+    else
+        notify_dictee 0 audio-chat-symbolic "Audio context: OFF"
+        # Clean up buffer files
+        rm -f "/dev/shm/.dictee_buffer-$(id -u).wav" "/dev/shm/.dictee_buffer_ts-$(id -u)"
+    fi
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    echo "Audio context: $val"
     ;;
 
 *) usage ;;

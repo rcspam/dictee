@@ -1,13 +1,21 @@
-use parakeet_rs::{ExecutionConfig, ExecutionProvider, ParakeetTDT, TimestampMode, Transcriber};
+use parakeet_rs::{
+    Canary, ExecutionConfig, ExecutionProvider, ParakeetTDT, TimestampMode, Transcriber,
+    TranscriptionResult,
+};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
 
-/// Retourne le chemin du socket par utilisateur.
-/// Utilise $XDG_RUNTIME_DIR/transcribe.sock (par défaut /run/user/UID/),
-/// ou /tmp/transcribe-UID.sock en fallback.
+macro_rules! dbg_print {
+    ($debug:expr, $($arg:tt)*) => {
+        if $debug { eprintln!($($arg)*); }
+    };
+}
+
+/// User-specific socket path using XDG_RUNTIME_DIR or /tmp fallback.
 fn socket_path() -> String {
     if let Ok(dir) = env::var("XDG_RUNTIME_DIR") {
         format!("{}/transcribe.sock", dir)
@@ -16,71 +24,183 @@ fn socket_path() -> String {
     }
 }
 
+/// Unified ASR backend: Parakeet TDT or Canary AED
+enum AsrBackend {
+    Parakeet(ParakeetTDT),
+    Canary(Canary),
+}
+
+impl AsrBackend {
+    fn transcribe_samples(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        mode: Option<TimestampMode>,
+    ) -> parakeet_rs::Result<TranscriptionResult> {
+        match self {
+            AsrBackend::Parakeet(p) => p.transcribe_samples(audio, sample_rate, channels, mode),
+            AsrBackend::Canary(c) => c.transcribe_samples(audio, sample_rate, channels, mode),
+        }
+    }
+
+    /// Set decoder context for next transcription (Canary only, no-op for Parakeet)
+    fn set_context(&mut self, text: &str) {
+        if let AsrBackend::Canary(c) = self {
+            let _ = c.set_context_text(text);
+        }
+    }
+
+    /// Check if decoder context is set (Canary: last_token_ids present)
+    fn has_context(&self) -> bool {
+        match self {
+            AsrBackend::Canary(c) => c.last_token_ids().is_some(),
+            AsrBackend::Parakeet(_) => false,
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let debug = env::var("DICTEE_DEBUG").unwrap_or_default() == "true";
     let socket_path = socket_path();
     let args: Vec<String> = env::args().collect();
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        eprintln!("transcribe-daemon - Serveur de transcription via socket Unix");
+        eprintln!("transcribe-daemon - ASR daemon via Unix socket (Parakeet TDT / Canary AED)");
         eprintln!();
-        eprintln!("Usage: transcribe-daemon [model_dir]");
+        eprintln!("Usage: transcribe-daemon [model_dir] [--canary]");
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  [model_dir]   Répertoire du modèle TDT (défaut: /usr/share/dictee/tdt)");
+        eprintln!("  [model_dir]   Model directory (default: /usr/share/dictee/tdt or /canary)");
+        eprintln!("  --canary      Use Canary AED backend instead of Parakeet TDT");
         eprintln!();
-        eprintln!("Écoute sur {}. Utiliser avec transcribe-client.", socket_path);
+        eprintln!("Environment:");
+        eprintln!("  DICTEE_ASR_BACKEND=canary    Select Canary backend");
+        eprintln!("  DICTEE_LANG_SOURCE=fr        Source language (default: fr)");
+        eprintln!("  DICTEE_LANG_TARGET=fr        Target language (default: source)");
+        eprintln!();
+        eprintln!("Socket protocol:");
+        eprintln!("  path.wav                         → transcription");
+        eprintln!("  path.wav\\ttimestamps              → word-level timestamps");
+        eprintln!("  path.wav\\tcontext:previous text   → with decoder context (Canary)");
+        eprintln!();
+        eprintln!("Listening on {}", socket_path);
         return Ok(());
     }
 
-    let model_dir = if args.len() > 1 {
-        args[1].clone()
+    // Detect backend
+    let use_canary = env::var("DICTEE_ASR_BACKEND")
+        .map(|v| v == "canary")
+        .unwrap_or(false)
+        || args.iter().any(|a| a == "--canary");
+
+    let source_lang = env::var("DICTEE_LANG_SOURCE").unwrap_or_else(|_| "fr".to_string());
+    // For Canary: default target = source (transcription, not translation).
+    // Translation is requested per-request via the socket protocol (lang:XX).
+    // DICTEE_LANG_TARGET from dictee.conf is for external translation backends, not Canary.
+    let target_lang = if use_canary {
+        source_lang.clone()
     } else {
-        // Try system dir first, fallback to user dir
-        let sys_dir = "/usr/share/dictee/tdt";
-        let user_dir = format!("{}/.local/share/dictee/tdt",
-            std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
-        if Path::new(sys_dir).join("vocab.txt").exists() {
-            sys_dir.to_string()
-        } else {
-            user_dir
-        }
+        env::var("DICTEE_LANG_TARGET").unwrap_or_else(|_| source_lang.clone())
     };
+
+    // Find model directory
+    let model_dir = args
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with("--"))
+        .cloned()
+        .unwrap_or_else(|| {
+            let subdir = if use_canary { "canary" } else { "tdt" };
+            let user_dir = format!(
+                "{}/.local/share/dictee/{}",
+                env::var("HOME").unwrap_or_else(|_| "/root".to_string()),
+                subdir
+            );
+            let sys_dir = format!("/usr/share/dictee/{}", subdir);
+            // User dir takes priority (local overrides, test models)
+            if Path::new(&user_dir).join("vocab.txt").exists() {
+                user_dir
+            } else {
+                sys_dir
+            }
+        });
 
     // Remove existing socket
     if Path::new(&socket_path).exists() {
         fs::remove_file(&socket_path)?;
     }
 
-    // Configure CUDA if available
+    // Configure execution provider
     #[cfg(feature = "cuda")]
     let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
     #[cfg(not(feature = "cuda"))]
     let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
 
-    eprintln!("Loading model from {}...", &model_dir);
-    let mut parakeet = ParakeetTDT::from_pretrained(&model_dir, Some(config))?;
+    eprintln!(
+        "Loading {} model from {}...",
+        if use_canary { "Canary AED" } else { "Parakeet TDT" },
+        &model_dir
+    );
+
+    let mut backend = if use_canary {
+        AsrBackend::Canary(Canary::from_pretrained(
+            &model_dir,
+            Some(config),
+            &source_lang,
+            &target_lang,
+        )?)
+    } else {
+        AsrBackend::Parakeet(ParakeetTDT::from_pretrained(&model_dir, Some(config))?)
+    };
+
     eprintln!("Model loaded. Listening on {}", socket_path);
 
     let listener = UnixListener::bind(&socket_path)?;
-
-    // Make socket accessible (only current user)
     fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
 
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
                 let reader = BufReader::new(&stream);
+                if let Some(Ok(line)) = reader.lines().next() {
+                    let line = line.trim().to_string();
+                    let req = parse_request(&line);
+                    dbg_print!(debug, "[daemon] request: path={} mode={} context={} lang={:?}",
+                        req.path, req.mode, req.context.is_some(), req.target_lang);
 
-                // Read the audio file path from client
-                if let Some(Ok(audio_path)) = reader.lines().next() {
-                    let audio_path = audio_path.trim();
+                    // Set decoder context if provided (Canary decodercontext)
+                    if let Some(ctx) = req.context {
+                        backend.set_context(&ctx);
+                    }
 
-                    match transcribe_file(&mut parakeet, audio_path) {
+                    // Set target language for Canary translation
+                    if let Some(ref lang) = req.target_lang {
+                        if let AsrBackend::Canary(ref mut canary) = backend {
+                            if let Err(e) = canary.set_target_lang(lang) {
+                                eprintln!("[daemon] invalid target lang '{}': {}", lang, e);
+                            }
+                        }
+                    }
+
+                    let has_ctx = backend.has_context();
+                    dbg_print!(debug, "[daemon] has_context={}", has_ctx);
+
+                    match transcribe_file(&mut backend, req.path, req.mode) {
                         Ok(text) => {
+                            dbg_print!(debug, "[daemon] result: {} chars", text.len());
                             let _ = writeln!(stream, "{}", text);
                         }
                         Err(e) => {
+                            eprintln!("[daemon] error: {}", e);
                             let _ = writeln!(stream, "ERROR: {}", e);
+                        }
+                    }
+
+                    // Reset target language back to source after translation request
+                    if req.target_lang.is_some() {
+                        if let AsrBackend::Canary(ref mut canary) = backend {
+                            let _ = canary.set_target_lang(&source_lang);
                         }
                     }
                 }
@@ -94,9 +214,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Parse request line:
+///   path.wav
+///   path.wav\ttimestamps
+///   path.wav\tdiarize
+///   path.wav\tcontext:previous transcription text
+///   path.wav\ttimestamps\tcontext:previous text
+struct Request<'a> {
+    path: &'a str,
+    mode: &'a str,
+    context: Option<String>,
+    target_lang: Option<String>,
+}
+
+fn parse_request(line: &str) -> Request<'_> {
+    let parts: Vec<&str> = line.splitn(4, '\t').collect();
+    let path = parts[0].trim();
+    let mut mode = "plain";
+    let mut context = None;
+    let mut target_lang = None;
+
+    for &part in parts.iter().skip(1) {
+        let part = part.trim();
+        if let Some(ctx) = part.strip_prefix("context:") {
+            context = Some(ctx.to_string());
+        } else if let Some(lang) = part.strip_prefix("lang:") {
+            target_lang = Some(lang.to_string());
+        } else if part == "timestamps" || part == "diarize" {
+            mode = part;
+        }
+    }
+
+    Request { path, mode, context, target_lang }
+}
+
 fn transcribe_file(
-    parakeet: &mut ParakeetTDT,
+    backend: &mut AsrBackend,
     audio_path: &str,
+    mode: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let mut reader = hound::WavReader::open(audio_path)?;
     let spec = reader.spec();
@@ -109,14 +264,24 @@ fn transcribe_file(
             .collect::<Result<Vec<_>, _>>()?,
     };
 
-    let result = parakeet.transcribe_samples(
-        audio,
-        spec.sample_rate,
-        spec.channels,
-        Some(TimestampMode::Sentences),
-    )?;
+    let ts_mode = match mode {
+        "timestamps" => TimestampMode::Words,
+        "diarize" => TimestampMode::Sentences,
+        _ => TimestampMode::Sentences,
+    };
 
-    Ok(result.text.trim().to_string())
+    let result =
+        backend.transcribe_samples(audio, spec.sample_rate, spec.channels, Some(ts_mode))?;
+
+    match mode {
+        "diarize" | "timestamps" => {
+            let lines: Vec<String> = result
+                .tokens
+                .iter()
+                .map(|t| format!("[{:.2}s - {:.2}s] {}", t.start, t.end, t.text))
+                .collect();
+            Ok(lines.join("\n"))
+        }
+        _ => Ok(result.text.trim().to_string()),
+    }
 }
-
-use std::os::unix::fs::PermissionsExt;

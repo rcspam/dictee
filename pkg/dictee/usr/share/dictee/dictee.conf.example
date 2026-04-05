@@ -1,0 +1,133 @@
+# dictee.conf — Configuration de la dictée vocale
+# Ce fichier est généré par dictee-setup mais peut être édité manuellement.
+# Emplacement : ~/.config/dictee.conf
+# Après modification manuelle, redémarrer le daemon :
+#   dictee-switch-backend asr <backend>
+
+# ============================================================================
+# ASR (reconnaissance vocale)
+# ============================================================================
+
+# Backend ASR actif : parakeet | canary | whisper | vosk
+DICTEE_ASR_BACKEND=parakeet
+
+# Langue source de l'audio (code ISO 639-1)
+DICTEE_LANG_SOURCE=fr
+
+# Langue cible pour la traduction (utilisé par les backends de traduction)
+DICTEE_LANG_TARGET=en
+
+# ── Whisper ──────────────────────────────────────────────────────────────────
+# Modèle faster-whisper : tiny, small, medium, large-v3
+# ou un repo HuggingFace CTranslate2 : Systran/faster-distil-whisper-large-v3
+DICTEE_WHISPER_MODEL=small
+
+# Langue de transcription Whisper (vide = utilise DICTEE_LANG_SOURCE)
+#DICTEE_WHISPER_LANG=
+
+# ── Vosk ─────────────────────────────────────────────────────────────────────
+# Modèle Vosk : code langue (fr, en, de, es, it, pt, ru, zh, ja)
+# Le daemon résout automatiquement vers vosk-model-small-<lang>-x.xx
+DICTEE_VOSK_MODEL=fr
+
+# ── Source audio ─────────────────────────────────────────────────────────────
+# Source audio : vide = micro par défaut, ou app:<nom> (ex: app:firefox)
+#DICTEE_AUDIO_SOURCE=
+
+# ============================================================================
+# Traduction
+# ============================================================================
+
+# Backend traduction : disabled | trans | libretranslate | ollama
+DICTEE_TRANSLATE_BACKEND=disabled
+
+# Moteur translate-shell (si backend=trans) : google | bing
+#DICTEE_TRANS_ENGINE=google
+
+# LibreTranslate : port local et langues installées
+#DICTEE_LIBRETRANSLATE_PORT=5000
+#DICTEE_LIBRETRANSLATE_LANGS=de,en,fr,it,pt
+
+# Ollama : modèle de traduction et mode CPU forcé
+#DICTEE_OLLAMA_MODEL=translategemma
+#OLLAMA_NUM_GPU=0
+
+# ============================================================================
+# Push-to-talk (raccourcis clavier)
+# ============================================================================
+
+# Mode : hold (maintenir) | toggle (appui/relâche)
+DICTEE_PTT_MODE=hold
+
+# Touche PTT (code evdev, 67=F9)
+DICTEE_PTT_KEY=67
+
+# Touche PTT traduction (0 = désactivé)
+#DICTEE_PTT_KEY_TRANSLATE=0
+
+# Modificateur traduction : alt | ctrl | shift (avec même touche PTT)
+#DICTEE_PTT_MOD_TRANSLATE=
+
+# ============================================================================
+# Affichage et feedback
+# ============================================================================
+
+# Copier le texte dans le presse-papier
+DICTEE_CLIPBOARD=true
+
+# Animation visuelle : speech | plasmoid | both | none
+DICTEE_ANIMATION=plasmoid
+
+# ============================================================================
+# Post-traitement du texte
+# ============================================================================
+
+# Activer le post-traitement (ponctuation, règles, etc.)
+DICTEE_POSTPROCESS=true
+
+# Règles par langue (false pour désactiver)
+#DICTEE_PP_ELISIONS=true
+#DICTEE_PP_ELISIONS_IT=true
+#DICTEE_PP_SPANISH=true
+#DICTEE_PP_PORTUGUESE=true
+#DICTEE_PP_GERMAN=true
+#DICTEE_PP_DUTCH=true
+#DICTEE_PP_ROMANIAN=true
+
+# Règles générales
+#DICTEE_PP_NUMBERS=true
+#DICTEE_PP_TYPOGRAPHY=true
+#DICTEE_PP_CAPITALIZATION=true
+#DICTEE_PP_DICT=true
+#DICTEE_PP_RULES=true
+#DICTEE_PP_CONTINUATION=true
+
+# Post-traitement LLM (nécessite ollama)
+#DICTEE_LLM_POSTPROCESS=false
+#DICTEE_LLM_MODEL=ministral:3b
+#DICTEE_LLM_TIMEOUT=10
+#DICTEE_LLM_CPU=false
+
+# ============================================================================
+# Buffer de contexte audio
+# ============================================================================
+
+# Activer le buffer audio (concatène l'enregistrement précédent pour le contexte)
+# Améliore les homophones et les mots coupés entre deux pushes
+DICTEE_AUDIO_CONTEXT=true
+
+# Durée max du buffer en secondes (au-delà, le buffer est vidé)
+DICTEE_AUDIO_CONTEXT_TIMEOUT=30
+
+# ============================================================================
+# Debug
+# ============================================================================
+
+# Activer les logs de debug (shell + Rust + Python)
+# Logs dans /tmp/dictee-debug-<uid>.log
+#DICTEE_DEBUG=false
+
+# ============================================================================
+# Marqueur interne — ne pas modifier
+# ============================================================================
+DICTEE_SETUP_DONE=true

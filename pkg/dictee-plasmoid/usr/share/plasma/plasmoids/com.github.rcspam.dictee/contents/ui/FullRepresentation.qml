@@ -6,7 +6,7 @@ import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
 
-ColumnLayout {
+RowLayout {
     id: fullRep
 
     property string state: "offline"
@@ -14,13 +14,19 @@ ColumnLayout {
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
+    // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
-    // Fermer les ComboBox quand le popup se ferme
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+
+    // Rafraîchir les sources audio à l'ouverture, fermer les ComboBox à la fermeture
     onVisibleChanged: {
         if (!visible) {
             if (asrCombo.popup && asrCombo.popup.visible) asrCombo.popup.close()
             if (transCombo.popup && transCombo.popup.visible) transCombo.popup.close()
+            if (audioSourceCombo.popup && audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
         }
     }
 
@@ -38,7 +44,7 @@ ColumnLayout {
 
         PlasmaExtras.Heading {
             level: 3
-            text: "Dictée"
+            text: i18n("Dictée")
             Layout.fillWidth: true
         }
 
@@ -64,64 +70,170 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
+        // Daemon status group (framed)
         Rectangle {
-            width: Kirigami.Units.smallSpacing * 3
-            height: width
-            radius: width / 2
-            color: {
-                switch (fullRep.state) {
-                case "offline":
-                    return Kirigami.Theme.negativeTextColor
-                case "recording":
-                    return Kirigami.Theme.highlightColor
-                case "transcribing":
-                    return Kirigami.Theme.positiveTextColor
-                case "switching":
-                    return Kirigami.Theme.neutralTextColor
-                default:
-                    return Kirigami.Theme.positiveTextColor
+            Layout.preferredHeight: daemonRow.implicitHeight + Kirigami.Units.smallSpacing * 2
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 12
+            radius: 4
+            color: "transparent"
+            border.color: Kirigami.Theme.disabledTextColor
+            border.width: 1
+
+            RowLayout {
+                id: daemonRow
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                Rectangle {
+                    width: Kirigami.Units.smallSpacing * 3
+                    height: width
+                    radius: width / 2
+                    color: {
+                        switch (fullRep.state) {
+                        case "offline":
+                            return Kirigami.Theme.negativeTextColor
+                        case "recording":
+                            return Kirigami.Theme.highlightColor
+                        case "transcribing":
+                            return Kirigami.Theme.positiveTextColor
+                        case "switching":
+                            return Kirigami.Theme.neutralTextColor
+                        case "preparing":
+                        case "diarize-ready":
+                        case "diarizing":
+                            return "#9B59B6"
+                        default:
+                            return Kirigami.Theme.positiveTextColor
+                        }
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: {
+                        switch (fullRep.state) {
+                        case "offline":
+                            if (!fullRep.dicteeInstalled) return i18n("Not installed")
+                            if (!fullRep.dicteeConfigured) return i18n("Not configured")
+                            return i18n("Stopped")
+                        case "idle":
+                            return i18n("Active")
+                        case "recording":
+                            return i18n("Recording…")
+                        case "transcribing":
+                            return i18n("Transcribing…")
+                        case "switching":
+                            return i18n("Switching…")
+                        case "preparing":
+                            return i18n("Preparing…")
+                        case "diarize-ready":
+                            return i18n("Diarize ready")
+                        case "diarizing":
+                            return i18n("Diarizing…")
+                        default:
+                            return ""
+                        }
+                    }
+                    Layout.fillWidth: true
+                }
+
+                Item { Layout.fillWidth: true }
+
+                PlasmaComponents.ToolButton {
+                    icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
+                    display: PlasmaComponents.AbstractButton.IconOnly
+                    implicitHeight: Kirigami.Units.gridUnit * 1.5
+                    implicitWidth: implicitHeight
+                    PlasmaComponents.ToolTip {
+                        text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
+                    }
+                    onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
                 }
             }
         }
 
-        PlasmaComponents.Label {
-            text: {
-                switch (fullRep.state) {
-                case "offline":
-                    if (!fullRep.dicteeInstalled) return i18n("Dictée not installed — install dictee package")
-                    if (!fullRep.dicteeConfigured) return i18n("Not configured — click Configure Dictée below")
-                    return i18n("Daemon stopped")
-                case "idle":
-                    return i18n("Daemon active")
-                case "recording":
-                    return i18n("Recording…")
-                case "transcribing":
-                    return i18n("Transcribing…")
-                case "switching":
-                    return i18n("Switching backend…")
-                default:
-                    return ""
+        Item { Layout.fillWidth: true }
+
+        // Banner dictée (dark/light theme)
+        Image {
+            source: Kirigami.Theme.textColor.hslLightness > 0.5
+                ? "assets/banner-dark.svg" : "assets/banner-light.svg"
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+            Layout.alignment: Qt.AlignHCenter | Qt.AlignVCenter
+            fillMode: Image.PreserveAspectFit
+            smooth: true
+        }
+
+        Item { Layout.fillWidth: true }
+
+        QQC2.ComboBox {
+            id: audioSourceCombo
+            Kirigami.Theme.inherit: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+            visible: root.dicteeConfigured && root.audioSourceList.length > 0
+            textRole: "label"
+            model: root.audioSourceList
+            delegate: QQC2.ItemDelegate {
+                width: parent ? parent.width : 0
+                contentItem: RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+                    Kirigami.Icon {
+                        source: modelData.icon || "audio-input-microphone"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    }
+                    QQC2.Label {
+                        text: modelData.label
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                }
+                highlighted: audioSourceCombo.highlightedIndex === index
+            }
+            displayText: " "
+            contentItem: RowLayout {
+                spacing: Kirigami.Units.smallSpacing
+                Kirigami.Icon {
+                    source: (root.audioSourceList.length > 0 && audioSourceCombo.currentIndex >= 0)
+                            ? root.audioSourceList[audioSourceCombo.currentIndex].icon
+                            : "audio-input-microphone"
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                }
+                QQC2.Label {
+                    text: (root.audioSourceList.length > 0 && audioSourceCombo.currentIndex >= 0)
+                          ? root.audioSourceList[audioSourceCombo.currentIndex].label
+                          : ""
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
                 }
             }
-            Layout.fillWidth: true
-        }
-
-        PlasmaComponents.ToolButton {
-            icon.name: "view-refresh"
-            display: PlasmaComponents.AbstractButton.IconOnly
-            visible: fullRep.state !== "offline"
-            PlasmaComponents.ToolTip { text: i18n("Reset") }
-            onClicked: fullRep.actionRequested("reset")
-        }
-
-        PlasmaComponents.ToolButton {
-            icon.name: fullRep.state === "offline" ? "media-playback-start" : "media-playback-stop"
-            display: PlasmaComponents.AbstractButton.IconOnly
-            PlasmaComponents.ToolTip {
-                text: fullRep.state === "offline" ? i18n("Start daemon") : i18n("Stop daemon")
+            currentIndex: {
+                for (var i = 0; i < root.audioSourceList.length; i++) {
+                    if (root.audioSourceList[i].value === root.currentAudioSource) return i
+                }
+                return 0
             }
-            onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
+            onActivated: function(index) {
+                var val = root.audioSourceList[index].value
+                root.currentAudioSource = val
+                executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_AUDIO_SOURCE=\" \"$conf\" && sed -i \"s|^DICTEE_AUDIO_SOURCE=.*|DICTEE_AUDIO_SOURCE=" + val + "|\" \"$conf\" || echo \"DICTEE_AUDIO_SOURCE=" + val + "\" >> \"$conf\"'")
+            }
+            Connections {
+                target: root
+                function onAudioSourceListChanged() {
+                    for (var i = 0; i < root.audioSourceList.length; i++) {
+                        if (root.audioSourceList[i].value === root.currentAudioSource) {
+                            audioSourceCombo.currentIndex = i
+                            return
+                        }
+                    }
+                    audioSourceCombo.currentIndex = 0
+                }
+            }
         }
+
     }
 
     // Separateur
@@ -129,57 +241,182 @@ ColumnLayout {
         Layout.fillWidth: true
     }
 
+    // Message when not configured
+    PlasmaComponents.Label {
+        Layout.fillWidth: true
+        visible: !root.dicteeConfigured
+        text: i18n("Press the Configure Dictée button below to get started.")
+        color: "#e90"
+        wrapMode: Text.WordWrap
+        horizontalAlignment: Text.AlignHCenter
+        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
+    }
+
     // Boutons dictee
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
-        visible: fullRep.state !== "offline"
+        visible: root.dicteeConfigured
+
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 0
+            implicitHeight: btnDictate.implicitHeight
+
+            PlasmaComponents.Button {
+                id: btnDictate
+                anchors.fill: parent
+                text: i18n("Dictation")
+                icon.name: "audio-input-microphone"
+                onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
+                enabled: fullRep.state === "idle" || fullRep.state === "recording"
+                leftPadding: dictateDot.visible ? 20 : undefined
+            }
+
+            Rectangle {
+                id: dictateDot
+                property bool active: fullRep.state === "recording" && root.activeButton === "dictate"
+                visible: active
+                width: 10; height: 10; radius: 5
+                color: "#ff0000"
+                z: 100
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                onActiveChanged: {
+                    if (active) { dictateDotAnim.start() }
+                    else { dictateDotAnim.stop(); opacity = 1.0 }
+                }
+            }
+            SequentialAnimation {
+                id: dictateDotAnim
+                loops: Animation.Infinite
+                NumberAnimation { target: dictateDot; property: "opacity"; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: dictateDot; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 0
+            implicitHeight: btnTranslate.implicitHeight
+
+            PlasmaComponents.Button {
+                id: btnTranslate
+                anchors.fill: parent
+                text: i18n("Translate")
+                icon.name: "translate"
+                onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
+                enabled: fullRep.state === "idle" || fullRep.state === "recording"
+                leftPadding: translateDot.visible ? 20 : undefined
+            }
+
+            Rectangle {
+                id: translateDot
+                property bool active: fullRep.state === "recording" && root.activeButton === "dictate-translate"
+                visible: active
+                width: 10; height: 10; radius: 5
+                color: "#ff0000"
+                z: 100
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                onActiveChanged: {
+                    if (active) { translateDotAnim.start() }
+                    else { translateDotAnim.stop(); opacity = 1.0 }
+                }
+            }
+            SequentialAnimation {
+                id: translateDotAnim
+                loops: Animation.Infinite
+                NumberAnimation { target: translateDot; property: "opacity"; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: translateDot; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+            }
+        }
 
         PlasmaComponents.Button {
-            text: i18n("Voice dictation")
-            icon.name: "audio-input-microphone"
-            onClicked: fullRep.actionRequested("dictate")
+            id: btnDiarize
             Layout.fillWidth: true
-            enabled: fullRep.state === "idle" || fullRep.state === "recording"
-        }
+            Layout.preferredWidth: 0
 
-        PlasmaComponents.Button {
-            text: i18n("Dictation + Translation")
-            icon.name: "translate"
-            onClicked: fullRep.actionRequested("dictate-translate")
-            Layout.fillWidth: true
-            enabled: fullRep.state === "idle" || fullRep.state === "recording"
-        }
-    }
+            enabled: root.sortformerAvailable && (
+                fullRep.state === "idle" ||
+                fullRep.state === "preparing" ||
+                fullRep.state === "diarize-ready" ||
+                (fullRep.state === "recording" && root.activeButton === "diarize")
+            )
 
-    // Bouton annuler (visible uniquement en recording)
-    PlasmaComponents.Button {
-        visible: fullRep.state === "recording"
-        Layout.fillWidth: true
-        onClicked: fullRep.actionRequested("cancel")
-
-        contentItem: RowLayout {
-            spacing: Kirigami.Units.smallSpacing
-            Kirigami.Icon {
-                source: "dialog-cancel"
-                Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                color: Kirigami.Theme.negativeTextColor
+            contentItem: RowLayout {
+                spacing: 4
+                Kirigami.Icon {
+                    source: "group"
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                }
+                PlasmaComponents.Label {
+                    text: {
+                        switch (fullRep.state) {
+                            case "preparing":     return i18n("Preparing… (click to cancel)")
+                            case "diarize-ready":  return i18n("Start diarization")
+                            case "diarizing":     return i18n("Diarization in progress...")
+                            default:
+                                if (fullRep.state === "recording" && root.activeButton === "diarize")
+                                    return i18n("Stop diarization")
+                                return i18n("Diarization")
+                        }
+                    }
+                    color: {
+                        if (fullRep.state === "diarize-ready") return "#98c379"
+                        if (fullRep.state === "recording" && root.activeButton === "diarize") return "#e06c75"
+                        return Kirigami.Theme.textColor
+                    }
+                }
             }
-            PlasmaComponents.Label {
-                text: i18n("Cancel recording")
-                color: Kirigami.Theme.negativeTextColor
-                Layout.fillWidth: true
+
+            onClicked: {
+                switch (fullRep.state) {
+                    case "idle":
+                        root.activeButton = "diarize"
+                        fullRep.actionRequested("diarize-prepare")
+                        break
+                    case "preparing":
+                        fullRep.actionRequested("cancel")
+                        break
+                    case "diarize-ready":
+                        fullRep.actionRequested("dictate")
+                        break
+                    case "recording":
+                        fullRep.actionRequested("dictate")
+                        break
+                }
             }
+
+            opacity: fullRep.state === "preparing" ? pulseAnim.pulseOpacity : 1.0
+
+            SequentialAnimation {
+                id: pulseAnim
+                property real pulseOpacity: 1.0
+                running: fullRep.state === "preparing"
+                loops: Animation.Infinite
+                NumberAnimation { target: pulseAnim; property: "pulseOpacity"; to: 0.4; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: pulseAnim; property: "pulseOpacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+            }
+
+            QQC2.ToolTip.text: {
+                if (!root.sortformerAvailable)
+                    return i18n("Sortformer model not installed. Configure in dictee-setup.")
+                switch (fullRep.state) {
+                    case "preparing": return i18n("Freeing GPU memory...")
+                    case "diarize-ready": return i18n("Click to start recording with speaker identification")
+                    case "recording": return root.activeButton === "diarize"
+                        ? i18n("Click to stop and identify speakers")
+                        : i18n("Record and identify speakers (max 4)")
+                    default: return i18n("Record and identify speakers (max 4)")
+                }
+            }
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
     }
 
-    // Raccourci ESC pour annuler
-    Keys.onEscapePressed: {
-        if (fullRep.state === "recording") {
-            fullRep.actionRequested("cancel")
-        }
-    }
 
     // Separateur avant transcription
     Kirigami.Separator {
@@ -265,8 +502,20 @@ ColumnLayout {
                     syncIndex()
                 }
             }
-            Layout.fillWidth: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
         }
+
+        QQC2.CheckBox {
+            id: chkAudioContext
+            text: i18n("Context")
+            checked: root.audioContextEnabled
+            onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
+            QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+        }
+
+        Item { Layout.fillWidth: true }
 
         PlasmaComponents.Label {
             text: i18n("Translation:")
@@ -300,7 +549,10 @@ ColumnLayout {
             onActivated: function(index) {
                 var val = transModel.get(index).value
                 if (root.installedTranslate.indexOf(val) !== -1) {
+                    root.backendUserChangeTime = Date.now()
+                    root.currentTranslateBackend = val
                     executable.run("dictee-switch-backend translate " + val)
+                    executable.run(root.translateLangsCmd + " " + val)
                 } else {
                     // Revert
                     for (var i = 0; i < transModel.count; i++) {
@@ -310,39 +562,241 @@ ColumnLayout {
                     }
                 }
             }
-            Layout.fillWidth: true
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
             enabled: root.currentAsrBackend !== "canary"
+        }
+
+        QQC2.ComboBox {
+            id: langCombo
+            Kirigami.Theme.inherit: true
+            model: ListModel { id: langModel }
+            textRole: "text"
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            onPressedChanged: {
+                if (pressed) {
+                    root.lastTranslateBackendForLangs = ""
+                    root.availableLangTarget = []
+                    executable.run(root.translateLangsCmd + " " + root.currentTranslateBackend)
+                }
+            }
+            Connections {
+                target: root
+                function onAvailableLangTargetChanged() {
+                    var prev = root.currentLangTarget
+                    langModel.clear()
+                    for (var i = 0; i < root.availableLangTarget.length; i++) {
+                        var code = root.availableLangTarget[i]
+                        langModel.append({ text: code, value: code })
+                    }
+                    // Restore previous selection
+                    var found = false
+                    for (var j = 0; j < langModel.count; j++) {
+                        if (langModel.get(j).value === prev) {
+                            langCombo.currentIndex = j
+                            found = true
+                            break
+                        }
+                    }
+                    if (!found && langModel.count > 0) {
+                        langCombo.currentIndex = 0
+                        // Update config to match the fallback language
+                        var fallback = langModel.get(0).value
+                        root.currentLangTarget = fallback
+                        executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_LANG_TARGET=\" \"$conf\" && sed -i \"s|^DICTEE_LANG_TARGET=.*|DICTEE_LANG_TARGET=" + fallback + "|\" \"$conf\" || echo \"DICTEE_LANG_TARGET=" + fallback + "\" >> \"$conf\"'")
+                    }
+                }
+            }
+            delegate: QQC2.ItemDelegate {
+                width: parent ? parent.width : 0
+                text: model.value === "---" ? "───" : model.text
+                enabled: model.value !== "---" && model.value !== root.currentLangSource
+                opacity: model.value === "---" ? 0.3 : (enabled ? 1.0 : 0.4)
+            }
+            onActivated: function(index) {
+                if (index < 0 || index >= langModel.count) return
+                var val = langModel.get(index).value
+                if (val === "---" || val === root.currentLangSource) return
+                root.currentLangTarget = val
+                executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_LANG_TARGET=\" \"$conf\" && sed -i \"s|^DICTEE_LANG_TARGET=.*|DICTEE_LANG_TARGET=" + val + "|\" \"$conf\" || echo \"DICTEE_LANG_TARGET=" + val + "\" >> \"$conf\"'")
+            }
+            enabled: root.currentAsrBackend !== "canary"
+            QQC2.ToolTip.text: root.currentTranslateBackend === "libretranslate"
+                ? i18n("Target language — add languages in Configure Dictée (LibreTranslate)")
+                : i18n("Target language for translation")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
     }
 
-    // Preview + configuration
+    // Actions + Preview
     RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
-        QQC2.CheckBox {
-            text: i18n("Preview (mic test)")
-            checked: Plasmoid.configuration.previewMode
-            onToggled: Plasmoid.configuration.previewMode = checked
+        PlasmaComponents.Button {
+            text: i18n("Transcribe file")
+            icon.name: "document-open"
+            flat: true
+            onClicked: fullRep.actionRequested("transcribe-file")
+            QQC2.ToolTip.text: i18n("Open an audio file for transcription")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
-
-        Item { Layout.fillWidth: true }
 
         PlasmaComponents.Button {
             text: i18n("Post-processing...")
             icon.name: "document-edit"
             flat: true
             onClicked: fullRep.actionRequested("postprocess")
+            QQC2.ToolTip.text: i18n("Configure post-processing rules (regex, dictionary, continuation)")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
         }
 
         PlasmaComponents.Button {
             text: i18n("Configure Dictée")
             icon.name: "configure"
-            flat: true
+            flat: root.dicteeConfigured
             onClicked: fullRep.actionRequested("setup")
+            QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 500
+
+            background: Rectangle {
+                visible: !root.dicteeConfigured
+                color: "transparent"
+                border.color: "#e90"
+                border.width: 2
+                radius: 4
+            }
+
+            contentItem: Text {
+                visible: !root.dicteeConfigured
+                text: parent.text
+                color: "#e90"
+                font.bold: true
+                font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
+
+        Item { Layout.fillWidth: true }
+
+        PlasmaComponents.ToolButton {
+            icon.name: "edit-reset"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            Kirigami.Theme.inherit: false
+            Kirigami.Theme.textColor: "#c0392b"
+            onClicked: fullRep.actionRequested("reset")
+            PlasmaComponents.ToolTip { text: i18n("Reset everything — stop all processes, restart daemon") }
+        }
+
+        PlasmaComponents.ToolButton {
+            icon.name: Plasmoid.configuration.previewMode ? "view-visible" : "view-hidden"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            checkable: true
+            checked: Plasmoid.configuration.previewMode
+            onToggled: Plasmoid.configuration.previewMode = checked
+            PlasmaComponents.ToolTip { text: i18n("Live microphone animation preview") }
         }
     }
 
-    // Focus pour recevoir ESC
-    Component.onCompleted: forceActiveFocus()
+
+
+    }  // end ColumnLayout
+
+    // Séparateur vertical avant le slider micro
+    Kirigami.Separator {
+        Layout.fillHeight: true
+        Layout.topMargin: Kirigami.Units.largeSpacing * 4
+    }
+
+    // Vertical microphone volume slider + level meter (right side)
+    ColumnLayout {
+        Layout.fillHeight: true
+        Layout.preferredWidth: 50
+        Layout.topMargin: Kirigami.Units.largeSpacing * 4
+        spacing: Kirigami.Units.smallSpacing
+
+        Kirigami.Icon {
+            source: root.micMuted ? "microphone-sensitivity-muted" : "audio-input-microphone"
+            color: root.micMuted ? "#e06c75" : Kirigami.Theme.textColor
+            Layout.preferredWidth: Kirigami.Units.iconSizes.small
+            Layout.preferredHeight: Kirigami.Units.iconSizes.small
+            Layout.alignment: Qt.AlignHCenter
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
+            MouseArea {
+                id: micIconMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: {
+                    executable.run("wpctl set-mute @DEFAULT_SOURCE@ toggle")
+                    root.micMuted = !root.micMuted
+                }
+            }
+            QQC2.ToolTip.text: root.micMuted ? i18n("Microphone muted — click to unmute") : i18n("Microphone — click to mute")
+            QQC2.ToolTip.visible: micIconMouse.containsMouse
+            QQC2.ToolTip.delay: 300
+        }
+
+        RowLayout {
+            Layout.fillHeight: true
+            spacing: 4
+
+            QQC2.Slider {
+                id: micSlider
+                Layout.fillHeight: true
+                orientation: Qt.Vertical
+                from: 0.0
+                to: 0.6
+                stepSize: 0.0
+                snapMode: QQC2.Slider.NoSnap
+                value: root.micVolume
+                onMoved: {
+                    root.micVolume = value
+                    executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+                }
+                QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: 300
+            }
+
+            // Level meter — barre verticale alignée sur le slider
+            Rectangle {
+                Layout.fillHeight: true
+                Layout.preferredWidth: 6
+                radius: 3
+                color: Kirigami.Theme.backgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                clip: true
+
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - 2
+                    property real level: root.audioLevel || 0.0
+                    height: Math.max(0, parent.height * Math.min(1.0, level * 1.5))
+                    radius: 2
+                    color: level > 0.8 ? Kirigami.Theme.negativeTextColor
+                         : level > 0.4 ? Kirigami.Theme.neutralTextColor
+                         : Kirigami.Theme.positiveTextColor
+
+                    Behavior on height {
+                        NumberAnimation { duration: 50 }
+                    }
+                }
+
+                QQC2.ToolTip.text: i18n("Audio input level")
+                QQC2.ToolTip.visible: levelMeterMouse.containsMouse
+                QQC2.ToolTip.delay: 300
+                MouseArea {
+                    id: levelMeterMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                }
+            }
+        }
+    }
 }
