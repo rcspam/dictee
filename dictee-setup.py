@@ -2229,6 +2229,16 @@ class DicteeSetupDialog(QDialog):
         self._model_threads = {}
         self._venv_threads = {}
         self._audio_monitor = None
+        # Command suffixes — init from conf, fallback to defaults
+        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                         "es": "listo", "it": "seguito", "pt": "pronto",
+                         "uk": "далі"}
+        _tmp_conf = load_config() if _conf_exists else {}
+        self._command_suffixes = {}
+        for code, _name in LANGUAGES:
+            self._command_suffixes[code] = _tmp_conf.get(
+                f"DICTEE_COMMAND_SUFFIX_{code.upper()}",
+                _sfx_defaults.get(code, ""))
         self._test_thread = None
         self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
@@ -9544,7 +9554,7 @@ class DicteeSetupDialog(QDialog):
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
-                    command_suffixes=getattr(self, '_command_suffixes', None))
+                    command_suffixes=self._command_suffixes)
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
