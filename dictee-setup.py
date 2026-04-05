@@ -231,7 +231,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 llm_postprocess=False, llm_model="ministral:3b",
                 llm_timeout=10, llm_cpu=False,
                 audio_context=False, audio_context_timeout=30,
-                notifications=True, notifications_text=True):
+                notifications=True, notifications_text=True,
+                command_suffixes=None):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     import tempfile as _tmpmod
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
@@ -313,6 +314,11 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write("DICTEE_NOTIFICATIONS=false\n")
         if not notifications_text:
             f.write("DICTEE_NOTIFICATIONS_TEXT=false\n")
+        # Command suffixes (disambiguation per language)
+        if command_suffixes:
+            for code, suffix in command_suffixes.items():
+                if suffix:
+                    f.write(f"DICTEE_COMMAND_SUFFIX_{code.upper()}={suffix}\n")
         f.write("DICTEE_SETUP_DONE=true\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
@@ -7123,6 +7129,37 @@ class DicteeSetupDialog(QDialog):
         self._cont_keyword.textChanged.connect(self._update_kw_variants)
         self._update_kw_variants(_kw_default)
 
+        # Command suffix (disambiguation for ambiguous words like "point")
+        sfx_lay = QHBoxLayout()
+        sfx_lay.setSpacing(6)
+        sfx_label = QLabel(_("Command suffix:"))
+        sfx_label.setToolTip(_(
+            "Word to append after ambiguous voice commands like \"point\"\n"
+            "to distinguish them from normal words.\n\n"
+            "Example with suffix \"suivi\":\n"
+            "  \"point suivi\" → \".\"\n"
+            "  \"un bon point\" → kept as text\n\n"
+            "Leave empty to disable suffix-based commands."))
+        self._command_suffix = QLineEdit()
+        self._command_suffix.setMaximumWidth(200)
+        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                         "es": "listo", "it": "seguito", "pt": "pronto",
+                         "uk": "далі"}
+        self._command_suffixes = {}
+        # Load existing suffixes from conf
+        for code in ("fr", "en", "de", "es", "it", "pt", "uk"):
+            val = self.conf.get(f"DICTEE_COMMAND_SUFFIX_{code.upper()}", "")
+            self._command_suffixes[code] = val
+        _sfx_current = self._command_suffixes.get(_lang, "")
+        self._command_suffix.setPlaceholderText(_sfx_defaults.get(_lang, ""))
+        self._command_suffix.setText(_sfx_current)
+        self._command_suffix_lang = _lang
+        self._command_suffix.textChanged.connect(self._on_suffix_changed)
+        sfx_lay.addWidget(sfx_label)
+        sfx_lay.addWidget(self._command_suffix)
+        sfx_lay.addStretch()
+        form_top_lay.addLayout(sfx_lay)
+
         # Search bar
         self._cont_search = QLineEdit()
         self._cont_search.addAction(
@@ -7635,6 +7672,10 @@ class DicteeSetupDialog(QDialog):
             variants.add(with_hyphen.capitalize())
         sorted_v = sorted(variants, key=lambda s: (s.lower(), s))
         self._cont_kw_variants.setText(_("Accepted: ") + ", ".join(sorted_v))
+
+    def _on_suffix_changed(self, text):
+        """Save suffix for current language in memory."""
+        self._command_suffixes[self._command_suffix_lang] = text.strip()
 
     def _cont_factory_reset(self):
         """Restores system file defaults."""
@@ -9373,7 +9414,8 @@ class DicteeSetupDialog(QDialog):
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),
-                    notifications_text=self.chk_notifications_text.isChecked())
+                    notifications_text=self.chk_notifications_text.isChecked(),
+                    command_suffixes=getattr(self, '_command_suffixes', None))
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
