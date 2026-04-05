@@ -2365,7 +2365,9 @@ class DicteeSetupDialog(QDialog):
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             lay_asr.addWidget(warn_lbl)
 
+
         self._build_parakeet_options(lay_asr)
+
         self._build_vosk_options(lay_asr)
         self._build_whisper_options(lay_asr)
         self._build_canary_options(lay_asr)
@@ -2517,7 +2519,6 @@ class DicteeSetupDialog(QDialog):
         content_h = content.sizeHint().height()
         buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
         self.setMaximumHeight(content_h + buttons_h + 10)
-
     def _on_launch_wizard(self):
         _dbg_setup("_on_launch_wizard")
         """Ferme le dialog et relance en mode wizard."""
