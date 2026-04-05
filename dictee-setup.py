@@ -2194,6 +2194,20 @@ class _CheckMarkComboBox(QComboBox):
         painter.end()
 
 
+def _help_btn(tooltip_text):
+    """Creates a small '?' button with a rich-text tooltip."""
+    btn = QPushButton("?")
+    btn.setFixedSize(22, 22)
+    btn.setStyleSheet(
+        "QPushButton { font-weight: bold; font-size: 12px; border: 1px solid palette(mid); "
+        "border-radius: 11px; background: palette(base); } "
+        "QPushButton:hover { background: palette(highlight); color: palette(highlighted-text); }")
+    btn.setToolTip(tooltip_text)
+    btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    btn.setCursor(Qt.CursorShape.WhatsThisCursor)
+    return btn
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -5350,15 +5364,32 @@ class DicteeSetupDialog(QDialog):
         sfx_lay = QHBoxLayout()
         sfx_lay.setSpacing(6)
         sfx_label = QLabel(_("Command suffix:"))
-        sfx_label.setToolTip(_(
-            "Word to append after ambiguous voice commands like \"point\"\n"
-            "to distinguish them from normal words.\n\n"
-            "Example with suffix \"suivi\":\n"
-            "  \"point suivi\" → \".\"\n"
-            "  \"un bon point\" → kept as text\n\n"
-            "Rules use %SUFFIX_XX% placeholders that are replaced\n"
-            "by this value at runtime.\n\n"
-            "Leave empty to disable suffix-based commands."))
+        sfx_help = _help_btn(_(
+            "<b>Command suffix</b><br><br>"
+            "Some voice commands use words that also exist as normal words. "
+            "For example, \"point\" in French means both the punctuation mark "
+            "and the word \"point\" (as in \"a good point\").<br><br>"
+            "The suffix is a word you say <b>after</b> the ambiguous command "
+            "to confirm it's a voice command, not a regular word.<br><br>"
+            "<b>Example (suffix = \"suivi\"):</b><br>"
+            "\"point suivi\" → \".\" (punctuation)<br>"
+            "\"un bon point\" → kept as text<br><br>"
+            "<b>Ambiguous commands by language:</b><br>"
+            "• FR: \"point\", \"deux points\"<br>"
+            "• EN: \"period\", \"colon\"<br>"
+            "• DE: \"Punkt\"<br>"
+            "• ES: \"punto\", \"coma\"<br>"
+            "• IT: \"punto\"<br>"
+            "• PT: \"ponto\"<br>"
+            "• UK: \"крапка\", \"кома\"<br><br>"
+            "Non-ambiguous commands (\"virgule\", \"point virgule\", "
+            "\"point d'interrogation\", etc.) work without suffix.<br><br>"
+            "<b>Per language:</b> Select a language in the combo box "
+            "to set a different suffix for each language.<br><br>"
+            "In the rules editor below, use <code>%SUFFIX_XX%</code> "
+            "placeholders (e.g. <code>%SUFFIX_FR%</code>) — they are "
+            "replaced by this value at runtime.<br><br>"
+            "Leave empty to disable suffix-based commands for that language."))
         self._suffix_lang = QComboBox()
         self._suffix_lang.setFixedWidth(60)
         _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
@@ -5382,6 +5413,7 @@ class DicteeSetupDialog(QDialog):
         sfx_lay.addWidget(sfx_label)
         sfx_lay.addWidget(self._suffix_lang)
         sfx_lay.addWidget(self._command_suffix)
+        sfx_lay.addWidget(sfx_help)
         sfx_lay.addStretch()
         lay.addLayout(sfx_lay)
 
@@ -7143,12 +7175,19 @@ class DicteeSetupDialog(QDialog):
         kw_lay = QHBoxLayout()
         kw_lay.setSpacing(6)
         kw_label = QLabel(_("Continuation keyword:"))
-        kw_label.setToolTip(_(
-            "Say this word at the start of a push-to-talk segment\n"
-            "to remove the previous punctuation and continue in lowercase.\n\n"
-            "Example: \"I eat.\" + \"counterpoint some cheese\"\n"
-            "→ \"I eat some cheese\"\n\n"
-            "Leave empty to disable."))
+        kw_help = _help_btn(_(
+            "<b>Continuation keyword</b><br><br>"
+            "When you start a new dictation segment with this word, "
+            "the system removes the previous punctuation and continues "
+            "in lowercase — as if the sentence was never finished.<br><br>"
+            "<b>Example (keyword = \"minuscule\"):</b><br>"
+            "Push 1: \"I eat.\"<br>"
+            "Push 2: \"minuscule some cheese\"<br>"
+            "Result: \"I eat some cheese\"<br><br>"
+            "<b>Per language:</b> Select a language in the combo box to set "
+            "a different keyword for each language. The keyword is only active "
+            "when dictating in that language.<br><br>"
+            "Leave empty to disable for that language."))
         self._cont_kw_lang = QComboBox()
         self._cont_kw_lang.setFixedWidth(60)
         _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
@@ -7169,6 +7208,7 @@ class DicteeSetupDialog(QDialog):
         kw_lay.addWidget(kw_label)
         kw_lay.addWidget(self._cont_kw_lang)
         kw_lay.addWidget(self._cont_keyword)
+        kw_lay.addWidget(kw_help)
         kw_lay.addStretch()
         form_top_lay.addLayout(kw_lay)
 
