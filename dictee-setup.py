@@ -5346,6 +5346,45 @@ class DicteeSetupDialog(QDialog):
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
 
+        # --- Command suffix (per language) ---
+        sfx_lay = QHBoxLayout()
+        sfx_lay.setSpacing(6)
+        sfx_label = QLabel(_("Command suffix:"))
+        sfx_label.setToolTip(_(
+            "Word to append after ambiguous voice commands like \"point\"\n"
+            "to distinguish them from normal words.\n\n"
+            "Example with suffix \"suivi\":\n"
+            "  \"point suivi\" → \".\"\n"
+            "  \"un bon point\" → kept as text\n\n"
+            "Rules use %SUFFIX_XX% placeholders that are replaced\n"
+            "by this value at runtime.\n\n"
+            "Leave empty to disable suffix-based commands."))
+        self._suffix_lang = QComboBox()
+        self._suffix_lang.setFixedWidth(60)
+        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                         "es": "listo", "it": "seguito", "pt": "pronto",
+                         "uk": "далі"}
+        self._command_suffixes = {}
+        for code, _name in LANGUAGES:
+            self._suffix_lang.addItem(code)
+            self._command_suffixes[code] = self.conf.get(
+                f"DICTEE_COMMAND_SUFFIX_{code.upper()}", "")
+        idx = self._suffix_lang.findText(_lang)
+        if idx >= 0:
+            self._suffix_lang.setCurrentIndex(idx)
+        self._command_suffix = QLineEdit()
+        self._command_suffix.setMaximumWidth(200)
+        self._command_suffix.setPlaceholderText(_sfx_defaults.get(_lang, ""))
+        self._command_suffix.setText(self._command_suffixes.get(_lang, ""))
+        self._suffix_lang.currentTextChanged.connect(self._on_suffix_lang_changed)
+        self._command_suffix.textChanged.connect(self._on_suffix_changed)
+        sfx_lay.addWidget(sfx_label)
+        sfx_lay.addWidget(self._suffix_lang)
+        sfx_lay.addWidget(self._command_suffix)
+        sfx_lay.addStretch()
+        lay.addLayout(sfx_lay)
+
         # --- Warning ---
         warn = QLabel(
             '<span style="color: red; font-weight: bold;">⚠ ' +
@@ -7100,7 +7139,7 @@ class DicteeSetupDialog(QDialog):
         info.setFont(font)
         form_top_lay.addWidget(info)
 
-        # Continuation keyword
+        # Continuation keyword (per language)
         kw_lay = QHBoxLayout()
         kw_lay.setSpacing(6)
         kw_label = QLabel(_("Continuation keyword:"))
@@ -7110,14 +7149,25 @@ class DicteeSetupDialog(QDialog):
             "Example: \"I eat.\" + \"counterpoint some cheese\"\n"
             "→ \"I eat some cheese\"\n\n"
             "Leave empty to disable."))
+        self._cont_kw_lang = QComboBox()
+        self._cont_kw_lang.setFixedWidth(60)
+        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        # Store keywords per language
+        self._cont_keywords = {}
+        for code, _name in LANGUAGES:
+            self._cont_kw_lang.addItem(code)
+            self._cont_keywords[code] = self._load_cont_keyword(code)
+        idx = self._cont_kw_lang.findText(_lang)
+        if idx >= 0:
+            self._cont_kw_lang.setCurrentIndex(idx)
         self._cont_keyword = QLineEdit()
         self._cont_keyword.setMaximumWidth(200)
         self._cont_keyword.setPlaceholderText("contre-point")
-        # Load keyword from continuation.conf (language-specific, then generic)
-        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
-        _kw_default = self._load_cont_keyword(_lang)
-        self._cont_keyword.setText(_kw_default)
+        self._cont_keyword.setText(self._cont_keywords.get(_lang, ""))
+        self._cont_kw_lang.currentTextChanged.connect(self._on_cont_kw_lang_changed)
+        self._cont_keyword.textChanged.connect(self._on_cont_kw_text_changed)
         kw_lay.addWidget(kw_label)
+        kw_lay.addWidget(self._cont_kw_lang)
         kw_lay.addWidget(self._cont_keyword)
         kw_lay.addStretch()
         form_top_lay.addLayout(kw_lay)
@@ -7126,39 +7176,7 @@ class DicteeSetupDialog(QDialog):
         self._cont_kw_variants = QLabel()
         self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px; margin-left: 4px;")
         form_top_lay.addWidget(self._cont_kw_variants)
-        self._cont_keyword.textChanged.connect(self._update_kw_variants)
-        self._update_kw_variants(_kw_default)
-
-        # Command suffix (disambiguation for ambiguous words like "point")
-        sfx_lay = QHBoxLayout()
-        sfx_lay.setSpacing(6)
-        sfx_label = QLabel(_("Command suffix:"))
-        sfx_label.setToolTip(_(
-            "Word to append after ambiguous voice commands like \"point\"\n"
-            "to distinguish them from normal words.\n\n"
-            "Example with suffix \"suivi\":\n"
-            "  \"point suivi\" → \".\"\n"
-            "  \"un bon point\" → kept as text\n\n"
-            "Leave empty to disable suffix-based commands."))
-        self._command_suffix = QLineEdit()
-        self._command_suffix.setMaximumWidth(200)
-        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
-                         "es": "listo", "it": "seguito", "pt": "pronto",
-                         "uk": "далі"}
-        self._command_suffixes = {}
-        # Load existing suffixes from conf
-        for code in ("fr", "en", "de", "es", "it", "pt", "uk"):
-            val = self.conf.get(f"DICTEE_COMMAND_SUFFIX_{code.upper()}", "")
-            self._command_suffixes[code] = val
-        _sfx_current = self._command_suffixes.get(_lang, "")
-        self._command_suffix.setPlaceholderText(_sfx_defaults.get(_lang, ""))
-        self._command_suffix.setText(_sfx_current)
-        self._command_suffix_lang = _lang
-        self._command_suffix.textChanged.connect(self._on_suffix_changed)
-        sfx_lay.addWidget(sfx_label)
-        sfx_lay.addWidget(self._command_suffix)
-        sfx_lay.addStretch()
-        form_top_lay.addLayout(sfx_lay)
+        self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
         # Search bar
         self._cont_search = QLineEdit()
@@ -7583,11 +7601,12 @@ class DicteeSetupDialog(QDialog):
         with open(self._cont_path, "w", encoding="utf-8") as f:
             f.write("# User continuation words for dictee\n")
             f.write("# Format: [lang] word1 word2 ...\n\n")
-            # Save continuation keyword (per language)
-            kw = self._cont_keyword.text().strip() if hasattr(self, '_cont_keyword') else ""
-            lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
-            if kw:
-                f.write(f"[keyword:{lang}] {kw}\n\n")
+            # Save continuation keywords (all languages)
+            if hasattr(self, '_cont_keywords'):
+                for lang, kw in sorted(self._cont_keywords.items()):
+                    if kw:
+                        f.write(f"[keyword:{lang}] {kw}\n")
+                f.write("\n")
             for lang in sorted(self._cont_personal_words.keys()):
                 words = sorted(self._cont_personal_words[lang])
                 if words:
@@ -7673,9 +7692,34 @@ class DicteeSetupDialog(QDialog):
         sorted_v = sorted(variants, key=lambda s: (s.lower(), s))
         self._cont_kw_variants.setText(_("Accepted: ") + ", ".join(sorted_v))
 
+    def _on_cont_kw_lang_changed(self, lang):
+        """Switch continuation keyword when language combo changes."""
+        # Save current value
+        self._cont_keyword.blockSignals(True)
+        self._cont_keyword.setText(self._cont_keywords.get(lang, ""))
+        self._cont_keyword.blockSignals(False)
+        self._update_kw_variants(self._cont_keyword.text())
+
+    def _on_cont_kw_text_changed(self, text):
+        """Save keyword for current language in memory."""
+        lang = self._cont_kw_lang.currentText()
+        self._cont_keywords[lang] = text.strip()
+        self._update_kw_variants(text)
+
+    def _on_suffix_lang_changed(self, lang):
+        """Switch command suffix when language combo changes."""
+        self._command_suffix.blockSignals(True)
+        self._command_suffix.setText(self._command_suffixes.get(lang, ""))
+        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                         "es": "listo", "it": "seguito", "pt": "pronto",
+                         "uk": "далі"}
+        self._command_suffix.setPlaceholderText(_sfx_defaults.get(lang, ""))
+        self._command_suffix.blockSignals(False)
+
     def _on_suffix_changed(self, text):
         """Save suffix for current language in memory."""
-        self._command_suffixes[self._command_suffix_lang] = text.strip()
+        lang = self._suffix_lang.currentText()
+        self._command_suffixes[lang] = text.strip()
 
     def _cont_factory_reset(self):
         """Restores system file defaults."""
