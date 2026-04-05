@@ -318,7 +318,11 @@ class PttState:
             if value == KEY_DOWN and not self.recording:
                 if not self._check_debounce(now):
                     return
-                if read_state() == "offline":
+                _st = read_state()
+                if _st == "offline":
+                    return
+                if _st == "transcribing":
+                    print("[ptt] hold: BLOCKED (transcribing)")
                     return
                 self.last_down_time = now
                 print("[ptt] hold: start")
@@ -352,9 +356,14 @@ class PttState:
             if value == KEY_DOWN:
                 if not self._check_debounce(now):
                     return
-                # Block if daemon offline
-                if not self.recording and read_state() == "offline":
-                    return
+                # Block if daemon offline or still transcribing
+                if not self.recording:
+                    _st = read_state()
+                    if _st == "offline":
+                        return
+                    if _st == "transcribing":
+                        print("[ptt] toggle: BLOCKED (transcribing)")
+                        return
                 self.last_down_time = now
                 if not self.recording:
                     print("[ptt] toggle: start")
@@ -371,7 +380,11 @@ class PttState:
             if value == KEY_DOWN and not self.recording_translate:
                 if not self._check_debounce(now):
                     return
-                if read_state() == "offline":
+                _st = read_state()
+                if _st == "offline":
+                    return
+                if _st == "transcribing":
+                    print("[ptt] hold: BLOCKED translate (transcribing)")
                     return
                 self.last_down_time = now
                 print("[ptt] hold: start+translate")
@@ -404,9 +417,14 @@ class PttState:
             if value == KEY_DOWN:
                 if not self._check_debounce(now):
                     return
-                # Block if daemon offline
-                if not self.recording_translate and read_state() == "offline":
-                    return
+                # Block if daemon offline or still transcribing
+                if not self.recording_translate:
+                    _st = read_state()
+                    if _st == "offline":
+                        return
+                    if _st == "transcribing":
+                        print("[ptt] toggle: BLOCKED translate (transcribing)")
+                        return
                 self.last_down_time = now
                 if not self.recording_translate:
                     print("[ptt] toggle: start+translate")

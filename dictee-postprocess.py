@@ -84,6 +84,14 @@ USER_CONT = os.path.join(XDG_CONFIG, "dictee", "continuation.conf")
 
 LANG = os.environ.get("DICTEE_LANG_SOURCE", "").lower()[:2]
 
+# Command suffix per language (disambiguates "point" from the word "point")
+# e.g. DICTEE_COMMAND_SUFFIX_FR=suivi → "point suivi" → "."
+_COMMAND_SUFFIXES = {}
+for _code in ("fr", "en", "de", "es", "it", "pt", "uk"):
+    _val = os.environ.get(f"DICTEE_COMMAND_SUFFIX_{_code.upper()}", "").strip()
+    if _val:
+        _COMMAND_SUFFIXES[_code] = _val
+
 
 def _env_bool(var, default="true"):
     """Reads a boolean environment variable."""
@@ -125,6 +133,15 @@ def _parse_rules(path):
             # Filtrer par langue
             if lang_tag != "*" and LANG and lang_tag != LANG:
                 continue
+            # Replace %SUFFIX_XX% placeholders
+            suffix_var = re.search(r'%SUFFIX_([A-Z]{2})%', pattern)
+            if suffix_var:
+                code = suffix_var.group(1).lower()
+                suffix = _COMMAND_SUFFIXES.get(code, "")
+                if not suffix:
+                    # No suffix configured → skip this rule (command disabled)
+                    continue
+                pattern = pattern.replace(suffix_var.group(0), re.escape(suffix))
             flags = 0
             if "i" in flags_str:
                 flags |= re.IGNORECASE
@@ -149,7 +166,9 @@ def _parse_rules(path):
                            .replace("\\u2014", "\u2014")
                            .replace("\\u00ab", "\u00ab")
                            .replace("\\u00bb", "\u00bb")
-                           .replace("\\u002f", "/"))
+                           .replace("\\u002f", "/")
+                           .replace("\\x01", "\x01")
+                           .replace("\\x02", "\x02"))
             rules.append((compiled, replacement))
     return rules
 
@@ -237,6 +256,9 @@ def fix_short_text(text):
     stripped = text.strip()
     # Skip voice commands: pure punctuation/whitespace/newlines
     if not stripped or not any(c.isalnum() for c in stripped):
+        return text
+    # Multiline text is never "short text"
+    if '\n' in stripped:
         return text
     words = stripped.split()
     if len(words) >= _SHORT_TEXT_MAX_WORDS:
@@ -680,7 +702,7 @@ def apply_dictionary(text, entries):
 
 # ── Capitalisation ───────────────────────────────────────────────────
 
-_CAP_AFTER_PUNCT = re.compile(r'([.!?\u2026])(\s+)([a-zà-ÿ])')
+_CAP_AFTER_PUNCT = re.compile(r'([.!?\u2026])\x02?(\s+)([a-zà-ÿ])')
 _CAP_AFTER_NEWLINE = re.compile(r'(\n\s*)([a-zà-ÿ])')
 
 

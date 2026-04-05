@@ -823,7 +823,7 @@ if command -v dictee-postprocess >/dev/null 2>&1; then
     pp_test() {
         local desc="$1" input="$2" expected_pattern="$3"
         test_start "postprocess: $desc"
-        result=$(echo "$input" | DICTEE_LANG_SOURCE=fr dictee-postprocess 2>/dev/null) || result="ERROR"
+        result=$(echo "$input" | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false DICTEE_COMMAND_SUFFIX_FR=suivi timeout 10 dictee-postprocess 2>/dev/null) || result="ERROR"
         if echo "$result" | grep -qP "$expected_pattern" 2>/dev/null; then
             test_pass "resultat='$result'"
         else
@@ -839,20 +839,26 @@ if command -v dictee-postprocess >/dev/null 2>&1; then
     pp_test "Texte vide" "" ""
     pp_test "Espaces seuls" "   " ""
     pp_test "Un seul mot" "Bonjour" "bonjour"
-    pp_test "Hesitations FR" "euh ben oui euh c'est ca" "oui c'est ca"
-    pp_test "Commande virgule" "bonjour virgule comment allez-vous" "bonjour, comment"
-    pp_test "Commande point" "bonjour point bonne journee" "bonjour. Bonne"
-    pp_test "A la ligne" "premiere ligne a la ligne deuxieme" "premiere ligne"
-    pp_test "Points de suspension" "et donc points de suspension la suite" "la suite"
+    pp_test "Hesitations FR" "euh ben oui euh c'est ca" "[Oo]ui c'est ca"
+    pp_test "Commande virgule" "bonjour virgule comment allez-vous" "[Bb]onjour, [Cc]omment"
+    pp_test "Commande point suivi" "bonjour point suivi bonne journee" "[Bb]onjour\\..* [Bb]onne"
+    pp_test "Point sans suffixe = mot" "c'est un bon point pour nous" "bon point pour"
+    pp_test "Deux points sans suffixe = mot" "il y a deux points a verifier" "deux points"
+    pp_test "Deux points suivi = commande" "voici deux points suivi premier" "[Vv]oici.*:.*[Pp]remier"
+    pp_test "Point virgule = commande" "oui point virgule non" "[Oo]ui.*; [Nn]on"
+    pp_test "Point à la ligne" "premiere ligne point à la ligne deuxieme" "[Pp]remiere ligne"
+    pp_test "A la ligne seule" "premiere ligne à la ligne deuxieme" "[Pp]remiere ligne"
+    pp_test "Points de suspension" "et donc points de suspension la suite" "[Ll]a suite"
     pp_test "Guillemets" "il a dit ouvrez les guillemets bonjour fermez les guillemets" "bonjour"
     pp_test "Parentheses" "la valeur ouvrez la parenthese dix fermez la parenthese est correcte" "correcte"
-    pp_test "Elision manquante: je ai" "je ai compris" "j'ai"
-    pp_test "Elision manquante: le homme" "le homme est la" "l'homme"
-    pp_test "H aspire: le hamster" "le hamster est mignon" "le hamster"
+    pp_test "Ctrl+J marker" "test controle j suite" "test"
+    pp_test "Elision manquante: je ai" "je ai compris" "[Jj]'ai"
+    pp_test "Elision manquante: le homme" "le homme est la" "[Ll]'homme"
+    pp_test "H aspire: le hamster" "le hamster est mignon" "[Ll]e hamster"
 
     test_start "postprocess: texte tres long (10000 mots)"
     long_text=$(python3 -c "print(' '.join(['mot'] * 10000))")
-    result=$(echo "$long_text" | DICTEE_LANG_SOURCE=fr timeout 10 dictee-postprocess 2>/dev/null)
+    result=$(echo "$long_text" | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false DICTEE_COMMAND_SUFFIX_FR=suivi timeout 10 dictee-postprocess 2>/dev/null)
     if [ -n "$result" ]; then
         test_pass "traite 10000 mots (${#result} chars)"
     else
@@ -860,28 +866,28 @@ if command -v dictee-postprocess >/dev/null 2>&1; then
     fi
 
     test_start "postprocess: caracteres Unicode exotiques"
-    result=$(echo "texte avec des emojis et des kanji " | DICTEE_LANG_SOURCE=fr dictee-postprocess 2>/dev/null)
+    result=$(echo "texte avec des emojis et des kanji " | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false timeout 10 dictee-postprocess 2>/dev/null)
     test_pass "unicode traite sans crash: '$result'"
 
     test_start "postprocess: newlines dans l'input"
-    result=$(printf "ligne un\nligne deux\nligne trois" | DICTEE_LANG_SOURCE=fr dictee-postprocess 2>/dev/null)
+    result=$(printf "ligne un\nligne deux\nligne trois" | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false timeout 10 dictee-postprocess 2>/dev/null)
     test_pass "multi-ligne traite: '$(echo "$result" | head -1)...'"
 
     test_start "postprocess: injection regex (backslash, metacaracteres)"
-    result=$(echo 'test (.*) [^abc] \d+ (?:foo)' | DICTEE_LANG_SOURCE=fr dictee-postprocess 2>/dev/null)
+    result=$(echo 'test (.*) [^abc] \d+ (?:foo)' | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false timeout 10 dictee-postprocess 2>/dev/null)
     test_pass "metacaracteres regex survecus: '$result'"
 
     test_start "postprocess: null bytes"
-    result=$(printf 'test\x00null\x00bytes' | DICTEE_LANG_SOURCE=fr dictee-postprocess 2>/dev/null)
+    result=$(printf 'test\x00null\x00bytes' | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false timeout 10 dictee-postprocess 2>/dev/null)
     test_pass "null bytes traites"
 
     test_start "postprocess: langue inconnue"
-    result=$(echo "hello world" | DICTEE_LANG_SOURCE=xx dictee-postprocess 2>/dev/null)
+    result=$(echo "hello world" | DICTEE_LANG_SOURCE=xx DICTEE_LLM_POSTPROCESS=false timeout 10 dictee-postprocess 2>/dev/null)
     test_pass "langue inconnue survecue: '$result'"
 
     test_start "postprocess: toutes les commandes vocales FR enchainées"
-    input="Bonjour virgule je suis la point a la ligne nouveau paragraphe point d'interrogation point d'exclamation deux points point virgule trois petits points ouvrez les guillemets texte fermez les guillemets tiret apostrophe tabulation"
-    result=$(echo "$input" | DICTEE_LANG_SOURCE=fr dictee-postprocess 2>/dev/null)
+    input="Bonjour virgule je suis la point suivi a la ligne nouveau paragraphe point d'interrogation point d'exclamation deux points suivi premier point virgule trois petits points ouvrez les guillemets texte fermez les guillemets tiret apostrophe tabulation"
+    result=$(echo "$input" | DICTEE_LANG_SOURCE=fr DICTEE_LLM_POSTPROCESS=false DICTEE_COMMAND_SUFFIX_FR=suivi timeout 10 dictee-postprocess 2>/dev/null)
     test_pass "chaine de commandes traitee (${#result} chars)"
 
 else

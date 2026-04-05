@@ -23,7 +23,9 @@
 # Load configuration (dictee-setup)
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 if [ -f "$DICTEE_CONF" ]; then
+    set -a
     source "$DICTEE_CONF"
+    set +a
 fi
 
 # === COMMON FUNCTIONS ===
@@ -182,14 +184,23 @@ type_text() {
     text="${text//$'\xe2\x80\xa6'/...}"
     text="${text//$'\xe2\x80\x94'/--}"
     text="${text//$'\xe2\x80\x93'/-}"
-    # Convert to dotool commands: "type ..." + "key enter/tab" between segments
+    # Strip \x02 markers (end-of-sentence flag, handled by save_last_word)
+    text="${text//$'\x02'/}"
+    # Convert to dotool commands: "type ..." + "key enter/tab/ctrl+j" between segments
+    # \x01 marker = ctrl+j (newline without submit, from "contrôle j" voice command)
+    # & continuation indicator stays in text (typed atomically with the rest)
     printf '%s\n' "$text" | awk -v RS='\n' '{
         if (NR > 1) print "key enter"
-        # Split on tabs
-        n = split($0, parts, "\t")
-        for (i = 1; i <= n; i++) {
-            if (i > 1) print "key tab"
-            if (parts[i] != "") printf "type %s\n", parts[i]
+        # Split on \x01 (ctrl+j markers)
+        nc = split($0, cjparts, "\x01")
+        for (c = 1; c <= nc; c++) {
+            if (c > 1) print "key ctrl+j"
+            # Split on tabs
+            n = split(cjparts[c], parts, "\t")
+            for (i = 1; i <= n; i++) {
+                if (i > 1) print "key tab"
+                if (parts[i] != "") printf "type %s\n", parts[i]
+            }
         }
     }' | safe_dotool
 }
@@ -274,6 +285,29 @@ apply_continuation() {
     local last_char="${saved%%:*}"
     local last_word="${saved#*:}"
 
+    # Hourglass marker: H prefix means ~ was typed instead of punctuation
+    # → always 1 backspace to erase it
+    local hourglass=false
+    if [[ "$last_char" == H* ]]; then
+        hourglass=true
+        last_char="${last_char#H}"
+    fi
+
+    # Helper: send backspaces — 1 if hourglass, else N from marker
+    _cont_backspace() {
+        local count="${1:-1}"
+        # Hourglass: add 1 extra backspace to erase ~
+        if $hourglass; then
+            count=$((count + 1))
+        fi
+        local cmd=""
+        for ((i=0; i<count; i++)); do
+            cmd+="key backspace
+"
+        done
+        printf '%s' "$cmd" | safe_dotool
+    }
+
     # Strip leading spaces (avoid double spaces if previous text
     # had a trailing space, e.g.: "Bonjour, ")
     _ref="${_ref#"${_ref%%[! ]*}"}"
@@ -285,15 +319,12 @@ apply_continuation() {
         local matched_len=$(( ${#_ref} - ${#BASH_REMATCH[1]} ))
         local rest="${_ref:matched_len}"
         rest="${rest#"${rest%%[! ]*}"}"
-        # Backspace the punctuation from the previous push
+        # Backspace the punctuation (or ~) from the previous push
         if [[ "$last_char" == .* ]]; then
             local bs_count="${last_char#.}"
-            bs_count="${bs_count:-1}"
-            for ((i=0; i<bs_count; i++)); do
-                printf 'key backspace\n'
-            done | safe_dotool
+            _cont_backspace "${bs_count:-1}"
         elif [[ "$last_char" == [,F] ]]; then
-            printf 'key backspace\n' | safe_dotool
+            _cont_backspace 1
         fi
         # Set text to rest in lowercase (or empty if nothing follows)
         if [ -n "$rest" ]; then
@@ -308,16 +339,12 @@ apply_continuation() {
     # "period", etc.), attach it to previous text without space.
     local fc="${_ref:0:1}"
     if [[ "$fc" == [,.\;!?:] ]]; then
-        # If previous was a period/punctuation, erase it:
-        # user is explicitly correcting the punctuation
+        # If previous was a period/punctuation (or ~), erase it
         if [[ "$last_char" == .* ]]; then
             local bs_count="${last_char#.}"
-            bs_count="${bs_count:-1}"
-            for ((i=0; i<bs_count; i++)); do
-                printf 'key backspace\n'
-            done | safe_dotool
+            _cont_backspace "${bs_count:-1}"
         elif [[ "$last_char" == [,F] ]]; then
-            printf 'key backspace\n' | safe_dotool
+            _cont_backspace 1
         fi
         # Lowercase only after , ; : (continuation)
         # Keep case after . ! ? (new sentence)
@@ -346,13 +373,7 @@ apply_continuation() {
         local _cw="${!_cw_var}"
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local bs_count="${last_char#.}"
-            bs_count="${bs_count:-1}"
-            local bs_cmd=""
-            for ((i=0; i<bs_count; i++)); do
-                bs_cmd+="key backspace
-"
-            done
-            printf '%s' "$bs_cmd" | safe_dotool
+            _cont_backspace "${bs_count:-1}"
             _ref=" ${_ref,}"
         else
             # Sentence complete: space, keep case
@@ -363,6 +384,10 @@ apply_continuation() {
         _ref=" ${_ref}"
     elif [ "$last_char" = "_" ]; then
         # No punctuation: mid-sentence, space + lowercase
+        if $hourglass; then
+            # Only erase & (1 backspace), no punctuation to remove
+            printf 'key backspace\n' | safe_dotool
+        fi
         _ref=" ${_ref,}"
     fi
 }
@@ -376,6 +401,12 @@ save_last_word() {
     if [[ "$text" == *$'\n'* ]]; then
         rm -f "$LAST_WORD_FILE"
         return
+    fi
+    # \x02 = forced end-of-sentence (from "point suivi" etc.)
+    local force_end=false
+    if [[ "$text" == *$'\x02'* ]]; then
+        force_end=true
+        text="${text//$'\x02'/}"
     fi
     # Strip trailing spaces (pure bash, no subshell)
     local trimmed="${text%"${text##*[! ]}"}"
@@ -422,6 +453,26 @@ save_last_word() {
     # Handle hyphenated words: "parles-tu" → check "tu" for continuation
     if [[ "$last_word" == *-* ]]; then
         last_word="${last_word##*-}"
+    fi
+
+    # Forced end-of-sentence overrides any marker to F
+    if $force_end; then
+        marker="F"
+    fi
+
+    # If continuation is likely (closed-class word), append & after text
+    # (never replace — always append). On next push, backspace & + punctuation.
+    # The variable name is passed as $2 (optional, for in-place modification)
+    if [ -n "${2:-}" ] && [[ "$marker" == .* || "$marker" == "_" ]] && ! $force_end; then
+        local lower="${last_word,,}"
+        local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
+        local _cw="${!_cw_var}"
+        if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
+            local -n _text_ref="$2"
+            _text_ref="${_text_ref}&"
+            # Mark as hourglass: H prefix → need extra backspace for ~
+            marker="H${marker}"
+        fi
     fi
 
     if [ -n "$last_word" ]; then
@@ -1159,8 +1210,8 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         copy_to_clipboard "$transcribed"
+        save_last_word "$transcribed" transcribed
         type_text "$transcribed"
-        save_last_word "$transcribed"
         notify_dictee 0 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
     fi
 
