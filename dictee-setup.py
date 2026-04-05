@@ -9559,41 +9559,44 @@ class DicteeSetupDialog(QDialog):
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
-        # Systemd services — ASR
+        # Systemd services — ASR (active service: synchronous for error reporting)
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
+        # Disable inactive services + enable/restart tray/ptt in background
+        bg_cmds = []
         for svc_name in asr_services.values():
-                if svc_name == active_svc:
-                    # Enable (boot) puis restart (maintenant)
-                    en = subprocess.run(
-                        ["systemctl", "--user", "enable", svc_name],
-                        capture_output=True, text=True,
-                    )
-                    if en.returncode != 0:
-                        svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
-                            svc=svc_name, err=en.stderr.strip())
-                    try:
-                        result = subprocess.run(
-                            ["systemctl", "--user", "restart", svc_name],
-                            capture_output=True, text=True, timeout=15,
-                        )
-                        if result.returncode != 0:
-                            svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                                svc=svc_name, err=result.stderr.strip())
-                    except subprocess.TimeoutExpired:
-                        svc_error = _("Warning: {svc} is taking too long to start.\n"
-                                      "It may still be loading the model.").format(svc=svc_name)
-                else:
-                    subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
+            if svc_name != active_svc:
+                bg_cmds.append(["systemctl", "--user", "disable", "--now", svc_name])
+        tray_action = "enable" if self.chk_tray.isChecked() else "disable"
+        bg_cmds.append(["systemctl", "--user", tray_action, "--now", "dictee-tray"])
+        bg_cmds.append(["systemctl", "--user", "enable", "dictee-ptt"])
+        bg_cmds.append(["systemctl", "--user", "restart", "dictee-ptt"])
+        bg_procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in bg_cmds]
 
-        # Tray
-        action = "enable" if self.chk_tray.isChecked() else "disable"
-        subprocess.run(["systemctl", "--user", action, "--now", "dictee-tray"], capture_output=True)
+        # Active ASR service: synchronous (need error feedback)
+        en = subprocess.run(
+            ["systemctl", "--user", "enable", active_svc],
+            capture_output=True, text=True,
+        )
+        if en.returncode != 0:
+            svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
+                svc=active_svc, err=en.stderr.strip())
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "restart", active_svc],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode != 0:
+                svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                    svc=active_svc, err=result.stderr.strip())
+        except subprocess.TimeoutExpired:
+            svc_error = _("Warning: {svc} is taking too long to start.\n"
+                          "It may still be loading the model.").format(svc=active_svc)
 
-        # PTT service — activer et (re)démarrer
-        subprocess.run(["systemctl", "--user", "enable", "dictee-ptt"], capture_output=True)
-        subprocess.run(["systemctl", "--user", "restart", "dictee-ptt"], capture_output=True)
+        # Wait for background processes (non-blocking, they should be done by now)
+        for p in bg_procs:
+            p.wait()
 
         # Supprimer les anciens raccourcis KDE/GNOME (dictee-ptt les remplace)
         shortcut_msg = ""
