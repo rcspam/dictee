@@ -92,19 +92,19 @@ RowLayout {
                     color: {
                         switch (fullRep.state) {
                         case "offline":
-                            return Kirigami.Theme.negativeTextColor
+                            return "#e74c3c"  // rouge
                         case "recording":
-                            return Kirigami.Theme.highlightColor
+                            return "#3498db"  // bleu
                         case "transcribing":
-                            return Kirigami.Theme.positiveTextColor
+                            return "#2ecc71"  // vert
                         case "switching":
-                            return Kirigami.Theme.neutralTextColor
+                            return "#e67e22"  // orange
                         case "preparing":
                         case "diarize-ready":
                         case "diarizing":
-                            return "#9B59B6"
+                            return "#9B59B6"  // violet
                         default:
-                            return Kirigami.Theme.positiveTextColor
+                            return "#2ecc71"  // vert (idle)
                         }
                     }
                 }
@@ -239,6 +239,17 @@ RowLayout {
     // Separateur
     Kirigami.Separator {
         Layout.fillWidth: true
+    }
+
+    // Message when not configured
+    PlasmaComponents.Label {
+        Layout.fillWidth: true
+        visible: !root.dicteeConfigured
+        text: i18n("Press the Configure Dictée button below to get started.")
+        color: "#e90"
+        wrapMode: Text.WordWrap
+        horizontalAlignment: Text.AlignHCenter
+        font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
     }
 
     // Boutons dictee
@@ -401,6 +412,7 @@ RowLayout {
                     default: return i18n("Record and identify speakers (max 4)")
                 }
             }
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -500,6 +512,7 @@ RowLayout {
             checked: root.audioContextEnabled
             onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
             QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -612,6 +625,7 @@ RowLayout {
             QQC2.ToolTip.text: root.currentTranslateBackend === "libretranslate"
                 ? i18n("Target language — add languages in Configure Dictée (LibreTranslate)")
                 : i18n("Target language for translation")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -628,6 +642,7 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("transcribe-file")
             QQC2.ToolTip.text: i18n("Open an audio file for transcription")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -638,6 +653,7 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("postprocess")
             QQC2.ToolTip.text: i18n("Configure post-processing rules (regex, dictionary, continuation)")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -645,11 +661,21 @@ RowLayout {
         PlasmaComponents.Button {
             text: i18n("Configure Dictée")
             icon.name: "configure"
-            flat: true
+            flat: root.dicteeConfigured
             onClicked: fullRep.actionRequested("setup")
             QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
+
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: "#e90"
+                border.width: 2
+                radius: 4
+                visible: !root.dicteeConfigured
+            }
         }
 
         Item { Layout.fillWidth: true }
@@ -729,8 +755,9 @@ RowLayout {
                     executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
                 }
                 QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+    
                 QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.delay: 300
+            QQC2.ToolTip.delay: 300
             }
 
             // Level meter — barre verticale alignée sur le slider
@@ -761,7 +788,7 @@ RowLayout {
 
                 QQC2.ToolTip.text: i18n("Audio input level")
                 QQC2.ToolTip.visible: levelMeterMouse.containsMouse
-                QQC2.ToolTip.delay: 300
+            QQC2.ToolTip.delay: 300
                 MouseArea {
                     id: levelMeterMouse
                     anchors.fill: parent

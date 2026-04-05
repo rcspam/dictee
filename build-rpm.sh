@@ -366,8 +366,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     # Clean locales
@@ -541,8 +541,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     for lang in fr de es it uk pt; do

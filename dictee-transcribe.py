@@ -1109,7 +1109,7 @@ class TranscribeWindow(QDialog):
             self._diarize_worker.wait(5000)
         # Restore backend if we were in diarization mode
         conf = _read_conf()
-        if conf.get("DICTEE_DIARIZE") == "true" or conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
+        if conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
             _dbg("closeEvent: restoring backend via diarize false")
             subprocess.Popen(["dictee-switch-backend", "diarize", "false"])
         elif getattr(self, '_daemon_was_active', False):
