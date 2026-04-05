@@ -7169,6 +7169,8 @@ class DicteeSetupDialog(QDialog):
             "When the ASR incorrectly places a period after one of these words, "
             "the period is removed and the next sentence is joined.\n"
             "Example: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n\n"
+            "When continuation is active, an \"&\" appears at the end of the text "
+            "to indicate the system is waiting for more input.\n\n"
             "System words are built-in and cannot be modified. "
             "You can add your own words per language below."
         ))
@@ -7177,6 +7179,25 @@ class DicteeSetupDialog(QDialog):
         font.setItalic(True)
         info.setFont(font)
         form_top_lay.addWidget(info)
+
+        # --- Separator ---
+        _sep1 = QFrame()
+        _sep1.setFrameShape(QFrame.Shape.HLine)
+        _sep1.setFrameShadow(QFrame.Shadow.Sunken)
+        form_top_lay.addWidget(_sep1)
+
+        # Manual continuation fallback
+        kw_info = QLabel(_(
+            "Sometimes automatic continuation does not work as expected — "
+            "the ASR may not place a period, or the last word may not be in the list above. "
+            "In that case, you can say a keyword at the start of the next segment "
+            "to force continuation manually."
+        ))
+        kw_info.setWordWrap(True)
+        _kw_font = kw_info.font()
+        _kw_font.setItalic(True)
+        kw_info.setFont(_kw_font)
+        form_top_lay.addWidget(kw_info)
 
         # Continuation keyword (per language)
         kw_lay = QHBoxLayout()
