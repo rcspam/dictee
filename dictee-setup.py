@@ -5387,8 +5387,11 @@ class DicteeSetupDialog(QDialog):
             "<b>Ambiguous commands that require the suffix:</b><br>"
             "FR: point, deux points — EN: period, colon — DE: Punkt<br>"
             "ES: punto, coma — IT: punto — PT: ponto — UK: крапка, кома<br><br>"
-            "Non-ambiguous commands (virgule, point virgule, "
-            "point d'interrogation…) always work without suffix.<br><br>"
+            "<b>Non-ambiguous commands (no suffix needed):</b><br>"
+            "FR: virgule, point virgule, point d'interrogation…<br>"
+            "EN: comma, semicolon, question mark…<br>"
+            "DE: Komma, Semikolon, Doppelpunkt…<br>"
+            "ES: punto y coma, dos puntos, interrogación…<br><br>"
             "<b>Per language:</b> Select a language in the combo box "
             "to set a different suffix for each language.<br><br>"
             "In the rules editor below, <code>%SUFFIX_XX%</code> "
@@ -7224,10 +7227,16 @@ class DicteeSetupDialog(QDialog):
         kw_lay.addStretch()
         form_top_lay.addLayout(kw_lay)
 
-        # Variants label
+        # Variants label (indented under the combo+field)
+        _variants_lay = QHBoxLayout()
+        _variants_spacer = QLabel()
+        _variants_spacer.setFixedWidth(kw_label.sizeHint().width() + 6 + self._cont_kw_lang.sizeHint().width() + 6)
         self._cont_kw_variants = QLabel()
-        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px; margin-left: 4px;")
-        form_top_lay.addWidget(self._cont_kw_variants)
+        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
+        _variants_lay.addWidget(_variants_spacer)
+        _variants_lay.addWidget(self._cont_kw_variants)
+        _variants_lay.addStretch()
+        form_top_lay.addLayout(_variants_lay)
         self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
         # --- Separator ---
