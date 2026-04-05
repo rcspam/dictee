@@ -5367,28 +5367,32 @@ class DicteeSetupDialog(QDialog):
         sfx_help = _help_btn(_(
             "<b>Command suffix</b><br><br>"
             "Some voice commands use words that also exist as normal words. "
-            "For example, \"point\" in French means both the punctuation mark "
-            "and the word \"point\" (as in \"a good point\").<br><br>"
             "The suffix is a word you say <b>after</b> the ambiguous command "
             "to confirm it's a voice command, not a regular word.<br><br>"
-            "<b>Example (suffix = \"suivi\"):</b><br>"
-            "\"point suivi\" → \".\" (punctuation)<br>"
-            "\"un bon point\" → kept as text<br><br>"
-            "<b>Ambiguous commands by language:</b><br>"
-            "• FR: \"point\", \"deux points\"<br>"
-            "• EN: \"period\", \"colon\"<br>"
-            "• DE: \"Punkt\"<br>"
-            "• ES: \"punto\", \"coma\"<br>"
-            "• IT: \"punto\"<br>"
-            "• PT: \"ponto\"<br>"
-            "• UK: \"крапка\", \"кома\"<br><br>"
-            "Non-ambiguous commands (\"virgule\", \"point virgule\", "
-            "\"point d'interrogation\", etc.) work without suffix.<br><br>"
+            "<b>Examples by language:</b><br>"
+            "• FR (suffix = \"suivi\"): \"point suivi\" → \".\" — "
+            "but \"un bon point\" → kept as text<br>"
+            "• EN (suffix = \"done\"): \"period done\" → \".\" — "
+            "but \"a long period\" → kept as text<br>"
+            "• DE (suffix = \"weiter\"): \"Punkt weiter\" → \".\" — "
+            "but \"ein guter Punkt\" → kept as text<br>"
+            "• ES (suffix = \"listo\"): \"punto listo\" → \".\" — "
+            "but \"un buen punto\" → kept as text<br>"
+            "• IT (suffix = \"seguito\"): \"punto seguito\" → \".\" — "
+            "but \"un buon punto\" → kept as text<br>"
+            "• PT (suffix = \"pronto\"): \"ponto pronto\" → \".\" — "
+            "but \"um bom ponto\" → kept as text<br>"
+            "• UK (suffix = \"далі\"): \"крапка далі\" → \".\" — "
+            "but \"одна крапка\" → kept as text<br><br>"
+            "<b>Ambiguous commands that require the suffix:</b><br>"
+            "FR: point, deux points — EN: period, colon — DE: Punkt<br>"
+            "ES: punto, coma — IT: punto — PT: ponto — UK: крапка, кома<br><br>"
+            "Non-ambiguous commands (virgule, point virgule, "
+            "point d'interrogation…) always work without suffix.<br><br>"
             "<b>Per language:</b> Select a language in the combo box "
             "to set a different suffix for each language.<br><br>"
-            "In the rules editor below, use <code>%SUFFIX_XX%</code> "
-            "placeholders (e.g. <code>%SUFFIX_FR%</code>) — they are "
-            "replaced by this value at runtime.<br><br>"
+            "In the rules editor below, <code>%SUFFIX_XX%</code> "
+            "placeholders are replaced by this value at runtime.<br><br>"
             "Leave empty to disable suffix-based commands for that language."))
         self._suffix_lang = QComboBox()
         self._suffix_lang.setFixedWidth(60)
@@ -7177,13 +7181,21 @@ class DicteeSetupDialog(QDialog):
         kw_label = QLabel(_("Continuation keyword:"))
         kw_help = _help_btn(_(
             "<b>Continuation keyword</b><br><br>"
-            "When you start a new dictation segment with this word, "
-            "the system removes the previous punctuation and continues "
-            "in lowercase — as if the sentence was never finished.<br><br>"
-            "<b>Example (keyword = \"minuscule\"):</b><br>"
-            "Push 1: \"I eat.\"<br>"
-            "Push 2: \"minuscule some cheese\"<br>"
-            "Result: \"I eat some cheese\"<br><br>"
+            "The continuation system automatically joins sentences when the ASR "
+            "incorrectly places a period after a closed-class word (article, "
+            "preposition, conjunction…). However, <b>automatic continuation "
+            "does not always work</b> — the ASR may not place a period, or "
+            "the last word may not be in the continuation list.<br><br>"
+            "The continuation keyword is a <b>manual fallback</b>: say it at the "
+            "start of a new dictation segment to force continuation. The system "
+            "removes the previous punctuation and joins in lowercase.<br><br>"
+            "<b>Examples:</b><br>"
+            "• FR (keyword = \"minuscule\"): \"Je mange.\" + \"minuscule du fromage\" "
+            "→ \"Je mange du fromage\"<br>"
+            "• EN (keyword = \"lowercase\"): \"I eat.\" + \"lowercase some cheese\" "
+            "→ \"I eat some cheese\"<br>"
+            "• DE (keyword = \"klein\"): \"Ich esse.\" + \"klein etwas Käse\" "
+            "→ \"Ich esse etwas Käse\"<br><br>"
             "<b>Per language:</b> Select a language in the combo box to set "
             "a different keyword for each language. The keyword is only active "
             "when dictating in that language.<br><br>"
@@ -7217,6 +7229,12 @@ class DicteeSetupDialog(QDialog):
         self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px; margin-left: 4px;")
         form_top_lay.addWidget(self._cont_kw_variants)
         self._update_kw_variants(self._cont_keywords.get(_lang, ""))
+
+        # --- Separator ---
+        _sep = QFrame()
+        _sep.setFrameShape(QFrame.Shape.HLine)
+        _sep.setFrameShadow(QFrame.Shadow.Sunken)
+        form_top_lay.addWidget(_sep)
 
         # Search bar
         self._cont_search = QLineEdit()
