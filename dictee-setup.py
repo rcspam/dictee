@@ -5400,20 +5400,21 @@ class DicteeSetupDialog(QDialog):
         self._suffix_lang = QComboBox()
         self._suffix_lang.setFixedWidth(60)
         _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
-        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
-                         "es": "listo", "it": "seguito", "pt": "pronto",
-                         "uk": "далі"}
+        self._sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                              "es": "listo", "it": "seguito", "pt": "pronto",
+                              "uk": "далі"}
         self._command_suffixes = {}
         for code, _name in LANGUAGES:
             self._suffix_lang.addItem(code)
+            # Load from conf, fallback to default
             self._command_suffixes[code] = self.conf.get(
-                f"DICTEE_COMMAND_SUFFIX_{code.upper()}", "")
+                f"DICTEE_COMMAND_SUFFIX_{code.upper()}",
+                self._sfx_defaults.get(code, ""))
         idx = self._suffix_lang.findText(_lang)
         if idx >= 0:
             self._suffix_lang.setCurrentIndex(idx)
         self._command_suffix = QLineEdit()
         self._command_suffix.setMaximumWidth(200)
-        self._command_suffix.setPlaceholderText(_sfx_defaults.get(_lang, ""))
         self._command_suffix.setText(self._command_suffixes.get(_lang, ""))
         self._suffix_lang.currentTextChanged.connect(self._on_suffix_lang_changed)
         self._command_suffix.textChanged.connect(self._on_suffix_changed)
@@ -7798,10 +7799,6 @@ class DicteeSetupDialog(QDialog):
         """Switch command suffix when language combo changes."""
         self._command_suffix.blockSignals(True)
         self._command_suffix.setText(self._command_suffixes.get(lang, ""))
-        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
-                         "es": "listo", "it": "seguito", "pt": "pronto",
-                         "uk": "далі"}
-        self._command_suffix.setPlaceholderText(_sfx_defaults.get(lang, ""))
         self._command_suffix.blockSignals(False)
 
     def _on_suffix_changed(self, text):
