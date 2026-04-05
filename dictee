@@ -156,6 +156,7 @@ stop_recording() {
 # Remove all session temp files
 cleanup_session() {
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$DIARIZE_FLAG_FILE"  # ID_TMP_FILE kept for legacy cleanup
+    rm -f "$COMBINED_FILE" "$SILENCE_FILE"
 }
 
 # Text post-processing (regex rules + dictionary + optional LLM)
@@ -250,11 +251,10 @@ if [ -n "$_CONT_KEYWORD" ]; then
     _kw="${_kw//-/§}"
     _kw="${_kw// /§}"
     _kw="${_kw//§/[- ]?}"
-    _first="${_kw:0:1}"
-    _upper="${_first^^}"
-    _kw="[${_first}${_upper}]${_kw:1}"
-    _CONT_KEYWORD_RE="^${_kw}[.,]?[[:space:]]*(.*)"
-    unset _kw _first _upper
+    # Match is done on ${_ref,,} (lowercase) so no need for [cC] prefix
+    # s? tolerates ASR plural ("contrepoints", "contre-points")
+    _CONT_KEYWORD_RE="^${_kw}s?[.,]?[[:space:]]*(.*)"
+    unset _kw
 fi
 
 apply_continuation() {
@@ -280,8 +280,11 @@ apply_continuation() {
 
     # Continuation keyword: remove last punctuation + lowercase
     # Configurable via DICTEE_CONTINUATION_KEYWORD (default: contre-point)
-    if [ -n "$_CONT_KEYWORD_RE" ] && [[ "$_ref" =~ $_CONT_KEYWORD_RE ]]; then
-        local rest="${BASH_REMATCH[1]}"
+    if [ -n "$_CONT_KEYWORD_RE" ] && [[ "${_ref,,}" =~ $_CONT_KEYWORD_RE ]]; then
+        # Match was on lowercase — extract rest from original _ref at same offset
+        local matched_len=$(( ${#_ref} - ${#BASH_REMATCH[1]} ))
+        local rest="${_ref:matched_len}"
+        rest="${rest#"${rest%%[! ]*}"}"
         # Backspace the punctuation from the previous push
         if [[ "$last_char" == .* ]]; then
             local bs_count="${last_char#.}"
@@ -457,10 +460,16 @@ trim_buffer() {
     duration=$(soxi -D "$BUFFER_FILE" 2>/dev/null) || return 0
     local dur_int=${duration%.*}
     if [ "${dur_int:-0}" -gt "$timeout" ]; then
+        local offset=$((dur_int - timeout))
+        if [ "$offset" -le 0 ]; then
+            _dbg "audio-context: trim offset <= 0, skipping"
+            return 0
+        fi
         _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
-        if sox "$BUFFER_FILE" "${BUFFER_FILE}.tmp" trim "=$((dur_int - timeout))" 2>/dev/null; then
+        if sox "$BUFFER_FILE" "${BUFFER_FILE}.tmp" trim "=${offset}" 2>/dev/null && [ -s "${BUFFER_FILE}.tmp" ]; then
             mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
         else
+            rm -f "${BUFFER_FILE}.tmp"
             _dbg "audio-context: WARNING — trim failed, using full buffer"
         fi
     fi
@@ -468,8 +477,13 @@ trim_buffer() {
 
 # Generate silence WAV (cached)
 generate_silence() {
-    if [ ! -f "$SILENCE_FILE" ]; then
-        sox -n -r 16000 -c 1 -b 16 "$SILENCE_FILE" trim 0.0 "$SILENCE_DURATION"
+    if [ ! -f "$SILENCE_FILE" ] || [ ! -s "$SILENCE_FILE" ]; then
+        rm -f "$SILENCE_FILE"
+        if ! sox -n -r 16000 -c 1 -b 16 "$SILENCE_FILE" trim 0.0 "$SILENCE_DURATION" 2>/dev/null || [ ! -s "$SILENCE_FILE" ]; then
+            _dbg "audio-context: ERROR — failed to generate silence"
+            rm -f "$SILENCE_FILE"
+            return 1
+        fi
     fi
 }
 
@@ -482,9 +496,13 @@ get_buffer_duration() {
 build_combined() {
     local recording="$1"
     trim_buffer
-    generate_silence
+    generate_silence || return 1
     _dbg "audio-context: concat buffer + silence + recording"
-    sox "$BUFFER_FILE" "$SILENCE_FILE" "$recording" "$COMBINED_FILE" || return 1
+    if ! sox "$BUFFER_FILE" "$SILENCE_FILE" "$recording" "$COMBINED_FILE" 2>/dev/null || [ ! -s "$COMBINED_FILE" ]; then
+        rm -f "$COMBINED_FILE"
+        _dbg "audio-context: ERROR — concat failed"
+        return 1
+    fi
 }
 
 # Resolve daemon socket path (same logic as transcribe-client)
@@ -714,7 +732,8 @@ cleanup_on_error() {
     restore_audio
     notify_dictee 0 audio-chat-none-symbolic "Enregistrement interrompu"
     cleanup_session
-    rm -f "$LAST_WORD_FILE"
+    rm -f "$LAST_WORD_FILE" "$COMBINED_FILE"
+    rm -f /dev/shm/.dictee_solo_${$}_* /dev/shm/.dictee_comb_${$}_*
     pkill -P $$ 2>/dev/null
 
     write_state "idle"
@@ -1011,16 +1030,18 @@ if [ -f "$PIDFILE" ]; then
                 # 2. Transcribe recording alone → safe fallback
                 # 3. Extract the new part from the combined using the solo as reference
                 _dbg "audio-context: canary dual-transcription mode"
-                solo_text=""
-                combined_text=""
-                if eval transcribe-client "$RECORDING_FILE" > /dev/shm/.dictee_solo$$ 2>/dev/null; then
-                    solo_text=$(cat /dev/shm/.dictee_solo$$)
-                    rm -f /dev/shm/.dictee_solo$$
+                local _canary_id="${$}_${RANDOM}"
+                local _canary_solo="/dev/shm/.dictee_solo_${_canary_id}"
+                local _canary_comb="/dev/shm/.dictee_comb_${_canary_id}"
+                local solo_text=""
+                local combined_text=""
+                if eval transcribe-client "$RECORDING_FILE" > "$_canary_solo" 2>/dev/null; then
+                    solo_text=$(cat "$_canary_solo")
                 fi
-                if [ -n "$solo_text" ] && eval transcribe-client "$COMBINED_FILE" > /dev/shm/.dictee_comb$$ 2>/dev/null; then
-                    combined_text=$(cat /dev/shm/.dictee_comb$$)
-                    rm -f /dev/shm/.dictee_comb$$
+                if [ -n "$solo_text" ] && eval transcribe-client "$COMBINED_FILE" > "$_canary_comb" 2>/dev/null; then
+                    combined_text=$(cat "$_canary_comb")
                 fi
+                rm -f "$_canary_solo" "$_canary_comb"
                 rm -f "$COMBINED_FILE"
                 if [ -n "$combined_text" ] && [ -n "$solo_text" ]; then
                     raw=$(extract_new_from_combined "$combined_text" "$solo_text")

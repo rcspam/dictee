@@ -221,7 +221,7 @@ context)
     else
         notify_dictee 0 audio-chat-symbolic "Audio context: OFF"
         # Clean up buffer files
-        rm -f "/dev/shm/.dictee_buffer-$(id -u).wav" "/dev/shm/.dictee_buffer_ts-$(id -u)"
+        rm -f "/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav" "/dev/shm/.dictee_buffer_ts${_UID_SUFFIX}" "/dev/shm/.dictee_buffer_text${_UID_SUFFIX}"
     fi
     (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     echo "Audio context: $val"

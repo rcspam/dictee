@@ -247,7 +247,7 @@ def fix_short_text(text):
     # Lowercase Capitalized words (first upper + second lower)
     parts = text.split()
     for i, w in enumerate(parts):
-        if len(w) >= 2 and w[0].isupper() and w[1].islower():
+        if w[0].isupper() and (len(w) == 1 or w[1].islower()):
             parts[i] = w[0].lower() + w[1:]
     return " ".join(parts)
 
