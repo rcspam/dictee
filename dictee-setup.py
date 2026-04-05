@@ -2312,6 +2312,20 @@ class DicteeSetupDialog(QDialog):
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
+        # Buttons
+        btn_lay = QHBoxLayout()
+        btn_lay.addStretch()
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_lay.addWidget(btn_cancel)
+        btn_apply = QPushButton(_("Apply"))
+        btn_apply.clicked.connect(self._on_apply)
+        btn_lay.addWidget(btn_apply)
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(lambda: (self._on_apply(), dlg.accept()))
+        btn_lay.addWidget(btn_ok)
+        lay.addLayout(btn_lay)
         self._pp_dialog = dlg
         dlg.finished.connect(self._dict_cleanup_tmp)
         if self.isHidden():
