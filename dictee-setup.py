@@ -7216,7 +7216,7 @@ class DicteeSetupDialog(QDialog):
             self._cont_kw_lang.setCurrentIndex(idx)
         self._cont_keyword = QLineEdit()
         self._cont_keyword.setMaximumWidth(200)
-        self._cont_keyword.setPlaceholderText("contre-point")
+        self._cont_keyword.setPlaceholderText("minuscule")
         self._cont_keyword.setText(self._cont_keywords.get(_lang, ""))
         self._cont_kw_lang.currentTextChanged.connect(self._on_cont_kw_lang_changed)
         self._cont_keyword.textChanged.connect(self._on_cont_kw_text_changed)
@@ -7729,7 +7729,7 @@ class DicteeSetupDialog(QDialog):
                         line = line.strip()
                         if line.startswith(tag):
                             return line[len(tag):].strip()
-        return "contre-point"
+        return "minuscule"
 
     def _update_kw_variants(self, text):
         """Show accepted variants of the continuation keyword."""

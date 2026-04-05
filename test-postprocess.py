@@ -1814,18 +1814,18 @@ class TestShortTextRobustness(unittest.TestCase):
 
 
 class TestContinuationKeywordRobustness(unittest.TestCase):
-    """Tests robustesse pour le mot-clé de continuation (contre-point).
+    """Tests robustesse pour le mot-clé de continuation (minuscule).
 
     Vérifie que toutes les variantes ASR sont reconnues :
-    casse, tiret/espace/collé, pluriel, ponctuation après.
+    casse, pluriel, ponctuation après.
     """
 
     def _run(self, text):
         """Run apply_continuation with keyword text after a period."""
         bash_text = text.replace("'", "'\\''")
-        # Force keyword regex to match our fix (case-insensitive via ${_ref,,}, plural s?)
+        # Force keyword regex to match (case-insensitive via ${_ref,,}, plural s?)
         script = BASH_PREAMBLE + """
-_CONT_KEYWORD_RE='^contre[- ]?points?[.,]?[[:space:]]*(.*)'
+_CONT_KEYWORD_RE='^minuscules?[.,]?[[:space:]]*(.*)'
 """ + f"""
 echo '.1:test' > "$LAST_WORD_FILE"
 echo 0 > "$_BS_FILE"
@@ -1840,45 +1840,27 @@ printf '\\nBACKSPACE=%s\\n' "$(cat "$_BS_FILE")"
         bs = int(parts[1].strip()) if len(parts) > 1 else 0
         return text_result, bs
 
-    def test_lowercase_hyphen(self):
-        """'contre-point la suite'."""
-        text, bs = self._run("contre-point la suite")
+    def test_lowercase(self):
+        """'minuscule la suite'."""
+        text, bs = self._run("minuscule la suite")
         self.assertIn("la suite", text)
         self.assertGreater(bs, 0)
 
     def test_capitalized(self):
-        """'Contre-point la suite'."""
-        text, bs = self._run("Contre-point la suite")
+        """'Minuscule la suite'."""
+        text, bs = self._run("Minuscule la suite")
         self.assertIn("la suite", text)
         self.assertGreater(bs, 0)
 
     def test_all_caps(self):
-        """'CONTREPOINT la suite'."""
-        text, bs = self._run("CONTREPOINT la suite")
-        self.assertIn("la suite", text)
-        self.assertGreater(bs, 0)
-
-    def test_no_hyphen(self):
-        """'contre point la suite'."""
-        text, bs = self._run("contre point la suite")
-        self.assertIn("la suite", text)
-        self.assertGreater(bs, 0)
-
-    def test_glued(self):
-        """'contrepoint la suite'."""
-        text, bs = self._run("contrepoint la suite")
+        """'MINUSCULE la suite'."""
+        text, bs = self._run("MINUSCULE la suite")
         self.assertIn("la suite", text)
         self.assertGreater(bs, 0)
 
     def test_plural_s(self):
-        """'contrepoints la suite' (pluriel ASR)."""
-        text, bs = self._run("contrepoints la suite")
-        self.assertIn("la suite", text)
-        self.assertGreater(bs, 0)
-
-    def test_plural_hyphen_s(self):
-        """'contre-points la suite'."""
-        text, bs = self._run("contre-points la suite")
+        """'minuscules la suite' (pluriel ASR)."""
+        text, bs = self._run("minuscules la suite")
         self.assertIn("la suite", text)
         self.assertGreater(bs, 0)
 

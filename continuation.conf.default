@@ -11,15 +11,15 @@
 #
 # Continuation keyword: say this word at the start of a push-to-talk
 # to remove the previous punctuation and continue in lowercase.
-# Example: "je mange." + "contre-point du fromage" → "je mange du fromage"
+# Example: "je mange." + "minuscule du fromage" → "je mange du fromage"
 # Set to empty to disable. Override in user file with [keyword:xx] your-word
-[keyword:fr] contre-point
-[keyword:en] counterpoint
-[keyword:de] Gegenpunkt
-[keyword:es] contrapunto
-[keyword:it] contrappunto
-[keyword:pt] contraponto
-[keyword:uk] контрапункт
+[keyword:fr] minuscule
+[keyword:en] lowercase
+[keyword:de] kleinschreibung
+[keyword:es] minúscula
+[keyword:it] minuscola
+[keyword:pt] minúscula
+[keyword:uk] рядкова
 
 # ── French ───────────────────────────────────────────────────────────
 # Articles & contractions
