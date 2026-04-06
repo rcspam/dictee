@@ -232,7 +232,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 llm_timeout=10, llm_cpu=False,
                 audio_context=False, audio_context_timeout=30,
                 notifications=True, notifications_text=True,
-                command_suffixes=None):
+                command_suffixes=None, debug=False):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     import tempfile as _tmpmod
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
@@ -319,6 +319,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             for code, suffix in command_suffixes.items():
                 if suffix:
                     f.write(f"DICTEE_COMMAND_SUFFIX_{code.upper()}={suffix}\n")
+        if debug:
+            f.write("DICTEE_DEBUG=true\n")
         f.write("DICTEE_SETUP_DONE=true\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
@@ -2469,6 +2471,13 @@ class DicteeSetupDialog(QDialog):
         lay_ctx.addWidget(self.spin_audio_context_timeout)
         lay_ctx.addStretch()
         lay_opt.addLayout(lay_ctx)
+
+        self.chk_debug = QCheckBox(_("Debug mode (log to /tmp)"))
+        self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
+        self.chk_debug.setToolTip(
+            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
+              "for troubleshooting dictation and continuation issues."))
+        lay_opt.addWidget(self.chk_debug)
 
         layout.addWidget(grp_options)
 
@@ -9547,6 +9556,7 @@ class DicteeSetupDialog(QDialog):
         # Audio context buffer
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
+        debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
@@ -9569,7 +9579,8 @@ class DicteeSetupDialog(QDialog):
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
-                    command_suffixes=self._command_suffixes)
+                    command_suffixes=self._command_suffixes,
+                    debug=debug)
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
