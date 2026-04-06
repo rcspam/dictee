@@ -54,7 +54,8 @@ LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
-ANIMATION="${DICTEE_ANIMATION:-speech}"
+ANIM_SPEECH="${DICTEE_ANIM_SPEECH:-true}"
+ANIM_PLASMOID="${DICTEE_ANIM_PLASMOID:-false}"
 # --diarize flag: explicit from plasmoid, F9 never passes it
 DIARIZE="false"
 for _arg in "$@"; do
@@ -114,7 +115,7 @@ BUFFER_TEXT_FILE="/dev/shm/.dictee_buffer_text${_UID_SUFFIX}"
 # Stop the animation (quit or stop)
 stop_animation() {
     local cmd="${1:-stop}"
-    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+    if [ "$ANIM_SPEECH" = "true" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
             if animation-speech-ctl "$cmd" 2>/dev/null; then true; fi
         fi
@@ -1293,7 +1294,7 @@ else
     fi
 
     # Launch animation (if mode speech or both, and if available)
-    if [ "$ANIMATION" = "speech" ] || [ "$ANIMATION" = "both" ]; then
+    if [ "$ANIM_SPEECH" = "true" ]; then
         if command -v animation-speech-ctl >/dev/null 2>&1; then
             if animation-speech-ctl launch --on-escape "$(readlink -f "$0") --cancel" 2>/dev/null; then true; fi
         fi

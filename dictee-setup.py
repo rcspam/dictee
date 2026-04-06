@@ -238,7 +238,8 @@ def _sanitize_conf_value(val):
     return re.sub(r'[\n\r`$"\'\\;|&<>{}!() \t]', '', str(val))
 
 
-def save_config(backend, lang_source, lang_target, clipboard=True, animation="speech",
+def save_config(backend, lang_source, lang_target, clipboard=True,
+                anim_speech=True, anim_plasmoid=False,
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
                 whisper_lang="", vosk_model="fr", audio_source="",
@@ -274,7 +275,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         "DICTEE_LANG_SOURCE": lang_source,
         "DICTEE_LANG_TARGET": lang_target,
         "DICTEE_CLIPBOARD": "true" if clipboard else "false",
-        "DICTEE_ANIMATION": animation,
+        "DICTEE_ANIM_SPEECH": "true" if anim_speech else "false",
+        "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
         "DICTEE_PTT_MODE": ptt_mode,
@@ -352,6 +354,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
         "OLLAMA_NUM_GPU", "DICTEE_LLM_POSTPROCESS",
         "DICTEE_LLM_MODEL", "DICTEE_LLM_TIMEOUT", "DICTEE_LLM_CPU",
         "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT",
+        "DICTEE_ANIMATION",  # legacy, replaced by ANIM_SPEECH + ANIM_PLASMOID
     }
     # Add all possible suffix keys
     for lang in ("FR", "EN", "ES", "DE", "IT", "PT", "UK"):
@@ -4668,12 +4671,18 @@ class DicteeSetupDialog(QDialog):
         self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
         self.chk_gnome_ext.setEnabled(False)
 
-        anim = conf.get("DICTEE_ANIMATION", "")
-        self.chk_anim_speech.setChecked(anim in ("speech", "both"))
-        self.chk_plasmoid.setChecked(anim in ("plasmoid", "both"))
+        # Support legacy DICTEE_ANIMATION for migration
+        _legacy_anim = conf.get("DICTEE_ANIMATION", "")
+        if _legacy_anim and "DICTEE_ANIM_SPEECH" not in conf:
+            # Migrate from old combined variable
+            self.chk_anim_speech.setChecked(_legacy_anim in ("speech", "both"))
+            self.chk_plasmoid.setChecked(_legacy_anim in ("plasmoid", "both"))
+        else:
+            self.chk_anim_speech.setChecked(conf.get("DICTEE_ANIM_SPEECH", "") == "true")
+            self.chk_plasmoid.setChecked(conf.get("DICTEE_ANIM_PLASMOID", "") == "true")
 
         # Smart pre-check based on desktop (first setup only)
-        if not anim:
+        if not _legacy_anim and "DICTEE_ANIM_SPEECH" not in conf:
             _is_wayland = bool(os.environ.get("WAYLAND_DISPLAY"))
             if self.de_type == "kde":
                 self.chk_plasmoid.setChecked(True)
@@ -9581,16 +9590,8 @@ class DicteeSetupDialog(QDialog):
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
 
-        a_speech = self.chk_anim_speech.isChecked()
-        a_plasmoid = self.chk_plasmoid.isChecked()
-        if a_speech and a_plasmoid:
-            animation = "both"
-        elif a_speech:
-            animation = "speech"
-        elif a_plasmoid:
-            animation = "plasmoid"
-        else:
-            animation = "none"
+        anim_speech = self.chk_anim_speech.isChecked()
+        anim_plasmoid = self.chk_plasmoid.isChecked()
 
         ollama_model = self.combo_ollama_model.currentData()
         ollama_cpu = self.chk_ollama_cpu.isChecked()
@@ -9660,7 +9661,8 @@ class DicteeSetupDialog(QDialog):
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
-        save_config(backend, lang_src, lang_tgt, clipboard, animation,
+        save_config(backend, lang_src, lang_tgt, clipboard,
+                    anim_speech, anim_plasmoid,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
                     asr_backend, whisper_model, whisper_lang, vosk_model,
                     audio_source=str(audio_source),

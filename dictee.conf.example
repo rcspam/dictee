@@ -75,8 +75,11 @@ DICTEE_PTT_KEY=67
 # Copier le texte dans le presse-papier
 DICTEE_CLIPBOARD=true
 
-# Animation visuelle : speech | plasmoid | both | none
-DICTEE_ANIMATION=plasmoid
+# Overlay animation-speech (Wayland layer-shell : KDE, Sway, Hyprland)
+DICTEE_ANIM_SPEECH=true
+
+# Widget KDE Plasma (panneau / barre des tâches)
+DICTEE_ANIM_PLASMOID=false
 
 # ============================================================================
 # Post-traitement du texte
