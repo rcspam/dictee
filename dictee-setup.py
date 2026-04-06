@@ -4518,9 +4518,14 @@ class DicteeSetupDialog(QDialog):
         model_id = self.cmb_whisper_model.currentData()
         if model_id:
             import glob
+            try:
+                from dictee_models import whisper_cache_candidates
+                patterns = whisper_cache_candidates(model_id)
+            except ImportError:
+                patterns = [f"models--Systran--faster-whisper-{model_id}",
+                            f"models--{model_id.replace('/', '--')}"]
             cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-            for pattern in [f"models--Systran--faster-whisper-{model_id}",
-                            f"models--{model_id.replace('/', '--')}"]:
+            for pattern in patterns:
                 for f in glob.glob(os.path.join(cache_dir, pattern, "**", "*.incomplete"), recursive=True):
                     os.remove(f)
         self._whisper_progress_row.setVisible(False)
@@ -4530,11 +4535,15 @@ class DicteeSetupDialog(QDialog):
         """Delete a Whisper model from HuggingFace cache."""
         import shutil
         cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-        candidates = [
-            f"models--Systran--faster-whisper-{model_id}",
-            f"models--{model_id.replace('/', '--')}",
-            f"models--openai--whisper-{model_id}",
-        ]
+        try:
+            from dictee_models import whisper_cache_candidates
+            candidates = whisper_cache_candidates(model_id)
+        except ImportError:
+            candidates = [
+                f"models--Systran--faster-whisper-{model_id}",
+                f"models--{model_id.replace('/', '--')}",
+                f"models--openai--whisper-{model_id}",
+            ]
         for c in candidates:
             path = os.path.join(cache_dir, c)
             if os.path.isdir(path):
