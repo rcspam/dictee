@@ -871,7 +871,7 @@ def ollama_has_model(model_name):
 
 class OllamaPullThread(QThread):
     """Thread pour télécharger un modèle ollama."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def __init__(self, model_name):
@@ -886,13 +886,13 @@ class OllamaPullThread(QThread):
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode == 0:
-                self.finished.emit(True, "")
+                self.done.emit(True, "")
             else:
-                self.finished.emit(False, result.stderr.strip() or _("Download failed."))
+                self.done.emit(False, result.stderr.strip() or _("Download failed."))
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Download timed out (10 min)."))
+            self.done.emit(False, _("Download timed out (10 min)."))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 # === ASR models ===
@@ -965,7 +965,7 @@ def venv_is_installed(venv_path):
 
 class VenvInstallThread(QThread):
     """Thread pour créer un venv et installer un package pip."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def __init__(self, venv_path, pip_package):
@@ -982,7 +982,7 @@ class VenvInstallThread(QThread):
                 capture_output=True, text=True, timeout=60,
             )
             if result.returncode != 0:
-                self.finished.emit(False, result.stderr.strip())
+                self.done.emit(False, result.stderr.strip())
                 return
             pip = os.path.join(self.venv_path, "bin", "pip")
             self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
@@ -991,17 +991,17 @@ class VenvInstallThread(QThread):
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode != 0:
-                self.finished.emit(False, result.stderr.strip()[-500:])
+                self.done.emit(False, result.stderr.strip()[-500:])
                 return
-            self.finished.emit(True, "")
+            self.done.emit(True, "")
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Installation timed out."))
+            self.done.emit(False, _("Installation timed out."))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 class _CanaryDownloadThread(QThread):
     """Thread to download Canary ONNX model files from HuggingFace."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def __init__(self, model_dir, hf_repo, files):
@@ -1029,7 +1029,7 @@ class _CanaryDownloadThread(QThread):
             base_url = f"https://huggingface.co/{self.hf_repo}/resolve/main"
             for i, fname in enumerate(self.files, 1):
                 if self._cancelled:
-                    self.finished.emit(False, _("Cancelled"))
+                    self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, fname)
                 if os.path.exists(dest):
@@ -1046,7 +1046,7 @@ class _CanaryDownloadThread(QThread):
                         if self._cancelled:
                             f.close()
                             os.remove(tmp)
-                            self.finished.emit(False, _("Cancelled"))
+                            self.done.emit(False, _("Cancelled"))
                             return
                         chunk = resp.read(256 * 1024)
                         if not chunk:
@@ -1067,9 +1067,9 @@ class _CanaryDownloadThread(QThread):
                 if os.path.exists(vocab_path):
                     self.progress.emit(_("Generating tokenizer.json…"))
                     self._generate_tokenizer(vocab_path, tokenizer_path)
-            self.finished.emit(True, "")
+            self.done.emit(True, "")
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
     @staticmethod
     def _generate_tokenizer(vocab_path, tokenizer_path):
@@ -1089,7 +1089,7 @@ class _CanaryDownloadThread(QThread):
 
 class _WhisperDownloadThread(QThread):
     """Thread to pre-download a Whisper model using faster-whisper in the venv."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
 
     def __init__(self, venv_path, model_id):
         super().__init__()
@@ -1100,7 +1100,7 @@ class _WhisperDownloadThread(QThread):
         try:
             python = os.path.join(self.venv_path, "bin", "python3")
             if not os.path.isfile(python):
-                self.finished.emit(False, _("Whisper venv not installed. Install Whisper engine first."))
+                self.done.emit(False, _("Whisper venv not installed. Install Whisper engine first."))
                 return
             # faster-whisper downloads the model on first WhisperModel() instantiation
             result = subprocess.run(
@@ -1108,13 +1108,13 @@ class _WhisperDownloadThread(QThread):
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode != 0:
-                self.finished.emit(False, result.stderr.strip()[-500:])
+                self.done.emit(False, result.stderr.strip()[-500:])
                 return
-            self.finished.emit(True, "")
+            self.done.emit(True, "")
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Download timed out."))
+            self.done.emit(False, _("Download timed out."))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 class _RuleTranscribeThread(QThread):
@@ -1212,7 +1212,7 @@ def model_is_installed(model):
 
 class ModelDownloadThread(QThread):
     """Thread pour télécharger un modèle ASR."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def __init__(self, model):
@@ -1238,7 +1238,7 @@ class ModelDownloadThread(QThread):
             done = 0
             for url, filename in self.model["files"]:
                 if self._cancelled:
-                    self.finished.emit(False, _("Cancelled"))
+                    self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, filename)
                 if os.path.isfile(dest):
@@ -1253,7 +1253,7 @@ class ModelDownloadThread(QThread):
                         if self._cancelled:
                             f.close()
                             os.remove(tmp)
-                            self.finished.emit(False, _("Cancelled"))
+                            self.done.emit(False, _("Cancelled"))
                             return
                         chunk = resp.read(256 * 1024)
                         if not chunk:
@@ -1271,15 +1271,15 @@ class ModelDownloadThread(QThread):
                 if total_files > 1:
                     self.progress.emit(_("Downloaded {done}/{total}").format(
                         done=done, total=total_files))
-            self.finished.emit(True, "")
+            self.done.emit(True, "")
         except PermissionError:
-            self.finished.emit(False, _("Permission denied on {dir}").format(
+            self.done.emit(False, _("Permission denied on {dir}").format(
                 dir=model_dir))
         except Exception as e:
             if self._cancelled:
-                self.finished.emit(False, _("Cancelled"))
+                self.done.emit(False, _("Cancelled"))
             else:
-                self.finished.emit(False, str(e))
+                self.done.emit(False, str(e))
 
 
 # === LibreTranslate (Docker) ===
@@ -1458,7 +1458,7 @@ def _docker_container_size():
 
 class _DockerSetupThread(QThread):
     """Thread for pkexec Docker setup (start daemon + add user to group)."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
 
     def __init__(self, user):
         super().__init__()
@@ -1475,18 +1475,18 @@ class _DockerSetupThread(QThread):
                 ["pkexec", "bash", "-c", script],
                 capture_output=True, text=True, timeout=60)
             if result.returncode == 0:
-                self.finished.emit(True, "")
+                self.done.emit(True, "")
             else:
-                self.finished.emit(False, result.stderr.strip() or _("Docker setup failed."))
+                self.done.emit(False, result.stderr.strip() or _("Docker setup failed."))
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Timeout while setting up Docker."))
+            self.done.emit(False, _("Timeout while setting up Docker."))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 class DockerPullThread(QThread):
     """Thread pour télécharger l'image Docker LibreTranslate."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def run(self):
@@ -1497,18 +1497,18 @@ class DockerPullThread(QThread):
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode == 0:
-                self.finished.emit(True, "")
+                self.done.emit(True, "")
             else:
-                self.finished.emit(False, result.stderr.strip() or _("Download failed."))
+                self.done.emit(False, result.stderr.strip() or _("Download failed."))
         except subprocess.TimeoutExpired:
-            self.finished.emit(False, _("Download timed out (10 min)."))
+            self.done.emit(False, _("Download timed out (10 min)."))
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 class _VoskModelDownloadThread(QThread):
     """Thread pour télécharger un modèle Vosk."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def __init__(self, model_name):
@@ -1539,14 +1539,14 @@ class _VoskModelDownloadThread(QThread):
             with zipfile.ZipFile(zip_path, "r") as z:
                 z.extractall(base)
             os.remove(zip_path)
-            self.finished.emit(True, "")
+            self.done.emit(True, "")
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 class _DockerActionThread(QThread):
     """Thread pour démarrer/arrêter LibreTranslate sans bloquer l'UI."""
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def __init__(self, action, port=LIBRETRANSLATE_PORT, languages="fr,en,es,de"):
@@ -1576,15 +1576,15 @@ class _DockerActionThread(QThread):
                     "--load-only", self._languages,
                 ], capture_output=True, text=True, timeout=30)
                 if result.returncode != 0:
-                    self.finished.emit(False, result.stderr.strip() or _("Docker run failed."))
+                    self.done.emit(False, result.stderr.strip() or _("Docker run failed."))
                     return
                 self._wait_ready()
             else:
                 self.progress.emit(_("Stopping container…"))
                 docker_stop_libretranslate()
-            self.finished.emit(True, "")
+            self.done.emit(True, "")
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
     def _wait_ready(self):
         """Attend que l'API LibreTranslate soit prête (max 180s).
@@ -1728,7 +1728,7 @@ class _DockerActionThread(QThread):
 
 
 class InstallThread(QThread):
-    finished = Signal(bool, str)
+    done = Signal(bool, str)
     progress = Signal(str)
 
     def run(self):
@@ -1743,12 +1743,12 @@ class InstallThread(QThread):
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     release = json.loads(resp.read().decode())
             except urllib.error.URLError as e:
-                self.finished.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
+                self.done.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
                 return
 
             assets = release.get("assets", [])
             if not assets:
-                self.finished.emit(False, _("No assets found in the release."))
+                self.done.emit(False, _("No assets found in the release."))
                 return
 
             tmp_dir = tempfile.mkdtemp(prefix="dictee-setup-")
@@ -1761,7 +1761,7 @@ class InstallThread(QThread):
 
             asset = next((a for a in assets if a["name"].endswith(pattern)), None)
             if not asset:
-                self.finished.emit(False,
+                self.done.emit(False,
                     _("No {pat} found in the release.").format(pat=pattern))
                 return
 
@@ -1795,12 +1795,12 @@ class InstallThread(QThread):
                 pass
 
             if result.returncode == 0:
-                self.finished.emit(True, "")
+                self.done.emit(True, "")
             else:
-                self.finished.emit(False, result.stderr.strip() or _("Installation error."))
+                self.done.emit(False, result.stderr.strip() or _("Installation error."))
 
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 # === Bouton capture raccourci ===
@@ -4279,7 +4279,7 @@ class DicteeSetupDialog(QDialog):
         self._vosk_dl_thread = _VoskModelDownloadThread(model_name)
         self._vosk_dl_thread.progress.connect(
             lambda text: self.btn_dl_vosk_model.setText(text))
-        self._vosk_dl_thread.finished.connect(self._on_vosk_model_download_finished)
+        self._vosk_dl_thread.done.connect(self._on_vosk_model_download_finished)
         self._vosk_dl_thread.start()
 
     def _on_vosk_model_download_finished(self, success, message):
@@ -4504,7 +4504,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_download_whisper.setText(_("Downloading…"))
         self._whisper_progress_row.setVisible(True)
         thread = _WhisperDownloadThread(WHISPER_VENV, model_id)
-        thread.finished.connect(self._on_whisper_download_done)
+        thread.done.connect(self._on_whisper_download_done)
         self._venv_threads["whisper_dl"] = thread
         thread.start()
 
@@ -4632,7 +4632,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_cancel_canary.setVisible(True)
 
         thread = _CanaryDownloadThread(CANARY_MODEL_DIR, CANARY_HF_REPO, CANARY_MODEL_FILES)
-        thread.finished.connect(self._on_canary_download_done)
+        thread.done.connect(self._on_canary_download_done)
         thread.progress.connect(lambda msg: self.btn_install_canary.setText(msg))
         self._venv_threads["canary"] = thread
         thread.start()
@@ -8626,7 +8626,7 @@ class DicteeSetupDialog(QDialog):
 
         self._install_thread = InstallThread()
         self._install_thread.progress.connect(lambda text: self.btn_install_anim.setText(text))
-        self._install_thread.finished.connect(self._on_install_finished)
+        self._install_thread.done.connect(self._on_install_finished)
         self._install_thread.start()
 
     def _on_install_finished(self, success, message):
@@ -8723,7 +8723,7 @@ class DicteeSetupDialog(QDialog):
         self._ollama_pull_thread = OllamaPullThread(model)
         self._ollama_pull_thread.progress.connect(
             lambda text: self.btn_ollama_pull.setText(text))
-        self._ollama_pull_thread.finished.connect(self._on_ollama_pull_finished)
+        self._ollama_pull_thread.done.connect(self._on_ollama_pull_finished)
         self._ollama_pull_thread.start()
 
     def _on_ollama_pull_finished(self, success, message):
@@ -8903,7 +8903,7 @@ class DicteeSetupDialog(QDialog):
 
         self._lt_action_thread = _DockerActionThread("restart", port=port, languages=languages)
         self._lt_action_thread.progress.connect(self._on_lt_progress)
-        self._lt_action_thread.finished.connect(self._on_lt_restart_langs_finished)
+        self._lt_action_thread.done.connect(self._on_lt_restart_langs_finished)
         self._lt_action_thread.start()
 
     def _save_lt_langs_to_config(self, langs):
@@ -8965,7 +8965,7 @@ class DicteeSetupDialog(QDialog):
         self.progress_lt.setVisible(True)
 
         self._docker_setup_thread = _DockerSetupThread(user)
-        self._docker_setup_thread.finished.connect(self._on_setup_docker_finished)
+        self._docker_setup_thread.done.connect(self._on_setup_docker_finished)
         self._docker_setup_thread.start()
 
     def _on_setup_docker_finished(self, success, message):
@@ -8994,7 +8994,7 @@ class DicteeSetupDialog(QDialog):
         self._docker_pull_thread = DockerPullThread()
         self._docker_pull_thread.progress.connect(
             lambda text: self.btn_lt_pull.setText(text))
-        self._docker_pull_thread.finished.connect(self._on_lt_pull_finished)
+        self._docker_pull_thread.done.connect(self._on_lt_pull_finished)
         self._docker_pull_thread.start()
 
     def _on_lt_pull_finished(self, success, message):
@@ -9023,7 +9023,7 @@ class DicteeSetupDialog(QDialog):
 
         self._lt_action_thread = _DockerActionThread("start", port=port, languages=languages)
         self._lt_action_thread.progress.connect(self._on_lt_progress)
-        self._lt_action_thread.finished.connect(self._on_lt_action_finished)
+        self._lt_action_thread.done.connect(self._on_lt_action_finished)
         self._lt_action_thread.start()
 
     def _on_lt_stop(self):
@@ -9038,7 +9038,7 @@ class DicteeSetupDialog(QDialog):
 
         self._lt_action_thread = _DockerActionThread("stop")
         self._lt_action_thread.progress.connect(self._on_lt_progress)
-        self._lt_action_thread.finished.connect(self._on_lt_action_finished)
+        self._lt_action_thread.done.connect(self._on_lt_action_finished)
         self._lt_action_thread.start()
 
     def _lt_is_busy(self):
@@ -9088,7 +9088,7 @@ class DicteeSetupDialog(QDialog):
 
         thread = ModelDownloadThread(model)
         thread.progress.connect(lambda text, _m=mid: self._on_model_progress(_m, text))
-        thread.finished.connect(lambda ok, msg, _m=mid: self._on_model_download_finished(_m, ok, msg))
+        thread.done.connect(lambda ok, msg, _m=mid: self._on_model_download_finished(_m, ok, msg))
         self._model_threads[mid] = thread
         thread.start()
 
@@ -9183,7 +9183,7 @@ class DicteeSetupDialog(QDialog):
         btn.setStyleSheet("QPushButton { color: white; background-color: #c84; font-weight: bold; }")
         thread = VenvInstallThread(venv_path, pip_package)
         thread.progress.connect(lambda text: btn.setText(text))
-        thread.finished.connect(lambda ok, msg, n=name: self._on_venv_installed(n, ok, msg))
+        thread.done.connect(lambda ok, msg, n=name: self._on_venv_installed(n, ok, msg))
         self._venv_threads[name] = thread
         thread.start()
 
