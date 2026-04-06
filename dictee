@@ -372,7 +372,7 @@ apply_continuation() {
         local lower="${last_word,,}"
         local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
         local _cw="${!_cw_var}"
-        if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
+        if [[ -n "$lower" && -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local bs_count="${last_char#.}"
             _cont_backspace "${bs_count:-1}"
             _ref=" ${_ref,}"
