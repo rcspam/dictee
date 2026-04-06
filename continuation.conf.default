@@ -39,18 +39,11 @@
 # Auxiliaries & common verbs
 [fr] suis es est sommes êtes sont ai as a avons avez ont
 [fr] était avait sera serait avoir être fait fais vais vas va vont
-# Modal & transitive verbs (commonly followed by complement)
+# Modal verbs (almost always followed by complement)
 [fr] peux peut peuvent pouvez pouvons pouvais pouvait
 [fr] veux veut veulent voulez voulons voulais voulait
 [fr] dois doit doivent devez devons devais devait
-[fr] sais sait savent savez savons savais savait
 [fr] faut fallait
-[fr] vois voit voient voyez voyons voyais voyait
-[fr] prends prend prennent prenez prenons prenais prenait
-[fr] mets met mettent mettez mettons mettais mettait
-[fr] dis dit disent dites disons disais disait
-[fr] donne doit donnent donnez donnons donnais donnait
-[fr] reste laisse passe trouve garde cherche demande permet
 
 # ── English ──────────────────────────────────────────────────────────
 # Articles
