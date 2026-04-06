@@ -141,7 +141,7 @@ def _parse_rules(path):
                 if not suffix:
                     # No suffix configured → skip this rule (command disabled)
                     continue
-                pattern = pattern.replace(suffix_var.group(0), re.escape(suffix))
+                pattern = pattern.replace(suffix_var.group(0), suffix)
             flags = 0
             if "i" in flags_str:
                 flags |= re.IGNORECASE
