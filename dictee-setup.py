@@ -945,6 +945,7 @@ WHISPER_MODELS = [
     ("tiny", "tiny — 39M, fastest, lowest quality"),
     ("small", "small — 244M, good balance"),
     ("medium", "medium — 769M, better quality"),
+    ("large-v3-turbo", "large-v3-turbo — 809M, fast, multilingual"),
     ("large-v3", "large-v3 — 1.5B, best quality, multilingual"),
     ("Systran/faster-distil-whisper-large-v3", "distil-large-v3 — 756M, fast (English only)"),
 ]

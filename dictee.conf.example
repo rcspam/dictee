@@ -18,7 +18,7 @@ DICTEE_LANG_SOURCE=fr
 DICTEE_LANG_TARGET=en
 
 # ── Whisper ──────────────────────────────────────────────────────────────────
-# Modèle faster-whisper : tiny, small, medium, large-v3
+# Modèle faster-whisper : tiny, small, medium, large-v3-turbo, large-v3
 # ou un repo HuggingFace CTranslate2 : Systran/faster-distil-whisper-large-v3
 DICTEE_WHISPER_MODEL=small
 
