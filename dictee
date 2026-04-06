@@ -277,6 +277,7 @@ apply_continuation() {
     #   F → end of sentence (! ; : » )) — space + keep case
     #   _ → no punctuation (mid-sentence, space + lowercase)
     local -n _ref="$1"
+    _dbg "apply_continuation: input='$(echo -n "$_ref" | xxd -p)' last_word_file='$(cat "$LAST_WORD_FILE" 2>/dev/null)'"
     # If text starts with \n ("new line" voice command), do not modify
     if [[ "$_ref" == $'\n'* ]]; then return; fi
     if [ ! -f "$LAST_WORD_FILE" ]; then return; fi
@@ -396,6 +397,7 @@ save_last_word() {
     # Save punctuation marker and last word for continuation
     # Markers: , . F (end: ! ? … ; : » )) _ (no punctuation)
     local text="$1"
+    _dbg "save_last_word: text='$(echo -n "$text" | xxd -p)' arg2='${2:-}'"
     # If text contains \n ("new line" voice command),
     # don't save: next push is independent
     if [[ "$text" == *$'\n'* ]]; then
@@ -459,11 +461,12 @@ save_last_word() {
     if $force_end; then
         marker="F"
     fi
+    _dbg "save_last_word: marker='$marker' last_word='$last_word' force_end=$force_end"
 
     # If continuation is likely (closed-class word), append & after text
     # (never replace — always append). On next push, backspace & + punctuation.
     # The variable name is passed as $2 (optional, for in-place modification)
-    if [ -n "${2:-}" ] && [[ "$marker" == .* || "$marker" == "_" ]] && ! $force_end; then
+    if [ -n "${2:-}" ] && [ -n "$last_word" ] && [[ "$marker" == .* || "$marker" == "_" ]] && ! $force_end; then
         local lower="${last_word,,}"
         local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
         local _cw="${!_cw_var}"
@@ -1210,7 +1213,9 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         copy_to_clipboard "$transcribed"
+        _dbg "before_save: transcribed='$(echo -n "$transcribed" | xxd -p)'"
         save_last_word "$transcribed" transcribed
+        _dbg "after_save: transcribed='$(echo -n "$transcribed" | xxd -p)'"
         type_text "$transcribed"
         notify_dictee 0 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
     fi

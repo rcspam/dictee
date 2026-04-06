@@ -859,6 +859,9 @@ def main():
     if _env_bool("DICTEE_LLM_POSTPROCESS", "false"):
         text = llm_postprocess(text)
 
+    # Strip internal markers used by voice-command rules
+    text = text.replace("\x01", "").replace("\x02", "")
+
     sys.stdout.write(text)
 
 
