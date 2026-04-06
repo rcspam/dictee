@@ -24,7 +24,7 @@ jobs:
         done
     - name: Python syntax check
       run: |
-        for f in dictee-setup.py dictee-tray.py dictee-ptt.py dictee-postprocess.py transcribe-daemon-canary; do
+        for f in dictee-setup.py dictee-tray.py dictee-ptt.py dictee-postprocess.py dictee-transcribe.py dictee_models.py; do
           echo "Checking $f..."
           python3 -m py_compile "$f"
         done
