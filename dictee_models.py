@@ -170,11 +170,19 @@ def whisper_model_cached(model_id):
     """
     if not os.path.isdir(HF_CACHE):
         return False
+    # Map short names to HF repo cache dirs (mirrors faster-whisper _MODELS)
+    _REPO_MAP = {
+        "large-v3-turbo": "mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+        "turbo": "mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+        "distil-large-v3.5": "distil-whisper--distil-large-v3.5-ct2",
+    }
     candidates = [
         f"models--Systran--faster-whisper-{model_id}",
         f"models--{model_id.replace('/', '--')}",
         f"models--openai--whisper-{model_id}",
     ]
+    if model_id in _REPO_MAP:
+        candidates.insert(0, f"models--{_REPO_MAP[model_id]}")
     for c in candidates:
         snap = os.path.join(HF_CACHE, c, "snapshots")
         if not os.path.isdir(snap):
