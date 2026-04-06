@@ -31,12 +31,16 @@ Environment variables:
   DICTEE_LLM_POSTPROCESS   — true/false (default: false) — LLM correction
   DICTEE_LLM_MODEL         — ollama model (default: gemma3:4b)
   DICTEE_LLM_TIMEOUT       — timeout in seconds (default: 10)
+  DICTEE_LLM_SYSTEM_PROMPT — preset name or "custom" (default: Correction FR)
+  DICTEE_LLM_POSITION      — hybrid/first/last (default: hybrid)
 """
 
+import json as _json
 import os
 import re
 import sys
-import subprocess
+import urllib.request
+import urllib.error
 
 # ── Venv bootstrap ───────────────────────────────────────────────────
 # If a dedicated venv exists (with text2num, etc.),
@@ -722,52 +726,109 @@ def fix_capitalization(text):
     return text
 
 
-# ── Correction LLM (ollama) ─────────────────────────────────────────
+# ── Correction LLM (ollama HTTP API) ────────────────────────────────
 
-DEFAULT_PROMPT = (
-    "<role>\n"
-    "Ton rôle est de corriger une transcription provenant d'un ASR. "
-    "Tu n'es pas un assistant conversationnel.\n"
-    "</role>\n"
-    "<instructions>\n"
-    "- Corrige l'orthographe et la grammaire.\n"
-    "- Supprime les répétitions et hésitations.\n"
-    "- Ne modifie jamais le sens ni le contenu.\n"
-    "- Ne réponds pas aux questions et ne les commente pas.\n"
-    "- Ne génère aucun commentaire ni introduction.\n"
-    "- Si tu ne sais pas ou qu'il n'y a rien à modifier, "
-    "renvoie la transcription telle quelle.\n"
-    "</instructions>\n"
-    "<input>{text}</input>"
+SYSTEM_PROMPT = (
+    "You are an automatic spell checker for voice dictation. "
+    "The user is dictating text aloud and a speech recognition engine transcribes it. "
+    "You receive this raw transcription and must correct it. "
+    "Your output will be pasted AS IS into the user's document.\n"
+    "\n"
+    "RULES:\n"
+    "- Fix spelling, grammar, accents and missing punctuation.\n"
+    "- Remove hesitations (uh, um, euh, hum, etc.) and repetitions.\n"
+    "- The text may contain questions — the user is dictating a question for their document. "
+    "Correct it and return it. NEVER treat it as a question asked to you.\n"
+    "- Do not change the meaning. Do not rephrase. Do not add anything.\n"
+    "- Do not translate. Keep the original language of the text.\n"
+    "- Return ONLY the corrected text, no quotes, no commentary, no explanation.\n"
+    "- If the text is already correct, return it unchanged."
 )
 
-PROMPT_PATH = os.path.join(XDG_CONFIG, "dictee", "llm-prompt.txt")
+SYSTEM_PROMPT_MINIMAL = (
+    "Correct spelling and grammar. The text is a dictation, not a question to you. "
+    "Return ONLY the corrected text, nothing else."
+)
+
+SYSTEM_PROMPTS = {
+    "default": SYSTEM_PROMPT,
+    "minimal": SYSTEM_PROMPT_MINIMAL,
+}
+
+_SYSTEM_PROMPT_PATH = os.path.join(XDG_CONFIG, "dictee", "llm-system-prompt.txt")
+# Legacy fallback
+_LEGACY_PROMPT_PATH = os.path.join(XDG_CONFIG, "dictee", "llm-prompt.txt")
 
 
-def _load_prompt():
-    if os.path.isfile(PROMPT_PATH):
-        with open(PROMPT_PATH, encoding="utf-8") as f:
-            return f.read().strip()
-    return DEFAULT_PROMPT
+def _load_system_prompt():
+    """Load system prompt from preset name, custom file, or legacy fallback."""
+    preset = os.environ.get("DICTEE_LLM_SYSTEM_PROMPT", "default")
+    if preset == "custom":
+        if os.path.isfile(_SYSTEM_PROMPT_PATH):
+            with open(_SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
+                return f.read().strip()
+        # Legacy fallback: old llm-prompt.txt
+        if os.path.isfile(_LEGACY_PROMPT_PATH):
+            with open(_LEGACY_PROMPT_PATH, encoding="utf-8") as f:
+                return f.read().strip()
+    return SYSTEM_PROMPTS.get(preset, SYSTEM_PROMPT)
+
+
+def _dbg(msg):
+    """Print debug message to stderr if DICTEE_DEBUG is set."""
+    if os.environ.get("DICTEE_DEBUG", "") == "true":
+        import time as _time
+        print(f"[postprocess] {_time.strftime('%H:%M:%S')} {msg}",
+              file=sys.stderr, flush=True)
 
 
 def llm_postprocess(text):
-    """Sends text to ollama for grammar correction."""
+    """Send text to ollama HTTP API for grammar correction."""
+    import time as _time
     model = os.environ.get("DICTEE_LLM_MODEL", "gemma3:4b")
     timeout = int(os.environ.get("DICTEE_LLM_TIMEOUT", "10"))
+    preset = os.environ.get("DICTEE_LLM_SYSTEM_PROMPT", "default")
+    position = os.environ.get("DICTEE_LLM_POSITION", "hybrid")
+    system_prompt = _load_system_prompt()
 
-    prompt_tpl = _load_prompt()
-    prompt = prompt_tpl.format(text=text)
+    _dbg(f"LLM START model={model} preset={preset} position={position} "
+         f"timeout={timeout}s input={len(text)} chars")
 
+    payload = _json.dumps({
+        "model": model,
+        "system": system_prompt,
+        "prompt": text,
+        "stream": False,
+    }).encode("utf-8")
+
+    t0 = _time.monotonic()
     try:
-        result = subprocess.run(
-            ["ollama", "run", model, prompt],
-            capture_output=True, text=True, timeout=timeout,
+        req = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = _json.loads(resp.read().decode("utf-8"))
+        elapsed = _time.monotonic() - t0
+        result = data.get("response", "").strip()
+        eval_count = data.get("eval_count", 0)
+        eval_duration = data.get("eval_duration", 0)
+        tok_s = eval_count / (eval_duration / 1e9) if eval_duration > 0 else 0
+        if result:
+            _dbg(f"LLM OK {elapsed:.2f}s {eval_count} tokens {tok_s:.1f} tok/s "
+                 f"output={len(result)} chars")
+            return result
+        _dbg(f"LLM EMPTY response after {elapsed:.2f}s — using original text")
+    except urllib.error.URLError as e:
+        elapsed = _time.monotonic() - t0
+        _dbg(f"LLM FAIL URLError after {elapsed:.2f}s: {e}")
+    except TimeoutError:
+        elapsed = _time.monotonic() - t0
+        _dbg(f"LLM FAIL Timeout after {elapsed:.2f}s (limit={timeout}s)")
+    except (OSError, ValueError) as e:
+        elapsed = _time.monotonic() - t0
+        _dbg(f"LLM FAIL {type(e).__name__} after {elapsed:.2f}s: {e}")
     return text  # fallback: text unchanged
 
 
@@ -781,6 +842,12 @@ def main():
     if not text.strip():
         sys.stdout.write(text)
         return
+
+    # LLM correction — position "first" (before any post-processing)
+    _llm_enabled = _env_bool("DICTEE_LLM_POSTPROCESS", "false")
+    _llm_position = os.environ.get("DICTEE_LLM_POSITION", "hybrid")
+    if _llm_enabled and _llm_position == "first":
+        text = llm_postprocess(text)
 
     # 0. Bad language detection (multilingual ASR confused on short audio)
     # Rules first try to recover known voice commands
@@ -815,6 +882,10 @@ def main():
     continuation_words = load_continuation()
     if _env_bool("DICTEE_PP_CONTINUATION") and continuation_words:
         text = fix_continuation(text, continuation_words)
+
+    # LLM correction — position "hybrid" (between cleanup and formatting)
+    if _llm_enabled and _llm_position == "hybrid":
+        text = llm_postprocess(text)
 
     # 6. Language-specific rules
     if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
@@ -855,8 +926,8 @@ def main():
     if _env_bool("DICTEE_PP_SHORT_TEXT"):
         text = fix_short_text(text)
 
-    # 13. Correction LLM (optionnelle)
-    if _env_bool("DICTEE_LLM_POSTPROCESS", "false"):
+    # 13. LLM correction — position "last" (after all post-processing)
+    if _llm_enabled and _llm_position == "last":
         text = llm_postprocess(text)
 
     # Strip internal markers used by voice-command rules

@@ -28,7 +28,7 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 
 try:
     from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, pyqtSignal as Signal
-    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -40,7 +40,7 @@ try:
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
     from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, Signal
-    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -256,6 +256,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 pp_rules=True, pp_continuation=True,
                 llm_postprocess=False, llm_model="gemma3:4b",
                 llm_timeout=10, llm_cpu=False,
+                llm_system_prompt="default", llm_position="hybrid",
+                llm_custom_prompt="",
                 audio_context=False, audio_context_timeout=30,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False):
@@ -334,6 +336,16 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         values["DICTEE_LLM_TIMEOUT"] = str(llm_timeout)
         if llm_cpu:
             values["DICTEE_LLM_CPU"] = "true"
+        values["DICTEE_LLM_SYSTEM_PROMPT"] = _s(llm_system_prompt)
+        values["DICTEE_LLM_POSITION"] = llm_position
+        # Save custom prompt to file
+        _custom_path = os.path.join(
+            os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+            "dictee", "llm-system-prompt.txt")
+        if llm_system_prompt == "custom" and llm_custom_prompt.strip():
+            os.makedirs(os.path.dirname(_custom_path), exist_ok=True)
+            with open(_custom_path, "w", encoding="utf-8") as f:
+                f.write(llm_custom_prompt.strip() + "\n")
     # Notifications
     values["DICTEE_NOTIFICATIONS"] = "true" if notifications else "false"
     values["DICTEE_NOTIFICATIONS_TEXT"] = "true" if notifications_text else "false"
@@ -2317,6 +2329,90 @@ def _help_btn(tooltip_text):
     btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     btn.setCursor(Qt.CursorShape.WhatsThisCursor)
     return btn
+
+
+# ── Resizable text editor frame (like HTML textarea resize: both) ────
+
+class _ResizableFrame(QFrame):
+    """QFrame with overridden sizeHint() + Fixed policy so layout respects
+    the size set by the drag grip.  Works in all 4 directions."""
+
+    def __init__(self, child_widget, min_w=200, min_h=80,
+                 init_w=600, init_h=200, parent=None):
+        super().__init__(parent)
+        self._min_w = min_w
+        self._min_h = min_h
+        self._target_size = QSize(init_w, init_h)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(child_widget)
+        self._grip = _GripHandle(self, min_w, min_h)
+        self._grip.raise_()
+        self.resize(init_w, init_h)
+
+    def sizeHint(self):
+        return self._target_size
+
+    def set_target_size(self, w, h):
+        self._target_size = QSize(w, h)
+        self.updateGeometry()
+        self.resize(w, h)
+        # Auto-scroll: make the grip (bottom-right) visible in the QScrollArea
+        scroll = self.parent()
+        while scroll is not None:
+            if isinstance(scroll, QScrollArea):
+                scroll.ensureWidgetVisible(self._grip, 20, 20)
+                break
+            scroll = scroll.parent() if hasattr(scroll, 'parent') else None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._grip.move(self.width() - 17, self.height() - 17)
+        self._grip.raise_()
+
+
+class _GripHandle(QLabel):
+    """16x16 draggable triangle in bottom-right corner."""
+
+    def __init__(self, resizable_frame, min_w, min_h):
+        super().__init__(resizable_frame)
+        self._frame = resizable_frame
+        self._min_w = min_w
+        self._min_h = min_h
+        self._drag_origin = None
+        self._base_w = 0
+        self._base_h = 0
+        self.setFixedSize(16, 16)
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(128, 128, 128))
+        pen.setWidth(1)
+        p.setPen(pen)
+        for offset in (4, 8, 12):
+            p.drawLine(offset, 15, 15, offset)
+        p.end()
+
+    def mousePressEvent(self, event):
+        self._drag_origin = event.globalPosition().toPoint()
+        self._base_w = self._frame.width()
+        self._base_h = self._frame.height()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_origin is not None:
+            pos = event.globalPosition().toPoint()
+            new_w = max(self._min_w,
+                        self._base_w + pos.x() - self._drag_origin.x())
+            new_h = max(self._min_h,
+                        self._base_h + pos.y() - self._drag_origin.y())
+            self._frame.set_target_size(new_w, new_h)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_origin = None
 
 
 class DicteeSetupDialog(QDialog):
@@ -5159,16 +5255,22 @@ class DicteeSetupDialog(QDialog):
 
         # LLM sub-options
         self._llm_widget = QWidget()
-        llm_lay = QFormLayout(self._llm_widget)
-        llm_lay.setContentsMargins(20, 4, 0, 0)
+        llm_vbox = QVBoxLayout(self._llm_widget)
+        llm_vbox.setContentsMargins(20, 4, 0, 0)
+        llm_vbox.setSpacing(6)
+
+        # Top row: combos in a QFormLayout
+        _llm_form = QWidget()
+        llm_flay = QFormLayout(_llm_form)
+        llm_flay.setContentsMargins(0, 0, 0, 0)
 
         self.cmb_llm_model = QComboBox()
-        saved_model = conf.get("DICTEE_LLM_MODEL", "ministral:3b")
+        saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
         self.cmb_llm_model.setEditable(True)
-        self.cmb_llm_model.addItem("ministral:3b")
         self.cmb_llm_model.addItem("gemma3:4b")
         self.cmb_llm_model.addItem("gemma3:1b")
-        # Détecter les modèles installés
+        self.cmb_llm_model.addItem("ministral-3:3b")
+        # Detect installed models
         try:
             import subprocess as _sp
             out = _sp.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
@@ -5184,25 +5286,116 @@ class DicteeSetupDialog(QDialog):
             self.cmb_llm_model.setCurrentIndex(idx)
         else:
             self.cmb_llm_model.setEditText(saved_model)
-        llm_lay.addRow(_("Model:"), self.cmb_llm_model)
+        llm_flay.addRow(_("Model:"), self.cmb_llm_model)
+
+        # LLM pipeline position
+        self.cmb_llm_position = QComboBox()
+        self.cmb_llm_position.addItem(_("Hybrid (recommended)"), "hybrid")
+        self.cmb_llm_position.addItem(_("Before post-processing"), "first")
+        self.cmb_llm_position.addItem(_("After post-processing"), "last")
+        saved_pos = conf.get("DICTEE_LLM_POSITION", "hybrid")
+        idx_pos = self.cmb_llm_position.findData(saved_pos)
+        if idx_pos >= 0:
+            self.cmb_llm_position.setCurrentIndex(idx_pos)
+        llm_flay.addRow(_("Position:"), self.cmb_llm_position)
+
+        # System prompt presets
+        self.cmb_llm_preset = QComboBox()
+        self.cmb_llm_preset.addItem(_("Default"), "default")
+        self.cmb_llm_preset.addItem("Minimal", "minimal")
+        self.cmb_llm_preset.addItem(_("Custom"), "custom")
+        saved_preset = conf.get("DICTEE_LLM_SYSTEM_PROMPT", "default")
+        idx_preset = self.cmb_llm_preset.findData(saved_preset)
+        if idx_preset >= 0:
+            self.cmb_llm_preset.setCurrentIndex(idx_preset)
+        llm_flay.addRow(_("System prompt:"), self.cmb_llm_preset)
+
+        llm_vbox.addWidget(_llm_form)
+
+        # System prompt editor — full width, resizable via corner grip
+        self.txt_llm_prompt = QTextEdit()
+        self.txt_llm_prompt.setFont(self._monospace_font())
+        self.txt_llm_prompt.setMinimumHeight(80)
+        self.txt_llm_prompt.setMinimumWidth(200)
+        self._add_zoom_overlay(self.txt_llm_prompt)
+
+        _prompt_frame = _ResizableFrame(
+            self.txt_llm_prompt, min_w=200, min_h=80,
+            init_w=800, init_h=250)
+        llm_vbox.addWidget(_prompt_frame)
+
+        # Populate prompt text and connect preset changes
+        self._on_llm_preset_changed(self.cmb_llm_preset.currentData())
+        self.cmb_llm_preset.currentIndexChanged.connect(
+            lambda: self._on_llm_preset_changed(self.cmb_llm_preset.currentData()))
 
         self.chk_llm_cpu = QCheckBox(_("Force CPU (free GPU VRAM)"))
         self.chk_llm_cpu.setChecked(conf.get("DICTEE_LLM_CPU", "false") == "true")
-        llm_lay.addRow("", self.chk_llm_cpu)
+        llm_vbox.addWidget(self.chk_llm_cpu)
 
         lbl_vram = QLabel(
-            "<i>" + _("~2 GB VRAM with Ministral 3B (+ ~2.5 GB Parakeet)") + "</i>")
+            "<i>" + _("~3 GB VRAM with Gemma 3 4B (+ ~2.5 GB Parakeet)") + "</i>")
         lbl_vram.setStyleSheet("font-size: 11px; opacity: 0.6;")
-        llm_lay.addRow("", lbl_vram)
+        llm_vbox.addWidget(lbl_vram)
 
         pp_lay.addWidget(self._llm_widget)
         self._llm_widget.setVisible(self.chk_llm.isChecked())
         self.chk_llm.toggled.connect(self._llm_widget.setVisible)
 
-        # Ajouter le conteneur et connecter le toggle
-        lay.addWidget(self._pp_content)
+        # Wrap in QScrollArea for the whole post-processing section
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._pp_content)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        lay.addWidget(scroll)
         self._pp_content.setEnabled(self.chk_postprocess.isChecked())
         self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+
+    # ── LLM prompt presets ──────────────────────────────────────
+
+    _LLM_SYSTEM_PROMPTS = {
+        "default": (
+            "You are an automatic spell checker for voice dictation. "
+            "The user is dictating text aloud and a speech recognition engine transcribes it. "
+            "You receive this raw transcription and must correct it. "
+            "Your output will be pasted AS IS into the user's document.\n"
+            "\n"
+            "RULES:\n"
+            "- Fix spelling, grammar, accents and missing punctuation.\n"
+            "- Remove hesitations (uh, um, euh, hum, etc.) and repetitions.\n"
+            "- The text may contain questions — the user is dictating a question for their document. "
+            "Correct it and return it. NEVER treat it as a question asked to you.\n"
+            "- Do not change the meaning. Do not rephrase. Do not add anything.\n"
+            "- Do not translate. Keep the original language of the text.\n"
+            "- Return ONLY the corrected text, no quotes, no commentary, no explanation.\n"
+            "- If the text is already correct, return it unchanged."
+        ),
+        "minimal": (
+            "Correct spelling and grammar. The text is a dictation, not a question to you. "
+            "Return ONLY the corrected text, nothing else."
+        ),
+    }
+
+    _LLM_CUSTOM_PROMPT_PATH = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+        "dictee", "llm-system-prompt.txt")
+
+    def _on_llm_preset_changed(self, preset_data):
+        """Update system prompt QTextEdit when preset combo changes."""
+        if preset_data == "custom":
+            self.txt_llm_prompt.setReadOnly(False)
+            # Load existing custom file if available
+            if os.path.isfile(self._LLM_CUSTOM_PROMPT_PATH):
+                with open(self._LLM_CUSTOM_PROMPT_PATH, encoding="utf-8") as f:
+                    self.txt_llm_prompt.setPlainText(f.read().strip())
+            elif not self.txt_llm_prompt.toPlainText().strip():
+                # Start from FR preset as template
+                self.txt_llm_prompt.setPlainText(
+                    self._LLM_SYSTEM_PROMPTS.get("default", ""))
+        else:
+            self.txt_llm_prompt.setReadOnly(True)
+            self.txt_llm_prompt.setPlainText(
+                self._LLM_SYSTEM_PROMPTS.get(preset_data, ""))
 
     # ── Post-processing tabs ────────────────────────────────────
 
@@ -9666,8 +9859,11 @@ class DicteeSetupDialog(QDialog):
         pp_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
         pp_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
-        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "ministral:3b"
+        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
+        llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
+        llm_position = self.cmb_llm_position.currentData() if hasattr(self, 'cmb_llm_position') else "hybrid"
+        llm_custom_prompt = self.txt_llm_prompt.toPlainText() if hasattr(self, 'txt_llm_prompt') else ""
 
         # Audio context buffer
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
@@ -9692,6 +9888,9 @@ class DicteeSetupDialog(QDialog):
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu,
+                    llm_system_prompt=llm_system_prompt,
+                    llm_position=llm_position,
+                    llm_custom_prompt=llm_custom_prompt,
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),

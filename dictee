@@ -1163,7 +1163,7 @@ if [ -f "$PIDFILE" ]; then
         exit 1
     fi
     if [ -n "$SUPPRIME" ]; then
-        echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp
+        echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp 2>>/tmp/dictee-postprocess.log
         transcribed=$(cat /dev/shm/.dictee_pp; printf x)
         transcribed="${transcribed%x}"
         rm -f /dev/shm/.dictee_pp
