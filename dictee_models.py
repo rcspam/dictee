@@ -162,6 +162,26 @@ def load_config():
     return conf
 
 
+# Map short model names to HF repo cache dir names (mirrors faster-whisper _MODELS)
+_WHISPER_REPO_MAP = {
+    "large-v3-turbo": "mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh--faster-whisper-large-v3-turbo",
+    "distil-large-v3.5": "distil-whisper--distil-large-v3.5-ct2",
+}
+
+
+def whisper_cache_candidates(model_id):
+    """Return list of HF cache directory names for a Whisper model."""
+    candidates = [
+        f"models--Systran--faster-whisper-{model_id}",
+        f"models--{model_id.replace('/', '--')}",
+        f"models--openai--whisper-{model_id}",
+    ]
+    if model_id in _WHISPER_REPO_MAP:
+        candidates.insert(0, f"models--{_WHISPER_REPO_MAP[model_id]}")
+    return candidates
+
+
 def whisper_model_cached(model_id):
     """Check if a Whisper model is fully downloaded in HuggingFace cache.
 
@@ -170,12 +190,7 @@ def whisper_model_cached(model_id):
     """
     if not os.path.isdir(HF_CACHE):
         return False
-    candidates = [
-        f"models--Systran--faster-whisper-{model_id}",
-        f"models--{model_id.replace('/', '--')}",
-        f"models--openai--whisper-{model_id}",
-    ]
-    for c in candidates:
+    for c in whisper_cache_candidates(model_id):
         snap = os.path.join(HF_CACHE, c, "snapshots")
         if not os.path.isdir(snap):
             continue

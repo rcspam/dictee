@@ -178,7 +178,7 @@ def run_dictee_async(*args, no_animation=False):
     env = None
     if no_animation:
         env = os.environ.copy()
-        env["DICTEE_ANIMATION"] = "none"
+        env["DICTEE_ANIM_SPEECH"] = "false"
     try:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     except Exception as e:
