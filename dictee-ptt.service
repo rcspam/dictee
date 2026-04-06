@@ -1,6 +1,6 @@
 [Unit]
 Description=Dictee Push-to-Talk Daemon
-After=dictee.service graphical-session.target
+After=dictee.service dictee-vosk.service dictee-whisper.service dictee-canary.service graphical-session.target
 PartOf=graphical-session.target
 
 [Service]

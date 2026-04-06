@@ -24,8 +24,8 @@ _kill_pidfile() {
     [ -n "$pid" ] && { _dbg "reset: killing $label pid=$pid"; kill "$pid" 2>/dev/null; }
 }
 
-# 1. Write the idle state
-echo "idle" > /dev/shm/.dictee_state
+# 1. Write the idle state (force — bypass offline protection since we're resetting)
+echo "idle" > "$STATE_FILE"
 
 # 2. Kill the ongoing recording and ESC listener
 _kill_pidfile "/tmp/recording_dictee_pid${_UID_SUFFIX}" "recording"
@@ -75,7 +75,7 @@ systemctl --user start "${SVC}.service"
 # 11. Kill any dictee/pw-record that started after our cleanup (race)
 pkill -f "pw-record.*tmp_recording_dictee" 2>/dev/null || true
 rm -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" "/tmp/recording_dictee_pid${_UID_SUFFIX}.lock"
-echo "idle" > /dev/shm/.dictee_state
+echo "idle" > "$STATE_FILE"
 # Close notification again in case a racing dictee created one after step 5
 close_notification
 _dbg "reset: done"

@@ -45,11 +45,28 @@ CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
 STATE_FILE = "/dev/shm/.dictee_state"
 
 
+def _daemon_socket_exists():
+    """Vérifie si le socket du daemon ASR existe (daemon actif sans fichier d'état)."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return os.path.exists(os.path.join(runtime_dir, "transcribe.sock"))
+
+
 def read_state():
     """Lit l'état courant de dictee depuis le fichier d'état."""
     try:
         return open(STATE_FILE).read().strip()
-    except (FileNotFoundError, PermissionError):
+    except FileNotFoundError:
+        # Après reboot, /dev/shm est vide mais le daemon peut être actif.
+        # Vérifier la socket avant de déclarer offline.
+        if _daemon_socket_exists():
+            try:
+                with open(STATE_FILE, "w") as f:
+                    f.write("idle\n")
+            except OSError:
+                pass
+            return "idle"
+        return "offline"
+    except PermissionError:
         return "offline"
 
 
