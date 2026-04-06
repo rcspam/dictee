@@ -231,10 +231,10 @@ Attendu   : "Voici la reponse. Passons au sujet suivant."
             (le point est conserve, majuscule sur "Passons",
              espace entre les deux phrases)
 
---- PHRASE S16 : Continuation — mot-cle (contre-point) ---------------------
+--- PHRASE S16 : Continuation — mot-cle (minuscule) ---------------------
 Prononcer en 2 pushes :
   Push 1 : "Le chat est noir."
-  Push 2 : "Contre-point et blanc aussi"
+  Push 2 : "Minuscule et blanc aussi"
 Attendu   : "Le chat est noir et blanc aussi"
             (le point apres "noir" est supprime par backspace,
              "et" en minuscule, pas de "Contre-point" dans le texte)

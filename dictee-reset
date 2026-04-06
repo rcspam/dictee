@@ -24,8 +24,8 @@ _kill_pidfile() {
     [ -n "$pid" ] && { _dbg "reset: killing $label pid=$pid"; kill "$pid" 2>/dev/null; }
 }
 
-# 1. Write the idle state
-echo "idle" > /dev/shm/.dictee_state
+# 1. Write the idle state (force — bypass offline protection since we're resetting)
+echo "idle" > "$STATE_FILE"
 
 # 2. Kill the ongoing recording and ESC listener
 _kill_pidfile "/tmp/recording_dictee_pid${_UID_SUFFIX}" "recording"
@@ -50,6 +50,11 @@ close_notification
 # 6. Clean up temporary files
 rm -f /tmp/recording_dictee_pid* /tmp/dictee_translate* /tmp/dictee_diarize* \
       /tmp/notify_dictee* /tmp/dictee_esc_listener_pid* /tmp/mut_dictee*
+# Clean audio context buffer files
+rm -f "/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav" "/dev/shm/.dictee_buffer_ts${_UID_SUFFIX}" \
+      "/dev/shm/.dictee_buffer_text${_UID_SUFFIX}" "/dev/shm/.dictee_silence${_UID_SUFFIX}.wav" \
+      "/dev/shm/.dictee_combined${_UID_SUFFIX}.wav" /dev/shm/.dictee_last_word \
+      /dev/shm/.dictee_solo_* /dev/shm/.dictee_comb_*
 
 # 7. Clean diarization state (without restarting a daemon — step 10 does that)
 sed -i '/^DICTEE_PRE_DIARIZE_BACKEND=/d' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf" 2>/dev/null || true
@@ -70,7 +75,7 @@ systemctl --user start "${SVC}.service"
 # 11. Kill any dictee/pw-record that started after our cleanup (race)
 pkill -f "pw-record.*tmp_recording_dictee" 2>/dev/null || true
 rm -f "/tmp/recording_dictee_pid${_UID_SUFFIX}" "/tmp/recording_dictee_pid${_UID_SUFFIX}.lock"
-echo "idle" > /dev/shm/.dictee_state
+echo "idle" > "$STATE_FILE"
 # Close notification again in case a racing dictee created one after step 5
 close_notification
 _dbg "reset: done"

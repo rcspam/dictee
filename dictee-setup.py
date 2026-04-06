@@ -231,7 +231,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 llm_postprocess=False, llm_model="ministral:3b",
                 llm_timeout=10, llm_cpu=False,
                 audio_context=False, audio_context_timeout=30,
-                notifications=True, notifications_text=True):
+                notifications=True, notifications_text=True,
+                command_suffixes=None, debug=False):
     """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
     import tempfile as _tmpmod
     os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
@@ -313,6 +314,13 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
             f.write("DICTEE_NOTIFICATIONS=false\n")
         if not notifications_text:
             f.write("DICTEE_NOTIFICATIONS_TEXT=false\n")
+        # Command suffixes (disambiguation per language)
+        if command_suffixes:
+            for code, suffix in command_suffixes.items():
+                if suffix:
+                    f.write(f"DICTEE_COMMAND_SUFFIX_{code.upper()}={suffix}\n")
+        if debug:
+            f.write("DICTEE_DEBUG=true\n")
         f.write("DICTEE_SETUP_DONE=true\n")
       os.replace(_tmp_path, CONF_PATH)
     except BaseException:
@@ -2188,6 +2196,20 @@ class _CheckMarkComboBox(QComboBox):
         painter.end()
 
 
+def _help_btn(tooltip_text):
+    """Creates a small '?' button with a rich-text tooltip."""
+    btn = QPushButton("?")
+    btn.setFixedSize(22, 22)
+    btn.setStyleSheet(
+        "QPushButton { font-weight: bold; font-size: 12px; border: 1px solid palette(mid); "
+        "border-radius: 11px; background: palette(base); } "
+        "QPushButton:hover { background: palette(highlight); color: palette(highlighted-text); }")
+    btn.setToolTip(tooltip_text)
+    btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    btn.setCursor(Qt.CursorShape.WhatsThisCursor)
+    return btn
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -2209,6 +2231,16 @@ class DicteeSetupDialog(QDialog):
         self._model_threads = {}
         self._venv_threads = {}
         self._audio_monitor = None
+        # Command suffixes — init from conf, fallback to defaults
+        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                         "es": "listo", "it": "seguito", "pt": "pronto",
+                         "uk": "далі"}
+        _tmp_conf = load_config() if _conf_exists else {}
+        self._command_suffixes = {}
+        for code, _name in LANGUAGES:
+            self._command_suffixes[code] = _tmp_conf.get(
+                f"DICTEE_COMMAND_SUFFIX_{code.upper()}",
+                _sfx_defaults.get(code, ""))
         self._test_thread = None
         self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
@@ -2282,6 +2314,20 @@ class DicteeSetupDialog(QDialog):
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
         self._build_postprocess_section(lay, self.conf)
+        # Buttons
+        btn_lay = QHBoxLayout()
+        btn_lay.addStretch()
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_lay.addWidget(btn_cancel)
+        btn_apply = QPushButton(_("Apply"))
+        btn_apply.clicked.connect(self._on_apply)
+        btn_lay.addWidget(btn_apply)
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(lambda: (self._on_apply(), dlg.accept()))
+        btn_lay.addWidget(btn_ok)
+        lay.addLayout(btn_lay)
         self._pp_dialog = dlg
         dlg.finished.connect(self._dict_cleanup_tmp)
         if self.isHidden():
@@ -2335,7 +2381,9 @@ class DicteeSetupDialog(QDialog):
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             lay_asr.addWidget(warn_lbl)
 
+
         self._build_parakeet_options(lay_asr)
+
         self._build_vosk_options(lay_asr)
         self._build_whisper_options(lay_asr)
         self._build_canary_options(lay_asr)
@@ -2401,7 +2449,7 @@ class DicteeSetupDialog(QDialog):
 
         # Audio context buffer
         self.chk_audio_context = QCheckBox(_("Audio context buffer"))
-        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "false") == "true")
+        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
         self.chk_audio_context.setToolTip(
             _("Accumulate audio from previous dictations to improve recognition\n"
               "of short or technical words at the start of sentences."))
@@ -2423,6 +2471,13 @@ class DicteeSetupDialog(QDialog):
         lay_ctx.addWidget(self.spin_audio_context_timeout)
         lay_ctx.addStretch()
         lay_opt.addLayout(lay_ctx)
+
+        self.chk_debug = QCheckBox(_("Debug mode (log to /tmp)"))
+        self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
+        self.chk_debug.setToolTip(
+            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
+              "for troubleshooting dictation and continuation issues."))
+        lay_opt.addWidget(self.chk_debug)
 
         layout.addWidget(grp_options)
 
@@ -2487,7 +2542,6 @@ class DicteeSetupDialog(QDialog):
         content_h = content.sizeHint().height()
         buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
         self.setMaximumHeight(content_h + buttons_h + 10)
-
     def _on_launch_wizard(self):
         _dbg_setup("_on_launch_wizard")
         """Ferme le dialog et relance en mode wizard."""
@@ -5340,6 +5394,71 @@ class DicteeSetupDialog(QDialog):
         XDG_CFG = _os.environ.get("XDG_CONFIG_HOME", _os.path.expanduser("~/.config"))
         self._rules_path = _os.path.join(XDG_CFG, "dictee", "rules.conf")
 
+        # --- Command suffix (per language) ---
+        sfx_lay = QHBoxLayout()
+        sfx_lay.setSpacing(6)
+        sfx_label = QLabel(_("Command suffix:"))
+        sfx_help = _help_btn(_(
+            "<b>Command suffix</b><br><br>"
+            "Some voice commands use words that also exist as normal words. "
+            "The suffix is a word you say <b>after</b> the ambiguous command "
+            "to confirm it's a voice command, not a regular word.<br><br>"
+            "<b>Examples by language:</b><br>"
+            "• FR (suffix = \"suivi\"): \"point suivi\" → \".\" — "
+            "but \"un bon point\" → kept as text<br>"
+            "• EN (suffix = \"done\"): \"period done\" → \".\" — "
+            "but \"a long period\" → kept as text<br>"
+            "• DE (suffix = \"weiter\"): \"Punkt weiter\" → \".\" — "
+            "but \"ein guter Punkt\" → kept as text<br>"
+            "• ES (suffix = \"listo\"): \"punto listo\" → \".\" — "
+            "but \"un buen punto\" → kept as text<br>"
+            "• IT (suffix = \"seguito\"): \"punto seguito\" → \".\" — "
+            "but \"un buon punto\" → kept as text<br>"
+            "• PT (suffix = \"pronto\"): \"ponto pronto\" → \".\" — "
+            "but \"um bom ponto\" → kept as text<br>"
+            "• UK (suffix = \"далі\"): \"крапка далі\" → \".\" — "
+            "but \"одна крапка\" → kept as text<br><br>"
+            "<b>Ambiguous commands that require the suffix:</b><br>"
+            "FR: point, deux points — EN: period, colon — DE: Punkt<br>"
+            "ES: punto, coma — IT: punto — PT: ponto — UK: крапка, кома<br><br>"
+            "<b>Non-ambiguous commands (no suffix needed):</b><br>"
+            "FR: virgule, point virgule, point d'interrogation…<br>"
+            "EN: comma, semicolon, question mark…<br>"
+            "DE: Komma, Semikolon, Doppelpunkt…<br>"
+            "ES: punto y coma, dos puntos, interrogación…<br><br>"
+            "<b>Per language:</b> Select a language in the combo box "
+            "to set a different suffix for each language.<br><br>"
+            "In the rules editor below, <code>%SUFFIX_XX%</code> "
+            "placeholders are replaced by this value at runtime.<br><br>"
+            "Leave empty to disable suffix-based commands for that language."))
+        self._suffix_lang = QComboBox()
+        self._suffix_lang.setFixedWidth(60)
+        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        self._sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+                              "es": "listo", "it": "seguito", "pt": "pronto",
+                              "uk": "далі"}
+        self._command_suffixes = {}
+        for code, _name in LANGUAGES:
+            self._suffix_lang.addItem(code)
+            # Load from conf, fallback to default
+            self._command_suffixes[code] = self.conf.get(
+                f"DICTEE_COMMAND_SUFFIX_{code.upper()}",
+                self._sfx_defaults.get(code, ""))
+        idx = self._suffix_lang.findText(_lang)
+        if idx >= 0:
+            self._suffix_lang.setCurrentIndex(idx)
+        self._command_suffix = QLineEdit()
+        self._command_suffix.setMaximumWidth(200)
+        self._command_suffix.setText(self._command_suffixes.get(_lang, ""))
+        self._suffix_lang.currentTextChanged.connect(self._on_suffix_lang_changed)
+        self._command_suffix.textChanged.connect(self._on_suffix_changed)
+        sfx_lay.addWidget(sfx_label)
+        sfx_lay.addWidget(self._suffix_lang)
+        sfx_lay.addWidget(self._command_suffix)
+        sfx_lay.addWidget(sfx_help)
+        sfx_lay.addStretch()
+        lay.addLayout(sfx_lay)
+
         # --- Warning ---
         warn = QLabel(
             '<span style="color: red; font-weight: bold;">⚠ ' +
@@ -7085,6 +7204,8 @@ class DicteeSetupDialog(QDialog):
             "When the ASR incorrectly places a period after one of these words, "
             "the period is removed and the next sentence is joined.\n"
             "Example: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n\n"
+            "When continuation is active, an \"&\" appears at the end of the text "
+            "to indicate the system is waiting for more input.\n\n"
             "System words are built-in and cannot be modified. "
             "You can add your own words per language below."
         ))
@@ -7094,34 +7215,91 @@ class DicteeSetupDialog(QDialog):
         info.setFont(font)
         form_top_lay.addWidget(info)
 
-        # Continuation keyword
+        # --- Separator ---
+        _sep1 = QFrame()
+        _sep1.setFrameShape(QFrame.Shape.HLine)
+        _sep1.setFrameShadow(QFrame.Shadow.Sunken)
+        form_top_lay.addWidget(_sep1)
+
+        # Manual continuation fallback
+        kw_info = QLabel(_(
+            "Sometimes automatic continuation does not work as expected — "
+            "the ASR may not place a period, or the last word may not be in the list above. "
+            "In that case, you can say a keyword at the start of the next segment "
+            "to force continuation manually."
+        ))
+        kw_info.setWordWrap(True)
+        _kw_font = kw_info.font()
+        _kw_font.setItalic(True)
+        kw_info.setFont(_kw_font)
+        form_top_lay.addWidget(kw_info)
+
+        # Continuation keyword (per language)
         kw_lay = QHBoxLayout()
         kw_lay.setSpacing(6)
         kw_label = QLabel(_("Continuation keyword:"))
-        kw_label.setToolTip(_(
-            "Say this word at the start of a push-to-talk segment\n"
-            "to remove the previous punctuation and continue in lowercase.\n\n"
-            "Example: \"I eat.\" + \"counterpoint some cheese\"\n"
-            "→ \"I eat some cheese\"\n\n"
-            "Leave empty to disable."))
+        kw_help = _help_btn(_(
+            "<b>Continuation keyword</b><br><br>"
+            "The continuation system automatically joins sentences when the ASR "
+            "incorrectly places a period after a closed-class word (article, "
+            "preposition, conjunction…). However, <b>automatic continuation "
+            "does not always work</b> — the ASR may not place a period, or "
+            "the last word may not be in the continuation list.<br><br>"
+            "The continuation keyword is a <b>manual fallback</b>: say it at the "
+            "start of a new dictation segment to force continuation. The system "
+            "removes the previous punctuation and joins in lowercase.<br><br>"
+            "<b>Examples:</b><br>"
+            "• FR (keyword = \"minuscule\"): \"Je mange.\" + \"minuscule du fromage\" "
+            "→ \"Je mange du fromage\"<br>"
+            "• EN (keyword = \"lowercase\"): \"I eat.\" + \"lowercase some cheese\" "
+            "→ \"I eat some cheese\"<br>"
+            "• DE (keyword = \"klein\"): \"Ich esse.\" + \"klein etwas Käse\" "
+            "→ \"Ich esse etwas Käse\"<br><br>"
+            "<b>Per language:</b> Select a language in the combo box to set "
+            "a different keyword for each language. The keyword is only active "
+            "when dictating in that language.<br><br>"
+            "Leave empty to disable for that language."))
+        self._cont_kw_lang = QComboBox()
+        self._cont_kw_lang.setFixedWidth(60)
+        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        # Store keywords per language
+        self._cont_keywords = {}
+        for code, _name in LANGUAGES:
+            self._cont_kw_lang.addItem(code)
+            self._cont_keywords[code] = self._load_cont_keyword(code)
+        idx = self._cont_kw_lang.findText(_lang)
+        if idx >= 0:
+            self._cont_kw_lang.setCurrentIndex(idx)
         self._cont_keyword = QLineEdit()
         self._cont_keyword.setMaximumWidth(200)
-        self._cont_keyword.setPlaceholderText("contre-point")
-        # Load keyword from continuation.conf (language-specific, then generic)
-        _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
-        _kw_default = self._load_cont_keyword(_lang)
-        self._cont_keyword.setText(_kw_default)
+        self._cont_keyword.setPlaceholderText("minuscule")
+        self._cont_keyword.setText(self._cont_keywords.get(_lang, ""))
+        self._cont_kw_lang.currentTextChanged.connect(self._on_cont_kw_lang_changed)
+        self._cont_keyword.textChanged.connect(self._on_cont_kw_text_changed)
         kw_lay.addWidget(kw_label)
+        kw_lay.addWidget(self._cont_kw_lang)
         kw_lay.addWidget(self._cont_keyword)
+        kw_lay.addWidget(kw_help)
         kw_lay.addStretch()
         form_top_lay.addLayout(kw_lay)
 
-        # Variants label
+        # Variants label (indented under the combo+field)
+        _variants_lay = QHBoxLayout()
+        _variants_spacer = QLabel()
+        _variants_spacer.setFixedWidth(kw_label.sizeHint().width() + 6 + self._cont_kw_lang.sizeHint().width() + 6)
         self._cont_kw_variants = QLabel()
-        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px; margin-left: 4px;")
-        form_top_lay.addWidget(self._cont_kw_variants)
-        self._cont_keyword.textChanged.connect(self._update_kw_variants)
-        self._update_kw_variants(_kw_default)
+        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
+        _variants_lay.addWidget(_variants_spacer)
+        _variants_lay.addWidget(self._cont_kw_variants)
+        _variants_lay.addStretch()
+        form_top_lay.addLayout(_variants_lay)
+        self._update_kw_variants(self._cont_keywords.get(_lang, ""))
+
+        # --- Separator ---
+        _sep = QFrame()
+        _sep.setFrameShape(QFrame.Shape.HLine)
+        _sep.setFrameShadow(QFrame.Shadow.Sunken)
+        form_top_lay.addWidget(_sep)
 
         # Search bar
         self._cont_search = QLineEdit()
@@ -7546,11 +7724,12 @@ class DicteeSetupDialog(QDialog):
         with open(self._cont_path, "w", encoding="utf-8") as f:
             f.write("# User continuation words for dictee\n")
             f.write("# Format: [lang] word1 word2 ...\n\n")
-            # Save continuation keyword (per language)
-            kw = self._cont_keyword.text().strip() if hasattr(self, '_cont_keyword') else ""
-            lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
-            if kw:
-                f.write(f"[keyword:{lang}] {kw}\n\n")
+            # Save continuation keywords (all languages)
+            if hasattr(self, '_cont_keywords'):
+                for lang, kw in sorted(self._cont_keywords.items()):
+                    if kw:
+                        f.write(f"[keyword:{lang}] {kw}\n")
+                f.write("\n")
             for lang in sorted(self._cont_personal_words.keys()):
                 words = sorted(self._cont_personal_words[lang])
                 if words:
@@ -7606,7 +7785,7 @@ class DicteeSetupDialog(QDialog):
                         line = line.strip()
                         if line.startswith(tag):
                             return line[len(tag):].strip()
-        return "contre-point"
+        return "minuscule"
 
     def _update_kw_variants(self, text):
         """Show accepted variants of the continuation keyword."""
@@ -7635,6 +7814,31 @@ class DicteeSetupDialog(QDialog):
             variants.add(with_hyphen.capitalize())
         sorted_v = sorted(variants, key=lambda s: (s.lower(), s))
         self._cont_kw_variants.setText(_("Accepted: ") + ", ".join(sorted_v))
+
+    def _on_cont_kw_lang_changed(self, lang):
+        """Switch continuation keyword when language combo changes."""
+        # Save current value
+        self._cont_keyword.blockSignals(True)
+        self._cont_keyword.setText(self._cont_keywords.get(lang, ""))
+        self._cont_keyword.blockSignals(False)
+        self._update_kw_variants(self._cont_keyword.text())
+
+    def _on_cont_kw_text_changed(self, text):
+        """Save keyword for current language in memory."""
+        lang = self._cont_kw_lang.currentText()
+        self._cont_keywords[lang] = text.strip()
+        self._update_kw_variants(text)
+
+    def _on_suffix_lang_changed(self, lang):
+        """Switch command suffix when language combo changes."""
+        self._command_suffix.blockSignals(True)
+        self._command_suffix.setText(self._command_suffixes.get(lang, ""))
+        self._command_suffix.blockSignals(False)
+
+    def _on_suffix_changed(self, text):
+        """Save suffix for current language in memory."""
+        lang = self._suffix_lang.currentText()
+        self._command_suffixes[lang] = text.strip()
 
     def _cont_factory_reset(self):
         """Restores system file defaults."""
@@ -9350,8 +9554,9 @@ class DicteeSetupDialog(QDialog):
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
 
         # Audio context buffer
-        audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else False
+        audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
+        debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
@@ -9373,46 +9578,51 @@ class DicteeSetupDialog(QDialog):
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),
-                    notifications_text=self.chk_notifications_text.isChecked())
+                    notifications_text=self.chk_notifications_text.isChecked(),
+                    command_suffixes=self._command_suffixes,
+                    debug=debug)
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
-        # Systemd services — ASR
+        # Systemd services — ASR (active service: synchronous for error reporting)
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
+        # Disable inactive services + enable/restart tray/ptt in background
+        bg_cmds = []
         for svc_name in asr_services.values():
-                if svc_name == active_svc:
-                    # Enable (boot) puis restart (maintenant)
-                    en = subprocess.run(
-                        ["systemctl", "--user", "enable", svc_name],
-                        capture_output=True, text=True,
-                    )
-                    if en.returncode != 0:
-                        svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
-                            svc=svc_name, err=en.stderr.strip())
-                    try:
-                        result = subprocess.run(
-                            ["systemctl", "--user", "restart", svc_name],
-                            capture_output=True, text=True, timeout=15,
-                        )
-                        if result.returncode != 0:
-                            svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                                svc=svc_name, err=result.stderr.strip())
-                    except subprocess.TimeoutExpired:
-                        svc_error = _("Warning: {svc} is taking too long to start.\n"
-                                      "It may still be loading the model.").format(svc=svc_name)
-                else:
-                    subprocess.run(["systemctl", "--user", "disable", "--now", svc_name], capture_output=True)
+            if svc_name != active_svc:
+                bg_cmds.append(["systemctl", "--user", "disable", "--now", svc_name])
+        tray_action = "enable" if self.chk_tray.isChecked() else "disable"
+        bg_cmds.append(["systemctl", "--user", tray_action, "--now", "dictee-tray"])
+        bg_cmds.append(["systemctl", "--user", "enable", "dictee-ptt"])
+        bg_cmds.append(["systemctl", "--user", "restart", "dictee-ptt"])
+        bg_procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in bg_cmds]
 
-        # Tray
-        action = "enable" if self.chk_tray.isChecked() else "disable"
-        subprocess.run(["systemctl", "--user", action, "--now", "dictee-tray"], capture_output=True)
+        # Active ASR service: synchronous (need error feedback)
+        en = subprocess.run(
+            ["systemctl", "--user", "enable", active_svc],
+            capture_output=True, text=True,
+        )
+        if en.returncode != 0:
+            svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
+                svc=active_svc, err=en.stderr.strip())
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "restart", active_svc],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode != 0:
+                svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                    svc=active_svc, err=result.stderr.strip())
+        except subprocess.TimeoutExpired:
+            svc_error = _("Warning: {svc} is taking too long to start.\n"
+                          "It may still be loading the model.").format(svc=active_svc)
 
-        # PTT service — activer et (re)démarrer
-        subprocess.run(["systemctl", "--user", "enable", "dictee-ptt"], capture_output=True)
-        subprocess.run(["systemctl", "--user", "restart", "dictee-ptt"], capture_output=True)
+        # Wait for background processes (non-blocking, they should be done by now)
+        for p in bg_procs:
+            p.wait()
 
         # Supprimer les anciens raccourcis KDE/GNOME (dictee-ptt les remplace)
         shortcut_msg = ""

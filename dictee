@@ -23,7 +23,9 @@
 # Load configuration (dictee-setup)
 DICTEE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf"
 if [ -f "$DICTEE_CONF" ]; then
+    set -a
     source "$DICTEE_CONF"
+    set +a
 fi
 
 # === COMMON FUNCTIONS ===
@@ -156,6 +158,7 @@ stop_recording() {
 # Remove all session temp files
 cleanup_session() {
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$DIARIZE_FLAG_FILE"  # ID_TMP_FILE kept for legacy cleanup
+    rm -f "$COMBINED_FILE" "$SILENCE_FILE"
 }
 
 # Text post-processing (regex rules + dictionary + optional LLM)
@@ -181,14 +184,23 @@ type_text() {
     text="${text//$'\xe2\x80\xa6'/...}"
     text="${text//$'\xe2\x80\x94'/--}"
     text="${text//$'\xe2\x80\x93'/-}"
-    # Convert to dotool commands: "type ..." + "key enter/tab" between segments
+    # Strip \x02 markers (end-of-sentence flag, handled by save_last_word)
+    text="${text//$'\x02'/}"
+    # Convert to dotool commands: "type ..." + "key enter/tab/ctrl+j" between segments
+    # \x01 marker = ctrl+j (newline without submit, from "contrôle j" voice command)
+    # & continuation indicator stays in text (typed atomically with the rest)
     printf '%s\n' "$text" | awk -v RS='\n' '{
         if (NR > 1) print "key enter"
-        # Split on tabs
-        n = split($0, parts, "\t")
-        for (i = 1; i <= n; i++) {
-            if (i > 1) print "key tab"
-            if (parts[i] != "") printf "type %s\n", parts[i]
+        # Split on \x01 (ctrl+j markers)
+        nc = split($0, cjparts, "\x01")
+        for (c = 1; c <= nc; c++) {
+            if (c > 1) print "key ctrl+j"
+            # Split on tabs
+            n = split(cjparts[c], parts, "\t")
+            for (i = 1; i <= n; i++) {
+                if (i > 1) print "key tab"
+                if (parts[i] != "") printf "type %s\n", parts[i]
+            }
         }
     }' | safe_dotool
 }
@@ -241,7 +253,7 @@ for _pattern in "\\[keyword:${_LANG_TAG}\\]" "\\[keyword\\]"; do
         break 2
     done
 done
-_CONT_KEYWORD="${_CONT_KEYWORD:-contre-point}"
+_CONT_KEYWORD="${_CONT_KEYWORD:-minuscule}"
 _CONT_KEYWORD_RE=""
 if [ -n "$_CONT_KEYWORD" ]; then
     _kw="${_CONT_KEYWORD,,}"
@@ -250,11 +262,10 @@ if [ -n "$_CONT_KEYWORD" ]; then
     _kw="${_kw//-/§}"
     _kw="${_kw// /§}"
     _kw="${_kw//§/[- ]?}"
-    _first="${_kw:0:1}"
-    _upper="${_first^^}"
-    _kw="[${_first}${_upper}]${_kw:1}"
-    _CONT_KEYWORD_RE="^${_kw}[.,]?[[:space:]]*(.*)"
-    unset _kw _first _upper
+    # Match is done on ${_ref,,} (lowercase) so no need for [cC] prefix
+    # s? tolerates ASR plural ("minuscules")
+    _CONT_KEYWORD_RE="^${_kw}s?[.,]?[[:space:]]*(.*)"
+    unset _kw
 fi
 
 apply_continuation() {
@@ -266,6 +277,7 @@ apply_continuation() {
     #   F → end of sentence (! ; : » )) — space + keep case
     #   _ → no punctuation (mid-sentence, space + lowercase)
     local -n _ref="$1"
+    _dbg "apply_continuation: input='$(echo -n "$_ref" | xxd -p)' last_word_file='$(cat "$LAST_WORD_FILE" 2>/dev/null)'"
     # If text starts with \n ("new line" voice command), do not modify
     if [[ "$_ref" == $'\n'* ]]; then return; fi
     if [ ! -f "$LAST_WORD_FILE" ]; then return; fi
@@ -274,23 +286,46 @@ apply_continuation() {
     local last_char="${saved%%:*}"
     local last_word="${saved#*:}"
 
+    # Hourglass marker: H prefix means ~ was typed instead of punctuation
+    # → always 1 backspace to erase it
+    local hourglass=false
+    if [[ "$last_char" == H* ]]; then
+        hourglass=true
+        last_char="${last_char#H}"
+    fi
+
+    # Helper: send backspaces — 1 if hourglass, else N from marker
+    _cont_backspace() {
+        local count="${1:-1}"
+        # Hourglass: add 1 extra backspace to erase ~
+        if $hourglass; then
+            count=$((count + 1))
+        fi
+        local cmd=""
+        for ((i=0; i<count; i++)); do
+            cmd+="key backspace
+"
+        done
+        printf '%s' "$cmd" | safe_dotool
+    }
+
     # Strip leading spaces (avoid double spaces if previous text
     # had a trailing space, e.g.: "Bonjour, ")
     _ref="${_ref#"${_ref%%[! ]*}"}"
 
     # Continuation keyword: remove last punctuation + lowercase
-    # Configurable via DICTEE_CONTINUATION_KEYWORD (default: contre-point)
-    if [ -n "$_CONT_KEYWORD_RE" ] && [[ "$_ref" =~ $_CONT_KEYWORD_RE ]]; then
-        local rest="${BASH_REMATCH[1]}"
-        # Backspace the punctuation from the previous push
+    # Configurable via continuation keyword (default: minuscule)
+    if [ -n "$_CONT_KEYWORD_RE" ] && [[ "${_ref,,}" =~ $_CONT_KEYWORD_RE ]]; then
+        # Match was on lowercase — extract rest from original _ref at same offset
+        local matched_len=$(( ${#_ref} - ${#BASH_REMATCH[1]} ))
+        local rest="${_ref:matched_len}"
+        rest="${rest#"${rest%%[! ]*}"}"
+        # Backspace the punctuation (or ~) from the previous push
         if [[ "$last_char" == .* ]]; then
             local bs_count="${last_char#.}"
-            bs_count="${bs_count:-1}"
-            for ((i=0; i<bs_count; i++)); do
-                printf 'key backspace\n'
-            done | safe_dotool
+            _cont_backspace "${bs_count:-1}"
         elif [[ "$last_char" == [,F] ]]; then
-            printf 'key backspace\n' | safe_dotool
+            _cont_backspace 1
         fi
         # Set text to rest in lowercase (or empty if nothing follows)
         if [ -n "$rest" ]; then
@@ -305,16 +340,12 @@ apply_continuation() {
     # "period", etc.), attach it to previous text without space.
     local fc="${_ref:0:1}"
     if [[ "$fc" == [,.\;!?:] ]]; then
-        # If previous was a period/punctuation, erase it:
-        # user is explicitly correcting the punctuation
+        # If previous was a period/punctuation (or ~), erase it
         if [[ "$last_char" == .* ]]; then
             local bs_count="${last_char#.}"
-            bs_count="${bs_count:-1}"
-            for ((i=0; i<bs_count; i++)); do
-                printf 'key backspace\n'
-            done | safe_dotool
+            _cont_backspace "${bs_count:-1}"
         elif [[ "$last_char" == [,F] ]]; then
-            printf 'key backspace\n' | safe_dotool
+            _cont_backspace 1
         fi
         # Lowercase only after , ; : (continuation)
         # Keep case after . ! ? (new sentence)
@@ -341,15 +372,9 @@ apply_continuation() {
         local lower="${last_word,,}"
         local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
         local _cw="${!_cw_var}"
-        if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
+        if [[ -n "$lower" && -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local bs_count="${last_char#.}"
-            bs_count="${bs_count:-1}"
-            local bs_cmd=""
-            for ((i=0; i<bs_count; i++)); do
-                bs_cmd+="key backspace
-"
-            done
-            printf '%s' "$bs_cmd" | safe_dotool
+            _cont_backspace "${bs_count:-1}"
             _ref=" ${_ref,}"
         else
             # Sentence complete: space, keep case
@@ -360,6 +385,10 @@ apply_continuation() {
         _ref=" ${_ref}"
     elif [ "$last_char" = "_" ]; then
         # No punctuation: mid-sentence, space + lowercase
+        if $hourglass; then
+            # Only erase & (1 backspace), no punctuation to remove
+            printf 'key backspace\n' | safe_dotool
+        fi
         _ref=" ${_ref,}"
     fi
 }
@@ -368,11 +397,18 @@ save_last_word() {
     # Save punctuation marker and last word for continuation
     # Markers: , . F (end: ! ? … ; : » )) _ (no punctuation)
     local text="$1"
+    _dbg "save_last_word: text='$(echo -n "$text" | xxd -p)' arg2='${2:-}'"
     # If text contains \n ("new line" voice command),
     # don't save: next push is independent
     if [[ "$text" == *$'\n'* ]]; then
         rm -f "$LAST_WORD_FILE"
         return
+    fi
+    # \x02 = forced end-of-sentence (from "point suivi" etc.)
+    local force_end=false
+    if [[ "$text" == *$'\x02'* ]]; then
+        force_end=true
+        text="${text//$'\x02'/}"
     fi
     # Strip trailing spaces (pure bash, no subshell)
     local trimmed="${text%"${text##*[! ]}"}"
@@ -421,7 +457,28 @@ save_last_word() {
         last_word="${last_word##*-}"
     fi
 
-    if [ -n "$last_word" ]; then
+    # Forced end-of-sentence overrides any marker to F
+    if $force_end; then
+        marker="F"
+    fi
+    _dbg "save_last_word: marker='$marker' last_word='$last_word' force_end=$force_end"
+
+    # If continuation is likely (closed-class word), append & after text
+    # (never replace — always append). On next push, backspace & + punctuation.
+    # The variable name is passed as $2 (optional, for in-place modification)
+    if [ -n "${2:-}" ] && [ -n "$last_word" ] && [[ "$marker" == .* || "$marker" == "_" ]] && ! $force_end; then
+        local lower="${last_word,,}"
+        local _cw_var="CONTINUATION_WORDS_${LANG_SOURCE^^}"
+        local _cw="${!_cw_var}"
+        if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
+            local -n _text_ref="$2"
+            _text_ref="${_text_ref}&"
+            # Mark as hourglass: H prefix → need extra backspace for ~
+            marker="H${marker}"
+        fi
+    fi
+
+    if [ -n "$last_word" ] || [ "$marker" != "_" ]; then
         echo "${marker}:${last_word}" > "$LAST_WORD_FILE"
     else
         rm -f "$LAST_WORD_FILE"
@@ -457,10 +514,16 @@ trim_buffer() {
     duration=$(soxi -D "$BUFFER_FILE" 2>/dev/null) || return 0
     local dur_int=${duration%.*}
     if [ "${dur_int:-0}" -gt "$timeout" ]; then
+        local offset=$((dur_int - timeout))
+        if [ "$offset" -le 0 ]; then
+            _dbg "audio-context: trim offset <= 0, skipping"
+            return 0
+        fi
         _dbg "audio-context: trimming buffer from ${duration}s to ${timeout}s"
-        if sox "$BUFFER_FILE" "${BUFFER_FILE}.tmp" trim "=$((dur_int - timeout))" 2>/dev/null; then
+        if sox "$BUFFER_FILE" "${BUFFER_FILE}.tmp" trim "=${offset}" 2>/dev/null && [ -s "${BUFFER_FILE}.tmp" ]; then
             mv "${BUFFER_FILE}.tmp" "$BUFFER_FILE"
         else
+            rm -f "${BUFFER_FILE}.tmp"
             _dbg "audio-context: WARNING — trim failed, using full buffer"
         fi
     fi
@@ -468,8 +531,13 @@ trim_buffer() {
 
 # Generate silence WAV (cached)
 generate_silence() {
-    if [ ! -f "$SILENCE_FILE" ]; then
-        sox -n -r 16000 -c 1 -b 16 "$SILENCE_FILE" trim 0.0 "$SILENCE_DURATION"
+    if [ ! -f "$SILENCE_FILE" ] || [ ! -s "$SILENCE_FILE" ]; then
+        rm -f "$SILENCE_FILE"
+        if ! sox -n -r 16000 -c 1 -b 16 "$SILENCE_FILE" trim 0.0 "$SILENCE_DURATION" 2>/dev/null || [ ! -s "$SILENCE_FILE" ]; then
+            _dbg "audio-context: ERROR — failed to generate silence"
+            rm -f "$SILENCE_FILE"
+            return 1
+        fi
     fi
 }
 
@@ -482,9 +550,13 @@ get_buffer_duration() {
 build_combined() {
     local recording="$1"
     trim_buffer
-    generate_silence
+    generate_silence || return 1
     _dbg "audio-context: concat buffer + silence + recording"
-    sox "$BUFFER_FILE" "$SILENCE_FILE" "$recording" "$COMBINED_FILE" || return 1
+    if ! sox "$BUFFER_FILE" "$SILENCE_FILE" "$recording" "$COMBINED_FILE" 2>/dev/null || [ ! -s "$COMBINED_FILE" ]; then
+        rm -f "$COMBINED_FILE"
+        _dbg "audio-context: ERROR — concat failed"
+        return 1
+    fi
 }
 
 # Resolve daemon socket path (same logic as transcribe-client)
@@ -714,7 +786,8 @@ cleanup_on_error() {
     restore_audio
     notify_dictee 0 audio-chat-none-symbolic "Enregistrement interrompu"
     cleanup_session
-    rm -f "$LAST_WORD_FILE"
+    rm -f "$LAST_WORD_FILE" "$COMBINED_FILE"
+    rm -f /dev/shm/.dictee_solo_${$}_* /dev/shm/.dictee_comb_${$}_*
     pkill -P $$ 2>/dev/null
 
     write_state "idle"
@@ -1011,16 +1084,18 @@ if [ -f "$PIDFILE" ]; then
                 # 2. Transcribe recording alone → safe fallback
                 # 3. Extract the new part from the combined using the solo as reference
                 _dbg "audio-context: canary dual-transcription mode"
-                solo_text=""
-                combined_text=""
-                if eval transcribe-client "$RECORDING_FILE" > /dev/shm/.dictee_solo$$ 2>/dev/null; then
-                    solo_text=$(cat /dev/shm/.dictee_solo$$)
-                    rm -f /dev/shm/.dictee_solo$$
+                local _canary_id="${$}_${RANDOM}"
+                local _canary_solo="/dev/shm/.dictee_solo_${_canary_id}"
+                local _canary_comb="/dev/shm/.dictee_comb_${_canary_id}"
+                local solo_text=""
+                local combined_text=""
+                if eval transcribe-client "$RECORDING_FILE" > "$_canary_solo" 2>/dev/null; then
+                    solo_text=$(cat "$_canary_solo")
                 fi
-                if [ -n "$solo_text" ] && eval transcribe-client "$COMBINED_FILE" > /dev/shm/.dictee_comb$$ 2>/dev/null; then
-                    combined_text=$(cat /dev/shm/.dictee_comb$$)
-                    rm -f /dev/shm/.dictee_comb$$
+                if [ -n "$solo_text" ] && eval transcribe-client "$COMBINED_FILE" > "$_canary_comb" 2>/dev/null; then
+                    combined_text=$(cat "$_canary_comb")
                 fi
+                rm -f "$_canary_solo" "$_canary_comb"
                 rm -f "$COMBINED_FILE"
                 if [ -n "$combined_text" ] && [ -n "$solo_text" ]; then
                     raw=$(extract_new_from_combined "$combined_text" "$solo_text")
@@ -1138,8 +1213,10 @@ if [ -f "$PIDFILE" ]; then
         fi
     else
         copy_to_clipboard "$transcribed"
+        _dbg "before_save: transcribed='$(echo -n "$transcribed" | xxd -p)'"
+        save_last_word "$transcribed" transcribed
+        _dbg "after_save: transcribed='$(echo -n "$transcribed" | xxd -p)'"
         type_text "$transcribed"
-        save_last_word "$transcribed"
         notify_dictee 0 clipboard-paste-symbolic "Texte tapé (${DICTEE_ASR_BACKEND:-parakeet}) :" "<i>\"$transcribed\"</i>"
     fi
 

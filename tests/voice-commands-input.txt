@@ -1,0 +1,11 @@
+Cher collègue virgule je vous écris pour vous informer de l'avancement du projet point à la ligne Comme convenu lors de notre dernière réunion virgule nous avons terminé la phase de développement point suivi Les tests unitaires passent tous avec succès point d'exclamation
+Nouveau paragraphe
+Cependant virgule il reste quelques points à aborder deux points à la ligne Premier point virgule la documentation technique n'est pas encore à jour point suivi Nous devons rédiger le guide d'installation avant la livraison point à la ligne Deuxième point virgule l'intégration avec le système existant nécessite des ajustements mineurs points de suspension nous en reparlerons jeudi point suivi
+Nouveau paragraphe
+Concernant le planning virgule voici ce que je propose deux points à la ligne Lundi et mardi virgule finalisation de la documentation point à la ligne Mercredi virgule revue de code avec l'équipe point à la ligne Jeudi et vendredi virgule tests d'intégration point suivi
+Nouveau paragraphe
+J'aimerais aussi attirer votre attention sur un problème technique point suivi Le serveur de production affiche des erreurs intermittentes point d'interrogation Non virgule pas des erreurs virgule plutôt des avertissements dans les logs point suivi Rien de critique virgule mais il faudrait investiguer avant la mise en production point d'exclamation
+Nouveau paragraphe
+Pour résumer virgule le projet avance bien point virgule nous sommes dans les temps point suivi La prochaine étape est la livraison prévue pour le quinze mars point à la ligne N'hésitez pas à me contacter si vous avez des questions point suivi
+Nouveau paragraphe
+Cordialement virgule à la ligne Pierre Dupont
