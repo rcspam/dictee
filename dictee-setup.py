@@ -2447,7 +2447,7 @@ class DicteeSetupDialog(QDialog):
 
         # Audio context buffer
         self.chk_audio_context = QCheckBox(_("Audio context buffer"))
-        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "false") == "true")
+        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
         self.chk_audio_context.setToolTip(
             _("Accumulate audio from previous dictations to improve recognition\n"
               "of short or technical words at the start of sentences."))
@@ -9545,7 +9545,7 @@ class DicteeSetupDialog(QDialog):
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
 
         # Audio context buffer
-        audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else False
+        audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
 
         save_config(backend, lang_src, lang_tgt, clipboard, animation,
