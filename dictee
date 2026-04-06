@@ -478,7 +478,7 @@ save_last_word() {
         fi
     fi
 
-    if [ -n "$last_word" ]; then
+    if [ -n "$last_word" ] || [ "$marker" != "_" ]; then
         echo "${marker}:${last_word}" > "$LAST_WORD_FILE"
     else
         rm -f "$LAST_WORD_FILE"
