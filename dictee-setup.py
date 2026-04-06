@@ -202,7 +202,10 @@ def detect_desktop():
 
 
 def load_config():
-    """Charge dictee.conf et retourne un dict des valeurs."""
+    """Charge dictee.conf et retourne un dict des valeurs.
+
+    Strips surrounding quotes from legacy or manually-quoted values.
+    """
     conf = {}
     if os.path.isfile(CONF_PATH):
         with open(CONF_PATH) as f:
@@ -212,8 +215,27 @@ def load_config():
                     continue
                 m = re.match(r"^([A-Z_]+)=(.*)$", line)
                 if m:
-                    conf[m.group(1)] = m.group(2)
+                    val = m.group(2)
+                    # Strip surrounding quotes (legacy or manual edits)
+                    if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
+                        val = val[1:-1]
+                    elif len(val) >= 2 and val[0] == "'" and val[-1] == "'":
+                        val = val[1:-1]
+                    conf[m.group(1)] = val
     return conf
+
+
+def _sanitize_conf_value(val):
+    """Sanitize a value for safe unquoted bash sourcing (KEY=value).
+
+    Strips characters that would cause injection or syntax errors when
+    the file is sourced by bash.  Preserves regex metacharacters needed
+    for command suffixes: [ ] ? . * + ^
+    """
+    # Stripped: newlines, shell expansion ($, `, \), quoting (" '),
+    # command separators (;, |, &), redirections (<, >), braces ({, }),
+    # history (!), subshells (( )), whitespace (space, tab)
+    return re.sub(r'[\n\r`$"\'\\;|&<>{}!() \t]', '', str(val))
 
 
 def save_config(backend, lang_source, lang_target, clipboard=True, animation="speech",
@@ -228,107 +250,187 @@ def save_config(backend, lang_source, lang_target, clipboard=True, animation="sp
                 pp_numbers=True, pp_typography=True,
                 pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
-                llm_postprocess=False, llm_model="ministral:3b",
+                llm_postprocess=False, llm_model="gemma3:4b",
                 llm_timeout=10, llm_cpu=False,
                 audio_context=False, audio_context_timeout=30,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False):
-    """Écrit dictee.conf (sans DICTEE_TRANSLATE — le déclenchement est au runtime)."""
-    import tempfile as _tmpmod
-    os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
-    _tmp_fd, _tmp_path = _tmpmod.mkstemp(dir=os.path.dirname(CONF_PATH), prefix=".dictee.conf.")
+    """Update dictee.conf preserving comments and structure.
+
+    Reads the existing file (or the template on first run), then patches
+    only the values that changed.  Comments and section headers are kept.
+    Values are unquoted (compatible with grep/cut/sed consumers) and
+    sanitized to prevent shell injection.
+    """
+    # Build the desired key→value map
+    # Sanitize user-supplied values; controlled enums/bools are safe as-is
+    _s = _sanitize_conf_value
+    reverse = {v: k for k, v in VOSK_MODELS.items()}
+    vosk_code = reverse.get(vosk_model, vosk_model)
+
+    values = {
+        "DICTEE_ASR_BACKEND": asr_backend,
+        "DICTEE_TRANSLATE_BACKEND": backend,
+        "DICTEE_LANG_SOURCE": lang_source,
+        "DICTEE_LANG_TARGET": lang_target,
+        "DICTEE_CLIPBOARD": "true" if clipboard else "false",
+        "DICTEE_ANIMATION": animation,
+        "DICTEE_VOSK_MODEL": _s(vosk_code),
+        "DICTEE_WHISPER_MODEL": _s(whisper_model),
+        "DICTEE_PTT_MODE": ptt_mode,
+        "DICTEE_PTT_KEY": str(ptt_key),
+        "DICTEE_POSTPROCESS": "true" if postprocess else "false",
+        "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
+        "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
+        "DICTEE_SETUP_DONE": "true",
+    }
+    # Conditional values (only written when non-default)
+    if whisper_lang:
+        values["DICTEE_WHISPER_LANG"] = _s(whisper_lang)
+    if audio_source:
+        values["DICTEE_AUDIO_SOURCE"] = _s(audio_source)
+    if ptt_key_translate:
+        values["DICTEE_PTT_KEY_TRANSLATE"] = str(ptt_key_translate)
+    if ptt_mod_translate:
+        values["DICTEE_PTT_MOD_TRANSLATE"] = _s(ptt_mod_translate)
+    # Translation backend-specific
+    if backend == "trans":
+        values["DICTEE_TRANS_ENGINE"] = trans_engine
+    elif backend == "libretranslate":
+        values["DICTEE_LIBRETRANSLATE_PORT"] = str(lt_port)
+        if lt_langs:
+            values["DICTEE_LIBRETRANSLATE_LANGS"] = _s(lt_langs)
+    elif backend == "ollama":
+        values["DICTEE_OLLAMA_MODEL"] = _s(ollama_model)
+        if ollama_cpu:
+            values["OLLAMA_NUM_GPU"] = "0"
+    # Post-processing flags
+    _pp_flags = {
+        "DICTEE_PP_ELISIONS": pp_elisions,
+        "DICTEE_PP_ELISIONS_IT": pp_elisions_it,
+        "DICTEE_PP_SPANISH": pp_spanish,
+        "DICTEE_PP_PORTUGUESE": pp_portuguese,
+        "DICTEE_PP_GERMAN": pp_german,
+        "DICTEE_PP_DUTCH": pp_dutch,
+        "DICTEE_PP_ROMANIAN": pp_romanian,
+        "DICTEE_PP_NUMBERS": pp_numbers,
+        "DICTEE_PP_TYPOGRAPHY": pp_typography,
+        "DICTEE_PP_CAPITALIZATION": pp_capitalization,
+        "DICTEE_PP_DICT": pp_dict,
+        "DICTEE_PP_RULES": pp_rules,
+        "DICTEE_PP_CONTINUATION": pp_continuation,
+    }
+    for key, enabled in _pp_flags.items():
+        values[key] = "true" if enabled else "false"
+    # LLM post-processing
+    values["DICTEE_LLM_POSTPROCESS"] = "true" if llm_postprocess else "false"
+    if llm_postprocess:
+        values["DICTEE_LLM_MODEL"] = _s(llm_model)
+        values["DICTEE_LLM_TIMEOUT"] = str(llm_timeout)
+        if llm_cpu:
+            values["DICTEE_LLM_CPU"] = "true"
+    # Notifications
+    values["DICTEE_NOTIFICATIONS"] = "true" if notifications else "false"
+    values["DICTEE_NOTIFICATIONS_TEXT"] = "true" if notifications_text else "false"
+    # Command suffixes
+    if command_suffixes:
+        for code, suffix in command_suffixes.items():
+            if suffix:
+                values[f"DICTEE_COMMAND_SUFFIX_{code.upper()}"] = _s(suffix)
+    if debug:
+        values["DICTEE_DEBUG"] = "true"
+
+    # Keys that must be re-commented when absent from values.
+    # Without this, a previously active key stays active forever.
+    # NOTE: DICTEE_PRE_DIARIZE_BACKEND is intentionally excluded —
+    # it is managed by dictee-switch-backend, not by the GUI.
+    _all_managed_keys = set(values.keys()) | {
+        "DICTEE_WHISPER_LANG", "DICTEE_AUDIO_SOURCE",
+        "DICTEE_PTT_KEY_TRANSLATE", "DICTEE_PTT_MOD_TRANSLATE",
+        "DICTEE_TRANS_ENGINE", "DICTEE_LIBRETRANSLATE_PORT",
+        "DICTEE_LIBRETRANSLATE_LANGS", "DICTEE_OLLAMA_MODEL",
+        "OLLAMA_NUM_GPU", "DICTEE_LLM_POSTPROCESS",
+        "DICTEE_LLM_MODEL", "DICTEE_LLM_TIMEOUT", "DICTEE_LLM_CPU",
+        "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT",
+    }
+    # Add all possible suffix keys
+    for lang in ("FR", "EN", "ES", "DE", "IT", "PT", "UK"):
+        _all_managed_keys.add(f"DICTEE_COMMAND_SUFFIX_{lang}")
+    # Keys to re-comment = managed but not in values
+    _comment_out = _all_managed_keys - set(values.keys())
+
+    # Read existing file or template.
+    # If the existing file has no section headers (old flat format),
+    # migrate to the commented template.
+    _example = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "dictee.conf.example")
+    _installed_example = "/usr/share/dictee/dictee.conf.example"
+    lines = []
+    _use_template = True
+    if os.path.isfile(CONF_PATH):
+        with open(CONF_PATH) as f:
+            lines = f.readlines()
+        # Keep existing file only if it has section separators (new format)
+        if any("====" in line for line in lines):
+            _use_template = False
+    if _use_template:
+        for path in (_example, _installed_example):
+            if os.path.isfile(path):
+                with open(path) as f:
+                    lines = f.readlines()
+                break
+
+    # Patch lines in-place
+    written_keys = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.rstrip("\r\n")
+        # Match "KEY=value" or "#KEY=value"
+        m = re.match(r'^(#?)([A-Z_]+=)(.*)', stripped)
+        if m:
+            commented, kv_prefix, _old_val = m.groups()
+            key = kv_prefix.rstrip("=")
+            if key in values:
+                if key not in written_keys:
+                    new_lines.append(f"{key}={values[key]}\n")
+                    written_keys.add(key)
+                # else: drop duplicate line
+                continue
+            if key in _comment_out and not commented:
+                # Re-comment: key was active but is no longer needed
+                new_lines.append(f"#{key}={_old_val}\n")
+                continue
+        new_lines.append(line if line.endswith("\n") else line + "\n")
+
+    # Append any keys not yet in the file (before DICTEE_SETUP_DONE)
+    missing = {k: v for k, v in values.items() if k not in written_keys
+               and k != "DICTEE_SETUP_DONE"}
+    if missing:
+        # Insert before the SETUP_DONE marker if present
+        insert_idx = len(new_lines)
+        for i, line in enumerate(new_lines):
+            if line.startswith("DICTEE_SETUP_DONE="):
+                insert_idx = i
+                break
+        extra = []
+        for k, v in missing.items():
+            extra.append(f"{k}={v}\n")
+        new_lines[insert_idx:insert_idx] = extra
+
+    # Atomic write
+    conf_dir = os.path.dirname(CONF_PATH) or "."
+    os.makedirs(conf_dir, exist_ok=True)
+    _tmp_fd, _tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
     try:
-      with os.fdopen(_tmp_fd, "w") as f:
-        f.write("# Generated by dictee-setup\n")
-        f.write(f"DICTEE_ASR_BACKEND={asr_backend}\n")
-        f.write(f"DICTEE_TRANSLATE_BACKEND={backend}\n")
-        f.write(f"DICTEE_LANG_SOURCE={lang_source}\n")
-        f.write(f"DICTEE_LANG_TARGET={lang_target}\n")
-        f.write(f"DICTEE_CLIPBOARD={'true' if clipboard else 'false'}\n")
-        f.write(f"DICTEE_ANIMATION={animation}\n")
-        # Always save all backend configs so switching doesn't lose settings
-        reverse = {v: k for k, v in VOSK_MODELS.items()}
-        code = reverse.get(vosk_model, vosk_model)
-        f.write(f"DICTEE_VOSK_MODEL={code}\n")
-        f.write(f"DICTEE_WHISPER_MODEL={whisper_model}\n")
-        if whisper_lang:
-            f.write(f"DICTEE_WHISPER_LANG={whisper_lang}\n")
-        if backend == "trans":
-            f.write(f"DICTEE_TRANS_ENGINE={trans_engine}\n")
-        elif backend == "libretranslate":
-            f.write(f"DICTEE_LIBRETRANSLATE_PORT={lt_port}\n")
-            if lt_langs:
-                f.write(f"DICTEE_LIBRETRANSLATE_LANGS={lt_langs}\n")
-        elif backend == "ollama":
-            f.write(f"DICTEE_OLLAMA_MODEL={ollama_model}\n")
-            if ollama_cpu:
-                f.write("OLLAMA_NUM_GPU=0\n")
-        if audio_source:
-            f.write(f"DICTEE_AUDIO_SOURCE={audio_source}\n")
-        # PTT (push-to-talk)
-        f.write(f"DICTEE_PTT_MODE={ptt_mode}\n")
-        f.write(f"DICTEE_PTT_KEY={ptt_key}\n")
-        if ptt_key_translate:
-            f.write(f"DICTEE_PTT_KEY_TRANSLATE={ptt_key_translate}\n")
-        if ptt_mod_translate:
-            f.write(f"DICTEE_PTT_MOD_TRANSLATE={ptt_mod_translate}\n")
-        # Post-traitement
-        f.write(f"DICTEE_POSTPROCESS={'true' if postprocess else 'false'}\n")
-        if not pp_elisions:
-            f.write("DICTEE_PP_ELISIONS=false\n")
-        if not pp_elisions_it:
-            f.write("DICTEE_PP_ELISIONS_IT=false\n")
-        if not pp_spanish:
-            f.write("DICTEE_PP_SPANISH=false\n")
-        if not pp_portuguese:
-            f.write("DICTEE_PP_PORTUGUESE=false\n")
-        if not pp_german:
-            f.write("DICTEE_PP_GERMAN=false\n")
-        if not pp_dutch:
-            f.write("DICTEE_PP_DUTCH=false\n")
-        if not pp_romanian:
-            f.write("DICTEE_PP_ROMANIAN=false\n")
-        if not pp_numbers:
-            f.write("DICTEE_PP_NUMBERS=false\n")
-        if not pp_typography:
-            f.write("DICTEE_PP_TYPOGRAPHY=false\n")
-        if not pp_capitalization:
-            f.write("DICTEE_PP_CAPITALIZATION=false\n")
-        if not pp_dict:
-            f.write("DICTEE_PP_DICT=false\n")
-        if not pp_rules:
-            f.write("DICTEE_PP_RULES=false\n")
-        if not pp_continuation:
-            f.write("DICTEE_PP_CONTINUATION=false\n")
-        if llm_postprocess:
-            f.write(f"DICTEE_LLM_POSTPROCESS=true\n")
-            f.write(f"DICTEE_LLM_MODEL={llm_model}\n")
-            f.write(f"DICTEE_LLM_TIMEOUT={llm_timeout}\n")
-            if llm_cpu:
-                f.write("DICTEE_LLM_CPU=true\n")
-        # Audio context buffer
-        f.write(f"DICTEE_AUDIO_CONTEXT={'true' if audio_context else 'false'}\n")
-        f.write(f"DICTEE_AUDIO_CONTEXT_TIMEOUT={audio_context_timeout}\n")
-        # Notifications
-        if not notifications:
-            f.write("DICTEE_NOTIFICATIONS=false\n")
-        if not notifications_text:
-            f.write("DICTEE_NOTIFICATIONS_TEXT=false\n")
-        # Command suffixes (disambiguation per language)
-        if command_suffixes:
-            for code, suffix in command_suffixes.items():
-                if suffix:
-                    f.write(f"DICTEE_COMMAND_SUFFIX_{code.upper()}={suffix}\n")
-        if debug:
-            f.write("DICTEE_DEBUG=true\n")
-        f.write("DICTEE_SETUP_DONE=true\n")
-      os.replace(_tmp_path, CONF_PATH)
+        with os.fdopen(_tmp_fd, "w") as f:
+            f.writelines(new_lines)
+        os.replace(_tmp_path, CONF_PATH)
     except BaseException:
-      try:
-          os.unlink(_tmp_path)
-      except OSError:
-          pass
-      raise
+        try:
+            os.unlink(_tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 # === Raccourci KDE ===
