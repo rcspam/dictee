@@ -887,21 +887,22 @@ def main():
     if _llm_enabled and _llm_position == "hybrid":
         text = llm_postprocess(text)
 
-    # 6. Language-specific rules
-    if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
-        text = fix_elisions(text)
-    if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
-        text = fix_italian_elisions(text)
-    if LANG == "es" and _env_bool("DICTEE_PP_SPANISH"):
-        text = fix_spanish(text)
-    if LANG == "pt" and _env_bool("DICTEE_PP_PORTUGUESE"):
-        text = fix_portuguese(text)
-    if LANG == "de" and _env_bool("DICTEE_PP_GERMAN"):
-        text = fix_german(text)
-    if LANG == "nl" and _env_bool("DICTEE_PP_DUTCH"):
-        text = fix_dutch(text)
-    if LANG == "ro" and _env_bool("DICTEE_PP_ROMANIAN"):
-        text = fix_romanian(text)
+    # 6. Language-specific rules (gated by master switch DICTEE_PP_LANGUAGE_RULES)
+    if _env_bool("DICTEE_PP_LANGUAGE_RULES"):
+        if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
+            text = fix_elisions(text)
+        if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
+            text = fix_italian_elisions(text)
+        if LANG == "es" and _env_bool("DICTEE_PP_SPANISH"):
+            text = fix_spanish(text)
+        if LANG == "pt" and _env_bool("DICTEE_PP_PORTUGUESE"):
+            text = fix_portuguese(text)
+        if LANG == "de" and _env_bool("DICTEE_PP_GERMAN"):
+            text = fix_german(text)
+        if LANG == "nl" and _env_bool("DICTEE_PP_DUTCH"):
+            text = fix_dutch(text)
+        if LANG == "ro" and _env_bool("DICTEE_PP_ROMANIAN"):
+            text = fix_romanian(text)
 
     # 7. Conversion nombres → chiffres
     if _env_bool("DICTEE_PP_NUMBERS"):

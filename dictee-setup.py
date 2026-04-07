@@ -254,6 +254,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 pp_numbers=True, pp_typography=True,
                 pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
+                pp_language_rules=True,
                 llm_postprocess=False, llm_model="gemma3:4b",
                 llm_timeout=10, llm_cpu=False,
                 llm_system_prompt="default", llm_position="hybrid",
@@ -326,6 +327,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_PP_DICT": pp_dict,
         "DICTEE_PP_RULES": pp_rules,
         "DICTEE_PP_CONTINUATION": pp_continuation,
+        "DICTEE_PP_LANGUAGE_RULES": pp_language_rules,
     }
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
@@ -931,6 +933,222 @@ def _find_assets_dir():
     return None
 
 ASSETS_DIR = _find_assets_dir()
+
+
+# === Pipeline diagram (post-processing visualization) ===
+
+def _icons_dir():
+    if ASSETS_DIR:
+        d = os.path.join(ASSETS_DIR, "icons")
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+from PyQt6.QtSvgWidgets import QSvgWidget as _QSvgWidget
+from PyQt6.QtCore import pyqtSignal as _pyqtSignal
+
+
+class _ClickableSvgWidget(_QSvgWidget):
+    """QSvgWidget that emits step_clicked(key) when a registered hit box is clicked."""
+    step_clicked = _pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.hit_boxes = []  # list of (QRectF, key)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, ev):
+        pos = ev.position()
+        for rect, key in self.hit_boxes:
+            if rect.contains(pos):
+                self.step_clicked.emit(key)
+                return
+        super().mousePressEvent(ev)
+
+
+class _PipelineDiagram:
+    """SVG-based post-processing pipeline diagram.
+
+    Builds a horizontal flow: [mic] → [Rules] → [Continuation] → ... → [LLM] → [pencil]
+    LLM is inserted at first / hybrid / last position based on llm_position.
+    Disabled steps are drawn dashed with a horizontal line crossing through.
+    External arrows are always in the accent color.
+    """
+
+    # Pipeline order matches dictee-postprocess.py main()
+    BASE_STEPS = [
+        ("rules", "Rules"),
+        ("continuation", "Continuation"),
+        ("language_rules", "Lang rules"),
+        ("numbers", "Numbers"),
+        ("dict", "Dict"),
+        ("capitalization", "Capitalization"),
+    ]
+
+    def __init__(self, palette):
+        self.widget = _ClickableSvgWidget()
+        self._palette = palette
+        self._states = {k: True for k, _ in self.BASE_STEPS}
+        self._llm_on = False
+        self._llm_pos = "hybrid"
+        self._master_on = True
+
+    def set_master(self, on):
+        self._master_on = bool(on)
+        self._render()
+
+    def set_states(self, states, llm_on, llm_pos):
+        self._states = dict(states)
+        self._llm_on = bool(llm_on)
+        self._llm_pos = llm_pos or "hybrid"
+        self._render()
+
+    def _theme_colors(self):
+        from PyQt6.QtGui import QPalette
+        pal = self._palette
+        win = pal.color(QPalette.ColorRole.Window)
+        is_dark = win.lightness() < 128
+        accent = pal.color(QPalette.ColorRole.Highlight).name()
+        accent_dark = pal.color(QPalette.ColorRole.Highlight).darker(130).name()
+        if is_dark:
+            return {
+                "accent": accent, "accent_dark": accent_dark,
+                "dis_text": "#5a5a5a", "dis_bg": "#3a3a3a",
+                "dis_border": "#555555", "icon_suffix": "dark",
+            }
+        return {
+            "accent": accent, "accent_dark": accent_dark,
+            "dis_text": "#bcbcbc", "dis_bg": "#e6e6e6",
+            "dis_border": "#c0c0c0", "icon_suffix": "light",
+        }
+
+    def _ordered_steps(self):
+        """Return list of (key, label, enabled) including LLM at the right position."""
+        m = self._master_on
+        base = [(key, label, m and self._states.get(key, True))
+                for key, label in self.BASE_STEPS]
+        llm = ("llm", "LLM", m and self._llm_on)
+        if not self._llm_on:
+            return base
+        if self._llm_pos == "first":
+            return [llm] + base
+        if self._llm_pos == "last":
+            return base + [llm]
+        return base[:2] + [llm] + base[2:]
+
+    def _icon_b64(self, name, suffix):
+        import base64
+        from PyQt6.QtCore import QByteArray, QBuffer
+        from PyQt6.QtGui import QIcon
+        icons = _icons_dir()
+        if not icons:
+            return ""
+        path = os.path.join(icons, f"{name}-{suffix}.svg")
+        if not os.path.isfile(path):
+            return ""
+        ic = QIcon(path)
+        pm = ic.pixmap(32, 32)
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QBuffer.OpenModeFlag.WriteOnly)
+        pm.save(buf, "PNG")
+        return base64.b64encode(bytes(ba)).decode("ascii")
+
+    def _render(self):
+        from PyQt6.QtCore import QByteArray, QRectF
+        t = self._theme_colors()
+        steps = self._ordered_steps()
+        hit_boxes = []
+
+        char_w = 8
+        pad_x = 14
+        h = 38
+        gap = 32
+        ep_r = 16
+        boxes = [len(label) * char_w + pad_x * 2 for _k, label, _ in steps]
+        # IN(mic) + arrow + ASR + arrow + steps + arrow + OUT(pencil)
+        total_w = ep_r * 6 + gap * 3 + sum(boxes) + gap * (len(boxes) - 1) + 20
+        total_h = h + 20
+        y = 10
+        cy = y + h / 2
+
+        in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"])
+        asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"])
+        out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"])
+
+        elems = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'xmlns:xlink="http://www.w3.org/1999/xlink" '
+            f'viewBox="0 0 {total_w} {total_h}" width="{total_w}" height="{total_h}">',
+            '<defs>',
+            '<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" '
+            'markerWidth="6" markerHeight="6" orient="auto">',
+            f'<path d="M0,0 L10,5 L0,10 z" fill="{t["accent"]}"/>',
+            '</marker>',
+            '</defs>',
+        ]
+
+        def endpoint(cx, b64):
+            if not b64:
+                return ''
+            return (
+                f'<image x="{cx - ep_r}" y="{cy - ep_r}" '
+                f'width="{ep_r * 2}" height="{ep_r * 2}" '
+                f'xlink:href="data:image/png;base64,{b64}"/>'
+            )
+
+        def arrow(x1, x2):
+            return (
+                f'<line x1="{x1}" y1="{cy}" x2="{x2}" y2="{cy}" '
+                f'stroke="{t["accent"]}" stroke-width="2.2" '
+                f'marker-end="url(#ar)"/>'
+            )
+
+        x = 10
+        elems.append(endpoint(x + ep_r, in_b64))
+        seg_start = x + ep_r * 2
+        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
+        x = seg_start + gap
+        # ASR endpoint
+        elems.append(endpoint(x + ep_r, asr_b64))
+        seg_start = x + ep_r * 2
+        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
+        x = seg_start + gap
+
+        for i, ((key, label, on), bw) in enumerate(zip(steps, boxes)):
+            bg = t["accent"] if on else t["dis_bg"]
+            border = t["accent_dark"] if on else t["dis_border"]
+            text_col = "white" if on else t["dis_text"]
+            dash_attr = '' if on else 'stroke-dasharray="5,4" '
+            elems.append(
+                f'<rect x="{x}" y="{y}" width="{bw}" height="{h}" rx="8" ry="8" '
+                f'fill="{bg}" stroke="{border}" stroke-width="1.8" {dash_attr}/>'
+            )
+            elems.append(
+                f'<text x="{x + bw / 2}" y="{y + h / 2 + 5}" '
+                f'text-anchor="middle" fill="{text_col}" '
+                f'font-family="sans-serif" font-size="13" font-weight="bold">'
+                f'{label}</text>'
+            )
+            if not on:
+                elems.append(
+                    f'<line x1="{x - 2}" y1="{cy}" x2="{x + bw + 2}" y2="{cy}" '
+                    f'stroke="{t["accent"]}" stroke-width="2.2"/>'
+                )
+            hit_boxes.append((QRectF(x, y, bw, h), key))
+            if i < len(steps) - 1:
+                elems.append(arrow(x + bw + 4, x + bw + gap - 4))
+            x += bw + gap
+
+        elems.append(arrow(x - gap + 4, x - 4))
+        elems.append(endpoint(x + ep_r, out_b64))
+        elems.append("</svg>")
+
+        self.widget.load(QByteArray("\n".join(elems).encode("utf-8")))
+        self.widget.setFixedSize(int(total_w), int(total_h))
+        self.widget.hit_boxes = hit_boxes
+
 
 # === Backends ASR alternatifs (venvs) ===
 
@@ -5122,24 +5340,28 @@ class DicteeSetupDialog(QDialog):
         pp_lay.setContentsMargins(0, 0, 0, 0)
         pp_lay.setSpacing(6)
 
+        # --- Pipeline diagram (SVG) ---
+        from PyQt6.QtWidgets import QScrollArea as _QSA
+        self._pp_diagram = _PipelineDiagram(self.palette())
+        diag_scroll = _QSA()
+        diag_scroll.setWidgetResizable(False)
+        diag_scroll.setWidget(self._pp_diagram.widget)
+        diag_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        diag_scroll.setFixedHeight(70)
+        diag_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        pp_lay.addWidget(diag_scroll)
+
         # --- Pipeline toggles — general ---
         grid_gen = QGridLayout()
         grid_gen.setContentsMargins(20, 0, 0, 0)
 
-        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
-        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
-            _("Converts spoken numbers to digits.\n"
-              "Example: \"vingt-trois\" → \"23\"")), 0, 0)
-
-        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
-        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
-            _("Capitalizes the first letter after sentence-ending\n"
-              "punctuation (. ! ?). Parakeet does this natively,\n"
-              "but post-processing rules may alter the text —\n"
-              "this ensures correct capitalization afterwards.\n"
-              "Essential for Vosk/Whisper backends.")), 0, 1)
+        # Column 0: Dictionary, Regex rules, Continuation
+        self.chk_pp_dict = QCheckBox(_("Dictionary"))
+        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
+            _("Replaces words using the dictionary.\n"
+              "Exact matching on word boundaries.")), 0, 0)
 
         self.chk_pp_rules = QCheckBox(_("Regex rules"))
         self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
@@ -5147,12 +5369,6 @@ class DicteeSetupDialog(QDialog):
             _("Applies regex substitution rules to fix\n"
               "common ASR errors (voice commands,\n"
               "punctuation, formatting).")), 1, 0)
-
-        self.chk_pp_dict = QCheckBox(_("Dictionary"))
-        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
-            _("Replaces words using the dictionary.\n"
-              "Exact matching on word boundaries.")), 1, 1)
 
         self.chk_pp_continuation = QCheckBox(_("Continuation"))
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
@@ -5163,9 +5379,49 @@ class DicteeSetupDialog(QDialog):
               "Voice command: say your continuation keyword at the start\n"
               "of a push to remove the previous punctuation and continue\n"
               "in lowercase. The keyword is configurable per language\n"
-              "in the Continuation tab.")), 2, 1)
+              "in the Continuation tab.")), 2, 0)
+
+        # Column 1: Language rules, Capitalization, LLM
+        self.chk_pp_language_rules = QCheckBox(_("Language rules"))
+        self.chk_pp_language_rules.setChecked(
+            conf.get("DICTEE_PP_LANGUAGE_RULES", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_language_rules,
+            _("Master switch for language-specific rules\n"
+              "(elisions FR/IT, German/Spanish/Portuguese/Dutch/Romanian fixes).\n"
+              "Configure per-language toggles in the Language rules tab.")), 0, 1)
+
+        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
+        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
+            _("Converts spoken numbers to digits.\n"
+              "Example: \"vingt-trois\" → \"23\"")), 3, 0)
+
+        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
+        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
+            _("Capitalizes the first letter after sentence-ending\n"
+              "punctuation (. ! ?). Parakeet does this natively,\n"
+              "but post-processing rules may alter the text —\n"
+              "this ensures correct capitalization afterwards.\n"
+              "Essential for Vosk/Whisper backends.")), 1, 1)
+
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_llm,
+            _("Uses a local LLM (via ollama) to fix grammar,\n"
+              "spelling, accents and punctuation.\n"
+              "Configure the model and prompt in the LLM tab.")), 2, 1)
 
         pp_lay.addLayout(grid_gen)
+
+        # Cosmetic separator between checkboxes grid and editing tabs
+        _sep = QFrame()
+        _sep.setFrameShape(QFrame.Shape.HLine)
+        _sep.setFrameShadow(QFrame.Shadow.Sunken)
+        _sep.setContentsMargins(0, 8, 0, 8)
+        pp_lay.addSpacing(6)
+        pp_lay.addWidget(_sep)
+        pp_lay.addSpacing(6)
 
         # --- Editing sub-tabs ---
         self._pp_tabs = QTabWidget()
@@ -5208,13 +5464,41 @@ class DicteeSetupDialog(QDialog):
         self._build_language_rules_tab(tab_lang_lay, conf)
         self._pp_tabs.addTab(tab_lang, _("Language rules"))
 
-        # Gray out tabs when corresponding checkbox is unchecked
-        self.chk_pp_dict.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(0, on))
-        self.chk_pp_rules.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(1, on))
-        self.chk_pp_continuation.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(2, on))
-        self._pp_tabs.setTabEnabled(0, self.chk_pp_dict.isChecked())
-        self._pp_tabs.setTabEnabled(1, self.chk_pp_rules.isChecked())
-        self._pp_tabs.setTabEnabled(2, self.chk_pp_continuation.isChecked())
+        # LLM tab (index 4) — built below, added here at the end
+        tab_llm = QWidget()
+        tab_llm_lay = QVBoxLayout(tab_llm)
+        tab_llm_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_llm_tab(tab_llm_lay, conf)
+        self._pp_tabs.addTab(tab_llm, _("LLM"))
+
+        # Tabs stay clickable (never Qt-disabled) but their title is grayed
+        # via the disabled palette color when the corresponding step is off.
+        _disabled_col = self.palette().color(
+            self.palette().ColorGroup.Disabled,
+            self.palette().ColorRole.WindowText)
+        _normal_col = self.palette().color(
+            self.palette().ColorRole.WindowText)
+
+        # Map tab index → its content widget so we can gray it out when off.
+        _tab_widgets = {0: tab_dict, 1: tab_rules, 2: tab_cont, 3: tab_lang, 4: tab_llm}
+
+        def _set_tab_visual(idx, on):
+            tb = self._pp_tabs.tabBar()
+            tb.setTabTextColor(idx, _normal_col if on else _disabled_col)
+            w = _tab_widgets.get(idx)
+            if w is not None:
+                w.setEnabled(on)  # grays children + makes them non-editable
+
+        self.chk_pp_dict.toggled.connect(lambda on: _set_tab_visual(0, on))
+        self.chk_pp_rules.toggled.connect(lambda on: _set_tab_visual(1, on))
+        self.chk_pp_continuation.toggled.connect(lambda on: _set_tab_visual(2, on))
+        self.chk_pp_language_rules.toggled.connect(lambda on: _set_tab_visual(3, on))
+        self.chk_llm.toggled.connect(lambda on: _set_tab_visual(4, on))
+        _set_tab_visual(0, self.chk_pp_dict.isChecked())
+        _set_tab_visual(1, self.chk_pp_rules.isChecked())
+        _set_tab_visual(2, self.chk_pp_continuation.isChecked())
+        _set_tab_visual(3, self.chk_pp_language_rules.isChecked())
+        _set_tab_visual(4, self.chk_llm.isChecked())
 
         # Edit mode button (masqué pour l'onglet Règles)
         self._btn_advanced = QPushButton(_("Edit mode"))
@@ -5232,7 +5516,7 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.setCornerWidget(corner)
 
         def _on_tab_changed(idx):
-            self._btn_advanced.setVisible(idx not in (1, 3))  # hidden for Rules and Languages
+            self._btn_advanced.setVisible(idx not in (1, 3, 4))  # hidden for Rules, Languages, LLM
             self._btn_advanced.setChecked(False)
             self._toggle_advanced_mode(False)
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
@@ -5241,22 +5525,87 @@ class DicteeSetupDialog(QDialog):
 
         pp_lay.addWidget(self._pp_tabs)
 
-        # --- Test panel ---
-        grp_test = QGroupBox(_("Test"))
-        test_lay = QVBoxLayout(grp_test)
-        test_lay.setSpacing(6)
+        # --- Test panel (collapsible accordion) ---
+        _test_toggle = QPushButton("▶  " + _("Test"))
+        _test_toggle.setCheckable(True)
+        _test_toggle.setChecked(False)
+        _test_toggle.setStyleSheet(
+            "QPushButton { text-align: left; font-weight: bold; "
+            "padding: 6px; border: none; }"
+            "QPushButton:hover { background-color: rgba(127,127,127,30); }"
+        )
+        _test_body = QFrame()
+        test_lay = QVBoxLayout(_test_body)
+        test_lay.setContentsMargins(8, 0, 8, 8)
+        test_lay.setSpacing(4)
         self._build_test_panel(test_lay)
-        pp_lay.addWidget(grp_test)
+        _test_body.setVisible(False)
 
-        # LLM correction
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
-        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        pp_lay.addWidget(self.chk_llm)
+        def _on_test_toggled(on):
+            _test_toggle.setText(("▼  " if on else "▶  ") + _("Test"))
+            _test_body.setVisible(on)
+        _test_toggle.toggled.connect(_on_test_toggled)
 
-        # LLM sub-options
-        self._llm_widget = QWidget()
-        llm_vbox = QVBoxLayout(self._llm_widget)
-        llm_vbox.setContentsMargins(20, 4, 0, 0)
+        pp_lay.addWidget(_test_toggle)
+        pp_lay.addWidget(_test_body)
+
+        # Wrap in QScrollArea for the whole post-processing section
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(self._pp_content)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        lay.addWidget(scroll)
+        self._pp_scroll = scroll
+        self._pp_content.setEnabled(self.chk_postprocess.isChecked())
+        self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+        self.chk_postprocess.toggled.connect(self._pp_diagram.set_master)
+        self._pp_diagram.set_master(self.chk_postprocess.isChecked())
+
+        # Wire pipeline diagram refresh
+        for cb in (self.chk_pp_rules, self.chk_pp_continuation,
+                   self.chk_pp_language_rules,
+                   self.chk_pp_numbers, self.chk_pp_dict,
+                   self.chk_pp_capitalization, self.chk_llm):
+            cb.toggled.connect(self._refresh_pp_diagram)
+        if hasattr(self, 'cmb_llm_position'):
+            self.cmb_llm_position.currentIndexChanged.connect(self._refresh_pp_diagram)
+        self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
+        self._refresh_pp_diagram()
+
+    def _on_pp_step_clicked(self, key):
+        cb_map = {
+            "rules": self.chk_pp_rules,
+            "continuation": self.chk_pp_continuation,
+            "language_rules": self.chk_pp_language_rules,
+            "numbers": self.chk_pp_numbers,
+            "dict": self.chk_pp_dict,
+            "capitalization": self.chk_pp_capitalization,
+            "llm": self.chk_llm,
+        }
+        cb = cb_map.get(key)
+        if cb is not None:
+            cb.toggle()
+
+
+    def _refresh_pp_diagram(self):
+        if not hasattr(self, '_pp_diagram'):
+            return
+        states = {
+            "rules": self.chk_pp_rules.isChecked(),
+            "continuation": self.chk_pp_continuation.isChecked(),
+            "language_rules": self.chk_pp_language_rules.isChecked(),
+            "numbers": self.chk_pp_numbers.isChecked(),
+            "dict": self.chk_pp_dict.isChecked(),
+            "capitalization": self.chk_pp_capitalization.isChecked(),
+        }
+        llm_pos = "hybrid"
+        if hasattr(self, 'cmb_llm_position'):
+            llm_pos = self.cmb_llm_position.currentData() or "hybrid"
+        self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos)
+
+    def _build_llm_tab(self, lay, conf):
+        """Build LLM post-processing tab content."""
+        llm_vbox = lay
         llm_vbox.setSpacing(6)
 
         # Top row: combos in a QFormLayout
@@ -5337,19 +5686,7 @@ class DicteeSetupDialog(QDialog):
             "<i>" + _("~3 GB VRAM with Gemma 3 4B (+ ~2.5 GB Parakeet)") + "</i>")
         lbl_vram.setStyleSheet("font-size: 11px; opacity: 0.6;")
         llm_vbox.addWidget(lbl_vram)
-
-        pp_lay.addWidget(self._llm_widget)
-        self._llm_widget.setVisible(self.chk_llm.isChecked())
-        self.chk_llm.toggled.connect(self._llm_widget.setVisible)
-
-        # Wrap in QScrollArea for the whole post-processing section
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self._pp_content)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        lay.addWidget(scroll)
-        self._pp_content.setEnabled(self.chk_postprocess.isChecked())
-        self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+        llm_vbox.addStretch()
 
     # ── LLM prompt presets ──────────────────────────────────────
 
@@ -7514,7 +7851,7 @@ class DicteeSetupDialog(QDialog):
         form_top_lay = QVBoxLayout(form_page)
         form_top_lay.setContentsMargins(0, 0, 0, 0)
 
-        # Info label
+        # Collapsible explanation
         info = QLabel(_(
             "Continuation words are words that never end a sentence "
             "(articles, prepositions, conjunctions, pronouns, auxiliaries...).\n"
@@ -7527,9 +7864,26 @@ class DicteeSetupDialog(QDialog):
             "You can add your own words per language below."
         ))
         info.setWordWrap(True)
-        font = info.font()
-        font.setItalic(True)
-        info.setFont(font)
+        _info_font = info.font()
+        _info_font.setItalic(True)
+        info.setFont(_info_font)
+        info.setVisible(False)
+
+        _info_toggle = QPushButton("\u25b8  " + _("Explanation"))
+        _info_toggle.setCheckable(True)
+        _info_toggle.setChecked(False)
+        _info_toggle.setStyleSheet(
+            "QPushButton { text-align: left; font-weight: bold; "
+            "padding: 4px; border: none; }"
+            "QPushButton:hover { background-color: rgba(127,127,127,30); }"
+        )
+
+        def _on_info_toggled(on, lbl=info, btn=_info_toggle):
+            btn.setText(("\u25be  " if on else "\u25b8  ") + _("Explanation"))
+            lbl.setVisible(on)
+        _info_toggle.toggled.connect(_on_info_toggled)
+
+        form_top_lay.addWidget(_info_toggle)
         form_top_lay.addWidget(info)
 
         # --- Separator ---
@@ -7785,16 +8139,22 @@ class DicteeSetupDialog(QDialog):
             for _sc, words in sys_subcats:
                 sys_all.update(words)
 
-            # System words toggle (on top)
+            # System words toggle (on top) — open by default for active language
             sys_count = len(sys_all)
+            _sys_open = (lang == active_lang)
+            _sys_arrow = "\u25be" if _sys_open else "\u25b8"
             btn_show_sys = QPushButton(
-                f"\u25b8 {_('System words')} ({sys_count})")
+                f"{_sys_arrow} {_('System words')} ({sys_count})")
             btn_show_sys.setFlat(True)
             btn_show_sys.setStyleSheet("text-align: left; color: gray; padding: 2px;")
             group_lay.addWidget(btn_show_sys)
 
-            # System chips (hidden by default)
+            # System chips
             sys_w = QWidget()
+            _sp = sys_w.sizePolicy()
+            _sp.setVerticalPolicy(_sp.Policy.Minimum)
+            _sp.setHeightForWidth(True)
+            sys_w.setSizePolicy(_sp)
             sys_lay = self._FlowLayout(sys_w, spacing=8)
             for word in sorted(sys_all, key=locale.strxfrm):
                 lbl = QLabel(f"  {word}  ")
@@ -7802,7 +8162,7 @@ class DicteeSetupDialog(QDialog):
                     "background:rgba(128,128,128,0.3); border-radius:14px; "
                     "padding:6px 14px; font-size:14px;")
                 sys_lay.addWidget(lbl)
-            sys_w.setVisible(False)
+            sys_w.setVisible(_sys_open)
             sys_w.setProperty("cont_sys_chips", True)
             group_lay.addWidget(sys_w)
 
@@ -7818,6 +8178,10 @@ class DicteeSetupDialog(QDialog):
             group_lay.addWidget(lbl_yours)
             if perso_words:
                 perso_w = QWidget()
+                _sp2 = perso_w.sizePolicy()
+                _sp2.setVerticalPolicy(_sp2.Policy.Minimum)
+                _sp2.setHeightForWidth(True)
+                perso_w.setSizePolicy(_sp2)
                 perso_lay = self._FlowLayout(perso_w, spacing=8)
                 for word in sorted(perso_words, key=locale.strxfrm):
                     btn = QPushButton(f"  {word}  \u2715  ")
@@ -7881,10 +8245,15 @@ class DicteeSetupDialog(QDialog):
             return None
 
         def sizeHint(self):
-            return self.minimumSize()
+            # Don't claim a min size based on width=0 (would put each item
+            # on its own line and inflate height by n_items × row_height).
+            return QSize(0, 0)
 
         def minimumSize(self):
-            return QSize(0, self._do_layout(self.geometry(), dry_run=True))
+            return QSize(0, 0)
+
+        def expandingDirections(self):
+            return Qt.Orientation(0)
 
         def setGeometry(self, rect):
             super().setGeometry(rect)
@@ -9449,9 +9818,30 @@ class DicteeSetupDialog(QDialog):
     def _build_test_panel(self, lay):
         """Test panel: input → multiline output + mic."""
         # Test language indicator (auto-detected from cursor position in rules editor)
+        # Disclaimer: explain test panel scope
+        _lbl_test_note = QLabel(_(
+            "Note: only regex rules, dictionary, continuation, "
+            "language rules, numbers, typography and capitalization "
+            "are simulated here. The LLM step and the master post-processing "
+            "switch are NOT taken into account."
+        ))
+        _lbl_test_note.setWordWrap(True)
+        _f = _lbl_test_note.font()
+        _f.setItalic(True)
+        _lbl_test_note.setFont(_f)
+        _lbl_test_note.setStyleSheet("color: #d4a017; font-size: 11px;")
+        lay.addWidget(_lbl_test_note)
+
         self._test_lang_override = ""
         self._lbl_test_lang = QLabel("")
         self._lbl_test_lang.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self._lbl_test_lang.setVisible(False)
+        # Auto-show/hide when text is set or cleared
+        _orig_setText = self._lbl_test_lang.setText
+        def _set_and_toggle(t, lbl=self._lbl_test_lang, orig=_orig_setText):
+            orig(t)
+            lbl.setVisible(bool(t))
+        self._lbl_test_lang.setText = _set_and_toggle
         lay.addWidget(self._lbl_test_lang)
 
         row = QHBoxLayout()
@@ -9505,6 +9895,14 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._test_details_label)
 
         btn_details.toggled.connect(self._test_details_label.setVisible)
+
+        def _scroll_pp_to_bottom_when_details(on):
+            if on and hasattr(self, '_pp_scroll'):
+                def _do():
+                    bar = self._pp_scroll.verticalScrollBar()
+                    bar.setValue(bar.maximum())
+                QTimer.singleShot(0, _do)
+        btn_details.toggled.connect(_scroll_pp_to_bottom_when_details)
 
         # Connect
         self._test_input.textChanged.connect(self._schedule_test_run)
@@ -9858,6 +10256,7 @@ class DicteeSetupDialog(QDialog):
         pp_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
         pp_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
         pp_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
+        pp_language_rules = self.chk_pp_language_rules.isChecked() if hasattr(self, 'chk_pp_language_rules') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
@@ -9886,6 +10285,7 @@ class DicteeSetupDialog(QDialog):
                     pp_typography=pp_typography, pp_capitalization=pp_capitalization,
                     pp_dict=pp_dict,
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
+                    pp_language_rules=pp_language_rules,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu,
                     llm_system_prompt=llm_system_prompt,
