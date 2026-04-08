@@ -576,7 +576,6 @@ msgid "Speak freely, type instantly"
 msgstr "Говоріть вільно, друкуйте миттєво"
 
 #: dictee-setup.py:3322
-#, python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
@@ -625,7 +624,6 @@ msgid "Speaker diarization with Sortformer add-on"
 msgstr "Діаризація мовців з додатком Sortformer"
 
 #: dictee-setup.py:3448 dictee-setup.py:3462
-#, python-format
 msgid "100% local, no internet needed"
 msgstr "100% локально, інтернет не потрібен"
 
@@ -646,7 +644,6 @@ msgid "Ideal for older or low-resource machines"
 msgstr "Ідеально для старих або маломічних комп'ютерів"
 
 #: dictee-setup.py:3455
-#, python-format
 msgid "100% local, CPU only"
 msgstr "100% локально, лише CPU"
 
@@ -679,7 +676,6 @@ msgid "Excellent accuracy, comparable to Parakeet"
 msgstr "Чудова точ��ість, порівнянна з Parakeet"
 
 #: dictee-setup.py:3472
-#, python-format
 msgid "100% local, requires NVIDIA GPU (6+ Go VRAM)"
 msgstr "100% локально, потрібен NVIDIA GPU (6+ ГБ VRAM)"
 
@@ -708,7 +704,6 @@ msgid "Configure the keyboard shortcuts for voice dictation."
 msgstr "Налаштуйте комбінації клавіш для голосового диктування."
 
 #: dictee-setup.py:3693 dictee-setup.py:3703
-#, python-format
 msgid "100% local, no data sent to the internet"
 msgstr "100% локально, дані не надсилаються в інтернет"
 
