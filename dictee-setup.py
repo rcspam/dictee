@@ -8261,24 +8261,31 @@ class DicteeSetupDialog(QDialog):
 
     def _cont_refresh_scroll(self):
         """Force the continuation QScrollArea to recompute its content
-        size after a category fold/unfold. Without this, the scrollbar
-        keeps a stale range and shows a phantom empty area.
+        size after a category fold/unfold. The canonical Qt fix is to
+        propagate updateGeometry bottom-up so the scroll area picks up
+        the new (smaller) sizeHint instead of caching the old layout.
         """
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtWidgets import QApplication
         w = getattr(self, "_cont_scroll_content", None)
         if w is None:
             return
+        # Walk children bottom-up and call updateGeometry on each
+        for child in w.findChildren(QWidget):
+            child.updateGeometry()
         lay = w.layout()
         if lay is not None:
             lay.invalidate()
             lay.activate()
+        w.updateGeometry()
         w.adjustSize()
-        # Force vertical sizeHint propagation to the QScrollArea
+        # Drain any pending LayoutRequest events on the scroll content
+        QApplication.sendPostedEvents(w, QEvent.Type.LayoutRequest)
         p = w.parentWidget()
         while p is not None and not isinstance(p, QScrollArea):
             p = p.parentWidget()
         if p is not None:
             p.updateGeometry()
-            # Reset the scroll position to top (avoids stale offset)
             p.verticalScrollBar().setValue(0)
 
     def _load_cont_form(self):
@@ -8347,6 +8354,11 @@ class DicteeSetupDialog(QDialog):
             layout.addWidget(btn_lang)
 
             group = QWidget()
+            # Maximum vertical so the group never claims more height than
+            # its sizeHint — critical for QScrollArea to recompute its
+            # range when this group is folded/unfolded.
+            group.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                QSizePolicy.Policy.Maximum)
             group.setVisible(lang == active_lang)
             group_lay = QVBoxLayout(group)
             group_lay.setSpacing(4)
@@ -8384,7 +8396,7 @@ class DicteeSetupDialog(QDialog):
             # System chips
             sys_w = QWidget()
             _sp = sys_w.sizePolicy()
-            _sp.setVerticalPolicy(_sp.Policy.Minimum)
+            _sp.setVerticalPolicy(QSizePolicy.Policy.Maximum)
             _sp.setHeightForWidth(True)
             sys_w.setSizePolicy(_sp)
             sys_lay = self._FlowLayout(sys_w, spacing=8)
@@ -8412,7 +8424,7 @@ class DicteeSetupDialog(QDialog):
             if perso_words:
                 perso_w = QWidget()
                 _sp2 = perso_w.sizePolicy()
-                _sp2.setVerticalPolicy(_sp2.Policy.Minimum)
+                _sp2.setVerticalPolicy(QSizePolicy.Policy.Maximum)
                 _sp2.setHeightForWidth(True)
                 perso_w.setSizePolicy(_sp2)
                 perso_lay = self._FlowLayout(perso_w, spacing=8)
@@ -8482,12 +8494,19 @@ class DicteeSetupDialog(QDialog):
             return None
 
         def sizeHint(self):
-            # Don't claim a min size based on width=0 (would put each item
-            # on its own line and inflate height by n_items × row_height).
-            return QSize(0, 0)
+            # Real sizeHint based on visible items so QScrollArea can
+            # propagate a correct height up the chain.
+            size = QSize()
+            for item in self._items:
+                if item.isEmpty():
+                    continue
+                size = size.expandedTo(item.minimumSize())
+            m = self.contentsMargins()
+            size += QSize(m.left() + m.right(), m.top() + m.bottom())
+            return size
 
         def minimumSize(self):
-            return QSize(0, 0)
+            return self.sizeHint()
 
         def expandingDirections(self):
             return Qt.Orientation(0)
@@ -8507,22 +8526,10 @@ class DicteeSetupDialog(QDialog):
             y = rect.y()
             row_height = 0
             for item in self._items:
-                w = item.widget()
-                if w is None:
-                    continue
-                # Skip chips whose direct widget is hidden OR any ancestor
-                # has been explicitly hidden (e.g. the language group is
-                # folded). isHidden() alone only checks the widget itself.
-                if w.isHidden():
-                    continue
-                _anc = w.parentWidget()
-                _hidden_anc = False
-                while _anc is not None:
-                    if _anc.isHidden():
-                        _hidden_anc = True
-                        break
-                    _anc = _anc.parentWidget()
-                if _hidden_anc:
+                # Qt's canonical "should I lay out this item?" check.
+                # Honors hidden widgets (and their ancestors) via the
+                # default QWidgetItem.isEmpty() implementation.
+                if item.isEmpty():
                     continue
                 size = item.sizeHint()
                 if x + size.width() > rect.right() and x > rect.x():
