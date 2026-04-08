@@ -7338,6 +7338,16 @@ class DicteeSetupDialog(QDialog):
                         arrow = "\u25be" if vis else "\u25b8"
                         el = _("entries") if ne > 1 else _("entry")
                         btn.setText(f"{arrow} {cn} ({ne} {el})")
+                        # Force QScrollArea to recompute its content size.
+                        # Without this, collapsing leaves a phantom empty
+                        # space in the scroll range — the scrollbar handle
+                        # stays huge as if the category were still visible.
+                        sc = getattr(self, "_dict_scroll", None)
+                        if sc is not None:
+                            w = sc.widget()
+                            if w is not None:
+                                w.adjustSize()
+                            sc.updateGeometry()
                     return _toggle
                 btn_toggle.clicked.connect(_make_toggle(btn_toggle, content_w))
 
