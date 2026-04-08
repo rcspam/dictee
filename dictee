@@ -512,11 +512,25 @@ save_last_word() {
         local _cw="${!_cw_var}"
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local -n _text_ref="$2"
+            # Strip trailing punctuation from the text before appending the
+            # indicator, otherwise the user briefly sees "le.>>" during the
+            # pause. The number of chars to strip is encoded in $marker.
+            local _strip=0
+            case "$marker" in
+                .3) _strip=3 ;;
+                .2) _strip=2 ;;
+                .1|,|F) _strip=1 ;;
+            esac
+            if [ "$_strip" -gt 0 ]; then
+                # Trim trailing spaces first (consistent with $trimmed logic)
+                _text_ref="${_text_ref%"${_text_ref##*[! ]}"}"
+                _text_ref="${_text_ref:0:${#_text_ref}-_strip}"
+            fi
             _text_ref="${_text_ref}${CONTINUATION_INDICATOR}"
-            # Mark as hourglass: H<N> prefix encodes the indicator length
-            # so the next push erases exactly what was typed, even if the
-            # user has changed DICTEE_CONTINUATION_INDICATOR in between.
-            marker="H${CONTINUATION_INDICATOR_LEN}${marker}"
+            # Mark as hourglass: H<N> prefix encodes the indicator length.
+            # Punctuation already removed, so only the indicator needs erasing
+            # on the next push → marker tail becomes "_".
+            marker="H${CONTINUATION_INDICATOR_LEN}_"
         fi
     fi
 

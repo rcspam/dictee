@@ -2763,11 +2763,7 @@ class DicteeSetupDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
-        if getattr(self, '_open_postprocess', False):
-            self._open_postprocess = False
-            self.hide()
-            QTimer.singleShot(50, self._open_postprocess_dialog)
-        elif getattr(self, '_open_translation', False):
+        if getattr(self, '_open_translation', False):
             self._open_translation = False
             if self.wizard_mode and self._conf_existed_before_wizard and hasattr(self, 'stack'):
                 # Jump to translation page (page 3) only if config already exists
@@ -2798,12 +2794,25 @@ class DicteeSetupDialog(QDialog):
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
-        # Independent window (pas un QDialog enfant — KDE Plasma traite
-        # QDialog children as utilities that go behind the panel)
-        # QDialog sans parent — conforme KDE Plasma panel/dock + bouton fermer
+        # QDialog sans parent + non-modal — fonctionne parfaitement quand
+        # ouvert depuis le bouton de la fenêtre principale visible.
         dlg = QDialog()
         dlg.setModal(False)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        # KDE Plasma : le dodge du panel utilise TasksModel qui filtre les
+        # fenêtres SkipTaskbar. Qt place _NET_WM_WINDOW_TYPE_DIALOG quand
+        # flags & WindowType_Mask == Qt.Dialog (source qxcbwindow.cpp).
+        # → forcer Qt.Window via setWindowFlags PLURIEL (singulier ne masque
+        #   pas le bit 0x2 de Qt.Dialog = Window|0x2).
+        # → la fenêtre reçoit _NET_WM_WINDOW_TYPE_NORMAL, apparaît en taskbar,
+        #   et le panel auto-hide se masque correctement.
+        dlg.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1150, 950)
@@ -10951,7 +10960,15 @@ def main():
     _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
     dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
                                open_translation=args.translation)
-    dialog.show()
+    if args.postprocess:
+        # Mode --postprocess : ne JAMAIS afficher la main window (DicteeSetupDialog
+        # est un QDialog qui, montré puis caché, laisse KWin dans un état bancal
+        # où le dodge du panel ne se déclenche plus pour la dialog post-process).
+        # Ouvrir directement la post-process window — équivalent au chemin
+        # "clic bouton depuis le setup visible" qui fonctionne.
+        QTimer.singleShot(0, dialog._open_postprocess_dialog)
+    else:
+        dialog.show()
     app.exec()
 
 
