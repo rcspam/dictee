@@ -5436,59 +5436,50 @@ class DicteeSetupDialog(QDialog):
         diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         pp_lay.addWidget(diag_scroll)
 
-        # --- Pipeline toggles (visible grid, order matches SVG) ---
-        # Col 0 (left, pipeline order): Rules, Continuation, Language rules, LLM
-        # Col 1 (right):                 Numbers, Dict, Capitalization, Short text
+        # --- Pipeline toggles: only Short text and LLM are shown here.
+        # The 6 others (Rules, Continuation, Language rules, Numbers, Dict,
+        # Capitalization) are reachable via the SVG pipeline above — their
+        # QCheckBox objects are still instantiated (hidden) so _on_apply
+        # serializes them and _on_pp_step_clicked can toggle them.
         grid_gen = QGridLayout()
         grid_gen.setContentsMargins(20, 0, 0, 0)
+        _hidden_holder = QWidget()
+        _hidden_holder.setVisible(False)
+        _hidden_lay = QVBoxLayout(_hidden_holder)
+        _hidden_lay.setContentsMargins(0, 0, 0, 0)
 
-        self.chk_pp_rules = QCheckBox(_("Regex rules"))
+        self.chk_pp_rules = QCheckBox(_("Regex rules"), _hidden_holder)
         self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
-            _("Applies regex substitution rules to fix\n"
-              "common ASR errors (voice commands,\n"
-              "punctuation, formatting).")), 0, 0)
+        _hidden_lay.addWidget(self.chk_pp_rules)
 
-        self.chk_pp_continuation = QCheckBox(_("Continuation"))
+        self.chk_pp_continuation = QCheckBox(_("Continuation"), _hidden_holder)
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_continuation,
-            _("Removes erroneous periods after continuation words\n"
-              "(articles, prepositions, conjunctions, pronouns, verbs)\n"
-              "to keep sentences flowing across push-to-talk segments.")), 1, 0)
+        _hidden_lay.addWidget(self.chk_pp_continuation)
 
-        self.chk_pp_language_rules = QCheckBox(_("Language rules"))
+        self.chk_pp_language_rules = QCheckBox(_("Language rules"), _hidden_holder)
         self.chk_pp_language_rules.setChecked(
             conf.get("DICTEE_PP_LANGUAGE_RULES", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_language_rules,
-            _("Master switch for language-specific rules\n"
-              "(elisions FR/IT, German/Spanish/Portuguese/Dutch/Romanian fixes).\n"
-              "Configure per-language toggles in the Language rules tab.")), 2, 0)
+        _hidden_lay.addWidget(self.chk_pp_language_rules)
 
-        # LLM stacked in the left column (bottom)
+        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"), _hidden_holder)
+        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_numbers)
+
+        self.chk_pp_dict = QCheckBox(_("Dictionary"), _hidden_holder)
+        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_dict)
+
+        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"), _hidden_holder)
+        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_capitalization)
+
+        # Visible: LLM stacked on the left, below Short text
         self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
         grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_llm,
             _("Uses a local LLM (via ollama) to fix grammar,\n"
               "spelling, accents and punctuation.\n"
-              "Configure the model and prompt in the LLM tab.")), 3, 0)
-
-        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
-        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
-            _("Converts spoken numbers to digits.\n"
-              "Example: \"vingt-trois\" → \"23\"")), 0, 1)
-
-        self.chk_pp_dict = QCheckBox(_("Dictionary"))
-        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
-            _("Replaces words using the dictionary.\n"
-              "Exact matching on word boundaries.")), 1, 1)
-
-        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
-        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
-            _("Capitalizes the first letter after sentence-ending\n"
-              "punctuation (. ! ?). Essential for Vosk/Whisper.")), 2, 1)
+              "Configure the model and prompt in the LLM tab.")), 1, 0)
 
         # Short text — checkbox + word count combobox (cell 3,1)
         self.chk_pp_short_text = QCheckBox(_("Short text fix"))
@@ -5525,9 +5516,10 @@ class DicteeSetupDialog(QDialog):
         # Disable combobox when checkbox unchecked
         self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
         self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        grid_gen.addWidget(_short_box, 3, 1)
+        grid_gen.addWidget(_short_box, 0, 0)
 
         pp_lay.addLayout(grid_gen)
+        pp_lay.addWidget(_hidden_holder)  # hidden state holder
 
         # Cosmetic separator between checkboxes grid and editing tabs
         _sep = QFrame()
