@@ -8445,6 +8445,10 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_cont_search') and self._cont_search.text().strip():
             self._filter_cont_words()
 
+        # Defer a scroll geometry refresh so the FlowLayouts inside hidden
+        # groups have time to settle before we measure them.
+        QTimer.singleShot(0, self._cont_refresh_scroll)
+
     class _FlowLayout(QLayout):
         """Layout qui wrappe les widgets horizontalement comme du texte."""
 
@@ -8496,7 +8500,12 @@ class DicteeSetupDialog(QDialog):
             row_height = 0
             for item in self._items:
                 w = item.widget()
-                if w is None or w.isHidden():
+                # Use isVisibleTo(parent) so we skip chips whose ancestor
+                # group is collapsed — isHidden() only checks the widget
+                # itself, not the parent chain, which left phantom height
+                # in the scroll area when a language was folded.
+                if w is None or (w.parentWidget() is not None
+                                  and not w.isVisibleTo(w.parentWidget())):
                     continue
                 size = item.sizeHint()
                 if x + size.width() > rect.right() and x > rect.x():
