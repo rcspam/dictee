@@ -250,7 +250,10 @@ def fix_continuation(text, continuation_words):
 
 # ── Short text correction ────────────────────────────────────────
 
-_SHORT_TEXT_MAX_WORDS = 3
+try:
+    _SHORT_TEXT_MAX_WORDS = max(1, int(os.environ.get("DICTEE_PP_SHORT_TEXT_MAX", "3")))
+except ValueError:
+    _SHORT_TEXT_MAX_WORDS = 3
 
 def fix_short_text(text):
     """For transcriptions with fewer than 3 words, remove trailing
@@ -843,11 +846,22 @@ def main():
         sys.stdout.write(text)
         return
 
+    # Debug trace (used by dictee-setup test panel) — emits step-by-step on stderr
+    _pp_debug = _env_bool("DICTEE_PP_DEBUG", "false")
+    def _enc(s):
+        return s.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t")
+    def _trace(label, before, after):
+        if _pp_debug:
+            sys.stderr.write(f"STEP\t{label}\t{_enc(before)}\t{_enc(after)}\n")
+            sys.stderr.flush()
+
     # LLM correction — position "first" (before any post-processing)
     _llm_enabled = _env_bool("DICTEE_LLM_POSTPROCESS", "false")
     _llm_position = os.environ.get("DICTEE_LLM_POSITION", "hybrid")
     if _llm_enabled and _llm_position == "first":
+        _before = text
         text = llm_postprocess(text)
+        _trace("LLM [first]", _before, text)
 
     # 0. Bad language detection (multilingual ASR confused on short audio)
     # Rules first try to recover known voice commands
@@ -858,7 +872,9 @@ def main():
     #       dedup, punctuation, basic elisions, cleanup)
     rules = load_rules()
     if _env_bool("DICTEE_PP_RULES") and rules:
+        _before = text
         text = apply_rules(text, rules)
+        _trace("Rules", _before, text)
     # Clean leading spaces (hesitations/annotations removed)
     # but preserve trailing \n (voice commands)
     text = text.lstrip(' \t').rstrip(' \t')
@@ -881,58 +897,90 @@ def main():
     # 5c. Continuation (remove erroneous periods after closed-class words)
     continuation_words = load_continuation()
     if _env_bool("DICTEE_PP_CONTINUATION") and continuation_words:
+        _before = text
         text = fix_continuation(text, continuation_words)
+        _trace("Continuation", _before, text)
 
     # LLM correction — position "hybrid" (between cleanup and formatting)
     if _llm_enabled and _llm_position == "hybrid":
+        _before = text
         text = llm_postprocess(text)
+        _trace("LLM [hybrid]", _before, text)
 
     # 6. Language-specific rules (gated by master switch DICTEE_PP_LANGUAGE_RULES)
     if _env_bool("DICTEE_PP_LANGUAGE_RULES"):
         if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
+            _before = text
             text = fix_elisions(text)
+            _trace("Elisions [fr]", _before, text)
         if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
+            _before = text
             text = fix_italian_elisions(text)
+            _trace("Elisions [it]", _before, text)
         if LANG == "es" and _env_bool("DICTEE_PP_SPANISH"):
+            _before = text
             text = fix_spanish(text)
+            _trace("Spanish [es]", _before, text)
         if LANG == "pt" and _env_bool("DICTEE_PP_PORTUGUESE"):
+            _before = text
             text = fix_portuguese(text)
+            _trace("Contractions [pt]", _before, text)
         if LANG == "de" and _env_bool("DICTEE_PP_GERMAN"):
+            _before = text
             text = fix_german(text)
+            _trace("German [de]", _before, text)
         if LANG == "nl" and _env_bool("DICTEE_PP_DUTCH"):
+            _before = text
             text = fix_dutch(text)
+            _trace("Dutch [nl]", _before, text)
         if LANG == "ro" and _env_bool("DICTEE_PP_ROMANIAN"):
+            _before = text
             text = fix_romanian(text)
+            _trace("Romanian [ro]", _before, text)
+        # French typography (non-breaking spaces) — language-specific, gated by master
+        if LANG == "fr" and _env_bool("DICTEE_PP_TYPOGRAPHY"):
+            _before = text
+            text = fix_french_typography(text)
+            _trace("Typography [fr]", _before, text)
 
     # 7. Conversion nombres → chiffres
     if _env_bool("DICTEE_PP_NUMBERS"):
+        _before = text
         text = convert_numbers(text)
-
-    # 8. French typography (non-breaking spaces)
-    if LANG == "fr" and _env_bool("DICTEE_PP_TYPOGRAPHY"):
-        text = fix_french_typography(text)
+        _trace("Numbers", _before, text)
 
     # 9. (final cleanup already in regex rules step 5)
 
     # 10. Dictionary (system + personal, exact match)
     dictionary = load_dictionary()
     if _env_bool("DICTEE_PP_DICT") and dictionary:
+        _before = text
         text = apply_dictionary(text, dictionary)
+        _trace("Dictionary", _before, text)
 
     # 11. Capitalisation
     if _env_bool("DICTEE_PP_CAPITALIZATION"):
+        _before = text
         text = fix_capitalization(text)
+        _trace("Capitalization", _before, text)
 
-    # 12. Short text correction (< 3 words: remove trailing punct, lowercase)
+    # 12. Short text correction (< N words: remove trailing punct, lowercase)
     if _env_bool("DICTEE_PP_SHORT_TEXT"):
+        _before = text
         text = fix_short_text(text)
+        _trace(f"Short text < {_SHORT_TEXT_MAX_WORDS}w", _before, text)
 
     # 13. LLM correction — position "last" (after all post-processing)
     if _llm_enabled and _llm_position == "last":
+        _before = text
         text = llm_postprocess(text)
+        _trace("LLM [last]", _before, text)
 
     # Strip internal markers used by voice-command rules
     text = text.replace("\x01", "").replace("\x02", "")
+    # Defense in depth: strip any other control char that could be interpreted
+    # as a key sequence downstream (keep only \t=0x09 and \n=0x0a).
+    text = "".join(c for c in text if c == "\t" or c == "\n" or ord(c) >= 0x20)
 
     sys.stdout.write(text)
 
