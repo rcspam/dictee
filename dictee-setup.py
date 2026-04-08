@@ -963,7 +963,6 @@ class _ClickableSvgWidget(_QSvgWidget):
         self.hit_boxes = []  # list of (QRectF, key)
         self.tooltips = {}   # key → tooltip text
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMouseTracking(True)
 
     def mousePressEvent(self, ev):
         pos = ev.position()
@@ -973,18 +972,27 @@ class _ClickableSvgWidget(_QSvgWidget):
                 return
         super().mousePressEvent(ev)
 
-    def mouseMoveEvent(self, ev):
-        pos = ev.position()
-        for rect, key in self.hit_boxes:
-            if rect.contains(pos):
-                tip = self.tooltips.get(key, "")
-                if tip and self.toolTip() != tip:
-                    self.setToolTip(tip)
-                break
-        else:
-            if self.toolTip():
-                self.setToolTip("")
-        super().mouseMoveEvent(ev)
+    def event(self, ev):
+        # Per-region tooltips via QEvent.ToolTip — the standard Qt pattern
+        # for widgets with multiple logical hot zones. Does not steal focus
+        # (unlike setToolTip on mouseMoveEvent).
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtWidgets import QToolTip
+        if ev.type() == QEvent.Type.ToolTip:
+            pos = ev.pos()
+            for rect, key in self.hit_boxes:
+                if rect.contains(pos):
+                    tip = self.tooltips.get(key, "")
+                    if tip:
+                        # Wrap in <qt> for multi-line support; replace \n
+                        # with <br> explicitly so Qt honours them.
+                        html = "<qt>" + tip.replace("\n", "<br>") + "</qt>"
+                        QToolTip.showText(ev.globalPos(), html, self)
+                        return True
+            QToolTip.hideText()
+            ev.ignore()
+            return True
+        return super().event(ev)
 
 
 class _PipelineDiagram:
@@ -1008,22 +1016,29 @@ class _PipelineDiagram:
     ]
 
     TOOLTIPS = {
-        "rules": "Regex rules — fix common ASR errors "
-                 "(voice commands, punctuation, formatting).",
-        "continuation": "Continuation — remove erroneous periods after "
-                        "closed-class words so sentences flow across "
-                        "push-to-talk segments.",
-        "language_rules": "Language rules — per-language fixes "
-                          "(FR/IT elisions, DE/ES/PT/NL/RO corrections).",
-        "numbers": "Numbers — convert spoken numbers to digits "
-                   "(\"vingt-trois\" → \"23\").",
-        "dict": "Dictionary — exact word replacements from the "
-                "system and personal dictionaries.",
-        "capitalization": "Capitalization — uppercase first letter after "
-                          ". ! ? (essential for Vosk/Whisper).",
-        "short_text": "Short text fix — for transcriptions under N words, "
+        "rules": "<b>Regex rules</b><br>"
+                 "Fix common ASR errors:<br>"
+                 "voice commands, punctuation, formatting.",
+        "continuation": "<b>Continuation</b><br>"
+                        "Remove erroneous periods after closed-class words<br>"
+                        "so sentences flow across push-to-talk segments.",
+        "language_rules": "<b>Language rules</b><br>"
+                          "Per-language fixes:<br>"
+                          "FR/IT elisions, DE/ES/PT/NL/RO corrections.",
+        "numbers": "<b>Numbers</b><br>"
+                   "Convert spoken numbers to digits.<br>"
+                   "Example: \"vingt-trois\" → \"23\".",
+        "dict": "<b>Dictionary</b><br>"
+                "Exact word replacements from the system<br>"
+                "and personal dictionaries.",
+        "capitalization": "<b>Capitalization</b><br>"
+                          "Uppercase first letter after . ! ?<br>"
+                          "Essential for Vosk/Whisper backends.",
+        "short_text": "<b>Short text fix</b><br>"
+                      "For transcriptions under N words:<br>"
                       "strip trailing punctuation and lowercase.",
-        "llm": "LLM grammar correction — local Ollama model fixes grammar, "
+        "llm": "<b>LLM grammar correction</b><br>"
+               "Local Ollama model fixes grammar,<br>"
                "spelling, accents and punctuation.",
     }
 
