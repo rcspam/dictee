@@ -8265,13 +8265,21 @@ class DicteeSetupDialog(QDialog):
         keeps a stale range and shows a phantom empty area.
         """
         w = getattr(self, "_cont_scroll_content", None)
-        if w is not None:
-            w.adjustSize()
-            p = w.parentWidget()
-            while p is not None and not isinstance(p, QScrollArea):
-                p = p.parentWidget()
-            if p is not None:
-                p.updateGeometry()
+        if w is None:
+            return
+        lay = w.layout()
+        if lay is not None:
+            lay.invalidate()
+            lay.activate()
+        w.adjustSize()
+        # Force vertical sizeHint propagation to the QScrollArea
+        p = w.parentWidget()
+        while p is not None and not isinstance(p, QScrollArea):
+            p = p.parentWidget()
+        if p is not None:
+            p.updateGeometry()
+            # Reset the scroll position to top (avoids stale offset)
+            p.verticalScrollBar().setValue(0)
 
     def _load_cont_form(self):
         """Clears and rebuilds the Continuation tab accordions."""
@@ -8500,12 +8508,21 @@ class DicteeSetupDialog(QDialog):
             row_height = 0
             for item in self._items:
                 w = item.widget()
-                # Use isVisibleTo(parent) so we skip chips whose ancestor
-                # group is collapsed — isHidden() only checks the widget
-                # itself, not the parent chain, which left phantom height
-                # in the scroll area when a language was folded.
-                if w is None or (w.parentWidget() is not None
-                                  and not w.isVisibleTo(w.parentWidget())):
+                if w is None:
+                    continue
+                # Skip chips whose direct widget is hidden OR any ancestor
+                # has been explicitly hidden (e.g. the language group is
+                # folded). isHidden() alone only checks the widget itself.
+                if w.isHidden():
+                    continue
+                _anc = w.parentWidget()
+                _hidden_anc = False
+                while _anc is not None:
+                    if _anc.isHidden():
+                        _hidden_anc = True
+                        break
+                    _anc = _anc.parentWidget()
+                if _hidden_anc:
                     continue
                 size = item.sizeHint()
                 if x + size.width() > rect.right() and x > rect.x():
