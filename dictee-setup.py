@@ -7209,13 +7209,15 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
         common_btns.addWidget(self._btn_dict_add)
 
-        self._btn_dict_undo = QPushButton(QIcon.fromTheme("edit-undo"), _("Undo"))
+        self._btn_dict_undo = QPushButton(QIcon.fromTheme("edit-undo"), "")
+        self._btn_dict_undo.setFixedWidth(30)
         self._btn_dict_undo.setToolTip(_("Undo last change"))
         self._btn_dict_undo.setEnabled(False)
         self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
         common_btns.addWidget(self._btn_dict_undo)
 
-        self._btn_dict_redo = QPushButton(QIcon.fromTheme("edit-redo"), _("Redo"))
+        self._btn_dict_redo = QPushButton(QIcon.fromTheme("edit-redo"), "")
+        self._btn_dict_redo.setFixedWidth(30)
         self._btn_dict_redo.setToolTip(_("Redo last undone change"))
         self._btn_dict_redo.setEnabled(False)
         self._btn_dict_redo.clicked.connect(self._dict_redo_smart)
