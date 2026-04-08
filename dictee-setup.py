@@ -5575,6 +5575,8 @@ class DicteeSetupDialog(QDialog):
             self._btn_advanced.setVisible(idx not in (0, 2, 4))
             self._btn_advanced.setChecked(False)
             self._toggle_advanced_mode(False)
+            if idx == 0:
+                self._maybe_show_rules_warning()
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
         self._btn_advanced.toggled.connect(self._toggle_advanced_mode)
         _on_tab_changed(0)
@@ -5630,6 +5632,40 @@ class DicteeSetupDialog(QDialog):
             self.cmb_pp_short_text_max.currentIndexChanged.connect(self._refresh_pp_diagram)
         self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
         self._refresh_pp_diagram()
+
+    def _maybe_show_rules_warning(self):
+        """Show the 'rules can break output' warning as a popup with a
+        'don't show again' checkbox. Dismissal is persisted in
+        ~/.config/dictee/.rules_warning_dismissed.
+        """
+        flag_path = os.path.join(
+            os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+            "dictee", ".rules_warning_dismissed")
+        if os.path.isfile(flag_path):
+            return
+        parent = self._pp_parent if hasattr(self, "_pp_parent") else self
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(_("Regex rules — caution"))
+        box.setText(
+            '<span style="color: #c0392b; font-weight: bold;">⚠ ' +
+            _("Advanced feature") + "</span>")
+        box.setInformativeText(_(
+            "Incorrect rules can break transcription output. "
+            "Rules are applied in order: a misplaced or wrong pattern may "
+            "silently delete or corrupt text.\n\n"
+            "Use the test panel below to verify your changes before saving."))
+        dont_show = QCheckBox(_("Don't show this warning again"))
+        box.setCheckBox(dont_show)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if dont_show.isChecked():
+            try:
+                os.makedirs(os.path.dirname(flag_path), exist_ok=True)
+                with open(flag_path, "w") as _f:
+                    _f.write("1\n")
+            except OSError:
+                pass
 
     def _on_pp_step_clicked(self, key):
         cb_map = {
@@ -6177,15 +6213,8 @@ class DicteeSetupDialog(QDialog):
         sfx_lay.addStretch()
         lay.addLayout(sfx_lay)
 
-        # --- Warning ---
-        warn = QLabel(
-            '<span style="color: red; font-weight: bold;">⚠ ' +
-            _("Advanced — Incorrect rules can break transcription output. "
-              "Rules are applied in order: a misplaced or wrong pattern "
-              "may silently delete or corrupt text. Use the test panel below to verify.") +
-            '</span>')
-        warn.setWordWrap(True)
-        lay.addWidget(warn)
+        # Warning popup is shown on tab entry (see _maybe_show_rules_warning),
+        # not as a permanent label — the user can dismiss it permanently.
 
         # --- Rule creator ---
         add_grp = QGroupBox(_("Add a rule"))
