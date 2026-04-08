@@ -335,8 +335,11 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
     values["DICTEE_PP_SHORT_TEXT_MAX"] = str(pp_short_text_max)
-    # Continuation visual indicator
-    values["DICTEE_CONTINUATION_INDICATOR"] = _s(continuation_indicator)
+    # Continuation visual indicator — must NOT go through _s() because it
+    # would strip <, >, & exactly the chars we want. Wrap in single quotes
+    # so bash sources it literally; escape any inner single quote.
+    _ind_clean = (continuation_indicator or ">>").replace("'", "'\\''")
+    values["DICTEE_CONTINUATION_INDICATOR"] = "'" + _ind_clean + "'"
     # LLM post-processing
     values["DICTEE_LLM_POSTPROCESS"] = "true" if llm_postprocess else "false"
     if llm_postprocess:
