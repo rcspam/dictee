@@ -5422,7 +5422,7 @@ class DicteeSetupDialog(QDialog):
             _("Uses a local LLM (via ollama) to fix grammar,\n"
               "spelling, accents and punctuation.\n"
               "Configure the model and prompt in the LLM tab."))
-        grid_gen.addWidget(self.chk_llm, 0, 0)
+        grid_gen.addWidget(self.chk_llm, 0, 1)
 
         # Short text — checkbox + word count combobox (cell 3,1)
         self.chk_pp_short_text = QCheckBox(_("Short text fix"))
@@ -5459,7 +5459,7 @@ class DicteeSetupDialog(QDialog):
         # Disable combobox when checkbox unchecked
         self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
         self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        grid_gen.addWidget(_short_box, 0, 1)
+        grid_gen.addWidget(_short_box, 0, 0)
 
         pp_lay.addLayout(grid_gen)
         pp_lay.addWidget(_hidden_holder)  # hidden, kept for state/serialization
