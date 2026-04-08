@@ -313,21 +313,26 @@ apply_continuation() {
     local last_char="${saved%%:*}"
     local last_word="${saved#*:}"
 
-    # Hourglass marker: H prefix means CONTINUATION_INDICATOR was appended
-    # instead of punctuation → need extra backspaces to erase it
+    # Hourglass marker: H<N> prefix means CONTINUATION_INDICATOR of length N
+    # was appended instead of punctuation → need N extra backspaces to erase
+    # it. The length is encoded in the marker (not read from the live var)
+    # so changing DICTEE_CONTINUATION_INDICATOR mid-session never desyncs.
     local hourglass=false
-    if [[ "$last_char" == H* ]]; then
+    local hourglass_len=0
+    if [[ "$last_char" =~ ^H([0-9]+)(.*)$ ]]; then
         hourglass=true
-        last_char="${last_char#H}"
+        hourglass_len="${BASH_REMATCH[1]}"
+        last_char="${BASH_REMATCH[2]}"
     fi
 
     # Helper: send backspaces — N from marker, plus indicator length if hourglass
     _cont_backspace() {
         local count="${1:-1}"
-        # Hourglass: add CONTINUATION_INDICATOR_LEN extra backspaces to erase
-        # the visual indicator (default ">>" → 2 backspaces).
+        # Hourglass: add the indicator length stored in the marker (NOT the
+        # current CONTINUATION_INDICATOR_LEN — that may have changed since
+        # the indicator was actually typed).
         if $hourglass; then
-            count=$((count + CONTINUATION_INDICATOR_LEN))
+            count=$((count + hourglass_len))
         fi
         local cmd=""
         for ((i=0; i<count; i++)); do
@@ -414,10 +419,10 @@ apply_continuation() {
     elif [ "$last_char" = "_" ]; then
         # No punctuation: mid-sentence, space + lowercase
         if $hourglass; then
-            # Erase the indicator (CONTINUATION_INDICATOR_LEN backspaces),
+            # Erase the indicator (hourglass_len backspaces from marker),
             # no punctuation to remove on top.
             local _bs_cmd=""
-            for ((i=0; i<CONTINUATION_INDICATOR_LEN; i++)); do
+            for ((i=0; i<hourglass_len; i++)); do
                 _bs_cmd+="key backspace
 "
             done
@@ -508,9 +513,10 @@ save_last_word() {
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local -n _text_ref="$2"
             _text_ref="${_text_ref}${CONTINUATION_INDICATOR}"
-            # Mark as hourglass: H prefix → need extra backspaces equal to
-            # the indicator length (handled in apply_continuation).
-            marker="H${marker}"
+            # Mark as hourglass: H<N> prefix encodes the indicator length
+            # so the next push erases exactly what was typed, even if the
+            # user has changed DICTEE_CONTINUATION_INDICATOR in between.
+            marker="H${CONTINUATION_INDICATOR_LEN}${marker}"
         fi
     fi
 
