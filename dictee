@@ -56,6 +56,14 @@ LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIM_SPEECH="${DICTEE_ANIM_SPEECH:-true}"
 ANIM_PLASMOID="${DICTEE_ANIM_PLASMOID:-false}"
+# Visual indicator appended to the typed text when continuation is pending
+# (the next push will start with a backspace to erase it). Default ">>"
+# (ASCII, directly typeable on all latin layouts via Shift+<). Any
+# directly-typeable string works: ">", ">>", "&", "...", etc.
+# Non-typeable characters (→, ▶, …) require clipboard paste — not supported
+# here to avoid clobbering the user's clipboard on every continuation.
+CONTINUATION_INDICATOR="${DICTEE_CONTINUATION_INDICATOR:->>}"
+CONTINUATION_INDICATOR_LEN=${#CONTINUATION_INDICATOR}
 # --diarize flag: explicit from plasmoid, F9 never passes it
 DIARIZE="false"
 for _arg in "$@"; do
@@ -304,20 +312,21 @@ apply_continuation() {
     local last_char="${saved%%:*}"
     local last_word="${saved#*:}"
 
-    # Hourglass marker: H prefix means ~ was typed instead of punctuation
-    # → always 1 backspace to erase it
+    # Hourglass marker: H prefix means CONTINUATION_INDICATOR was appended
+    # instead of punctuation → need extra backspaces to erase it
     local hourglass=false
     if [[ "$last_char" == H* ]]; then
         hourglass=true
         last_char="${last_char#H}"
     fi
 
-    # Helper: send backspaces — 1 if hourglass, else N from marker
+    # Helper: send backspaces — N from marker, plus indicator length if hourglass
     _cont_backspace() {
         local count="${1:-1}"
-        # Hourglass: add 1 extra backspace to erase ~
+        # Hourglass: add CONTINUATION_INDICATOR_LEN extra backspaces to erase
+        # the visual indicator (default ">>" → 2 backspaces).
         if $hourglass; then
-            count=$((count + 1))
+            count=$((count + CONTINUATION_INDICATOR_LEN))
         fi
         local cmd=""
         for ((i=0; i<count; i++)); do
@@ -490,8 +499,9 @@ save_last_word() {
         local _cw="${!_cw_var}"
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local -n _text_ref="$2"
-            _text_ref="${_text_ref}&"
-            # Mark as hourglass: H prefix → need extra backspace for ~
+            _text_ref="${_text_ref}${CONTINUATION_INDICATOR}"
+            # Mark as hourglass: H prefix → need extra backspaces equal to
+            # the indicator length (handled in apply_continuation).
             marker="H${marker}"
         fi
     fi
