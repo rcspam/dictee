@@ -8041,6 +8041,24 @@ class DicteeSetupDialog(QDialog):
                         result[lang].append((current_subcat, list(words)))
         return result
 
+    def _parse_cont_exclusions(self, path):
+        """Returns {lang: set(excluded_words)} from [exclude:xx] lines."""
+        result = {}
+        if not os.path.isfile(path):
+            return result
+        exc_re = re.compile(r"^\s*\[exclude:([a-z]{2})\]\s+(.+)$")
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line_s = line.strip()
+                if not line_s or line_s.startswith("#"):
+                    continue
+                m = exc_re.match(line_s)
+                if m:
+                    lang = m.group(1)
+                    words = m.group(2).split()
+                    result.setdefault(lang, set()).update(w.lower() for w in words)
+        return result
+
     def _build_continuation_tab(self, lay):
         """Continuation tab: accordions per language with chips + edit mode."""
         import os as _os
@@ -8067,6 +8085,8 @@ class DicteeSetupDialog(QDialog):
 
         # Personal words per language : {lang: set()}
         self._cont_personal_words = {}
+        # Excluded (removed from system) words per language : {lang: set()}
+        self._cont_excluded_words = {}
 
         self._cont_stack = QStackedWidget()
 
@@ -8075,7 +8095,11 @@ class DicteeSetupDialog(QDialog):
         form_top_lay = QVBoxLayout(form_page)
         form_top_lay.setContentsMargins(0, 0, 0, 0)
 
-        # Collapsible explanation
+        # Collapsible explanation (text + separator grouped in a container)
+        _info_container = QWidget()
+        _info_container_lay = QVBoxLayout(_info_container)
+        _info_container_lay.setContentsMargins(0, 0, 0, 0)
+        _info_container_lay.setSpacing(6)
         info = QLabel(_(
             "Continuation words are words that never end a sentence "
             "(articles, prepositions, conjunctions, pronouns, auxiliaries...).\n"
@@ -8092,7 +8116,15 @@ class DicteeSetupDialog(QDialog):
         _info_font = info.font()
         _info_font.setItalic(True)
         info.setFont(_info_font)
-        info.setVisible(False)
+        _info_container_lay.addWidget(info)
+
+        # --- Separator (inside the collapsible block) ---
+        _sep1 = QFrame()
+        _sep1.setFrameShape(QFrame.Shape.HLine)
+        _sep1.setFrameShadow(QFrame.Shadow.Sunken)
+        _info_container_lay.addWidget(_sep1)
+
+        _info_container.setVisible(False)
 
         _info_toggle = QPushButton("\u25b8  " + _("Explanation"))
         _info_toggle.setCheckable(True)
@@ -8103,19 +8135,13 @@ class DicteeSetupDialog(QDialog):
             "QPushButton:hover { background-color: rgba(127,127,127,30); }"
         )
 
-        def _on_info_toggled(on, lbl=info, btn=_info_toggle):
+        def _on_info_toggled(on, box=_info_container, btn=_info_toggle):
             btn.setText(("\u25be  " if on else "\u25b8  ") + _("Explanation"))
-            lbl.setVisible(on)
+            box.setVisible(on)
         _info_toggle.toggled.connect(_on_info_toggled)
 
         form_top_lay.addWidget(_info_toggle)
-        form_top_lay.addWidget(info)
-
-        # --- Separator ---
-        _sep1 = QFrame()
-        _sep1.setFrameShape(QFrame.Shape.HLine)
-        _sep1.setFrameShadow(QFrame.Shadow.Sunken)
-        form_top_lay.addWidget(_sep1)
+        form_top_lay.addWidget(_info_container)
 
         # Manual continuation fallback
         kw_info = QLabel(_(
@@ -8128,11 +8154,10 @@ class DicteeSetupDialog(QDialog):
         _kw_font = kw_info.font()
         _kw_font.setItalic(True)
         kw_info.setFont(_kw_font)
-        form_top_lay.addWidget(kw_info)
+        _info_container_lay.addWidget(kw_info)
 
-        # Continuation keyword (per language)
-        kw_lay = QHBoxLayout()
-        kw_lay.setSpacing(6)
+        # Continuation keyword (per language) — widgets created here,
+        # laid out further below on the same row as the visual indicator.
         kw_label = QLabel(_("Continuation keyword:"))
         kw_help = _help_btn(_(
             "<b>Continuation keyword</b><br><br>"
@@ -8172,24 +8197,6 @@ class DicteeSetupDialog(QDialog):
         self._cont_keyword.setText(self._cont_keywords.get(_lang, ""))
         self._cont_kw_lang.currentTextChanged.connect(self._on_cont_kw_lang_changed)
         self._cont_keyword.textChanged.connect(self._on_cont_kw_text_changed)
-        kw_lay.addWidget(kw_label)
-        kw_lay.addWidget(self._cont_kw_lang)
-        kw_lay.addWidget(self._cont_keyword)
-        kw_lay.addWidget(kw_help)
-        kw_lay.addStretch()
-        form_top_lay.addLayout(kw_lay)
-
-        # Variants label (indented under the combo+field)
-        _variants_lay = QHBoxLayout()
-        _variants_spacer = QLabel()
-        _variants_spacer.setFixedWidth(kw_label.sizeHint().width() + 6 + self._cont_kw_lang.sizeHint().width() + 6)
-        self._cont_kw_variants = QLabel()
-        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
-        _variants_lay.addWidget(_variants_spacer)
-        _variants_lay.addWidget(self._cont_kw_variants)
-        _variants_lay.addStretch()
-        form_top_lay.addLayout(_variants_lay)
-        self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
         # Visual indicator combobox: pre-tested ASCII strings that are
         # directly typeable on all latin keyboard layouts via dotool.
@@ -8227,8 +8234,32 @@ class DicteeSetupDialog(QDialog):
         ind_lay.addWidget(ind_label)
         ind_lay.addWidget(self.cmb_continuation_indicator)
         ind_lay.addWidget(ind_help)
+        # Separator between indicator block and continuation keyword block
+        ind_lay.addSpacing(20)
+        ind_lay.addWidget(kw_label)
+        ind_lay.addWidget(self._cont_kw_lang)
+        ind_lay.addWidget(self._cont_keyword)
+        ind_lay.addWidget(kw_help)
         ind_lay.addStretch()
         form_top_lay.addLayout(ind_lay)
+
+        # Variants label (indented under the kw combo+field on the row above)
+        _variants_lay = QHBoxLayout()
+        _variants_spacer = QLabel()
+        _variants_spacer.setFixedWidth(
+            ind_label.sizeHint().width() + 6
+            + self.cmb_continuation_indicator.width() + 6
+            + 20
+            + kw_label.sizeHint().width() + 6
+            + self._cont_kw_lang.sizeHint().width() + 6
+        )
+        self._cont_kw_variants = QLabel()
+        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
+        _variants_lay.addWidget(_variants_spacer)
+        _variants_lay.addWidget(self._cont_kw_variants)
+        _variants_lay.addStretch()
+        form_top_lay.addLayout(_variants_lay)
+        self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
         # --- Separator ---
         _sep = QFrame()
@@ -8374,6 +8405,7 @@ class DicteeSetupDialog(QDialog):
         # or after a revert/factory reset (_cont_force_reload)
         if not self._cont_personal_words or getattr(self, '_cont_force_reload', False):
             self._cont_personal_words.clear()
+            self._cont_excluded_words.clear()
             self._cont_force_reload = False
             user_cats = self._parse_cont_with_categories(self._cont_path)
             for lang, subcats in user_cats.items():
@@ -8381,6 +8413,10 @@ class DicteeSetupDialog(QDialog):
                 for _sc, words in subcats:
                     words_set.update(words)
                 self._cont_personal_words[lang] = words_set
+            # Load exclusions ([exclude:xx] lines)
+            excl = self._parse_cont_exclusions(self._cont_path)
+            for lang, wset in excl.items():
+                self._cont_excluded_words[lang] = wset
 
         # Determine active language
         active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
@@ -8390,10 +8426,14 @@ class DicteeSetupDialog(QDialog):
 
         # Build one accordion per language
         for lang in all_langs:
+            excluded_set = self._cont_excluded_words.get(lang, set())
             sys_words_all = []
             sys_subcats = sys_cats.get(lang, [])
             for _sc, words in sys_subcats:
-                sys_words_all.extend(words)
+                # Filter out excluded (case-insensitive)
+                sys_words_all.extend(
+                    w for w in words if w.lower() not in excluded_set
+                )
 
             perso_words = self._cont_personal_words.get(lang, set())
             total = len(sys_words_all) + len(perso_words)
@@ -8733,6 +8773,13 @@ class DicteeSetupDialog(QDialog):
                 words = sorted(self._cont_personal_words[lang])
                 if words:
                     f.write(f"[{lang}] {' '.join(words)}\n")
+            # Excluded (removed from system) words
+            if hasattr(self, '_cont_excluded_words') and self._cont_excluded_words:
+                f.write("\n")
+                for lang in sorted(self._cont_excluded_words.keys()):
+                    words = sorted(self._cont_excluded_words[lang])
+                    if words:
+                        f.write(f"[exclude:{lang}] {' '.join(words)}\n")
 
     def _cont_save_smart(self):
         """Save (normal or advanced mode)."""
@@ -8851,13 +8898,107 @@ class DicteeSetupDialog(QDialog):
         self._save_cont_personal()
         self._load_cont_form()
 
+    def _cont_build_advanced_text(self):
+        """Build the text shown in the advanced editor: keywords + system
+        words (with user additions merged and exclusions removed), editable."""
+        lines = []
+        lines.append("# User continuation words for dictee")
+        lines.append("# Format: [lang] word1 word2 ...")
+        lines.append("# Edit lines below to add/remove words. On save, the")
+        lines.append("# diff vs system words is stored as additions/exclusions.")
+        lines.append("")
+        # Keywords
+        if hasattr(self, '_cont_keywords'):
+            for lang, kw in sorted(self._cont_keywords.items()):
+                if kw:
+                    lines.append(f"[keyword:{lang}] {kw}")
+            lines.append("")
+        # Load system words
+        sys_cats = {}
+        if self._cont_sys_path:
+            sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
+        # Merge: (system ∪ personal) − excluded
+        lines.append("# --- Continuation words (editable — remove what you don't want) ---")
+        all_langs = sorted(set(list(sys_cats.keys()) + list(self._cont_personal_words.keys())))
+        for lang in all_langs:
+            sys_words = set()
+            for _sc, words in sys_cats.get(lang, []):
+                sys_words.update(w.lower() for w in words)
+            perso = {w.lower() for w in self._cont_personal_words.get(lang, set())}
+            excl = self._cont_excluded_words.get(lang, set())
+            merged = (sys_words | perso) - excl
+            if merged:
+                lines.append(f"[{lang}] {' '.join(sorted(merged))}")
+        return "\n".join(lines) + "\n"
+
     def _save_cont_advanced(self):
-        """Saves advanced mode content to file (without switching mode)."""
+        """Parses the advanced editor, computes diff vs system words, and
+        writes keywords + personal additions + [exclude:xx] lines."""
         import os as _os
 
+        text = self._cont_adv_editor.toPlainText()
+
+        # Parse editor content
+        keywords = {}
+        editor_words = {}  # lang -> set
+        kw_re = re.compile(r"^\s*\[keyword:([a-z]{2})\]\s*(.+)$")
+        entry_re = re.compile(r"^\s*\[([a-z]{2})\]\s+(.+)$")
+        for line in text.splitlines():
+            line_s = line.strip()
+            if not line_s or line_s.startswith("#"):
+                continue
+            m = kw_re.match(line_s)
+            if m:
+                keywords[m.group(1)] = m.group(2).strip()
+                continue
+            m = entry_re.match(line_s)
+            if m:
+                lang = m.group(1)
+                words = {w.lower() for w in m.group(2).split()}
+                editor_words.setdefault(lang, set()).update(words)
+
+        # Load system reference
+        sys_cats = {}
+        if self._cont_sys_path:
+            sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
+        sys_sets = {}
+        for lang, subcats in sys_cats.items():
+            s = set()
+            for _sc, words in subcats:
+                s.update(w.lower() for w in words)
+            sys_sets[lang] = s
+
+        # Diff → personals + exclusions
+        new_personals = {}
+        new_excluded = {}
+        all_langs = set(sys_sets.keys()) | set(editor_words.keys())
+        for lang in all_langs:
+            sys_s = sys_sets.get(lang, set())
+            ed_s = editor_words.get(lang, set())
+            added = ed_s - sys_s
+            removed = sys_s - ed_s
+            if added:
+                new_personals[lang] = added
+            if removed:
+                new_excluded[lang] = removed
+
+        # Update in-memory state — keywords: any lang present in the editor
+        # overrides, any lang absent is cleared (explicit deletion).
+        if hasattr(self, '_cont_keywords'):
+            for lang in list(self._cont_keywords.keys()):
+                self._cont_keywords[lang] = keywords.get(lang, "")
+            # Also accept keywords for langs not yet tracked
+            for lang, kw in keywords.items():
+                if lang not in self._cont_keywords:
+                    self._cont_keywords[lang] = kw
+        self._cont_personal_words.clear()
+        self._cont_personal_words.update(new_personals)
+        self._cont_excluded_words.clear()
+        self._cont_excluded_words.update(new_excluded)
+
+        # Write file through the canonical writer
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
-        with open(self._cont_path, "w", encoding="utf-8") as f:
-            f.write(self._cont_adv_editor.toPlainText())
+        self._save_cont_personal()
 
     def _toggle_advanced_mode(self, checked):
         """Toggles form ↔ text editor for the active tab.
@@ -8907,13 +9048,11 @@ class DicteeSetupDialog(QDialog):
                 self._dict_stack.setCurrentIndex(0)
         elif idx == 1:  # Continuation (new index in pipeline order)
             if checked:
-                # Form → Advanced : sauvegarder le formulaire, charger dans l'éditeur
+                # Form → Advanced : sauvegarder le formulaire, puis composer
+                # le texte à éditer (keywords + mots système mergés avec perso
+                # et exclusions retirées).
                 self._save_cont_personal()
-                if os.path.isfile(self._cont_path):
-                    with open(self._cont_path, encoding="utf-8") as f:
-                        self._cont_adv_editor.setPlainText(f.read())
-                else:
-                    self._cont_adv_editor.clear()
+                self._cont_adv_editor.setPlainText(self._cont_build_advanced_text())
             else:
                 # Advanced → Form : recharger depuis le fichier
                 self._cont_force_reload = True

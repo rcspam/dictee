@@ -248,10 +248,39 @@ load_continuation_words() {
             # Skip [keyword:*] lines — handled separately
             [[ "$tag" == keyword* ]] && continue
             local words="${line#*]}"
+            # [exclude:xx] → collect into CONTINUATION_EXCLUDE_XX
+            if [[ "$tag" == exclude:* ]]; then
+                local lang_tag="${tag#exclude:}"
+                # Valid 2-letter lang code only (protect against eval injection)
+                [[ "$lang_tag" =~ ^[a-z]{2}$ ]] || continue
+                local evar="CONTINUATION_EXCLUDE_${lang_tag^^}"
+                eval "${evar}=\"\${${evar}:-\" \"}\${words} \""
+                continue
+            fi
+            # [xx] plain entry — validate lang code
+            [[ "$tag" =~ ^[a-z]{2}$ ]] || continue
             local var="CONTINUATION_WORDS_${tag^^}"
-            # Append words (cumulative)
             eval "${var}=\"\${${var}:-\" \"}\${words} \""
         done < "$file"
+    done
+
+    # Apply exclusions: remove excluded words from the inclusion vars.
+    local evar var exc_list cur_list new_list w lw
+    for evar in $(compgen -v CONTINUATION_EXCLUDE_ 2>/dev/null); do
+        var="CONTINUATION_WORDS_${evar#CONTINUATION_EXCLUDE_}"
+        exc_list="${!evar}"
+        cur_list="${!var:-}"
+        [ -z "$cur_list" ] && continue
+        new_list=" "
+        for w in $cur_list; do
+            lw="${w,,}"
+            # Skip if present in exclusion list
+            if [[ " ${exc_list,,} " == *" $lw "* ]]; then
+                continue
+            fi
+            new_list+="$w "
+        done
+        eval "${var}=\"\$new_list\""
     done
 }
 
