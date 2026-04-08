@@ -2752,7 +2752,7 @@ class DicteeSetupDialog(QDialog):
         if self.wizard_mode:
             self._build_wizard_ui()
         else:
-            self._build_classic_ui()
+            self._build_sidebar_ui()
 
         # Prevent accidental scroll on interactive widgets
         self._scroll_guard = ScrollGuardFilter(self)
@@ -3055,6 +3055,318 @@ class DicteeSetupDialog(QDialog):
         self.reject()
         exe = os.path.abspath(sys.argv[0])
         os.execv(sys.executable, [sys.executable, exe, "--wizard"])
+
+    # ── Sidebar mode (settings with left-pane navigation) ─────────
+
+    def _build_sidebar_ui(self):
+        """New settings UI: persistent SVG pipeline header on top,
+        left QTreeWidget navigation, right QStackedWidget content,
+        bottom action bar. Replaces the scrollable classic UI on
+        subsequent openings (first launch still uses the wizard)."""
+        from PyQt6.QtWidgets import QSplitter, QTreeWidget, QTreeWidgetItem
+
+        conf = self.conf
+        self.setWindowTitle(_("Voice dictation configuration"))
+        self.resize(1200, 850)
+        self.setMinimumSize(980, 650)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # --- Build all section pages first so attributes like chk_pp_*
+        # and self._pp_diagram exist before we wire things up. ---
+        self._sidebar_stack = QStackedWidget()
+
+        # Section 0 : Welcome
+        page_welcome = self._build_section_welcome()
+        self._sidebar_stack.addWidget(page_welcome)
+
+        # Section 1 : Backend ASR
+        page_backend = QWidget()
+        _lay = QVBoxLayout(page_backend)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        self._build_section_backend(_lay, conf)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_backend)
+
+        # Section 2 : Shortcuts
+        page_shortcuts = QWidget()
+        _lay = QVBoxLayout(page_shortcuts)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        grp = QGroupBox(_("Keyboard shortcut"))
+        _glay = QVBoxLayout(grp)
+        self._build_shortcut_section(_glay)
+        _lay.addWidget(grp)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_shortcuts)
+
+        # Section 3 : Translation
+        page_trans = QWidget()
+        _lay = QVBoxLayout(page_trans)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        self._grp_translate = grp = QGroupBox()
+        _glay = QVBoxLayout(grp)
+        self._build_translation_section(_glay, conf)
+        _lay.addWidget(grp)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_trans)
+        self._update_canary_translation_visibility()
+
+        # Section 4 : Audio & display (mic + visual + options + notif)
+        page_audio = QWidget()
+        _lay = QVBoxLayout(page_audio)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        self._build_section_audio_display(_lay, conf)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_audio)
+
+        # Section 5 : Post-processing — pipeline header is external,
+        # so build it FIRST (creates self._pp_diagram), then the section
+        # is wired to it.
+        self._pipeline_header_external = True
+        pipeline_header = self._build_pipeline_header_widget()
+
+        page_pp = QWidget()
+        _lay = QVBoxLayout(page_pp)
+        _lay.setContentsMargins(20, 8, 20, 16)
+        _lay.setSpacing(6)
+        # _pp_parent property returns 'self' by default; post-processing
+        # will mount into _lay.
+        self._build_postprocess_section(_lay, conf)
+        self._sidebar_stack.addWidget(page_pp)
+
+        # --- Top: pipeline header (persistent across all sections) ---
+        outer.addWidget(pipeline_header)
+
+        # --- Middle: splitter (tree | stack) ---
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        tree = QTreeWidget()
+        tree.setHeaderHidden(True)
+        tree.setIndentation(14)
+        tree.setRootIsDecorated(True)
+        tree.setMinimumWidth(180)
+
+        def _add(parent, label, stack_idx, pp_tab=None):
+            item = QTreeWidgetItem(parent, [label])
+            item.setData(0, Qt.ItemDataRole.UserRole, stack_idx)
+            if pp_tab is not None:
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, pp_tab)
+            return item
+
+        _add(tree, _("Welcome"), 0)
+        _add(tree, _("ASR backend"), 1)
+        _add(tree, _("Keyboard shortcut"), 2)
+        _add(tree, _("Translation"), 3)
+        _add(tree, _("Audio & display"), 4)
+        pp_root = _add(tree, _("Post-processing"), 5)
+        # Sub-items point to the same stack page but force a tab switch
+        _add(pp_root, _("Regex rules"), 5, 0)
+        _add(pp_root, _("Continuation"), 5, 1)
+        _add(pp_root, _("Language rules"), 5, 2)
+        _add(pp_root, _("Dictionary"), 5, 3)
+        _add(pp_root, _("LLM"), 5, 4)
+        pp_root.setExpanded(True)
+
+        def _on_item_changed(current, previous):
+            if current is None:
+                return
+            idx = current.data(0, Qt.ItemDataRole.UserRole)
+            if idx is not None:
+                self._sidebar_stack.setCurrentIndex(int(idx))
+            pp_tab = current.data(0, Qt.ItemDataRole.UserRole + 1)
+            if pp_tab is not None and hasattr(self, "_pp_tabs"):
+                self._pp_tabs.setCurrentIndex(int(pp_tab))
+
+        tree.currentItemChanged.connect(_on_item_changed)
+        tree.setCurrentItem(tree.topLevelItem(0))
+
+        splitter.addWidget(tree)
+        splitter.addWidget(self._sidebar_stack)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([220, 980])
+        outer.addWidget(splitter, 1)
+
+        # --- Bottom action bar ---
+        lay_buttons = QHBoxLayout()
+        lay_buttons.setContentsMargins(20, 8, 20, 16)
+
+        btn_wizard = QPushButton(_("Setup wizard"))
+        btn_wizard.clicked.connect(self._on_launch_wizard)
+        lay_buttons.addWidget(btn_wizard)
+
+        lay_buttons.addStretch()
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        lay_buttons.addWidget(btn_cancel)
+        lay_buttons.addSpacing(8)
+        btn_apply = QPushButton(_("Apply"))
+        btn_apply.clicked.connect(self._on_apply_clicked)
+        lay_buttons.addWidget(btn_apply)
+        lay_buttons.addSpacing(8)
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._on_ok)
+        lay_buttons.addWidget(btn_ok)
+
+        outer.addLayout(lay_buttons)
+
+        # Dirty tracking on any config widget change
+        for w in self.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._mark_dirty)
+        for w in self.findChildren(QCheckBox):
+            w.toggled.connect(self._mark_dirty)
+
+    def _build_section_welcome(self):
+        """Welcome page for the sidebar mode: logo + one-line blurb."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(40, 40, 40, 40)
+        lay.setSpacing(20)
+
+        logo = QLabel()
+        logo.setPixmap(self._logo_pixmap(320))
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(logo)
+
+        blurb = QLabel(_(
+            "<h3>Welcome to the dictee settings.</h3>"
+            "<p>Pick a section in the left pane to configure the ASR "
+            "backend, keyboard shortcut, translation, audio/display "
+            "preferences or the post-processing pipeline.</p>"
+            "<p>The SVG pipeline diagram above is clickable at any time "
+            "to toggle individual post-processing steps.</p>"))
+        blurb.setWordWrap(True)
+        blurb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(blurb)
+        lay.addStretch(1)
+        return page
+
+    def _build_section_backend(self, lay, conf):
+        """Backend ASR section: combo + per-backend options. Mirrors the
+        ASR block of the classic UI."""
+        grp = QGroupBox(_("ASR backend"))
+        glay = QVBoxLayout(grp)
+        glay.setSpacing(8)
+        glay.setContentsMargins(16, 16, 16, 12)
+
+        current_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        self.cmb_asr_backend = QComboBox()
+        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
+        self.cmb_asr_backend.addItem("Vosk", "vosk")
+        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        gpu_total, _free = get_gpu_vram_gb()
+        if gpu_total > 0:
+            self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
+        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
+        glay.addWidget(self.cmb_asr_backend)
+
+        gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
+        if gpu_detected and not cudnn_ok:
+            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
+            warn_lbl.setWordWrap(True)
+            warn_lbl.setStyleSheet(
+                "background: #442200; border: 1px solid #885500;"
+                " border-radius: 6px; padding: 8px;")
+            warn_lbl.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            glay.addWidget(warn_lbl)
+
+        self._build_parakeet_options(glay)
+        self._build_vosk_options(glay)
+        self._build_whisper_options(glay)
+        self._build_canary_options(glay)
+
+        def _on_asr_changed():
+            backend = self.cmb_asr_backend.currentData()
+            self.w_parakeet_options.setVisible(backend == "parakeet")
+            self.w_vosk_options.setVisible(backend == "vosk")
+            self.w_whisper_options.setVisible(backend == "whisper")
+            self.w_canary_options.setVisible(backend == "canary")
+            self._update_canary_translation_visibility()
+            if hasattr(self, 'combo_src'):
+                self._update_src_languages()
+        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
+        _on_asr_changed()
+
+        lay.addWidget(grp)
+
+    def _build_section_audio_display(self, lay, conf):
+        """Audio & display section: mic + visual + options + notifications."""
+        grp_mic = QGroupBox(_("Microphone"))
+        lay_mic = QVBoxLayout(grp_mic)
+        lay_mic.setSpacing(6)
+        lay_mic.setContentsMargins(16, 16, 16, 12)
+        self._build_mic_section(lay_mic, conf)
+        lay.addWidget(grp_mic)
+
+        grp_visual = QGroupBox(_("Visual feedback"))
+        lay_vis = QVBoxLayout(grp_visual)
+        lay_vis.setSpacing(6)
+        lay_vis.setContentsMargins(16, 16, 16, 12)
+        self._build_visual_section(lay_vis, conf)
+        lay.addWidget(grp_visual)
+
+        grp_options = QGroupBox(_("Options"))
+        lay_opt = QVBoxLayout(grp_options)
+        lay_opt.setSpacing(6)
+        lay_opt.setContentsMargins(16, 16, 16, 12)
+        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        lay_opt.addWidget(self.chk_clipboard)
+
+        self.chk_audio_context = QCheckBox(_("Audio context buffer"))
+        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
+        self.chk_audio_context.setToolTip(
+            _("Accumulate audio from previous dictations to improve recognition\n"
+              "of short or technical words at the start of sentences."))
+        lay_opt.addWidget(self.chk_audio_context)
+
+        lay_ctx = QHBoxLayout()
+        lay_ctx.setSpacing(8)
+        lbl_ctx = QLabel(_("Context duration (seconds):"))
+        lbl_ctx.setToolTip(
+            _("Maximum duration of accumulated audio context.\n"
+              "Also the inactivity timeout: the buffer expires\n"
+              "after this many seconds without a non-empty dictation."))
+        self.spin_audio_context_timeout = QSpinBox()
+        self.spin_audio_context_timeout.setRange(5, 120)
+        self.spin_audio_context_timeout.setValue(
+            int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
+        self.spin_audio_context_timeout.setSuffix(" s")
+        lay_ctx.addWidget(lbl_ctx)
+        lay_ctx.addWidget(self.spin_audio_context_timeout)
+        lay_ctx.addStretch()
+        lay_opt.addLayout(lay_ctx)
+
+        self.chk_debug = QCheckBox(_("Debug mode (log to /tmp)"))
+        self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
+        self.chk_debug.setToolTip(
+            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
+              "for troubleshooting dictation and continuation issues."))
+        lay_opt.addWidget(self.chk_debug)
+        lay.addWidget(grp_options)
+
+        grp_notif = QGroupBox(_("Notifications"))
+        lay_notif = QVBoxLayout(grp_notif)
+        lay_notif.setSpacing(6)
+        lay_notif.setContentsMargins(16, 16, 16, 12)
+        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
+        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
+        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
+        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
+        lay_notif.addWidget(self.chk_notifications)
+        lay_notif.addWidget(self.chk_notifications_text)
+        lay.addWidget(grp_notif)
 
     # ── Wizard mode ───────────────────────────────────────────────
 
@@ -5418,6 +5730,40 @@ class DicteeSetupDialog(QDialog):
         _update_style(checkbox.isChecked())
         return container
 
+    def _build_pipeline_header_widget(self):
+        """Build the SVG pipeline diagram header (hint label + scrollable
+        diagram). Idempotent: if self._pp_diagram already exists, reuse it.
+        Returns a QWidget suitable for placement at the top of a layout."""
+        from PyQt6.QtWidgets import QScrollArea as _QSA
+
+        container = QWidget()
+        c_lay = QVBoxLayout(container)
+        c_lay.setContentsMargins(0, 0, 0, 0)
+        c_lay.setSpacing(4)
+
+        accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        hint = QLabel(_(
+            "Cliquer sur les boutons de la chaîne de traitement "
+            "ci-dessous pour désactiver"))
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color: {accent_hex}; font-size: 12px; font-weight: bold;")
+        c_lay.addWidget(hint)
+
+        if not hasattr(self, "_pp_diagram") or self._pp_diagram is None:
+            self._pp_diagram = _PipelineDiagram(self.palette())
+        diag_scroll = _QSA()
+        diag_scroll.setWidgetResizable(False)
+        diag_scroll.setWidget(self._pp_diagram.widget)
+        diag_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        diag_scroll.setFixedHeight(70)
+        diag_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        c_lay.addWidget(diag_scroll)
+
+        return container
+
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
         # Enable checkbox
@@ -5432,26 +5778,10 @@ class DicteeSetupDialog(QDialog):
         pp_lay.setSpacing(6)
 
         # --- Pipeline diagram (SVG) with hint label ---
-        from PyQt6.QtWidgets import QScrollArea as _QSA
-        _accent_hex = self.palette().color(
-            self.palette().ColorRole.Highlight).name()
-        _pp_hint = QLabel(_(
-            "Cliquer sur les boutons de la chaîne de traitement "
-            "ci-dessous pour désactiver"))
-        _pp_hint.setWordWrap(True)
-        _pp_hint.setStyleSheet(
-            f"color: {_accent_hex}; font-size: 12px; font-weight: bold;")
-        pp_lay.addWidget(_pp_hint)
-
-        self._pp_diagram = _PipelineDiagram(self.palette())
-        diag_scroll = _QSA()
-        diag_scroll.setWidgetResizable(False)
-        diag_scroll.setWidget(self._pp_diagram.widget)
-        diag_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        diag_scroll.setFixedHeight(70)
-        diag_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        pp_lay.addWidget(diag_scroll)
+        # In sidebar mode, the pipeline header is mounted at window level
+        # by _build_sidebar_ui; skip it here to avoid duplicate instances.
+        if not getattr(self, "_pipeline_header_external", False):
+            pp_lay.addWidget(self._build_pipeline_header_widget())
 
         # --- Pipeline toggles: only Short text and LLM are shown here.
         # The 6 others (Rules, Continuation, Language rules, Numbers, Dict,
