@@ -6709,18 +6709,39 @@ class DicteeSetupDialog(QDialog):
                 return False, _("Line {n}: invalid regex: {err}").format(n=i, err=str(e))
         return True, ""
 
-    def _save_rules_file(self):
+    def _save_rules_file_silent(self):
+        """Write the rules editor content to disk without any popup.
+        Returns (ok, err_msg). Skips the write if content is unchanged.
+        """
         import os as _os
+        if not hasattr(self, "_rules_editor") or self._rules_editor is None:
+            return True, ""
         text = self._rules_editor.toPlainText()
-        # Valider la syntaxe avant de sauvegarder
+        # Skip if file already matches editor (avoid needless mtime bumps)
+        try:
+            if _os.path.isfile(self._rules_path):
+                with open(self._rules_path, encoding="utf-8") as f:
+                    if f.read() == text:
+                        return True, ""
+        except OSError:
+            pass
         ok, err = self._validate_rules_syntax(text)
+        if not ok:
+            return False, err
+        try:
+            _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
+            with open(self._rules_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            return False, str(e)
+        return True, ""
+
+    def _save_rules_file(self):
+        ok, err = self._save_rules_file_silent()
         if not ok:
             QMessageBox.warning(self._pp_parent, "dictee",
                 _("Cannot save — syntax error:\n\n{err}").format(err=err))
             return
-        _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
-        with open(self._rules_path, "w", encoding="utf-8") as f:
-            f.write(text)
         QMessageBox.information(self._pp_parent, "dictee", _("Rules saved."))
 
     def _restore_rules_defaults(self):
@@ -10252,6 +10273,13 @@ class DicteeSetupDialog(QDialog):
 
     def _on_apply(self, show_message=True):
         _dbg_setup("_on_apply: saving configuration")
+        # Save the rules editor content too — user expects Apply to persist
+        # every pending change, not just the checkboxes.
+        _rules_error = ""
+        if hasattr(self, "_save_rules_file_silent"):
+            _rules_ok, _rules_err = self._save_rules_file_silent()
+            if not _rules_ok:
+                _rules_error = _rules_err
         # Snapshot PTT-related config BEFORE save_config() to detect if
         # a dictee-ptt restart is actually needed. For post-processing
         # toggles (the common case) no restart is required — dictee bash
@@ -10549,6 +10577,13 @@ class DicteeSetupDialog(QDialog):
         elif svc_error and not self.wizard_mode:
             # Apply-button path: still surface service errors (don't swallow)
             QMessageBox.warning(self, _("Configuration saved"), svc_error)
+
+        # Rules syntax error must always be surfaced — even silently via Apply —
+        # otherwise the user could believe their rules were saved when they weren't.
+        if _rules_error and not self.wizard_mode:
+            QMessageBox.warning(
+                self, "dictee",
+                _("Cannot save rules — syntax error:\n\n{err}").format(err=_rules_error))
 
     def _prompt_lt_server(self):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
