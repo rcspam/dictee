@@ -8204,7 +8204,7 @@ class DicteeSetupDialog(QDialog):
             ("•",  "•"),  # may not be on all layouts; user choice
         ]:
             self.cmb_continuation_indicator.addItem(_disp, _val)
-        _saved_ind = conf.get("DICTEE_CONTINUATION_INDICATOR", ">>")
+        _saved_ind = self.conf.get("DICTEE_CONTINUATION_INDICATOR", ">>")
         _ind_idx = self.cmb_continuation_indicator.findData(_saved_ind)
         if _ind_idx < 0:
             # Custom value not in list — add it on the fly
