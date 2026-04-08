@@ -2801,7 +2801,7 @@ class DicteeSetupDialog(QDialog):
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1150, 950)
-        dlg.setMinimumSize(900, 600)
+        dlg.setMinimumSize(1250, 600)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
@@ -5386,14 +5386,19 @@ class DicteeSetupDialog(QDialog):
                 self._popup.hide()
 
     def _pp_checkbox_with_help(self, checkbox, help_text):
-        """Adds a ? with hover popup next to checkbox."""
+        """Adds a ? with hover popup at the end of the row (after stretch)."""
         container = QWidget()
         h = QHBoxLayout(container)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(4)
         h.addWidget(checkbox)
-        h.addWidget(self._HelpLabel(help_text))
         h.addStretch()
+        h.addWidget(self._HelpLabel(help_text))
+        # Gray out the label text when unchecked (defense-in-depth for #4)
+        def _update_style(on, cb=checkbox):
+            cb.setStyleSheet("" if on else "QCheckBox { color: palette(mid); }")
+        checkbox.toggled.connect(_update_style)
+        _update_style(checkbox.isChecked())
         return container
 
     def _build_postprocess_section(self, lay, conf):
@@ -5431,52 +5436,59 @@ class DicteeSetupDialog(QDialog):
         diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         pp_lay.addWidget(diag_scroll)
 
-        # --- Pipeline toggles (hidden): kept as stateful widgets so they
-        # respond to SVG clicks and are serialized by _on_apply, but not
-        # shown in the UI (each step is toggled via its SVG box).
-        # Only LLM and Short text remain visible below the diagram.
+        # --- Pipeline toggles (visible grid, order matches SVG) ---
+        # Col 0 (left, pipeline order): Rules, Continuation, Language rules, LLM
+        # Col 1 (right):                 Numbers, Dict, Capitalization, Short text
         grid_gen = QGridLayout()
         grid_gen.setContentsMargins(20, 0, 0, 0)
-        _hidden_holder = QWidget()
-        _hidden_holder.setVisible(False)
-        _hidden_lay = QVBoxLayout(_hidden_holder)
-        _hidden_lay.setContentsMargins(0, 0, 0, 0)
 
-        # Stateful (hidden) checkboxes: toggled via SVG clicks, serialized by _on_apply
-        self.chk_pp_rules = QCheckBox(_("Regex rules"), _hidden_holder)
+        self.chk_pp_rules = QCheckBox(_("Regex rules"))
         self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
-        _hidden_lay.addWidget(self.chk_pp_rules)
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
+            _("Applies regex substitution rules to fix\n"
+              "common ASR errors (voice commands,\n"
+              "punctuation, formatting).")), 0, 0)
 
-        self.chk_pp_continuation = QCheckBox(_("Continuation"), _hidden_holder)
+        self.chk_pp_continuation = QCheckBox(_("Continuation"))
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
-        _hidden_lay.addWidget(self.chk_pp_continuation)
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_continuation,
+            _("Removes erroneous periods after continuation words\n"
+              "(articles, prepositions, conjunctions, pronouns, verbs)\n"
+              "to keep sentences flowing across push-to-talk segments.")), 1, 0)
 
-        self.chk_pp_language_rules = QCheckBox(_("Language rules"), _hidden_holder)
+        self.chk_pp_language_rules = QCheckBox(_("Language rules"))
         self.chk_pp_language_rules.setChecked(
             conf.get("DICTEE_PP_LANGUAGE_RULES", "true") == "true")
-        _hidden_lay.addWidget(self.chk_pp_language_rules)
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_language_rules,
+            _("Master switch for language-specific rules\n"
+              "(elisions FR/IT, German/Spanish/Portuguese/Dutch/Romanian fixes).\n"
+              "Configure per-language toggles in the Language rules tab.")), 2, 0)
 
-        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"), _hidden_holder)
-        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
-        _hidden_lay.addWidget(self.chk_pp_numbers)
-
-        self.chk_pp_dict = QCheckBox(_("Dictionary"), _hidden_holder)
-        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
-        _hidden_lay.addWidget(self.chk_pp_dict)
-
-        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"), _hidden_holder)
-        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
-        _hidden_lay.addWidget(self.chk_pp_capitalization)
-
-        # Visible row: only LLM + Short text (no SVG-step mapping for Short text
-        # toggle in some themes, and LLM has its own position combo)
+        # LLM stacked in the left column (bottom)
         self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        self.chk_llm.setToolTip(
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_llm,
             _("Uses a local LLM (via ollama) to fix grammar,\n"
               "spelling, accents and punctuation.\n"
-              "Configure the model and prompt in the LLM tab."))
-        grid_gen.addWidget(self.chk_llm, 0, 1)
+              "Configure the model and prompt in the LLM tab.")), 3, 0)
+
+        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
+        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
+            _("Converts spoken numbers to digits.\n"
+              "Example: \"vingt-trois\" → \"23\"")), 0, 1)
+
+        self.chk_pp_dict = QCheckBox(_("Dictionary"))
+        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
+            _("Replaces words using the dictionary.\n"
+              "Exact matching on word boundaries.")), 1, 1)
+
+        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
+        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
+        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
+            _("Capitalizes the first letter after sentence-ending\n"
+              "punctuation (. ! ?). Essential for Vosk/Whisper.")), 2, 1)
 
         # Short text — checkbox + word count combobox (cell 3,1)
         self.chk_pp_short_text = QCheckBox(_("Short text fix"))
@@ -5513,10 +5525,9 @@ class DicteeSetupDialog(QDialog):
         # Disable combobox when checkbox unchecked
         self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
         self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        grid_gen.addWidget(_short_box, 0, 0)
+        grid_gen.addWidget(_short_box, 3, 1)
 
         pp_lay.addLayout(grid_gen)
-        pp_lay.addWidget(_hidden_holder)  # hidden, kept for state/serialization
 
         # Cosmetic separator between checkboxes grid and editing tabs
         _sep = QFrame()
@@ -6273,7 +6284,7 @@ class DicteeSetupDialog(QDialog):
         # Warning popup is shown on tab entry (see _maybe_show_rules_warning),
         # not as a permanent label — the user can dismiss it permanently.
 
-        # --- Rule creator ---
+        # --- Rule creator (single line) ---
         add_grp = QGroupBox(_("Add a rule"))
         add_grp_lay = QVBoxLayout(add_grp)
         add_lay = QHBoxLayout()
@@ -6294,13 +6305,13 @@ class DicteeSetupDialog(QDialog):
         self._rule_pattern = QLineEdit()
         self._rule_pattern.setPlaceholderText(_("Pattern (what the ASR says)"))
         self._rule_pattern.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_pattern, 2)
+        add_lay.addWidget(self._rule_pattern, 3)
 
         add_lay.addWidget(QLabel("/"))
         self._rule_replacement = QLineEdit()
         self._rule_replacement.setPlaceholderText(_("Replacement (\\n = newline)"))
         self._rule_replacement.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_replacement, 2)
+        add_lay.addWidget(self._rule_replacement, 3)
 
         add_lay.addWidget(QLabel("/"))
         self._rule_flags = QLineEdit("ig")
@@ -6309,20 +6320,19 @@ class DicteeSetupDialog(QDialog):
         self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
         add_lay.addWidget(self._rule_flags)
 
-        # Section and position selection
-        add_row2 = QHBoxLayout()
-        add_row2.setSpacing(6)
-        add_row2.addWidget(QLabel(_("Insert in:")))
+        add_lay.addSpacing(8)
+        add_lay.addWidget(QLabel(_("Insert:")))
         self._rule_section = QComboBox()
         self._rule_section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        add_row2.addWidget(self._rule_section, 1)
+        self._rule_section.setMinimumWidth(140)
+        add_lay.addWidget(self._rule_section, 2)
 
         self._rule_position = QComboBox()
         self._rule_position.addItem(_("at end"), "end")
         self._rule_position.addItem(_("at beginning"), "begin")
-        self._rule_position.setFixedWidth(120)
+        self._rule_position.setFixedWidth(110)
         self._rule_position.setEnabled(False)
-        add_row2.addWidget(self._rule_position)
+        add_lay.addWidget(self._rule_position)
 
         self._rule_section.currentIndexChanged.connect(
             lambda: self._rule_position.setEnabled(
@@ -6330,12 +6340,12 @@ class DicteeSetupDialog(QDialog):
 
         btn_add_rule = QPushButton("+ " + _("Add"))
         btn_add_rule.clicked.connect(self._add_rule_to_editor)
-        add_row2.addWidget(btn_add_rule)
+        add_lay.addWidget(btn_add_rule)
 
         self._btn_record_rule = QPushButton(QIcon.fromTheme("audio-input-microphone"), _("Record"))
         self._btn_record_rule.setToolTip(_("Record audio, transcribe, and fill the pattern field"))
         self._btn_record_rule.clicked.connect(self._record_for_rule)
-        add_row2.addWidget(self._btn_record_rule)
+        add_lay.addWidget(self._btn_record_rule)
 
         # Label to show RAW/PROCESSED after recording
         self._rule_preview = QLabel()
@@ -6343,7 +6353,6 @@ class DicteeSetupDialog(QDialog):
         self._rule_preview.setVisible(False)
 
         add_grp_lay.addLayout(add_lay)
-        add_grp_lay.addLayout(add_row2)
         add_grp_lay.addWidget(self._rule_preview)
 
         lay.addWidget(add_grp)
@@ -6419,6 +6428,21 @@ class DicteeSetupDialog(QDialog):
         shortcut_esc.activated.connect(self._rules_show_search)
 
         btns = QHBoxLayout()
+        # Undo / Redo — wired to QTextEdit's built-in undo stack
+        self._btn_rules_undo = QPushButton(QIcon.fromTheme("edit-undo"), "")
+        self._btn_rules_undo.setFixedWidth(30)
+        self._btn_rules_undo.setToolTip(_("Undo (Ctrl+Z)"))
+        self._btn_rules_undo.setEnabled(False)
+        self._btn_rules_undo.clicked.connect(self._rules_editor.undo)
+        btns.addWidget(self._btn_rules_undo)
+        self._btn_rules_redo = QPushButton(QIcon.fromTheme("edit-redo"), "")
+        self._btn_rules_redo.setFixedWidth(30)
+        self._btn_rules_redo.setToolTip(_("Redo (Ctrl+Shift+Z)"))
+        self._btn_rules_redo.setEnabled(False)
+        self._btn_rules_redo.clicked.connect(self._rules_editor.redo)
+        btns.addWidget(self._btn_rules_redo)
+        self._rules_editor.undoAvailable.connect(self._btn_rules_undo.setEnabled)
+        self._rules_editor.redoAvailable.connect(self._btn_rules_redo.setEnabled)
         btn_find = QPushButton(QIcon.fromTheme("edit-find"), "")
         btn_find.setFixedWidth(30)
         btn_find.setToolTip(_("Search (Ctrl+F)"))
