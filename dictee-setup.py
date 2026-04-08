@@ -5681,13 +5681,12 @@ class DicteeSetupDialog(QDialog):
         pp_lay.addWidget(_test_toggle)
         pp_lay.addWidget(_test_body)
 
-        # Wrap in QScrollArea for the whole post-processing section
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self._pp_content)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        lay.addWidget(scroll)
-        self._pp_scroll = scroll
+        # Directly embed pp_content (no outer QScrollArea): the sub-tabs
+        # that actually need scrolling (Dictionary, Language rules) have
+        # their own inner QScrollArea. An outer scroll was redundant and
+        # produced a huge-handle scrollbar with no content to scroll.
+        lay.addWidget(self._pp_content)
+        self._pp_scroll = None
         self._pp_content.setEnabled(self.chk_postprocess.isChecked())
         self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
         self.chk_postprocess.toggled.connect(self._pp_diagram.set_master)
@@ -10083,7 +10082,7 @@ class DicteeSetupDialog(QDialog):
         btn_details.toggled.connect(self._test_details_label.setVisible)
 
         def _scroll_pp_to_bottom_when_details(on):
-            if on and hasattr(self, '_pp_scroll'):
+            if on and getattr(self, '_pp_scroll', None) is not None:
                 def _do():
                     bar = self._pp_scroll.verticalScrollBar()
                     bar.setValue(bar.maximum())
