@@ -255,6 +255,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
                 pp_language_rules=True,
+                pp_short_text=True, pp_short_text_max=3,
                 llm_postprocess=False, llm_model="gemma3:4b",
                 llm_timeout=10, llm_cpu=False,
                 llm_system_prompt="default", llm_position="hybrid",
@@ -328,9 +329,11 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_PP_RULES": pp_rules,
         "DICTEE_PP_CONTINUATION": pp_continuation,
         "DICTEE_PP_LANGUAGE_RULES": pp_language_rules,
+        "DICTEE_PP_SHORT_TEXT": pp_short_text,
     }
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
+    values["DICTEE_PP_SHORT_TEXT_MAX"] = str(pp_short_text_max)
     # LLM post-processing
     values["DICTEE_LLM_POSTPROCESS"] = "true" if llm_postprocess else "false"
     if llm_postprocess:
@@ -370,7 +373,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_LIBRETRANSLATE_LANGS", "DICTEE_OLLAMA_MODEL",
         "OLLAMA_NUM_GPU", "DICTEE_LLM_POSTPROCESS",
         "DICTEE_LLM_MODEL", "DICTEE_LLM_TIMEOUT", "DICTEE_LLM_CPU",
-        "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT",
+        "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT_MAX",
         "DICTEE_ANIMATION",  # legacy, replaced by ANIM_SPEECH + ANIM_PLASMOID
     }
     # Add all possible suffix keys
@@ -984,6 +987,7 @@ class _PipelineDiagram:
         ("numbers", "Numbers"),
         ("dict", "Dict"),
         ("capitalization", "Capitalization"),
+        ("short_text", "Short text"),
     ]
 
     def __init__(self, palette):
@@ -993,15 +997,21 @@ class _PipelineDiagram:
         self._llm_on = False
         self._llm_pos = "hybrid"
         self._master_on = True
+        self._short_text_max = 3
 
     def set_master(self, on):
         self._master_on = bool(on)
         self._render()
 
-    def set_states(self, states, llm_on, llm_pos):
+    def set_states(self, states, llm_on, llm_pos, short_text_max=None):
         self._states = dict(states)
         self._llm_on = bool(llm_on)
         self._llm_pos = llm_pos or "hybrid"
+        if short_text_max is not None:
+            try:
+                self._short_text_max = max(1, int(short_text_max))
+            except (TypeError, ValueError):
+                pass
         self._render()
 
     def _theme_colors(self):
@@ -1026,7 +1036,11 @@ class _PipelineDiagram:
     def _ordered_steps(self):
         """Return list of (key, label, enabled) including LLM at the right position."""
         m = self._master_on
-        base = [(key, label, m and self._states.get(key, True))
+        def _label(key, label):
+            if key == "short_text":
+                return f"Short < {self._short_text_max}w"
+            return label
+        base = [(key, _label(key, label), m and self._states.get(key, True))
                 for key, label in self.BASE_STEPS]
         llm = ("llm", "LLM", m and self._llm_on)
         if not self._llm_on:
@@ -1116,6 +1130,7 @@ class _PipelineDiagram:
         elems.append(arrow(seg_start + 4, seg_start + gap - 4))
         x = seg_start + gap
 
+        from xml.sax.saxutils import escape as _xml_escape
         for i, ((key, label, on), bw) in enumerate(zip(steps, boxes)):
             bg = t["accent"] if on else t["dis_bg"]
             border = t["accent_dark"] if on else t["dis_border"]
@@ -1129,7 +1144,7 @@ class _PipelineDiagram:
                 f'<text x="{x + bw / 2}" y="{y + h / 2 + 5}" '
                 f'text-anchor="middle" fill="{text_col}" '
                 f'font-family="sans-serif" font-size="13" font-weight="bold">'
-                f'{label}</text>'
+                f'{_xml_escape(label)}</text>'
             )
             if not on:
                 elems.append(
@@ -2744,7 +2759,7 @@ class DicteeSetupDialog(QDialog):
         btn_cancel.clicked.connect(dlg.reject)
         btn_lay.addWidget(btn_cancel)
         btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply)
+        btn_apply.clicked.connect(self._on_apply_clicked)
         btn_lay.addWidget(btn_apply)
         btn_ok = QPushButton(_("OK"))
         btn_ok.setDefault(True)
@@ -2946,7 +2961,7 @@ class DicteeSetupDialog(QDialog):
         lay_buttons.addWidget(btn_cancel)
         lay_buttons.addSpacing(8)
         btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply)
+        btn_apply.clicked.connect(self._on_apply_clicked)
         lay_buttons.addWidget(btn_apply)
         lay_buttons.addSpacing(8)
         btn_ok = QPushButton(_("OK"))
@@ -5412,6 +5427,43 @@ class DicteeSetupDialog(QDialog):
               "spelling, accents and punctuation.\n"
               "Configure the model and prompt in the LLM tab.")), 2, 1)
 
+        # Short text — checkbox + word count combobox (cell 3,1)
+        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_pp_short_text.setChecked(
+            conf.get("DICTEE_PP_SHORT_TEXT", "true") == "true")
+        self.cmb_pp_short_text_max = QComboBox()
+        for n in (2, 3, 4, 5, 6):
+            self.cmb_pp_short_text_max.addItem(str(n), n)
+        try:
+            _saved_max = int(conf.get("DICTEE_PP_SHORT_TEXT_MAX", "3"))
+        except ValueError:
+            _saved_max = 3
+        _idx = self.cmb_pp_short_text_max.findData(_saved_max)
+        if _idx >= 0:
+            self.cmb_pp_short_text_max.setCurrentIndex(_idx)
+        _short_help = _("For transcriptions with fewer than N words,\n"
+                        "remove trailing punctuation and lowercase\n"
+                        "capitalized words. Preserves acronyms (NASA)\n"
+                        "and mixed-case words (iPhone).")
+        self.chk_pp_short_text.setToolTip(_short_help)
+        self.cmb_pp_short_text_max.setToolTip(
+            _("Maximum word count for a transcription to be considered\n"
+              "\"short\" and receive the short-text treatment."))
+        _short_box = QWidget()
+        _short_lay = QHBoxLayout(_short_box)
+        _short_lay.setContentsMargins(0, 0, 0, 0)
+        _short_lay.setSpacing(6)
+        _short_lay.addWidget(self._pp_checkbox_with_help(
+            self.chk_pp_short_text, _short_help))
+        _short_lay.addWidget(QLabel(_("<")))
+        _short_lay.addWidget(self.cmb_pp_short_text_max)
+        _short_lay.addWidget(QLabel(_("words")))
+        _short_lay.addStretch(1)
+        # Disable combobox when checkbox unchecked
+        self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
+        self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
+        grid_gen.addWidget(_short_box, 3, 1)
+
         pp_lay.addLayout(grid_gen)
 
         # Cosmetic separator between checkboxes grid and editing tabs
@@ -5565,10 +5617,13 @@ class DicteeSetupDialog(QDialog):
         for cb in (self.chk_pp_rules, self.chk_pp_continuation,
                    self.chk_pp_language_rules,
                    self.chk_pp_numbers, self.chk_pp_dict,
-                   self.chk_pp_capitalization, self.chk_llm):
+                   self.chk_pp_capitalization, self.chk_llm,
+                   self.chk_pp_short_text):
             cb.toggled.connect(self._refresh_pp_diagram)
         if hasattr(self, 'cmb_llm_position'):
             self.cmb_llm_position.currentIndexChanged.connect(self._refresh_pp_diagram)
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            self.cmb_pp_short_text_max.currentIndexChanged.connect(self._refresh_pp_diagram)
         self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
         self._refresh_pp_diagram()
 
@@ -5581,6 +5636,7 @@ class DicteeSetupDialog(QDialog):
             "dict": self.chk_pp_dict,
             "capitalization": self.chk_pp_capitalization,
             "llm": self.chk_llm,
+            "short_text": getattr(self, 'chk_pp_short_text', None),
         }
         cb = cb_map.get(key)
         if cb is not None:
@@ -5597,11 +5653,15 @@ class DicteeSetupDialog(QDialog):
             "numbers": self.chk_pp_numbers.isChecked(),
             "dict": self.chk_pp_dict.isChecked(),
             "capitalization": self.chk_pp_capitalization.isChecked(),
+            "short_text": self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True,
         }
         llm_pos = "hybrid"
         if hasattr(self, 'cmb_llm_position'):
             llm_pos = self.cmb_llm_position.currentData() or "hybrid"
-        self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos)
+        st_max = 3
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            st_max = self.cmb_pp_short_text_max.currentData() or 3
+        self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos, st_max)
 
     def _build_llm_tab(self, lay, conf):
         """Build LLM post-processing tab content."""
@@ -9818,20 +9878,6 @@ class DicteeSetupDialog(QDialog):
     def _build_test_panel(self, lay):
         """Test panel: input → multiline output + mic."""
         # Test language indicator (auto-detected from cursor position in rules editor)
-        # Disclaimer: explain test panel scope
-        _lbl_test_note = QLabel(_(
-            "Note: only regex rules, dictionary, continuation, "
-            "language rules, numbers, typography and capitalization "
-            "are simulated here. The LLM step and the master post-processing "
-            "switch are NOT taken into account."
-        ))
-        _lbl_test_note.setWordWrap(True)
-        _f = _lbl_test_note.font()
-        _f.setItalic(True)
-        _lbl_test_note.setFont(_f)
-        _lbl_test_note.setStyleSheet("color: #d4a017; font-size: 11px;")
-        lay.addWidget(_lbl_test_note)
-
         self._test_lang_override = ""
         self._lbl_test_lang = QLabel("")
         self._lbl_test_lang.setStyleSheet("font-size: 14px; font-weight: bold;")
@@ -9921,164 +9967,156 @@ class DicteeSetupDialog(QDialog):
         self._test_timer.start()
 
     def _run_test_pipeline(self):
-        """Runs the postprocess pipeline step by step."""
+        """Runs the real dictee-postprocess binary as a subprocess.
+
+        Uses DICTEE_PP_DEBUG=1 to collect step-by-step traces on stderr, so
+        this panel stays in sync with the actual pipeline (LLM, master
+        switches, short_text included). Single source of truth.
+        """
         text = self._test_input.toPlainText()
         if not text.strip():
             self._test_output.setPlainText("")
             self._test_details_label.setText("")
             return
 
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        try:
-            import importlib.util, importlib.machinery
-            # Use language from cursor position in rules editor, otherwise config
-            lang = getattr(self, '_test_lang_override', "") or self.conf.get("DICTEE_LANG_SOURCE", "fr")
-            os.environ["DICTEE_LANG_SOURCE"] = lang
+        lang = getattr(self, '_test_lang_override', "") or self.conf.get("DICTEE_LANG_SOURCE", "fr")
 
-            # Try with .py (dev) then without (installed as /usr/bin/dictee-postprocess)
-            pp_path = os.path.join(script_dir, "dictee-postprocess.py")
-            if not os.path.isfile(pp_path):
-                pp_path = os.path.join(script_dir, "dictee-postprocess")
-                if not os.path.isfile(pp_path):
-                    pp_path = shutil.which("dictee-postprocess") or pp_path
-            # Force SourceFileLoader for extensionless Python scripts
-            loader = importlib.machinery.SourceFileLoader("dictee_postprocess", pp_path)
-            spec = importlib.util.spec_from_file_location(
-                "dictee_postprocess", pp_path, loader=loader)
-            pp = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(pp)
-
-            steps = []
-            current = text
-
-            # Read toggle states (protected if widgets not yet created)
-            do_numbers = self.chk_pp_numbers.isChecked() if hasattr(self, 'chk_pp_numbers') else True
-            do_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
-            do_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
-            do_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
-            do_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
-            do_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
-            do_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
-
-            # 1. Règles regex
-            rules = pp.load_rules()
-            if do_rules and rules:
-                new = pp.apply_rules(current, rules).lstrip(" ")
-                steps.append((_("Rules"), current, new))
-                current = new
-
-            # 2. Rejet mauvaise langue
-            _LATIN = {"fr", "en", "de", "es", "it", "pt", "nl", "pl", "ro",
-                       "cs", "sv", "da", "no", "fi", "hu", "tr"}
-            _CYRILLIC = {"ru", "uk", "bg", "sr", "mk", "be"}
-            letters = [c for c in current if c.isalpha()]
-            if letters and lang:
-                cyrillic = sum(1 for c in letters if '\u0400' <= c <= '\u04ff')
-                ratio = cyrillic / len(letters)
-                if lang in _LATIN and ratio > 0.5:
-                    self._test_output.setPlainText(
-                        _("Rejected: ASR detected Cyrillic instead of {lang}").format(lang=lang))
-                    self._test_details_label.setText("")
-                    return
-                if lang in _CYRILLIC and ratio < 0.2:
-                    self._test_output.setPlainText(
-                        _("Rejected: ASR detected Latin instead of {lang}").format(lang=lang))
-                    self._test_details_label.setText("")
-                    return
-
-            # 3. Continuation
-            cont_words = pp.load_continuation()
-            if do_continuation and cont_words:
-                new = pp.fix_continuation(current, cont_words)
-                steps.append((_("Continuation"), current, new))
-                current = new
-
-            # 4. Règles spécifiques à la langue
-            do_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
-            do_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True
-            do_portuguese = self.chk_pp_portuguese.isChecked() if hasattr(self, 'chk_pp_portuguese') else True
-            do_german = self.chk_pp_german.isChecked() if hasattr(self, 'chk_pp_german') else True
-            do_dutch = self.chk_pp_dutch.isChecked() if hasattr(self, 'chk_pp_dutch') else True
-            do_romanian = self.chk_pp_romanian.isChecked() if hasattr(self, 'chk_pp_romanian') else True
-
-            if lang == "fr" and do_elisions:
-                new = pp.fix_elisions(current)
-                steps.append((_("Elisions [fr]"), current, new))
-                current = new
-            if lang == "it" and do_elisions_it:
-                new = pp.fix_italian_elisions(current)
-                steps.append((_("Elisions [it]"), current, new))
-                current = new
-            if lang == "es" and do_spanish:
-                new = pp.fix_spanish(current)
-                steps.append((_("Spanish [es]"), current, new))
-                current = new
-            if lang == "pt" and do_portuguese:
-                new = pp.fix_portuguese(current)
-                steps.append((_("Contractions [pt]"), current, new))
-                current = new
-            if lang == "de" and do_german:
-                new = pp.fix_german(current)
-                steps.append((_("German [de]"), current, new))
-                current = new
-            if lang == "nl" and do_dutch:
-                new = pp.fix_dutch(current)
-                steps.append((_("Dutch [nl]"), current, new))
-                current = new
-            if lang == "ro" and do_romanian:
-                new = pp.fix_romanian(current)
-                steps.append((_("Romanian [ro]"), current, new))
-                current = new
-
-            # 5. Nombres
-            if do_numbers:
-                new = pp.convert_numbers(current)
-                steps.append((_("Numbers"), current, new))
-                current = new
-
-            # 6. Typographie (FR)
-            if lang == "fr" and do_typography:
-                new = pp.fix_french_typography(current)
-                steps.append((_("Typography"), current, new))
-                current = new
-
-            # 7. Dictionnaire
-            dictionary = pp.load_dictionary()
-            if do_dict and dictionary:
-                new = pp.apply_dictionary(current, dictionary)
-                steps.append((_("Dictionary"), current, new))
-                current = new
-
-            # 8. Capitalisation
-            if do_capitalization:
-                new = pp.fix_capitalization(current)
-                steps.append((_("Capitalization"), current, new))
-                current = new
-
-            # Display special characters with visible symbols
-            display_output = current
-            display_output = display_output.replace("\n", "↵\n")
-            display_output = display_output.replace("\t", "⇥\t")
+        # Master switch: bypass everything
+        pp_master = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
+        if not pp_master:
+            display_output = text.replace("\n", "↵\n").replace("\t", "⇥\t")
             if display_output.endswith(" "):
                 display_output = display_output.rstrip(" ") + "␣"
-            # If result contains only special characters, show symbols only
-            if not display_output.strip() and current.strip():
-                display_output = current.replace("\n", "↵").replace("\t", "⇥")
             self._test_output.setPlainText(display_output)
+            self._test_details_label.setText(
+                _("Post-processing disabled (master switch off) — text passed through unchanged."))
+            return
 
-            # Details
-            lines = []
-            for i, (name, before, after) in enumerate(steps, 1):
-                changed = before != after
-                marker = " \u2190 " + _("changed") if changed else ""
-                display = after.replace("\n", "\\n").replace("\t", "\\t")
-                if len(display) > 100:
-                    display = display[:100] + "\u2026"
-                lines.append(f"{i}. {name} \u2192 {display}{marker}")
-            self._test_details_label.setText("\n".join(lines))
+        # Locate dictee-postprocess (dev tree first, then installed)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        pp_path = os.path.join(script_dir, "dictee-postprocess.py")
+        if not os.path.isfile(pp_path):
+            pp_path = os.path.join(script_dir, "dictee-postprocess")
+        if not os.path.isfile(pp_path):
+            pp_path = shutil.which("dictee-postprocess") or ""
+        if not pp_path or not os.path.isfile(pp_path):
+            self._test_output.setPlainText(_("dictee-postprocess not found"))
+            self._test_details_label.setText("")
+            return
 
+        # Build env from UI toggles
+        def _b(attr, default=True):
+            w = getattr(self, attr, None)
+            if w is None:
+                return "true" if default else "false"
+            return "true" if w.isChecked() else "false"
+
+        env = os.environ.copy()
+        env["DICTEE_LANG_SOURCE"] = lang
+        env["DICTEE_PP_DEBUG"] = "true"
+        env["DICTEE_PP_RULES"] = _b("chk_pp_rules")
+        env["DICTEE_PP_CONTINUATION"] = _b("chk_pp_continuation")
+        env["DICTEE_PP_LANGUAGE_RULES"] = _b("chk_pp_language_rules")
+        env["DICTEE_PP_ELISIONS"] = _b("chk_pp_elisions")
+        env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
+        env["DICTEE_PP_SPANISH"] = _b("chk_pp_spanish")
+        env["DICTEE_PP_PORTUGUESE"] = _b("chk_pp_portuguese")
+        env["DICTEE_PP_GERMAN"] = _b("chk_pp_german")
+        env["DICTEE_PP_DUTCH"] = _b("chk_pp_dutch")
+        env["DICTEE_PP_ROMANIAN"] = _b("chk_pp_romanian")
+        env["DICTEE_PP_NUMBERS"] = _b("chk_pp_numbers")
+        env["DICTEE_PP_TYPOGRAPHY"] = _b("chk_pp_typography")
+        env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
+        env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
+        env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
+                self.cmb_pp_short_text_max.currentData() or 3)
+
+        # LLM
+        llm_on = _b("chk_llm", default=False)
+        env["DICTEE_LLM_POSTPROCESS"] = llm_on
+        if hasattr(self, 'cmb_llm_position'):
+            env["DICTEE_LLM_POSITION"] = self.cmb_llm_position.currentData() or "hybrid"
+        if hasattr(self, 'cmb_llm_model'):
+            env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
+        if hasattr(self, 'cmb_llm_preset'):
+            env["DICTEE_LLM_SYSTEM_PROMPT"] = self.cmb_llm_preset.currentData() or "correction-fr"
+        if hasattr(self, 'txt_llm_prompt'):
+            env["DICTEE_LLM_CUSTOM_PROMPT"] = self.txt_llm_prompt.toPlainText()
+        # Tight LLM timeout so the UI stays responsive
+        env.setdefault("DICTEE_LLM_TIMEOUT", "15")
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, pp_path],
+                input=text, capture_output=True, text=True,
+                env=env, timeout=30)
+        except subprocess.TimeoutExpired:
+            self._test_output.setPlainText(_("Timeout running post-processing"))
+            self._test_details_label.setText("")
+            return
         except Exception as e:
             self._test_output.setPlainText(f"Error: {e}")
+            self._test_details_label.setText("")
+            return
+
+        result = proc.stdout
+
+        # Parse step traces on stderr
+        def _dec(s):
+            out = []
+            i = 0
+            while i < len(s):
+                c = s[i]
+                if c == "\\" and i + 1 < len(s):
+                    nxt = s[i + 1]
+                    if nxt == "n":
+                        out.append("\n"); i += 2; continue
+                    if nxt == "t":
+                        out.append("\t"); i += 2; continue
+                    if nxt == "\\":
+                        out.append("\\"); i += 2; continue
+                out.append(c)
+                i += 1
+            return "".join(out)
+
+        steps = []
+        for line in proc.stderr.splitlines():
+            if not line.startswith("STEP\t"):
+                continue
+            parts = line.split("\t", 3)
+            if len(parts) != 4:
+                continue
+            label = parts[1]
+            before = _dec(parts[2])
+            after = _dec(parts[3])
+            steps.append((label, before, after))
+
+        # Output display (visible whitespace markers)
+        display_output = result
+        display_output = display_output.replace("\n", "↵\n")
+        display_output = display_output.replace("\t", "⇥\t")
+        if display_output.endswith(" "):
+            display_output = display_output.rstrip(" ") + "␣"
+        if not display_output.strip() and result.strip():
+            display_output = result.replace("\n", "↵").replace("\t", "⇥")
+        self._test_output.setPlainText(display_output)
+
+        # Details
+        lines = []
+        if not steps and proc.returncode == 0:
+            lines.append(_("No pipeline steps ran."))
+        for i, (name, before, after) in enumerate(steps, 1):
+            changed = before != after
+            marker = " \u2190 " + _("changed") if changed else ""
+            display = after.replace("\n", "\\n").replace("\t", "\\t")
+            if len(display) > 100:
+                display = display[:100] + "\u2026"
+            lines.append(f"{i}. {name} \u2192 {display}{marker}")
+        if proc.returncode != 0:
+            lines.append(f"[exit {proc.returncode}] {proc.stderr.splitlines()[-1] if proc.stderr else ''}")
+        self._test_details_label.setText("\n".join(lines))
 
     def _toggle_recording(self):
         """Starts/stops microphone recording."""
@@ -10169,8 +10207,62 @@ class DicteeSetupDialog(QDialog):
 
     # -- Appliquer --
 
-    def _on_apply(self):
+    def _on_apply_clicked(self):
+        """Apply button handler: run _on_apply with in-button animation
+        instead of a trailing message box (message box only on OK).
+        """
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+        btn = self.sender()
+        if btn is None:
+            # Fallback: no sender context, run plain apply silently
+            self._on_apply(show_message=False)
+            return
+        orig_text = btn.text()
+        btn.setEnabled(False)
+
+        # Animated dots: "Applying." → "Applying.." → "Applying..."
+        self._apply_anim_step = 0
+        _base = _("Applying")
+        def _tick():
+            dots = "." * ((self._apply_anim_step % 3) + 1)
+            btn.setText(f"{_base}{dots}")
+            self._apply_anim_step += 1
+        _tick()
+        timer = QTimer(self)
+        timer.timeout.connect(_tick)
+        timer.start(250)
+        QApplication.processEvents()
+
+        try:
+            self._on_apply(show_message=False)
+        finally:
+            timer.stop()
+            btn.setText(orig_text)
+            btn.setEnabled(True)
+
+    def _on_apply(self, show_message=True):
         _dbg_setup("_on_apply: saving configuration")
+        # Snapshot PTT-related config BEFORE save_config() to detect if
+        # a dictee-ptt restart is actually needed. For post-processing
+        # toggles (the common case) no restart is required — dictee bash
+        # sources dictee.conf fresh on each F9 press.
+        _old_ptt = {}
+        try:
+            if os.path.isfile(CONF_PATH):
+                with open(CONF_PATH) as _f:
+                    for _line in _f:
+                        _line = _line.strip()
+                        if _line.startswith("#") or "=" not in _line:
+                            continue
+                        _k, _, _v = _line.partition("=")
+                        _k = _k.strip()
+                        if _k in ("DICTEE_PTT_MODE", "DICTEE_PTT_KEY",
+                                  "DICTEE_PTT_KEY_TRANSLATE",
+                                  "DICTEE_PTT_MOD_TRANSLATE"):
+                            _old_ptt[_k] = _v.strip().strip('"').strip("'")
+        except OSError:
+            _old_ptt = {}
         # Wizard translation cards override cmb_trans_backend
         if self.wizard_mode and hasattr(self, '_wizard_trans'):
             wt = self._wizard_trans
@@ -10257,6 +10349,9 @@ class DicteeSetupDialog(QDialog):
         pp_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
         pp_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
         pp_language_rules = self.chk_pp_language_rules.isChecked() if hasattr(self, 'chk_pp_language_rules') else True
+        pp_short_text = self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True
+        pp_short_text_max = (self.cmb_pp_short_text_max.currentData()
+                             if hasattr(self, 'cmb_pp_short_text_max') else 3) or 3
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
@@ -10286,6 +10381,8 @@ class DicteeSetupDialog(QDialog):
                     pp_dict=pp_dict,
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
                     pp_language_rules=pp_language_rules,
+                    pp_short_text=pp_short_text,
+                    pp_short_text_max=pp_short_text_max,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu,
                     llm_system_prompt=llm_system_prompt,
@@ -10313,7 +10410,27 @@ class DicteeSetupDialog(QDialog):
         tray_action = "enable" if self.chk_tray.isChecked() else "disable"
         bg_cmds.append(["systemctl", "--user", tray_action, "--now", "dictee-tray"])
         bg_cmds.append(["systemctl", "--user", "enable", "dictee-ptt"])
-        bg_cmds.append(["systemctl", "--user", "restart", "dictee-ptt"])
+        # Only restart dictee-ptt when a PTT-related key actually changed.
+        # Otherwise the restart loses the first F9 press (keyboard grab
+        # drops during the ~1s restart window) for no benefit.
+        _new_ptt = {
+            "DICTEE_PTT_MODE": ptt_mode,
+            "DICTEE_PTT_KEY": str(ptt_key),
+            "DICTEE_PTT_KEY_TRANSLATE": str(ptt_key_translate) if ptt_key_translate else "",
+            "DICTEE_PTT_MOD_TRANSLATE": ptt_mod_translate or "",
+        }
+        _old_ptt_normalized = {
+            "DICTEE_PTT_MODE": _old_ptt.get("DICTEE_PTT_MODE", "toggle"),
+            "DICTEE_PTT_KEY": _old_ptt.get("DICTEE_PTT_KEY", "67"),
+            "DICTEE_PTT_KEY_TRANSLATE": _old_ptt.get("DICTEE_PTT_KEY_TRANSLATE", ""),
+            "DICTEE_PTT_MOD_TRANSLATE": _old_ptt.get("DICTEE_PTT_MOD_TRANSLATE", ""),
+        }
+        _ptt_changed = _new_ptt != _old_ptt_normalized
+        if _ptt_changed:
+            bg_cmds.append(["systemctl", "--user", "restart", "dictee-ptt"])
+            _dbg_setup(f"_on_apply: dictee-ptt restart (PTT changed: {_old_ptt_normalized} -> {_new_ptt})")
+        else:
+            _dbg_setup("_on_apply: skipping dictee-ptt restart (PTT unchanged)")
         bg_procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in bg_cmds]
 
         # Active ASR service: synchronous (need error feedback)
@@ -10361,7 +10478,7 @@ class DicteeSetupDialog(QDialog):
         if backend == "libretranslate" and docker_is_installed() and docker_is_accessible():
             self._prompt_lt_server()
 
-        if not self.wizard_mode:
+        if not self.wizard_mode and show_message:
             msg = _("File: {path}").format(path=CONF_PATH) + shortcut_msg
             if svc_error:
                 QMessageBox.warning(
@@ -10375,6 +10492,9 @@ class DicteeSetupDialog(QDialog):
                     _("Configuration saved"),
                     msg,
                 )
+        elif svc_error and not self.wizard_mode:
+            # Apply-button path: still surface service errors (don't swallow)
+            QMessageBox.warning(self, _("Configuration saved"), svc_error)
 
     def _prompt_lt_server(self):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
