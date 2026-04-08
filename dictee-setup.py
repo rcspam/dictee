@@ -979,7 +979,8 @@ class _ClickableSvgWidget(_QSvgWidget):
         from PyQt6.QtCore import QEvent
         from PyQt6.QtWidgets import QToolTip
         if ev.type() == QEvent.Type.ToolTip:
-            pos = ev.pos()
+            from PyQt6.QtCore import QPointF
+            pos = QPointF(ev.pos())
             for rect, key in self.hit_boxes:
                 if rect.contains(pos):
                     tip = self.tooltips.get(key, "")
