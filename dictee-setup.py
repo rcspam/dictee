@@ -8067,8 +8067,9 @@ class DicteeSetupDialog(QDialog):
             "When the ASR incorrectly places a period after one of these words, "
             "the period is removed and the next sentence is joined.\n"
             "Example: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n\n"
-            "When continuation is active, an \"&\" appears at the end of the text "
-            "to indicate the system is waiting for more input.\n\n"
+            "When continuation is active, a visual indicator (default \">>\") "
+            "appears at the end of the text to show the system is waiting "
+            "for more input. Configurable via DICTEE_CONTINUATION_INDICATOR.\n\n"
             "System words are built-in and cannot be modified. "
             "You can add your own words per language below."
         ))

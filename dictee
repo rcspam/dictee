@@ -214,7 +214,8 @@ type_text() {
     text=$(printf '%s' "$text" | LC_ALL=C tr -d '\000\003-\010\013\014\016-\037\177')
     # Convert to dotool commands: "type ..." + "key enter/tab/ctrl+j" between segments
     # \x01 marker = ctrl+j (newline without submit, from "contrôle j" voice command)
-    # & continuation indicator stays in text (typed atomically with the rest)
+    # The continuation indicator (CONTINUATION_INDICATOR) is part of the text
+    # at this point and is typed atomically with the rest.
     printf '%s\n' "$text" | awk -v RS='\n' '{
         if (NR > 1) print "key enter"
         # Split on \x01 (ctrl+j markers)
@@ -413,8 +414,14 @@ apply_continuation() {
     elif [ "$last_char" = "_" ]; then
         # No punctuation: mid-sentence, space + lowercase
         if $hourglass; then
-            # Only erase & (1 backspace), no punctuation to remove
-            printf 'key backspace\n' | safe_dotool
+            # Erase the indicator (CONTINUATION_INDICATOR_LEN backspaces),
+            # no punctuation to remove on top.
+            local _bs_cmd=""
+            for ((i=0; i<CONTINUATION_INDICATOR_LEN; i++)); do
+                _bs_cmd+="key backspace
+"
+            done
+            printf '%s' "$_bs_cmd" | safe_dotool
         fi
         _ref=" ${_ref,}"
     fi
@@ -490,8 +497,9 @@ save_last_word() {
     fi
     _dbg "save_last_word: marker='$marker' last_word='$last_word' force_end=$force_end"
 
-    # If continuation is likely (closed-class word), append & after text
-    # (never replace — always append). On next push, backspace & + punctuation.
+    # If continuation is likely (closed-class word), append the configured
+    # CONTINUATION_INDICATOR after text (never replace — always append).
+    # On next push, backspace indicator (LEN chars) + punctuation.
     # The variable name is passed as $2 (optional, for in-place modification)
     if [ -n "${2:-}" ] && [ -n "$last_word" ] && [[ "$marker" == .* || "$marker" == "_" ]] && ! $force_end; then
         local lower="${last_word,,}"
