@@ -260,6 +260,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 llm_timeout=10, llm_cpu=False,
                 llm_system_prompt="default", llm_position="hybrid",
                 llm_custom_prompt="",
+                continuation_indicator=">>",
                 audio_context=False, audio_context_timeout=30,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False):
@@ -334,6 +335,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
     values["DICTEE_PP_SHORT_TEXT_MAX"] = str(pp_short_text_max)
+    # Continuation visual indicator
+    values["DICTEE_CONTINUATION_INDICATOR"] = _s(continuation_indicator)
     # LLM post-processing
     values["DICTEE_LLM_POSTPROCESS"] = "true" if llm_postprocess else "false"
     if llm_postprocess:
@@ -8176,6 +8179,45 @@ class DicteeSetupDialog(QDialog):
         form_top_lay.addLayout(_variants_lay)
         self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
+        # Visual indicator combobox: pre-tested ASCII strings that are
+        # directly typeable on all latin keyboard layouts via dotool.
+        ind_lay = QHBoxLayout()
+        ind_lay.setSpacing(6)
+        ind_label = QLabel(_("Visual indicator:"))
+        ind_help = _help_btn(_(
+            "<b>Continuation visual indicator</b><br><br>"
+            "Character(s) appended to the typed text when continuation "
+            "is pending. The next push erases them automatically.<br><br>"
+            "Only ASCII strings that can be typed on every latin layout "
+            "without dead-keys or AltGr are listed. Unicode arrows like "
+            "→ or ▶ would require clipboard paste and are not offered "
+            "here to keep the user clipboard intact."))
+        self.cmb_continuation_indicator = QComboBox()
+        self.cmb_continuation_indicator.setFixedWidth(120)
+        # (display, value) — value is what gets written to dictee.conf
+        for _disp, _val in [
+            (">>", ">>"),
+            (">",  ">"),
+            (">>>", ">>>"),
+            ("&",  "&"),
+            ("...", "..."),
+            ("•",  "•"),  # may not be on all layouts; user choice
+        ]:
+            self.cmb_continuation_indicator.addItem(_disp, _val)
+        _saved_ind = conf.get("DICTEE_CONTINUATION_INDICATOR", ">>")
+        _ind_idx = self.cmb_continuation_indicator.findData(_saved_ind)
+        if _ind_idx < 0:
+            # Custom value not in list — add it on the fly
+            self.cmb_continuation_indicator.addItem(_saved_ind, _saved_ind)
+            _ind_idx = self.cmb_continuation_indicator.count() - 1
+        self.cmb_continuation_indicator.setCurrentIndex(_ind_idx)
+        self.cmb_continuation_indicator.currentIndexChanged.connect(self._mark_dirty)
+        ind_lay.addWidget(ind_label)
+        ind_lay.addWidget(self.cmb_continuation_indicator)
+        ind_lay.addWidget(ind_help)
+        ind_lay.addStretch()
+        form_top_lay.addLayout(ind_lay)
+
         # --- Separator ---
         _sep = QFrame()
         _sep.setFrameShape(QFrame.Shape.HLine)
@@ -10584,6 +10626,11 @@ class DicteeSetupDialog(QDialog):
         llm_position = self.cmb_llm_position.currentData() if hasattr(self, 'cmb_llm_position') else "hybrid"
         llm_custom_prompt = self.txt_llm_prompt.toPlainText() if hasattr(self, 'txt_llm_prompt') else ""
 
+        # Continuation visual indicator
+        continuation_indicator = (
+            self.cmb_continuation_indicator.currentData()
+            if hasattr(self, 'cmb_continuation_indicator') else ">>")
+
         # Audio context buffer
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
@@ -10613,6 +10660,7 @@ class DicteeSetupDialog(QDialog):
                     llm_system_prompt=llm_system_prompt,
                     llm_position=llm_position,
                     llm_custom_prompt=llm_custom_prompt,
+                    continuation_indicator=continuation_indicator,
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),
