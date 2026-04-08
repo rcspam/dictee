@@ -6364,12 +6364,6 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(add_grp)
 
         # --- Text editor ---
-        info = QLabel(
-            "<i>" + _("User rules in {path} — applied after system rules.").format(
-                path="~/.config/dictee/rules.conf") + "</i>")
-        info.setWordWrap(True)
-        lay.addWidget(info)
-
         self._rules_editor = QTextEdit()
         self._rules_editor.setFont(self._monospace_font())
         self._rules_editor.setPlaceholderText(
