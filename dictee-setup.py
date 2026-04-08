@@ -5355,8 +5355,18 @@ class DicteeSetupDialog(QDialog):
         pp_lay.setContentsMargins(0, 0, 0, 0)
         pp_lay.setSpacing(6)
 
-        # --- Pipeline diagram (SVG) ---
+        # --- Pipeline diagram (SVG) with hint label ---
         from PyQt6.QtWidgets import QScrollArea as _QSA
+        _pp_hint = QLabel(_(
+            "Click a step in the pipeline to enable or disable it. "
+            "Hover for details."))
+        _pp_hint.setWordWrap(True)
+        _pp_hint_f = _pp_hint.font()
+        _pp_hint_f.setItalic(True)
+        _pp_hint.setFont(_pp_hint_f)
+        _pp_hint.setStyleSheet("color: palette(mid); font-size: 11px;")
+        pp_lay.addWidget(_pp_hint)
+
         self._pp_diagram = _PipelineDiagram(self.palette())
         diag_scroll = _QSA()
         diag_scroll.setWidgetResizable(False)
@@ -5367,65 +5377,52 @@ class DicteeSetupDialog(QDialog):
         diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         pp_lay.addWidget(diag_scroll)
 
-        # --- Pipeline toggles — general ---
+        # --- Pipeline toggles (hidden): kept as stateful widgets so they
+        # respond to SVG clicks and are serialized by _on_apply, but not
+        # shown in the UI (each step is toggled via its SVG box).
+        # Only LLM and Short text remain visible below the diagram.
         grid_gen = QGridLayout()
         grid_gen.setContentsMargins(20, 0, 0, 0)
+        _hidden_holder = QWidget()
+        _hidden_holder.setVisible(False)
+        _hidden_lay = QVBoxLayout(_hidden_holder)
+        _hidden_lay.setContentsMargins(0, 0, 0, 0)
 
-        # Checkbox grid order matches the SVG pipeline:
-        # Rules → Continuation → LLM(hybrid) → Language rules → Numbers → Dict → Capitalization → Short text
-        self.chk_pp_rules = QCheckBox(_("Regex rules"))
+        # Stateful (hidden) checkboxes: toggled via SVG clicks, serialized by _on_apply
+        self.chk_pp_rules = QCheckBox(_("Regex rules"), _hidden_holder)
         self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
-            _("Applies regex substitution rules to fix\n"
-              "common ASR errors (voice commands,\n"
-              "punctuation, formatting).")), 0, 0)
+        _hidden_lay.addWidget(self.chk_pp_rules)
 
-        self.chk_pp_continuation = QCheckBox(_("Continuation"))
+        self.chk_pp_continuation = QCheckBox(_("Continuation"), _hidden_holder)
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_continuation,
-            _("Removes erroneous periods after continuation words\n"
-              "(articles, prepositions, conjunctions, pronouns, verbs)\n"
-              "to keep sentences flowing naturally across push-to-talk segments.\n\n"
-              "Voice command: say your continuation keyword at the start\n"
-              "of a push to remove the previous punctuation and continue\n"
-              "in lowercase. The keyword is configurable per language\n"
-              "in the Continuation tab.")), 1, 0)
+        _hidden_lay.addWidget(self.chk_pp_continuation)
 
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
-        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_llm,
-            _("Uses a local LLM (via ollama) to fix grammar,\n"
-              "spelling, accents and punctuation.\n"
-              "Configure the model and prompt in the LLM tab.")), 2, 0)
-
-        self.chk_pp_language_rules = QCheckBox(_("Language rules"))
+        self.chk_pp_language_rules = QCheckBox(_("Language rules"), _hidden_holder)
         self.chk_pp_language_rules.setChecked(
             conf.get("DICTEE_PP_LANGUAGE_RULES", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_language_rules,
-            _("Master switch for language-specific rules\n"
-              "(elisions FR/IT, German/Spanish/Portuguese/Dutch/Romanian fixes).\n"
-              "Configure per-language toggles in the Language rules tab.")), 3, 0)
+        _hidden_lay.addWidget(self.chk_pp_language_rules)
 
-        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
+        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"), _hidden_holder)
         self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
-            _("Converts spoken numbers to digits.\n"
-              "Example: \"vingt-trois\" → \"23\"")), 0, 1)
+        _hidden_lay.addWidget(self.chk_pp_numbers)
 
-        self.chk_pp_dict = QCheckBox(_("Dictionary"))
+        self.chk_pp_dict = QCheckBox(_("Dictionary"), _hidden_holder)
         self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
-            _("Replaces words using the dictionary.\n"
-              "Exact matching on word boundaries.")), 1, 1)
+        _hidden_lay.addWidget(self.chk_pp_dict)
 
-        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
+        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"), _hidden_holder)
         self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
-            _("Capitalizes the first letter after sentence-ending\n"
-              "punctuation (. ! ?). Parakeet does this natively,\n"
-              "but post-processing rules may alter the text —\n"
-              "this ensures correct capitalization afterwards.\n"
-              "Essential for Vosk/Whisper backends.")), 2, 1)
+        _hidden_lay.addWidget(self.chk_pp_capitalization)
+
+        # Visible row: only LLM + Short text (no SVG-step mapping for Short text
+        # toggle in some themes, and LLM has its own position combo)
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
+        self.chk_llm.setToolTip(
+            _("Uses a local LLM (via ollama) to fix grammar,\n"
+              "spelling, accents and punctuation.\n"
+              "Configure the model and prompt in the LLM tab."))
+        grid_gen.addWidget(self.chk_llm, 0, 0)
 
         # Short text — checkbox + word count combobox (cell 3,1)
         self.chk_pp_short_text = QCheckBox(_("Short text fix"))
@@ -5462,9 +5459,10 @@ class DicteeSetupDialog(QDialog):
         # Disable combobox when checkbox unchecked
         self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
         self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        grid_gen.addWidget(_short_box, 3, 1)
+        grid_gen.addWidget(_short_box, 0, 1)
 
         pp_lay.addLayout(grid_gen)
+        pp_lay.addWidget(_hidden_holder)  # hidden, kept for state/serialization
 
         # Cosmetic separator between checkboxes grid and editing tabs
         _sep = QFrame()
@@ -5488,8 +5486,8 @@ class DicteeSetupDialog(QDialog):
             }}
         """)
 
-        # Tab order matches the SVG pipeline (among tabs that exist):
-        # Rules → Continuation → LLM(hybrid) → Language rules → Dictionary
+        # Tab order: pipeline sequence with LLM moved to the end.
+        # Rules(0) → Continuation(1) → Language rules(2) → Dictionary(3) → LLM(4)
 
         # Rules tab (index 0)
         tab_rules = QWidget()
@@ -5505,26 +5503,26 @@ class DicteeSetupDialog(QDialog):
         self._build_continuation_tab(tab_cont_lay)
         self._pp_tabs.addTab(tab_cont, _("Continuation"))
 
-        # LLM tab (index 2) — follows pipeline "hybrid" position
-        tab_llm = QWidget()
-        tab_llm_lay = QVBoxLayout(tab_llm)
-        tab_llm_lay.setContentsMargins(8, 8, 8, 8)
-        self._build_llm_tab(tab_llm_lay, conf)
-        self._pp_tabs.addTab(tab_llm, _("LLM"))
-
-        # Language rules tab (index 3)
+        # Language rules tab (index 2)
         tab_lang = QWidget()
         tab_lang_lay = QVBoxLayout(tab_lang)
         tab_lang_lay.setContentsMargins(8, 8, 8, 8)
         self._build_language_rules_tab(tab_lang_lay, conf)
         self._pp_tabs.addTab(tab_lang, _("Language rules"))
 
-        # Dictionary tab (index 4)
+        # Dictionary tab (index 3)
         tab_dict = QWidget()
         tab_dict_lay = QVBoxLayout(tab_dict)
         tab_dict_lay.setContentsMargins(8, 8, 8, 8)
         self._build_dictionary_tab(tab_dict_lay)
         self._pp_tabs.addTab(tab_dict, _("Dictionary"))
+
+        # LLM tab (index 4) — moved to the end
+        tab_llm = QWidget()
+        tab_llm_lay = QVBoxLayout(tab_llm)
+        tab_llm_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_llm_tab(tab_llm_lay, conf)
+        self._pp_tabs.addTab(tab_llm, _("LLM"))
 
         # Tabs stay clickable (never Qt-disabled) but their title is grayed
         # via the disabled palette color when the corresponding step is off.
@@ -5535,8 +5533,8 @@ class DicteeSetupDialog(QDialog):
             self.palette().ColorRole.WindowText)
 
         # Map tab index → its content widget so we can gray it out when off.
-        # Pipeline order: Rules(0) → Continuation(1) → LLM(2) → Lang(3) → Dict(4)
-        _tab_widgets = {0: tab_rules, 1: tab_cont, 2: tab_llm, 3: tab_lang, 4: tab_dict}
+        # New order: Rules(0) → Continuation(1) → Lang(2) → Dict(3) → LLM(4)
+        _tab_widgets = {0: tab_rules, 1: tab_cont, 2: tab_lang, 3: tab_dict, 4: tab_llm}
 
         def _set_tab_visual(idx, on):
             tb = self._pp_tabs.tabBar()
@@ -5547,14 +5545,14 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_pp_rules.toggled.connect(lambda on: _set_tab_visual(0, on))
         self.chk_pp_continuation.toggled.connect(lambda on: _set_tab_visual(1, on))
-        self.chk_llm.toggled.connect(lambda on: _set_tab_visual(2, on))
-        self.chk_pp_language_rules.toggled.connect(lambda on: _set_tab_visual(3, on))
-        self.chk_pp_dict.toggled.connect(lambda on: _set_tab_visual(4, on))
+        self.chk_pp_language_rules.toggled.connect(lambda on: _set_tab_visual(2, on))
+        self.chk_pp_dict.toggled.connect(lambda on: _set_tab_visual(3, on))
+        self.chk_llm.toggled.connect(lambda on: _set_tab_visual(4, on))
         _set_tab_visual(0, self.chk_pp_rules.isChecked())
         _set_tab_visual(1, self.chk_pp_continuation.isChecked())
-        _set_tab_visual(2, self.chk_llm.isChecked())
-        _set_tab_visual(3, self.chk_pp_language_rules.isChecked())
-        _set_tab_visual(4, self.chk_pp_dict.isChecked())
+        _set_tab_visual(2, self.chk_pp_language_rules.isChecked())
+        _set_tab_visual(3, self.chk_pp_dict.isChecked())
+        _set_tab_visual(4, self.chk_llm.isChecked())
 
         # Edit mode button (masqué pour l'onglet Règles)
         self._btn_advanced = QPushButton(_("Edit mode"))
@@ -5572,9 +5570,9 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.setCornerWidget(corner)
 
         def _on_tab_changed(idx):
-            # New tab order: Rules(0), Continuation(1), LLM(2), Lang(3), Dict(4)
-            # Edit mode button hidden for Rules, LLM, Languages
-            self._btn_advanced.setVisible(idx not in (0, 2, 3))
+            # New tab order: Rules(0), Continuation(1), Lang(2), Dict(3), LLM(4)
+            # Edit mode button hidden for Rules, Languages, LLM
+            self._btn_advanced.setVisible(idx not in (0, 2, 4))
             self._btn_advanced.setChecked(False)
             self._toggle_advanced_mode(False)
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
@@ -8643,7 +8641,7 @@ class DicteeSetupDialog(QDialog):
                                before triggering this switch.
         """
         idx = self._pp_tabs.currentIndex()
-        if idx == 4:  # Dictionary (new index in pipeline order)
+        if idx == 3:  # Dictionary (new index with LLM moved last)
             currently_advanced = self._dict_stack.currentIndex() == 1
             if checked and not currently_advanced:
                 # Form → Advanced : push current state (Discard can restore it)
