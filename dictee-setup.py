@@ -953,13 +953,17 @@ from PyQt6.QtCore import pyqtSignal as _pyqtSignal
 
 
 class _ClickableSvgWidget(_QSvgWidget):
-    """QSvgWidget that emits step_clicked(key) when a registered hit box is clicked."""
+    """QSvgWidget that emits step_clicked(key) when a registered hit box is
+    clicked, and displays per-step tooltips on hover.
+    """
     step_clicked = _pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.hit_boxes = []  # list of (QRectF, key)
+        self.tooltips = {}   # key → tooltip text
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMouseTracking(True)
 
     def mousePressEvent(self, ev):
         pos = ev.position()
@@ -968,6 +972,19 @@ class _ClickableSvgWidget(_QSvgWidget):
                 self.step_clicked.emit(key)
                 return
         super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        pos = ev.position()
+        for rect, key in self.hit_boxes:
+            if rect.contains(pos):
+                tip = self.tooltips.get(key, "")
+                if tip and self.toolTip() != tip:
+                    self.setToolTip(tip)
+                break
+        else:
+            if self.toolTip():
+                self.setToolTip("")
+        super().mouseMoveEvent(ev)
 
 
 class _PipelineDiagram:
@@ -989,6 +1006,26 @@ class _PipelineDiagram:
         ("capitalization", "Capitalization"),
         ("short_text", "Short text"),
     ]
+
+    TOOLTIPS = {
+        "rules": "Regex rules — fix common ASR errors "
+                 "(voice commands, punctuation, formatting).",
+        "continuation": "Continuation — remove erroneous periods after "
+                        "closed-class words so sentences flow across "
+                        "push-to-talk segments.",
+        "language_rules": "Language rules — per-language fixes "
+                          "(FR/IT elisions, DE/ES/PT/NL/RO corrections).",
+        "numbers": "Numbers — convert spoken numbers to digits "
+                   "(\"vingt-trois\" → \"23\").",
+        "dict": "Dictionary — exact word replacements from the "
+                "system and personal dictionaries.",
+        "capitalization": "Capitalization — uppercase first letter after "
+                          ". ! ? (essential for Vosk/Whisper).",
+        "short_text": "Short text fix — for transcriptions under N words, "
+                      "strip trailing punctuation and lowercase.",
+        "llm": "LLM grammar correction — local Ollama model fixes grammar, "
+               "spelling, accents and punctuation.",
+    }
 
     def __init__(self, palette):
         self.widget = _ClickableSvgWidget()
@@ -1163,6 +1200,7 @@ class _PipelineDiagram:
         self.widget.load(QByteArray("\n".join(elems).encode("utf-8")))
         self.widget.setFixedSize(int(total_w), int(total_h))
         self.widget.hit_boxes = hit_boxes
+        self.widget.tooltips = dict(self.TOOLTIPS)
 
 
 # === Backends ASR alternatifs (venvs) ===
@@ -5345,7 +5383,7 @@ class DicteeSetupDialog(QDialog):
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
         # Enable checkbox
-        self.chk_postprocess = QCheckBox(_("Enable post-processing (regex rules + dictionary)"))
+        self.chk_postprocess = QCheckBox(_("Enable post-processing"))
         self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
         lay.addWidget(self.chk_postprocess)
 
@@ -5357,14 +5395,14 @@ class DicteeSetupDialog(QDialog):
 
         # --- Pipeline diagram (SVG) with hint label ---
         from PyQt6.QtWidgets import QScrollArea as _QSA
+        _accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
         _pp_hint = QLabel(_(
-            "Click a step in the pipeline to enable or disable it. "
-            "Hover for details."))
+            "Cliquer sur les boutons de la chaîne de traitement "
+            "ci-dessous pour désactiver"))
         _pp_hint.setWordWrap(True)
-        _pp_hint_f = _pp_hint.font()
-        _pp_hint_f.setItalic(True)
-        _pp_hint.setFont(_pp_hint_f)
-        _pp_hint.setStyleSheet("color: palette(mid); font-size: 11px;")
+        _pp_hint.setStyleSheet(
+            f"color: {_accent_hex}; font-size: 12px; font-weight: bold;")
         pp_lay.addWidget(_pp_hint)
 
         self._pp_diagram = _PipelineDiagram(self.palette())
