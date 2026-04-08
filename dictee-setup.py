@@ -5579,7 +5579,10 @@ class DicteeSetupDialog(QDialog):
                 self._maybe_show_rules_warning()
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
         self._btn_advanced.toggled.connect(self._toggle_advanced_mode)
-        _on_tab_changed(0)
+        # Never open on the Regex rules tab — its warning popup would fire
+        # before the dialog is even painted. Default to Continuation (index 1).
+        self._pp_tabs.setCurrentIndex(1)
+        _on_tab_changed(1)
 
         pp_lay.addWidget(self._pp_tabs)
 
