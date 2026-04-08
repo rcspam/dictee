@@ -10219,26 +10219,31 @@ class DicteeSetupDialog(QDialog):
             self._on_apply(show_message=False)
             return
         orig_text = btn.text()
+        orig_min_w = btn.minimumWidth()
+        # Freeze width to prevent layout shift as the spinner cycles
+        btn.setMinimumWidth(btn.width())
         btn.setEnabled(False)
 
-        # Animated dots: "Applying." → "Applying.." → "Applying..."
+        # Braille spinner — 10 frames, smooth rotating wheel
+        _frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
         self._apply_anim_step = 0
         _base = _("Applying")
         def _tick():
-            dots = "." * ((self._apply_anim_step % 3) + 1)
-            btn.setText(f"{_base}{dots}")
+            frame = _frames[self._apply_anim_step % len(_frames)]
+            btn.setText(f"{frame} {_base}…")
             self._apply_anim_step += 1
         _tick()
-        timer = QTimer(self)
-        timer.timeout.connect(_tick)
-        timer.start(250)
+        self._apply_anim_timer = QTimer(self)
+        self._apply_anim_timer.timeout.connect(_tick)
+        self._apply_anim_timer.start(80)  # ~12 fps
         QApplication.processEvents()
 
         try:
             self._on_apply(show_message=False)
         finally:
-            timer.stop()
+            self._apply_anim_timer.stop()
             btn.setText(orig_text)
+            btn.setMinimumWidth(orig_min_w)
             btn.setEnabled(True)
 
     def _on_apply(self, show_message=True):
@@ -10441,17 +10446,31 @@ class DicteeSetupDialog(QDialog):
         if en.returncode != 0:
             svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
                 svc=active_svc, err=en.stderr.strip())
+        # Non-blocking restart with event-loop pumping so the spinner animates
         try:
-            result = subprocess.run(
+            from PyQt6.QtWidgets import QApplication
+            _proc = subprocess.Popen(
                 ["systemctl", "--user", "restart", active_svc],
-                capture_output=True, text=True, timeout=15,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
-            if result.returncode != 0:
+            import time as _time
+            _deadline = _time.monotonic() + 15.0
+            while _proc.poll() is None:
+                QApplication.processEvents()
+                _time.sleep(0.05)
+                if _time.monotonic() > _deadline:
+                    break
+            if _proc.poll() is None:
+                _proc.kill()
+                svc_error = _("Warning: {svc} is taking too long to start.\n"
+                              "It may still be loading the model.").format(svc=active_svc)
+            elif _proc.returncode != 0:
+                _err = (_proc.stderr.read() or "").strip() if _proc.stderr else ""
                 svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                    svc=active_svc, err=result.stderr.strip())
-        except subprocess.TimeoutExpired:
-            svc_error = _("Warning: {svc} is taking too long to start.\n"
-                          "It may still be loading the model.").format(svc=active_svc)
+                    svc=active_svc, err=_err)
+        except Exception as _e:
+            svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                svc=active_svc, err=str(_e))
 
         # Wait for background processes (non-blocking, they should be done by now)
         for p in bg_procs:
