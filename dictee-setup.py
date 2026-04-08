@@ -10256,7 +10256,13 @@ class DicteeSetupDialog(QDialog):
         # a dictee-ptt restart is actually needed. For post-processing
         # toggles (the common case) no restart is required — dictee bash
         # sources dictee.conf fresh on each F9 press.
+        # Snapshot config that affects service lifecycles (PTT + ASR daemon)
+        # before save_config() overwrites the file.
         _old_ptt = {}
+        _old_asr = {}
+        _ASR_KEYS = ("DICTEE_ASR_BACKEND", "DICTEE_WHISPER_MODEL",
+                     "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
+                     "DICTEE_AUDIO_SOURCE")
         try:
             if os.path.isfile(CONF_PATH):
                 with open(CONF_PATH) as _f:
@@ -10266,12 +10272,16 @@ class DicteeSetupDialog(QDialog):
                             continue
                         _pk, _pv = _line.split("=", 1)
                         _pk = _pk.strip()
+                        _pv = _pv.strip().strip('"').strip("'")
                         if _pk in ("DICTEE_PTT_MODE", "DICTEE_PTT_KEY",
                                    "DICTEE_PTT_KEY_TRANSLATE",
                                    "DICTEE_PTT_MOD_TRANSLATE"):
-                            _old_ptt[_pk] = _pv.strip().strip('"').strip("'")
+                            _old_ptt[_pk] = _pv
+                        elif _pk in _ASR_KEYS:
+                            _old_asr[_pk] = _pv
         except OSError:
             _old_ptt = {}
+            _old_asr = {}
         # Wizard translation cards override cmb_trans_backend
         if self.wizard_mode and hasattr(self, '_wizard_trans'):
             wt = self._wizard_trans
@@ -10442,7 +10452,10 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup("_on_apply: skipping dictee-ptt restart (PTT unchanged)")
         bg_procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in bg_cmds]
 
-        # Active ASR service: synchronous (need error feedback)
+        # Active ASR service: always ensure it's enabled (boot). Restart it
+        # only when an ASR-related key actually changed — otherwise the
+        # transcribe-daemon goes down for 2-10s (model reload) for nothing,
+        # and any F9 during that window produces no dictation.
         en = subprocess.run(
             ["systemctl", "--user", "enable", active_svc],
             capture_output=True, text=True,
@@ -10450,31 +10463,49 @@ class DicteeSetupDialog(QDialog):
         if en.returncode != 0:
             svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
                 svc=active_svc, err=en.stderr.strip())
-        # Non-blocking restart with event-loop pumping so the spinner animates
-        try:
-            from PyQt6.QtWidgets import QApplication
-            _proc = subprocess.Popen(
-                ["systemctl", "--user", "restart", active_svc],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            )
-            import time as _time
-            _deadline = _time.monotonic() + 15.0
-            while _proc.poll() is None:
-                QApplication.processEvents()
-                _time.sleep(0.02)
-                if _time.monotonic() > _deadline:
-                    break
-            if _proc.poll() is None:
-                _proc.kill()
-                svc_error = _("Warning: {svc} is taking too long to start.\n"
-                              "It may still be loading the model.").format(svc=active_svc)
-            elif _proc.returncode != 0:
-                _err = (_proc.stderr.read() or "").strip() if _proc.stderr else ""
+
+        _new_asr = {
+            "DICTEE_ASR_BACKEND": asr_backend,
+            "DICTEE_WHISPER_MODEL": whisper_model,
+            "DICTEE_WHISPER_LANG": whisper_lang,
+            "DICTEE_VOSK_MODEL": vosk_model,
+            "DICTEE_AUDIO_SOURCE": str(audio_source),
+        }
+        _old_asr_normalized = {k: _old_asr.get(k, "") for k in _new_asr}
+        _asr_changed = _new_asr != _old_asr_normalized
+        # Also restart if the service isn't running yet (first-install path)
+        _active_running = subprocess.run(
+            ["systemctl", "--user", "is-active", active_svc],
+            capture_output=True, text=True).stdout.strip() == "active"
+
+        if _asr_changed or not _active_running:
+            _dbg_setup(f"_on_apply: restarting {active_svc} (asr_changed={_asr_changed}, running={_active_running})")
+            try:
+                from PyQt6.QtWidgets import QApplication
+                _proc = subprocess.Popen(
+                    ["systemctl", "--user", "restart", active_svc],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                import time as _time
+                _deadline = _time.monotonic() + 15.0
+                while _proc.poll() is None:
+                    QApplication.processEvents()
+                    _time.sleep(0.02)
+                    if _time.monotonic() > _deadline:
+                        break
+                if _proc.poll() is None:
+                    _proc.kill()
+                    svc_error = _("Warning: {svc} is taking too long to start.\n"
+                                  "It may still be loading the model.").format(svc=active_svc)
+                elif _proc.returncode != 0:
+                    _err = (_proc.stderr.read() or "").strip() if _proc.stderr else ""
+                    svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                        svc=active_svc, err=_err)
+            except Exception as _e:
                 svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                    svc=active_svc, err=_err)
-        except Exception as _e:
-            svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                svc=active_svc, err=str(_e))
+                    svc=active_svc, err=str(_e))
+        else:
+            _dbg_setup(f"_on_apply: skipping {active_svc} restart (ASR unchanged and running)")
 
         # Wait for background processes (non-blocking, they should be done by now)
         for p in bg_procs:
