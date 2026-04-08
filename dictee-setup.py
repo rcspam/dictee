@@ -8259,6 +8259,20 @@ class DicteeSetupDialog(QDialog):
         # Load the form
         self._load_cont_form()
 
+    def _cont_refresh_scroll(self):
+        """Force the continuation QScrollArea to recompute its content
+        size after a category fold/unfold. Without this, the scrollbar
+        keeps a stale range and shows a phantom empty area.
+        """
+        w = getattr(self, "_cont_scroll_content", None)
+        if w is not None:
+            w.adjustSize()
+            p = w.parentWidget()
+            while p is not None and not isinstance(p, QScrollArea):
+                p = p.parentWidget()
+            if p is not None:
+                p.updateGeometry()
+
     def _load_cont_form(self):
         """Clears and rebuilds the Continuation tab accordions."""
         layout = self._cont_form_layout
@@ -8335,6 +8349,7 @@ class DicteeSetupDialog(QDialog):
                     vis = not w.isVisible()
                     w.setVisible(vis)
                     btn.setText(("\u25be " if vis else "\u25b8 ") + t)
+                    self._cont_refresh_scroll()
                 return _toggle
             btn_lang.clicked.connect(_make_lang_toggle(btn_lang, group))
 
@@ -8380,6 +8395,7 @@ class DicteeSetupDialog(QDialog):
                 sw.setVisible(vis)
                 arrow = "\u25be" if vis else "\u25b8"
                 btn.setText(f"{arrow} {_('System words')} ({n})")
+                self._cont_refresh_scroll()
             btn_show_sys.clicked.connect(_toggle_sys)
 
             # Personal chips (always visible, after system)
