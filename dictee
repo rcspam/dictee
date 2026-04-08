@@ -56,6 +56,14 @@ LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
 CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
 ANIM_SPEECH="${DICTEE_ANIM_SPEECH:-true}"
 ANIM_PLASMOID="${DICTEE_ANIM_PLASMOID:-false}"
+# Visual indicator appended to the typed text when continuation is pending
+# (the next push will start with a backspace to erase it). Default ">>"
+# (ASCII, directly typeable on all latin layouts via Shift+<). Any
+# directly-typeable string works: ">", ">>", "&", "...", etc.
+# Non-typeable characters (→, ▶, …) require clipboard paste — not supported
+# here to avoid clobbering the user's clipboard on every continuation.
+CONTINUATION_INDICATOR="${DICTEE_CONTINUATION_INDICATOR:->>}"
+CONTINUATION_INDICATOR_LEN=${#CONTINUATION_INDICATOR}
 # --diarize flag: explicit from plasmoid, F9 never passes it
 DIARIZE="false"
 for _arg in "$@"; do
@@ -174,6 +182,18 @@ safe_dotool() {
     if dotool 2>/dev/null; then true; fi
 }
 
+# Release all keyboard modifiers — called from trap and before ctrl+* commands
+# to guarantee we never leave a modifier stuck if dotool is interrupted mid-stream.
+release_modifiers() {
+    printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | dotool 2>/dev/null || true
+}
+
+# Safe wrapper for modifier-using key commands — releases modifiers before and after
+safe_dotool_key_ctrl() {
+    local combo="$1"  # e.g. "ctrl+V", "ctrl+j"
+    printf 'keyup ctrl\nkey %s\nkeyup ctrl\n' "$combo" | safe_dotool
+}
+
 # Type text via dotool, with line break handling and sanitization
 # dotool does not support: U+00A0, U+202F, …, —, –, tab
 # Replace them with ASCII equivalents before sending
@@ -187,9 +207,15 @@ type_text() {
     text="${text//$'\xe2\x80\x93'/-}"
     # Strip \x02 markers (end-of-sentence flag, handled by save_last_word)
     text="${text//$'\x02'/}"
+    # Strip all other control chars (\x00-\x08, \x0b-\x0c, \x0e-\x1f, \x7f)
+    # Keep only \x09 (tab), \x0a (newline), \x01 (ctrl+j marker, handled below).
+    # Prevents any hidden escape sequence from reaching dotool and firing keys
+    # outside the ones explicitly enabled.
+    text=$(printf '%s' "$text" | LC_ALL=C tr -d '\000\003-\010\013\014\016-\037\177')
     # Convert to dotool commands: "type ..." + "key enter/tab/ctrl+j" between segments
     # \x01 marker = ctrl+j (newline without submit, from "contrôle j" voice command)
-    # & continuation indicator stays in text (typed atomically with the rest)
+    # The continuation indicator (CONTINUATION_INDICATOR) is part of the text
+    # at this point and is typed atomically with the rest.
     printf '%s\n' "$text" | awk -v RS='\n' '{
         if (NR > 1) print "key enter"
         # Split on \x01 (ctrl+j markers)
@@ -222,10 +248,39 @@ load_continuation_words() {
             # Skip [keyword:*] lines — handled separately
             [[ "$tag" == keyword* ]] && continue
             local words="${line#*]}"
+            # [exclude:xx] → collect into CONTINUATION_EXCLUDE_XX
+            if [[ "$tag" == exclude:* ]]; then
+                local lang_tag="${tag#exclude:}"
+                # Valid 2-letter lang code only (protect against eval injection)
+                [[ "$lang_tag" =~ ^[a-z]{2}$ ]] || continue
+                local evar="CONTINUATION_EXCLUDE_${lang_tag^^}"
+                eval "${evar}=\"\${${evar}:-\" \"}\${words} \""
+                continue
+            fi
+            # [xx] plain entry — validate lang code
+            [[ "$tag" =~ ^[a-z]{2}$ ]] || continue
             local var="CONTINUATION_WORDS_${tag^^}"
-            # Append words (cumulative)
             eval "${var}=\"\${${var}:-\" \"}\${words} \""
         done < "$file"
+    done
+
+    # Apply exclusions: remove excluded words from the inclusion vars.
+    local evar var exc_list cur_list new_list w lw
+    for evar in $(compgen -v CONTINUATION_EXCLUDE_ 2>/dev/null); do
+        var="CONTINUATION_WORDS_${evar#CONTINUATION_EXCLUDE_}"
+        exc_list="${!evar}"
+        cur_list="${!var:-}"
+        [ -z "$cur_list" ] && continue
+        new_list=" "
+        for w in $cur_list; do
+            lw="${w,,}"
+            # Skip if present in exclusion list
+            if [[ " ${exc_list,,} " == *" $lw "* ]]; then
+                continue
+            fi
+            new_list+="$w "
+        done
+        eval "${var}=\"\$new_list\""
     done
 }
 
@@ -287,20 +342,26 @@ apply_continuation() {
     local last_char="${saved%%:*}"
     local last_word="${saved#*:}"
 
-    # Hourglass marker: H prefix means ~ was typed instead of punctuation
-    # → always 1 backspace to erase it
+    # Hourglass marker: H<N> prefix means CONTINUATION_INDICATOR of length N
+    # was appended instead of punctuation → need N extra backspaces to erase
+    # it. The length is encoded in the marker (not read from the live var)
+    # so changing DICTEE_CONTINUATION_INDICATOR mid-session never desyncs.
     local hourglass=false
-    if [[ "$last_char" == H* ]]; then
+    local hourglass_len=0
+    if [[ "$last_char" =~ ^H([0-9]+)(.*)$ ]]; then
         hourglass=true
-        last_char="${last_char#H}"
+        hourglass_len="${BASH_REMATCH[1]}"
+        last_char="${BASH_REMATCH[2]}"
     fi
 
-    # Helper: send backspaces — 1 if hourglass, else N from marker
+    # Helper: send backspaces — N from marker, plus indicator length if hourglass
     _cont_backspace() {
         local count="${1:-1}"
-        # Hourglass: add 1 extra backspace to erase ~
+        # Hourglass: add the indicator length stored in the marker (NOT the
+        # current CONTINUATION_INDICATOR_LEN — that may have changed since
+        # the indicator was actually typed).
         if $hourglass; then
-            count=$((count + 1))
+            count=$((count + hourglass_len))
         fi
         local cmd=""
         for ((i=0; i<count; i++)); do
@@ -387,8 +448,14 @@ apply_continuation() {
     elif [ "$last_char" = "_" ]; then
         # No punctuation: mid-sentence, space + lowercase
         if $hourglass; then
-            # Only erase & (1 backspace), no punctuation to remove
-            printf 'key backspace\n' | safe_dotool
+            # Erase the indicator (hourglass_len backspaces from marker),
+            # no punctuation to remove on top.
+            local _bs_cmd=""
+            for ((i=0; i<hourglass_len; i++)); do
+                _bs_cmd+="key backspace
+"
+            done
+            printf '%s' "$_bs_cmd" | safe_dotool
         fi
         _ref=" ${_ref,}"
     fi
@@ -464,8 +531,9 @@ save_last_word() {
     fi
     _dbg "save_last_word: marker='$marker' last_word='$last_word' force_end=$force_end"
 
-    # If continuation is likely (closed-class word), append & after text
-    # (never replace — always append). On next push, backspace & + punctuation.
+    # If continuation is likely (closed-class word), append the configured
+    # CONTINUATION_INDICATOR after text (never replace — always append).
+    # On next push, backspace indicator (LEN chars) + punctuation.
     # The variable name is passed as $2 (optional, for in-place modification)
     if [ -n "${2:-}" ] && [ -n "$last_word" ] && [[ "$marker" == .* || "$marker" == "_" ]] && ! $force_end; then
         local lower="${last_word,,}"
@@ -473,9 +541,25 @@ save_last_word() {
         local _cw="${!_cw_var}"
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local -n _text_ref="$2"
-            _text_ref="${_text_ref}&"
-            # Mark as hourglass: H prefix → need extra backspace for ~
-            marker="H${marker}"
+            # Strip trailing punctuation from the text before appending the
+            # indicator, otherwise the user briefly sees "le.>>" during the
+            # pause. The number of chars to strip is encoded in $marker.
+            local _strip=0
+            case "$marker" in
+                .3) _strip=3 ;;
+                .2) _strip=2 ;;
+                .1|,|F) _strip=1 ;;
+            esac
+            if [ "$_strip" -gt 0 ]; then
+                # Trim trailing spaces first (consistent with $trimmed logic)
+                _text_ref="${_text_ref%"${_text_ref##*[! ]}"}"
+                _text_ref="${_text_ref:0:${#_text_ref}-_strip}"
+            fi
+            _text_ref="${_text_ref}${CONTINUATION_INDICATOR}"
+            # Mark as hourglass: H<N> prefix encodes the indicator length.
+            # Punctuation already removed, so only the indicator needs erasing
+            # on the next push → marker tail becomes "_".
+            marker="H${CONTINUATION_INDICATOR_LEN}_"
         fi
     fi
 
@@ -782,6 +866,7 @@ cleanup_on_error() {
     local err_line="${1:-unknown}"
     echo "$(date '+%F %T') ERR exit=$exit_code line=$err_line" >> "/tmp/dictee-error${_UID_SUFFIX}.log"
 
+    release_modifiers
     stop_recording force
     stop_animation quit
     restore_audio
@@ -913,6 +998,8 @@ PYEOF
 
 check_dependencies
 trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
+# Extra safety: always release keyboard modifiers on any exit path
+trap 'release_modifiers' EXIT
 
 # === CANCELLATION (idempotent via flock) ===
 if [ "$CANCEL" = true ]; then
@@ -1163,7 +1250,7 @@ if [ -f "$PIDFILE" ]; then
         exit 1
     fi
     if [ -n "$SUPPRIME" ]; then
-        echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp
+        echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp 2>>/tmp/dictee-postprocess.log
         transcribed=$(cat /dev/shm/.dictee_pp; printf x)
         transcribed="${transcribed%x}"
         rm -f /dev/shm/.dictee_pp
@@ -1200,7 +1287,7 @@ if [ -f "$PIDFILE" ]; then
             # dotool "type" cannot handle these characters, use clipboard paste
             if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
                 sleep 0.1
-                printf 'key ctrl+V\n' | safe_dotool
+                safe_dotool_key_ctrl "ctrl+V"
             else
                 type_text "$translated"
             fi

@@ -2182,6 +2182,636 @@ class TestASRVariantsEN(unittest.TestCase):
 
 
 # ══════════════════════════════════════════════════════════════════════
+# TESTS LLM + COMPLÉMENTS
+# ══════════════════════════════════════════════════════════════════════
+
+# Import postprocess module for unit tests (add script dir to path)
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+import importlib
+_pp = importlib.import_module("dictee-postprocess")
+
+
+class TestSystemPrompts(unittest.TestCase):
+    """Chargement des presets de prompt système LLM."""
+
+    def test_preset_default(self):
+        os.environ["DICTEE_LLM_SYSTEM_PROMPT"] = "default"
+        result = _pp._load_system_prompt()
+        self.assertIn("spell checker", result)
+        self.assertIn("dictation", result.lower())
+
+    def test_preset_minimal(self):
+        os.environ["DICTEE_LLM_SYSTEM_PROMPT"] = "minimal"
+        result = _pp._load_system_prompt()
+        self.assertIn("dictation", result.lower())
+
+    def test_preset_unknown_fallback(self):
+        os.environ["DICTEE_LLM_SYSTEM_PROMPT"] = "NonExistent"
+        result = _pp._load_system_prompt()
+        # Falls back to FR
+        self.assertIn("spell checker", result)
+
+    def test_custom_from_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
+                                         delete=False, encoding="utf-8") as f:
+            f.write("Mon prompt custom pour test")
+            f.flush()
+            os.environ["DICTEE_LLM_SYSTEM_PROMPT"] = "custom"
+            orig = _pp._SYSTEM_PROMPT_PATH
+            try:
+                _pp._SYSTEM_PROMPT_PATH = f.name
+                result = _pp._load_system_prompt()
+                self.assertEqual(result, "Mon prompt custom pour test")
+            finally:
+                _pp._SYSTEM_PROMPT_PATH = orig
+                os.unlink(f.name)
+
+    def test_custom_no_file_fallback(self):
+        os.environ["DICTEE_LLM_SYSTEM_PROMPT"] = "custom"
+        orig_sys = _pp._SYSTEM_PROMPT_PATH
+        orig_leg = _pp._LEGACY_PROMPT_PATH
+        try:
+            _pp._SYSTEM_PROMPT_PATH = "/nonexistent/path.txt"
+            _pp._LEGACY_PROMPT_PATH = "/nonexistent/legacy.txt"
+            result = _pp._load_system_prompt()
+            # Falls back to FR
+            self.assertIn("spell checker", result)
+        finally:
+            _pp._SYSTEM_PROMPT_PATH = orig_sys
+            _pp._LEGACY_PROMPT_PATH = orig_leg
+
+    def test_prompts_not_empty(self):
+        for name, prompt in _pp.SYSTEM_PROMPTS.items():
+            self.assertTrue(len(prompt.strip()) > 10,
+                            f"Prompt '{name}' is too short or empty")
+
+    def tearDown(self):
+        os.environ.pop("DICTEE_LLM_SYSTEM_PROMPT", None)
+
+
+class TestLLMPostprocess(unittest.TestCase):
+    """Appel HTTP Ollama — tests avec mock."""
+
+    def setUp(self):
+        os.environ["DICTEE_LLM_SYSTEM_PROMPT"] = "minimal"
+        os.environ["DICTEE_LLM_MODEL"] = "test-model"
+        os.environ["DICTEE_LLM_TIMEOUT"] = "5"
+
+    def tearDown(self):
+        for k in ("DICTEE_LLM_SYSTEM_PROMPT", "DICTEE_LLM_MODEL",
+                   "DICTEE_LLM_TIMEOUT"):
+            os.environ.pop(k, None)
+
+    def _mock_urlopen(self, response_json):
+        """Create a mock for urllib.request.urlopen."""
+        from unittest.mock import MagicMock, patch
+        import json as _json
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _json.dumps(response_json).encode("utf-8")
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        return patch("urllib.request.urlopen", return_value=mock_resp)
+
+    def test_success_returns_corrected(self):
+        with self._mock_urlopen({"response": "texte corrigé"}):
+            result = _pp.llm_postprocess("texte brut")
+        self.assertEqual(result, "texte corrigé")
+
+    def test_empty_response_returns_original(self):
+        with self._mock_urlopen({"response": ""}):
+            result = _pp.llm_postprocess("texte brut")
+        self.assertEqual(result, "texte brut")
+
+    def test_timeout_returns_original(self):
+        from unittest.mock import patch
+        with patch("urllib.request.urlopen", side_effect=TimeoutError):
+            result = _pp.llm_postprocess("texte brut")
+        self.assertEqual(result, "texte brut")
+
+    def test_connection_refused_returns_original(self):
+        from unittest.mock import patch
+        import urllib.error
+        with patch("urllib.request.urlopen",
+                   side_effect=urllib.error.URLError("Connection refused")):
+            result = _pp.llm_postprocess("texte brut")
+        self.assertEqual(result, "texte brut")
+
+    def test_invalid_json_returns_original(self):
+        from unittest.mock import MagicMock, patch
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"not json"
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = _pp.llm_postprocess("texte brut")
+        self.assertEqual(result, "texte brut")
+
+    def test_model_from_env(self):
+        from unittest.mock import patch, ANY
+        import json as _json
+        from unittest.mock import MagicMock
+        os.environ["DICTEE_LLM_MODEL"] = "my-custom-model"
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"response": "ok"}'
+            mock_url.return_value = mock_resp
+            _pp.llm_postprocess("test")
+            # Check the payload contains the model
+            call_args = mock_url.call_args
+            req = call_args[0][0]
+            payload = _json.loads(req.data.decode("utf-8"))
+            self.assertEqual(payload["model"], "my-custom-model")
+
+    def test_system_prompt_in_payload(self):
+        from unittest.mock import patch, MagicMock
+        import json as _json
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"response": "ok"}'
+            mock_url.return_value = mock_resp
+            _pp.llm_postprocess("test")
+            req = mock_url.call_args[0][0]
+            payload = _json.loads(req.data.decode("utf-8"))
+            self.assertIn("system", payload)
+            self.assertTrue(len(payload["system"]) > 0)
+
+    def test_stream_false_in_payload(self):
+        from unittest.mock import patch, MagicMock
+        import json as _json
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = b'{"response": "ok"}'
+            mock_url.return_value = mock_resp
+            _pp.llm_postprocess("test")
+            req = mock_url.call_args[0][0]
+            payload = _json.loads(req.data.decode("utf-8"))
+            self.assertFalse(payload["stream"])
+
+    def test_strips_whitespace(self):
+        with self._mock_urlopen({"response": "  texte corrigé  \n"}):
+            result = _pp.llm_postprocess("texte brut")
+        self.assertEqual(result, "texte corrigé")
+
+
+class TestLLMPosition(unittest.TestCase):
+    """Position du LLM dans le pipeline (first/hybrid/last)."""
+
+    def test_llm_disabled_no_crash(self):
+        """LLM disabled — pipeline runs normally."""
+        result = run_postprocess("bonjour le monde",
+                                 env_extra={"DICTEE_LLM_POSTPROCESS": "false"})
+        self.assertEqual(result, "Bonjour le monde")
+
+    def test_position_invalid_no_crash(self):
+        """Invalid position — pipeline runs without LLM, no crash."""
+        result = run_postprocess(
+            "bonjour le monde", env_extra={
+                "DICTEE_LLM_POSTPROCESS": "true",
+                "DICTEE_LLM_POSITION": "invalid",
+            })
+        # LLM won't execute (no matching position), text passes through pipeline
+        self.assertEqual(result, "Bonjour le monde")
+
+    def test_position_first_env(self):
+        """Position 'first' env var is accepted without crash."""
+        # Without a real ollama server, LLM fallback returns original text
+        result = run_postprocess(
+            "bonjour", env_extra={
+                "DICTEE_LLM_POSTPROCESS": "true",
+                "DICTEE_LLM_POSITION": "first",
+                "DICTEE_LLM_TIMEOUT": "1",
+            })
+        # Fallback: text passes through pipeline normally
+        self.assertIn("onjour", result)
+
+    def test_position_hybrid_env(self):
+        """Position 'hybrid' env var is accepted without crash."""
+        result = run_postprocess(
+            "bonjour", env_extra={
+                "DICTEE_LLM_POSTPROCESS": "true",
+                "DICTEE_LLM_POSITION": "hybrid",
+                "DICTEE_LLM_TIMEOUT": "1",
+            })
+        self.assertIn("onjour", result)
+
+    def test_position_last_env(self):
+        """Position 'last' env var is accepted without crash."""
+        result = run_postprocess(
+            "bonjour", env_extra={
+                "DICTEE_LLM_POSTPROCESS": "true",
+                "DICTEE_LLM_POSITION": "last",
+                "DICTEE_LLM_TIMEOUT": "1",
+            })
+        self.assertIn("onjour", result)
+
+
+class TestDutch(unittest.TestCase):
+    """fix_dutch() — contractions et expressions temporelles."""
+
+    def test_het_to_t(self):
+        result = run_postprocess("het boek", lang="nl")
+        self.assertIn("'t boek", result.lower())
+
+    def test_een_to_n(self):
+        result = run_postprocess("een boek", lang="nl")
+        self.assertIn("'n boek", result.lower())
+
+    def test_morgens(self):
+        result = run_postprocess("in de morgens", lang="nl")
+        self.assertIn("'s morgens", result.lower())
+
+    def test_avonds(self):
+        result = run_postprocess("in de avonds", lang="nl")
+        self.assertIn("'s avonds", result.lower())
+
+    def test_nachts(self):
+        result = run_postprocess("in de nachts", lang="nl")
+        self.assertIn("'s nachts", result.lower())
+
+    def test_middags(self):
+        result = run_postprocess("in de middags", lang="nl")
+        self.assertIn("'s middags", result.lower())
+
+
+class TestRomanian(unittest.TestCase):
+    """fix_romanian() — contractions et guillemets."""
+
+    def test_nu_am(self):
+        result = run_postprocess("nu am mâncat", lang="ro")
+        self.assertIn("n-am", result.lower())
+
+    def test_nu_ai(self):
+        result = run_postprocess("nu ai dreptate", lang="ro")
+        self.assertIn("n-ai", result.lower())
+
+    def test_nu_a(self):
+        result = run_postprocess("nu a venit", lang="ro")
+        self.assertIn("n-a", result.lower())
+
+    def test_nu_au(self):
+        result = run_postprocess("nu au venit", lang="ro")
+        self.assertIn("n-au", result.lower())
+
+    def test_intr_o(self):
+        result = run_postprocess("într o casă", lang="ro")
+        self.assertIn("într-o", result.lower())
+
+    def test_dintr_un(self):
+        result = run_postprocess("dintr un motiv", lang="ro")
+        self.assertIn("dintr-un", result.lower())
+
+    def test_quotes_to_romanian(self):
+        result = run_postprocess('"salut"', lang="ro")
+        self.assertIn("\u201e", result)  # „
+        self.assertIn("\u201c", result)  # "
+
+
+class TestConvertNumbers(unittest.TestCase):
+    """convert_numbers() — conversion texte vers chiffres."""
+
+    def test_fr_vingt_trois(self):
+        result = run_postprocess("vingt-trois", lang="fr",
+                                  env_extra={"DICTEE_PP_NUMBERS": "true"})
+        self.assertIn("23", result)
+
+    def test_en_twenty_three(self):
+        result = run_postprocess("twenty three", lang="en",
+                                  env_extra={"DICTEE_PP_NUMBERS": "true"})
+        self.assertIn("23", result)
+
+    def test_fr_cent(self):
+        result = run_postprocess("cent", lang="fr",
+                                  env_extra={"DICTEE_PP_NUMBERS": "true"})
+        self.assertIn("100", result)
+
+    def test_unsupported_lang_unchanged(self):
+        result = run_postprocess("двадцять три", lang="uk",
+                                  env_extra={"DICTEE_PP_NUMBERS": "true"})
+        self.assertIn("двадцять", result)
+
+    def test_mixed_text_and_numbers(self):
+        result = run_postprocess("il y a vingt-trois personnes", lang="fr",
+                                  env_extra={"DICTEE_PP_NUMBERS": "true"})
+        self.assertIn("23", result)
+        self.assertIn("personnes", result)
+
+
+class TestLongText(unittest.TestCase):
+    """Textes longs, paragraphes, sessions de dictée."""
+
+    def test_long_paragraph_fr(self):
+        text = ("euh bonjour je ai un problème virgule "
+                "je ne arrive pas à comprendre. "
+                "Est ce que vous pouvez me aider. "
+                "je ai essayé plusieurs choses virgule "
+                "mais rien ne marche.")
+        result = run_postprocess(text, lang="fr")
+        self.assertIn("j'ai", result)
+        self.assertIn(",", result)
+        self.assertIn(".", result)
+        self.assertNotIn("euh", result.lower())
+
+    def test_long_paragraph_en(self):
+        text = ("uh hello I have a problem, "
+                "I cannot understand. "
+                "Can you help me? "
+                "I tried many things, "
+                "but nothing works.")
+        result = run_postprocess(text, lang="en")
+        self.assertIn(",", result)
+        self.assertIn(".", result)
+        self.assertNotIn("uh ", result.lower().split("h")[0] if result else "")
+
+    def test_multiline_text(self):
+        text = ("première ligne point à la ligne "
+                "deuxième ligne point à la ligne "
+                "troisième ligne")
+        result = run_postprocess(text, lang="fr")
+        self.assertIn("\n", result)
+        lines = [l for l in result.split("\n") if l.strip()]
+        self.assertTrue(len(lines) >= 2)
+
+    def test_repeated_sentences(self):
+        text = "bonjour bonjour bonjour je ai faim"
+        result = run_postprocess(text, lang="fr")
+        # Should not crash; elision applied
+        self.assertIn("j'ai", result)
+
+    def test_very_long_text_performance(self):
+        import time
+        # 500+ words
+        text = " ".join(["bonjour le monde"] * 170)
+        start = time.time()
+        result = run_postprocess(text, lang="fr")
+        elapsed = time.time() - start
+        self.assertLess(elapsed, 2.0,
+                        f"Pipeline took {elapsed:.1f}s for 500+ words (max 2s)")
+        self.assertTrue(len(result) > 100)
+
+    def test_mixed_languages_in_text(self):
+        text = "je ai utilisé python pour créer une API REST"
+        result = run_postprocess(text, lang="fr")
+        # Capitalization may uppercase J'ai → check case-insensitive
+        self.assertIn("j'ai", result.lower())
+        self.assertIn("API", result)
+        self.assertIn("REST", result)
+
+    def test_dictation_session_simulation(self):
+        """Full session: hesitations + commands + elisions + dict + typo."""
+        text = ("euh bonjour virgule je me appelle Raphaël point "
+                "je ai une question deux points "
+                "est ce que linux fonctionne avec gpu point "
+                "oui virgule je ai testé cpu et ram point")
+        result = run_postprocess(
+            text, lang="fr",
+            env_extra={"DICTEE_COMMAND_SUFFIX_FR": "suivi"})
+        # Hesitations removed
+        self.assertNotIn("euh", result.lower())
+        # Elisions
+        self.assertIn("j'ai", result)
+        self.assertIn("m'appelle", result)
+        # Dictionary
+        self.assertIn("Linux", result)
+        self.assertIn("GPU", result)
+        self.assertIn("CPU", result)
+        self.assertIn("RAM", result)
+
+    def test_llm_long_text_payload(self):
+        """Long text sent to LLM — payload not truncated."""
+        from unittest.mock import patch, MagicMock
+        import json as _json
+        long_text = "Ceci est un texte très long. " * 50
+        with patch("urllib.request.urlopen") as mock_url:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = _json.dumps(
+                {"response": long_text}).encode("utf-8")
+            mock_url.return_value = mock_resp
+            result = _pp.llm_postprocess(long_text)
+            # Check that full text was sent
+            req = mock_url.call_args[0][0]
+            payload = _json.loads(req.data.decode("utf-8"))
+            self.assertEqual(payload["prompt"], long_text)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# TESTS LLM END-TO-END (nécessite Ollama actif)
+# ══════════════════════════════════════════════════════════════════════
+
+def _ollama_available():
+    """Check if Ollama is running and reachable."""
+    try:
+        import urllib.request
+        req = urllib.request.Request("http://localhost:11434/api/tags")
+        urllib.request.urlopen(req, timeout=3)
+        return True
+    except Exception:
+        return False
+
+
+def _ollama_has_model(model):
+    """Check if a specific model is available in Ollama."""
+    try:
+        import urllib.request, json
+        req = urllib.request.Request("http://localhost:11434/api/tags")
+        resp = urllib.request.urlopen(req, timeout=3)
+        data = json.loads(resp.read().decode("utf-8"))
+        names = [m["name"] for m in data.get("models", [])]
+        return model in names
+    except Exception:
+        return False
+
+
+@unittest.skipUnless(_ollama_available(), "Ollama not running")
+class TestLLMEndToEndMinistral(unittest.TestCase):
+    """Tests end-to-end avec le vrai serveur Ollama — Ministral 3B."""
+
+    MODEL = "ministral-3:3b"
+
+    @classmethod
+    def setUpClass(cls):
+        if not _ollama_has_model(cls.MODEL):
+            raise unittest.SkipTest(f"Model {cls.MODEL} not available")
+
+    def _run_llm(self, text, lang="fr", position="hybrid", preset="default"):
+        return run_postprocess(text, lang=lang, env_extra={
+            "DICTEE_LLM_POSTPROCESS": "true",
+            "DICTEE_LLM_MODEL": self.MODEL,
+            "DICTEE_LLM_POSITION": position,
+            "DICTEE_LLM_SYSTEM_PROMPT": preset,
+            "DICTEE_LLM_TIMEOUT": "15",
+        })
+
+    def test_basic_correction_fr(self):
+        result = self._run_llm("je suis alle a la mer hier et je ai mange des poissson")
+        self.assertIn("allé", result)
+        self.assertIn("poisson", result)
+
+    def test_elision_and_accents(self):
+        result = self._run_llm(
+            "je ai achete un gateau et je ai mange le gateau hier soir")
+        # LLM should correct — check accents and elision
+        self.assertIn("gâteau", result.lower(),
+                      f"Missing accent on gâteau in: {result}")
+        self.assertIn("acheté", result.lower(),
+                      f"Missing accent on acheté in: {result}")
+
+    def test_hesitation_removed_before_llm(self):
+        """Pipeline: regex removes 'euh' BEFORE LLM sees the text."""
+        result = self._run_llm("euh bonjour je me appelle raphael")
+        self.assertNotIn("euh", result.lower())
+        # LLM may or may not add accent on Raphaël
+        self.assertTrue("raphael" in result.lower() or "raphaël" in result.lower(),
+                        f"Name not found in: {result}")
+
+    def test_long_paragraph(self):
+        text = ("euh bonjour je me appelle raphael et je ai un probleme "
+                "avec mon ordinateur. il ne demarre pas et je ne sais pas "
+                "quoi faire. est ce que vous pouvez me aider")
+        result = self._run_llm(text)
+        self.assertTrue("raphael" in result.lower() or "raphaël" in result.lower(),
+                        f"Name not found in: {result}")
+        self.assertIn("démarre", result.lower())
+        self.assertNotIn("euh", result.lower())
+        # At least 1 sentence-ending punctuation
+        self.assertTrue(result.count(".") >= 1 or result.count("?") >= 1)
+
+    def test_preserves_meaning(self):
+        """LLM should NOT change the meaning or add content."""
+        result = self._run_llm("le chat mange la souris")
+        self.assertIn("chat", result.lower())
+        self.assertIn("souris", result.lower())
+        # Should not add extra sentences
+        self.assertLess(len(result), 100)
+
+    def test_position_first(self):
+        result = self._run_llm("je ai faim", position="first")
+        # LLM corrects before regex, but elisions still apply after
+        # Apostrophe may be straight (') or curly (\u2019)
+        self.assertTrue("j'ai" in result.lower() or "j\u2019ai" in result.lower(),
+                        f"No elision found in: {result}")
+
+    def test_position_last(self):
+        result = self._run_llm("je ai faim", position="last")
+        self.assertTrue("j'ai" in result.lower() or "j\u2019ai" in result.lower(),
+                        f"No elision found in: {result}")
+
+    def test_preset_en(self):
+        result = self._run_llm("i has a problm with my computr",
+                                lang="en", preset="default")
+        self.assertIn("problem", result.lower())
+        self.assertIn("computer", result.lower())
+
+    def test_preset_minimal(self):
+        result = self._run_llm("je suis alle a la mer", preset="minimal")
+        self.assertIn("allé", result)
+
+    def test_dictionary_after_llm(self):
+        """Pipeline hybrid: LLM corrects, THEN dictionary applies."""
+        result = self._run_llm("je ai installé linux sur mon gpu")
+        self.assertIn("Linux", result)
+        self.assertIn("GPU", result)
+
+    def test_typography_after_llm(self):
+        """Pipeline hybrid: French typography applies AFTER LLM."""
+        result = self._run_llm("je ai dit : bonjour")
+        # NBSP before colon (French typography)
+        if ":" in result:
+            idx = result.index(":")
+            if idx > 0:
+                self.assertIn(result[idx - 1], (" ", NBSP, NNBSP))
+
+
+@unittest.skipUnless(_ollama_available(), "Ollama not running")
+class TestLLMEndToEndGemma(unittest.TestCase):
+    """Tests end-to-end avec le vrai serveur Ollama — Gemma 3 4B."""
+
+    MODEL = "gemma3:4b"
+
+    @classmethod
+    def setUpClass(cls):
+        if not _ollama_has_model(cls.MODEL):
+            raise unittest.SkipTest(f"Model {cls.MODEL} not available")
+
+    def _run_llm(self, text, lang="fr", position="hybrid", preset="default"):
+        return run_postprocess(text, lang=lang, env_extra={
+            "DICTEE_LLM_POSTPROCESS": "true",
+            "DICTEE_LLM_MODEL": self.MODEL,
+            "DICTEE_LLM_POSITION": position,
+            "DICTEE_LLM_SYSTEM_PROMPT": preset,
+            "DICTEE_LLM_TIMEOUT": "15",
+        })
+
+    def test_basic_correction_fr(self):
+        result = self._run_llm("je suis alle a la mer hier")
+        self.assertIn("allé", result)
+        self.assertIn("mer", result.lower())
+
+    def test_elision_and_accents(self):
+        result = self._run_llm(
+            "je ai achete un gateau et je ai mange le gateau hier soir")
+        self.assertIn("gâteau", result.lower(),
+                      f"Missing accent on gâteau in: {result}")
+        self.assertIn("acheté", result.lower(),
+                      f"Missing accent on acheté in: {result}")
+
+    def test_hesitation_removed_before_llm(self):
+        """Pipeline: regex removes 'euh' BEFORE LLM sees the text."""
+        result = self._run_llm("euh bonjour je me appelle raphael")
+        self.assertNotIn("euh", result.lower())
+        self.assertTrue("raphael" in result.lower() or "raphaël" in result.lower(),
+                        f"Name not found in: {result}")
+
+    def test_long_paragraph(self):
+        text = ("euh bonjour je me appelle raphael et je ai un probleme "
+                "avec mon ordinateur. il ne demarre pas et je ne sais pas "
+                "quoi faire. est ce que vous pouvez me aider")
+        result = self._run_llm(text)
+        # LLM may spell Raphael/Raphaël/Rafael differently
+        self.assertTrue(any(n in result.lower() for n in ("raphael", "raphaël", "rafael")),
+                        f"Name not found in: {result}")
+        self.assertIn("démarre", result.lower())
+        self.assertNotIn("euh", result.lower())
+        self.assertTrue(result.count(".") >= 1 or result.count("?") >= 1)
+
+    def test_preserves_meaning(self):
+        result = self._run_llm("le chat mange la souris")
+        self.assertIn("chat", result.lower())
+        self.assertIn("souris", result.lower())
+        self.assertLess(len(result), 100)
+
+    def test_position_first(self):
+        result = self._run_llm("je ai faim", position="first")
+        self.assertIn("j'ai", result.lower())
+
+    def test_position_last(self):
+        result = self._run_llm("je ai faim", position="last")
+        self.assertIn("j'ai", result.lower())
+
+    def test_preset_en(self):
+        result = self._run_llm("i has a problm with my computr",
+                                lang="en", preset="default")
+        self.assertIn("problem", result.lower())
+        self.assertIn("computer", result.lower())
+
+    def test_preset_minimal(self):
+        result = self._run_llm("je suis alle a la mer", preset="minimal")
+        # Minimal prompt is in English — LLM may translate or just fix
+        self.assertTrue("allé" in result or "mer" in result.lower() or "sea" in result.lower(),
+                        f"Unexpected result: {result}")
+
+    def test_long_text_returns_something(self):
+        text = "je ai un premier probleme. je ai un deuxieme probleme. je ai un troisieme probleme."
+        result = self._run_llm(text)
+        self.assertGreater(len(result), 10)
+        self.assertTrue("'ai" in result, f"No elision in: {result}")
+
+    def test_dictionary_after_llm(self):
+        """Pipeline hybrid: LLM corrects, THEN dictionary applies."""
+        result = self._run_llm("je ai installé linux sur mon gpu")
+        self.assertIn("Linux", result)
+        self.assertIn("GPU", result)
+
+
+# ══════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════
 

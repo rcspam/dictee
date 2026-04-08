@@ -111,6 +111,8 @@ DICTEE_POSTPROCESS=true
 #DICTEE_LLM_MODEL=gemma3:4b
 #DICTEE_LLM_TIMEOUT=10
 #DICTEE_LLM_CPU=false
+#DICTEE_LLM_SYSTEM_PROMPT=default
+#DICTEE_LLM_POSITION=hybrid
 
 # ============================================================================
 # Suffixes de commandes vocales

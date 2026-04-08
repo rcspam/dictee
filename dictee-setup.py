@@ -28,7 +28,7 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 
 try:
     from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, pyqtSignal as Signal
-    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -40,7 +40,7 @@ try:
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
     from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, Signal
-    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -254,8 +254,13 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 pp_numbers=True, pp_typography=True,
                 pp_capitalization=True, pp_dict=True,
                 pp_rules=True, pp_continuation=True,
+                pp_language_rules=True,
+                pp_short_text=True, pp_short_text_max=3,
                 llm_postprocess=False, llm_model="gemma3:4b",
                 llm_timeout=10, llm_cpu=False,
+                llm_system_prompt="default", llm_position="hybrid",
+                llm_custom_prompt="",
+                continuation_indicator=">>",
                 audio_context=False, audio_context_timeout=30,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False):
@@ -324,9 +329,17 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_PP_DICT": pp_dict,
         "DICTEE_PP_RULES": pp_rules,
         "DICTEE_PP_CONTINUATION": pp_continuation,
+        "DICTEE_PP_LANGUAGE_RULES": pp_language_rules,
+        "DICTEE_PP_SHORT_TEXT": pp_short_text,
     }
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
+    values["DICTEE_PP_SHORT_TEXT_MAX"] = str(pp_short_text_max)
+    # Continuation visual indicator — must NOT go through _s() because it
+    # would strip <, >, & exactly the chars we want. Wrap in single quotes
+    # so bash sources it literally; escape any inner single quote.
+    _ind_clean = (continuation_indicator or ">>").replace("'", "'\\''")
+    values["DICTEE_CONTINUATION_INDICATOR"] = "'" + _ind_clean + "'"
     # LLM post-processing
     values["DICTEE_LLM_POSTPROCESS"] = "true" if llm_postprocess else "false"
     if llm_postprocess:
@@ -334,6 +347,16 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         values["DICTEE_LLM_TIMEOUT"] = str(llm_timeout)
         if llm_cpu:
             values["DICTEE_LLM_CPU"] = "true"
+        values["DICTEE_LLM_SYSTEM_PROMPT"] = _s(llm_system_prompt)
+        values["DICTEE_LLM_POSITION"] = llm_position
+        # Save custom prompt to file
+        _custom_path = os.path.join(
+            os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+            "dictee", "llm-system-prompt.txt")
+        if llm_system_prompt == "custom" and llm_custom_prompt.strip():
+            os.makedirs(os.path.dirname(_custom_path), exist_ok=True)
+            with open(_custom_path, "w", encoding="utf-8") as f:
+                f.write(llm_custom_prompt.strip() + "\n")
     # Notifications
     values["DICTEE_NOTIFICATIONS"] = "true" if notifications else "false"
     values["DICTEE_NOTIFICATIONS_TEXT"] = "true" if notifications_text else "false"
@@ -356,7 +379,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_LIBRETRANSLATE_LANGS", "DICTEE_OLLAMA_MODEL",
         "OLLAMA_NUM_GPU", "DICTEE_LLM_POSTPROCESS",
         "DICTEE_LLM_MODEL", "DICTEE_LLM_TIMEOUT", "DICTEE_LLM_CPU",
-        "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT",
+        "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT_MAX",
         "DICTEE_ANIMATION",  # legacy, replaced by ANIM_SPEECH + ANIM_PLASMOID
     }
     # Add all possible suffix keys
@@ -919,6 +942,288 @@ def _find_assets_dir():
     return None
 
 ASSETS_DIR = _find_assets_dir()
+
+
+# === Pipeline diagram (post-processing visualization) ===
+
+def _icons_dir():
+    if ASSETS_DIR:
+        d = os.path.join(ASSETS_DIR, "icons")
+        if os.path.isdir(d):
+            return d
+    return None
+
+
+from PyQt6.QtSvgWidgets import QSvgWidget as _QSvgWidget
+from PyQt6.QtCore import pyqtSignal as _pyqtSignal
+
+
+class _ClickableSvgWidget(_QSvgWidget):
+    """QSvgWidget that emits step_clicked(key) when a registered hit box is
+    clicked, and displays per-step tooltips on hover.
+    """
+    step_clicked = _pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.hit_boxes = []  # list of (QRectF, key)
+        self.tooltips = {}   # key → tooltip text
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, ev):
+        pos = ev.position()
+        for rect, key in self.hit_boxes:
+            if rect.contains(pos):
+                self.step_clicked.emit(key)
+                return
+        super().mousePressEvent(ev)
+
+    def event(self, ev):
+        # Per-region tooltips via QEvent.ToolTip — the standard Qt pattern
+        # for widgets with multiple logical hot zones. Does not steal focus
+        # (unlike setToolTip on mouseMoveEvent).
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtWidgets import QToolTip
+        if ev.type() == QEvent.Type.ToolTip:
+            from PyQt6.QtCore import QPointF
+            pos = QPointF(ev.pos())
+            for rect, key in self.hit_boxes:
+                if rect.contains(pos):
+                    tip = self.tooltips.get(key, "")
+                    if tip:
+                        # Wrap in <qt> for multi-line support; replace \n
+                        # with <br> explicitly so Qt honours them.
+                        html = "<qt>" + tip.replace("\n", "<br>") + "</qt>"
+                        QToolTip.showText(ev.globalPos(), html, self)
+                        return True
+            QToolTip.hideText()
+            ev.ignore()
+            return True
+        return super().event(ev)
+
+
+class _PipelineDiagram:
+    """SVG-based post-processing pipeline diagram.
+
+    Builds a horizontal flow: [mic] → [Rules] → [Continuation] → ... → [LLM] → [pencil]
+    LLM is inserted at first / hybrid / last position based on llm_position.
+    Disabled steps are drawn dashed with a horizontal line crossing through.
+    External arrows are always in the accent color.
+    """
+
+    # Pipeline order matches dictee-postprocess.py main()
+    BASE_STEPS = [
+        ("rules", "Rules"),
+        ("continuation", "Continuation"),
+        ("language_rules", "Lang rules"),
+        ("numbers", "Numbers"),
+        ("dict", "Dict"),
+        ("capitalization", "Capitalization"),
+        ("short_text", "Short text"),
+    ]
+
+    TOOLTIPS = {
+        "rules": "<b>Regex rules</b><br>"
+                 "Fix common ASR errors:<br>"
+                 "voice commands, punctuation, formatting.",
+        "continuation": "<b>Continuation</b><br>"
+                        "Remove erroneous periods after closed-class words<br>"
+                        "so sentences flow across push-to-talk segments.",
+        "language_rules": "<b>Language rules</b><br>"
+                          "Per-language fixes:<br>"
+                          "FR/IT elisions, DE/ES/PT/NL/RO corrections.",
+        "numbers": "<b>Numbers</b><br>"
+                   "Convert spoken numbers to digits.<br>"
+                   "Example: \"vingt-trois\" → \"23\".",
+        "dict": "<b>Dictionary</b><br>"
+                "Exact word replacements from the system<br>"
+                "and personal dictionaries.",
+        "capitalization": "<b>Capitalization</b><br>"
+                          "Uppercase first letter after . ! ?<br>"
+                          "Essential for Vosk/Whisper backends.",
+        "short_text": "<b>Short text fix</b><br>"
+                      "For transcriptions under N words:<br>"
+                      "strip trailing punctuation and lowercase.",
+        "llm": "<b>LLM grammar correction</b><br>"
+               "Local Ollama model fixes grammar,<br>"
+               "spelling, accents and punctuation.",
+    }
+
+    def __init__(self, palette):
+        self.widget = _ClickableSvgWidget()
+        self._palette = palette
+        self._states = {k: True for k, _ in self.BASE_STEPS}
+        self._llm_on = False
+        self._llm_pos = "hybrid"
+        self._master_on = True
+        self._short_text_max = 3
+
+    def set_master(self, on):
+        self._master_on = bool(on)
+        self._render()
+
+    def set_states(self, states, llm_on, llm_pos, short_text_max=None):
+        self._states = dict(states)
+        self._llm_on = bool(llm_on)
+        self._llm_pos = llm_pos or "hybrid"
+        if short_text_max is not None:
+            try:
+                self._short_text_max = max(1, int(short_text_max))
+            except (TypeError, ValueError):
+                pass
+        self._render()
+
+    def _theme_colors(self):
+        from PyQt6.QtGui import QPalette
+        pal = self._palette
+        win = pal.color(QPalette.ColorRole.Window)
+        is_dark = win.lightness() < 128
+        accent = pal.color(QPalette.ColorRole.Highlight).name()
+        accent_dark = pal.color(QPalette.ColorRole.Highlight).darker(130).name()
+        if is_dark:
+            return {
+                "accent": accent, "accent_dark": accent_dark,
+                "dis_text": "#5a5a5a", "dis_bg": "#3a3a3a",
+                "dis_border": "#555555", "icon_suffix": "dark",
+            }
+        return {
+            "accent": accent, "accent_dark": accent_dark,
+            "dis_text": "#bcbcbc", "dis_bg": "#e6e6e6",
+            "dis_border": "#c0c0c0", "icon_suffix": "light",
+        }
+
+    def _ordered_steps(self):
+        """Return list of (key, label, enabled) including LLM at the right position."""
+        m = self._master_on
+        def _label(key, label):
+            if key == "short_text":
+                return f"Short < {self._short_text_max}w"
+            return label
+        base = [(key, _label(key, label), m and self._states.get(key, True))
+                for key, label in self.BASE_STEPS]
+        llm = ("llm", "LLM", m and self._llm_on)
+        if not self._llm_on:
+            return base
+        if self._llm_pos == "first":
+            return [llm] + base
+        if self._llm_pos == "last":
+            return base + [llm]
+        return base[:2] + [llm] + base[2:]
+
+    def _icon_b64(self, name, suffix):
+        import base64
+        from PyQt6.QtCore import QByteArray, QBuffer
+        from PyQt6.QtGui import QIcon
+        icons = _icons_dir()
+        if not icons:
+            return ""
+        path = os.path.join(icons, f"{name}-{suffix}.svg")
+        if not os.path.isfile(path):
+            return ""
+        ic = QIcon(path)
+        pm = ic.pixmap(32, 32)
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QBuffer.OpenModeFlag.WriteOnly)
+        pm.save(buf, "PNG")
+        return base64.b64encode(bytes(ba)).decode("ascii")
+
+    def _render(self):
+        from PyQt6.QtCore import QByteArray, QRectF
+        t = self._theme_colors()
+        steps = self._ordered_steps()
+        hit_boxes = []
+
+        char_w = 8
+        pad_x = 14
+        h = 38
+        gap = 32
+        ep_r = 16
+        boxes = [len(label) * char_w + pad_x * 2 for _k, label, _ in steps]
+        # IN(mic) + arrow + ASR + arrow + steps + arrow + OUT(pencil)
+        total_w = ep_r * 6 + gap * 3 + sum(boxes) + gap * (len(boxes) - 1) + 20
+        total_h = h + 20
+        y = 10
+        cy = y + h / 2
+
+        in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"])
+        asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"])
+        out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"])
+
+        elems = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" '
+            f'xmlns:xlink="http://www.w3.org/1999/xlink" '
+            f'viewBox="0 0 {total_w} {total_h}" width="{total_w}" height="{total_h}">',
+            '<defs>',
+            '<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" '
+            'markerWidth="6" markerHeight="6" orient="auto">',
+            f'<path d="M0,0 L10,5 L0,10 z" fill="{t["accent"]}"/>',
+            '</marker>',
+            '</defs>',
+        ]
+
+        def endpoint(cx, b64):
+            if not b64:
+                return ''
+            return (
+                f'<image x="{cx - ep_r}" y="{cy - ep_r}" '
+                f'width="{ep_r * 2}" height="{ep_r * 2}" '
+                f'xlink:href="data:image/png;base64,{b64}"/>'
+            )
+
+        def arrow(x1, x2):
+            return (
+                f'<line x1="{x1}" y1="{cy}" x2="{x2}" y2="{cy}" '
+                f'stroke="{t["accent"]}" stroke-width="2.2" '
+                f'marker-end="url(#ar)"/>'
+            )
+
+        x = 10
+        elems.append(endpoint(x + ep_r, in_b64))
+        seg_start = x + ep_r * 2
+        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
+        x = seg_start + gap
+        # ASR endpoint
+        elems.append(endpoint(x + ep_r, asr_b64))
+        seg_start = x + ep_r * 2
+        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
+        x = seg_start + gap
+
+        from xml.sax.saxutils import escape as _xml_escape
+        for i, ((key, label, on), bw) in enumerate(zip(steps, boxes)):
+            bg = t["accent"] if on else t["dis_bg"]
+            border = t["accent_dark"] if on else t["dis_border"]
+            text_col = "white" if on else t["dis_text"]
+            dash_attr = '' if on else 'stroke-dasharray="5,4" '
+            elems.append(
+                f'<rect x="{x}" y="{y}" width="{bw}" height="{h}" rx="8" ry="8" '
+                f'fill="{bg}" stroke="{border}" stroke-width="1.8" {dash_attr}/>'
+            )
+            elems.append(
+                f'<text x="{x + bw / 2}" y="{y + h / 2 + 5}" '
+                f'text-anchor="middle" fill="{text_col}" '
+                f'font-family="sans-serif" font-size="13" font-weight="bold">'
+                f'{_xml_escape(label)}</text>'
+            )
+            if not on:
+                elems.append(
+                    f'<line x1="{x - 2}" y1="{cy}" x2="{x + bw + 2}" y2="{cy}" '
+                    f'stroke="{t["accent"]}" stroke-width="2.2"/>'
+                )
+            hit_boxes.append((QRectF(x, y, bw, h), key))
+            if i < len(steps) - 1:
+                elems.append(arrow(x + bw + 4, x + bw + gap - 4))
+            x += bw + gap
+
+        elems.append(arrow(x - gap + 4, x - 4))
+        elems.append(endpoint(x + ep_r, out_b64))
+        elems.append("</svg>")
+
+        self.widget.load(QByteArray("\n".join(elems).encode("utf-8")))
+        self.widget.setFixedSize(int(total_w), int(total_h))
+        self.widget.hit_boxes = hit_boxes
+        self.widget.tooltips = dict(self.TOOLTIPS)
+
 
 # === Backends ASR alternatifs (venvs) ===
 
@@ -2319,6 +2624,90 @@ def _help_btn(tooltip_text):
     return btn
 
 
+# ── Resizable text editor frame (like HTML textarea resize: both) ────
+
+class _ResizableFrame(QFrame):
+    """QFrame with overridden sizeHint() + Fixed policy so layout respects
+    the size set by the drag grip.  Works in all 4 directions."""
+
+    def __init__(self, child_widget, min_w=200, min_h=80,
+                 init_w=600, init_h=200, parent=None):
+        super().__init__(parent)
+        self._min_w = min_w
+        self._min_h = min_h
+        self._target_size = QSize(init_w, init_h)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(child_widget)
+        self._grip = _GripHandle(self, min_w, min_h)
+        self._grip.raise_()
+        self.resize(init_w, init_h)
+
+    def sizeHint(self):
+        return self._target_size
+
+    def set_target_size(self, w, h):
+        self._target_size = QSize(w, h)
+        self.updateGeometry()
+        self.resize(w, h)
+        # Auto-scroll: make the grip (bottom-right) visible in the QScrollArea
+        scroll = self.parent()
+        while scroll is not None:
+            if isinstance(scroll, QScrollArea):
+                scroll.ensureWidgetVisible(self._grip, 20, 20)
+                break
+            scroll = scroll.parent() if hasattr(scroll, 'parent') else None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._grip.move(self.width() - 17, self.height() - 17)
+        self._grip.raise_()
+
+
+class _GripHandle(QLabel):
+    """16x16 draggable triangle in bottom-right corner."""
+
+    def __init__(self, resizable_frame, min_w, min_h):
+        super().__init__(resizable_frame)
+        self._frame = resizable_frame
+        self._min_w = min_w
+        self._min_h = min_h
+        self._drag_origin = None
+        self._base_w = 0
+        self._base_h = 0
+        self.setFixedSize(16, 16)
+        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(128, 128, 128))
+        pen.setWidth(1)
+        p.setPen(pen)
+        for offset in (4, 8, 12):
+            p.drawLine(offset, 15, 15, offset)
+        p.end()
+
+    def mousePressEvent(self, event):
+        self._drag_origin = event.globalPosition().toPoint()
+        self._base_w = self._frame.width()
+        self._base_h = self._frame.height()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_origin is not None:
+            pos = event.globalPosition().toPoint()
+            new_w = max(self._min_w,
+                        self._base_w + pos.x() - self._drag_origin.x())
+            new_h = max(self._min_h,
+                        self._base_h + pos.y() - self._drag_origin.y())
+            self._frame.set_target_size(new_w, new_h)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_origin = None
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -2374,11 +2763,7 @@ class DicteeSetupDialog(QDialog):
     def showEvent(self, event):
         super().showEvent(event)
         _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
-        if getattr(self, '_open_postprocess', False):
-            self._open_postprocess = False
-            self.hide()
-            QTimer.singleShot(50, self._open_postprocess_dialog)
-        elif getattr(self, '_open_translation', False):
+        if getattr(self, '_open_translation', False):
             self._open_translation = False
             if self.wizard_mode and self._conf_existed_before_wizard and hasattr(self, 'stack'):
                 # Jump to translation page (page 3) only if config already exists
@@ -2409,16 +2794,29 @@ class DicteeSetupDialog(QDialog):
             self._pp_dialog.raise_()
             self._pp_dialog.activateWindow()
             return
-        # Independent window (pas un QDialog enfant — KDE Plasma traite
-        # QDialog children as utilities that go behind the panel)
-        # QDialog sans parent — conforme KDE Plasma panel/dock + bouton fermer
+        # QDialog sans parent + non-modal — fonctionne parfaitement quand
+        # ouvert depuis le bouton de la fenêtre principale visible.
         dlg = QDialog()
         dlg.setModal(False)
         dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        # KDE Plasma : le dodge du panel utilise TasksModel qui filtre les
+        # fenêtres SkipTaskbar. Qt place _NET_WM_WINDOW_TYPE_DIALOG quand
+        # flags & WindowType_Mask == Qt.Dialog (source qxcbwindow.cpp).
+        # → forcer Qt.Window via setWindowFlags PLURIEL (singulier ne masque
+        #   pas le bit 0x2 de Qt.Dialog = Window|0x2).
+        # → la fenêtre reçoit _NET_WM_WINDOW_TYPE_NORMAL, apparaît en taskbar,
+        #   et le panel auto-hide se masque correctement.
+        dlg.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowTitleHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
         dlg.setWindowTitle(_("Post-processing"))
         dlg.setWindowIcon(QIcon.fromTheme("dictee-setup"))
         dlg.resize(1150, 950)
-        dlg.setMinimumSize(900, 600)
+        dlg.setMinimumSize(1250, 600)
         lay = QVBoxLayout(dlg)
         lay.setSpacing(6)
         lay.setContentsMargins(16, 16, 16, 12)
@@ -2430,7 +2828,7 @@ class DicteeSetupDialog(QDialog):
         btn_cancel.clicked.connect(dlg.reject)
         btn_lay.addWidget(btn_cancel)
         btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply)
+        btn_apply.clicked.connect(self._on_apply_clicked)
         btn_lay.addWidget(btn_apply)
         btn_ok = QPushButton(_("OK"))
         btn_ok.setDefault(True)
@@ -2632,7 +3030,7 @@ class DicteeSetupDialog(QDialog):
         lay_buttons.addWidget(btn_cancel)
         lay_buttons.addSpacing(8)
         btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply)
+        btn_apply.clicked.connect(self._on_apply_clicked)
         lay_buttons.addWidget(btn_apply)
         lay_buttons.addSpacing(8)
         btn_ok = QPushButton(_("OK"))
@@ -5003,20 +5401,27 @@ class DicteeSetupDialog(QDialog):
                 self._popup.hide()
 
     def _pp_checkbox_with_help(self, checkbox, help_text):
-        """Adds a ? with hover popup next to checkbox."""
+        """Adds a ? with hover popup at the end of the row (after stretch)."""
         container = QWidget()
         h = QHBoxLayout(container)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(4)
         h.addWidget(checkbox)
-        h.addWidget(self._HelpLabel(help_text))
         h.addStretch()
+        h.addWidget(self._HelpLabel(help_text))
+        # Gray out the label text when unchecked — use a mid gray with
+        # explicit hex so it remains visible on both dark and light themes
+        # (palette(mid) was too dark in the dark theme).
+        def _update_style(on, cb=checkbox):
+            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
+        checkbox.toggled.connect(_update_style)
+        _update_style(checkbox.isChecked())
         return container
 
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
         # Enable checkbox
-        self.chk_postprocess = QCheckBox(_("Enable post-processing (regex rules + dictionary)"))
+        self.chk_postprocess = QCheckBox(_("Enable post-processing"))
         self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
         lay.addWidget(self.chk_postprocess)
 
@@ -5026,50 +5431,130 @@ class DicteeSetupDialog(QDialog):
         pp_lay.setContentsMargins(0, 0, 0, 0)
         pp_lay.setSpacing(6)
 
-        # --- Pipeline toggles — general ---
+        # --- Pipeline diagram (SVG) with hint label ---
+        from PyQt6.QtWidgets import QScrollArea as _QSA
+        _accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        _pp_hint = QLabel(_(
+            "Cliquer sur les boutons de la chaîne de traitement "
+            "ci-dessous pour désactiver"))
+        _pp_hint.setWordWrap(True)
+        _pp_hint.setStyleSheet(
+            f"color: {_accent_hex}; font-size: 12px; font-weight: bold;")
+        pp_lay.addWidget(_pp_hint)
+
+        self._pp_diagram = _PipelineDiagram(self.palette())
+        diag_scroll = _QSA()
+        diag_scroll.setWidgetResizable(False)
+        diag_scroll.setWidget(self._pp_diagram.widget)
+        diag_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        diag_scroll.setFixedHeight(70)
+        diag_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        pp_lay.addWidget(diag_scroll)
+
+        # --- Pipeline toggles: only Short text and LLM are shown here.
+        # The 6 others (Rules, Continuation, Language rules, Numbers, Dict,
+        # Capitalization) are reachable via the SVG pipeline above — their
+        # QCheckBox objects are still instantiated (hidden) so _on_apply
+        # serializes them and _on_pp_step_clicked can toggle them.
         grid_gen = QGridLayout()
         grid_gen.setContentsMargins(20, 0, 0, 0)
+        _hidden_holder = QWidget()
+        _hidden_holder.setVisible(False)
+        _hidden_lay = QVBoxLayout(_hidden_holder)
+        _hidden_lay.setContentsMargins(0, 0, 0, 0)
 
-        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"))
-        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_numbers,
-            _("Converts spoken numbers to digits.\n"
-              "Example: \"vingt-trois\" → \"23\"")), 0, 0)
-
-        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"))
-        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_capitalization,
-            _("Capitalizes the first letter after sentence-ending\n"
-              "punctuation (. ! ?). Parakeet does this natively,\n"
-              "but post-processing rules may alter the text —\n"
-              "this ensures correct capitalization afterwards.\n"
-              "Essential for Vosk/Whisper backends.")), 0, 1)
-
-        self.chk_pp_rules = QCheckBox(_("Regex rules"))
+        self.chk_pp_rules = QCheckBox(_("Regex rules"), _hidden_holder)
         self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_rules,
-            _("Applies regex substitution rules to fix\n"
-              "common ASR errors (voice commands,\n"
-              "punctuation, formatting).")), 1, 0)
+        _hidden_lay.addWidget(self.chk_pp_rules)
 
-        self.chk_pp_dict = QCheckBox(_("Dictionary"))
-        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_dict,
-            _("Replaces words using the dictionary.\n"
-              "Exact matching on word boundaries.")), 1, 1)
-
-        self.chk_pp_continuation = QCheckBox(_("Continuation"))
+        self.chk_pp_continuation = QCheckBox(_("Continuation"), _hidden_holder)
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_pp_continuation,
-            _("Removes erroneous periods after continuation words\n"
-              "(articles, prepositions, conjunctions, pronouns, verbs)\n"
-              "to keep sentences flowing naturally across push-to-talk segments.\n\n"
-              "Voice command: say your continuation keyword at the start\n"
-              "of a push to remove the previous punctuation and continue\n"
-              "in lowercase. The keyword is configurable per language\n"
-              "in the Continuation tab.")), 2, 1)
+        _hidden_lay.addWidget(self.chk_pp_continuation)
 
-        pp_lay.addLayout(grid_gen)
+        self.chk_pp_language_rules = QCheckBox(_("Language rules"), _hidden_holder)
+        self.chk_pp_language_rules.setChecked(
+            conf.get("DICTEE_PP_LANGUAGE_RULES", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_language_rules)
+
+        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"), _hidden_holder)
+        self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_numbers)
+
+        self.chk_pp_dict = QCheckBox(_("Dictionary"), _hidden_holder)
+        self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_dict)
+
+        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"), _hidden_holder)
+        self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
+        _hidden_lay.addWidget(self.chk_pp_capitalization)
+
+        # Short text — checkbox + "< N words" combo (no help ? — tooltip is
+        # already on the SVG step above)
+        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_pp_short_text.setChecked(
+            conf.get("DICTEE_PP_SHORT_TEXT", "true") == "true")
+        self.cmb_pp_short_text_max = QComboBox()
+        for n in (2, 3, 4, 5, 6):
+            self.cmb_pp_short_text_max.addItem(str(n), n)
+        try:
+            _saved_max = int(conf.get("DICTEE_PP_SHORT_TEXT_MAX", "3"))
+        except ValueError:
+            _saved_max = 3
+        _idx = self.cmb_pp_short_text_max.findData(_saved_max)
+        if _idx >= 0:
+            self.cmb_pp_short_text_max.setCurrentIndex(_idx)
+        self.chk_pp_short_text.setToolTip(
+            _("For transcriptions with fewer than N words,\n"
+              "remove trailing punctuation and lowercase\n"
+              "capitalized words."))
+        self.cmb_pp_short_text_max.setToolTip(
+            _("Maximum word count for a transcription to be considered\n"
+              "\"short\" and receive the short-text treatment."))
+        self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
+        self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
+        # Gray label when unchecked (same as other pp checkboxes)
+        def _short_update_style(on, cb=self.chk_pp_short_text):
+            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
+        self.chk_pp_short_text.toggled.connect(_short_update_style)
+        _short_update_style(self.chk_pp_short_text.isChecked())
+
+        # LLM checkbox (text kept visible, no help ? — tooltip on SVG)
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
+        self.chk_llm.setToolTip(
+            _("Uses a local LLM (via ollama) to fix grammar,\n"
+              "spelling, accents and punctuation.\n"
+              "Configure the model and prompt in the LLM tab."))
+        def _llm_update_style(on, cb=self.chk_llm):
+            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
+        self.chk_llm.toggled.connect(_llm_update_style)
+        _llm_update_style(self.chk_llm.isChecked())
+
+        # Same line: [Short text] [<] [N] [words]   [LLM ...]
+        _visible_row = QHBoxLayout()
+        _visible_row.setContentsMargins(20, 0, 0, 0)
+        _visible_row.setSpacing(6)
+        _visible_row.addWidget(self.chk_pp_short_text)
+        _visible_row.addWidget(QLabel(_("<")))
+        _visible_row.addWidget(self.cmb_pp_short_text_max)
+        _visible_row.addWidget(QLabel(_("words")))
+        _visible_row.addSpacing(24)
+        _visible_row.addWidget(self.chk_llm)
+        _visible_row.addStretch(1)
+        pp_lay.addLayout(_visible_row)
+        pp_lay.addLayout(grid_gen)  # kept for layout rigidity; empty in practice
+        pp_lay.addWidget(_hidden_holder)  # hidden state holder
+
+        # Cosmetic separator between checkboxes grid and editing tabs
+        _sep = QFrame()
+        _sep.setFrameShape(QFrame.Shape.HLine)
+        _sep.setFrameShadow(QFrame.Shadow.Sunken)
+        _sep.setContentsMargins(0, 8, 0, 8)
+        pp_lay.addSpacing(6)
+        pp_lay.addWidget(_sep)
+        pp_lay.addSpacing(6)
 
         # --- Editing sub-tabs ---
         self._pp_tabs = QTabWidget()
@@ -5084,41 +5569,73 @@ class DicteeSetupDialog(QDialog):
             }}
         """)
 
-        # Dictionary tab (index 0)
-        tab_dict = QWidget()
-        tab_dict_lay = QVBoxLayout(tab_dict)
-        tab_dict_lay.setContentsMargins(8, 8, 8, 8)
-        self._build_dictionary_tab(tab_dict_lay)
-        self._pp_tabs.addTab(tab_dict, _("Dictionary"))
+        # Tab order: pipeline sequence with LLM moved to the end.
+        # Rules(0) → Continuation(1) → Language rules(2) → Dictionary(3) → LLM(4)
 
-        # Rules tab (index 1)
+        # Rules tab (index 0)
         tab_rules = QWidget()
         tab_rules_lay = QVBoxLayout(tab_rules)
         tab_rules_lay.setContentsMargins(8, 8, 8, 8)
         self._build_rules_tab(tab_rules_lay)
         self._pp_tabs.addTab(tab_rules, _("Regex rules"))
 
-        # Continuation tab (index 2)
+        # Continuation tab (index 1)
         tab_cont = QWidget()
         tab_cont_lay = QVBoxLayout(tab_cont)
         tab_cont_lay.setContentsMargins(8, 8, 8, 8)
         self._build_continuation_tab(tab_cont_lay)
         self._pp_tabs.addTab(tab_cont, _("Continuation"))
 
-        # Language rules tab (index 3)
+        # Language rules tab (index 2)
         tab_lang = QWidget()
         tab_lang_lay = QVBoxLayout(tab_lang)
         tab_lang_lay.setContentsMargins(8, 8, 8, 8)
         self._build_language_rules_tab(tab_lang_lay, conf)
         self._pp_tabs.addTab(tab_lang, _("Language rules"))
 
-        # Gray out tabs when corresponding checkbox is unchecked
-        self.chk_pp_dict.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(0, on))
-        self.chk_pp_rules.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(1, on))
-        self.chk_pp_continuation.toggled.connect(lambda on: self._pp_tabs.setTabEnabled(2, on))
-        self._pp_tabs.setTabEnabled(0, self.chk_pp_dict.isChecked())
-        self._pp_tabs.setTabEnabled(1, self.chk_pp_rules.isChecked())
-        self._pp_tabs.setTabEnabled(2, self.chk_pp_continuation.isChecked())
+        # Dictionary tab (index 3)
+        tab_dict = QWidget()
+        tab_dict_lay = QVBoxLayout(tab_dict)
+        tab_dict_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_dictionary_tab(tab_dict_lay)
+        self._pp_tabs.addTab(tab_dict, _("Dictionary"))
+
+        # LLM tab (index 4) — moved to the end
+        tab_llm = QWidget()
+        tab_llm_lay = QVBoxLayout(tab_llm)
+        tab_llm_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_llm_tab(tab_llm_lay, conf)
+        self._pp_tabs.addTab(tab_llm, _("LLM"))
+
+        # Tabs stay clickable (never Qt-disabled) but their title is grayed
+        # via the disabled palette color when the corresponding step is off.
+        _disabled_col = self.palette().color(
+            self.palette().ColorGroup.Disabled,
+            self.palette().ColorRole.WindowText)
+        _normal_col = self.palette().color(
+            self.palette().ColorRole.WindowText)
+
+        # Map tab index → its content widget so we can gray it out when off.
+        # New order: Rules(0) → Continuation(1) → Lang(2) → Dict(3) → LLM(4)
+        _tab_widgets = {0: tab_rules, 1: tab_cont, 2: tab_lang, 3: tab_dict, 4: tab_llm}
+
+        def _set_tab_visual(idx, on):
+            tb = self._pp_tabs.tabBar()
+            tb.setTabTextColor(idx, _normal_col if on else _disabled_col)
+            w = _tab_widgets.get(idx)
+            if w is not None:
+                w.setEnabled(on)  # grays children + makes them non-editable
+
+        self.chk_pp_rules.toggled.connect(lambda on: _set_tab_visual(0, on))
+        self.chk_pp_continuation.toggled.connect(lambda on: _set_tab_visual(1, on))
+        self.chk_pp_language_rules.toggled.connect(lambda on: _set_tab_visual(2, on))
+        self.chk_pp_dict.toggled.connect(lambda on: _set_tab_visual(3, on))
+        self.chk_llm.toggled.connect(lambda on: _set_tab_visual(4, on))
+        _set_tab_visual(0, self.chk_pp_rules.isChecked())
+        _set_tab_visual(1, self.chk_pp_continuation.isChecked())
+        _set_tab_visual(2, self.chk_pp_language_rules.isChecked())
+        _set_tab_visual(3, self.chk_pp_dict.isChecked())
+        _set_tab_visual(4, self.chk_llm.isChecked())
 
         # Edit mode button (masqué pour l'onglet Règles)
         self._btn_advanced = QPushButton(_("Edit mode"))
@@ -5136,39 +5653,161 @@ class DicteeSetupDialog(QDialog):
         self._pp_tabs.setCornerWidget(corner)
 
         def _on_tab_changed(idx):
-            self._btn_advanced.setVisible(idx not in (1, 3))  # hidden for Rules and Languages
+            # New tab order: Rules(0), Continuation(1), Lang(2), Dict(3), LLM(4)
+            # Edit mode button hidden for Rules, Languages, LLM
+            self._btn_advanced.setVisible(idx not in (0, 2, 4))
             self._btn_advanced.setChecked(False)
             self._toggle_advanced_mode(False)
+            if idx == 0:
+                self._maybe_show_rules_warning()
         self._pp_tabs.currentChanged.connect(_on_tab_changed)
         self._btn_advanced.toggled.connect(self._toggle_advanced_mode)
-        _on_tab_changed(0)
+        # Never open on the Regex rules tab — its warning popup would fire
+        # before the dialog is even painted. Default to Continuation (index 1).
+        self._pp_tabs.setCurrentIndex(1)
+        _on_tab_changed(1)
 
         pp_lay.addWidget(self._pp_tabs)
 
-        # --- Test panel ---
-        grp_test = QGroupBox(_("Test"))
-        test_lay = QVBoxLayout(grp_test)
-        test_lay.setSpacing(6)
+        # --- Test panel (collapsible accordion) ---
+        _test_toggle = QPushButton("▶  " + _("Test"))
+        _test_toggle.setCheckable(True)
+        _test_toggle.setChecked(False)
+        _test_toggle.setStyleSheet(
+            "QPushButton { text-align: left; font-weight: bold; "
+            "padding: 6px; border: none; }"
+            "QPushButton:hover { background-color: rgba(127,127,127,30); }"
+        )
+        _test_body = QFrame()
+        test_lay = QVBoxLayout(_test_body)
+        test_lay.setContentsMargins(8, 0, 8, 8)
+        test_lay.setSpacing(4)
         self._build_test_panel(test_lay)
-        pp_lay.addWidget(grp_test)
+        _test_body.setVisible(False)
 
-        # LLM correction
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
-        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        pp_lay.addWidget(self.chk_llm)
+        def _on_test_toggled(on):
+            _test_toggle.setText(("▼  " if on else "▶  ") + _("Test"))
+            _test_body.setVisible(on)
+        _test_toggle.toggled.connect(_on_test_toggled)
+        # Expose so other components (e.g. "↓ Test" button in rules tab)
+        # can auto-open the accordion when sending data into it.
+        self._test_accordion_toggle = _test_toggle
 
-        # LLM sub-options
-        self._llm_widget = QWidget()
-        llm_lay = QFormLayout(self._llm_widget)
-        llm_lay.setContentsMargins(20, 4, 0, 0)
+        pp_lay.addWidget(_test_toggle)
+        pp_lay.addWidget(_test_body)
+
+        # Directly embed pp_content (no outer QScrollArea): the sub-tabs
+        # that actually need scrolling (Dictionary, Language rules) have
+        # their own inner QScrollArea. An outer scroll was redundant and
+        # produced a huge-handle scrollbar with no content to scroll.
+        lay.addWidget(self._pp_content)
+        self._pp_scroll = None
+        self._pp_content.setEnabled(self.chk_postprocess.isChecked())
+        self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+        self.chk_postprocess.toggled.connect(self._pp_diagram.set_master)
+        self._pp_diagram.set_master(self.chk_postprocess.isChecked())
+
+        # Wire pipeline diagram refresh
+        for cb in (self.chk_pp_rules, self.chk_pp_continuation,
+                   self.chk_pp_language_rules,
+                   self.chk_pp_numbers, self.chk_pp_dict,
+                   self.chk_pp_capitalization, self.chk_llm,
+                   self.chk_pp_short_text):
+            cb.toggled.connect(self._refresh_pp_diagram)
+        if hasattr(self, 'cmb_llm_position'):
+            self.cmb_llm_position.currentIndexChanged.connect(self._refresh_pp_diagram)
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            self.cmb_pp_short_text_max.currentIndexChanged.connect(self._refresh_pp_diagram)
+        self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
+        self._refresh_pp_diagram()
+
+    def _maybe_show_rules_warning(self):
+        """Show the 'rules can break output' warning as a popup with a
+        'don't show again' checkbox. Dismissal is persisted in
+        ~/.config/dictee/.rules_warning_dismissed.
+        """
+        flag_path = os.path.join(
+            os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+            "dictee", ".rules_warning_dismissed")
+        if os.path.isfile(flag_path):
+            return
+        parent = self._pp_parent if hasattr(self, "_pp_parent") else self
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(_("Regex rules — caution"))
+        box.setText(
+            '<span style="color: #c0392b; font-weight: bold;">⚠ ' +
+            _("Advanced feature") + "</span>")
+        box.setInformativeText(_(
+            "Incorrect rules can break transcription output. "
+            "Rules are applied in order: a misplaced or wrong pattern may "
+            "silently delete or corrupt text.\n\n"
+            "Use the test panel below to verify your changes before saving."))
+        dont_show = QCheckBox(_("Don't show this warning again"))
+        box.setCheckBox(dont_show)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
+        if dont_show.isChecked():
+            try:
+                os.makedirs(os.path.dirname(flag_path), exist_ok=True)
+                with open(flag_path, "w") as _f:
+                    _f.write("1\n")
+            except OSError:
+                pass
+
+    def _on_pp_step_clicked(self, key):
+        cb_map = {
+            "rules": self.chk_pp_rules,
+            "continuation": self.chk_pp_continuation,
+            "language_rules": self.chk_pp_language_rules,
+            "numbers": self.chk_pp_numbers,
+            "dict": self.chk_pp_dict,
+            "capitalization": self.chk_pp_capitalization,
+            "llm": self.chk_llm,
+            "short_text": getattr(self, 'chk_pp_short_text', None),
+        }
+        cb = cb_map.get(key)
+        if cb is not None:
+            cb.toggle()
+
+
+    def _refresh_pp_diagram(self):
+        if not hasattr(self, '_pp_diagram'):
+            return
+        states = {
+            "rules": self.chk_pp_rules.isChecked(),
+            "continuation": self.chk_pp_continuation.isChecked(),
+            "language_rules": self.chk_pp_language_rules.isChecked(),
+            "numbers": self.chk_pp_numbers.isChecked(),
+            "dict": self.chk_pp_dict.isChecked(),
+            "capitalization": self.chk_pp_capitalization.isChecked(),
+            "short_text": self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True,
+        }
+        llm_pos = "hybrid"
+        if hasattr(self, 'cmb_llm_position'):
+            llm_pos = self.cmb_llm_position.currentData() or "hybrid"
+        st_max = 3
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            st_max = self.cmb_pp_short_text_max.currentData() or 3
+        self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos, st_max)
+
+    def _build_llm_tab(self, lay, conf):
+        """Build LLM post-processing tab content."""
+        llm_vbox = lay
+        llm_vbox.setSpacing(6)
+
+        # Top row: combos in a QFormLayout
+        _llm_form = QWidget()
+        llm_flay = QFormLayout(_llm_form)
+        llm_flay.setContentsMargins(0, 0, 0, 0)
 
         self.cmb_llm_model = QComboBox()
-        saved_model = conf.get("DICTEE_LLM_MODEL", "ministral:3b")
+        saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
         self.cmb_llm_model.setEditable(True)
-        self.cmb_llm_model.addItem("ministral:3b")
         self.cmb_llm_model.addItem("gemma3:4b")
         self.cmb_llm_model.addItem("gemma3:1b")
-        # Détecter les modèles installés
+        self.cmb_llm_model.addItem("ministral-3:3b")
+        # Detect installed models
         try:
             import subprocess as _sp
             out = _sp.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
@@ -5184,25 +5823,104 @@ class DicteeSetupDialog(QDialog):
             self.cmb_llm_model.setCurrentIndex(idx)
         else:
             self.cmb_llm_model.setEditText(saved_model)
-        llm_lay.addRow(_("Model:"), self.cmb_llm_model)
+        llm_flay.addRow(_("Model:"), self.cmb_llm_model)
+
+        # LLM pipeline position
+        self.cmb_llm_position = QComboBox()
+        self.cmb_llm_position.addItem(_("Hybrid (recommended)"), "hybrid")
+        self.cmb_llm_position.addItem(_("Before post-processing"), "first")
+        self.cmb_llm_position.addItem(_("After post-processing"), "last")
+        saved_pos = conf.get("DICTEE_LLM_POSITION", "hybrid")
+        idx_pos = self.cmb_llm_position.findData(saved_pos)
+        if idx_pos >= 0:
+            self.cmb_llm_position.setCurrentIndex(idx_pos)
+        llm_flay.addRow(_("Position:"), self.cmb_llm_position)
+
+        # System prompt presets
+        self.cmb_llm_preset = QComboBox()
+        self.cmb_llm_preset.addItem(_("Default"), "default")
+        self.cmb_llm_preset.addItem("Minimal", "minimal")
+        self.cmb_llm_preset.addItem(_("Custom"), "custom")
+        saved_preset = conf.get("DICTEE_LLM_SYSTEM_PROMPT", "default")
+        idx_preset = self.cmb_llm_preset.findData(saved_preset)
+        if idx_preset >= 0:
+            self.cmb_llm_preset.setCurrentIndex(idx_preset)
+        llm_flay.addRow(_("System prompt:"), self.cmb_llm_preset)
+
+        llm_vbox.addWidget(_llm_form)
+
+        # System prompt editor — full width, resizable via corner grip
+        self.txt_llm_prompt = QTextEdit()
+        self.txt_llm_prompt.setFont(self._monospace_font())
+        self.txt_llm_prompt.setMinimumHeight(80)
+        self.txt_llm_prompt.setMinimumWidth(200)
+        self._add_zoom_overlay(self.txt_llm_prompt)
+
+        _prompt_frame = _ResizableFrame(
+            self.txt_llm_prompt, min_w=200, min_h=80,
+            init_w=800, init_h=250)
+        llm_vbox.addWidget(_prompt_frame)
+
+        # Populate prompt text and connect preset changes
+        self._on_llm_preset_changed(self.cmb_llm_preset.currentData())
+        self.cmb_llm_preset.currentIndexChanged.connect(
+            lambda: self._on_llm_preset_changed(self.cmb_llm_preset.currentData()))
 
         self.chk_llm_cpu = QCheckBox(_("Force CPU (free GPU VRAM)"))
         self.chk_llm_cpu.setChecked(conf.get("DICTEE_LLM_CPU", "false") == "true")
-        llm_lay.addRow("", self.chk_llm_cpu)
+        llm_vbox.addWidget(self.chk_llm_cpu)
 
         lbl_vram = QLabel(
-            "<i>" + _("~2 GB VRAM with Ministral 3B (+ ~2.5 GB Parakeet)") + "</i>")
+            "<i>" + _("~3 GB VRAM with Gemma 3 4B (+ ~2.5 GB Parakeet)") + "</i>")
         lbl_vram.setStyleSheet("font-size: 11px; opacity: 0.6;")
-        llm_lay.addRow("", lbl_vram)
+        llm_vbox.addWidget(lbl_vram)
+        llm_vbox.addStretch()
 
-        pp_lay.addWidget(self._llm_widget)
-        self._llm_widget.setVisible(self.chk_llm.isChecked())
-        self.chk_llm.toggled.connect(self._llm_widget.setVisible)
+    # ── LLM prompt presets ──────────────────────────────────────
 
-        # Ajouter le conteneur et connecter le toggle
-        lay.addWidget(self._pp_content)
-        self._pp_content.setEnabled(self.chk_postprocess.isChecked())
-        self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+    _LLM_SYSTEM_PROMPTS = {
+        "default": (
+            "You are an automatic spell checker for voice dictation. "
+            "The user is dictating text aloud and a speech recognition engine transcribes it. "
+            "You receive this raw transcription and must correct it. "
+            "Your output will be pasted AS IS into the user's document.\n"
+            "\n"
+            "RULES:\n"
+            "- Fix spelling, grammar, accents and missing punctuation.\n"
+            "- Remove hesitations (uh, um, euh, hum, etc.) and repetitions.\n"
+            "- The text may contain questions — the user is dictating a question for their document. "
+            "Correct it and return it. NEVER treat it as a question asked to you.\n"
+            "- Do not change the meaning. Do not rephrase. Do not add anything.\n"
+            "- Do not translate. Keep the original language of the text.\n"
+            "- Return ONLY the corrected text, no quotes, no commentary, no explanation.\n"
+            "- If the text is already correct, return it unchanged."
+        ),
+        "minimal": (
+            "Correct spelling and grammar. The text is a dictation, not a question to you. "
+            "Return ONLY the corrected text, nothing else."
+        ),
+    }
+
+    _LLM_CUSTOM_PROMPT_PATH = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+        "dictee", "llm-system-prompt.txt")
+
+    def _on_llm_preset_changed(self, preset_data):
+        """Update system prompt QTextEdit when preset combo changes."""
+        if preset_data == "custom":
+            self.txt_llm_prompt.setReadOnly(False)
+            # Load existing custom file if available
+            if os.path.isfile(self._LLM_CUSTOM_PROMPT_PATH):
+                with open(self._LLM_CUSTOM_PROMPT_PATH, encoding="utf-8") as f:
+                    self.txt_llm_prompt.setPlainText(f.read().strip())
+            elif not self.txt_llm_prompt.toPlainText().strip():
+                # Start from FR preset as template
+                self.txt_llm_prompt.setPlainText(
+                    self._LLM_SYSTEM_PROMPTS.get("default", ""))
+        else:
+            self.txt_llm_prompt.setReadOnly(True)
+            self.txt_llm_prompt.setPlainText(
+                self._LLM_SYSTEM_PROMPTS.get(preset_data, ""))
 
     # ── Post-processing tabs ────────────────────────────────────
 
@@ -5583,17 +6301,10 @@ class DicteeSetupDialog(QDialog):
         sfx_lay.addStretch()
         lay.addLayout(sfx_lay)
 
-        # --- Warning ---
-        warn = QLabel(
-            '<span style="color: red; font-weight: bold;">⚠ ' +
-            _("Advanced — Incorrect rules can break transcription output. "
-              "Rules are applied in order: a misplaced or wrong pattern "
-              "may silently delete or corrupt text. Use the test panel below to verify.") +
-            '</span>')
-        warn.setWordWrap(True)
-        lay.addWidget(warn)
+        # Warning popup is shown on tab entry (see _maybe_show_rules_warning),
+        # not as a permanent label — the user can dismiss it permanently.
 
-        # --- Rule creator ---
+        # --- Rule creator (single line) ---
         add_grp = QGroupBox(_("Add a rule"))
         add_grp_lay = QVBoxLayout(add_grp)
         add_lay = QHBoxLayout()
@@ -5614,13 +6325,13 @@ class DicteeSetupDialog(QDialog):
         self._rule_pattern = QLineEdit()
         self._rule_pattern.setPlaceholderText(_("Pattern (what the ASR says)"))
         self._rule_pattern.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_pattern, 2)
+        add_lay.addWidget(self._rule_pattern, 3)
 
         add_lay.addWidget(QLabel("/"))
         self._rule_replacement = QLineEdit()
         self._rule_replacement.setPlaceholderText(_("Replacement (\\n = newline)"))
         self._rule_replacement.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_replacement, 2)
+        add_lay.addWidget(self._rule_replacement, 3)
 
         add_lay.addWidget(QLabel("/"))
         self._rule_flags = QLineEdit("ig")
@@ -5629,20 +6340,19 @@ class DicteeSetupDialog(QDialog):
         self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
         add_lay.addWidget(self._rule_flags)
 
-        # Section and position selection
-        add_row2 = QHBoxLayout()
-        add_row2.setSpacing(6)
-        add_row2.addWidget(QLabel(_("Insert in:")))
+        add_lay.addSpacing(8)
+        add_lay.addWidget(QLabel(_("Insert:")))
         self._rule_section = QComboBox()
         self._rule_section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        add_row2.addWidget(self._rule_section, 1)
+        self._rule_section.setMinimumWidth(140)
+        add_lay.addWidget(self._rule_section, 2)
 
         self._rule_position = QComboBox()
         self._rule_position.addItem(_("at end"), "end")
         self._rule_position.addItem(_("at beginning"), "begin")
-        self._rule_position.setFixedWidth(120)
+        self._rule_position.setFixedWidth(110)
         self._rule_position.setEnabled(False)
-        add_row2.addWidget(self._rule_position)
+        add_lay.addWidget(self._rule_position)
 
         self._rule_section.currentIndexChanged.connect(
             lambda: self._rule_position.setEnabled(
@@ -5650,12 +6360,12 @@ class DicteeSetupDialog(QDialog):
 
         btn_add_rule = QPushButton("+ " + _("Add"))
         btn_add_rule.clicked.connect(self._add_rule_to_editor)
-        add_row2.addWidget(btn_add_rule)
+        add_lay.addWidget(btn_add_rule)
 
         self._btn_record_rule = QPushButton(QIcon.fromTheme("audio-input-microphone"), _("Record"))
         self._btn_record_rule.setToolTip(_("Record audio, transcribe, and fill the pattern field"))
         self._btn_record_rule.clicked.connect(self._record_for_rule)
-        add_row2.addWidget(self._btn_record_rule)
+        add_lay.addWidget(self._btn_record_rule)
 
         # Label to show RAW/PROCESSED after recording
         self._rule_preview = QLabel()
@@ -5663,18 +6373,11 @@ class DicteeSetupDialog(QDialog):
         self._rule_preview.setVisible(False)
 
         add_grp_lay.addLayout(add_lay)
-        add_grp_lay.addLayout(add_row2)
         add_grp_lay.addWidget(self._rule_preview)
 
         lay.addWidget(add_grp)
 
         # --- Text editor ---
-        info = QLabel(
-            "<i>" + _("User rules in {path} — applied after system rules.").format(
-                path="~/.config/dictee/rules.conf") + "</i>")
-        info.setWordWrap(True)
-        lay.addWidget(info)
-
         self._rules_editor = QTextEdit()
         self._rules_editor.setFont(self._monospace_font())
         self._rules_editor.setPlaceholderText(
@@ -5739,6 +6442,21 @@ class DicteeSetupDialog(QDialog):
         shortcut_esc.activated.connect(self._rules_show_search)
 
         btns = QHBoxLayout()
+        # Undo / Redo — wired to QTextEdit's built-in undo stack
+        self._btn_rules_undo = QPushButton(QIcon.fromTheme("edit-undo"), "")
+        self._btn_rules_undo.setFixedWidth(30)
+        self._btn_rules_undo.setToolTip(_("Undo (Ctrl+Z)"))
+        self._btn_rules_undo.setEnabled(False)
+        self._btn_rules_undo.clicked.connect(self._rules_editor.undo)
+        btns.addWidget(self._btn_rules_undo)
+        self._btn_rules_redo = QPushButton(QIcon.fromTheme("edit-redo"), "")
+        self._btn_rules_redo.setFixedWidth(30)
+        self._btn_rules_redo.setToolTip(_("Redo (Ctrl+Shift+Z)"))
+        self._btn_rules_redo.setEnabled(False)
+        self._btn_rules_redo.clicked.connect(self._rules_editor.redo)
+        btns.addWidget(self._btn_rules_redo)
+        self._rules_editor.undoAvailable.connect(self._btn_rules_undo.setEnabled)
+        self._rules_editor.redoAvailable.connect(self._btn_rules_redo.setEnabled)
         btn_find = QPushButton(QIcon.fromTheme("edit-find"), "")
         btn_find.setFixedWidth(30)
         btn_find.setToolTip(_("Search (Ctrl+F)"))
@@ -6119,18 +6837,39 @@ class DicteeSetupDialog(QDialog):
                 return False, _("Line {n}: invalid regex: {err}").format(n=i, err=str(e))
         return True, ""
 
-    def _save_rules_file(self):
+    def _save_rules_file_silent(self):
+        """Write the rules editor content to disk without any popup.
+        Returns (ok, err_msg). Skips the write if content is unchanged.
+        """
         import os as _os
+        if not hasattr(self, "_rules_editor") or self._rules_editor is None:
+            return True, ""
         text = self._rules_editor.toPlainText()
-        # Valider la syntaxe avant de sauvegarder
+        # Skip if file already matches editor (avoid needless mtime bumps)
+        try:
+            if _os.path.isfile(self._rules_path):
+                with open(self._rules_path, encoding="utf-8") as f:
+                    if f.read() == text:
+                        return True, ""
+        except OSError:
+            pass
         ok, err = self._validate_rules_syntax(text)
+        if not ok:
+            return False, err
+        try:
+            _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
+            with open(self._rules_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            return False, str(e)
+        return True, ""
+
+    def _save_rules_file(self):
+        ok, err = self._save_rules_file_silent()
         if not ok:
             QMessageBox.warning(self._pp_parent, "dictee",
                 _("Cannot save — syntax error:\n\n{err}").format(err=err))
             return
-        _os.makedirs(_os.path.dirname(self._rules_path), exist_ok=True)
-        with open(self._rules_path, "w", encoding="utf-8") as f:
-            f.write(text)
         QMessageBox.information(self._pp_parent, "dictee", _("Rules saved."))
 
     def _restore_rules_defaults(self):
@@ -6197,6 +6936,9 @@ class DicteeSetupDialog(QDialog):
     def _send_rule_to_test(self):
         """Envoie le pattern de la ligne courante de l'éditeur regex vers le champ test."""
         import re
+        # Auto-open the test accordion — otherwise the user sees nothing happen
+        if hasattr(self, '_test_accordion_toggle') and not self._test_accordion_toggle.isChecked():
+            self._test_accordion_toggle.setChecked(True)
         cursor = self._rules_editor.textCursor()
         line = cursor.block().text().strip()
         if not line or line.startswith("#"):
@@ -6475,13 +7217,15 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_add.clicked.connect(lambda: self._add_dict_entry())
         common_btns.addWidget(self._btn_dict_add)
 
-        self._btn_dict_undo = QPushButton(QIcon.fromTheme("edit-undo"), _("Undo"))
+        self._btn_dict_undo = QPushButton(QIcon.fromTheme("edit-undo"), "")
+        self._btn_dict_undo.setFixedWidth(30)
         self._btn_dict_undo.setToolTip(_("Undo last change"))
         self._btn_dict_undo.setEnabled(False)
         self._btn_dict_undo.clicked.connect(self._dict_undo_smart)
         common_btns.addWidget(self._btn_dict_undo)
 
-        self._btn_dict_redo = QPushButton(QIcon.fromTheme("edit-redo"), _("Redo"))
+        self._btn_dict_redo = QPushButton(QIcon.fromTheme("edit-redo"), "")
+        self._btn_dict_redo.setFixedWidth(30)
         self._btn_dict_redo.setToolTip(_("Redo last undone change"))
         self._btn_dict_redo.setEnabled(False)
         self._btn_dict_redo.clicked.connect(self._dict_redo_smart)
@@ -6609,6 +7353,16 @@ class DicteeSetupDialog(QDialog):
                         arrow = "\u25be" if vis else "\u25b8"
                         el = _("entries") if ne > 1 else _("entry")
                         btn.setText(f"{arrow} {cn} ({ne} {el})")
+                        # Force QScrollArea to recompute its content size.
+                        # Without this, collapsing leaves a phantom empty
+                        # space in the scroll range — the scrollbar handle
+                        # stays huge as if the category were still visible.
+                        sc = getattr(self, "_dict_scroll", None)
+                        if sc is not None:
+                            w = sc.widget()
+                            if w is not None:
+                                w.adjustSize()
+                            sc.updateGeometry()
                     return _toggle
                 btn_toggle.clicked.connect(_make_toggle(btn_toggle, content_w))
 
@@ -7287,6 +8041,24 @@ class DicteeSetupDialog(QDialog):
                         result[lang].append((current_subcat, list(words)))
         return result
 
+    def _parse_cont_exclusions(self, path):
+        """Returns {lang: set(excluded_words)} from [exclude:xx] lines."""
+        result = {}
+        if not os.path.isfile(path):
+            return result
+        exc_re = re.compile(r"^\s*\[exclude:([a-z]{2})\]\s+(.+)$")
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line_s = line.strip()
+                if not line_s or line_s.startswith("#"):
+                    continue
+                m = exc_re.match(line_s)
+                if m:
+                    lang = m.group(1)
+                    words = m.group(2).split()
+                    result.setdefault(lang, set()).update(w.lower() for w in words)
+        return result
+
     def _build_continuation_tab(self, lay):
         """Continuation tab: accordions per language with chips + edit mode."""
         import os as _os
@@ -7313,6 +8085,8 @@ class DicteeSetupDialog(QDialog):
 
         # Personal words per language : {lang: set()}
         self._cont_personal_words = {}
+        # Excluded (removed from system) words per language : {lang: set()}
+        self._cont_excluded_words = {}
 
         self._cont_stack = QStackedWidget()
 
@@ -7321,29 +8095,53 @@ class DicteeSetupDialog(QDialog):
         form_top_lay = QVBoxLayout(form_page)
         form_top_lay.setContentsMargins(0, 0, 0, 0)
 
-        # Info label
+        # Collapsible explanation (text + separator grouped in a container)
+        _info_container = QWidget()
+        _info_container_lay = QVBoxLayout(_info_container)
+        _info_container_lay.setContentsMargins(0, 0, 0, 0)
+        _info_container_lay.setSpacing(6)
         info = QLabel(_(
             "Continuation words are words that never end a sentence "
             "(articles, prepositions, conjunctions, pronouns, auxiliaries...).\n"
             "When the ASR incorrectly places a period after one of these words, "
             "the period is removed and the next sentence is joined.\n"
             "Example: \"Je suis allé. dans le parc\" → \"Je suis allé dans le parc\"\n\n"
-            "When continuation is active, an \"&\" appears at the end of the text "
-            "to indicate the system is waiting for more input.\n\n"
+            "When continuation is active, a visual indicator (default \">>\") "
+            "appears at the end of the text to show the system is waiting "
+            "for more input. Configurable via DICTEE_CONTINUATION_INDICATOR.\n\n"
             "System words are built-in and cannot be modified. "
             "You can add your own words per language below."
         ))
         info.setWordWrap(True)
-        font = info.font()
-        font.setItalic(True)
-        info.setFont(font)
-        form_top_lay.addWidget(info)
+        _info_font = info.font()
+        _info_font.setItalic(True)
+        info.setFont(_info_font)
+        _info_container_lay.addWidget(info)
 
-        # --- Separator ---
+        # --- Separator (inside the collapsible block) ---
         _sep1 = QFrame()
         _sep1.setFrameShape(QFrame.Shape.HLine)
         _sep1.setFrameShadow(QFrame.Shadow.Sunken)
-        form_top_lay.addWidget(_sep1)
+        _info_container_lay.addWidget(_sep1)
+
+        _info_container.setVisible(False)
+
+        _info_toggle = QPushButton("\u25b8  " + _("Explanation"))
+        _info_toggle.setCheckable(True)
+        _info_toggle.setChecked(False)
+        _info_toggle.setStyleSheet(
+            "QPushButton { text-align: left; font-weight: bold; "
+            "padding: 4px; border: none; }"
+            "QPushButton:hover { background-color: rgba(127,127,127,30); }"
+        )
+
+        def _on_info_toggled(on, box=_info_container, btn=_info_toggle):
+            btn.setText(("\u25be  " if on else "\u25b8  ") + _("Explanation"))
+            box.setVisible(on)
+        _info_toggle.toggled.connect(_on_info_toggled)
+
+        form_top_lay.addWidget(_info_toggle)
+        form_top_lay.addWidget(_info_container)
 
         # Manual continuation fallback
         kw_info = QLabel(_(
@@ -7356,11 +8154,10 @@ class DicteeSetupDialog(QDialog):
         _kw_font = kw_info.font()
         _kw_font.setItalic(True)
         kw_info.setFont(_kw_font)
-        form_top_lay.addWidget(kw_info)
+        _info_container_lay.addWidget(kw_info)
 
-        # Continuation keyword (per language)
-        kw_lay = QHBoxLayout()
-        kw_lay.setSpacing(6)
+        # Continuation keyword (per language) — widgets created here,
+        # laid out further below on the same row as the visual indicator.
         kw_label = QLabel(_("Continuation keyword:"))
         kw_help = _help_btn(_(
             "<b>Continuation keyword</b><br><br>"
@@ -7400,17 +8197,62 @@ class DicteeSetupDialog(QDialog):
         self._cont_keyword.setText(self._cont_keywords.get(_lang, ""))
         self._cont_kw_lang.currentTextChanged.connect(self._on_cont_kw_lang_changed)
         self._cont_keyword.textChanged.connect(self._on_cont_kw_text_changed)
-        kw_lay.addWidget(kw_label)
-        kw_lay.addWidget(self._cont_kw_lang)
-        kw_lay.addWidget(self._cont_keyword)
-        kw_lay.addWidget(kw_help)
-        kw_lay.addStretch()
-        form_top_lay.addLayout(kw_lay)
 
-        # Variants label (indented under the combo+field)
+        # Visual indicator combobox: pre-tested ASCII strings that are
+        # directly typeable on all latin keyboard layouts via dotool.
+        ind_lay = QHBoxLayout()
+        ind_lay.setSpacing(6)
+        ind_label = QLabel(_("Visual indicator:"))
+        ind_help = _help_btn(_(
+            "<b>Continuation visual indicator</b><br><br>"
+            "Character(s) appended to the typed text when continuation "
+            "is pending. The next push erases them automatically.<br><br>"
+            "Only ASCII strings that can be typed on every latin layout "
+            "without dead-keys or AltGr are listed. Unicode arrows like "
+            "→ or ▶ would require clipboard paste and are not offered "
+            "here to keep the user clipboard intact."))
+        self.cmb_continuation_indicator = QComboBox()
+        self.cmb_continuation_indicator.setFixedWidth(120)
+        # (display, value) — value is what gets written to dictee.conf
+        for _disp, _val in [
+            (">>", ">>"),
+            (">",  ">"),
+            (">>>", ">>>"),
+            ("&",  "&"),
+            ("...", "..."),
+            ("•",  "•"),  # may not be on all layouts; user choice
+        ]:
+            self.cmb_continuation_indicator.addItem(_disp, _val)
+        _saved_ind = self.conf.get("DICTEE_CONTINUATION_INDICATOR", ">>")
+        _ind_idx = self.cmb_continuation_indicator.findData(_saved_ind)
+        if _ind_idx < 0:
+            # Custom value not in list — add it on the fly
+            self.cmb_continuation_indicator.addItem(_saved_ind, _saved_ind)
+            _ind_idx = self.cmb_continuation_indicator.count() - 1
+        self.cmb_continuation_indicator.setCurrentIndex(_ind_idx)
+        self.cmb_continuation_indicator.currentIndexChanged.connect(self._mark_dirty)
+        ind_lay.addWidget(ind_label)
+        ind_lay.addWidget(self.cmb_continuation_indicator)
+        ind_lay.addWidget(ind_help)
+        # Separator between indicator block and continuation keyword block
+        ind_lay.addSpacing(20)
+        ind_lay.addWidget(kw_label)
+        ind_lay.addWidget(self._cont_kw_lang)
+        ind_lay.addWidget(self._cont_keyword)
+        ind_lay.addWidget(kw_help)
+        ind_lay.addStretch()
+        form_top_lay.addLayout(ind_lay)
+
+        # Variants label (indented under the kw combo+field on the row above)
         _variants_lay = QHBoxLayout()
         _variants_spacer = QLabel()
-        _variants_spacer.setFixedWidth(kw_label.sizeHint().width() + 6 + self._cont_kw_lang.sizeHint().width() + 6)
+        _variants_spacer.setFixedWidth(
+            ind_label.sizeHint().width() + 6
+            + self.cmb_continuation_indicator.width() + 6
+            + 20
+            + kw_label.sizeHint().width() + 6
+            + self._cont_kw_lang.sizeHint().width() + 6
+        )
         self._cont_kw_variants = QLabel()
         self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
         _variants_lay.addWidget(_variants_spacer)
@@ -7503,6 +8345,35 @@ class DicteeSetupDialog(QDialog):
         # Load the form
         self._load_cont_form()
 
+    def _cont_refresh_scroll(self):
+        """Force the continuation QScrollArea to recompute its content
+        size after a category fold/unfold. The canonical Qt fix is to
+        propagate updateGeometry bottom-up so the scroll area picks up
+        the new (smaller) sizeHint instead of caching the old layout.
+        """
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtWidgets import QApplication
+        w = getattr(self, "_cont_scroll_content", None)
+        if w is None:
+            return
+        # Walk children bottom-up and call updateGeometry on each
+        for child in w.findChildren(QWidget):
+            child.updateGeometry()
+        lay = w.layout()
+        if lay is not None:
+            lay.invalidate()
+            lay.activate()
+        w.updateGeometry()
+        w.adjustSize()
+        # Drain any pending LayoutRequest events on the scroll content
+        QApplication.sendPostedEvents(w, QEvent.Type.LayoutRequest)
+        p = w.parentWidget()
+        while p is not None and not isinstance(p, QScrollArea):
+            p = p.parentWidget()
+        if p is not None:
+            p.updateGeometry()
+            p.verticalScrollBar().setValue(0)
+
     def _load_cont_form(self):
         """Clears and rebuilds the Continuation tab accordions."""
         layout = self._cont_form_layout
@@ -7534,6 +8405,7 @@ class DicteeSetupDialog(QDialog):
         # or after a revert/factory reset (_cont_force_reload)
         if not self._cont_personal_words or getattr(self, '_cont_force_reload', False):
             self._cont_personal_words.clear()
+            self._cont_excluded_words.clear()
             self._cont_force_reload = False
             user_cats = self._parse_cont_with_categories(self._cont_path)
             for lang, subcats in user_cats.items():
@@ -7541,6 +8413,10 @@ class DicteeSetupDialog(QDialog):
                 for _sc, words in subcats:
                     words_set.update(words)
                 self._cont_personal_words[lang] = words_set
+            # Load exclusions ([exclude:xx] lines)
+            excl = self._parse_cont_exclusions(self._cont_path)
+            for lang, wset in excl.items():
+                self._cont_excluded_words[lang] = wset
 
         # Determine active language
         active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
@@ -7550,10 +8426,14 @@ class DicteeSetupDialog(QDialog):
 
         # Build one accordion per language
         for lang in all_langs:
+            excluded_set = self._cont_excluded_words.get(lang, set())
             sys_words_all = []
             sys_subcats = sys_cats.get(lang, [])
             for _sc, words in sys_subcats:
-                sys_words_all.extend(words)
+                # Filter out excluded (case-insensitive)
+                sys_words_all.extend(
+                    w for w in words if w.lower() not in excluded_set
+                )
 
             perso_words = self._cont_personal_words.get(lang, set())
             total = len(sys_words_all) + len(perso_words)
@@ -7569,6 +8449,11 @@ class DicteeSetupDialog(QDialog):
             layout.addWidget(btn_lang)
 
             group = QWidget()
+            # Maximum vertical so the group never claims more height than
+            # its sizeHint — critical for QScrollArea to recompute its
+            # range when this group is folded/unfolded.
+            group.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                QSizePolicy.Policy.Maximum)
             group.setVisible(lang == active_lang)
             group_lay = QVBoxLayout(group)
             group_lay.setSpacing(4)
@@ -7579,6 +8464,7 @@ class DicteeSetupDialog(QDialog):
                     vis = not w.isVisible()
                     w.setVisible(vis)
                     btn.setText(("\u25be " if vis else "\u25b8 ") + t)
+                    self._cont_refresh_scroll()
                 return _toggle
             btn_lang.clicked.connect(_make_lang_toggle(btn_lang, group))
 
@@ -7592,16 +8478,22 @@ class DicteeSetupDialog(QDialog):
             for _sc, words in sys_subcats:
                 sys_all.update(words)
 
-            # System words toggle (on top)
+            # System words toggle (on top) — open by default for active language
             sys_count = len(sys_all)
+            _sys_open = (lang == active_lang)
+            _sys_arrow = "\u25be" if _sys_open else "\u25b8"
             btn_show_sys = QPushButton(
-                f"\u25b8 {_('System words')} ({sys_count})")
+                f"{_sys_arrow} {_('System words')} ({sys_count})")
             btn_show_sys.setFlat(True)
             btn_show_sys.setStyleSheet("text-align: left; color: gray; padding: 2px;")
             group_lay.addWidget(btn_show_sys)
 
-            # System chips (hidden by default)
+            # System chips
             sys_w = QWidget()
+            _sp = sys_w.sizePolicy()
+            _sp.setVerticalPolicy(QSizePolicy.Policy.Maximum)
+            _sp.setHeightForWidth(True)
+            sys_w.setSizePolicy(_sp)
             sys_lay = self._FlowLayout(sys_w, spacing=8)
             for word in sorted(sys_all, key=locale.strxfrm):
                 lbl = QLabel(f"  {word}  ")
@@ -7609,7 +8501,7 @@ class DicteeSetupDialog(QDialog):
                     "background:rgba(128,128,128,0.3); border-radius:14px; "
                     "padding:6px 14px; font-size:14px;")
                 sys_lay.addWidget(lbl)
-            sys_w.setVisible(False)
+            sys_w.setVisible(_sys_open)
             sys_w.setProperty("cont_sys_chips", True)
             group_lay.addWidget(sys_w)
 
@@ -7618,6 +8510,7 @@ class DicteeSetupDialog(QDialog):
                 sw.setVisible(vis)
                 arrow = "\u25be" if vis else "\u25b8"
                 btn.setText(f"{arrow} {_('System words')} ({n})")
+                self._cont_refresh_scroll()
             btn_show_sys.clicked.connect(_toggle_sys)
 
             # Personal chips (always visible, after system)
@@ -7625,6 +8518,10 @@ class DicteeSetupDialog(QDialog):
             group_lay.addWidget(lbl_yours)
             if perso_words:
                 perso_w = QWidget()
+                _sp2 = perso_w.sizePolicy()
+                _sp2.setVerticalPolicy(QSizePolicy.Policy.Maximum)
+                _sp2.setHeightForWidth(True)
+                perso_w.setSizePolicy(_sp2)
                 perso_lay = self._FlowLayout(perso_w, spacing=8)
                 for word in sorted(perso_words, key=locale.strxfrm):
                     btn = QPushButton(f"  {word}  \u2715  ")
@@ -7663,6 +8560,10 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_cont_search') and self._cont_search.text().strip():
             self._filter_cont_words()
 
+        # Defer a scroll geometry refresh so the FlowLayouts inside hidden
+        # groups have time to settle before we measure them.
+        QTimer.singleShot(0, self._cont_refresh_scroll)
+
     class _FlowLayout(QLayout):
         """Layout qui wrappe les widgets horizontalement comme du texte."""
 
@@ -7688,10 +8589,22 @@ class DicteeSetupDialog(QDialog):
             return None
 
         def sizeHint(self):
-            return self.minimumSize()
+            # Real sizeHint based on visible items so QScrollArea can
+            # propagate a correct height up the chain.
+            size = QSize()
+            for item in self._items:
+                if item.isEmpty():
+                    continue
+                size = size.expandedTo(item.minimumSize())
+            m = self.contentsMargins()
+            size += QSize(m.left() + m.right(), m.top() + m.bottom())
+            return size
 
         def minimumSize(self):
-            return QSize(0, self._do_layout(self.geometry(), dry_run=True))
+            return self.sizeHint()
+
+        def expandingDirections(self):
+            return Qt.Orientation(0)
 
         def setGeometry(self, rect):
             super().setGeometry(rect)
@@ -7708,8 +8621,10 @@ class DicteeSetupDialog(QDialog):
             y = rect.y()
             row_height = 0
             for item in self._items:
-                w = item.widget()
-                if w is None or w.isHidden():
+                # Qt's canonical "should I lay out this item?" check.
+                # Honors hidden widgets (and their ancestors) via the
+                # default QWidgetItem.isEmpty() implementation.
+                if item.isEmpty():
                     continue
                 size = item.sizeHint()
                 if x + size.width() > rect.right() and x > rect.x():
@@ -7858,6 +8773,13 @@ class DicteeSetupDialog(QDialog):
                 words = sorted(self._cont_personal_words[lang])
                 if words:
                     f.write(f"[{lang}] {' '.join(words)}\n")
+            # Excluded (removed from system) words
+            if hasattr(self, '_cont_excluded_words') and self._cont_excluded_words:
+                f.write("\n")
+                for lang in sorted(self._cont_excluded_words.keys()):
+                    words = sorted(self._cont_excluded_words[lang])
+                    if words:
+                        f.write(f"[exclude:{lang}] {' '.join(words)}\n")
 
     def _cont_save_smart(self):
         """Save (normal or advanced mode)."""
@@ -7976,13 +8898,107 @@ class DicteeSetupDialog(QDialog):
         self._save_cont_personal()
         self._load_cont_form()
 
+    def _cont_build_advanced_text(self):
+        """Build the text shown in the advanced editor: keywords + system
+        words (with user additions merged and exclusions removed), editable."""
+        lines = []
+        lines.append("# User continuation words for dictee")
+        lines.append("# Format: [lang] word1 word2 ...")
+        lines.append("# Edit lines below to add/remove words. On save, the")
+        lines.append("# diff vs system words is stored as additions/exclusions.")
+        lines.append("")
+        # Keywords
+        if hasattr(self, '_cont_keywords'):
+            for lang, kw in sorted(self._cont_keywords.items()):
+                if kw:
+                    lines.append(f"[keyword:{lang}] {kw}")
+            lines.append("")
+        # Load system words
+        sys_cats = {}
+        if self._cont_sys_path:
+            sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
+        # Merge: (system ∪ personal) − excluded
+        lines.append("# --- Continuation words (editable — remove what you don't want) ---")
+        all_langs = sorted(set(list(sys_cats.keys()) + list(self._cont_personal_words.keys())))
+        for lang in all_langs:
+            sys_words = set()
+            for _sc, words in sys_cats.get(lang, []):
+                sys_words.update(w.lower() for w in words)
+            perso = {w.lower() for w in self._cont_personal_words.get(lang, set())}
+            excl = self._cont_excluded_words.get(lang, set())
+            merged = (sys_words | perso) - excl
+            if merged:
+                lines.append(f"[{lang}] {' '.join(sorted(merged))}")
+        return "\n".join(lines) + "\n"
+
     def _save_cont_advanced(self):
-        """Saves advanced mode content to file (without switching mode)."""
+        """Parses the advanced editor, computes diff vs system words, and
+        writes keywords + personal additions + [exclude:xx] lines."""
         import os as _os
 
+        text = self._cont_adv_editor.toPlainText()
+
+        # Parse editor content
+        keywords = {}
+        editor_words = {}  # lang -> set
+        kw_re = re.compile(r"^\s*\[keyword:([a-z]{2})\]\s*(.+)$")
+        entry_re = re.compile(r"^\s*\[([a-z]{2})\]\s+(.+)$")
+        for line in text.splitlines():
+            line_s = line.strip()
+            if not line_s or line_s.startswith("#"):
+                continue
+            m = kw_re.match(line_s)
+            if m:
+                keywords[m.group(1)] = m.group(2).strip()
+                continue
+            m = entry_re.match(line_s)
+            if m:
+                lang = m.group(1)
+                words = {w.lower() for w in m.group(2).split()}
+                editor_words.setdefault(lang, set()).update(words)
+
+        # Load system reference
+        sys_cats = {}
+        if self._cont_sys_path:
+            sys_cats = self._parse_cont_with_categories(self._cont_sys_path)
+        sys_sets = {}
+        for lang, subcats in sys_cats.items():
+            s = set()
+            for _sc, words in subcats:
+                s.update(w.lower() for w in words)
+            sys_sets[lang] = s
+
+        # Diff → personals + exclusions
+        new_personals = {}
+        new_excluded = {}
+        all_langs = set(sys_sets.keys()) | set(editor_words.keys())
+        for lang in all_langs:
+            sys_s = sys_sets.get(lang, set())
+            ed_s = editor_words.get(lang, set())
+            added = ed_s - sys_s
+            removed = sys_s - ed_s
+            if added:
+                new_personals[lang] = added
+            if removed:
+                new_excluded[lang] = removed
+
+        # Update in-memory state — keywords: any lang present in the editor
+        # overrides, any lang absent is cleared (explicit deletion).
+        if hasattr(self, '_cont_keywords'):
+            for lang in list(self._cont_keywords.keys()):
+                self._cont_keywords[lang] = keywords.get(lang, "")
+            # Also accept keywords for langs not yet tracked
+            for lang, kw in keywords.items():
+                if lang not in self._cont_keywords:
+                    self._cont_keywords[lang] = kw
+        self._cont_personal_words.clear()
+        self._cont_personal_words.update(new_personals)
+        self._cont_excluded_words.clear()
+        self._cont_excluded_words.update(new_excluded)
+
+        # Write file through the canonical writer
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
-        with open(self._cont_path, "w", encoding="utf-8") as f:
-            f.write(self._cont_adv_editor.toPlainText())
+        self._save_cont_personal()
 
     def _toggle_advanced_mode(self, checked):
         """Toggles form ↔ text editor for the active tab.
@@ -7994,7 +9010,7 @@ class DicteeSetupDialog(QDialog):
                                before triggering this switch.
         """
         idx = self._pp_tabs.currentIndex()
-        if idx == 0:  # Dictionary
+        if idx == 3:  # Dictionary (new index with LLM moved last)
             currently_advanced = self._dict_stack.currentIndex() == 1
             if checked and not currently_advanced:
                 # Form → Advanced : push current state (Discard can restore it)
@@ -8030,15 +9046,13 @@ class DicteeSetupDialog(QDialog):
                     f.write(text)
                 self._load_dict_form()
                 self._dict_stack.setCurrentIndex(0)
-        elif idx == 2:  # Continuation
+        elif idx == 1:  # Continuation (new index in pipeline order)
             if checked:
-                # Form → Advanced : sauvegarder le formulaire, charger dans l'éditeur
+                # Form → Advanced : sauvegarder le formulaire, puis composer
+                # le texte à éditer (keywords + mots système mergés avec perso
+                # et exclusions retirées).
                 self._save_cont_personal()
-                if os.path.isfile(self._cont_path):
-                    with open(self._cont_path, encoding="utf-8") as f:
-                        self._cont_adv_editor.setPlainText(f.read())
-                else:
-                    self._cont_adv_editor.clear()
+                self._cont_adv_editor.setPlainText(self._cont_build_advanced_text())
             else:
                 # Advanced → Form : recharger depuis le fichier
                 self._cont_force_reload = True
@@ -9259,6 +10273,13 @@ class DicteeSetupDialog(QDialog):
         self._test_lang_override = ""
         self._lbl_test_lang = QLabel("")
         self._lbl_test_lang.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self._lbl_test_lang.setVisible(False)
+        # Auto-show/hide when text is set or cleared
+        _orig_setText = self._lbl_test_lang.setText
+        def _set_and_toggle(t, lbl=self._lbl_test_lang, orig=_orig_setText):
+            orig(t)
+            lbl.setVisible(bool(t))
+        self._lbl_test_lang.setText = _set_and_toggle
         lay.addWidget(self._lbl_test_lang)
 
         row = QHBoxLayout()
@@ -9313,6 +10334,14 @@ class DicteeSetupDialog(QDialog):
 
         btn_details.toggled.connect(self._test_details_label.setVisible)
 
+        def _scroll_pp_to_bottom_when_details(on):
+            if on and getattr(self, '_pp_scroll', None) is not None:
+                def _do():
+                    bar = self._pp_scroll.verticalScrollBar()
+                    bar.setValue(bar.maximum())
+                QTimer.singleShot(0, _do)
+        btn_details.toggled.connect(_scroll_pp_to_bottom_when_details)
+
         # Connect
         self._test_input.textChanged.connect(self._schedule_test_run)
         self._btn_record.clicked.connect(self._toggle_recording)
@@ -9330,164 +10359,156 @@ class DicteeSetupDialog(QDialog):
         self._test_timer.start()
 
     def _run_test_pipeline(self):
-        """Runs the postprocess pipeline step by step."""
+        """Runs the real dictee-postprocess binary as a subprocess.
+
+        Uses DICTEE_PP_DEBUG=1 to collect step-by-step traces on stderr, so
+        this panel stays in sync with the actual pipeline (LLM, master
+        switches, short_text included). Single source of truth.
+        """
         text = self._test_input.toPlainText()
         if not text.strip():
             self._test_output.setPlainText("")
             self._test_details_label.setText("")
             return
 
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        try:
-            import importlib.util, importlib.machinery
-            # Use language from cursor position in rules editor, otherwise config
-            lang = getattr(self, '_test_lang_override', "") or self.conf.get("DICTEE_LANG_SOURCE", "fr")
-            os.environ["DICTEE_LANG_SOURCE"] = lang
+        lang = getattr(self, '_test_lang_override', "") or self.conf.get("DICTEE_LANG_SOURCE", "fr")
 
-            # Try with .py (dev) then without (installed as /usr/bin/dictee-postprocess)
-            pp_path = os.path.join(script_dir, "dictee-postprocess.py")
-            if not os.path.isfile(pp_path):
-                pp_path = os.path.join(script_dir, "dictee-postprocess")
-                if not os.path.isfile(pp_path):
-                    pp_path = shutil.which("dictee-postprocess") or pp_path
-            # Force SourceFileLoader for extensionless Python scripts
-            loader = importlib.machinery.SourceFileLoader("dictee_postprocess", pp_path)
-            spec = importlib.util.spec_from_file_location(
-                "dictee_postprocess", pp_path, loader=loader)
-            pp = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(pp)
-
-            steps = []
-            current = text
-
-            # Read toggle states (protected if widgets not yet created)
-            do_numbers = self.chk_pp_numbers.isChecked() if hasattr(self, 'chk_pp_numbers') else True
-            do_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
-            do_typography = self.chk_pp_typography.isChecked() if hasattr(self, 'chk_pp_typography') else True
-            do_capitalization = self.chk_pp_capitalization.isChecked() if hasattr(self, 'chk_pp_capitalization') else True
-            do_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
-            do_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
-            do_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
-
-            # 1. Règles regex
-            rules = pp.load_rules()
-            if do_rules and rules:
-                new = pp.apply_rules(current, rules).lstrip(" ")
-                steps.append((_("Rules"), current, new))
-                current = new
-
-            # 2. Rejet mauvaise langue
-            _LATIN = {"fr", "en", "de", "es", "it", "pt", "nl", "pl", "ro",
-                       "cs", "sv", "da", "no", "fi", "hu", "tr"}
-            _CYRILLIC = {"ru", "uk", "bg", "sr", "mk", "be"}
-            letters = [c for c in current if c.isalpha()]
-            if letters and lang:
-                cyrillic = sum(1 for c in letters if '\u0400' <= c <= '\u04ff')
-                ratio = cyrillic / len(letters)
-                if lang in _LATIN and ratio > 0.5:
-                    self._test_output.setPlainText(
-                        _("Rejected: ASR detected Cyrillic instead of {lang}").format(lang=lang))
-                    self._test_details_label.setText("")
-                    return
-                if lang in _CYRILLIC and ratio < 0.2:
-                    self._test_output.setPlainText(
-                        _("Rejected: ASR detected Latin instead of {lang}").format(lang=lang))
-                    self._test_details_label.setText("")
-                    return
-
-            # 3. Continuation
-            cont_words = pp.load_continuation()
-            if do_continuation and cont_words:
-                new = pp.fix_continuation(current, cont_words)
-                steps.append((_("Continuation"), current, new))
-                current = new
-
-            # 4. Règles spécifiques à la langue
-            do_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
-            do_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True
-            do_portuguese = self.chk_pp_portuguese.isChecked() if hasattr(self, 'chk_pp_portuguese') else True
-            do_german = self.chk_pp_german.isChecked() if hasattr(self, 'chk_pp_german') else True
-            do_dutch = self.chk_pp_dutch.isChecked() if hasattr(self, 'chk_pp_dutch') else True
-            do_romanian = self.chk_pp_romanian.isChecked() if hasattr(self, 'chk_pp_romanian') else True
-
-            if lang == "fr" and do_elisions:
-                new = pp.fix_elisions(current)
-                steps.append((_("Elisions [fr]"), current, new))
-                current = new
-            if lang == "it" and do_elisions_it:
-                new = pp.fix_italian_elisions(current)
-                steps.append((_("Elisions [it]"), current, new))
-                current = new
-            if lang == "es" and do_spanish:
-                new = pp.fix_spanish(current)
-                steps.append((_("Spanish [es]"), current, new))
-                current = new
-            if lang == "pt" and do_portuguese:
-                new = pp.fix_portuguese(current)
-                steps.append((_("Contractions [pt]"), current, new))
-                current = new
-            if lang == "de" and do_german:
-                new = pp.fix_german(current)
-                steps.append((_("German [de]"), current, new))
-                current = new
-            if lang == "nl" and do_dutch:
-                new = pp.fix_dutch(current)
-                steps.append((_("Dutch [nl]"), current, new))
-                current = new
-            if lang == "ro" and do_romanian:
-                new = pp.fix_romanian(current)
-                steps.append((_("Romanian [ro]"), current, new))
-                current = new
-
-            # 5. Nombres
-            if do_numbers:
-                new = pp.convert_numbers(current)
-                steps.append((_("Numbers"), current, new))
-                current = new
-
-            # 6. Typographie (FR)
-            if lang == "fr" and do_typography:
-                new = pp.fix_french_typography(current)
-                steps.append((_("Typography"), current, new))
-                current = new
-
-            # 7. Dictionnaire
-            dictionary = pp.load_dictionary()
-            if do_dict and dictionary:
-                new = pp.apply_dictionary(current, dictionary)
-                steps.append((_("Dictionary"), current, new))
-                current = new
-
-            # 8. Capitalisation
-            if do_capitalization:
-                new = pp.fix_capitalization(current)
-                steps.append((_("Capitalization"), current, new))
-                current = new
-
-            # Display special characters with visible symbols
-            display_output = current
-            display_output = display_output.replace("\n", "↵\n")
-            display_output = display_output.replace("\t", "⇥\t")
+        # Master switch: bypass everything
+        pp_master = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
+        if not pp_master:
+            display_output = text.replace("\n", "↵\n").replace("\t", "⇥\t")
             if display_output.endswith(" "):
                 display_output = display_output.rstrip(" ") + "␣"
-            # If result contains only special characters, show symbols only
-            if not display_output.strip() and current.strip():
-                display_output = current.replace("\n", "↵").replace("\t", "⇥")
             self._test_output.setPlainText(display_output)
+            self._test_details_label.setText(
+                _("Post-processing disabled (master switch off) — text passed through unchanged."))
+            return
 
-            # Details
-            lines = []
-            for i, (name, before, after) in enumerate(steps, 1):
-                changed = before != after
-                marker = " \u2190 " + _("changed") if changed else ""
-                display = after.replace("\n", "\\n").replace("\t", "\\t")
-                if len(display) > 100:
-                    display = display[:100] + "\u2026"
-                lines.append(f"{i}. {name} \u2192 {display}{marker}")
-            self._test_details_label.setText("\n".join(lines))
+        # Locate dictee-postprocess (dev tree first, then installed)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        pp_path = os.path.join(script_dir, "dictee-postprocess.py")
+        if not os.path.isfile(pp_path):
+            pp_path = os.path.join(script_dir, "dictee-postprocess")
+        if not os.path.isfile(pp_path):
+            pp_path = shutil.which("dictee-postprocess") or ""
+        if not pp_path or not os.path.isfile(pp_path):
+            self._test_output.setPlainText(_("dictee-postprocess not found"))
+            self._test_details_label.setText("")
+            return
 
+        # Build env from UI toggles
+        def _b(attr, default=True):
+            w = getattr(self, attr, None)
+            if w is None:
+                return "true" if default else "false"
+            return "true" if w.isChecked() else "false"
+
+        env = os.environ.copy()
+        env["DICTEE_LANG_SOURCE"] = lang
+        env["DICTEE_PP_DEBUG"] = "true"
+        env["DICTEE_PP_RULES"] = _b("chk_pp_rules")
+        env["DICTEE_PP_CONTINUATION"] = _b("chk_pp_continuation")
+        env["DICTEE_PP_LANGUAGE_RULES"] = _b("chk_pp_language_rules")
+        env["DICTEE_PP_ELISIONS"] = _b("chk_pp_elisions")
+        env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
+        env["DICTEE_PP_SPANISH"] = _b("chk_pp_spanish")
+        env["DICTEE_PP_PORTUGUESE"] = _b("chk_pp_portuguese")
+        env["DICTEE_PP_GERMAN"] = _b("chk_pp_german")
+        env["DICTEE_PP_DUTCH"] = _b("chk_pp_dutch")
+        env["DICTEE_PP_ROMANIAN"] = _b("chk_pp_romanian")
+        env["DICTEE_PP_NUMBERS"] = _b("chk_pp_numbers")
+        env["DICTEE_PP_TYPOGRAPHY"] = _b("chk_pp_typography")
+        env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
+        env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
+        env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
+                self.cmb_pp_short_text_max.currentData() or 3)
+
+        # LLM
+        llm_on = _b("chk_llm", default=False)
+        env["DICTEE_LLM_POSTPROCESS"] = llm_on
+        if hasattr(self, 'cmb_llm_position'):
+            env["DICTEE_LLM_POSITION"] = self.cmb_llm_position.currentData() or "hybrid"
+        if hasattr(self, 'cmb_llm_model'):
+            env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
+        if hasattr(self, 'cmb_llm_preset'):
+            env["DICTEE_LLM_SYSTEM_PROMPT"] = self.cmb_llm_preset.currentData() or "correction-fr"
+        if hasattr(self, 'txt_llm_prompt'):
+            env["DICTEE_LLM_CUSTOM_PROMPT"] = self.txt_llm_prompt.toPlainText()
+        # Tight LLM timeout so the UI stays responsive
+        env.setdefault("DICTEE_LLM_TIMEOUT", "15")
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, pp_path],
+                input=text, capture_output=True, text=True,
+                env=env, timeout=30)
+        except subprocess.TimeoutExpired:
+            self._test_output.setPlainText(_("Timeout running post-processing"))
+            self._test_details_label.setText("")
+            return
         except Exception as e:
             self._test_output.setPlainText(f"Error: {e}")
+            self._test_details_label.setText("")
+            return
+
+        result = proc.stdout
+
+        # Parse step traces on stderr
+        def _dec(s):
+            out = []
+            i = 0
+            while i < len(s):
+                c = s[i]
+                if c == "\\" and i + 1 < len(s):
+                    nxt = s[i + 1]
+                    if nxt == "n":
+                        out.append("\n"); i += 2; continue
+                    if nxt == "t":
+                        out.append("\t"); i += 2; continue
+                    if nxt == "\\":
+                        out.append("\\"); i += 2; continue
+                out.append(c)
+                i += 1
+            return "".join(out)
+
+        steps = []
+        for line in proc.stderr.splitlines():
+            if not line.startswith("STEP\t"):
+                continue
+            parts = line.split("\t", 3)
+            if len(parts) != 4:
+                continue
+            label = parts[1]
+            before = _dec(parts[2])
+            after = _dec(parts[3])
+            steps.append((label, before, after))
+
+        # Output display (visible whitespace markers)
+        display_output = result
+        display_output = display_output.replace("\n", "↵\n")
+        display_output = display_output.replace("\t", "⇥\t")
+        if display_output.endswith(" "):
+            display_output = display_output.rstrip(" ") + "␣"
+        if not display_output.strip() and result.strip():
+            display_output = result.replace("\n", "↵").replace("\t", "⇥")
+        self._test_output.setPlainText(display_output)
+
+        # Details
+        lines = []
+        if not steps and proc.returncode == 0:
+            lines.append(_("No pipeline steps ran."))
+        for i, (name, before, after) in enumerate(steps, 1):
+            changed = before != after
+            marker = " \u2190 " + _("changed") if changed else ""
+            display = after.replace("\n", "\\n").replace("\t", "\\t")
+            if len(display) > 100:
+                display = display[:100] + "\u2026"
+            lines.append(f"{i}. {name} \u2192 {display}{marker}")
+        if proc.returncode != 0:
+            lines.append(f"[exit {proc.returncode}] {proc.stderr.splitlines()[-1] if proc.stderr else ''}")
+        self._test_details_label.setText("\n".join(lines))
 
     def _toggle_recording(self):
         """Starts/stops microphone recording."""
@@ -9578,8 +10599,88 @@ class DicteeSetupDialog(QDialog):
 
     # -- Appliquer --
 
-    def _on_apply(self):
+    def _on_apply_clicked(self):
+        """Apply button handler: run _on_apply with in-button animation
+        instead of a trailing message box (message box only on OK).
+        """
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+        btn = self.sender()
+        if btn is None:
+            # Fallback: no sender context, run plain apply silently
+            self._on_apply(show_message=False)
+            return
+        orig_text = btn.text()
+        orig_min_w = btn.minimumWidth()
+        # Freeze width to prevent layout shift as the spinner cycles
+        btn.setMinimumWidth(btn.width())
+        btn.setEnabled(False)
+
+        # Braille spinner — 32 frames, ~30 fps for a smooth rotating wheel
+        _frames = (
+            "⣾⣽⣻⢿⡿⣟⣯⣷"
+            "⠋⠙⠚⠞⠖⠦⠴⠲⠳⠓"
+            "⠁⠂⠄⡀⡈⡐⡠⣀⣁⣂⣄⣌⣔⣤"
+        )
+        self._apply_anim_step = 0
+        _base = _("Applying")
+        def _tick():
+            frame = _frames[self._apply_anim_step % len(_frames)]
+            btn.setText(f"{frame} {_base}…")
+            self._apply_anim_step += 1
+        _tick()
+        self._apply_anim_timer = QTimer(self)
+        self._apply_anim_timer.timeout.connect(_tick)
+        self._apply_anim_timer.start(33)  # ~30 fps
+        QApplication.processEvents()
+
+        try:
+            self._on_apply(show_message=False)
+        finally:
+            self._apply_anim_timer.stop()
+            btn.setText(orig_text)
+            btn.setMinimumWidth(orig_min_w)
+            btn.setEnabled(True)
+
+    def _on_apply(self, show_message=True):
         _dbg_setup("_on_apply: saving configuration")
+        # Save the rules editor content too — user expects Apply to persist
+        # every pending change, not just the checkboxes.
+        _rules_error = ""
+        if hasattr(self, "_save_rules_file_silent"):
+            _rules_ok, _rules_err = self._save_rules_file_silent()
+            if not _rules_ok:
+                _rules_error = _rules_err
+        # Snapshot PTT-related config BEFORE save_config() to detect if
+        # a dictee-ptt restart is actually needed. For post-processing
+        # toggles (the common case) no restart is required — dictee bash
+        # sources dictee.conf fresh on each F9 press.
+        # Snapshot config that affects service lifecycles (PTT + ASR daemon)
+        # before save_config() overwrites the file.
+        _old_ptt = {}
+        _old_asr = {}
+        _ASR_KEYS = ("DICTEE_ASR_BACKEND", "DICTEE_WHISPER_MODEL",
+                     "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
+                     "DICTEE_AUDIO_SOURCE")
+        try:
+            if os.path.isfile(CONF_PATH):
+                with open(CONF_PATH) as _f:
+                    for _line in _f:
+                        _line = _line.strip()
+                        if _line.startswith("#") or "=" not in _line:
+                            continue
+                        _pk, _pv = _line.split("=", 1)
+                        _pk = _pk.strip()
+                        _pv = _pv.strip().strip('"').strip("'")
+                        if _pk in ("DICTEE_PTT_MODE", "DICTEE_PTT_KEY",
+                                   "DICTEE_PTT_KEY_TRANSLATE",
+                                   "DICTEE_PTT_MOD_TRANSLATE"):
+                            _old_ptt[_pk] = _pv
+                        elif _pk in _ASR_KEYS:
+                            _old_asr[_pk] = _pv
+        except OSError:
+            _old_ptt = {}
+            _old_asr = {}
         # Wizard translation cards override cmb_trans_backend
         if self.wizard_mode and hasattr(self, '_wizard_trans'):
             wt = self._wizard_trans
@@ -9665,9 +10766,21 @@ class DicteeSetupDialog(QDialog):
         pp_dict = self.chk_pp_dict.isChecked() if hasattr(self, 'chk_pp_dict') else True
         pp_rules = self.chk_pp_rules.isChecked() if hasattr(self, 'chk_pp_rules') else True
         pp_continuation = self.chk_pp_continuation.isChecked() if hasattr(self, 'chk_pp_continuation') else True
+        pp_language_rules = self.chk_pp_language_rules.isChecked() if hasattr(self, 'chk_pp_language_rules') else True
+        pp_short_text = self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True
+        pp_short_text_max = (self.cmb_pp_short_text_max.currentData()
+                             if hasattr(self, 'cmb_pp_short_text_max') else 3) or 3
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
-        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "ministral:3b"
+        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
+        llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
+        llm_position = self.cmb_llm_position.currentData() if hasattr(self, 'cmb_llm_position') else "hybrid"
+        llm_custom_prompt = self.txt_llm_prompt.toPlainText() if hasattr(self, 'txt_llm_prompt') else ""
+
+        # Continuation visual indicator
+        continuation_indicator = (
+            self.cmb_continuation_indicator.currentData()
+            if hasattr(self, 'cmb_continuation_indicator') else ">>")
 
         # Audio context buffer
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
@@ -9690,8 +10803,15 @@ class DicteeSetupDialog(QDialog):
                     pp_typography=pp_typography, pp_capitalization=pp_capitalization,
                     pp_dict=pp_dict,
                     pp_rules=pp_rules, pp_continuation=pp_continuation,
+                    pp_language_rules=pp_language_rules,
+                    pp_short_text=pp_short_text,
+                    pp_short_text_max=pp_short_text_max,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu,
+                    llm_system_prompt=llm_system_prompt,
+                    llm_position=llm_position,
+                    llm_custom_prompt=llm_custom_prompt,
+                    continuation_indicator=continuation_indicator,
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     notifications=self.chk_notifications.isChecked(),
@@ -9714,10 +10834,33 @@ class DicteeSetupDialog(QDialog):
         tray_action = "enable" if self.chk_tray.isChecked() else "disable"
         bg_cmds.append(["systemctl", "--user", tray_action, "--now", "dictee-tray"])
         bg_cmds.append(["systemctl", "--user", "enable", "dictee-ptt"])
-        bg_cmds.append(["systemctl", "--user", "restart", "dictee-ptt"])
+        # Only restart dictee-ptt when a PTT-related key actually changed.
+        # Otherwise the restart loses the first F9 press (keyboard grab
+        # drops during the ~1s restart window) for no benefit.
+        _new_ptt = {
+            "DICTEE_PTT_MODE": ptt_mode,
+            "DICTEE_PTT_KEY": str(ptt_key),
+            "DICTEE_PTT_KEY_TRANSLATE": str(ptt_key_translate) if ptt_key_translate else "",
+            "DICTEE_PTT_MOD_TRANSLATE": ptt_mod_translate or "",
+        }
+        _old_ptt_normalized = {
+            "DICTEE_PTT_MODE": _old_ptt.get("DICTEE_PTT_MODE", "toggle"),
+            "DICTEE_PTT_KEY": _old_ptt.get("DICTEE_PTT_KEY", "67"),
+            "DICTEE_PTT_KEY_TRANSLATE": _old_ptt.get("DICTEE_PTT_KEY_TRANSLATE", ""),
+            "DICTEE_PTT_MOD_TRANSLATE": _old_ptt.get("DICTEE_PTT_MOD_TRANSLATE", ""),
+        }
+        _ptt_changed = _new_ptt != _old_ptt_normalized
+        if _ptt_changed:
+            bg_cmds.append(["systemctl", "--user", "restart", "dictee-ptt"])
+            _dbg_setup(f"_on_apply: dictee-ptt restart (PTT changed: {_old_ptt_normalized} -> {_new_ptt})")
+        else:
+            _dbg_setup("_on_apply: skipping dictee-ptt restart (PTT unchanged)")
         bg_procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in bg_cmds]
 
-        # Active ASR service: synchronous (need error feedback)
+        # Active ASR service: always ensure it's enabled (boot). Restart it
+        # only when an ASR-related key actually changed — otherwise the
+        # transcribe-daemon goes down for 2-10s (model reload) for nothing,
+        # and any F9 during that window produces no dictation.
         en = subprocess.run(
             ["systemctl", "--user", "enable", active_svc],
             capture_output=True, text=True,
@@ -9725,17 +10868,49 @@ class DicteeSetupDialog(QDialog):
         if en.returncode != 0:
             svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
                 svc=active_svc, err=en.stderr.strip())
-        try:
-            result = subprocess.run(
-                ["systemctl", "--user", "restart", active_svc],
-                capture_output=True, text=True, timeout=15,
-            )
-            if result.returncode != 0:
+
+        _new_asr = {
+            "DICTEE_ASR_BACKEND": asr_backend,
+            "DICTEE_WHISPER_MODEL": whisper_model,
+            "DICTEE_WHISPER_LANG": whisper_lang,
+            "DICTEE_VOSK_MODEL": vosk_model,
+            "DICTEE_AUDIO_SOURCE": str(audio_source),
+        }
+        _old_asr_normalized = {k: _old_asr.get(k, "") for k in _new_asr}
+        _asr_changed = _new_asr != _old_asr_normalized
+        # Also restart if the service isn't running yet (first-install path)
+        _active_running = subprocess.run(
+            ["systemctl", "--user", "is-active", active_svc],
+            capture_output=True, text=True).stdout.strip() == "active"
+
+        if _asr_changed or not _active_running:
+            _dbg_setup(f"_on_apply: restarting {active_svc} (asr_changed={_asr_changed}, running={_active_running})")
+            try:
+                from PyQt6.QtWidgets import QApplication
+                _proc = subprocess.Popen(
+                    ["systemctl", "--user", "restart", active_svc],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                import time as _time
+                _deadline = _time.monotonic() + 15.0
+                while _proc.poll() is None:
+                    QApplication.processEvents()
+                    _time.sleep(0.02)
+                    if _time.monotonic() > _deadline:
+                        break
+                if _proc.poll() is None:
+                    _proc.kill()
+                    svc_error = _("Warning: {svc} is taking too long to start.\n"
+                                  "It may still be loading the model.").format(svc=active_svc)
+                elif _proc.returncode != 0:
+                    _err = (_proc.stderr.read() or "").strip() if _proc.stderr else ""
+                    svc_error = _("Warning: {svc} failed to start.\n{err}").format(
+                        svc=active_svc, err=_err)
+            except Exception as _e:
                 svc_error = _("Warning: {svc} failed to start.\n{err}").format(
-                    svc=active_svc, err=result.stderr.strip())
-        except subprocess.TimeoutExpired:
-            svc_error = _("Warning: {svc} is taking too long to start.\n"
-                          "It may still be loading the model.").format(svc=active_svc)
+                    svc=active_svc, err=str(_e))
+        else:
+            _dbg_setup(f"_on_apply: skipping {active_svc} restart (ASR unchanged and running)")
 
         # Wait for background processes (non-blocking, they should be done by now)
         for p in bg_procs:
@@ -9762,7 +10937,7 @@ class DicteeSetupDialog(QDialog):
         if backend == "libretranslate" and docker_is_installed() and docker_is_accessible():
             self._prompt_lt_server()
 
-        if not self.wizard_mode:
+        if not self.wizard_mode and show_message:
             msg = _("File: {path}").format(path=CONF_PATH) + shortcut_msg
             if svc_error:
                 QMessageBox.warning(
@@ -9776,6 +10951,16 @@ class DicteeSetupDialog(QDialog):
                     _("Configuration saved"),
                     msg,
                 )
+        elif svc_error and not self.wizard_mode:
+            # Apply-button path: still surface service errors (don't swallow)
+            QMessageBox.warning(self, _("Configuration saved"), svc_error)
+
+        # Rules syntax error must always be surfaced — even silently via Apply —
+        # otherwise the user could believe their rules were saved when they weren't.
+        if _rules_error and not self.wizard_mode:
+            QMessageBox.warning(
+                self, "dictee",
+                _("Cannot save rules — syntax error:\n\n{err}").format(err=_rules_error))
 
     def _prompt_lt_server(self):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
@@ -9914,7 +11099,15 @@ def main():
     _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
     dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
                                open_translation=args.translation)
-    dialog.show()
+    if args.postprocess:
+        # Mode --postprocess : ne JAMAIS afficher la main window (DicteeSetupDialog
+        # est un QDialog qui, montré puis caché, laisse KWin dans un état bancal
+        # où le dodge du panel ne se déclenche plus pour la dialog post-process).
+        # Ouvrir directement la post-process window — équivalent au chemin
+        # "clic bouton depuis le setup visible" qui fonctionne.
+        QTimer.singleShot(0, dialog._open_postprocess_dialog)
+    else:
+        dialog.show()
     app.exec()
 
 

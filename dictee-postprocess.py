@@ -31,12 +31,16 @@ Environment variables:
   DICTEE_LLM_POSTPROCESS   — true/false (default: false) — LLM correction
   DICTEE_LLM_MODEL         — ollama model (default: gemma3:4b)
   DICTEE_LLM_TIMEOUT       — timeout in seconds (default: 10)
+  DICTEE_LLM_SYSTEM_PROMPT — preset name or "custom" (default: Correction FR)
+  DICTEE_LLM_POSITION      — hybrid/first/last (default: hybrid)
 """
 
+import json as _json
 import os
 import re
 import sys
-import subprocess
+import urllib.request
+import urllib.error
 
 # ── Venv bootstrap ───────────────────────────────────────────────────
 # If a dedicated venv exists (with text2num, etc.),
@@ -194,37 +198,54 @@ def apply_rules(text, rules):
 # ── Continuation (remove erroneous periods after closed-class words) ──
 
 _CONT_LINE_RE = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+)$")
+_CONT_EXCLUDE_RE = re.compile(r"^\s*\[exclude:([a-z]{2}|\*)\]\s*(.+)$")
 
 def _parse_continuation(path):
-    words = set()
+    """Returns (added_words, excluded_words) sets for the current LANG."""
+    added = set()
+    excluded = set()
     if not os.path.isfile(path):
-        return words
+        return added, excluded
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
+            # [exclude:xx] must be checked BEFORE [xx] because the generic
+            # regex also matches the bracket content.
+            m = _CONT_EXCLUDE_RE.match(line)
+            if m:
+                lang_tag, word_list = m.groups()
+                if lang_tag != "*" and LANG and lang_tag != LANG:
+                    continue
+                for w in word_list.split():
+                    excluded.add(w.lower())
+                continue
             m = _CONT_LINE_RE.match(line)
             if not m:
                 continue
             lang_tag, word_list = m.groups()
+            # Skip the [keyword:xx] lines handled elsewhere
             if lang_tag != "*" and LANG and lang_tag != LANG:
                 continue
             for w in word_list.split():
-                words.add(w.lower())
-    return words
+                added.add(w.lower())
+    return added, excluded
 
 def load_continuation():
-    """Loads system continuation words, merged with user additions."""
+    """Loads system continuation words, merged with user additions/exclusions."""
     words = set()
     # Load system defaults first
     for candidate in SYSTEM_CONT_CANDIDATES:
         if os.path.isfile(candidate):
-            words = _parse_continuation(candidate)
+            sys_added, _ = _parse_continuation(candidate)
+            words = sys_added
             break
-    # Merge user file on top (adds extra words)
+    # Merge user file: add extras, then remove excluded words
     if os.path.isfile(USER_CONT):
-        words |= _parse_continuation(USER_CONT)
+        user_added, user_excluded = _parse_continuation(USER_CONT)
+        words |= user_added
+        words -= user_excluded
     return words
 
 def fix_continuation(text, continuation_words):
@@ -246,7 +267,10 @@ def fix_continuation(text, continuation_words):
 
 # ── Short text correction ────────────────────────────────────────
 
-_SHORT_TEXT_MAX_WORDS = 3
+try:
+    _SHORT_TEXT_MAX_WORDS = max(1, int(os.environ.get("DICTEE_PP_SHORT_TEXT_MAX", "3")))
+except ValueError:
+    _SHORT_TEXT_MAX_WORDS = 3
 
 def fix_short_text(text):
     """For transcriptions with fewer than 3 words, remove trailing
@@ -722,52 +746,109 @@ def fix_capitalization(text):
     return text
 
 
-# ── Correction LLM (ollama) ─────────────────────────────────────────
+# ── Correction LLM (ollama HTTP API) ────────────────────────────────
 
-DEFAULT_PROMPT = (
-    "<role>\n"
-    "Ton rôle est de corriger une transcription provenant d'un ASR. "
-    "Tu n'es pas un assistant conversationnel.\n"
-    "</role>\n"
-    "<instructions>\n"
-    "- Corrige l'orthographe et la grammaire.\n"
-    "- Supprime les répétitions et hésitations.\n"
-    "- Ne modifie jamais le sens ni le contenu.\n"
-    "- Ne réponds pas aux questions et ne les commente pas.\n"
-    "- Ne génère aucun commentaire ni introduction.\n"
-    "- Si tu ne sais pas ou qu'il n'y a rien à modifier, "
-    "renvoie la transcription telle quelle.\n"
-    "</instructions>\n"
-    "<input>{text}</input>"
+SYSTEM_PROMPT = (
+    "You are an automatic spell checker for voice dictation. "
+    "The user is dictating text aloud and a speech recognition engine transcribes it. "
+    "You receive this raw transcription and must correct it. "
+    "Your output will be pasted AS IS into the user's document.\n"
+    "\n"
+    "RULES:\n"
+    "- Fix spelling, grammar, accents and missing punctuation.\n"
+    "- Remove hesitations (uh, um, euh, hum, etc.) and repetitions.\n"
+    "- The text may contain questions — the user is dictating a question for their document. "
+    "Correct it and return it. NEVER treat it as a question asked to you.\n"
+    "- Do not change the meaning. Do not rephrase. Do not add anything.\n"
+    "- Do not translate. Keep the original language of the text.\n"
+    "- Return ONLY the corrected text, no quotes, no commentary, no explanation.\n"
+    "- If the text is already correct, return it unchanged."
 )
 
-PROMPT_PATH = os.path.join(XDG_CONFIG, "dictee", "llm-prompt.txt")
+SYSTEM_PROMPT_MINIMAL = (
+    "Correct spelling and grammar. The text is a dictation, not a question to you. "
+    "Return ONLY the corrected text, nothing else."
+)
+
+SYSTEM_PROMPTS = {
+    "default": SYSTEM_PROMPT,
+    "minimal": SYSTEM_PROMPT_MINIMAL,
+}
+
+_SYSTEM_PROMPT_PATH = os.path.join(XDG_CONFIG, "dictee", "llm-system-prompt.txt")
+# Legacy fallback
+_LEGACY_PROMPT_PATH = os.path.join(XDG_CONFIG, "dictee", "llm-prompt.txt")
 
 
-def _load_prompt():
-    if os.path.isfile(PROMPT_PATH):
-        with open(PROMPT_PATH, encoding="utf-8") as f:
-            return f.read().strip()
-    return DEFAULT_PROMPT
+def _load_system_prompt():
+    """Load system prompt from preset name, custom file, or legacy fallback."""
+    preset = os.environ.get("DICTEE_LLM_SYSTEM_PROMPT", "default")
+    if preset == "custom":
+        if os.path.isfile(_SYSTEM_PROMPT_PATH):
+            with open(_SYSTEM_PROMPT_PATH, encoding="utf-8") as f:
+                return f.read().strip()
+        # Legacy fallback: old llm-prompt.txt
+        if os.path.isfile(_LEGACY_PROMPT_PATH):
+            with open(_LEGACY_PROMPT_PATH, encoding="utf-8") as f:
+                return f.read().strip()
+    return SYSTEM_PROMPTS.get(preset, SYSTEM_PROMPT)
+
+
+def _dbg(msg):
+    """Print debug message to stderr if DICTEE_DEBUG is set."""
+    if os.environ.get("DICTEE_DEBUG", "") == "true":
+        import time as _time
+        print(f"[postprocess] {_time.strftime('%H:%M:%S')} {msg}",
+              file=sys.stderr, flush=True)
 
 
 def llm_postprocess(text):
-    """Sends text to ollama for grammar correction."""
+    """Send text to ollama HTTP API for grammar correction."""
+    import time as _time
     model = os.environ.get("DICTEE_LLM_MODEL", "gemma3:4b")
     timeout = int(os.environ.get("DICTEE_LLM_TIMEOUT", "10"))
+    preset = os.environ.get("DICTEE_LLM_SYSTEM_PROMPT", "default")
+    position = os.environ.get("DICTEE_LLM_POSITION", "hybrid")
+    system_prompt = _load_system_prompt()
 
-    prompt_tpl = _load_prompt()
-    prompt = prompt_tpl.format(text=text)
+    _dbg(f"LLM START model={model} preset={preset} position={position} "
+         f"timeout={timeout}s input={len(text)} chars")
 
+    payload = _json.dumps({
+        "model": model,
+        "system": system_prompt,
+        "prompt": text,
+        "stream": False,
+    }).encode("utf-8")
+
+    t0 = _time.monotonic()
     try:
-        result = subprocess.run(
-            ["ollama", "run", model, prompt],
-            capture_output=True, text=True, timeout=timeout,
+        req = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
+        resp = urllib.request.urlopen(req, timeout=timeout)
+        data = _json.loads(resp.read().decode("utf-8"))
+        elapsed = _time.monotonic() - t0
+        result = data.get("response", "").strip()
+        eval_count = data.get("eval_count", 0)
+        eval_duration = data.get("eval_duration", 0)
+        tok_s = eval_count / (eval_duration / 1e9) if eval_duration > 0 else 0
+        if result:
+            _dbg(f"LLM OK {elapsed:.2f}s {eval_count} tokens {tok_s:.1f} tok/s "
+                 f"output={len(result)} chars")
+            return result
+        _dbg(f"LLM EMPTY response after {elapsed:.2f}s — using original text")
+    except urllib.error.URLError as e:
+        elapsed = _time.monotonic() - t0
+        _dbg(f"LLM FAIL URLError after {elapsed:.2f}s: {e}")
+    except TimeoutError:
+        elapsed = _time.monotonic() - t0
+        _dbg(f"LLM FAIL Timeout after {elapsed:.2f}s (limit={timeout}s)")
+    except (OSError, ValueError) as e:
+        elapsed = _time.monotonic() - t0
+        _dbg(f"LLM FAIL {type(e).__name__} after {elapsed:.2f}s: {e}")
     return text  # fallback: text unchanged
 
 
@@ -782,6 +863,23 @@ def main():
         sys.stdout.write(text)
         return
 
+    # Debug trace (used by dictee-setup test panel) — emits step-by-step on stderr
+    _pp_debug = _env_bool("DICTEE_PP_DEBUG", "false")
+    def _enc(s):
+        return s.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t")
+    def _trace(label, before, after):
+        if _pp_debug:
+            sys.stderr.write(f"STEP\t{label}\t{_enc(before)}\t{_enc(after)}\n")
+            sys.stderr.flush()
+
+    # LLM correction — position "first" (before any post-processing)
+    _llm_enabled = _env_bool("DICTEE_LLM_POSTPROCESS", "false")
+    _llm_position = os.environ.get("DICTEE_LLM_POSITION", "hybrid")
+    if _llm_enabled and _llm_position == "first":
+        _before = text
+        text = llm_postprocess(text)
+        _trace("LLM [first]", _before, text)
+
     # 0. Bad language detection (multilingual ASR confused on short audio)
     # Rules first try to recover known voice commands
     # (e.g., Cyrillic "А линия" → \n for "à la ligne").
@@ -791,7 +889,9 @@ def main():
     #       dedup, punctuation, basic elisions, cleanup)
     rules = load_rules()
     if _env_bool("DICTEE_PP_RULES") and rules:
+        _before = text
         text = apply_rules(text, rules)
+        _trace("Rules", _before, text)
     # Clean leading spaces (hesitations/annotations removed)
     # but preserve trailing \n (voice commands)
     text = text.lstrip(' \t').rstrip(' \t')
@@ -814,53 +914,90 @@ def main():
     # 5c. Continuation (remove erroneous periods after closed-class words)
     continuation_words = load_continuation()
     if _env_bool("DICTEE_PP_CONTINUATION") and continuation_words:
+        _before = text
         text = fix_continuation(text, continuation_words)
+        _trace("Continuation", _before, text)
 
-    # 6. Language-specific rules
-    if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
-        text = fix_elisions(text)
-    if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
-        text = fix_italian_elisions(text)
-    if LANG == "es" and _env_bool("DICTEE_PP_SPANISH"):
-        text = fix_spanish(text)
-    if LANG == "pt" and _env_bool("DICTEE_PP_PORTUGUESE"):
-        text = fix_portuguese(text)
-    if LANG == "de" and _env_bool("DICTEE_PP_GERMAN"):
-        text = fix_german(text)
-    if LANG == "nl" and _env_bool("DICTEE_PP_DUTCH"):
-        text = fix_dutch(text)
-    if LANG == "ro" and _env_bool("DICTEE_PP_ROMANIAN"):
-        text = fix_romanian(text)
+    # LLM correction — position "hybrid" (between cleanup and formatting)
+    if _llm_enabled and _llm_position == "hybrid":
+        _before = text
+        text = llm_postprocess(text)
+        _trace("LLM [hybrid]", _before, text)
+
+    # 6. Language-specific rules (gated by master switch DICTEE_PP_LANGUAGE_RULES)
+    if _env_bool("DICTEE_PP_LANGUAGE_RULES"):
+        if LANG == "fr" and _env_bool("DICTEE_PP_ELISIONS"):
+            _before = text
+            text = fix_elisions(text)
+            _trace("Elisions [fr]", _before, text)
+        if LANG == "it" and _env_bool("DICTEE_PP_ELISIONS_IT"):
+            _before = text
+            text = fix_italian_elisions(text)
+            _trace("Elisions [it]", _before, text)
+        if LANG == "es" and _env_bool("DICTEE_PP_SPANISH"):
+            _before = text
+            text = fix_spanish(text)
+            _trace("Spanish [es]", _before, text)
+        if LANG == "pt" and _env_bool("DICTEE_PP_PORTUGUESE"):
+            _before = text
+            text = fix_portuguese(text)
+            _trace("Contractions [pt]", _before, text)
+        if LANG == "de" and _env_bool("DICTEE_PP_GERMAN"):
+            _before = text
+            text = fix_german(text)
+            _trace("German [de]", _before, text)
+        if LANG == "nl" and _env_bool("DICTEE_PP_DUTCH"):
+            _before = text
+            text = fix_dutch(text)
+            _trace("Dutch [nl]", _before, text)
+        if LANG == "ro" and _env_bool("DICTEE_PP_ROMANIAN"):
+            _before = text
+            text = fix_romanian(text)
+            _trace("Romanian [ro]", _before, text)
+        # French typography (non-breaking spaces) — language-specific, gated by master
+        if LANG == "fr" and _env_bool("DICTEE_PP_TYPOGRAPHY"):
+            _before = text
+            text = fix_french_typography(text)
+            _trace("Typography [fr]", _before, text)
 
     # 7. Conversion nombres → chiffres
     if _env_bool("DICTEE_PP_NUMBERS"):
+        _before = text
         text = convert_numbers(text)
-
-    # 8. French typography (non-breaking spaces)
-    if LANG == "fr" and _env_bool("DICTEE_PP_TYPOGRAPHY"):
-        text = fix_french_typography(text)
+        _trace("Numbers", _before, text)
 
     # 9. (final cleanup already in regex rules step 5)
 
     # 10. Dictionary (system + personal, exact match)
     dictionary = load_dictionary()
     if _env_bool("DICTEE_PP_DICT") and dictionary:
+        _before = text
         text = apply_dictionary(text, dictionary)
+        _trace("Dictionary", _before, text)
 
     # 11. Capitalisation
     if _env_bool("DICTEE_PP_CAPITALIZATION"):
+        _before = text
         text = fix_capitalization(text)
+        _trace("Capitalization", _before, text)
 
-    # 12. Short text correction (< 3 words: remove trailing punct, lowercase)
+    # 12. Short text correction (< N words: remove trailing punct, lowercase)
     if _env_bool("DICTEE_PP_SHORT_TEXT"):
+        _before = text
         text = fix_short_text(text)
+        _trace(f"Short text < {_SHORT_TEXT_MAX_WORDS}w", _before, text)
 
-    # 13. Correction LLM (optionnelle)
-    if _env_bool("DICTEE_LLM_POSTPROCESS", "false"):
+    # 13. LLM correction — position "last" (after all post-processing)
+    if _llm_enabled and _llm_position == "last":
+        _before = text
         text = llm_postprocess(text)
+        _trace("LLM [last]", _before, text)
 
     # Strip internal markers used by voice-command rules
     text = text.replace("\x01", "").replace("\x02", "")
+    # Defense in depth: strip any other control char that could be interpreted
+    # as a key sequence downstream (keep only \t=0x09 and \n=0x0a).
+    text = "".join(c for c in text if c == "\t" or c == "\n" or ord(c) >= 0x20)
 
     sys.stdout.write(text)
 
