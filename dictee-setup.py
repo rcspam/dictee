@@ -10255,12 +10255,12 @@ class DicteeSetupDialog(QDialog):
                         _line = _line.strip()
                         if _line.startswith("#") or "=" not in _line:
                             continue
-                        _k, _, _v = _line.partition("=")
-                        _k = _k.strip()
-                        if _k in ("DICTEE_PTT_MODE", "DICTEE_PTT_KEY",
-                                  "DICTEE_PTT_KEY_TRANSLATE",
-                                  "DICTEE_PTT_MOD_TRANSLATE"):
-                            _old_ptt[_k] = _v.strip().strip('"').strip("'")
+                        _pk, _pv = _line.split("=", 1)
+                        _pk = _pk.strip()
+                        if _pk in ("DICTEE_PTT_MODE", "DICTEE_PTT_KEY",
+                                   "DICTEE_PTT_KEY_TRANSLATE",
+                                   "DICTEE_PTT_MOD_TRANSLATE"):
+                            _old_ptt[_pk] = _pv.strip().strip('"').strip("'")
         except OSError:
             _old_ptt = {}
         # Wizard translation cards override cmb_trans_backend
