@@ -10224,8 +10224,12 @@ class DicteeSetupDialog(QDialog):
         btn.setMinimumWidth(btn.width())
         btn.setEnabled(False)
 
-        # Braille spinner — 10 frames, smooth rotating wheel
-        _frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+        # Braille spinner — 32 frames, ~30 fps for a smooth rotating wheel
+        _frames = (
+            "⣾⣽⣻⢿⡿⣟⣯⣷"
+            "⠋⠙⠚⠞⠖⠦⠴⠲⠳⠓"
+            "⠁⠂⠄⡀⡈⡐⡠⣀⣁⣂⣄⣌⣔⣤"
+        )
         self._apply_anim_step = 0
         _base = _("Applying")
         def _tick():
@@ -10235,7 +10239,7 @@ class DicteeSetupDialog(QDialog):
         _tick()
         self._apply_anim_timer = QTimer(self)
         self._apply_anim_timer.timeout.connect(_tick)
-        self._apply_anim_timer.start(80)  # ~12 fps
+        self._apply_anim_timer.start(33)  # ~30 fps
         QApplication.processEvents()
 
         try:
@@ -10457,7 +10461,7 @@ class DicteeSetupDialog(QDialog):
             _deadline = _time.monotonic() + 15.0
             while _proc.poll() is None:
                 QApplication.processEvents()
-                _time.sleep(0.05)
+                _time.sleep(0.02)
                 if _time.monotonic() > _deadline:
                     break
             if _proc.poll() is None:
