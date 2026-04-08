@@ -5394,9 +5394,11 @@ class DicteeSetupDialog(QDialog):
         h.addWidget(checkbox)
         h.addStretch()
         h.addWidget(self._HelpLabel(help_text))
-        # Gray out the label text when unchecked (defense-in-depth for #4)
+        # Gray out the label text when unchecked — use a mid gray with
+        # explicit hex so it remains visible on both dark and light themes
+        # (palette(mid) was too dark in the dark theme).
         def _update_style(on, cb=checkbox):
-            cb.setStyleSheet("" if on else "QCheckBox { color: palette(mid); }")
+            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
         checkbox.toggled.connect(_update_style)
         _update_style(checkbox.isChecked())
         return container
@@ -5473,15 +5475,8 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_capitalization)
 
-        # Visible: LLM stacked on the left, below Short text
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
-        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        grid_gen.addWidget(self._pp_checkbox_with_help(self.chk_llm,
-            _("Uses a local LLM (via ollama) to fix grammar,\n"
-              "spelling, accents and punctuation.\n"
-              "Configure the model and prompt in the LLM tab.")), 1, 0)
-
-        # Short text — checkbox + word count combobox (cell 3,1)
+        # Short text — checkbox + "< N words" combo (no help ? — tooltip is
+        # already on the SVG step above)
         self.chk_pp_short_text = QCheckBox(_("Short text fix"))
         self.chk_pp_short_text.setChecked(
             conf.get("DICTEE_PP_SHORT_TEXT", "true") == "true")
@@ -5495,30 +5490,46 @@ class DicteeSetupDialog(QDialog):
         _idx = self.cmb_pp_short_text_max.findData(_saved_max)
         if _idx >= 0:
             self.cmb_pp_short_text_max.setCurrentIndex(_idx)
-        _short_help = _("For transcriptions with fewer than N words,\n"
-                        "remove trailing punctuation and lowercase\n"
-                        "capitalized words. Preserves acronyms (NASA)\n"
-                        "and mixed-case words (iPhone).")
-        self.chk_pp_short_text.setToolTip(_short_help)
+        self.chk_pp_short_text.setToolTip(
+            _("For transcriptions with fewer than N words,\n"
+              "remove trailing punctuation and lowercase\n"
+              "capitalized words."))
         self.cmb_pp_short_text_max.setToolTip(
             _("Maximum word count for a transcription to be considered\n"
               "\"short\" and receive the short-text treatment."))
-        _short_box = QWidget()
-        _short_lay = QHBoxLayout(_short_box)
-        _short_lay.setContentsMargins(0, 0, 0, 0)
-        _short_lay.setSpacing(6)
-        _short_lay.addWidget(self._pp_checkbox_with_help(
-            self.chk_pp_short_text, _short_help))
-        _short_lay.addWidget(QLabel(_("<")))
-        _short_lay.addWidget(self.cmb_pp_short_text_max)
-        _short_lay.addWidget(QLabel(_("words")))
-        _short_lay.addStretch(1)
-        # Disable combobox when checkbox unchecked
         self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
         self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        grid_gen.addWidget(_short_box, 0, 0)
+        # Gray label when unchecked (same as other pp checkboxes)
+        def _short_update_style(on, cb=self.chk_pp_short_text):
+            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
+        self.chk_pp_short_text.toggled.connect(_short_update_style)
+        _short_update_style(self.chk_pp_short_text.isChecked())
 
-        pp_lay.addLayout(grid_gen)
+        # LLM checkbox (text kept visible, no help ? — tooltip on SVG)
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
+        self.chk_llm.setToolTip(
+            _("Uses a local LLM (via ollama) to fix grammar,\n"
+              "spelling, accents and punctuation.\n"
+              "Configure the model and prompt in the LLM tab."))
+        def _llm_update_style(on, cb=self.chk_llm):
+            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
+        self.chk_llm.toggled.connect(_llm_update_style)
+        _llm_update_style(self.chk_llm.isChecked())
+
+        # Same line: [Short text] [<] [N] [words]   [LLM ...]
+        _visible_row = QHBoxLayout()
+        _visible_row.setContentsMargins(20, 0, 0, 0)
+        _visible_row.setSpacing(6)
+        _visible_row.addWidget(self.chk_pp_short_text)
+        _visible_row.addWidget(QLabel(_("<")))
+        _visible_row.addWidget(self.cmb_pp_short_text_max)
+        _visible_row.addWidget(QLabel(_("words")))
+        _visible_row.addSpacing(24)
+        _visible_row.addWidget(self.chk_llm)
+        _visible_row.addStretch(1)
+        pp_lay.addLayout(_visible_row)
+        pp_lay.addLayout(grid_gen)  # kept for layout rigidity; empty in practice
         pp_lay.addWidget(_hidden_holder)  # hidden state holder
 
         # Cosmetic separator between checkboxes grid and editing tabs
@@ -5663,6 +5674,9 @@ class DicteeSetupDialog(QDialog):
             _test_toggle.setText(("▼  " if on else "▶  ") + _("Test"))
             _test_body.setVisible(on)
         _test_toggle.toggled.connect(_on_test_toggled)
+        # Expose so other components (e.g. "↓ Test" button in rules tab)
+        # can auto-open the accordion when sending data into it.
+        self._test_accordion_toggle = _test_toggle
 
         pp_lay.addWidget(_test_toggle)
         pp_lay.addWidget(_test_body)
@@ -6914,6 +6928,9 @@ class DicteeSetupDialog(QDialog):
     def _send_rule_to_test(self):
         """Envoie le pattern de la ligne courante de l'éditeur regex vers le champ test."""
         import re
+        # Auto-open the test accordion — otherwise the user sees nothing happen
+        if hasattr(self, '_test_accordion_toggle') and not self._test_accordion_toggle.isChecked():
+            self._test_accordion_toggle.setChecked(True)
         cursor = self._rules_editor.textCursor()
         line = cursor.block().text().strip()
         if not line or line.startswith("#"):
