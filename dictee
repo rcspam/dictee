@@ -1292,9 +1292,44 @@ if [ -f "$PIDFILE" ]; then
             # grammatically-clean text.
             if [ "${DICTEE_PP_TRANSLATE:-false}" = "true" ] \
                && command -v dictee-postprocess >/dev/null 2>&1; then
+                # DICTEE_TRPP_* vars are the translation-side per-step
+                # activation state (independent from DICTEE_PP_*). Map
+                # them to DICTEE_PP_* for the 2nd run so the engine sees
+                # them as its normal inputs. LLM is always false.
+                # The language_rules umbrella (DICTEE_TRPP_LANGUAGE_RULES)
+                # controls the whole set of per-language sub-flags; when
+                # off, we force all language_rules env vars to false.
+                if [ "${DICTEE_TRPP_LANGUAGE_RULES:-true}" = "true" ]; then
+                    _trpp_el="${DICTEE_PP_ELISIONS:-true}"
+                    _trpp_el_it="${DICTEE_PP_ELISIONS_IT:-true}"
+                    _trpp_es="${DICTEE_PP_SPANISH:-true}"
+                    _trpp_pt="${DICTEE_PP_PORTUGUESE:-true}"
+                    _trpp_de="${DICTEE_PP_GERMAN:-true}"
+                    _trpp_nl="${DICTEE_PP_DUTCH:-true}"
+                    _trpp_ro="${DICTEE_PP_ROMANIAN:-true}"
+                    _trpp_ty="${DICTEE_PP_TYPOGRAPHY:-true}"
+                else
+                    _trpp_el=false; _trpp_el_it=false; _trpp_es=false
+                    _trpp_pt=false; _trpp_de=false; _trpp_nl=false
+                    _trpp_ro=false; _trpp_ty=false
+                fi
                 _trpp_out=$(printf '%s' "$translated" | env \
                     DICTEE_LANG_SOURCE="${LANG_TARGET:0:2}" \
                     DICTEE_LLM_POSTPROCESS=false \
+                    DICTEE_PP_RULES="${DICTEE_TRPP_RULES:-true}" \
+                    DICTEE_PP_CONTINUATION="${DICTEE_TRPP_CONTINUATION:-true}" \
+                    DICTEE_PP_NUMBERS="${DICTEE_TRPP_NUMBERS:-true}" \
+                    DICTEE_PP_DICT="${DICTEE_TRPP_DICT:-true}" \
+                    DICTEE_PP_CAPITALIZATION="${DICTEE_TRPP_CAPITALIZATION:-true}" \
+                    DICTEE_PP_SHORT_TEXT="${DICTEE_TRPP_SHORT_TEXT:-true}" \
+                    DICTEE_PP_ELISIONS="$_trpp_el" \
+                    DICTEE_PP_ELISIONS_IT="$_trpp_el_it" \
+                    DICTEE_PP_SPANISH="$_trpp_es" \
+                    DICTEE_PP_PORTUGUESE="$_trpp_pt" \
+                    DICTEE_PP_GERMAN="$_trpp_de" \
+                    DICTEE_PP_DUTCH="$_trpp_nl" \
+                    DICTEE_PP_ROMANIAN="$_trpp_ro" \
+                    DICTEE_PP_TYPOGRAPHY="$_trpp_ty" \
                     dictee-postprocess 2>>/tmp/dictee-postprocess.log)
                 if [ -n "$_trpp_out" ]; then
                     translated="$_trpp_out"

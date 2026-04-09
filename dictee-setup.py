@@ -2798,6 +2798,18 @@ class DicteeSetupDialog(QDialog):
             "short_text":     _cb("DICTEE_PP_SHORT_TEXT"),
             "llm":            _cb("DICTEE_LLM_POSTPROCESS", "false"),
         }
+        # Independent state for the translation pipeline. Default: same
+        # as normal (user can then diverge). LLM is always false in trans.
+        self._trpp_state = {
+            "rules":          _cb("DICTEE_TRPP_RULES",          "true"),
+            "continuation":   _cb("DICTEE_TRPP_CONTINUATION",   "true"),
+            "language_rules": _cb("DICTEE_TRPP_LANGUAGE_RULES", "true"),
+            "numbers":        _cb("DICTEE_TRPP_NUMBERS",        "true"),
+            "dict":           _cb("DICTEE_TRPP_DICT",           "true"),
+            "capitalization": _cb("DICTEE_TRPP_CAPITALIZATION", "true"),
+            "short_text":     _cb("DICTEE_TRPP_SHORT_TEXT",     "true"),
+            "llm":            False,  # Never, runtime-enforced
+        }
         # Two independent masters: normal PP and translation PP.
         self._pp_master_normal    = _cb("DICTEE_POSTPROCESS", "true")
         self._pp_master_translate = _cb("DICTEE_PP_TRANSLATE", "false")
@@ -3273,6 +3285,9 @@ class DicteeSetupDialog(QDialog):
                 # the tabs must take all the vertical space above Test.
                 if hasattr(self, "_pp_overview_spacer"):
                     self._pp_overview_spacer.setVisible(not show_sub)
+                # Master checkboxes row: visible ONLY in overview mode.
+                if hasattr(self, "_pp_masters_row"):
+                    self._pp_masters_row.setVisible(not show_sub)
                 if show_sub:
                     self._pp_tabs.setCurrentIndex(int(pp_tab))
 
@@ -6150,40 +6165,52 @@ class DicteeSetupDialog(QDialog):
 
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
-        # Master 1 — Enable post-processing (normal mode)
-        self.chk_postprocess = QCheckBox(_("Enable post-processing"))
-        self.chk_postprocess.setChecked(self._pp_master_normal)
-        if getattr(self, "_pipeline_header_external", False):
-            _acc_hex = self.palette().color(
-                self.palette().ColorRole.Highlight).name()
-            self.chk_postprocess.setStyleSheet(
-                f"QCheckBox {{ color: {_acc_hex}; font-size: 28px; "
-                f"font-weight: bold; padding: 4px 0; }}"
-                f"QCheckBox::indicator {{ width: 32px; height: 32px; }}")
-        lay.addWidget(self.chk_postprocess)
+        # Two masters side-by-side with identical styling (size/weight),
+        # only the accent color differs: blue for normal, orange for
+        # translation. Wrapped in a row widget so they can be hidden
+        # together when the user navigates into a sub-menu.
+        _acc_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        _orange = "#e67e22"
+        _sidebar = getattr(self, "_pipeline_header_external", False)
 
-        # Master 2 — Also enable post-processing for translations
-        # (triggers a 2nd run of dictee-postprocess on the translated
-        # text with DICTEE_LANG_SOURCE set to the target language).
-        self.chk_pp_translate = QCheckBox(
-            _("Also enable post-processing for translations"))
+        self._pp_masters_row = QWidget()
+        _mrow = QHBoxLayout(self._pp_masters_row)
+        _mrow.setContentsMargins(0, 0, 0, 0)
+        _mrow.setSpacing(24)
+
+        # Master 1 — Normal
+        self.chk_postprocess = QCheckBox(_("Enable PP"))
+        self.chk_postprocess.setChecked(self._pp_master_normal)
+        if _sidebar:
+            self.chk_postprocess.setStyleSheet(
+                f"QCheckBox {{ color: {_acc_hex}; font-size: 18px; "
+                f"font-weight: bold; padding: 2px 0; }}"
+                f"QCheckBox::indicator {{ width: 22px; height: 22px; }}")
+        _mrow.addWidget(self.chk_postprocess)
+
+        # Master 2 — Translation
+        self.chk_pp_translate = QCheckBox(_("Enable PP for translation"))
         self.chk_pp_translate.setChecked(self._pp_master_translate)
         self.chk_pp_translate.setToolTip(_(
-            "When enabled, the translated text is passed through the same "
-            "post-processing pipeline, using the target language for "
-            "language-specific rules. The LLM step is never run on "
-            "translated text."))
-        if getattr(self, "_pipeline_header_external", False):
+            "When enabled, the translated text is passed through the "
+            "translation post-processing pipeline (orange), with the "
+            "target language as reference. The LLM step is never run "
+            "on translated text."))
+        if _sidebar:
             self.chk_pp_translate.setStyleSheet(
-                "QCheckBox { color: #e67e22; font-size: 15px; "
-                "font-weight: bold; padding: 2px 0; }"
-                "QCheckBox::indicator { width: 20px; height: 20px; }")
+                f"QCheckBox {{ color: {_orange}; font-size: 18px; "
+                f"font-weight: bold; padding: 2px 0; }}"
+                f"QCheckBox::indicator {{ width: 22px; height: 22px; }}")
+        _mrow.addWidget(self.chk_pp_translate)
+        _mrow.addStretch(1)
 
         def _on_master_translate_toggled(on):
             self._pp_master_translate = bool(on)
             self._refresh_pp_diagrams()
         self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
-        lay.addWidget(self.chk_pp_translate)
+
+        lay.addWidget(self._pp_masters_row)
 
         # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
@@ -6650,8 +6677,17 @@ class DicteeSetupDialog(QDialog):
                 pass
 
     def _on_pp_step_clicked(self, key):
-        # Navigation-only shortcuts (mic / ASR / translate icons): jump to
-        # the corresponding sidebar section without toggling anything.
+        # Identify which diagram emitted the signal. sender() returns the
+        # _ClickableSvgWidget instance; compare with the two known widgets.
+        sender = self.sender()
+        is_translation = (
+            hasattr(self, "_trpp_diagram")
+            and self._trpp_diagram is not None
+            and sender is self._trpp_diagram.widget
+        )
+
+        # Navigation-only shortcuts (mic / ASR icons): jump to the
+        # corresponding sidebar section without toggling anything.
         if key.startswith("nav:") and hasattr(self, "_sidebar_tree"):
             target_label = {
                 "nav:microphone": _("Microphone"),
@@ -6659,17 +6695,56 @@ class DicteeSetupDialog(QDialog):
             }.get(key)
             if target_label:
                 tree = self._sidebar_tree
-                # Scan top-level items (labels are at depth 0 for these 3)
                 for i in range(tree.topLevelItemCount()):
                     it = tree.topLevelItem(i)
                     if it.text(0) == target_label:
                         tree.setCurrentItem(it)
                         return
             return
-        # Steps with a config sub-page: navigate there WITHOUT toggling.
-        # The user enables/disables from the checkbox inside the page.
-        # Steps without a sub-page (numbers, capitalization, short_text)
-        # fall through to the toggle logic below.
+
+        # Translation source: the orange diagram has ITS OWN independent
+        # state dict (`self._trpp_state`). Clicks on it never touch the
+        # normal state. LLM is always force-off on the orange, so ignore
+        # any "llm" clicks on that diagram.
+        if is_translation:
+            if key == "llm":
+                # LLM is locked off in translation mode; silently ignore.
+                return
+            # Navigation + toggle logic, same 1-click / 2-click pattern.
+            tab_idx = {
+                "rules": 0, "continuation": 1, "language_rules": 2,
+                "dict": 3,
+            }.get(key)
+            target_child = None
+            tree = getattr(self, "_sidebar_tree", None)
+            if tree is not None and tab_idx is not None:
+                for i in range(tree.topLevelItemCount()):
+                    it = tree.topLevelItem(i)
+                    if it.childCount() == 5:
+                        target_child = it.child(tab_idx)
+                        break
+            steps_with_page = {"rules", "continuation", "language_rules", "dict"}
+            if key in steps_with_page:
+                already_on_page = (
+                    tree is not None
+                    and target_child is not None
+                    and tree.currentItem() is target_child
+                )
+                if already_on_page:
+                    self._trpp_state[key] = not self._trpp_state.get(key, True)
+                    self._refresh_pp_diagrams()
+                    return
+                if target_child is not None:
+                    tree.setCurrentItem(target_child)
+                return
+            # numbers, capitalization, short_text → direct toggle.
+            if key in self._trpp_state:
+                self._trpp_state[key] = not self._trpp_state[key]
+                self._refresh_pp_diagrams()
+            return
+
+        # Normal source (blue diagram): existing behavior, drives the
+        # hidden checkboxes which in turn update self._pp_state via signals.
         cb_map = {
             "rules": self.chk_pp_rules,
             "continuation": self.chk_pp_continuation,
@@ -6681,26 +6756,18 @@ class DicteeSetupDialog(QDialog):
             "short_text": getattr(self, 'chk_pp_short_text', None),
         }
         steps_with_page = {"rules", "continuation", "language_rules", "dict", "llm"}
-        # Resolve the sidebar sub-item target (if any) for this step.
         target_child = None
         tab_idx = {
-            "rules": 0,
-            "continuation": 1,
-            "language_rules": 2,
-            "dict": 3,
-            "llm": 4,
+            "rules": 0, "continuation": 1, "language_rules": 2,
+            "dict": 3, "llm": 4,
         }.get(key)
         tree = getattr(self, "_sidebar_tree", None)
         if tree is not None and tab_idx is not None:
             for i in range(tree.topLevelItemCount()):
                 it = tree.topLevelItem(i)
-                if it.childCount() == 5:  # 5 sub-items = Post-processing
+                if it.childCount() == 5:
                     target_child = it.child(tab_idx)
                     break
-        # Decide: toggle or navigate?
-        # - Step without page → always toggle.
-        # - Step with page, not currently displayed → navigate (show config).
-        # - Step with page, already displayed → toggle its checkbox.
         if key in steps_with_page:
             already_on_page = (
                 tree is not None
@@ -6712,7 +6779,6 @@ class DicteeSetupDialog(QDialog):
                 if cb is not None:
                     cb.toggle()
                 return
-            # Navigate to the page (first click).
             if target_child is not None:
                 tree.setCurrentItem(target_child)
             return
@@ -6724,9 +6790,9 @@ class DicteeSetupDialog(QDialog):
 
     def _refresh_pp_diagrams(self):
         """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
-        from the shared `self._pp_state` dict and the two masters."""
-        # Sync dict from checkboxes first (the checkboxes remain the
-        # persistence-side source of truth until _collect_env is refactored).
+        from their INDEPENDENT state dicts + two masters."""
+        # Sync normal state from hidden checkboxes (they remain the
+        # persistence-side source of truth for normal mode).
         if hasattr(self, "chk_pp_rules"):
             self._pp_state["rules"] = self.chk_pp_rules.isChecked()
         if hasattr(self, "chk_pp_continuation"):
@@ -6749,17 +6815,20 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, "cmb_pp_short_text_max"):
             st_max = self.cmb_pp_short_text_max.currentData() or 3
 
-        states = dict(self._pp_state)
-        llm_on = bool(self._pp_state.get("llm", False))
-
         if hasattr(self, "_pp_diagram") and self._pp_diagram is not None:
             self._pp_diagram.set_master(self._pp_master_normal)
-            self._pp_diagram.set_states(states, llm_on, llm_pos, st_max)
+            self._pp_diagram.set_states(
+                dict(self._pp_state),
+                bool(self._pp_state.get("llm", False)),
+                llm_pos, st_max)
         if hasattr(self, "_trpp_diagram") and self._trpp_diagram is not None:
             self._trpp_diagram.set_master(self._pp_master_translate)
-            # llm_force_off=True is set at construction, so even if llm_on is
-            # True, the orange diagram will render LLM as disabled.
-            self._trpp_diagram.set_states(states, llm_on, llm_pos, st_max)
+            # Orange reads its own independent state. LLM is force_off at
+            # construction so always rendered as disabled.
+            self._trpp_diagram.set_states(
+                dict(self._trpp_state),
+                bool(self._trpp_state.get("llm", False)),
+                llm_pos, st_max)
 
     # Backwards-compatibility shim (many connections call the old name).
     def _refresh_pp_diagram(self):
@@ -11465,6 +11534,19 @@ class DicteeSetupDialog(QDialog):
         # dictee-postprocess on the translated text with DICTEE_LANG_SOURCE
         # set to the target language (LLM always forced off in that pass).
         env["DICTEE_PP_TRANSLATE"] = "true" if self._pp_master_translate else "false"
+
+        # Translation-side per-step activation (independent from normal).
+        # These are mapped to DICTEE_PP_* at call time by the dictee shell
+        # script when running the 2nd post-process pass on translated text.
+        def _tb(key):
+            return "true" if self._trpp_state.get(key, True) else "false"
+        env["DICTEE_TRPP_RULES"]          = _tb("rules")
+        env["DICTEE_TRPP_CONTINUATION"]   = _tb("continuation")
+        env["DICTEE_TRPP_LANGUAGE_RULES"] = _tb("language_rules")
+        env["DICTEE_TRPP_NUMBERS"]        = _tb("numbers")
+        env["DICTEE_TRPP_DICT"]           = _tb("dict")
+        env["DICTEE_TRPP_CAPITALIZATION"] = _tb("capitalization")
+        env["DICTEE_TRPP_SHORT_TEXT"]     = _tb("short_text")
 
         # LLM
         llm_on = _b("chk_llm", default=False)
