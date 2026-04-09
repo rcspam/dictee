@@ -6500,8 +6500,9 @@ class DicteeSetupDialog(QDialog):
             if hasattr(self, "_pp_target_toggled_sync"):
                 cb.toggled.connect(
                     lambda _on: self._pp_target_toggled_sync())
-        if hasattr(self, 'cmb_llm_position'):
-            self.cmb_llm_position.currentIndexChanged.connect(self._refresh_pp_diagram)
+        if hasattr(self, 'llm_position_group'):
+            self.llm_position_group.buttonToggled.connect(
+                lambda _btn, _checked: self._refresh_pp_diagram() if _checked else None)
         if hasattr(self, 'cmb_pp_short_text_max'):
             self.cmb_pp_short_text_max.currentIndexChanged.connect(self._refresh_pp_diagram)
         self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
@@ -6610,9 +6611,7 @@ class DicteeSetupDialog(QDialog):
             "capitalization": self.chk_pp_capitalization.isChecked(),
             "short_text": self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True,
         }
-        llm_pos = "hybrid"
-        if hasattr(self, 'cmb_llm_position'):
-            llm_pos = self.cmb_llm_position.currentData() or "hybrid"
+        llm_pos = self._get_llm_position()
         st_max = 3
         if hasattr(self, 'cmb_pp_short_text_max'):
             st_max = self.cmb_pp_short_text_max.currentData() or 3
@@ -6629,15 +6628,43 @@ class DicteeSetupDialog(QDialog):
         llm_flay.setContentsMargins(0, 0, 0, 0)
 
         # LLM pipeline position — displayed FIRST (above the model combo)
-        self.cmb_llm_position = QComboBox()
-        self.cmb_llm_position.addItem(_("Hybrid (recommended)"), "hybrid")
-        self.cmb_llm_position.addItem(_("Before post-processing"), "first")
-        self.cmb_llm_position.addItem(_("After post-processing"), "last")
+        # Radio buttons grouped in a QButtonGroup; data stored on each button.
+        if not hasattr(self, "_get_llm_position"):
+            def _get_llm_position_impl():
+                grp = getattr(self, "llm_position_group", None)
+                if grp is None:
+                    return "hybrid"
+                btn = grp.checkedButton()
+                if btn is None:
+                    return "hybrid"
+                return btn.property("llm_position") or "hybrid"
+            self._get_llm_position = _get_llm_position_impl
         saved_pos = conf.get("DICTEE_LLM_POSITION", "hybrid")
-        idx_pos = self.cmb_llm_position.findData(saved_pos)
-        if idx_pos >= 0:
-            self.cmb_llm_position.setCurrentIndex(idx_pos)
-        llm_flay.addRow(_("Position:"), self.cmb_llm_position)
+        self.llm_position_group = QButtonGroup(self)
+        self.llm_position_group.setExclusive(True)
+        _pos_row = QWidget()
+        _pos_hl = QHBoxLayout(_pos_row)
+        _pos_hl.setContentsMargins(0, 0, 0, 0)
+        _pos_hl.setSpacing(12)
+        for _val, _label in (
+            ("hybrid", _("Hybrid (recommended)")),
+            ("first", _("At start")),
+            ("last", _("At end")),
+        ):
+            _rb = QRadioButton(_label)
+            _rb.setProperty("llm_position", _val)
+            if _val == saved_pos:
+                _rb.setChecked(True)
+            self.llm_position_group.addButton(_rb)
+            _pos_hl.addWidget(_rb)
+        _pos_hl.addStretch(1)
+        # Ensure at least one is checked (fallback to hybrid)
+        if self.llm_position_group.checkedButton() is None:
+            for _b in self.llm_position_group.buttons():
+                if _b.property("llm_position") == "hybrid":
+                    _b.setChecked(True)
+                    break
+        llm_flay.addRow(_("Position in chain:"), _pos_row)
 
         self.cmb_llm_model = QComboBox()
         saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
@@ -11288,8 +11315,7 @@ class DicteeSetupDialog(QDialog):
         # LLM
         llm_on = _b("chk_llm", default=False)
         env["DICTEE_LLM_POSTPROCESS"] = llm_on
-        if hasattr(self, 'cmb_llm_position'):
-            env["DICTEE_LLM_POSITION"] = self.cmb_llm_position.currentData() or "hybrid"
+        env["DICTEE_LLM_POSITION"] = self._get_llm_position()
         if hasattr(self, 'cmb_llm_model'):
             env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
         if hasattr(self, 'cmb_llm_preset'):
@@ -11634,7 +11660,7 @@ class DicteeSetupDialog(QDialog):
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
         llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
-        llm_position = self.cmb_llm_position.currentData() if hasattr(self, 'cmb_llm_position') else "hybrid"
+        llm_position = self._get_llm_position()
         llm_custom_prompt = self.txt_llm_prompt.toPlainText() if hasattr(self, 'txt_llm_prompt') else ""
 
         # Continuation visual indicator
