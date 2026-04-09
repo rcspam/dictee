@@ -6826,6 +6826,17 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, "chk_llm"):
             self._pp_state["llm"] = self.chk_llm.isChecked()
 
+        # Sync translation short-text checkbox FROM self._trpp_state so
+        # that SVG orange clicks (which write directly into the dict) are
+        # reflected in the visible checkbox. Use blockSignals to avoid
+        # triggering the toggled handler and re-entering this function.
+        if hasattr(self, "chk_trpp_short_text"):
+            desired = bool(self._trpp_state.get("short_text", True))
+            if self.chk_trpp_short_text.isChecked() != desired:
+                self.chk_trpp_short_text.blockSignals(True)
+                self.chk_trpp_short_text.setChecked(desired)
+                self.chk_trpp_short_text.blockSignals(False)
+
         llm_pos = self._get_llm_position() if hasattr(self, "_get_llm_position") else "hybrid"
         st_max = 3
         if hasattr(self, "cmb_pp_short_text_max"):
