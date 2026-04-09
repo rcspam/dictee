@@ -1054,6 +1054,7 @@ class _PipelineDiagram:
                    + _("spelling, accents and punctuation."),
             "nav:microphone": "<b>" + _("Microphone") + "</b><br>" + _("Jump to the Microphone section."),
             "nav:asr": "<b>" + _("ASR backend") + "</b><br>" + _("Jump to the ASR backend section."),
+            "nav:translation": "<b>" + _("Translation") + "</b><br>" + _("Jump to the Translation section."),
         }
 
     def __init__(self, palette, variant=None, llm_force_off=False):
@@ -1240,8 +1241,8 @@ class _PipelineDiagram:
         x += ep_r * 2 + gap
         # ASR endpoint (blue) or Translate icon (orange)
         elems.append(endpoint(x + ep_r, asr_b64))
-        if not orange_variant:
-            hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:asr"))
+        nav_key = "nav:translation" if orange_variant else "nav:asr"
+        hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), nav_key))
         seg_start = x + ep_r * 2
         elems.append(arrow(seg_start + 4, seg_start + gap - 4))
         x = seg_start + gap
@@ -6730,6 +6731,7 @@ class DicteeSetupDialog(QDialog):
             target_label = {
                 "nav:microphone": _("Microphone"),
                 "nav:asr": _("ASR backend"),
+                "nav:translation": _("Translation"),
             }.get(key)
             if target_label:
                 tree = self._sidebar_tree
