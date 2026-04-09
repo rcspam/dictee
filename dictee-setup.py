@@ -6162,17 +6162,7 @@ class DicteeSetupDialog(QDialog):
             f"color: {accent_hex}; font-size: 12px; font-weight: bold;")
         c_lay.addWidget(hint)
 
-        def _make_row(label_text, diagram, label_color):
-            row = QWidget()
-            rlay = QHBoxLayout(row)
-            rlay.setContentsMargins(0, 0, 0, 0)
-            rlay.setSpacing(8)
-            lbl = QLabel(label_text)
-            lbl.setFixedWidth(90)
-            lbl.setStyleSheet(
-                f"color: {label_color}; font-size: 11px; font-weight: bold;")
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            rlay.addWidget(lbl)
+        def _make_row(diagram):
             sc = _QSA()
             sc.setWidgetResizable(False)
             sc.setWidget(diagram.widget)
@@ -6180,13 +6170,12 @@ class DicteeSetupDialog(QDialog):
             sc.setFixedHeight(70)
             sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             sc.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            rlay.addWidget(sc, 1)
-            return row
+            return sc
 
         # Blue (Normal) diagram — reuses the default palette (KDE Highlight)
         if not hasattr(self, "_pp_diagram") or self._pp_diagram is None:
             self._pp_diagram = _PipelineDiagram(self.palette())
-        c_lay.addWidget(_make_row(_("Normal"), self._pp_diagram, accent_hex))
+        c_lay.addWidget(_make_row(self._pp_diagram))
 
         # Orange (Translation) diagram — palette override with orange Highlight,
         # LLM always forced off (translation never runs LLM).
@@ -6196,7 +6185,7 @@ class DicteeSetupDialog(QDialog):
             _orange_pal.setColor(QPalette.ColorRole.HighlightedText, QColor("white"))
             self._trpp_diagram = _PipelineDiagram(
                 _orange_pal, variant="orange", llm_force_off=True)
-        c_lay.addWidget(_make_row(_("Translation"), self._trpp_diagram, "#e67e22"))
+        c_lay.addWidget(_make_row(self._trpp_diagram))
 
         return container
 
