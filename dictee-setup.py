@@ -6369,15 +6369,12 @@ class DicteeSetupDialog(QDialog):
             self._pp_tabs.tabBar().hide()
             # Header row wrapped in a QWidget so it can be hidden as a
             # whole when the user selects the Post-processing root node
-            # (overview mode).
+            # (overview mode). Only holds the dynamic title — no enable
+            # checkbox: activation is done EXCLUSIVELY via the SVG.
             self._pp_title_row_w = QWidget()
             _title_row = QHBoxLayout(self._pp_title_row_w)
             _title_row.setContentsMargins(0, 0, 0, 0)
             _title_row.setSpacing(12)
-            self._pp_tab_enable = QCheckBox()
-            self._pp_tab_enable.setStyleSheet(
-                "QCheckBox::indicator { width: 22px; height: 22px; }")
-            _title_row.addWidget(self._pp_tab_enable)
             self._pp_tab_title = QLabel()
             self._pp_tab_title.setStyleSheet(
                 f"color: {accent_hex}; font-size: 24px; font-weight: bold; "
@@ -6386,54 +6383,10 @@ class DicteeSetupDialog(QDialog):
             _title_row.addStretch(1)
             pp_lay.addWidget(self._pp_title_row_w)
 
-            # Map tab index → corresponding pipeline checkbox. Deferred via
-            # a closure so chk_* attributes (created later in this method)
-            # are resolved at call time, not build time.
-            def _tab_chk(idx):
-                return {
-                    0: getattr(self, "chk_pp_rules", None),
-                    1: getattr(self, "chk_pp_continuation", None),
-                    2: getattr(self, "chk_pp_language_rules", None),
-                    3: getattr(self, "chk_pp_dict", None),
-                    4: getattr(self, "chk_llm", None),
-                }.get(idx)
-
-            # Current tab's target checkbox — kept as an attribute so the
-            # target→header sync handler (connected once to every chk_*)
-            # can find it without rebuilding connections on each switch.
-            self._pp_header_target = None
-
-            def _header_toggled(on):
-                tgt = self._pp_header_target
-                if tgt is None:
-                    return
-                if tgt.isChecked() != on:
-                    tgt.setChecked(on)
-            self._pp_tab_enable.toggled.connect(_header_toggled)
-
-            def _target_toggled_sync():
-                # Reflect current target state in the header checkbox
-                tgt = self._pp_header_target
-                if tgt is None:
-                    return
-                self._pp_tab_enable.blockSignals(True)
-                self._pp_tab_enable.setChecked(tgt.isChecked())
-                self._pp_tab_enable.blockSignals(False)
-            self._pp_target_toggled_sync = _target_toggled_sync
-
             def _sync_pp_title(idx):
                 if idx < 0:
                     return
                 self._pp_tab_title.setText(self._pp_tabs.tabText(idx))
-                tgt = _tab_chk(idx)
-                self._pp_header_target = tgt
-                if tgt is None:
-                    self._pp_tab_enable.setVisible(False)
-                    return
-                self._pp_tab_enable.setVisible(True)
-                self._pp_tab_enable.blockSignals(True)
-                self._pp_tab_enable.setChecked(tgt.isChecked())
-                self._pp_tab_enable.blockSignals(False)
 
             self._pp_tabs.currentChanged.connect(_sync_pp_title)
             # Initial sync deferred to after addTab calls below
@@ -6489,27 +6442,10 @@ class DicteeSetupDialog(QDialog):
         _normal_col = self.palette().color(
             self.palette().ColorRole.WindowText)
 
-        # Map tab index → its content widget so we can gray it out when off.
-        # New order: Rules(0) → Continuation(1) → Lang(2) → Dict(3) → LLM(4)
-        _tab_widgets = {0: tab_rules, 1: tab_cont, 2: tab_lang, 3: tab_dict, 4: tab_llm}
-
-        def _set_tab_visual(idx, on):
-            tb = self._pp_tabs.tabBar()
-            tb.setTabTextColor(idx, _normal_col if on else _disabled_col)
-            w = _tab_widgets.get(idx)
-            if w is not None:
-                w.setEnabled(on)  # grays children + makes them non-editable
-
-        self.chk_pp_rules.toggled.connect(lambda on: _set_tab_visual(0, on))
-        self.chk_pp_continuation.toggled.connect(lambda on: _set_tab_visual(1, on))
-        self.chk_pp_language_rules.toggled.connect(lambda on: _set_tab_visual(2, on))
-        self.chk_pp_dict.toggled.connect(lambda on: _set_tab_visual(3, on))
-        self.chk_llm.toggled.connect(lambda on: _set_tab_visual(4, on))
-        _set_tab_visual(0, self.chk_pp_rules.isChecked())
-        _set_tab_visual(1, self.chk_pp_continuation.isChecked())
-        _set_tab_visual(2, self.chk_pp_language_rules.isChecked())
-        _set_tab_visual(3, self.chk_pp_dict.isChecked())
-        _set_tab_visual(4, self.chk_llm.isChecked())
+        # Sub-pages are always fully active: the step activation state is
+        # stored in self._pp_state / self._trpp_state and visualised via
+        # the SVG pipeline only. No greying of tab content from the step
+        # checkboxes anymore.
 
         # Edit mode button (masqué pour l'onglet Règles)
         self._btn_advanced = QPushButton(_("Edit mode"))
@@ -6595,14 +6531,26 @@ class DicteeSetupDialog(QDialog):
         # produced a huge-handle scrollbar with no content to scroll.
         lay.addWidget(self._pp_content)
         self._pp_scroll = None
-        self._pp_content.setEnabled(self.chk_postprocess.isChecked())
-        self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
+
+        # Sub-pages are grey/disabled ONLY if BOTH masters are off.
+        # Otherwise (one or both on), they remain fully editable.
+        def _apply_any_master_active():
+            any_on = self._pp_master_normal or self._pp_master_translate
+            self._pp_content.setEnabled(any_on)
+        self._apply_any_master_active = _apply_any_master_active
 
         def _on_master_normal_toggled(on):
             self._pp_master_normal = bool(on)
+            _apply_any_master_active()
             self._refresh_pp_diagrams()
         self.chk_postprocess.toggled.connect(_on_master_normal_toggled)
-        # Initial render with current masters
+        # Wire translation master greyout too (connected earlier but
+        # without _apply_any_master_active; rewire here for clarity).
+        self.chk_pp_translate.toggled.connect(
+            lambda _on: _apply_any_master_active())
+
+        # Initial state
+        _apply_any_master_active()
         self._refresh_pp_diagrams()
 
         # Sidebar mode: grey the post-processing header (big title + tab
@@ -6620,26 +6568,20 @@ class DicteeSetupDialog(QDialog):
                 self._pp_tab_title.setStyleSheet(
                     f"color: {col}; font-size: 24px; font-weight: bold; "
                     "padding: 6px 0 12px 0;")
-                self._pp_tab_enable.setEnabled(on)
                 if hasattr(self, "_pp_tabs"):
                     self._pp_tabs.setEnabled(on)
 
             self.chk_postprocess.toggled.connect(_apply_pp_master)
             _apply_pp_master(self.chk_postprocess.isChecked())
 
-        # Wire pipeline diagram refresh
+        # Wire pipeline diagram refresh (SVG is the source of activation —
+        # no per-tab enable checkbox to keep in sync anymore).
         for cb in (self.chk_pp_rules, self.chk_pp_continuation,
                    self.chk_pp_language_rules,
                    self.chk_pp_numbers, self.chk_pp_dict,
                    self.chk_pp_capitalization, self.chk_llm,
                    self.chk_pp_short_text):
             cb.toggled.connect(self._refresh_pp_diagram)
-            # Sidebar mode: also keep the post-processing header checkbox
-            # in sync when the underlying step is toggled elsewhere (e.g.
-            # by clicking the SVG pipeline).
-            if hasattr(self, "_pp_target_toggled_sync"):
-                cb.toggled.connect(
-                    lambda _on: self._pp_target_toggled_sync())
         if hasattr(self, 'llm_position_group'):
             self.llm_position_group.buttonToggled.connect(
                 lambda _btn, _checked: self._refresh_pp_diagram() if _checked else None)
@@ -7493,23 +7435,8 @@ class DicteeSetupDialog(QDialog):
         # Syntax highlighting
         self._rules_highlighter = self._RulesHighlighter(self._rules_editor.document())
 
-        # Grey the editor (syntax + widget) when the rules step is off
-        # OR when the master post-processing is off.
-        def _update_rules_active():
-            master = self.chk_postprocess.isChecked() if hasattr(self, "chk_postprocess") else True
-            step = self.chk_pp_rules.isChecked() if hasattr(self, "chk_pp_rules") else True
-            on = master and step
-            self._rules_highlighter.set_active(on)
-            self._rules_editor.setEnabled(on)
-            if hasattr(self, "_rules_line_numbers"):
-                self._rules_line_numbers.setEnabled(on)
-        self._update_rules_active = _update_rules_active
-        if hasattr(self, "chk_pp_rules"):
-            self.chk_pp_rules.toggled.connect(lambda _on: _update_rules_active())
-        if hasattr(self, "chk_postprocess"):
-            self.chk_postprocess.toggled.connect(lambda _on: _update_rules_active())
-        # Initial sync
-        _update_rules_active()
+        # Rules editor is always active; step activation lives on the
+        # SVG pipeline only. No greying based on chk_pp_rules/master.
 
         # Line numbers
         self._rules_line_numbers = self._LineNumberArea(self._rules_editor)
