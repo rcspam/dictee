@@ -1022,35 +1022,39 @@ class _PipelineDiagram:
         ("short_text", "Short text"),
     ]
 
-    TOOLTIPS = {
-        "rules": "<b>Regex rules</b><br>"
-                 "Fix common ASR errors:<br>"
-                 "voice commands, punctuation, formatting.",
-        "continuation": "<b>Continuation</b><br>"
-                        "Remove erroneous periods after closed-class words<br>"
-                        "so sentences flow across push-to-talk segments.",
-        "language_rules": "<b>Language rules</b><br>"
-                          "Per-language fixes:<br>"
-                          "FR/IT elisions, DE/ES/PT/NL/RO corrections.",
-        "numbers": "<b>Numbers</b><br>"
-                   "Convert spoken numbers to digits.<br>"
-                   "Example: \"vingt-trois\" → \"23\".",
-        "dict": "<b>Dictionary</b><br>"
-                "Exact word replacements from the system<br>"
-                "and personal dictionaries.",
-        "capitalization": "<b>Capitalization</b><br>"
-                          "Uppercase first letter after . ! ?<br>"
-                          "Essential for Vosk/Whisper backends.",
-        "short_text": "<b>Short text fix</b><br>"
-                      "For transcriptions under N words:<br>"
-                      "strip trailing punctuation and lowercase.",
-        "llm": "<b>LLM grammar correction</b><br>"
-               "Local Ollama model fixes grammar,<br>"
-               "spelling, accents and punctuation.",
-        "nav:microphone": "<b>Microphone</b><br>Jump to the Microphone section.",
-        "nav:asr": "<b>ASR backend</b><br>Jump to the ASR backend section.",
-        "nav:translation": "<b>Translation</b><br>Jump to the Translation section.",
-    }
+    # Tooltip texts are built lazily in _build_tooltips() so that gettext _()
+    # is called after the locale has been initialised (class-body evaluation
+    # would freeze them to the startup language).
+    @staticmethod
+    def _build_tooltips():
+        return {
+            "rules": "<b>" + _("Regex rules") + "</b><br>"
+                     + _("Fix common ASR errors:") + "<br>"
+                     + _("voice commands, punctuation, formatting."),
+            "continuation": "<b>" + _("Continuation") + "</b><br>"
+                            + _("Remove erroneous periods after closed-class words") + "<br>"
+                            + _("so sentences flow across push-to-talk segments."),
+            "language_rules": "<b>" + _("Language rules") + "</b><br>"
+                              + _("Per-language fixes:") + "<br>"
+                              + _("FR/IT elisions, DE/ES/PT/NL/RO corrections."),
+            "numbers": "<b>" + _("Numbers") + "</b><br>"
+                       + _("Convert spoken numbers to digits.") + "<br>"
+                       + _("Example: \"twenty-three\" → \"23\"."),
+            "dict": "<b>" + _("Dictionary") + "</b><br>"
+                    + _("Exact word replacements from the system") + "<br>"
+                    + _("and personal dictionaries."),
+            "capitalization": "<b>" + _("Capitalization") + "</b><br>"
+                              + _("Uppercase first letter after . ! ?") + "<br>"
+                              + _("Essential for Vosk/Whisper backends."),
+            "short_text": "<b>" + _("Short text fix") + "</b><br>"
+                          + _("For transcriptions under N words:") + "<br>"
+                          + _("strip trailing punctuation and lowercase."),
+            "llm": "<b>" + _("LLM grammar correction") + "</b><br>"
+                   + _("Local Ollama model fixes grammar,") + "<br>"
+                   + _("spelling, accents and punctuation."),
+            "nav:microphone": "<b>" + _("Microphone") + "</b><br>" + _("Jump to the Microphone section."),
+            "nav:asr": "<b>" + _("ASR backend") + "</b><br>" + _("Jump to the ASR backend section."),
+        }
 
     def __init__(self, palette):
         self.widget = _ClickableSvgWidget()
@@ -1143,15 +1147,14 @@ class _PipelineDiagram:
         gap = 32
         ep_r = 16
         boxes = [len(label) * char_w + pad_x * 2 for _k, label, _ in steps]
-        # IN(mic) + arrow + ASR + arrow + Translate + arrow + steps + arrow + OUT(pencil)
-        total_w = ep_r * 8 + gap * 4 + sum(boxes) + gap * (len(boxes) - 1) + 20
+        # IN(mic) + arrow + ASR + arrow + steps + arrow + OUT(pencil)
+        total_w = ep_r * 6 + gap * 3 + sum(boxes) + gap * (len(boxes) - 1) + 20
         total_h = h + 20
         y = 10
         cy = y + h / 2
 
         in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"])
         asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"])
-        tr_b64 = self._icon_b64("translate-symbolic", t["icon_suffix"])
         out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"])
 
         elems = [
@@ -1197,12 +1200,6 @@ class _PipelineDiagram:
         seg_start = x + ep_r * 2
         elems.append(arrow(seg_start + 4, seg_start + gap - 4))
         x = seg_start + gap
-        # Translation endpoint (clickable → Translation sub-menu)
-        elems.append(endpoint(x + ep_r, tr_b64))
-        hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:translation"))
-        seg_start = x + ep_r * 2
-        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
-        x = seg_start + gap
 
         from xml.sax.saxutils import escape as _xml_escape
         for i, ((key, label, on), bw) in enumerate(zip(steps, boxes)):
@@ -1237,7 +1234,7 @@ class _PipelineDiagram:
         self.widget.load(QByteArray("\n".join(elems).encode("utf-8")))
         self.widget.setFixedSize(int(total_w), int(total_h))
         self.widget.hit_boxes = hit_boxes
-        self.widget.tooltips = dict(self.TOOLTIPS)
+        self.widget.tooltips = self._build_tooltips()
 
 
 # === Backends ASR alternatifs (venvs) ===
@@ -3205,6 +3202,7 @@ class DicteeSetupDialog(QDialog):
         _add(pp_root, _("Language rules"), 8, 2)
         _add(pp_root, _("Dictionary"), 8, 3)
         _add(pp_root, _("LLM"), 8, 4)
+        _add(pp_root, _("Translation post-process"), 8, 5)
         pp_root.setExpanded(True)
         _add(tree, _("About"), 9)
 
@@ -6342,6 +6340,13 @@ class DicteeSetupDialog(QDialog):
         self._build_llm_tab(tab_llm_lay, conf)
         self._pp_tabs.addTab(tab_llm, _("LLM"))
 
+        # Translation post-process tab (index 5) — applied after translation
+        tab_tr_pp = QWidget()
+        tab_tr_pp_lay = QVBoxLayout(tab_tr_pp)
+        tab_tr_pp_lay.setContentsMargins(8, 8, 8, 8)
+        self._build_translation_postprocess_tab(tab_tr_pp_lay, conf)
+        self._pp_tabs.addTab(tab_tr_pp, _("Translation post-process"))
+
         # Initialize dynamic title now that tabs exist (sidebar mode only)
         if hasattr(self, "_pp_tab_title_sync"):
             self._pp_tab_title_sync(self._pp_tabs.currentIndex())
@@ -6549,7 +6554,6 @@ class DicteeSetupDialog(QDialog):
             target_label = {
                 "nav:microphone": _("Microphone"),
                 "nav:asr": _("ASR backend"),
-                "nav:translation": _("Translation"),
             }.get(key)
             if target_label:
                 tree = self._sidebar_tree
@@ -6560,6 +6564,10 @@ class DicteeSetupDialog(QDialog):
                         tree.setCurrentItem(it)
                         return
             return
+        # Steps with a config sub-page: navigate there WITHOUT toggling.
+        # The user enables/disables from the checkbox inside the page.
+        # Steps without a sub-page (numbers, capitalization, short_text)
+        # fall through to the toggle logic below.
         cb_map = {
             "rules": self.chk_pp_rules,
             "continuation": self.chk_pp_continuation,
@@ -6570,14 +6578,9 @@ class DicteeSetupDialog(QDialog):
             "llm": self.chk_llm,
             "short_text": getattr(self, 'chk_pp_short_text', None),
         }
-        cb = cb_map.get(key)
-        if cb is not None:
-            cb.toggle()
-        # Sidebar mode: jump to the matching post-processing sub-section
-        # when one exists. Steps without a sub-page (numbers, capitalization,
-        # short_text) only toggle — no navigation.
-        if not hasattr(self, "_sidebar_tree"):
-            return
+        steps_with_page = {"rules", "continuation", "language_rules", "dict", "llm"}
+        # Resolve the sidebar sub-item target (if any) for this step.
+        target_child = None
         tab_idx = {
             "rules": 0,
             "continuation": 1,
@@ -6585,18 +6588,36 @@ class DicteeSetupDialog(QDialog):
             "dict": 3,
             "llm": 4,
         }.get(key)
-        if tab_idx is None:
+        tree = getattr(self, "_sidebar_tree", None)
+        if tree is not None and tab_idx is not None:
+            for i in range(tree.topLevelItemCount()):
+                it = tree.topLevelItem(i)
+                if it.childCount() == 6:  # 6 sub-items = Post-processing
+                    target_child = it.child(tab_idx)
+                    break
+        # Decide: toggle or navigate?
+        # - Step without page → always toggle.
+        # - Step with page, not currently displayed → navigate (show config).
+        # - Step with page, already displayed → toggle its checkbox.
+        if key in steps_with_page:
+            already_on_page = (
+                tree is not None
+                and target_child is not None
+                and tree.currentItem() is target_child
+            )
+            if already_on_page:
+                cb = cb_map.get(key)
+                if cb is not None:
+                    cb.toggle()
+                return
+            # Navigate to the page (first click).
+            if target_child is not None:
+                tree.setCurrentItem(target_child)
             return
-        tree = self._sidebar_tree
-        # Find the Post-processing root (top-level item whose first child
-        # is the Regex rules sub-item); its children are in tab-index order.
-        for i in range(tree.topLevelItemCount()):
-            it = tree.topLevelItem(i)
-            if it.childCount() == 5:  # 5 sub-items = Post-processing
-                child = it.child(tab_idx)
-                if child is not None:
-                    tree.setCurrentItem(child)
-                break
+        # Step without a page: toggle directly.
+        cb = cb_map.get(key)
+        if cb is not None:
+            cb.toggle()
 
 
     def _refresh_pp_diagram(self):
@@ -6616,6 +6637,68 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, 'cmb_pp_short_text_max'):
             st_max = self.cmb_pp_short_text_max.currentData() or 3
         self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos, st_max)
+
+    def _build_translation_postprocess_tab(self, lay, conf):
+        """Build translation post-processing tab.
+
+        Translation backends (Google, DeepL, Bing, LibreTranslate…) already
+        rewrite grammar, punctuation and capitalization quite aggressively,
+        so most normal post-processing steps are redundant or harmful after
+        translation. However a few fixes remain useful — notably re-applying
+        short-text fix because the backend will capitalize a single word
+        even when the source was a one-word dictation.
+        """
+        lay.setSpacing(8)
+        intro = QLabel(_(
+            "These options apply <b>after</b> the translation backend has run, "
+            "on the translated text, just before it is typed.<br>"
+            "Translation engines already clean grammar and punctuation, so "
+            "only a few tweaks are usually needed."
+        ))
+        intro.setWordWrap(True)
+        intro.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(intro)
+
+        self.chk_tr_pp_enable = QCheckBox(_("Enable translation post-processing"))
+        self.chk_tr_pp_enable.setChecked(
+            (conf.get("DICTEE_TRANSLATE_POSTPROCESS", "true") or "true").lower() == "true"
+        )
+        lay.addWidget(self.chk_tr_pp_enable)
+
+        box = QGroupBox(_("Fixes applied to the translated text"))
+        box_lay = QVBoxLayout(box)
+        box_lay.setSpacing(4)
+
+        self.chk_tr_pp_short_text = QCheckBox(_(
+            "Short text fix — for very short dictations, strip trailing "
+            "punctuation and lowercase the result"
+        ))
+        self.chk_tr_pp_short_text.setToolTip(_(
+            "Example: dictating \"maison\" alone translates to \"House\" "
+            "because the backend capitalizes single-word inputs. This option "
+            "turns it back into \"house\"."
+        ))
+        self.chk_tr_pp_short_text.setChecked(
+            (conf.get("DICTEE_TRANSLATE_PP_SHORT_TEXT", "true") or "true").lower() == "true"
+        )
+        box_lay.addWidget(self.chk_tr_pp_short_text)
+
+        self.chk_tr_pp_strip_final_period = QCheckBox(_(
+            "Strip final period added by the translation backend"
+        ))
+        self.chk_tr_pp_strip_final_period.setChecked(
+            (conf.get("DICTEE_TRANSLATE_PP_STRIP_PERIOD", "false") or "false").lower() == "true"
+        )
+        box_lay.addWidget(self.chk_tr_pp_strip_final_period)
+
+        lay.addWidget(box)
+        lay.addStretch(1)
+
+        # Master toggle greys out children when off
+        def _sync_enabled(on):
+            box.setEnabled(on)
+        self.chk_tr_pp_enable.toggled.connect(_sync_enabled)
+        _sync_enabled(self.chk_tr_pp_enable.isChecked())
 
     def _build_llm_tab(self, lay, conf):
         """Build LLM post-processing tab content."""
@@ -11311,6 +11394,11 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, 'cmb_pp_short_text_max'):
             env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
                 self.cmb_pp_short_text_max.currentData() or 3)
+
+        # Translation post-processing (applied AFTER the translation backend)
+        env["DICTEE_TRANSLATE_POSTPROCESS"] = _b("chk_tr_pp_enable")
+        env["DICTEE_TRANSLATE_PP_SHORT_TEXT"] = _b("chk_tr_pp_short_text")
+        env["DICTEE_TRANSLATE_PP_STRIP_PERIOD"] = _b("chk_tr_pp_strip_final_period")
 
         # LLM
         llm_on = _b("chk_llm", default=False)

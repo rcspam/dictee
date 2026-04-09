@@ -1282,6 +1282,25 @@ if [ -f "$PIDFILE" ]; then
             _trans_label="$TRANSLATE_BACKEND"
         fi
         if [ -n "$translated" ]; then
+            # Translation post-process: re-apply short_text fix on the
+            # translated text. Translation backends (Google/DeepL/Bing/…)
+            # capitalize single-word inputs ("maison" → "House"), which
+            # defeats the pre-translation short_text fix. Re-applying it
+            # here on $translated turns "House" back into "house".
+            if [ "${DICTEE_TRANSLATE_POSTPROCESS:-true}" = "true" ] \
+               && [ "${DICTEE_TRANSLATE_PP_SHORT_TEXT:-true}" = "true" ]; then
+                _st_max="${DICTEE_PP_SHORT_TEXT_MAX:-3}"
+                _st_wc=$(printf '%s' "$transcribed" | wc -w)
+                if [ "$_st_wc" -gt 0 ] && [ "$_st_wc" -le "$_st_max" ]; then
+                    translated="${translated%[.!?,;:]}"
+                    translated=$(printf '%s' "$translated" | tr '[:upper:]' '[:lower:]')
+                fi
+            fi
+            # Strip a final period added by the backend even on longer text
+            if [ "${DICTEE_TRANSLATE_POSTPROCESS:-true}" = "true" ] \
+               && [ "${DICTEE_TRANSLATE_PP_STRIP_PERIOD:-false}" = "true" ]; then
+                translated="${translated%.}"
+            fi
             copy_to_clipboard "$translated"
             # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
             # dotool "type" cannot handle these characters, use clipboard paste
