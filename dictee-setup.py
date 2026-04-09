@@ -1176,9 +1176,18 @@ class _PipelineDiagram:
         y = 10
         cy = y + h / 2
 
-        in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"], variant=self._variant)
-        asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"], variant=self._variant)
-        out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"], variant=self._variant)
+        orange_variant = (self._variant == "orange")
+        if orange_variant:
+            # Translation pipeline: use translate icon in place of ASR,
+            # and replace mic/pencil circles with L-shaped orange arrows
+            # suggesting flow from/to the blue row above.
+            in_b64 = ""
+            asr_b64 = self._icon_b64("translate-symbolic", t["icon_suffix"], variant="orange")
+            out_b64 = ""
+        else:
+            in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"], variant=self._variant)
+            asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"], variant=self._variant)
+            out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"], variant=self._variant)
 
         elems = [
             f'<svg xmlns="http://www.w3.org/2000/svg" '
@@ -1211,15 +1220,28 @@ class _PipelineDiagram:
         from PyQt6.QtCore import QRectF as _QRectF_ep
 
         x = 10
-        # Mic endpoint (clickable → Microphone sub-menu)
-        elems.append(endpoint(x + ep_r, in_b64))
-        hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:microphone"))
-        seg_start = x + ep_r * 2
-        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
-        x = seg_start + gap
-        # ASR endpoint (clickable → ASR backend sub-menu)
+        if orange_variant:
+            # Draw L-shaped arrow: comes from top-left (suggesting the
+            # audio source above in the blue row), goes down to cy,
+            # then right toward the first element.
+            cx_mic = x + ep_r
+            elems.append(
+                f'<path d="M {cx_mic} {y - 6} '
+                f'L {cx_mic} {cy} '
+                f'L {cx_mic + ep_r + 4} {cy}" '
+                f'fill="none" stroke="{t["accent"]}" stroke-width="2.2" '
+                f'marker-end="url(#ar)"/>')
+        else:
+            # Mic endpoint (clickable → Microphone sub-menu)
+            elems.append(endpoint(x + ep_r, in_b64))
+            hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:microphone"))
+            seg_start = x + ep_r * 2
+            elems.append(arrow(seg_start + 4, seg_start + gap - 4))
+        x += ep_r * 2 + gap
+        # ASR endpoint (blue) or Translate icon (orange)
         elems.append(endpoint(x + ep_r, asr_b64))
-        hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:asr"))
+        if not orange_variant:
+            hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:asr"))
         seg_start = x + ep_r * 2
         elems.append(arrow(seg_start + 4, seg_start + gap - 4))
         x = seg_start + gap
@@ -1250,8 +1272,19 @@ class _PipelineDiagram:
                 elems.append(arrow(x + bw + 4, x + bw + gap - 4))
             x += bw + gap
 
-        elems.append(arrow(x - gap + 4, x - 4))
-        elems.append(endpoint(x + ep_r, out_b64))
+        if orange_variant:
+            # L-shaped arrow: right then up, suggesting output flows
+            # back up to the pencil (typing) in the blue row above.
+            cx_end = x + ep_r
+            elems.append(
+                f'<path d="M {x - gap + 4} {cy} '
+                f'L {cx_end} {cy} '
+                f'L {cx_end} {y - 6}" '
+                f'fill="none" stroke="{t["accent"]}" stroke-width="2.2" '
+                f'marker-end="url(#ar)"/>')
+        else:
+            elems.append(arrow(x - gap + 4, x - 4))
+            elems.append(endpoint(x + ep_r, out_b64))
         elems.append("</svg>")
 
         self.widget.load(QByteArray("\n".join(elems).encode("utf-8")))
