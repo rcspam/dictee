@@ -6536,21 +6536,45 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._pp_content)
         self._pp_scroll = None
 
-        # Sub-pages AND their sidebar tree entries are grey/disabled ONLY
-        # if BOTH masters are off. Otherwise (one or both on), they remain
-        # fully editable/navigable.
+        # Per-step greying: a pipeline step is "effectively active" when
+        # at least one of the two pipelines (normal / translation) has it
+        # enabled, taking masters into account:
+        #     effective(step) = (master_normal AND _pp_state[step])
+        #                    OR (master_translate AND _trpp_state[step])
+        # When effectively inactive, both the sub-item in the sidebar tree
+        # AND the corresponding sub-page (tab content) are greyed.
+        # LLM is a special case: _trpp_state['llm'] is always False, so
+        # its effective state depends only on the normal pipeline.
         def _apply_any_master_active():
-            any_on = self._pp_master_normal or self._pp_master_translate
-            self._pp_content.setEnabled(any_on)
-            # Grey the 5 PP sub-items in the sidebar tree too.
+            # Build per-step effective activation map
+            effective = {}
+            for k in ("rules", "continuation", "language_rules", "dict", "llm"):
+                n = self._pp_master_normal and self._pp_state.get(k, False)
+                t = self._pp_master_translate and self._trpp_state.get(k, False)
+                effective[k] = bool(n or t)
+
+            # Sidebar sub-items under the Post-processing root
             tree = getattr(self, "_sidebar_tree", None)
+            pp_root = None
             if tree is not None:
                 for i in range(tree.topLevelItemCount()):
                     it = tree.topLevelItem(i)
-                    if it.childCount() == 5:  # Post-processing root
-                        for c in range(it.childCount()):
-                            it.child(c).setDisabled(not any_on)
+                    if it.childCount() == 5:
+                        pp_root = it
                         break
+            step_order = ("rules", "continuation", "language_rules", "dict", "llm")
+            if pp_root is not None:
+                for idx, k in enumerate(step_order):
+                    child = pp_root.child(idx)
+                    if child is not None:
+                        child.setDisabled(not effective[k])
+
+            # Sub-page tab content
+            if hasattr(self, "_pp_tabs") and self._pp_tabs is not None:
+                for idx, k in enumerate(step_order):
+                    w = self._pp_tabs.widget(idx)
+                    if w is not None:
+                        w.setEnabled(effective[k])
         self._apply_any_master_active = _apply_any_master_active
 
         def _on_master_normal_toggled(on):
@@ -6796,6 +6820,11 @@ class DicteeSetupDialog(QDialog):
                 dict(self._trpp_state),
                 bool(self._trpp_state.get("llm", False)),
                 llm_pos, st_max)
+
+        # Also reapply the per-step greying of sidebar sub-items and
+        # sub-pages (effective state = OR between normal/translation).
+        if hasattr(self, "_apply_any_master_active"):
+            self._apply_any_master_active()
 
     # Backwards-compatibility shim (many connections call the old name).
     def _refresh_pp_diagram(self):
