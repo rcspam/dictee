@@ -6596,7 +6596,11 @@ class DicteeSetupDialog(QDialog):
                 t = self._pp_master_translate and self._trpp_state.get(k, False)
                 effective[k] = bool(n or t)
 
-            # Sidebar sub-items under the Post-processing root
+            # Sidebar sub-items under the Post-processing root.
+            # Grey them visually via foreground color when the step is
+            # effectively off, but KEEP them enabled so the user can
+            # still navigate to their page via clicks (either from
+            # sidebar or from the SVG pipeline).
             tree = getattr(self, "_sidebar_tree", None)
             pp_root = None
             if tree is not None:
@@ -6606,11 +6610,18 @@ class DicteeSetupDialog(QDialog):
                         pp_root = it
                         break
             step_order = ("rules", "continuation", "language_rules", "dict", "llm")
+            from PyQt6.QtGui import QBrush
+            _pal = self.palette()
+            _col_normal = _pal.color(_pal.ColorRole.WindowText)
+            _col_disabled = _pal.color(
+                _pal.ColorGroup.Disabled, _pal.ColorRole.WindowText)
             if pp_root is not None:
                 for idx, k in enumerate(step_order):
                     child = pp_root.child(idx)
                     if child is not None:
-                        child.setDisabled(not effective[k])
+                        child.setForeground(
+                            0,
+                            QBrush(_col_normal if effective[k] else _col_disabled))
 
             # Sub-page tab content
             if hasattr(self, "_pp_tabs") and self._pp_tabs is not None:
@@ -6769,10 +6780,7 @@ class DicteeSetupDialog(QDialog):
 
             steps_with_page = {"rules", "continuation", "language_rules", "dict"}
             if key in steps_with_page:
-                # If the sub-item is disabled (step effectively off in BOTH
-                # pipelines), we can't navigate — directly toggle instead
-                # so the user can always re-enable it via the SVG.
-                if target_child is None or target_child.isDisabled():
+                if target_child is None:
                     _toggle_trpp()
                     return
                 already_on_page = (
@@ -6782,6 +6790,7 @@ class DicteeSetupDialog(QDialog):
                 if already_on_page:
                     _toggle_trpp()
                     return
+                # Navigate first; 2nd click (on page) will toggle.
                 tree.setCurrentItem(target_child)
                 return
             # numbers, capitalization, short_text → direct toggle.
@@ -6815,10 +6824,7 @@ class DicteeSetupDialog(QDialog):
                     target_child = it.child(tab_idx)
                     break
         if key in steps_with_page:
-            # If the sub-item is disabled (step off in BOTH pipelines),
-            # we can't navigate — directly toggle instead so the user can
-            # always re-enable the step via the SVG.
-            if target_child is None or target_child.isDisabled():
+            if target_child is None:
                 cb = cb_map.get(key)
                 if cb is not None:
                     cb.toggle()
@@ -6832,6 +6838,7 @@ class DicteeSetupDialog(QDialog):
                 if cb is not None:
                     cb.toggle()
                 return
+            # Navigate first; 2nd click (on page) will toggle.
             tree.setCurrentItem(target_child)
             return
         # Step without a page: toggle directly.
