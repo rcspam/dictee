@@ -1056,9 +1056,22 @@ class _PipelineDiagram:
             "nav:asr": "<b>" + _("ASR backend") + "</b><br>" + _("Jump to the ASR backend section."),
         }
 
-    def __init__(self, palette):
+    def __init__(self, palette, variant=None, llm_force_off=False):
+        """Pipeline diagram.
+
+        Args:
+            palette: QPalette used for accent color (Highlight).
+            variant: Optional icon variant name (e.g. "orange") used to
+                resolve SVG endpoint icons. Falls back to the default
+                variant if a variant-specific file is missing.
+            llm_force_off: When True, the LLM step is always rendered as
+                disabled regardless of its state. Used for the translation
+                pipeline where LLM never runs.
+        """
         self.widget = _ClickableSvgWidget()
         self._palette = palette
+        self._variant = variant
+        self._llm_force_off = bool(llm_force_off)
         self._states = {k: True for k, _ in self.BASE_STEPS}
         self._llm_on = False
         self._llm_pos = "hybrid"
@@ -1110,21 +1123,31 @@ class _PipelineDiagram:
                 for key, label in self.BASE_STEPS]
         # LLM step is always shown (even when disabled, so users can click
         # its SVG endpoint to jump to the LLM sub-section and enable it).
-        llm = ("llm", "LLM", m and self._llm_on)
+        # If llm_force_off is set (translation diagram), LLM is always off.
+        llm_active = (not self._llm_force_off) and m and self._llm_on
+        llm = ("llm", "LLM", llm_active)
         if self._llm_pos == "first":
             return [llm] + base
         if self._llm_pos == "last":
             return base + [llm]
         return base[:2] + [llm] + base[2:]
 
-    def _icon_b64(self, name, suffix):
+    def _icon_b64(self, name, suffix, variant=None):
         import base64
         from PyQt6.QtCore import QByteArray, QBuffer
         from PyQt6.QtGui import QIcon
         icons = _icons_dir()
         if not icons:
             return ""
-        path = os.path.join(icons, f"{name}-{suffix}.svg")
+        # Try variant-specific file first (e.g. "microphone-symbolic-orange-dark.svg")
+        if variant:
+            candidate = os.path.join(icons, f"{name}-{variant}-{suffix}.svg")
+            if os.path.isfile(candidate):
+                path = candidate
+            else:
+                path = os.path.join(icons, f"{name}-{suffix}.svg")
+        else:
+            path = os.path.join(icons, f"{name}-{suffix}.svg")
         if not os.path.isfile(path):
             return ""
         ic = QIcon(path)
@@ -1153,9 +1176,9 @@ class _PipelineDiagram:
         y = 10
         cy = y + h / 2
 
-        in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"])
-        asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"])
-        out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"])
+        in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"], variant=self._variant)
+        asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"], variant=self._variant)
+        out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"], variant=self._variant)
 
         elems = [
             f'<svg xmlns="http://www.w3.org/2000/svg" '
@@ -2758,6 +2781,27 @@ class DicteeSetupDialog(QDialog):
 
         self.conf = load_config()
 
+        # --- Post-processing state model (MVC: SVG pipeline reads/writes this) ---
+        # Single source of truth for per-step activation. Both the blue
+        # (normal) and orange (translation) pipeline diagrams render from
+        # this same dict — they mirror each other.
+        _conf = self.conf
+        def _cb(key, default="true"):
+            return (_conf.get(key, default) or default).lower() == "true"
+        self._pp_state = {
+            "rules":          _cb("DICTEE_PP_RULES"),
+            "continuation":   _cb("DICTEE_PP_CONTINUATION"),
+            "language_rules": _cb("DICTEE_PP_ELISIONS"),  # umbrella flag
+            "numbers":        _cb("DICTEE_PP_NUMBERS"),
+            "dict":           _cb("DICTEE_PP_DICT"),
+            "capitalization": _cb("DICTEE_PP_CAPITALIZATION"),
+            "short_text":     _cb("DICTEE_PP_SHORT_TEXT"),
+            "llm":            _cb("DICTEE_LLM_POSTPROCESS", "false"),
+        }
+        # Two independent masters: normal PP and translation PP.
+        self._pp_master_normal    = _cb("DICTEE_POSTPROCESS", "true")
+        self._pp_master_translate = _cb("DICTEE_PP_TRANSLATE", "false")
+
         # Prevent accidental scroll on interactive widgets (must be before UI build)
         self._scroll_guard = ScrollGuardFilter(self)
 
@@ -3202,7 +3246,6 @@ class DicteeSetupDialog(QDialog):
         _add(pp_root, _("Language rules"), 8, 2)
         _add(pp_root, _("Dictionary"), 8, 3)
         _add(pp_root, _("LLM"), 8, 4)
-        _add(pp_root, _("Translation post-process"), 8, 5)
         pp_root.setExpanded(True)
         _add(tree, _("About"), 9)
 
@@ -6039,10 +6082,18 @@ class DicteeSetupDialog(QDialog):
         return container
 
     def _build_pipeline_header_widget(self):
-        """Build the SVG pipeline diagram header (hint label + scrollable
-        diagram). Idempotent: if self._pp_diagram already exists, reuse it.
-        Returns a QWidget suitable for placement at the top of a layout."""
+        """Build the SVG pipeline diagram header.
+
+        Contains:
+          - Hint label
+          - Blue pipeline diagram (Normal mode)
+          - Orange pipeline diagram (Translation mode, LLM always off)
+
+        Both diagrams render from the same `self._pp_state` dict (mirror).
+        Each is wrapped in a row with a small label on the left.
+        Idempotent: reuses existing diagram instances if already built."""
         from PyQt6.QtWidgets import QScrollArea as _QSA
+        from PyQt6.QtGui import QPalette, QColor
 
         container = QWidget()
         c_lay = QVBoxLayout(container)
@@ -6059,24 +6110,49 @@ class DicteeSetupDialog(QDialog):
             f"color: {accent_hex}; font-size: 12px; font-weight: bold;")
         c_lay.addWidget(hint)
 
+        def _make_row(label_text, diagram, label_color):
+            row = QWidget()
+            rlay = QHBoxLayout(row)
+            rlay.setContentsMargins(0, 0, 0, 0)
+            rlay.setSpacing(8)
+            lbl = QLabel(label_text)
+            lbl.setFixedWidth(90)
+            lbl.setStyleSheet(
+                f"color: {label_color}; font-size: 11px; font-weight: bold;")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            rlay.addWidget(lbl)
+            sc = _QSA()
+            sc.setWidgetResizable(False)
+            sc.setWidget(diagram.widget)
+            sc.setFrameShape(QFrame.Shape.NoFrame)
+            sc.setFixedHeight(70)
+            sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            sc.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            rlay.addWidget(sc, 1)
+            return row
+
+        # Blue (Normal) diagram — reuses the default palette (KDE Highlight)
         if not hasattr(self, "_pp_diagram") or self._pp_diagram is None:
             self._pp_diagram = _PipelineDiagram(self.palette())
-        diag_scroll = _QSA()
-        diag_scroll.setWidgetResizable(False)
-        diag_scroll.setWidget(self._pp_diagram.widget)
-        diag_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        diag_scroll.setFixedHeight(70)
-        diag_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        c_lay.addWidget(diag_scroll)
+        c_lay.addWidget(_make_row(_("Normal"), self._pp_diagram, accent_hex))
+
+        # Orange (Translation) diagram — palette override with orange Highlight,
+        # LLM always forced off (translation never runs LLM).
+        if not hasattr(self, "_trpp_diagram") or self._trpp_diagram is None:
+            _orange_pal = QPalette(self.palette())
+            _orange_pal.setColor(QPalette.ColorRole.Highlight, QColor("#e67e22"))
+            _orange_pal.setColor(QPalette.ColorRole.HighlightedText, QColor("white"))
+            self._trpp_diagram = _PipelineDiagram(
+                _orange_pal, variant="orange", llm_force_off=True)
+        c_lay.addWidget(_make_row(_("Translation"), self._trpp_diagram, "#e67e22"))
 
         return container
 
     def _build_postprocess_section(self, lay, conf):
         """Build post-processing section: pipeline toggles, venv, config files, LLM."""
-        # Enable checkbox — larger in sidebar mode (it's the master switch)
+        # Master 1 — Enable post-processing (normal mode)
         self.chk_postprocess = QCheckBox(_("Enable post-processing"))
-        self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
+        self.chk_postprocess.setChecked(self._pp_master_normal)
         if getattr(self, "_pipeline_header_external", False):
             _acc_hex = self.palette().color(
                 self.palette().ColorRole.Highlight).name()
@@ -6085,6 +6161,29 @@ class DicteeSetupDialog(QDialog):
                 f"font-weight: bold; padding: 4px 0; }}"
                 f"QCheckBox::indicator {{ width: 32px; height: 32px; }}")
         lay.addWidget(self.chk_postprocess)
+
+        # Master 2 — Also enable post-processing for translations
+        # (triggers a 2nd run of dictee-postprocess on the translated
+        # text with DICTEE_LANG_SOURCE set to the target language).
+        self.chk_pp_translate = QCheckBox(
+            _("Also enable post-processing for translations"))
+        self.chk_pp_translate.setChecked(self._pp_master_translate)
+        self.chk_pp_translate.setToolTip(_(
+            "When enabled, the translated text is passed through the same "
+            "post-processing pipeline, using the target language for "
+            "language-specific rules. The LLM step is never run on "
+            "translated text."))
+        if getattr(self, "_pipeline_header_external", False):
+            self.chk_pp_translate.setStyleSheet(
+                "QCheckBox { color: #e67e22; font-size: 15px; "
+                "font-weight: bold; padding: 2px 0; }"
+                "QCheckBox::indicator { width: 20px; height: 20px; }")
+
+        def _on_master_translate_toggled(on):
+            self._pp_master_translate = bool(on)
+            self._refresh_pp_diagrams()
+        self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
+        lay.addWidget(self.chk_pp_translate)
 
         # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
@@ -6340,13 +6439,6 @@ class DicteeSetupDialog(QDialog):
         self._build_llm_tab(tab_llm_lay, conf)
         self._pp_tabs.addTab(tab_llm, _("LLM"))
 
-        # Translation post-process tab (index 5) — applied after translation
-        tab_tr_pp = QWidget()
-        tab_tr_pp_lay = QVBoxLayout(tab_tr_pp)
-        tab_tr_pp_lay.setContentsMargins(8, 8, 8, 8)
-        self._build_translation_postprocess_tab(tab_tr_pp_lay, conf)
-        self._pp_tabs.addTab(tab_tr_pp, _("Translation post-process"))
-
         # Initialize dynamic title now that tabs exist (sidebar mode only)
         if hasattr(self, "_pp_tab_title_sync"):
             self._pp_tab_title_sync(self._pp_tabs.currentIndex())
@@ -6467,8 +6559,13 @@ class DicteeSetupDialog(QDialog):
         self._pp_scroll = None
         self._pp_content.setEnabled(self.chk_postprocess.isChecked())
         self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
-        self.chk_postprocess.toggled.connect(self._pp_diagram.set_master)
-        self._pp_diagram.set_master(self.chk_postprocess.isChecked())
+
+        def _on_master_normal_toggled(on):
+            self._pp_master_normal = bool(on)
+            self._refresh_pp_diagrams()
+        self.chk_postprocess.toggled.connect(_on_master_normal_toggled)
+        # Initial render with current masters
+        self._refresh_pp_diagrams()
 
         # Sidebar mode: grey the post-processing header (big title + tab
         # checkbox) when the master post-processing is disabled, so the
@@ -6511,6 +6608,11 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, 'cmb_pp_short_text_max'):
             self.cmb_pp_short_text_max.currentIndexChanged.connect(self._refresh_pp_diagram)
         self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
+        # Orange diagram: same handler. Clicks modify the shared state
+        # dict (via the hidden checkbox toggle), so both diagrams update
+        # in sync. LLM on the orange is cosmetic-only (forced off).
+        if hasattr(self, "_trpp_diagram") and self._trpp_diagram is not None:
+            self._trpp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
         self._refresh_pp_diagram()
 
     def _maybe_show_rules_warning(self):
@@ -6592,7 +6694,7 @@ class DicteeSetupDialog(QDialog):
         if tree is not None and tab_idx is not None:
             for i in range(tree.topLevelItemCount()):
                 it = tree.topLevelItem(i)
-                if it.childCount() == 6:  # 6 sub-items = Post-processing
+                if it.childCount() == 5:  # 5 sub-items = Post-processing
                     target_child = it.child(tab_idx)
                     break
         # Decide: toggle or navigate?
@@ -6620,85 +6722,48 @@ class DicteeSetupDialog(QDialog):
             cb.toggle()
 
 
-    def _refresh_pp_diagram(self):
-        if not hasattr(self, '_pp_diagram'):
-            return
-        states = {
-            "rules": self.chk_pp_rules.isChecked(),
-            "continuation": self.chk_pp_continuation.isChecked(),
-            "language_rules": self.chk_pp_language_rules.isChecked(),
-            "numbers": self.chk_pp_numbers.isChecked(),
-            "dict": self.chk_pp_dict.isChecked(),
-            "capitalization": self.chk_pp_capitalization.isChecked(),
-            "short_text": self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True,
-        }
-        llm_pos = self._get_llm_position()
+    def _refresh_pp_diagrams(self):
+        """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
+        from the shared `self._pp_state` dict and the two masters."""
+        # Sync dict from checkboxes first (the checkboxes remain the
+        # persistence-side source of truth until _collect_env is refactored).
+        if hasattr(self, "chk_pp_rules"):
+            self._pp_state["rules"] = self.chk_pp_rules.isChecked()
+        if hasattr(self, "chk_pp_continuation"):
+            self._pp_state["continuation"] = self.chk_pp_continuation.isChecked()
+        if hasattr(self, "chk_pp_language_rules"):
+            self._pp_state["language_rules"] = self.chk_pp_language_rules.isChecked()
+        if hasattr(self, "chk_pp_numbers"):
+            self._pp_state["numbers"] = self.chk_pp_numbers.isChecked()
+        if hasattr(self, "chk_pp_dict"):
+            self._pp_state["dict"] = self.chk_pp_dict.isChecked()
+        if hasattr(self, "chk_pp_capitalization"):
+            self._pp_state["capitalization"] = self.chk_pp_capitalization.isChecked()
+        if hasattr(self, "chk_pp_short_text"):
+            self._pp_state["short_text"] = self.chk_pp_short_text.isChecked()
+        if hasattr(self, "chk_llm"):
+            self._pp_state["llm"] = self.chk_llm.isChecked()
+
+        llm_pos = self._get_llm_position() if hasattr(self, "_get_llm_position") else "hybrid"
         st_max = 3
-        if hasattr(self, 'cmb_pp_short_text_max'):
+        if hasattr(self, "cmb_pp_short_text_max"):
             st_max = self.cmb_pp_short_text_max.currentData() or 3
-        self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos, st_max)
 
-    def _build_translation_postprocess_tab(self, lay, conf):
-        """Build translation post-processing tab.
+        states = dict(self._pp_state)
+        llm_on = bool(self._pp_state.get("llm", False))
 
-        Translation backends (Google, DeepL, Bing, LibreTranslate…) already
-        rewrite grammar, punctuation and capitalization quite aggressively,
-        so most normal post-processing steps are redundant or harmful after
-        translation. However a few fixes remain useful — notably re-applying
-        short-text fix because the backend will capitalize a single word
-        even when the source was a one-word dictation.
-        """
-        lay.setSpacing(8)
-        intro = QLabel(_(
-            "These options apply <b>after</b> the translation backend has run, "
-            "on the translated text, just before it is typed.<br>"
-            "Translation engines already clean grammar and punctuation, so "
-            "only a few tweaks are usually needed."
-        ))
-        intro.setWordWrap(True)
-        intro.setTextFormat(Qt.TextFormat.RichText)
-        lay.addWidget(intro)
+        if hasattr(self, "_pp_diagram") and self._pp_diagram is not None:
+            self._pp_diagram.set_master(self._pp_master_normal)
+            self._pp_diagram.set_states(states, llm_on, llm_pos, st_max)
+        if hasattr(self, "_trpp_diagram") and self._trpp_diagram is not None:
+            self._trpp_diagram.set_master(self._pp_master_translate)
+            # llm_force_off=True is set at construction, so even if llm_on is
+            # True, the orange diagram will render LLM as disabled.
+            self._trpp_diagram.set_states(states, llm_on, llm_pos, st_max)
 
-        self.chk_tr_pp_enable = QCheckBox(_("Enable translation post-processing"))
-        self.chk_tr_pp_enable.setChecked(
-            (conf.get("DICTEE_TRANSLATE_POSTPROCESS", "true") or "true").lower() == "true"
-        )
-        lay.addWidget(self.chk_tr_pp_enable)
-
-        box = QGroupBox(_("Fixes applied to the translated text"))
-        box_lay = QVBoxLayout(box)
-        box_lay.setSpacing(4)
-
-        self.chk_tr_pp_short_text = QCheckBox(_(
-            "Short text fix — for very short dictations, strip trailing "
-            "punctuation and lowercase the result"
-        ))
-        self.chk_tr_pp_short_text.setToolTip(_(
-            "Example: dictating \"maison\" alone translates to \"House\" "
-            "because the backend capitalizes single-word inputs. This option "
-            "turns it back into \"house\"."
-        ))
-        self.chk_tr_pp_short_text.setChecked(
-            (conf.get("DICTEE_TRANSLATE_PP_SHORT_TEXT", "true") or "true").lower() == "true"
-        )
-        box_lay.addWidget(self.chk_tr_pp_short_text)
-
-        self.chk_tr_pp_strip_final_period = QCheckBox(_(
-            "Strip final period added by the translation backend"
-        ))
-        self.chk_tr_pp_strip_final_period.setChecked(
-            (conf.get("DICTEE_TRANSLATE_PP_STRIP_PERIOD", "false") or "false").lower() == "true"
-        )
-        box_lay.addWidget(self.chk_tr_pp_strip_final_period)
-
-        lay.addWidget(box)
-        lay.addStretch(1)
-
-        # Master toggle greys out children when off
-        def _sync_enabled(on):
-            box.setEnabled(on)
-        self.chk_tr_pp_enable.toggled.connect(_sync_enabled)
-        _sync_enabled(self.chk_tr_pp_enable.isChecked())
+    # Backwards-compatibility shim (many connections call the old name).
+    def _refresh_pp_diagram(self):
+        self._refresh_pp_diagrams()
 
     def _build_llm_tab(self, lay, conf):
         """Build LLM post-processing tab content."""
@@ -11396,9 +11461,10 @@ class DicteeSetupDialog(QDialog):
                 self.cmb_pp_short_text_max.currentData() or 3)
 
         # Translation post-processing (applied AFTER the translation backend)
-        env["DICTEE_TRANSLATE_POSTPROCESS"] = _b("chk_tr_pp_enable")
-        env["DICTEE_TRANSLATE_PP_SHORT_TEXT"] = _b("chk_tr_pp_short_text")
-        env["DICTEE_TRANSLATE_PP_STRIP_PERIOD"] = _b("chk_tr_pp_strip_final_period", default=False)
+        # Translation post-processing master: when true, dictee re-runs
+        # dictee-postprocess on the translated text with DICTEE_LANG_SOURCE
+        # set to the target language (LLM always forced off in that pass).
+        env["DICTEE_PP_TRANSLATE"] = "true" if self._pp_master_translate else "false"
 
         # LLM
         llm_on = _b("chk_llm", default=False)

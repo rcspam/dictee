@@ -1282,24 +1282,23 @@ if [ -f "$PIDFILE" ]; then
             _trans_label="$TRANSLATE_BACKEND"
         fi
         if [ -n "$translated" ]; then
-            # Translation post-process: re-apply short_text fix on the
-            # translated text. Translation backends (Google/DeepL/Bing/…)
-            # capitalize single-word inputs ("maison" → "House"), which
-            # defeats the pre-translation short_text fix. Re-applying it
-            # here on $translated turns "House" back into "house".
-            if [ "${DICTEE_TRANSLATE_POSTPROCESS:-true}" = "true" ] \
-               && [ "${DICTEE_TRANSLATE_PP_SHORT_TEXT:-true}" = "true" ]; then
-                _st_max="${DICTEE_PP_SHORT_TEXT_MAX:-3}"
-                _st_wc=$(printf '%s' "$transcribed" | wc -w)
-                if [ "$_st_wc" -gt 0 ] && [ "$_st_wc" -le "$_st_max" ]; then
-                    translated="${translated%[.!?,;:]}"
-                    translated=$(printf '%s' "$translated" | tr '[:upper:]' '[:lower:]')
+            # Translation post-process: if DICTEE_PP_TRANSLATE is enabled,
+            # re-run dictee-postprocess on the translated text with the
+            # target language as DICTEE_LANG_SOURCE. The engine is already
+            # multi-language (rules.conf, continuation.conf, dictionary.conf
+            # and numbers are filtered by DICTEE_LANG_SOURCE at parse time),
+            # so this one call does everything. LLM is always forced off
+            # in this 2nd pass — translation backends already produce
+            # grammatically-clean text.
+            if [ "${DICTEE_PP_TRANSLATE:-false}" = "true" ] \
+               && command -v dictee-postprocess >/dev/null 2>&1; then
+                _trpp_out=$(printf '%s' "$translated" | env \
+                    DICTEE_LANG_SOURCE="${LANG_TARGET:0:2}" \
+                    DICTEE_LLM_POSTPROCESS=false \
+                    dictee-postprocess 2>>/tmp/dictee-postprocess.log)
+                if [ -n "$_trpp_out" ]; then
+                    translated="$_trpp_out"
                 fi
-            fi
-            # Strip a final period added by the backend even on longer text
-            if [ "${DICTEE_TRANSLATE_POSTPROCESS:-true}" = "true" ] \
-               && [ "${DICTEE_TRANSLATE_PP_STRIP_PERIOD:-false}" = "true" ]; then
-                translated="${translated%.}"
             fi
             copy_to_clipboard "$translated"
             # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
