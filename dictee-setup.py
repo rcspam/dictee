@@ -2791,7 +2791,7 @@ class DicteeSetupDialog(QDialog):
         self._pp_state = {
             "rules":          _cb("DICTEE_PP_RULES"),
             "continuation":   _cb("DICTEE_PP_CONTINUATION"),
-            "language_rules": _cb("DICTEE_PP_ELISIONS"),  # umbrella flag
+            "language_rules": _cb("DICTEE_PP_LANGUAGE_RULES"),
             "numbers":        _cb("DICTEE_PP_NUMBERS"),
             "dict":           _cb("DICTEE_PP_DICT"),
             "capitalization": _cb("DICTEE_PP_CAPITALIZATION"),
@@ -6164,32 +6164,83 @@ class DicteeSetupDialog(QDialog):
         return container
 
     def _build_postprocess_section(self, lay, conf):
-        """Build post-processing section: pipeline toggles, venv, config files, LLM."""
-        # Two masters side-by-side with identical styling (size/weight),
-        # only the accent color differs: blue for normal, orange for
-        # translation. Wrapped in a row widget so they can be hidden
-        # together when the user navigates into a sub-menu.
+        """Build post-processing section.
+
+        Layout in sidebar overview mode (hidden when navigating into a sub-menu):
+
+            [ ] Enable PP                             (blue, bold, 18px)
+                [ ] Short text fix  < [3▼] words     (indented)
+            [ ] Enable PP for translation             (orange, bold, 18px)
+                [ ] Short text fix                    (indented)
+
+        Short text is shown here because it's the ONLY pipeline step without
+        its own sub-menu. All other steps are reachable exclusively via the
+        SVG pipeline diagrams above. Their QCheckBox state holders are kept
+        hidden in `_hidden_holder` for serialization compatibility.
+        """
         _acc_hex = self.palette().color(
             self.palette().ColorRole.Highlight).name()
         _orange = "#e67e22"
         _sidebar = getattr(self, "_pipeline_header_external", False)
 
+        # Container for the entire masters block (hidden in sub-menu mode)
         self._pp_masters_row = QWidget()
-        _mrow = QHBoxLayout(self._pp_masters_row)
-        _mrow.setContentsMargins(0, 0, 0, 0)
-        _mrow.setSpacing(24)
+        _mlay = QVBoxLayout(self._pp_masters_row)
+        _mlay.setContentsMargins(0, 0, 0, 0)
+        _mlay.setSpacing(4)
 
-        # Master 1 — Normal
+        _master_style = (
+            "QCheckBox {{ color: {col}; font-size: 18px; "
+            "font-weight: bold; padding: 2px 0; }}"
+            "QCheckBox::indicator {{ width: 22px; height: 22px; }}")
+        _sub_style = (
+            "QCheckBox {{ color: {col}; font-size: 14px; "
+            "padding: 1px 0; }}"
+            "QCheckBox::indicator {{ width: 16px; height: 16px; }}")
+
+        # ── Master 1: Enable PP (normal) ──
         self.chk_postprocess = QCheckBox(_("Enable PP"))
         self.chk_postprocess.setChecked(self._pp_master_normal)
         if _sidebar:
-            self.chk_postprocess.setStyleSheet(
-                f"QCheckBox {{ color: {_acc_hex}; font-size: 18px; "
-                f"font-weight: bold; padding: 2px 0; }}"
-                f"QCheckBox::indicator {{ width: 22px; height: 22px; }}")
-        _mrow.addWidget(self.chk_postprocess)
+            self.chk_postprocess.setStyleSheet(_master_style.format(col=_acc_hex))
+        _mlay.addWidget(self.chk_postprocess)
 
-        # Master 2 — Translation
+        # Normal sub-row: Short text fix  < [N▼] words  (indented)
+        _normal_sub = QWidget()
+        _nrow = QHBoxLayout(_normal_sub)
+        _nrow.setContentsMargins(28, 0, 0, 0)
+        _nrow.setSpacing(6)
+        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_pp_short_text.setChecked(
+            (conf.get("DICTEE_PP_SHORT_TEXT", "true") or "true").lower() == "true")
+        self.chk_pp_short_text.setToolTip(_(
+            "For transcriptions with fewer than N words, remove trailing "
+            "punctuation and lowercase capitalized words."))
+        if _sidebar:
+            self.chk_pp_short_text.setStyleSheet(_sub_style.format(col=_acc_hex))
+        _nrow.addWidget(self.chk_pp_short_text)
+        _nrow.addWidget(QLabel(_("<")))
+        self.cmb_pp_short_text_max = QComboBox()
+        for n in (2, 3, 4, 5, 6):
+            self.cmb_pp_short_text_max.addItem(str(n), n)
+        try:
+            _saved_max = int(conf.get("DICTEE_PP_SHORT_TEXT_MAX", "3"))
+        except ValueError:
+            _saved_max = 3
+        _idx = self.cmb_pp_short_text_max.findData(_saved_max)
+        if _idx >= 0:
+            self.cmb_pp_short_text_max.setCurrentIndex(_idx)
+        self.cmb_pp_short_text_max.setToolTip(
+            _("Maximum word count for a transcription to be considered "
+              "\"short\" and receive the short-text treatment."))
+        self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
+        self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
+        _nrow.addWidget(self.cmb_pp_short_text_max)
+        _nrow.addWidget(QLabel(_("words")))
+        _nrow.addStretch(1)
+        _mlay.addWidget(_normal_sub)
+
+        # ── Master 2: Enable PP for translation ──
         self.chk_pp_translate = QCheckBox(_("Enable PP for translation"))
         self.chk_pp_translate.setChecked(self._pp_master_translate)
         self.chk_pp_translate.setToolTip(_(
@@ -6198,17 +6249,36 @@ class DicteeSetupDialog(QDialog):
             "target language as reference. The LLM step is never run "
             "on translated text."))
         if _sidebar:
-            self.chk_pp_translate.setStyleSheet(
-                f"QCheckBox {{ color: {_orange}; font-size: 18px; "
-                f"font-weight: bold; padding: 2px 0; }}"
-                f"QCheckBox::indicator {{ width: 22px; height: 22px; }}")
-        _mrow.addWidget(self.chk_pp_translate)
-        _mrow.addStretch(1)
+            self.chk_pp_translate.setStyleSheet(_master_style.format(col=_orange))
 
         def _on_master_translate_toggled(on):
             self._pp_master_translate = bool(on)
             self._refresh_pp_diagrams()
         self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
+        _mlay.addWidget(self.chk_pp_translate)
+
+        # Translation sub-row: Short text fix (indented, orange)
+        _trans_sub = QWidget()
+        _trow = QHBoxLayout(_trans_sub)
+        _trow.setContentsMargins(28, 0, 0, 0)
+        _trow.setSpacing(6)
+        self.chk_trpp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_trpp_short_text.setChecked(
+            bool(self._trpp_state.get("short_text", True)))
+        self.chk_trpp_short_text.setToolTip(_(
+            "Apply the short-text fix to translated text. Useful when the "
+            "translation backend capitalizes single-word inputs: e.g. "
+            "'maison' → 'House' → 'house'."))
+        if _sidebar:
+            self.chk_trpp_short_text.setStyleSheet(_sub_style.format(col=_orange))
+
+        def _on_trpp_short_toggled(on):
+            self._trpp_state["short_text"] = bool(on)
+            self._refresh_pp_diagrams()
+        self.chk_trpp_short_text.toggled.connect(_on_trpp_short_toggled)
+        _trow.addWidget(self.chk_trpp_short_text)
+        _trow.addStretch(1)
+        _mlay.addWidget(_trans_sub)
 
         lay.addWidget(self._pp_masters_row)
 
@@ -6261,70 +6331,11 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_capitalization)
 
-        # Short text — checkbox + "< N words" combo (no help ? — tooltip is
-        # already on the SVG step above)
-        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
-        self.chk_pp_short_text.setChecked(
-            conf.get("DICTEE_PP_SHORT_TEXT", "true") == "true")
-        self.cmb_pp_short_text_max = QComboBox()
-        for n in (2, 3, 4, 5, 6):
-            self.cmb_pp_short_text_max.addItem(str(n), n)
-        try:
-            _saved_max = int(conf.get("DICTEE_PP_SHORT_TEXT_MAX", "3"))
-        except ValueError:
-            _saved_max = 3
-        _idx = self.cmb_pp_short_text_max.findData(_saved_max)
-        if _idx >= 0:
-            self.cmb_pp_short_text_max.setCurrentIndex(_idx)
-        self.chk_pp_short_text.setToolTip(
-            _("For transcriptions with fewer than N words,\n"
-              "remove trailing punctuation and lowercase\n"
-              "capitalized words."))
-        self.cmb_pp_short_text_max.setToolTip(
-            _("Maximum word count for a transcription to be considered\n"
-              "\"short\" and receive the short-text treatment."))
-        self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
-        self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        # Gray label when unchecked (same as other pp checkboxes)
-        def _short_update_style(on, cb=self.chk_pp_short_text):
-            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
-        self.chk_pp_short_text.toggled.connect(_short_update_style)
-        _short_update_style(self.chk_pp_short_text.isChecked())
-
-        # LLM checkbox (text kept visible, no help ? — tooltip on SVG)
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        # LLM state holder (hidden; editable via its sub-menu).
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"), _hidden_holder)
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        self.chk_llm.setToolTip(
-            _("Uses a local LLM (via ollama) to fix grammar,\n"
-              "spelling, accents and punctuation.\n"
-              "Configure the model and prompt in the LLM tab."))
-        def _llm_update_style(on, cb=self.chk_llm):
-            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
-        self.chk_llm.toggled.connect(_llm_update_style)
-        _llm_update_style(self.chk_llm.isChecked())
+        _hidden_lay.addWidget(self.chk_llm)
 
-        # Same line: [Short text] [<] [N] [words]   [LLM ...]
-        _visible_row = QHBoxLayout()
-        _visible_row.setContentsMargins(20, 0, 0, 0)
-        _visible_row.setSpacing(6)
-        _visible_row.addWidget(self.chk_pp_short_text)
-        _visible_row.addWidget(QLabel(_("<")))
-        _visible_row.addWidget(self.cmb_pp_short_text_max)
-        _visible_row.addWidget(QLabel(_("words")))
-        _visible_row.addSpacing(24)
-        _visible_row.addWidget(self.chk_llm)
-        # Hide the redundant LLM checkbox in sidebar mode: the LLM step is
-        # already reachable via the pipeline SVG and the LLM sub-menu.
-        if getattr(self, "_pipeline_header_external", False):
-            self.chk_llm.setVisible(False)
-        _visible_row.addStretch(1)
-        # Sidebar mode: ensure the Short text row is at the very top of
-        # the post-processing content (above the title row and tabs).
-        # In legacy/dialog mode keep the historical order.
-        if getattr(self, "_pipeline_header_external", False):
-            pp_lay.insertLayout(0, _visible_row)
-        else:
-            pp_lay.addLayout(_visible_row)
         pp_lay.addLayout(grid_gen)  # kept for layout rigidity; empty in practice
         pp_lay.addWidget(_hidden_holder)  # hidden state holder
 

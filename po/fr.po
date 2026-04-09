@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: dictee 0.99\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-09 18:46+0200\n"
+"POT-Creation-Date: 2026-04-09 18:56+0200\n"
 "PO-Revision-Date: 2026-03-10 12:00+0100\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: French\n"
@@ -108,8 +108,8 @@ msgstr "Échec du téléchargement."
 msgid "Download timed out (10 min)."
 msgstr "Téléchargement expiré (10 min)."
 
-#: dictee-setup.py:1031 dictee-setup.py:3256 dictee-setup.py:6239
-#: dictee-setup.py:6439
+#: dictee-setup.py:1031 dictee-setup.py:3256 dictee-setup.py:6309
+#: dictee-setup.py:6450
 msgid "Regex rules"
 msgstr "Règles regex"
 
@@ -121,8 +121,8 @@ msgstr "Corrige les erreurs courantes de l'ASR :"
 msgid "voice commands, punctuation, formatting."
 msgstr "commandes vocales, ponctuation, mise en forme."
 
-#: dictee-setup.py:1034 dictee-setup.py:3257 dictee-setup.py:6243
-#: dictee-setup.py:6446
+#: dictee-setup.py:1034 dictee-setup.py:3257 dictee-setup.py:6313
+#: dictee-setup.py:6457
 msgid "Continuation"
 msgstr "Continuation"
 
@@ -134,8 +134,8 @@ msgstr "Supprime les points parasites après les mots-outils"
 msgid "so sentences flow across push-to-talk segments."
 msgstr "pour que les phrases s'enchaînent entre les segments push-to-talk."
 
-#: dictee-setup.py:1037 dictee-setup.py:3258 dictee-setup.py:6247
-#: dictee-setup.py:6453
+#: dictee-setup.py:1037 dictee-setup.py:3258 dictee-setup.py:6317
+#: dictee-setup.py:6464
 msgid "Language rules"
 msgstr "Règles de langue"
 
@@ -159,8 +159,8 @@ msgstr "Convertit les nombres parlés en chiffres."
 msgid "Example: \"twenty-three\" → \"23\"."
 msgstr "Exemple : « vingt-trois » → « 23 »."
 
-#: dictee-setup.py:1043 dictee-setup.py:3259 dictee-setup.py:6256
-#: dictee-setup.py:6460
+#: dictee-setup.py:1043 dictee-setup.py:3259 dictee-setup.py:6326
+#: dictee-setup.py:6471
 msgid "Dictionary"
 msgstr "Dictionnaire"
 
@@ -184,7 +184,7 @@ msgstr "Majuscule après . ! ?"
 msgid "Essential for Vosk/Whisper backends."
 msgstr "Indispensable pour les backends Vosk/Whisper."
 
-#: dictee-setup.py:1049 dictee-setup.py:6266
+#: dictee-setup.py:1049 dictee-setup.py:6213 dictee-setup.py:6265
 msgid "Short text fix"
 msgstr "Correction texte court"
 
@@ -211,7 +211,7 @@ msgid "spelling, accents and punctuation."
 msgstr ""
 
 #: dictee-setup.py:1055 dictee-setup.py:3009 dictee-setup.py:3247
-#: dictee-setup.py:3666 dictee-setup.py:4720 dictee-setup.py:6693
+#: dictee-setup.py:3666 dictee-setup.py:4720 dictee-setup.py:6704
 msgid "Microphone"
 msgstr "Microphone"
 
@@ -220,7 +220,7 @@ msgid "Jump to the Microphone section."
 msgstr ""
 
 #: dictee-setup.py:1056 dictee-setup.py:2931 dictee-setup.py:3248
-#: dictee-setup.py:3619 dictee-setup.py:6694 dictee-tray.py:452
+#: dictee-setup.py:3619 dictee-setup.py:6705 dictee-tray.py:452
 #: dictee-tray.py:810
 msgid "ASR backend"
 msgstr "Moteur ASR"
@@ -244,7 +244,7 @@ msgstr "Installation expirée."
 
 #: dictee-setup.py:1375 dictee-setup.py:1392 dictee-setup.py:1584
 #: dictee-setup.py:1599 dictee-setup.py:1623 dictee-setup.py:5724
-#: dictee-setup.py:11248
+#: dictee-setup.py:11259
 msgid "Cancelled"
 msgstr "Annulé"
 
@@ -456,11 +456,11 @@ msgid "No {pat} found in the release."
 msgstr "Aucun {pat} trouvé dans la release."
 
 #: dictee-setup.py:2111 dictee-setup.py:5355 dictee-setup.py:5583
-#: dictee-setup.py:10745
+#: dictee-setup.py:10756
 msgid "Downloading…"
 msgstr "Téléchargement…"
 
-#: dictee-setup.py:2115 dictee-setup.py:11303
+#: dictee-setup.py:2115 dictee-setup.py:11314
 msgid "Installing…"
 msgstr "Installation…"
 
@@ -536,7 +536,7 @@ msgid "Apply"
 msgstr "Appliquer"
 
 #: dictee-setup.py:2901 dictee-setup.py:3104 dictee-setup.py:3323
-#: dictee-setup.py:10292
+#: dictee-setup.py:10303
 msgid "OK"
 msgstr "OK"
 
@@ -630,7 +630,7 @@ msgstr "Traduction"
 msgid "Extra options"
 msgstr "Options supplémentaires"
 
-#: dictee-setup.py:3260 dictee-setup.py:6467
+#: dictee-setup.py:3260 dictee-setup.py:6478
 msgid "LLM"
 msgstr "LLM"
 
@@ -701,7 +701,7 @@ msgstr ""
 "traitement.</p><p>Le diagramme SVG du pipeline ci-dessus est cliquable à "
 "tout moment pour activer ou désactiver chaque étape de post-traitement.</p>"
 
-#: dictee-setup.py:3813 dictee-setup.py:7535 dictee-setup.py:8294
+#: dictee-setup.py:3813 dictee-setup.py:7546 dictee-setup.py:8305
 msgid "Previous"
 msgstr "← Précédent"
 
@@ -709,8 +709,8 @@ msgstr "← Précédent"
 msgid "Quit setup"
 msgstr "Quitter la configuration"
 
-#: dictee-setup.py:3827 dictee-setup.py:3849 dictee-setup.py:7540
-#: dictee-setup.py:8299
+#: dictee-setup.py:3827 dictee-setup.py:3849 dictee-setup.py:7551
+#: dictee-setup.py:8310
 msgid "Next"
 msgstr "Suivant →"
 
@@ -1062,8 +1062,8 @@ msgstr ""
 msgid "Microphone, display and services"
 msgstr "Microphone, affichage et services"
 
-#: dictee-setup.py:4774 dictee-setup.py:6536 dictee-setup.py:6552
-#: dictee-setup.py:7577
+#: dictee-setup.py:4774 dictee-setup.py:6547 dictee-setup.py:6563
+#: dictee-setup.py:7588
 msgid "Test"
 msgstr "Test"
 
@@ -1095,11 +1095,11 @@ msgstr "Test de dictée"
 msgid "Click the button below and speak for a few seconds."
 msgstr "Cliquez sur le bouton ci-dessous et parlez pendant quelques secondes."
 
-#: dictee-setup.py:4813 dictee-setup.py:10403 dictee-setup.py:10431
+#: dictee-setup.py:4813 dictee-setup.py:10414 dictee-setup.py:10442
 msgid "Test dictation"
 msgstr "Tester la dictée"
 
-#: dictee-setup.py:4819 dictee-setup.py:10440 dictee-setup.py:10491
+#: dictee-setup.py:4819 dictee-setup.py:10451 dictee-setup.py:10502
 msgid "Test translation"
 msgstr "Tester la traduction"
 
@@ -1131,8 +1131,8 @@ msgstr ""
 msgid "Voice dictation key"
 msgstr "Touche de dictée vocale"
 
-#: dictee-setup.py:4966 dictee-setup.py:5020 dictee-setup.py:10641
-#: dictee-setup.py:10658
+#: dictee-setup.py:4966 dictee-setup.py:5020 dictee-setup.py:10652
+#: dictee-setup.py:10669
 #, python-brace-format
 msgid "Key: {name}"
 msgstr "Touche : {name}"
@@ -1178,8 +1178,8 @@ msgstr ""
 "Utilisateur ajouté au groupe « input ». Déconnectez-vous et reconnectez-vous "
 "pour activer."
 
-#: dictee-setup.py:5070 dictee-setup.py:5072 dictee-setup.py:11070
-#: dictee-setup.py:11108 dictee-setup.py:11189 dictee-setup.py:11351
+#: dictee-setup.py:5070 dictee-setup.py:5072 dictee-setup.py:11081
+#: dictee-setup.py:11119 dictee-setup.py:11200 dictee-setup.py:11362
 msgid "Error"
 msgstr "Erreur"
 
@@ -1210,12 +1210,12 @@ msgstr ""
 "uniquement nécessaire pour la transcription anglaise en direct avec "
 "identification des locuteurs."
 
-#: dictee-setup.py:5117 dictee-setup.py:11283
+#: dictee-setup.py:5117 dictee-setup.py:11294
 msgid "Requires Parakeet-TDT 0.6B v3 to be installed first"
 msgstr "Nécessite l'installation préalable de Parakeet-TDT 0.6B v3"
 
 #: dictee-setup.py:5122 dictee-setup.py:5183 dictee-setup.py:5422
-#: dictee-setup.py:5667 dictee-setup.py:5730 dictee-setup.py:11256
+#: dictee-setup.py:5667 dictee-setup.py:5730 dictee-setup.py:11267
 msgid "Delete model"
 msgstr "Supprimer le modèle"
 
@@ -1225,7 +1225,7 @@ msgstr "Langue :"
 
 #: dictee-setup.py:5176 dictee-setup.py:5306 dictee-setup.py:5377
 #: dictee-setup.py:5415 dictee-setup.py:5561 dictee-setup.py:5982
-#: dictee-setup.py:10835 dictee-setup.py:10856
+#: dictee-setup.py:10846 dictee-setup.py:10867
 msgid "Download"
 msgstr "Télécharger"
 
@@ -1249,16 +1249,16 @@ msgstr "Supprimer"
 msgid "Delete Vosk model '{}'?"
 msgstr "Supprimer le modèle Vosk « {} » ?"
 
-#: dictee-setup.py:5379 dictee-setup.py:10858 dictee-setup.py:11129
-#: dictee-setup.py:11249
+#: dictee-setup.py:5379 dictee-setup.py:10869 dictee-setup.py:11140
+#: dictee-setup.py:11260
 msgid "Download error"
 msgstr "Erreur de téléchargement"
 
-#: dictee-setup.py:5379 dictee-setup.py:11326
+#: dictee-setup.py:5379 dictee-setup.py:11337
 msgid "Unknown error"
 msgstr "Erreur inconnue"
 
-#: dictee-setup.py:5404 dictee-setup.py:5962 dictee-setup.py:6908
+#: dictee-setup.py:5404 dictee-setup.py:5962 dictee-setup.py:6919
 msgid "Model:"
 msgstr "Modèle :"
 
@@ -1326,7 +1326,7 @@ msgstr ""
 "animation-speech nécessite un compositeur Wayland avec le support layer-"
 "shell (KDE, Sway, Hyprland…). Ne fonctionne pas sur GNOME."
 
-#: dictee-setup.py:5808 dictee-setup.py:10759
+#: dictee-setup.py:5808 dictee-setup.py:10770
 msgid "Install animation-speech"
 msgstr "Installer animation-speech"
 
@@ -1371,7 +1371,7 @@ msgstr "Langues à charger dans LibreTranslate :"
 msgid "Restart with new languages"
 msgstr "Redémarrer avec les nouvelles langues"
 
-#: dictee-setup.py:5929 dictee-setup.py:11127
+#: dictee-setup.py:5929 dictee-setup.py:11138
 msgid "Download image"
 msgstr "Télécharger l'image"
 
@@ -1379,7 +1379,7 @@ msgstr "Télécharger l'image"
 msgid "Start"
 msgstr "Démarrer"
 
-#: dictee-setup.py:5937 dictee-setup.py:7781 dictee-setup.py:11679
+#: dictee-setup.py:5937 dictee-setup.py:7792 dictee-setup.py:11690
 msgid "Stop"
 msgstr "Arrêter"
 
@@ -1405,15 +1405,42 @@ msgstr ""
 msgid "Normal"
 msgstr "Normal"
 
-#: dictee-setup.py:6183
+#: dictee-setup.py:6202
 msgid "Enable PP"
 msgstr "Activer le PP"
 
-#: dictee-setup.py:6193
+#: dictee-setup.py:6217
+#, fuzzy
+msgid ""
+"For transcriptions with fewer than N words, remove trailing punctuation and "
+"lowercase capitalized words."
+msgstr ""
+"Pour les transcriptions de moins de N mots,\n"
+"supprime la ponctuation finale et met en\n"
+"minuscules les mots capitalisés."
+
+#: dictee-setup.py:6222
+msgid "<"
+msgstr "<"
+
+#: dictee-setup.py:6234
+#, fuzzy
+msgid ""
+"Maximum word count for a transcription to be considered \"short\" and "
+"receive the short-text treatment."
+msgstr ""
+"Nombre maximum de mots pour qu'une transcription soit considérée\n"
+"comme « courte » et reçoive le traitement texte court."
+
+#: dictee-setup.py:6239 dictee-setup.py:9558
+msgid "words"
+msgstr "mots"
+
+#: dictee-setup.py:6244
 msgid "Enable PP for translation"
 msgstr "Activer le PP pour la traduction"
 
-#: dictee-setup.py:6196
+#: dictee-setup.py:6247
 msgid ""
 "When enabled, the translated text is passed through the translation post-"
 "processing pipeline (orange), with the target language as reference. The LLM "
@@ -1423,67 +1450,37 @@ msgstr ""
 "pipeline de post-traitement dédié (orange), avec la langue cible comme "
 "référence. Le LLM n'est jamais exécuté sur du texte traduit."
 
-#: dictee-setup.py:6252
+#: dictee-setup.py:6269
+msgid ""
+"Apply the short-text fix to translated text. Useful when the translation "
+"backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."
+msgstr ""
+
+#: dictee-setup.py:6322
 msgid "Number conversion (text2num)"
 msgstr "Conversion des nombres (text2num)"
 
-#: dictee-setup.py:6260
+#: dictee-setup.py:6330
 msgid "Auto-capitalization"
 msgstr "Capitalisation automatique"
 
-#: dictee-setup.py:6280
-msgid ""
-"For transcriptions with fewer than N words,\n"
-"remove trailing punctuation and lowercase\n"
-"capitalized words."
-msgstr ""
-"Pour les transcriptions de moins de N mots,\n"
-"supprime la ponctuation finale et met en\n"
-"minuscules les mots capitalisés."
-
-#: dictee-setup.py:6284
-msgid ""
-"Maximum word count for a transcription to be considered\n"
-"\"short\" and receive the short-text treatment."
-msgstr ""
-"Nombre maximum de mots pour qu'une transcription soit considérée\n"
-"comme « courte » et reçoive le traitement texte court."
-
-#: dictee-setup.py:6295
+#: dictee-setup.py:6335
 msgid "LLM grammar correction (ollama)"
 msgstr "Correction grammaticale LLM (ollama)"
 
-#: dictee-setup.py:6298
-msgid ""
-"Uses a local LLM (via ollama) to fix grammar,\n"
-"spelling, accents and punctuation.\n"
-"Configure the model and prompt in the LLM tab."
-msgstr ""
-"Utilise un LLM local (via ollama) pour corriger la grammaire,\n"
-"l'orthographe, les accents et la ponctuation.\n"
-"Configure le modèle et le prompt dans l'onglet LLM."
-
-#: dictee-setup.py:6311
-msgid "<"
-msgstr "<"
-
-#: dictee-setup.py:6313 dictee-setup.py:9547
-msgid "words"
-msgstr "mots"
-
-#: dictee-setup.py:6504
+#: dictee-setup.py:6515
 msgid "Edit mode"
 msgstr "Mode édition"
 
-#: dictee-setup.py:6658
+#: dictee-setup.py:6669
 msgid "Regex rules — caution"
 msgstr "Règles regex — attention"
 
-#: dictee-setup.py:6661
+#: dictee-setup.py:6672
 msgid "Advanced feature"
 msgstr "Fonctionnalité avancée"
 
-#: dictee-setup.py:6663
+#: dictee-setup.py:6674
 msgid ""
 "Incorrect rules can break transcription output. Rules are applied in order: "
 "a misplaced or wrong pattern may silently delete or corrupt text.\n"
@@ -1497,47 +1494,47 @@ msgstr ""
 "Utilisez le panneau de test ci-dessous pour vérifier vos modifications avant "
 "d'enregistrer."
 
-#: dictee-setup.py:6667
+#: dictee-setup.py:6678
 msgid "Don't show this warning again"
 msgstr "Ne plus afficher cet avertissement"
 
-#: dictee-setup.py:6867
+#: dictee-setup.py:6878
 msgid "Hybrid (recommended)"
 msgstr "Hybride (recommandé)"
 
-#: dictee-setup.py:6868
+#: dictee-setup.py:6879
 msgid "At start"
 msgstr "Début"
 
-#: dictee-setup.py:6869
+#: dictee-setup.py:6880
 msgid "At end"
 msgstr "Fin"
 
-#: dictee-setup.py:6884
+#: dictee-setup.py:6895
 msgid "Position in chain:"
 msgstr "Position dans la chaîne :"
 
-#: dictee-setup.py:6912
+#: dictee-setup.py:6923
 msgid "Default"
 msgstr "Défaut"
 
-#: dictee-setup.py:6914
+#: dictee-setup.py:6925
 msgid "Custom"
 msgstr "Personnalisé"
 
-#: dictee-setup.py:6919
+#: dictee-setup.py:6930
 msgid "System prompt:"
 msgstr "Prompt système :"
 
-#: dictee-setup.py:6938
+#: dictee-setup.py:6949
 msgid "Force CPU (free GPU VRAM)"
 msgstr "Forcer le CPU (libérer la VRAM GPU)"
 
-#: dictee-setup.py:6975
+#: dictee-setup.py:6986
 msgid "Entrez votre prompt ici"
 msgstr "Entrez votre prompt ici"
 
-#: dictee-setup.py:7199
+#: dictee-setup.py:7210
 #, python-brace-format
 msgid ""
 "Language-specific rules (elisions, contractions, typography) applied to the "
@@ -1548,11 +1545,11 @@ msgstr ""
 "appliquées à la langue source uniquement. Actuellement : <b>{lang}</b>. "
 "Seules les règles correspondant à votre langue source seront actives."
 
-#: dictee-setup.py:7211
+#: dictee-setup.py:7222
 msgid "Elisions"
 msgstr "Élisions"
 
-#: dictee-setup.py:7214
+#: dictee-setup.py:7225
 msgid ""
 "Applies French elision rules.\n"
 "Example: \"le arbre\" → \"l'arbre\",\n"
@@ -1562,11 +1559,11 @@ msgstr ""
 "Exemple : \"le arbre\" → \"l'arbre\",\n"
 "\"de eau\" → \"d'eau\""
 
-#: dictee-setup.py:7218
+#: dictee-setup.py:7229
 msgid "Typography (non-breaking spaces)"
 msgstr "Typographie (espaces insécables)"
 
-#: dictee-setup.py:7221
+#: dictee-setup.py:7232
 msgid ""
 "Inserts non-breaking spaces before French\n"
 "punctuation marks (: ; ! ? « »)\n"
@@ -1576,7 +1573,7 @@ msgstr ""
 "de ponctuation français (: ; ! ? « »)\n"
 "conformément aux règles typographiques françaises."
 
-#: dictee-setup.py:7231
+#: dictee-setup.py:7242
 msgid ""
 "No specific rules needed. Contractions (don't, I'm, can't) are handled "
 "natively by the ASR engine."
@@ -1584,11 +1581,11 @@ msgstr ""
 "Aucune règle spécifique nécessaire. Les contractions (don't, I'm, can't) "
 "sont gérées nativement par le moteur ASR."
 
-#: dictee-setup.py:7242
+#: dictee-setup.py:7253
 msgid "Elisions & contractions"
 msgstr "Élisions et contractions"
 
-#: dictee-setup.py:7245
+#: dictee-setup.py:7256
 msgid ""
 "Italian elisions and prepositional contractions.\n"
 "Elisions: \"lo uomo\" → \"l'uomo\", \"di accordo\" → \"d'accordo\"\n"
@@ -1600,11 +1597,11 @@ msgstr ""
 "Contractions : \"di il\" → \"del\", \"a la\" → \"alla\",\n"
 "\"in il\" → \"nel\", \"su la\" → \"sulla\""
 
-#: dictee-setup.py:7257
+#: dictee-setup.py:7268
 msgid "Contractions & inverted punctuation"
 msgstr "Contractions et ponctuation inversée"
 
-#: dictee-setup.py:7260
+#: dictee-setup.py:7271
 msgid ""
 "Spanish contractions and inverted punctuation.\n"
 "Contractions: \"a el\" → \"al\", \"de el\" → \"del\"\n"
@@ -1614,11 +1611,11 @@ msgstr ""
 "Contractions : \"a el\" → \"al\", \"de el\" → \"del\"\n"
 "Ponctuation : ajoute ¿ avant les questions et ¡ avant les exclamations."
 
-#: dictee-setup.py:7271 dictee-setup.py:7300
+#: dictee-setup.py:7282 dictee-setup.py:7311
 msgid "Contractions"
 msgstr "Contractions"
 
-#: dictee-setup.py:7274
+#: dictee-setup.py:7285
 msgid ""
 "Portuguese fused contractions.\n"
 "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
@@ -1628,11 +1625,11 @@ msgstr ""
 "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
 "\"de este\" → \"deste\", \"em ele\" → \"nele\""
 
-#: dictee-setup.py:7285 dictee-setup.py:7314
+#: dictee-setup.py:7296 dictee-setup.py:7325
 msgid "Contractions & typography"
 msgstr "Contractions et typographie"
 
-#: dictee-setup.py:7288
+#: dictee-setup.py:7299
 msgid ""
 "German contractions and typography.\n"
 "Contractions: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
@@ -1644,7 +1641,7 @@ msgstr ""
 "\"zu dem\" → \"zum\", \"zu der\" → \"zur\"\n"
 "Typographie : \"text\" → \\u201etext\\u201c (guillemets allemands)"
 
-#: dictee-setup.py:7303
+#: dictee-setup.py:7314
 msgid ""
 "Dutch contractions and time expressions.\n"
 "\"het\" → \"'t\", \"een\" → \"'n\"\n"
@@ -1654,7 +1651,7 @@ msgstr ""
 "\"het\" → \"'t\", \"een\" → \"'n\"\n"
 "\"in de morgens\" → \"'s morgens\""
 
-#: dictee-setup.py:7317
+#: dictee-setup.py:7328
 msgid ""
 "Romanian contractions and typography.\n"
 "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
@@ -1664,11 +1661,11 @@ msgstr ""
 "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
 "Typographie : \"text\" → \\u201etext\\u201c (guillemets roumains)"
 
-#: dictee-setup.py:7336
+#: dictee-setup.py:7347
 msgid "Command suffix:"
 msgstr "Suffixe de commande :"
 
-#: dictee-setup.py:7338
+#: dictee-setup.py:7349
 msgid ""
 "<b>Command suffix</b><br><br>Some voice commands use words that also exist "
 "as normal words. The suffix is a word you say <b>after</b> the ambiguous "
@@ -1719,72 +1716,72 @@ msgstr ""
 "par cette valeur à l'exécution.<br><br>Laissez vide pour désactiver les "
 "commandes à suffixe pour cette langue."
 
-#: dictee-setup.py:7402
+#: dictee-setup.py:7413
 msgid "Add a rule"
 msgstr "Ajouter une règle"
 
-#: dictee-setup.py:7420
+#: dictee-setup.py:7431
 msgid "Pattern (what the ASR says)"
 msgstr "Motif (ce que l'ASR dit)"
 
-#: dictee-setup.py:7426
+#: dictee-setup.py:7437
 msgid "Replacement (\\n = newline)"
 msgstr "Remplacement (\\n = nouvelle ligne)"
 
-#: dictee-setup.py:7434
+#: dictee-setup.py:7445
 msgid "i = case-insensitive, g = global, m = multiline"
 msgstr "i = insensible à la casse, g = global, m = multiligne"
 
-#: dictee-setup.py:7438
+#: dictee-setup.py:7449
 msgid "Insert:"
 msgstr "Insérer :"
 
-#: dictee-setup.py:7445
+#: dictee-setup.py:7456
 msgid "at end"
 msgstr "à la fin"
 
-#: dictee-setup.py:7446
+#: dictee-setup.py:7457
 msgid "at beginning"
 msgstr "au début"
 
-#: dictee-setup.py:7455 dictee-setup.py:8328 dictee-setup.py:9652
+#: dictee-setup.py:7466 dictee-setup.py:8339 dictee-setup.py:9663
 msgid "Add"
 msgstr "Ajouter"
 
-#: dictee-setup.py:7459 dictee-setup.py:7790 dictee-setup.py:7813
-#: dictee-setup.py:7814 dictee-setup.py:11418
+#: dictee-setup.py:7470 dictee-setup.py:7801 dictee-setup.py:7824
+#: dictee-setup.py:7825 dictee-setup.py:11429
 msgid "Record"
 msgstr "Enregistrer"
 
-#: dictee-setup.py:7460
+#: dictee-setup.py:7471
 msgid "Record audio, transcribe, and fill the pattern field"
 msgstr "Enregistrer l'audio, transcrire et remplir le champ motif"
 
-#: dictee-setup.py:7560
+#: dictee-setup.py:7571
 msgid "Undo (Ctrl+Z)"
 msgstr "Annuler (Ctrl+Z)"
 
-#: dictee-setup.py:7566
+#: dictee-setup.py:7577
 msgid "Redo (Ctrl+Shift+Z)"
 msgstr "Rétablir (Ctrl+Shift+Z)"
 
-#: dictee-setup.py:7574 dictee-setup.py:8324
+#: dictee-setup.py:7585 dictee-setup.py:8335
 msgid "Search (Ctrl+F)"
 msgstr "Rechercher (Ctrl+F)"
 
-#: dictee-setup.py:7578
+#: dictee-setup.py:7589
 msgid "Send current line to the test panel"
 msgstr "Envoyer la ligne courante au panneau de test"
 
-#: dictee-setup.py:7583
+#: dictee-setup.py:7594
 msgid "Restore defaults"
 msgstr "Restaurer les défauts"
 
-#: dictee-setup.py:7584 dictee-setup.py:8346 dictee-setup.py:9424
+#: dictee-setup.py:7595 dictee-setup.py:8357 dictee-setup.py:9435
 msgid "Save"
 msgstr "Enregistrer"
 
-#: dictee-setup.py:7605
+#: dictee-setup.py:7616
 msgid ""
 "Voice commands are language-specific.\n"
 "Please select a language instead of *."
@@ -1792,47 +1789,47 @@ msgstr ""
 "Les commandes vocales sont spécifiques à la langue.\n"
 "Veuillez sélectionner une langue au lieu de *."
 
-#: dictee-setup.py:7764
+#: dictee-setup.py:7775
 msgid "Transcribing..."
 msgstr "Transcription..."
 
-#: dictee-setup.py:7789
+#: dictee-setup.py:7800
 msgid "pw-record not found."
 msgstr "pw-record introuvable."
 
-#: dictee-setup.py:7896
+#: dictee-setup.py:7907
 msgid "At cursor"
 msgstr "Au curseur"
 
-#: dictee-setup.py:7897
+#: dictee-setup.py:7908
 msgid "End of file"
 msgstr "Fin du fichier"
 
-#: dictee-setup.py:7922
+#: dictee-setup.py:7933
 msgid "all languages"
 msgstr "toutes les langues"
 
-#: dictee-setup.py:7924
+#: dictee-setup.py:7935
 #, python-brace-format
 msgid "Testing as: {lang}"
 msgstr "Test en : {lang}"
 
-#: dictee-setup.py:7930
+#: dictee-setup.py:7941
 #, python-brace-format
 msgid "Testing as: {lang} (config)"
 msgstr "Test en : {lang} (config)"
 
-#: dictee-setup.py:7943 dictee-setup.py:8947
+#: dictee-setup.py:7954 dictee-setup.py:8958
 #, python-brace-format
 msgid "Line {n}: invalid syntax: {line}"
 msgstr "Ligne {n} : syntaxe invalide : {line}"
 
-#: dictee-setup.py:7949
+#: dictee-setup.py:7960
 #, python-brace-format
 msgid "Line {n}: invalid regex: {err}"
 msgstr "Ligne {n} : regex invalide : {err}"
 
-#: dictee-setup.py:7983 dictee-setup.py:8849
+#: dictee-setup.py:7994 dictee-setup.py:8860
 #, python-brace-format
 msgid ""
 "Cannot save — syntax error:\n"
@@ -1843,90 +1840,90 @@ msgstr ""
 "\n"
 "{err}"
 
-#: dictee-setup.py:7985
+#: dictee-setup.py:7996
 msgid "Rules saved."
 msgstr "Règles enregistrées."
 
-#: dictee-setup.py:7996
+#: dictee-setup.py:8007
 msgid "Default rules restored."
 msgstr "Règles par défaut restaurées."
 
-#: dictee-setup.py:7998
+#: dictee-setup.py:8009
 msgid "Default rules file not found."
 msgstr "Fichier de règles par défaut introuvable."
 
-#: dictee-setup.py:8235 dictee-setup.py:8489
+#: dictee-setup.py:8246 dictee-setup.py:8500
 msgid "All languages"
 msgstr "Toutes les langues"
 
-#: dictee-setup.py:8334
+#: dictee-setup.py:8345
 msgid "Undo last change"
 msgstr "Annuler la dernière modification"
 
-#: dictee-setup.py:8341
+#: dictee-setup.py:8352
 msgid "Redo last undone change"
 msgstr "Rétablir la dernière modification annulée"
 
-#: dictee-setup.py:8347
+#: dictee-setup.py:8358
 msgid "Save all changes to disk"
 msgstr "Enregistrer toutes les modifications sur le disque"
 
-#: dictee-setup.py:8353 dictee-setup.py:9431
+#: dictee-setup.py:8364 dictee-setup.py:9442
 msgid "Revert to saved"
 msgstr "Revenir à la version enregistrée"
 
-#: dictee-setup.py:8354
+#: dictee-setup.py:8365
 msgid "Discard all unsaved changes and reload the last saved version"
 msgstr ""
 "Abandonner toutes les modifications non enregistrées et recharger la "
 "dernière version sauvegardée"
 
-#: dictee-setup.py:8358 dictee-setup.py:9436
+#: dictee-setup.py:8369 dictee-setup.py:9447
 msgid "Factory reset"
 msgstr "Réinitialisation d'usine"
 
-#: dictee-setup.py:8359 dictee-setup.py:9437
+#: dictee-setup.py:8370 dictee-setup.py:9448
 msgid "Restore factory defaults"
 msgstr "Restaurer les paramètres d'usine"
 
-#: dictee-setup.py:8432
+#: dictee-setup.py:8443
 msgid "Add words that the ASR transcribes incorrectly."
 msgstr "Ajoutez des mots que l'ASR transcrit mal."
 
-#: dictee-setup.py:8443 dictee-setup.py:8462
+#: dictee-setup.py:8454 dictee-setup.py:8473
 msgid "entries"
 msgstr "entrées"
 
-#: dictee-setup.py:8443 dictee-setup.py:8462
+#: dictee-setup.py:8454 dictee-setup.py:8473
 msgid "entry"
 msgstr "entrée"
 
-#: dictee-setup.py:8537
+#: dictee-setup.py:8548
 msgid "Word"
 msgstr "Mot"
 
-#: dictee-setup.py:8546
+#: dictee-setup.py:8557
 msgid "Replacement"
 msgstr "Remplacement"
 
-#: dictee-setup.py:8554
+#: dictee-setup.py:8565
 msgid "Confirm this entry"
 msgstr "Confirmer cette entrée"
 
-#: dictee-setup.py:8590
+#: dictee-setup.py:8601
 msgid "Remove"
 msgstr "Supprimer"
 
-#: dictee-setup.py:8727
+#: dictee-setup.py:8738
 #, python-brace-format
 msgid "Word cannot contain '=': {word}"
 msgstr "Le mot ne peut pas contenir '=' : {word}"
 
-#: dictee-setup.py:8853 dictee-setup.py:8863
+#: dictee-setup.py:8864 dictee-setup.py:8874
 msgid "Dictionary saved."
 msgstr "Dictionnaire enregistré."
 
-#: dictee-setup.py:8953 dictee-setup.py:9909
+#: dictee-setup.py:8964 dictee-setup.py:9920
 msgid ""
 "Revert to the last saved version?\n"
 "\n"
@@ -1936,7 +1933,7 @@ msgstr ""
 "\n"
 "Toutes les modifications non enregistrées seront perdues."
 
-#: dictee-setup.py:8999
+#: dictee-setup.py:9010
 msgid ""
 "Restore factory defaults?\n"
 "\n"
@@ -1949,15 +1946,15 @@ msgstr ""
 "défaut.\n"
 "Cliquez sur Enregistrer ensuite pour rendre le changement permanent."
 
-#: dictee-setup.py:9014
+#: dictee-setup.py:9025
 msgid "Default dictionary file not found."
 msgstr "Fichier de dictionnaire par défaut introuvable."
 
-#: dictee-setup.py:9114 dictee-setup.py:9129
+#: dictee-setup.py:9125 dictee-setup.py:9140
 msgid "Other"
 msgstr "Autres"
 
-#: dictee-setup.py:9212
+#: dictee-setup.py:9223
 msgid ""
 "Continuation words are words that never end a sentence (articles, "
 "prepositions, conjunctions, pronouns, auxiliaries...).\n"
@@ -1985,11 +1982,11 @@ msgstr ""
 "Les mots système sont intégrés et ne peuvent pas être modifiés. Vous pouvez "
 "ajouter vos propres mots par langue ci-dessous."
 
-#: dictee-setup.py:9237 dictee-setup.py:9247
+#: dictee-setup.py:9248 dictee-setup.py:9258
 msgid "Explanation"
 msgstr "Explication"
 
-#: dictee-setup.py:9256
+#: dictee-setup.py:9267
 msgid ""
 "Sometimes automatic continuation does not work as expected — the ASR may not "
 "place a period, or the last word may not be in the list above. In that case, "
@@ -2001,11 +1998,11 @@ msgstr ""
 "liste ci-dessus. Dans ce cas, vous pouvez dire un mot-clé au début du "
 "segment suivant pour forcer la continuation manuellement."
 
-#: dictee-setup.py:9269
+#: dictee-setup.py:9280
 msgid "Continuation keyword:"
 msgstr "Mot-clé de continuation :"
 
-#: dictee-setup.py:9271
+#: dictee-setup.py:9282
 msgid ""
 "<b>Continuation keyword</b><br><br>The continuation system automatically "
 "joins sentences when the ASR incorrectly places a period after a closed-"
@@ -2041,11 +2038,11 @@ msgstr ""
 "la dictée dans cette langue.<br><br>Laissez vide pour désactiver pour cette "
 "langue."
 
-#: dictee-setup.py:9313
+#: dictee-setup.py:9324
 msgid "Visual indicator:"
 msgstr "Indicateur visuel :"
 
-#: dictee-setup.py:9315
+#: dictee-setup.py:9326
 msgid ""
 "<b>Continuation visual indicator</b><br><br>Character(s) appended to the "
 "typed text when continuation is pending. The next push erases them "
@@ -2062,52 +2059,52 @@ msgstr ""
 "papiers et ne sont pas proposées ici afin de préserver le presse-papiers de "
 "l'utilisateur."
 
-#: dictee-setup.py:9425
+#: dictee-setup.py:9436
 msgid "Save continuation words to disk"
 msgstr "Enregistrer les mots de continuation sur le disque"
 
-#: dictee-setup.py:9432
+#: dictee-setup.py:9443
 msgid "Discard all unsaved changes"
 msgstr "Abandonner toutes les modifications non enregistrées"
 
-#: dictee-setup.py:9547
+#: dictee-setup.py:9558
 msgid "word"
 msgstr "mot"
 
-#: dictee-setup.py:9641
+#: dictee-setup.py:9652
 msgid "(none)"
 msgstr "(aucun)"
 
-#: dictee-setup.py:9647
+#: dictee-setup.py:9658
 msgid "Add a word..."
 msgstr "Ajouter un mot..."
 
-#: dictee-setup.py:9764
+#: dictee-setup.py:9775
 #, python-brace-format
 msgid "'{word}' is already in the system list."
 msgstr "'{word}' est déjà dans la liste système."
 
-#: dictee-setup.py:9826 dictee-setup.py:9841 dictee-setup.py:9847
+#: dictee-setup.py:9837 dictee-setup.py:9852 dictee-setup.py:9858
 msgid "System words"
 msgstr "Mots système"
 
-#: dictee-setup.py:9847
+#: dictee-setup.py:9858
 msgid "Your words"
 msgstr "Vos mots"
 
-#: dictee-setup.py:9904
+#: dictee-setup.py:9915
 msgid "Continuation words saved."
 msgstr "Mots de continuation enregistrés."
 
-#: dictee-setup.py:9944
+#: dictee-setup.py:9955
 msgid "(disabled)"
 msgstr "(désactivé)"
 
-#: dictee-setup.py:9966
+#: dictee-setup.py:9977
 msgid "Accepted: "
 msgstr "Accepté : "
 
-#: dictee-setup.py:9996
+#: dictee-setup.py:10007
 msgid ""
 "Remove all your custom continuation words?\n"
 "\n"
@@ -2117,62 +2114,62 @@ msgstr ""
 "\n"
 "Les mots système resteront inchangés."
 
-#: dictee-setup.py:10172 dictee-setup.py:10259
+#: dictee-setup.py:10183 dictee-setup.py:10270
 msgid "System default"
 msgstr "Par défaut du système"
 
-#: dictee-setup.py:10186
+#: dictee-setup.py:10197
 msgid "Refresh audio sources"
 msgstr "Rafraîchir les sources audio"
 
-#: dictee-setup.py:10190
+#: dictee-setup.py:10201
 msgid "Audio source:"
 msgstr "Source audio :"
 
-#: dictee-setup.py:10196
+#: dictee-setup.py:10207
 msgid "Volume:"
 msgstr "Volume :"
 
-#: dictee-setup.py:10295
+#: dictee-setup.py:10306
 msgid "Not found"
 msgstr "Non trouvé"
 
-#: dictee-setup.py:10310
+#: dictee-setup.py:10321
 msgid "Everything is ready!"
 msgstr "Tout est prêt !"
 
-#: dictee-setup.py:10312
+#: dictee-setup.py:10323
 #, python-brace-format
 msgid "Press {key} anytime to dictate."
 msgstr "Appuyez sur {key} à tout moment pour dicter."
 
-#: dictee-setup.py:10410 dictee-setup.py:10422 dictee-setup.py:10447
-#: dictee-setup.py:10482
+#: dictee-setup.py:10421 dictee-setup.py:10433 dictee-setup.py:10458
+#: dictee-setup.py:10493
 #, python-brace-format
 msgid "Recording… {n}s"
 msgstr "Enregistrement… {n}s"
 
-#: dictee-setup.py:10424 dictee-tray.py:627 dictee-tray.py:1036
+#: dictee-setup.py:10435 dictee-tray.py:627 dictee-tray.py:1036
 msgid "Transcribing…"
 msgstr "Transcription…"
 
-#: dictee-setup.py:10484
+#: dictee-setup.py:10495
 msgid "Translating…"
 msgstr "Traduction en cours…"
 
-#: dictee-setup.py:10649
+#: dictee-setup.py:10660
 #, python-brace-format
 msgid "Key '{key}' is not supported. Use a function key (F1-F12)."
 msgstr ""
 "La touche « {key} » n'est pas prise en charge. Utilisez une touche de "
 "fonction (F1-F12)."
 
-#: dictee-setup.py:10664
+#: dictee-setup.py:10675
 #, python-brace-format
 msgid "Key '{key}' not supported"
 msgstr "Touche « {key} » non supportée"
 
-#: dictee-setup.py:10677
+#: dictee-setup.py:10688
 msgid ""
 "This key is used for typing. Prefer a function key (F1-F12) or a special key "
 "(Home, End, Insert, etc.)."
@@ -2180,144 +2177,144 @@ msgstr ""
 "Cette touche est utilisée pour la saisie. Préférez une touche de fonction "
 "(F1-F12) ou une touche spéciale (Début, Fin, Inser, etc.)."
 
-#: dictee-setup.py:10685
+#: dictee-setup.py:10696
 msgid "Escape is used to cancel dictation. Choose another key."
 msgstr "Échap est utilisé pour annuler la dictée. Choisissez une autre touche."
 
-#: dictee-setup.py:10718
+#: dictee-setup.py:10729
 #, python-brace-format
 msgid "animation-speech {version} installed"
 msgstr "animation-speech {version} installé"
 
-#: dictee-setup.py:10722 dictee-setup.py:10725
+#: dictee-setup.py:10733 dictee-setup.py:10736
 msgid "animation-speech installed"
 msgstr "animation-speech installé"
 
-#: dictee-setup.py:10737
+#: dictee-setup.py:10748
 msgid "Dictee plasmoid installed"
 msgstr "Plasmoid Dictée installé"
 
-#: dictee-setup.py:10761 dictee-setup.py:11326
+#: dictee-setup.py:10772 dictee-setup.py:11337
 msgid "Installation error"
 msgstr "Erreur d'installation"
 
-#: dictee-setup.py:10774
+#: dictee-setup.py:10785
 msgid "ollama is not installed"
 msgstr "ollama n'est pas installé"
 
-#: dictee-setup.py:10795
+#: dictee-setup.py:10806
 #, python-brace-format
 msgid "RAM: {actual} GB / {required} GB recommended"
 msgstr "RAM : {actual} Go / {required} Go recommandés"
 
-#: dictee-setup.py:10804
+#: dictee-setup.py:10815
 #, python-brace-format
 msgid "VRAM free: {free} GB / {required} GB required (total: {total} GB)"
 msgstr "VRAM libre : {free} Go / {required} Go requis (total : {total} Go)"
 
-#: dictee-setup.py:10811
+#: dictee-setup.py:10822
 msgid "No GPU detected — ollama will use CPU (slower)."
 msgstr "Aucun GPU détecté — ollama utilisera le CPU (plus lent)."
 
-#: dictee-setup.py:10824
+#: dictee-setup.py:10835
 #, python-brace-format
 msgid "Model {model} ready"
 msgstr "Modèle {model} prêt"
 
-#: dictee-setup.py:10831
+#: dictee-setup.py:10842
 #, python-brace-format
 msgid "Model {model} not downloaded"
 msgstr "Modèle {model} non téléchargé"
 
-#: dictee-setup.py:10872
+#: dictee-setup.py:10883
 msgid "Docker is not installed"
 msgstr "Docker n'est pas installé"
 
-#: dictee-setup.py:10884
+#: dictee-setup.py:10895
 msgid "Docker daemon is not running and permissions are missing"
 msgstr "Le daemon Docker n'est pas démarré et les permissions sont manquantes"
 
-#: dictee-setup.py:10886
+#: dictee-setup.py:10897
 msgid "Docker daemon is not running"
 msgstr "Le daemon Docker n'est pas démarré"
 
-#: dictee-setup.py:10888
+#: dictee-setup.py:10899
 msgid "Docker permission denied"
 msgstr "Docker : permission refusée"
 
-#: dictee-setup.py:10892
+#: dictee-setup.py:10903
 msgid "Setup Docker (requires password)"
 msgstr "Configurer Docker (mot de passe requis)"
 
-#: dictee-setup.py:10907
+#: dictee-setup.py:10918
 msgid "Docker image not downloaded (~2 GB)"
 msgstr "Image Docker non téléchargée (~2 Go)"
 
-#: dictee-setup.py:10923
+#: dictee-setup.py:10934
 #, python-brace-format
 msgid "LibreTranslate running on port {port}"
 msgstr "LibreTranslate actif sur le port {port}"
 
-#: dictee-setup.py:10940
+#: dictee-setup.py:10951
 #, python-brace-format
 msgid "Language(s) not available: {langs}"
 msgstr "Langue(s) non disponible(s) : {langs}"
 
-#: dictee-setup.py:10943
+#: dictee-setup.py:10954
 #, python-brace-format
 msgid "Available: {langs}. Restart to add missing languages."
 msgstr "Disponibles : {langs}. Redémarrez pour ajouter les langues manquantes."
 
-#: dictee-setup.py:10954
+#: dictee-setup.py:10965
 msgid "LibreTranslate stopped"
 msgstr "LibreTranslate arrêté"
 
-#: dictee-setup.py:11001
+#: dictee-setup.py:11012
 #, python-brace-format
 msgid "Changes: {changes}"
 msgstr "Changements : {changes}"
 
-#: dictee-setup.py:11023
+#: dictee-setup.py:11034
 #, python-brace-format
 msgid "Restarting with languages: {langs}…"
 msgstr "Redémarrage avec les langues : {langs}…"
 
-#: dictee-setup.py:11085
+#: dictee-setup.py:11096
 msgid "Setting up Docker…"
 msgstr "Configuration de Docker…"
 
-#: dictee-setup.py:11102
+#: dictee-setup.py:11113
 msgid "Docker started and permissions configured."
 msgstr "Docker démarré et permissions configurées."
 
-#: dictee-setup.py:11143
+#: dictee-setup.py:11154
 msgid "Starting LibreTranslate…"
 msgstr "Démarrage de LibreTranslate…"
 
-#: dictee-setup.py:11158
+#: dictee-setup.py:11169
 msgid "Stopping LibreTranslate…"
 msgstr "Arrêt de LibreTranslate…"
 
-#: dictee-setup.py:11257
+#: dictee-setup.py:11268
 #, python-brace-format
 msgid "Delete {name} and free disk space?"
 msgstr "Supprimer {name} et libérer de l'espace disque ?"
 
-#: dictee-setup.py:11290
+#: dictee-setup.py:11301
 msgid "installed"
 msgstr "installé"
 
-#: dictee-setup.py:11294
+#: dictee-setup.py:11305
 #, python-brace-format
 msgid "Install {name} engine"
 msgstr "Installer le moteur {name}"
 
-#: dictee-setup.py:11336
+#: dictee-setup.py:11347
 #, python-brace-format
 msgid "Uninstall {name} engine"
 msgstr "Désinstaller le moteur {name}"
 
-#: dictee-setup.py:11337
+#: dictee-setup.py:11348
 #, python-brace-format
 msgid ""
 "Delete the {name} virtual environment?\n"
@@ -2332,55 +2329,55 @@ msgstr ""
 "\n"
 "Les modèles téléchargés seront conservés."
 
-#: dictee-setup.py:11393
+#: dictee-setup.py:11404
 msgid "Type text or record..."
 msgstr "Tapez du texte ou enregistrez..."
 
-#: dictee-setup.py:11408
+#: dictee-setup.py:11419
 msgid "Output"
 msgstr "Sortie"
 
-#: dictee-setup.py:11426
+#: dictee-setup.py:11437
 msgid "Pipeline details"
 msgstr "Détails pipeline"
 
-#: dictee-setup.py:11488
+#: dictee-setup.py:11499
 msgid ""
 "Post-processing disabled (master switch off) — text passed through unchanged."
 msgstr ""
 "Post-traitement désactivé (interrupteur principal coupé) — texte transmis "
 "tel quel."
 
-#: dictee-setup.py:11499
+#: dictee-setup.py:11510
 msgid "dictee-postprocess not found"
 msgstr "dictee-postprocess introuvable"
 
-#: dictee-setup.py:11570
+#: dictee-setup.py:11581
 msgid "Timeout running post-processing"
 msgstr "Délai dépassé lors de l'exécution du post-traitement"
 
-#: dictee-setup.py:11623
+#: dictee-setup.py:11634
 msgid "No pipeline steps ran."
 msgstr "Aucune étape du pipeline n'a été exécutée."
 
-#: dictee-setup.py:11626
+#: dictee-setup.py:11637
 msgid "changed"
 msgstr "modifié"
 
-#: dictee-setup.py:11661
+#: dictee-setup.py:11672
 msgid "No ASR service is running. Start the default service?"
 msgstr "Aucun service ASR actif. Démarrer le service par défaut ?"
 
-#: dictee-setup.py:11710
+#: dictee-setup.py:11721
 #, python-brace-format
 msgid "Cannot connect to ASR daemon: {err}"
 msgstr "Impossible de se connecter au daemon ASR : {err}"
 
-#: dictee-setup.py:11748
+#: dictee-setup.py:11759
 msgid "Applying"
 msgstr "Application en cours"
 
-#: dictee-setup.py:11991
+#: dictee-setup.py:12002
 #, python-brace-format
 msgid ""
 "Warning: could not enable {svc} at boot.\n"
@@ -2389,7 +2386,7 @@ msgstr ""
 "Attention : impossible d'activer {svc} au démarrage.\n"
 "{err}"
 
-#: dictee-setup.py:12025
+#: dictee-setup.py:12036
 #, python-brace-format
 msgid ""
 "Warning: {svc} is taking too long to start.\n"
@@ -2398,7 +2395,7 @@ msgstr ""
 "Attention : {svc} met trop de temps à démarrer.\n"
 "Le modèle est peut-être encore en cours de chargement."
 
-#: dictee-setup.py:12029 dictee-setup.py:12032
+#: dictee-setup.py:12040 dictee-setup.py:12043
 #, python-brace-format
 msgid ""
 "Warning: {svc} failed to start.\n"
@@ -2407,21 +2404,21 @@ msgstr ""
 "Attention : {svc} n'a pas pu démarrer.\n"
 "{err}"
 
-#: dictee-setup.py:12049
+#: dictee-setup.py:12060
 #, python-brace-format
 msgid "PTT key: {key} ({mode})"
 msgstr "Touche PTT : {key} ({mode})"
 
-#: dictee-setup.py:12063
+#: dictee-setup.py:12074
 #, python-brace-format
 msgid "File: {path}"
 msgstr "Fichier : {path}"
 
-#: dictee-setup.py:12067 dictee-setup.py:12073 dictee-setup.py:12078
+#: dictee-setup.py:12078 dictee-setup.py:12084 dictee-setup.py:12089
 msgid "Configuration saved"
 msgstr "Configuration sauvegardée"
 
-#: dictee-setup.py:12085
+#: dictee-setup.py:12096
 #, python-brace-format
 msgid ""
 "Cannot save rules — syntax error:\n"
@@ -2432,37 +2429,37 @@ msgstr ""
 "\n"
 "{err}"
 
-#: dictee-setup.py:12104
+#: dictee-setup.py:12115
 #, python-brace-format
 msgid "Add: {langs}"
 msgstr "Ajouter : {langs}"
 
-#: dictee-setup.py:12106
+#: dictee-setup.py:12117
 #, python-brace-format
 msgid "Remove: {langs}"
 msgstr "Retirer : {langs}"
 
-#: dictee-setup.py:12108
+#: dictee-setup.py:12119
 msgid "The LibreTranslate languages have changed."
 msgstr "Les langues LibreTranslate ont changé."
 
-#: dictee-setup.py:12110
+#: dictee-setup.py:12121
 msgid "Restart the server now to apply changes?"
 msgstr "Redémarrer le serveur maintenant pour appliquer les changements ?"
 
-#: dictee-setup.py:12111 dictee-setup.py:12128
+#: dictee-setup.py:12122 dictee-setup.py:12139
 msgid "(This will download missing models if needed)"
 msgstr "(Les modèles manquants seront téléchargés si nécessaire)"
 
-#: dictee-setup.py:12114 dictee-setup.py:12131
+#: dictee-setup.py:12125 dictee-setup.py:12142
 msgid "LibreTranslate"
 msgstr "LibreTranslate"
 
-#: dictee-setup.py:12125
+#: dictee-setup.py:12136
 msgid "LibreTranslate is not running."
 msgstr "LibreTranslate n'est pas démarré."
 
-#: dictee-setup.py:12126
+#: dictee-setup.py:12137
 #, python-brace-format
 msgid "Start the server with {n} languages ({langs})?"
 msgstr "Démarrer le serveur avec {n} langues ({langs}) ?"
@@ -2602,6 +2599,15 @@ msgid ""
 msgstr ""
 "Dictée n'est pas encore configurée.\n"
 "Voulez-vous lancer l'assistant de configuration ?"
+
+#~ msgid ""
+#~ "Uses a local LLM (via ollama) to fix grammar,\n"
+#~ "spelling, accents and punctuation.\n"
+#~ "Configure the model and prompt in the LLM tab."
+#~ msgstr ""
+#~ "Utilise un LLM local (via ollama) pour corriger la grammaire,\n"
+#~ "l'orthographe, les accents et la ponctuation.\n"
+#~ "Configure le modèle et le prompt dans l'onglet LLM."
 
 #~ msgid "Enable post-processing"
 #~ msgstr "Activer le post-traitement"
