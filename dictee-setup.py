@@ -11398,7 +11398,7 @@ class DicteeSetupDialog(QDialog):
         # Translation post-processing (applied AFTER the translation backend)
         env["DICTEE_TRANSLATE_POSTPROCESS"] = _b("chk_tr_pp_enable")
         env["DICTEE_TRANSLATE_PP_SHORT_TEXT"] = _b("chk_tr_pp_short_text")
-        env["DICTEE_TRANSLATE_PP_STRIP_PERIOD"] = _b("chk_tr_pp_strip_final_period")
+        env["DICTEE_TRANSLATE_PP_STRIP_PERIOD"] = _b("chk_tr_pp_strip_final_period", default=False)
 
         # LLM
         llm_on = _b("chk_llm", default=False)
