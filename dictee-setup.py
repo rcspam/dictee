@@ -3294,6 +3294,10 @@ class DicteeSetupDialog(QDialog):
         tree.currentItemChanged.connect(_on_item_changed)
         tree.setCurrentItem(tree.topLevelItem(0))
         self._sidebar_tree = tree
+        # Now that the tree exists, apply the initial master-state-based
+        # greyout to its PP sub-items.
+        if hasattr(self, "_apply_any_master_active"):
+            self._apply_any_master_active()
 
         splitter.addWidget(tree)
         splitter.addWidget(self._sidebar_stack)
@@ -6532,11 +6536,21 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._pp_content)
         self._pp_scroll = None
 
-        # Sub-pages are grey/disabled ONLY if BOTH masters are off.
-        # Otherwise (one or both on), they remain fully editable.
+        # Sub-pages AND their sidebar tree entries are grey/disabled ONLY
+        # if BOTH masters are off. Otherwise (one or both on), they remain
+        # fully editable/navigable.
         def _apply_any_master_active():
             any_on = self._pp_master_normal or self._pp_master_translate
             self._pp_content.setEnabled(any_on)
+            # Grey the 5 PP sub-items in the sidebar tree too.
+            tree = getattr(self, "_sidebar_tree", None)
+            if tree is not None:
+                for i in range(tree.topLevelItemCount()):
+                    it = tree.topLevelItem(i)
+                    if it.childCount() == 5:  # Post-processing root
+                        for c in range(it.childCount()):
+                            it.child(c).setDisabled(not any_on)
+                        break
         self._apply_any_master_active = _apply_any_master_active
 
         def _on_master_normal_toggled(on):
