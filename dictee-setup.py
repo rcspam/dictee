@@ -2846,7 +2846,7 @@ class DicteeSetupDialog(QDialog):
         }
         # Two independent masters: normal PP and translation PP.
         self._pp_master_normal    = _cb("DICTEE_POSTPROCESS", "true")
-        self._pp_master_translate = _cb("DICTEE_PP_TRANSLATE", "false")
+        self._pp_master_translate = _cb("DICTEE_PP_TRANSLATE", "true")
 
         # Prevent accidental scroll on interactive widgets (must be before UI build)
         self._scroll_guard = ScrollGuardFilter(self)

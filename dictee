@@ -1290,7 +1290,7 @@ if [ -f "$PIDFILE" ]; then
             # so this one call does everything. LLM is always forced off
             # in this 2nd pass — translation backends already produce
             # grammatically-clean text.
-            if [ "${DICTEE_PP_TRANSLATE:-false}" = "true" ] \
+            if [ "${DICTEE_PP_TRANSLATE:-true}" = "true" ] \
                && command -v dictee-postprocess >/dev/null 2>&1; then
                 # DICTEE_TRPP_* vars are the translation-side per-step
                 # activation state (independent from DICTEE_PP_*). Map
