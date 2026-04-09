@@ -6575,6 +6575,11 @@ class DicteeSetupDialog(QDialog):
                     w = self._pp_tabs.widget(idx)
                     if w is not None:
                         w.setEnabled(effective[k])
+
+            # Rules page: the QSyntaxHighlighter needs an explicit refresh
+            # (setEnabled alone leaves highlighted text in its colored state).
+            if hasattr(self, "_update_rules_active"):
+                self._update_rules_active()
         self._apply_any_master_active = _apply_any_master_active
 
         def _on_master_normal_toggled(on):
@@ -7478,8 +7483,19 @@ class DicteeSetupDialog(QDialog):
         # Syntax highlighting
         self._rules_highlighter = self._RulesHighlighter(self._rules_editor.document())
 
-        # Rules editor is always active; step activation lives on the
-        # SVG pipeline only. No greying based on chk_pp_rules/master.
+        # Rules editor greying: tied to the effective state of the "rules"
+        # step (active if enabled in at least one pipeline with its master
+        # on). setEnabled() alone does not update the syntax highlighter,
+        # so we explicitly toggle the highlighter's active state.
+        def _update_rules_active():
+            normal_on = self._pp_master_normal and self._pp_state.get("rules", False)
+            trans_on = self._pp_master_translate and self._trpp_state.get("rules", False)
+            on = bool(normal_on or trans_on)
+            self._rules_highlighter.set_active(on)
+            self._rules_editor.setEnabled(on)
+            if hasattr(self, "_rules_line_numbers"):
+                self._rules_line_numbers.setEnabled(on)
+        self._update_rules_active = _update_rules_active
 
         # Line numbers
         self._rules_line_numbers = self._LineNumberArea(self._rules_editor)
