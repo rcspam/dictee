@@ -6193,14 +6193,15 @@ class DicteeSetupDialog(QDialog):
         _mlay.setContentsMargins(0, 0, 0, 0)
         _mlay.setSpacing(4)
 
+        # Only colorize the LABEL. Leave the indicator to the system theme
+        # (Breeze / default) — overriding width/height produces unthemed
+        # squares and bleeds color into the checkmark.
         _master_style = (
             "QCheckBox {{ color: {col}; font-size: 18px; "
-            "font-weight: bold; padding: 2px 0; }}"
-            "QCheckBox::indicator {{ width: 22px; height: 22px; }}")
+            "font-weight: bold; padding: 2px 0; }}")
         _sub_style = (
             "QCheckBox {{ color: {col}; font-size: 14px; "
-            "padding: 1px 0; }}"
-            "QCheckBox::indicator {{ width: 16px; height: 16px; }}")
+            "padding: 1px 0; }}")
 
         # ── Master 1: Enable PP (normal) ──
         self.chk_postprocess = QCheckBox(_("Enable PP"))
@@ -6261,7 +6262,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
         _mlay.addWidget(self.chk_pp_translate)
 
-        # Translation sub-row: Short text fix (indented, orange)
+        # Translation sub-row: Short text fix + its own threshold combo.
         _trans_sub = QWidget()
         _trow = QHBoxLayout(_trans_sub)
         _trow.setContentsMargins(28, 0, 0, 0)
@@ -6281,6 +6282,25 @@ class DicteeSetupDialog(QDialog):
             self._refresh_pp_diagrams()
         self.chk_trpp_short_text.toggled.connect(_on_trpp_short_toggled)
         _trow.addWidget(self.chk_trpp_short_text)
+        _trow.addWidget(QLabel(_("<")))
+        self.cmb_trpp_short_text_max = QComboBox()
+        for n in (2, 3, 4, 5, 6):
+            self.cmb_trpp_short_text_max.addItem(str(n), n)
+        try:
+            _trpp_saved_max = int(conf.get("DICTEE_TRPP_SHORT_TEXT_MAX", "3"))
+        except ValueError:
+            _trpp_saved_max = 3
+        _tidx = self.cmb_trpp_short_text_max.findData(_trpp_saved_max)
+        if _tidx >= 0:
+            self.cmb_trpp_short_text_max.setCurrentIndex(_tidx)
+        self.cmb_trpp_short_text_max.setToolTip(
+            _("Maximum word count for a translated transcription to be "
+              "considered \"short\" and receive the short-text treatment."))
+        self.cmb_trpp_short_text_max.setEnabled(self.chk_trpp_short_text.isChecked())
+        self.chk_trpp_short_text.toggled.connect(
+            self.cmb_trpp_short_text_max.setEnabled)
+        _trow.addWidget(self.cmb_trpp_short_text_max)
+        _trow.addWidget(QLabel(_("words")))
         _trow.addStretch(1)
         _mlay.addWidget(_trans_sub)
 
@@ -11544,6 +11564,9 @@ class DicteeSetupDialog(QDialog):
         env["DICTEE_TRPP_DICT"]           = _tb("dict")
         env["DICTEE_TRPP_CAPITALIZATION"] = _tb("capitalization")
         env["DICTEE_TRPP_SHORT_TEXT"]     = _tb("short_text")
+        if hasattr(self, 'cmb_trpp_short_text_max'):
+            env["DICTEE_TRPP_SHORT_TEXT_MAX"] = str(
+                self.cmb_trpp_short_text_max.currentData() or 3)
 
         # LLM
         llm_on = _b("chk_llm", default=False)

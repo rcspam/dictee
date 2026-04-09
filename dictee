@@ -1322,6 +1322,7 @@ if [ -f "$PIDFILE" ]; then
                     DICTEE_PP_DICT="${DICTEE_TRPP_DICT:-true}" \
                     DICTEE_PP_CAPITALIZATION="${DICTEE_TRPP_CAPITALIZATION:-true}" \
                     DICTEE_PP_SHORT_TEXT="${DICTEE_TRPP_SHORT_TEXT:-true}" \
+                    DICTEE_PP_SHORT_TEXT_MAX="${DICTEE_TRPP_SHORT_TEXT_MAX:-${DICTEE_PP_SHORT_TEXT_MAX:-3}}" \
                     DICTEE_PP_ELISIONS="$_trpp_el" \
                     DICTEE_PP_ELISIONS_IT="$_trpp_el_it" \
                     DICTEE_PP_SPANISH="$_trpp_es" \
