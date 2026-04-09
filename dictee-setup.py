@@ -6750,7 +6750,6 @@ class DicteeSetupDialog(QDialog):
             if key == "llm":
                 # LLM is locked off in translation mode; silently ignore.
                 return
-            # Navigation + toggle logic, same 1-click / 2-click pattern.
             tab_idx = {
                 "rules": 0, "continuation": 1, "language_rules": 2,
                 "dict": 3,
@@ -6763,24 +6762,31 @@ class DicteeSetupDialog(QDialog):
                     if it.childCount() == 5:
                         target_child = it.child(tab_idx)
                         break
+
+            def _toggle_trpp():
+                self._trpp_state[key] = not self._trpp_state.get(key, True)
+                self._refresh_pp_diagrams()
+
             steps_with_page = {"rules", "continuation", "language_rules", "dict"}
             if key in steps_with_page:
+                # If the sub-item is disabled (step effectively off in BOTH
+                # pipelines), we can't navigate — directly toggle instead
+                # so the user can always re-enable it via the SVG.
+                if target_child is None or target_child.isDisabled():
+                    _toggle_trpp()
+                    return
                 already_on_page = (
                     tree is not None
-                    and target_child is not None
                     and tree.currentItem() is target_child
                 )
                 if already_on_page:
-                    self._trpp_state[key] = not self._trpp_state.get(key, True)
-                    self._refresh_pp_diagrams()
+                    _toggle_trpp()
                     return
-                if target_child is not None:
-                    tree.setCurrentItem(target_child)
+                tree.setCurrentItem(target_child)
                 return
             # numbers, capitalization, short_text → direct toggle.
             if key in self._trpp_state:
-                self._trpp_state[key] = not self._trpp_state[key]
-                self._refresh_pp_diagrams()
+                _toggle_trpp()
             return
 
         # Normal source (blue diagram): existing behavior, drives the
@@ -6809,9 +6815,16 @@ class DicteeSetupDialog(QDialog):
                     target_child = it.child(tab_idx)
                     break
         if key in steps_with_page:
+            # If the sub-item is disabled (step off in BOTH pipelines),
+            # we can't navigate — directly toggle instead so the user can
+            # always re-enable the step via the SVG.
+            if target_child is None or target_child.isDisabled():
+                cb = cb_map.get(key)
+                if cb is not None:
+                    cb.toggle()
+                return
             already_on_page = (
                 tree is not None
-                and target_child is not None
                 and tree.currentItem() is target_child
             )
             if already_on_page:
@@ -6819,8 +6832,7 @@ class DicteeSetupDialog(QDialog):
                 if cb is not None:
                     cb.toggle()
                 return
-            if target_child is not None:
-                tree.setCurrentItem(target_child)
+            tree.setCurrentItem(target_child)
             return
         # Step without a page: toggle directly.
         cb = cb_map.get(key)
