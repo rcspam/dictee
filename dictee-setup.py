@@ -5859,6 +5859,19 @@ class DicteeSetupDialog(QDialog):
         """Build translation backend selection, languages, sub-options."""
         # Title and help are on the cards page (page 4), not here
 
+        # Canary translation notice (shown when ASR=canary)
+        self._canary_translation_notice = QLabel(_(
+            "Translation is built into the Canary engine — no external service needed.\n"
+            "Supported: 25 languages ↔ English (48 pairs).\n"
+            "For other pairs (e.g. FR→DE), switch to a different ASR backend."
+        ))
+        self._canary_translation_notice.setWordWrap(True)
+        self._canary_translation_notice.setStyleSheet(
+            "background: #1a3a1a; border: 1px solid #2a5a2a;"
+            " border-radius: 6px; padding: 8px;")
+        self._canary_translation_notice.setVisible(False)
+        lay_tr.addWidget(self._canary_translation_notice)
+
         # Languages
         form_lang = QFormLayout()
         form_lang.setHorizontalSpacing(12)
