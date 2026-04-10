@@ -330,9 +330,10 @@ Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les 
 
 ## Feuille de route
 
-**v1.2.0 (actuelle) :** 4 backends ASR (+ Canary), pipeline de post-traitement, changement rapide de backend, assistant premier lancement, `dictee-test-rules`
+**v1.3.0 (actuelle) :** UI sidebar avec double diagramme pipeline (normal + traduction), post-traitement LLM (Ollama), buffer de continuation, conversion nombres, 682 tests automatisés, intégration CI
 
-- (v1.3) **Hotword boosting** — biaiser le décodage ASR vers des noms et termes personnalisés sans ré-entraîner (beam search + Aho-Corasick en Rust)
+- v1.2.0 : 4 backends ASR (+ Canary), pipeline de post-traitement, changement rapide de backend, assistant premier lancement, `dictee-test-rules`
+- (v1.4) **Hotword boosting** — biaiser le décodage ASR vers des noms et termes personnalisés sans ré-entraîner (beam search + Aho-Corasick en Rust)
 - Diarisation depuis le tray/plasmoid — sélection de fichier audio, transcription avec identification des locuteurs
 - CLI speech-to-text (pipe audio, récupérer le texte)
 - Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions

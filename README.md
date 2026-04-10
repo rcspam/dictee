@@ -330,9 +330,10 @@ Configure from `dictee --setup` → Post-processing tab, or test rules with `dic
 
 ## Roadmap
 
-**v1.2.0 (current):** 4 ASR backends (+ Canary), post-processing pipeline, quick backend switching, first-run wizard, `dictee-test-rules`
+**v1.3.0 (current):** Sidebar UI with dual pipeline diagrams (normal + translation), LLM post-processing (Ollama), continuation buffer, number conversion, 682 automated tests, CI integration
 
-- (v1.3) **Hotword boosting** — bias ASR decoding toward custom names and terms without retraining (beam search + Aho-Corasick in Rust)
+- v1.2.0: 4 ASR backends (+ Canary), post-processing pipeline, quick backend switching, first-run wizard, `dictee-test-rules`
+- (v1.4) **Hotword boosting** — bias ASR decoding toward custom names and terms without retraining (beam search + Aho-Corasick in Rust)
 - Diarization from tray/plasmoid — select audio file, get speaker-labeled transcription
 - CLI for speech-to-text (pipe audio, get text)
 - `dictee-ctl` coordinator — single entry point, eliminates race conditions
