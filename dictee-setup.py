@@ -1022,36 +1022,57 @@ class _PipelineDiagram:
         ("short_text", "Short text"),
     ]
 
-    TOOLTIPS = {
-        "rules": "<b>Regex rules</b><br>"
-                 "Fix common ASR errors:<br>"
-                 "voice commands, punctuation, formatting.",
-        "continuation": "<b>Continuation</b><br>"
-                        "Remove erroneous periods after closed-class words<br>"
-                        "so sentences flow across push-to-talk segments.",
-        "language_rules": "<b>Language rules</b><br>"
-                          "Per-language fixes:<br>"
-                          "FR/IT elisions, DE/ES/PT/NL/RO corrections.",
-        "numbers": "<b>Numbers</b><br>"
-                   "Convert spoken numbers to digits.<br>"
-                   "Example: \"vingt-trois\" → \"23\".",
-        "dict": "<b>Dictionary</b><br>"
-                "Exact word replacements from the system<br>"
-                "and personal dictionaries.",
-        "capitalization": "<b>Capitalization</b><br>"
-                          "Uppercase first letter after . ! ?<br>"
-                          "Essential for Vosk/Whisper backends.",
-        "short_text": "<b>Short text fix</b><br>"
-                      "For transcriptions under N words:<br>"
-                      "strip trailing punctuation and lowercase.",
-        "llm": "<b>LLM grammar correction</b><br>"
-               "Local Ollama model fixes grammar,<br>"
-               "spelling, accents and punctuation.",
-    }
+    # Tooltip texts are built lazily in _build_tooltips() so that gettext _()
+    # is called after the locale has been initialised (class-body evaluation
+    # would freeze them to the startup language).
+    @staticmethod
+    def _build_tooltips():
+        return {
+            "rules": "<b>" + _("Regex rules") + "</b><br>"
+                     + _("Fix common ASR errors:") + "<br>"
+                     + _("voice commands, punctuation, formatting."),
+            "continuation": "<b>" + _("Continuation") + "</b><br>"
+                            + _("Remove erroneous periods after closed-class words") + "<br>"
+                            + _("so sentences flow across push-to-talk segments."),
+            "language_rules": "<b>" + _("Language rules") + "</b><br>"
+                              + _("Per-language fixes:") + "<br>"
+                              + _("FR/IT elisions, DE/ES/PT/NL/RO corrections."),
+            "numbers": "<b>" + _("Numbers") + "</b><br>"
+                       + _("Convert spoken numbers to digits.") + "<br>"
+                       + _("Example: \"twenty-three\" → \"23\"."),
+            "dict": "<b>" + _("Dictionary") + "</b><br>"
+                    + _("Exact word replacements from the system") + "<br>"
+                    + _("and personal dictionaries."),
+            "capitalization": "<b>" + _("Capitalization") + "</b><br>"
+                              + _("Uppercase first letter after . ! ?") + "<br>"
+                              + _("Essential for Vosk/Whisper backends."),
+            "short_text": "<b>" + _("Short text fix") + "</b><br>"
+                          + _("For transcriptions under N words:") + "<br>"
+                          + _("strip trailing punctuation and lowercase."),
+            "llm": "<b>" + _("LLM grammar correction") + "</b><br>"
+                   + _("Local Ollama model fixes grammar,") + "<br>"
+                   + _("spelling, accents and punctuation."),
+            "nav:microphone": "<b>" + _("Microphone") + "</b><br>" + _("Jump to the Microphone section."),
+            "nav:asr": "<b>" + _("ASR backend") + "</b><br>" + _("Jump to the ASR backend section."),
+            "nav:translation": "<b>" + _("Translation") + "</b><br>" + _("Jump to the Translation section."),
+        }
 
-    def __init__(self, palette):
+    def __init__(self, palette, variant=None, llm_force_off=False):
+        """Pipeline diagram.
+
+        Args:
+            palette: QPalette used for accent color (Highlight).
+            variant: Optional icon variant name (e.g. "orange") used to
+                resolve SVG endpoint icons. Falls back to the default
+                variant if a variant-specific file is missing.
+            llm_force_off: When True, the LLM step is always rendered as
+                disabled regardless of its state. Used for the translation
+                pipeline where LLM never runs.
+        """
         self.widget = _ClickableSvgWidget()
         self._palette = palette
+        self._variant = variant
+        self._llm_force_off = bool(llm_force_off)
         self._states = {k: True for k, _ in self.BASE_STEPS}
         self._llm_on = False
         self._llm_pos = "hybrid"
@@ -1101,23 +1122,33 @@ class _PipelineDiagram:
             return label
         base = [(key, _label(key, label), m and self._states.get(key, True))
                 for key, label in self.BASE_STEPS]
-        llm = ("llm", "LLM", m and self._llm_on)
-        if not self._llm_on:
-            return base
+        # LLM step is always shown (even when disabled, so users can click
+        # its SVG endpoint to jump to the LLM sub-section and enable it).
+        # If llm_force_off is set (translation diagram), LLM is always off.
+        llm_active = (not self._llm_force_off) and m and self._llm_on
+        llm = ("llm", "LLM", llm_active)
         if self._llm_pos == "first":
             return [llm] + base
         if self._llm_pos == "last":
             return base + [llm]
         return base[:2] + [llm] + base[2:]
 
-    def _icon_b64(self, name, suffix):
+    def _icon_b64(self, name, suffix, variant=None):
         import base64
         from PyQt6.QtCore import QByteArray, QBuffer
         from PyQt6.QtGui import QIcon
         icons = _icons_dir()
         if not icons:
             return ""
-        path = os.path.join(icons, f"{name}-{suffix}.svg")
+        # Try variant-specific file first (e.g. "microphone-symbolic-orange-dark.svg")
+        if variant:
+            candidate = os.path.join(icons, f"{name}-{variant}-{suffix}.svg")
+            if os.path.isfile(candidate):
+                path = candidate
+            else:
+                path = os.path.join(icons, f"{name}-{suffix}.svg")
+        else:
+            path = os.path.join(icons, f"{name}-{suffix}.svg")
         if not os.path.isfile(path):
             return ""
         ic = QIcon(path)
@@ -1146,9 +1177,18 @@ class _PipelineDiagram:
         y = 10
         cy = y + h / 2
 
-        in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"])
-        asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"])
-        out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"])
+        orange_variant = (self._variant == "orange")
+        if orange_variant:
+            # Translation pipeline: use translate icon in place of ASR,
+            # and replace mic/pencil circles with L-shaped orange arrows
+            # suggesting flow from/to the blue row above.
+            in_b64 = ""
+            asr_b64 = self._icon_b64("translate-symbolic", t["icon_suffix"], variant="orange")
+            out_b64 = ""
+        else:
+            in_b64 = self._icon_b64("microphone-symbolic", t["icon_suffix"], variant=self._variant)
+            asr_b64 = self._icon_b64("asr-symbolic", t["icon_suffix"], variant=self._variant)
+            out_b64 = self._icon_b64("workspacelistentryicon-pencilandpaper-symbolic", t["icon_suffix"], variant=self._variant)
 
         elems = [
             f'<svg xmlns="http://www.w3.org/2000/svg" '
@@ -1178,13 +1218,31 @@ class _PipelineDiagram:
                 f'marker-end="url(#ar)"/>'
             )
 
+        from PyQt6.QtCore import QRectF as _QRectF_ep
+
         x = 10
-        elems.append(endpoint(x + ep_r, in_b64))
-        seg_start = x + ep_r * 2
-        elems.append(arrow(seg_start + 4, seg_start + gap - 4))
-        x = seg_start + gap
-        # ASR endpoint
+        if orange_variant:
+            # Draw L-shaped arrow: comes from top-left (suggesting the
+            # audio source above in the blue row), goes down to cy,
+            # then right toward the first element.
+            cx_mic = x + ep_r
+            elems.append(
+                f'<path d="M {cx_mic} {y - 6} '
+                f'L {cx_mic} {cy} '
+                f'L {cx_mic + ep_r + 4} {cy}" '
+                f'fill="none" stroke="{t["accent"]}" stroke-width="2.2" '
+                f'marker-end="url(#ar)"/>')
+        else:
+            # Mic endpoint (clickable → Microphone sub-menu)
+            elems.append(endpoint(x + ep_r, in_b64))
+            hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), "nav:microphone"))
+            seg_start = x + ep_r * 2
+            elems.append(arrow(seg_start + 4, seg_start + gap - 4))
+        x += ep_r * 2 + gap
+        # ASR endpoint (blue) or Translate icon (orange)
         elems.append(endpoint(x + ep_r, asr_b64))
+        nav_key = "nav:translation" if orange_variant else "nav:asr"
+        hit_boxes.append((_QRectF_ep(x, cy - ep_r, ep_r * 2, ep_r * 2), nav_key))
         seg_start = x + ep_r * 2
         elems.append(arrow(seg_start + 4, seg_start + gap - 4))
         x = seg_start + gap
@@ -1215,14 +1273,25 @@ class _PipelineDiagram:
                 elems.append(arrow(x + bw + 4, x + bw + gap - 4))
             x += bw + gap
 
-        elems.append(arrow(x - gap + 4, x - 4))
-        elems.append(endpoint(x + ep_r, out_b64))
+        if orange_variant:
+            # L-shaped arrow: right then up, suggesting output flows
+            # back up to the pencil (typing) in the blue row above.
+            cx_end = x + ep_r
+            elems.append(
+                f'<path d="M {x - gap + 4} {cy} '
+                f'L {cx_end} {cy} '
+                f'L {cx_end} {y - 6}" '
+                f'fill="none" stroke="{t["accent"]}" stroke-width="2.2" '
+                f'marker-end="url(#ar)"/>')
+        else:
+            elems.append(arrow(x - gap + 4, x - 4))
+            elems.append(endpoint(x + ep_r, out_b64))
         elems.append("</svg>")
 
         self.widget.load(QByteArray("\n".join(elems).encode("utf-8")))
         self.widget.setFixedSize(int(total_w), int(total_h))
         self.widget.hit_boxes = hit_boxes
-        self.widget.tooltips = dict(self.TOOLTIPS)
+        self.widget.tooltips = self._build_tooltips()
 
 
 # === Backends ASR alternatifs (venvs) ===
@@ -2746,13 +2815,46 @@ class DicteeSetupDialog(QDialog):
 
         self.conf = load_config()
 
+        # --- Post-processing state model (MVC: SVG pipeline reads/writes this) ---
+        # Single source of truth for per-step activation. Both the blue
+        # (normal) and orange (translation) pipeline diagrams render from
+        # this same dict — they mirror each other.
+        _conf = self.conf
+        def _cb(key, default="true"):
+            return (_conf.get(key, default) or default).lower() == "true"
+        self._pp_state = {
+            "rules":          _cb("DICTEE_PP_RULES"),
+            "continuation":   _cb("DICTEE_PP_CONTINUATION"),
+            "language_rules": _cb("DICTEE_PP_LANGUAGE_RULES"),
+            "numbers":        _cb("DICTEE_PP_NUMBERS"),
+            "dict":           _cb("DICTEE_PP_DICT"),
+            "capitalization": _cb("DICTEE_PP_CAPITALIZATION"),
+            "short_text":     _cb("DICTEE_PP_SHORT_TEXT"),
+            "llm":            _cb("DICTEE_LLM_POSTPROCESS", "false"),
+        }
+        # Independent state for the translation pipeline. Default: same
+        # as normal (user can then diverge). LLM is always false in trans.
+        self._trpp_state = {
+            "rules":          _cb("DICTEE_TRPP_RULES",          "true"),
+            "continuation":   _cb("DICTEE_TRPP_CONTINUATION",   "true"),
+            "language_rules": _cb("DICTEE_TRPP_LANGUAGE_RULES", "true"),
+            "numbers":        _cb("DICTEE_TRPP_NUMBERS",        "true"),
+            "dict":           _cb("DICTEE_TRPP_DICT",           "true"),
+            "capitalization": _cb("DICTEE_TRPP_CAPITALIZATION", "true"),
+            "short_text":     _cb("DICTEE_TRPP_SHORT_TEXT",     "true"),
+            "llm":            False,  # Never, runtime-enforced
+        }
+        # Two independent masters: normal PP and translation PP.
+        self._pp_master_normal    = _cb("DICTEE_POSTPROCESS", "true")
+        self._pp_master_translate = _cb("DICTEE_PP_TRANSLATE", "true")
+
         # Prevent accidental scroll on interactive widgets (must be before UI build)
         self._scroll_guard = ScrollGuardFilter(self)
 
         if self.wizard_mode:
             self._build_wizard_ui()
         else:
-            self._build_classic_ui()
+            self._build_sidebar_ui()
 
         # Prevent accidental scroll on interactive widgets
         self._scroll_guard = ScrollGuardFilter(self)
@@ -3055,6 +3157,620 @@ class DicteeSetupDialog(QDialog):
         self.reject()
         exe = os.path.abspath(sys.argv[0])
         os.execv(sys.executable, [sys.executable, exe, "--wizard"])
+
+    # ── Sidebar mode (settings with left-pane navigation) ─────────
+
+    def _build_sidebar_ui(self):
+        """New settings UI: persistent SVG pipeline header on top,
+        left QTreeWidget navigation, right QStackedWidget content,
+        bottom action bar. Replaces the scrollable classic UI on
+        subsequent openings (first launch still uses the wizard)."""
+        from PyQt6.QtWidgets import QSplitter, QTreeWidget, QTreeWidgetItem
+
+        conf = self.conf
+        self.setWindowTitle(_("Voice dictation configuration"))
+        self.resize(1270, 1050)
+        self.setMinimumSize(1070, 700)
+        self.setMaximumSize(2400, 2100)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # --- Build all section pages first so attributes like chk_pp_*
+        # and self._pp_diagram exist before we wire things up. ---
+        self._sidebar_stack = QStackedWidget()
+
+        # Section 0 : Welcome
+        page_welcome = self._build_section_welcome()
+        self._sidebar_stack.addWidget(page_welcome)
+
+        # Section 1 : Backend ASR
+        page_backend = QWidget()
+        _lay = QVBoxLayout(page_backend)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        self._build_section_backend(_lay, conf)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_backend)
+
+        # Section 2 : Translation
+        page_trans = QWidget()
+        _lay = QVBoxLayout(page_trans)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        self._grp_translate = grp = QGroupBox()
+        _glay = QVBoxLayout(grp)
+        self._build_translation_section(_glay, conf)
+        _lay.addWidget(grp)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_trans)
+        self._update_canary_translation_visibility()
+
+        # Section 3 : Shortcuts (after Translation per user request)
+        page_shortcuts = QWidget()
+        _lay = QVBoxLayout(page_shortcuts)
+        _lay.setContentsMargins(20, 16, 20, 16)
+        _lay.setSpacing(10)
+        grp = QGroupBox(_("Keyboard shortcut"))
+        _glay = QVBoxLayout(grp)
+        self._build_shortcut_section(_glay)
+        _lay.addWidget(grp)
+        _lay.addStretch(1)
+        self._sidebar_stack.addWidget(page_shortcuts)
+
+        # Sections 4a/4b/4c/4d : Audio & display split into sub-pages
+        def _mk_page(build_fn):
+            p = QWidget()
+            ll = QVBoxLayout(p)
+            ll.setContentsMargins(20, 16, 20, 16)
+            ll.setSpacing(10)
+            build_fn(ll, conf)
+            ll.addStretch(1)
+            return p
+
+        page_mic = _mk_page(self._build_subpage_microphone)
+        self._sidebar_stack.addWidget(page_mic)
+        page_visual = _mk_page(self._build_subpage_visual)
+        self._sidebar_stack.addWidget(page_visual)
+        page_extra = _mk_page(self._build_subpage_extra_options)
+        self._sidebar_stack.addWidget(page_extra)
+        page_notif = _mk_page(self._build_subpage_notifications)
+        self._sidebar_stack.addWidget(page_notif)
+
+        # Section About (index will be determined after PP page below)
+        # Section 9 : Post-processing — pipeline header is external,
+        # so build it FIRST (creates self._pp_diagram), then the section
+        # is wired to it.
+        self._pipeline_header_external = True
+        pipeline_header = self._build_pipeline_header_widget()
+
+        page_pp = QWidget()
+        _lay = QVBoxLayout(page_pp)
+        _lay.setContentsMargins(20, 8, 20, 16)
+        _lay.setSpacing(6)
+        # _pp_parent property returns 'self' by default; post-processing
+        # will mount into _lay.
+        self._build_postprocess_section(_lay, conf)
+        self._sidebar_stack.addWidget(page_pp)
+
+        # Section 9 : About (last)
+        page_about = self._build_section_about()
+        self._sidebar_stack.addWidget(page_about)
+
+        # --- Top: pipeline header (persistent across all sections) ---
+        outer.addWidget(pipeline_header)
+
+        # --- Middle: splitter (tree | stack) ---
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        tree = QTreeWidget()
+        tree.setHeaderHidden(True)
+        tree.setIndentation(14)
+        tree.setRootIsDecorated(True)
+        tree.setMinimumWidth(180)
+
+        def _add(parent, label, stack_idx, pp_tab=None):
+            item = QTreeWidgetItem(parent, [label])
+            item.setData(0, Qt.ItemDataRole.UserRole, stack_idx)
+            if pp_tab is not None:
+                item.setData(0, Qt.ItemDataRole.UserRole + 1, pp_tab)
+            return item
+
+        _add(tree, _("Welcome"), 0)
+        _add(tree, _("Microphone"), 4)
+        _add(tree, _("ASR backend"), 1)
+        _add(tree, _("Translation"), 2)
+        _add(tree, _("Keyboard shortcut"), 3)
+        _add(tree, _("Visual feedback"), 5)
+        _add(tree, _("Extra options"), 6)
+        _add(tree, _("Notifications"), 7)
+        pp_root = _add(tree, _("Post-processing"), 8)
+        # Sub-items point to the same stack page but force a tab switch
+        _add(pp_root, _("Regex rules"), 8, 0)
+        _add(pp_root, _("Continuation"), 8, 1)
+        _add(pp_root, _("Language rules"), 8, 2)
+        _add(pp_root, _("Dictionary"), 8, 3)
+        _add(pp_root, _("LLM"), 8, 4)
+        pp_root.setExpanded(True)
+        _add(tree, _("About"), 9)
+
+        def _on_item_changed(current, previous):
+            if current is None:
+                return
+            idx = current.data(0, Qt.ItemDataRole.UserRole)
+            if idx is not None:
+                self._sidebar_stack.setCurrentIndex(int(idx))
+            pp_tab = current.data(0, Qt.ItemDataRole.UserRole + 1)
+            # Post-processing page: show the tabs + title only when a
+            # specific sub-section is selected. When the PP root is
+            # selected, hide them (overview mode → only master checkbox
+            # + pipeline header remain visible).
+            on_pp_page = (idx is not None and int(idx) == 8)
+            has_sub = pp_tab is not None
+            if on_pp_page and hasattr(self, "_pp_tabs"):
+                show_sub = has_sub
+                if hasattr(self, "_pp_title_row_w"):
+                    self._pp_title_row_w.setVisible(show_sub)
+                if hasattr(self, "_pp_sep"):
+                    self._pp_sep.setVisible(show_sub)
+                self._pp_tabs.setVisible(show_sub)
+                # Overview spacer: visible only in overview; in sub mode
+                # the tabs must take all the vertical space above Test.
+                if hasattr(self, "_pp_overview_spacer"):
+                    self._pp_overview_spacer.setVisible(not show_sub)
+                # Master checkboxes row: visible ONLY in overview mode.
+                if hasattr(self, "_pp_masters_row"):
+                    self._pp_masters_row.setVisible(not show_sub)
+                if show_sub:
+                    self._pp_tabs.setCurrentIndex(int(pp_tab))
+
+        tree.currentItemChanged.connect(_on_item_changed)
+        tree.setCurrentItem(tree.topLevelItem(0))
+        self._sidebar_tree = tree
+        # Now that the tree exists, apply the initial master-state-based
+        # greyout to its PP sub-items.
+        if hasattr(self, "_apply_any_master_active"):
+            self._apply_any_master_active()
+
+        splitter.addWidget(tree)
+        splitter.addWidget(self._sidebar_stack)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([220, 980])
+        outer.addWidget(splitter, 1)
+
+        # --- Bottom action bar ---
+        lay_buttons = QHBoxLayout()
+        lay_buttons.setContentsMargins(20, 8, 20, 16)
+
+        btn_wizard = QPushButton(_("Setup wizard"))
+        btn_wizard.clicked.connect(self._on_launch_wizard)
+        lay_buttons.addWidget(btn_wizard)
+
+        lay_buttons.addStretch()
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        lay_buttons.addWidget(btn_cancel)
+        lay_buttons.addSpacing(8)
+        btn_apply = QPushButton(_("Apply"))
+        btn_apply.clicked.connect(self._on_apply_clicked)
+        lay_buttons.addWidget(btn_apply)
+        lay_buttons.addSpacing(8)
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._on_ok)
+        lay_buttons.addWidget(btn_ok)
+
+        outer.addLayout(lay_buttons)
+
+        # Dirty tracking on any config widget change
+        for w in self.findChildren(QComboBox):
+            w.currentIndexChanged.connect(self._mark_dirty)
+        for w in self.findChildren(QCheckBox):
+            w.toggled.connect(self._mark_dirty)
+
+    @staticmethod
+    def _detect_install_type():
+        """Return a dict describing how dictee is installed:
+        {kind: deb|rpm|pacman|source|unknown, label: str, asset_hint: str}.
+        asset_hint is used to pick the right GitHub release asset extension."""
+        import shutil
+        # dpkg (Debian/Ubuntu/Tuxedo OS)
+        if shutil.which("dpkg-query"):
+            try:
+                r = subprocess.run(
+                    ["dpkg-query", "-W", "-f", "${Package} ${Version}\n",
+                     "dictee-cuda", "dictee-cpu", "dictee"],
+                    capture_output=True, text=True, timeout=5)
+                for line in (r.stdout or "").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1]:
+                        return {"kind": "deb", "label": f"{parts[0]} {parts[1]}",
+                                "asset_hint": ".deb"}
+            except Exception:
+                pass
+        # rpm (Fedora/RHEL/openSUSE)
+        if shutil.which("rpm"):
+            try:
+                r = subprocess.run(
+                    ["rpm", "-q", "--qf", "%{NAME} %{VERSION}-%{RELEASE}\n",
+                     "dictee-cuda", "dictee-cpu", "dictee"],
+                    capture_output=True, text=True, timeout=5)
+                for line in (r.stdout or "").splitlines():
+                    if "not installed" in line or not line.strip():
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return {"kind": "rpm", "label": f"{parts[0]} {parts[1]}",
+                                "asset_hint": ".rpm"}
+            except Exception:
+                pass
+        # pacman (Arch)
+        if shutil.which("pacman"):
+            try:
+                r = subprocess.run(["pacman", "-Q", "dictee"],
+                                   capture_output=True, text=True, timeout=5)
+                if r.returncode == 0 and r.stdout.strip():
+                    return {"kind": "pacman", "label": r.stdout.strip(),
+                            "asset_hint": ".pkg.tar.zst"}
+            except Exception:
+                pass
+        # Source install detected via presence of Cargo.toml alongside
+        _script_dir = os.path.dirname(os.path.abspath(__file__))
+        if os.path.isfile(os.path.join(_script_dir, "Cargo.toml")):
+            return {"kind": "source", "label": _("Source tree / git checkout"),
+                    "asset_hint": ".tar.gz"}
+        return {"kind": "unknown", "label": _("Unknown install type"),
+                "asset_hint": ""}
+
+    @staticmethod
+    def _parse_version(v):
+        """Return a comparable tuple of ints from a version string, ignoring
+        a leading 'v' and trailing build/release suffixes."""
+        import re
+        s = v.strip().lstrip("vV")
+        parts = re.split(r"[^\d]+", s)
+        nums = []
+        for p in parts:
+            if not p:
+                continue
+            try:
+                nums.append(int(p))
+            except ValueError:
+                break
+        return tuple(nums) if nums else (0,)
+
+    def _check_for_updates(self, lbl_status, install_info):
+        """Query GitHub releases and update the status label.
+        Uses /releases (list) rather than /releases/latest because GitHub's
+        "latest" marker can point to a prerelease or be out of sync."""
+        import urllib.request
+        import json
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/rcspam/dictee/releases?per_page=30",
+                headers={"User-Agent": "dictee-setup"})
+            with urllib.request.urlopen(req, timeout=6) as r:
+                all_releases = json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            lbl_status.setText(
+                "<span style='color:#c0392b;'>" +
+                _("Update check failed: {err}").format(err=str(e)[:80]) +
+                "</span>")
+            return
+
+        # Keep only stable, non-draft releases whose tag parses as a
+        # proper version (no "-beta", "-rc", etc.).
+        import re
+        stable = []
+        for r in all_releases:
+            if r.get("draft") or r.get("prerelease"):
+                continue
+            tag = (r.get("tag_name") or "").strip()
+            if not tag or not re.fullmatch(r"v?\d+(\.\d+)*", tag):
+                continue
+            stable.append(r)
+
+        if not stable:
+            lbl_status.setText(
+                "<span style='color:#c0392b;'>" +
+                _("No stable release found on GitHub.") +
+                "</span>")
+            return
+
+        # Pick the one with highest parsed version tuple
+        stable.sort(key=lambda r: self._parse_version(r.get("tag_name", "")),
+                    reverse=True)
+        data = stable[0]
+        latest = (data.get("tag_name") or "").strip() or "?"
+        html_url = data.get("html_url") or "https://github.com/rcspam/dictee/releases"
+
+        # Current version
+        _ver = "dev"
+        for _vpath in ("/usr/share/dictee/VERSION",
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
+            if os.path.isfile(_vpath):
+                try:
+                    with open(_vpath) as _f:
+                        _ver = _f.read().strip()
+                except OSError:
+                    pass
+                break
+
+        cur_t = self._parse_version(_ver)
+        new_t = self._parse_version(latest)
+        accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+
+        # Find matching asset for the install type
+        hint = install_info.get("asset_hint", "")
+        asset_line = ""
+        if hint:
+            for asset in data.get("assets", []):
+                name = asset.get("name", "")
+                url = asset.get("browser_download_url", "")
+                if name.endswith(hint):
+                    asset_line = (f"<br>{_('Asset for your install')}: "
+                                  f"<a href='{url}' style='color:{accent_hex};'>{name}</a>")
+                    break
+
+        if new_t > cur_t:
+            lbl_status.setText(
+                f"<span style='color:#27ae60;'><b>"
+                + _("Update available: {latest} (installed: {cur})").format(
+                    latest=latest, cur=_ver) +
+                f"</b></span><br>"
+                f"<a href='{html_url}' style='color:{accent_hex};'>"
+                + _("Open release page") + "</a>"
+                + asset_line)
+        elif new_t == cur_t:
+            lbl_status.setText(
+                "<span style='color:#27ae60;'>" +
+                _("You are up to date ({ver}).").format(ver=_ver) +
+                "</span>")
+        else:
+            lbl_status.setText(
+                _("Latest GitHub release: {latest} — installed: {cur}").format(
+                    latest=latest, cur=_ver))
+
+    def _build_section_about(self):
+        """About page: logo, version, author, links."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(40, 30, 40, 30)
+        lay.setSpacing(14)
+
+        logo = QLabel()
+        logo.setPixmap(self._logo_pixmap(260))
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(logo)
+
+        # Version lookup (same logic as welcome wizard page)
+        _ver = "dev"
+        for _vpath in ("/usr/share/dictee/VERSION",
+                       os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")):
+            if os.path.isfile(_vpath):
+                try:
+                    with open(_vpath) as _f:
+                        _ver = _f.read().strip()
+                except OSError:
+                    pass
+                break
+
+        lbl_ver = QLabel(f"<b>v{_ver}</b>")
+        lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_ver.setStyleSheet("font-size: 16px;")
+        lay.addWidget(lbl_ver)
+
+        accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        info = QLabel(
+            f"<div style='text-align:center; line-height:1.5;'>"
+            f"<h2 style='margin:0; color:{accent_hex};'>dictee</h2>"
+            f"<p><i>{_('Voice dictation for Linux — ASR, translation, KDE Plasma &amp; systray integration.')}</i></p>"
+            f"<p>{_('Author')}: <b>rcspam</b><br>"
+            f"{_('License')}: GPL-3.0<br>"
+            f"{_('Language')}: Python, Rust &amp; Bash</p>"
+            f"<p><a href='https://github.com/rcspam/dictee' style='color:{accent_hex};'>"
+            f"github.com/rcspam/dictee</a></p>"
+            f"<p style='font-size:11px; opacity:0.8; text-align:left;'>"
+            f"<b>{_('Built on')}:</b><br>"
+            f"• Parakeet-TDT 0.6B v3 — CC-BY-4.0 (NVIDIA NeMo)<br>"
+            f"• Canary 1B v2 — CC-BY-4.0 (NVIDIA NeMo)<br>"
+            f"• Vosk — Apache-2.0<br>"
+            f"• faster-whisper — MIT<br>"
+            f"• ONNX Runtime — MIT<br>"
+            f"• PyQt6 — GPL-3.0 (or commercial)<br>"
+            f"• Qt 6 — LGPL-3.0 / GPL-3.0<br>"
+            f"• KDE Plasma 6 / Frameworks — LGPL-2.1+<br>"
+            f"• ort (Rust bindings) — Apache-2.0 / MIT<br>"
+            f"• hound, ndarray, rustfft, tokenizers — Apache-2.0 / MIT<br>"
+            f"• Ollama (optional LLM post-process) — MIT<br>"
+            f"• LibreTranslate (optional) — AGPL-3.0"
+            f"</p>"
+            f"</div>"
+        )
+        info.setOpenExternalLinks(True)
+        info.setWordWrap(True)
+        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(info)
+
+        # --- Update check ---
+        install_info = self._detect_install_type()
+        lbl_install = QLabel(
+            f"<span style='opacity:0.8;'>"
+            + _("Installation: {label}").format(label=install_info["label"]) +
+            "</span>")
+        lbl_install.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_install.setStyleSheet("font-size: 12px;")
+        lay.addWidget(lbl_install)
+
+        lbl_upd_status = QLabel(_("Click \"Check for updates\" to query GitHub."))
+        lbl_upd_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_upd_status.setWordWrap(True)
+        lbl_upd_status.setOpenExternalLinks(True)
+        lbl_upd_status.setStyleSheet("font-size: 12px;")
+        lay.addWidget(lbl_upd_status)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_check = QPushButton(_("Check for updates"))
+        btn_check.clicked.connect(
+            lambda: self._check_for_updates(lbl_upd_status, install_info))
+        btn_row.addWidget(btn_check)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        lay.addStretch(1)
+        return page
+
+    def _build_section_welcome(self):
+        """Welcome page for the sidebar mode: logo + one-line blurb."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(40, 40, 40, 40)
+        lay.setSpacing(20)
+
+        logo = QLabel()
+        logo.setPixmap(self._logo_pixmap(320))
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(logo)
+
+        blurb = QLabel(_(
+            "<h3>Welcome to the dictee settings.</h3>"
+            "<p>Pick a section in the left pane to configure the ASR "
+            "backend, keyboard shortcut, translation, audio/display "
+            "preferences or the post-processing pipeline.</p>"
+            "<p>The SVG pipeline diagram above is clickable at any time "
+            "to toggle individual post-processing steps.</p>"))
+        blurb.setWordWrap(True)
+        blurb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(blurb)
+        lay.addStretch(1)
+        return page
+
+    def _build_section_backend(self, lay, conf):
+        """Backend ASR section: combo + per-backend options. Mirrors the
+        ASR block of the classic UI."""
+        grp = QGroupBox(_("ASR backend"))
+        glay = QVBoxLayout(grp)
+        glay.setSpacing(8)
+        glay.setContentsMargins(16, 16, 16, 12)
+
+        current_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        self.cmb_asr_backend = QComboBox()
+        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
+        self.cmb_asr_backend.addItem("Vosk", "vosk")
+        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        gpu_total, _free = get_gpu_vram_gb()
+        if gpu_total > 0:
+            self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
+        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
+        glay.addWidget(self.cmb_asr_backend)
+
+        gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
+        if gpu_detected and not cudnn_ok:
+            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
+            warn_lbl.setWordWrap(True)
+            warn_lbl.setStyleSheet(
+                "background: #442200; border: 1px solid #885500;"
+                " border-radius: 6px; padding: 8px;")
+            warn_lbl.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            glay.addWidget(warn_lbl)
+
+        self._build_parakeet_options(glay)
+        self._build_vosk_options(glay)
+        self._build_whisper_options(glay)
+        self._build_canary_options(glay)
+
+        def _on_asr_changed():
+            backend = self.cmb_asr_backend.currentData()
+            self.w_parakeet_options.setVisible(backend == "parakeet")
+            self.w_vosk_options.setVisible(backend == "vosk")
+            self.w_whisper_options.setVisible(backend == "whisper")
+            self.w_canary_options.setVisible(backend == "canary")
+            self._update_canary_translation_visibility()
+            if hasattr(self, 'combo_src'):
+                self._update_src_languages()
+        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
+        _on_asr_changed()
+
+        lay.addWidget(grp)
+
+    def _build_subpage_microphone(self, lay, conf):
+        grp_mic = QGroupBox(_("Microphone"))
+        lay_mic = QVBoxLayout(grp_mic)
+        lay_mic.setSpacing(6)
+        lay_mic.setContentsMargins(16, 16, 16, 12)
+        self._build_mic_section(lay_mic, conf)
+        lay.addWidget(grp_mic)
+
+    def _build_subpage_visual(self, lay, conf):
+        grp_visual = QGroupBox(_("Visual feedback"))
+        lay_vis = QVBoxLayout(grp_visual)
+        lay_vis.setSpacing(6)
+        lay_vis.setContentsMargins(16, 16, 16, 12)
+        self._build_visual_section(lay_vis, conf)
+        lay.addWidget(grp_visual)
+
+    def _build_subpage_extra_options(self, lay, conf):
+        grp_options = QGroupBox(_("Extra options"))
+        lay_opt = QVBoxLayout(grp_options)
+        lay_opt.setSpacing(6)
+        lay_opt.setContentsMargins(16, 16, 16, 12)
+        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        lay_opt.addWidget(self.chk_clipboard)
+
+        self.chk_audio_context = QCheckBox(_("Audio context buffer"))
+        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
+        self.chk_audio_context.setToolTip(
+            _("Accumulate audio from previous dictations to improve recognition\n"
+              "of short or technical words at the start of sentences."))
+        lay_opt.addWidget(self.chk_audio_context)
+
+        lay_ctx = QHBoxLayout()
+        lay_ctx.setSpacing(8)
+        lbl_ctx = QLabel(_("Context duration (seconds):"))
+        lbl_ctx.setToolTip(
+            _("Maximum duration of accumulated audio context.\n"
+              "Also the inactivity timeout: the buffer expires\n"
+              "after this many seconds without a non-empty dictation."))
+        self.spin_audio_context_timeout = QSpinBox()
+        self.spin_audio_context_timeout.setRange(5, 120)
+        self.spin_audio_context_timeout.setValue(
+            int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
+        self.spin_audio_context_timeout.setSuffix(" s")
+        lay_ctx.addWidget(lbl_ctx)
+        lay_ctx.addWidget(self.spin_audio_context_timeout)
+        lay_ctx.addStretch()
+        lay_opt.addLayout(lay_ctx)
+
+        self.chk_debug = QCheckBox(_("Debug mode (log to /tmp)"))
+        self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
+        self.chk_debug.setToolTip(
+            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
+              "for troubleshooting dictation and continuation issues."))
+        lay_opt.addWidget(self.chk_debug)
+        lay.addWidget(grp_options)
+
+    def _build_subpage_notifications(self, lay, conf):
+        grp_notif = QGroupBox(_("Notifications"))
+        lay_notif = QVBoxLayout(grp_notif)
+        lay_notif.setSpacing(6)
+        lay_notif.setContentsMargins(16, 16, 16, 12)
+        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
+        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
+        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
+        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
+        lay_notif.addWidget(self.chk_notifications)
+        lay_notif.addWidget(self.chk_notifications_text)
+        lay.addWidget(grp_notif)
 
     # ── Wizard mode ───────────────────────────────────────────────
 
@@ -5143,6 +5859,19 @@ class DicteeSetupDialog(QDialog):
         """Build translation backend selection, languages, sub-options."""
         # Title and help are on the cards page (page 4), not here
 
+        # Canary translation notice (shown when ASR=canary)
+        self._canary_translation_notice = QLabel(_(
+            "Translation is built into the Canary engine — no external service needed.\n"
+            "Supported: 25 languages ↔ English (48 pairs).\n"
+            "For other pairs (e.g. FR→DE), switch to a different ASR backend."
+        ))
+        self._canary_translation_notice.setWordWrap(True)
+        self._canary_translation_notice.setStyleSheet(
+            "background: #1a3a1a; border: 1px solid #2a5a2a;"
+            " border-radius: 6px; padding: 8px;")
+        self._canary_translation_notice.setVisible(False)
+        lay_tr.addWidget(self._canary_translation_notice)
+
         # Languages
         form_lang = QFormLayout()
         form_lang.setHorizontalSpacing(12)
@@ -5418,12 +6147,200 @@ class DicteeSetupDialog(QDialog):
         _update_style(checkbox.isChecked())
         return container
 
+    def _build_pipeline_header_widget(self):
+        """Build the SVG pipeline diagram header.
+
+        Contains:
+          - Hint label
+          - Blue pipeline diagram (Normal mode)
+          - Orange pipeline diagram (Translation mode, LLM always off)
+
+        Both diagrams render from the same `self._pp_state` dict (mirror).
+        Each is wrapped in a row with a small label on the left.
+        Idempotent: reuses existing diagram instances if already built."""
+        from PyQt6.QtWidgets import QScrollArea as _QSA
+        from PyQt6.QtGui import QPalette, QColor
+
+        container = QWidget()
+        c_lay = QVBoxLayout(container)
+        c_lay.setContentsMargins(0, 0, 0, 0)
+        c_lay.setSpacing(4)
+
+        accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        hint = QLabel(_(
+            "Cliquer sur les boutons de la chaîne de traitement "
+            "ci-dessous pour activer/désactiver les post-traitements"))
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color: {accent_hex}; font-size: 12px; font-weight: bold;")
+        c_lay.addWidget(hint)
+
+        def _make_row(diagram):
+            sc = _QSA()
+            sc.setWidgetResizable(False)
+            sc.setWidget(diagram.widget)
+            sc.setFrameShape(QFrame.Shape.NoFrame)
+            sc.setFixedHeight(70)
+            sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            sc.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            return sc
+
+        # Blue (Normal) diagram — reuses the default palette (KDE Highlight)
+        if not hasattr(self, "_pp_diagram") or self._pp_diagram is None:
+            self._pp_diagram = _PipelineDiagram(self.palette())
+        c_lay.addWidget(_make_row(self._pp_diagram))
+
+        # Orange (Translation) diagram — palette override with orange Highlight,
+        # LLM always forced off (translation never runs LLM).
+        if not hasattr(self, "_trpp_diagram") or self._trpp_diagram is None:
+            _orange_pal = QPalette(self.palette())
+            _orange_pal.setColor(QPalette.ColorRole.Highlight, QColor("#e67e22"))
+            _orange_pal.setColor(QPalette.ColorRole.HighlightedText, QColor("white"))
+            self._trpp_diagram = _PipelineDiagram(
+                _orange_pal, variant="orange", llm_force_off=True)
+        c_lay.addWidget(_make_row(self._trpp_diagram))
+
+        return container
+
     def _build_postprocess_section(self, lay, conf):
-        """Build post-processing section: pipeline toggles, venv, config files, LLM."""
-        # Enable checkbox
-        self.chk_postprocess = QCheckBox(_("Enable post-processing"))
-        self.chk_postprocess.setChecked(conf.get("DICTEE_POSTPROCESS", "true") == "true")
-        lay.addWidget(self.chk_postprocess)
+        """Build post-processing section.
+
+        Layout in sidebar overview mode (hidden when navigating into a sub-menu):
+
+            [ ] Enable PP                             (blue, bold, 18px)
+                [ ] Short text fix  < [3▼] words     (indented)
+            [ ] Enable PP for translation             (orange, bold, 18px)
+                [ ] Short text fix                    (indented)
+
+        Short text is shown here because it's the ONLY pipeline step without
+        its own sub-menu. All other steps are reachable exclusively via the
+        SVG pipeline diagrams above. Their QCheckBox state holders are kept
+        hidden in `_hidden_holder` for serialization compatibility.
+        """
+        _acc_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        _orange = "#e67e22"
+        _sidebar = getattr(self, "_pipeline_header_external", False)
+
+        # Container for the entire masters block (hidden in sub-menu mode)
+        self._pp_masters_row = QWidget()
+        _mlay = QVBoxLayout(self._pp_masters_row)
+        _mlay.setContentsMargins(0, 0, 0, 0)
+        _mlay.setSpacing(4)
+
+        # Only colorize the LABEL. Leave the indicator to the system theme
+        # (Breeze / default) — overriding width/height produces unthemed
+        # squares and bleeds color into the checkmark.
+        _master_style = (
+            "QCheckBox {{ color: {col}; font-size: 18px; "
+            "font-weight: bold; padding: 2px 0; }}")
+        _sub_style = (
+            "QCheckBox {{ color: {col}; font-size: 14px; "
+            "padding: 1px 0; }}")
+
+        # ── Master 1: Enable PP (normal) ──
+        self.chk_postprocess = QCheckBox(_("Enable PP"))
+        self.chk_postprocess.setChecked(self._pp_master_normal)
+        if _sidebar:
+            self.chk_postprocess.setStyleSheet(_master_style.format(col=_acc_hex))
+        _mlay.addWidget(self.chk_postprocess)
+
+        # Normal sub-row: Short text fix  < [N▼] words  (indented)
+        _normal_sub = QWidget()
+        _nrow = QHBoxLayout(_normal_sub)
+        _nrow.setContentsMargins(28, 0, 0, 0)
+        _nrow.setSpacing(6)
+        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_pp_short_text.setChecked(
+            (conf.get("DICTEE_PP_SHORT_TEXT", "true") or "true").lower() == "true")
+        self.chk_pp_short_text.setToolTip(_(
+            "For transcriptions with fewer than N words, remove trailing "
+            "punctuation and lowercase capitalized words."))
+        if _sidebar:
+            self.chk_pp_short_text.setStyleSheet(_sub_style.format(col=_acc_hex))
+        _nrow.addWidget(self.chk_pp_short_text)
+        _nrow.addWidget(QLabel(_("<")))
+        self.cmb_pp_short_text_max = QComboBox()
+        for n in (2, 3, 4, 5, 6):
+            self.cmb_pp_short_text_max.addItem(str(n), n)
+        try:
+            _saved_max = int(conf.get("DICTEE_PP_SHORT_TEXT_MAX", "3"))
+        except ValueError:
+            _saved_max = 3
+        _idx = self.cmb_pp_short_text_max.findData(_saved_max)
+        if _idx >= 0:
+            self.cmb_pp_short_text_max.setCurrentIndex(_idx)
+        self.cmb_pp_short_text_max.setToolTip(
+            _("Maximum word count for a transcription to be considered "
+              "\"short\" and receive the short-text treatment."))
+        self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
+        self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
+        _nrow.addWidget(self.cmb_pp_short_text_max)
+        _nrow.addWidget(QLabel(_("words")))
+        _nrow.addStretch(1)
+        _mlay.addWidget(_normal_sub)
+
+        # ── Master 2: Enable PP for translation ──
+        self.chk_pp_translate = QCheckBox(_("Enable PP for translation"))
+        self.chk_pp_translate.setChecked(self._pp_master_translate)
+        self.chk_pp_translate.setToolTip(_(
+            "When enabled, the translated text is passed through the "
+            "translation post-processing pipeline (orange), with the "
+            "target language as reference. The LLM step is never run "
+            "on translated text."))
+        if _sidebar:
+            self.chk_pp_translate.setStyleSheet(_master_style.format(col=_orange))
+
+        def _on_master_translate_toggled(on):
+            self._pp_master_translate = bool(on)
+            self._refresh_pp_diagrams()
+        self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
+        _mlay.addWidget(self.chk_pp_translate)
+
+        # Translation sub-row: Short text fix + its own threshold combo.
+        _trans_sub = QWidget()
+        _trow = QHBoxLayout(_trans_sub)
+        _trow.setContentsMargins(28, 0, 0, 0)
+        _trow.setSpacing(6)
+        self.chk_trpp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_trpp_short_text.setChecked(
+            bool(self._trpp_state.get("short_text", True)))
+        self.chk_trpp_short_text.setToolTip(_(
+            "Apply the short-text fix to translated text. Useful when the "
+            "translation backend capitalizes single-word inputs: e.g. "
+            "'maison' → 'House' → 'house'."))
+        if _sidebar:
+            self.chk_trpp_short_text.setStyleSheet(_sub_style.format(col=_orange))
+
+        def _on_trpp_short_toggled(on):
+            self._trpp_state["short_text"] = bool(on)
+            self._refresh_pp_diagrams()
+        self.chk_trpp_short_text.toggled.connect(_on_trpp_short_toggled)
+        _trow.addWidget(self.chk_trpp_short_text)
+        _trow.addWidget(QLabel(_("<")))
+        self.cmb_trpp_short_text_max = QComboBox()
+        for n in (2, 3, 4, 5, 6):
+            self.cmb_trpp_short_text_max.addItem(str(n), n)
+        try:
+            _trpp_saved_max = int(conf.get("DICTEE_TRPP_SHORT_TEXT_MAX", "3"))
+        except ValueError:
+            _trpp_saved_max = 3
+        _tidx = self.cmb_trpp_short_text_max.findData(_trpp_saved_max)
+        if _tidx >= 0:
+            self.cmb_trpp_short_text_max.setCurrentIndex(_tidx)
+        self.cmb_trpp_short_text_max.setToolTip(
+            _("Maximum word count for a translated transcription to be "
+              "considered \"short\" and receive the short-text treatment."))
+        self.cmb_trpp_short_text_max.setEnabled(self.chk_trpp_short_text.isChecked())
+        self.chk_trpp_short_text.toggled.connect(
+            self.cmb_trpp_short_text_max.setEnabled)
+        _trow.addWidget(self.cmb_trpp_short_text_max)
+        _trow.addWidget(QLabel(_("words")))
+        _trow.addStretch(1)
+        _mlay.addWidget(_trans_sub)
+
+        lay.addWidget(self._pp_masters_row)
 
         # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
@@ -5432,26 +6349,10 @@ class DicteeSetupDialog(QDialog):
         pp_lay.setSpacing(6)
 
         # --- Pipeline diagram (SVG) with hint label ---
-        from PyQt6.QtWidgets import QScrollArea as _QSA
-        _accent_hex = self.palette().color(
-            self.palette().ColorRole.Highlight).name()
-        _pp_hint = QLabel(_(
-            "Cliquer sur les boutons de la chaîne de traitement "
-            "ci-dessous pour désactiver"))
-        _pp_hint.setWordWrap(True)
-        _pp_hint.setStyleSheet(
-            f"color: {_accent_hex}; font-size: 12px; font-weight: bold;")
-        pp_lay.addWidget(_pp_hint)
-
-        self._pp_diagram = _PipelineDiagram(self.palette())
-        diag_scroll = _QSA()
-        diag_scroll.setWidgetResizable(False)
-        diag_scroll.setWidget(self._pp_diagram.widget)
-        diag_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        diag_scroll.setFixedHeight(70)
-        diag_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        diag_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        pp_lay.addWidget(diag_scroll)
+        # In sidebar mode, the pipeline header is mounted at window level
+        # by _build_sidebar_ui; skip it here to avoid duplicate instances.
+        if not getattr(self, "_pipeline_header_external", False):
+            pp_lay.addWidget(self._build_pipeline_header_widget())
 
         # --- Pipeline toggles: only Short text and LLM are shown here.
         # The 6 others (Rules, Continuation, Language rules, Numbers, Dict,
@@ -5490,64 +6391,16 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_capitalization)
 
-        # Short text — checkbox + "< N words" combo (no help ? — tooltip is
-        # already on the SVG step above)
-        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
-        self.chk_pp_short_text.setChecked(
-            conf.get("DICTEE_PP_SHORT_TEXT", "true") == "true")
-        self.cmb_pp_short_text_max = QComboBox()
-        for n in (2, 3, 4, 5, 6):
-            self.cmb_pp_short_text_max.addItem(str(n), n)
-        try:
-            _saved_max = int(conf.get("DICTEE_PP_SHORT_TEXT_MAX", "3"))
-        except ValueError:
-            _saved_max = 3
-        _idx = self.cmb_pp_short_text_max.findData(_saved_max)
-        if _idx >= 0:
-            self.cmb_pp_short_text_max.setCurrentIndex(_idx)
-        self.chk_pp_short_text.setToolTip(
-            _("For transcriptions with fewer than N words,\n"
-              "remove trailing punctuation and lowercase\n"
-              "capitalized words."))
-        self.cmb_pp_short_text_max.setToolTip(
-            _("Maximum word count for a transcription to be considered\n"
-              "\"short\" and receive the short-text treatment."))
-        self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
-        self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
-        # Gray label when unchecked (same as other pp checkboxes)
-        def _short_update_style(on, cb=self.chk_pp_short_text):
-            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
-        self.chk_pp_short_text.toggled.connect(_short_update_style)
-        _short_update_style(self.chk_pp_short_text.isChecked())
-
-        # LLM checkbox (text kept visible, no help ? — tooltip on SVG)
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"))
+        # LLM state holder (hidden; editable via its sub-menu).
+        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"), _hidden_holder)
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
-        self.chk_llm.setToolTip(
-            _("Uses a local LLM (via ollama) to fix grammar,\n"
-              "spelling, accents and punctuation.\n"
-              "Configure the model and prompt in the LLM tab."))
-        def _llm_update_style(on, cb=self.chk_llm):
-            cb.setStyleSheet("" if on else "QCheckBox { color: #9a9a9a; }")
-        self.chk_llm.toggled.connect(_llm_update_style)
-        _llm_update_style(self.chk_llm.isChecked())
+        _hidden_lay.addWidget(self.chk_llm)
 
-        # Same line: [Short text] [<] [N] [words]   [LLM ...]
-        _visible_row = QHBoxLayout()
-        _visible_row.setContentsMargins(20, 0, 0, 0)
-        _visible_row.setSpacing(6)
-        _visible_row.addWidget(self.chk_pp_short_text)
-        _visible_row.addWidget(QLabel(_("<")))
-        _visible_row.addWidget(self.cmb_pp_short_text_max)
-        _visible_row.addWidget(QLabel(_("words")))
-        _visible_row.addSpacing(24)
-        _visible_row.addWidget(self.chk_llm)
-        _visible_row.addStretch(1)
-        pp_lay.addLayout(_visible_row)
         pp_lay.addLayout(grid_gen)  # kept for layout rigidity; empty in practice
         pp_lay.addWidget(_hidden_holder)  # hidden state holder
 
-        # Cosmetic separator between checkboxes grid and editing tabs
+        # Cosmetic separator between checkboxes grid and editing tabs.
+        # Hidden in sidebar overview mode (no tabs visible → no need).
         _sep = QFrame()
         _sep.setFrameShape(QFrame.Shape.HLine)
         _sep.setFrameShadow(QFrame.Shadow.Sunken)
@@ -5555,8 +6408,11 @@ class DicteeSetupDialog(QDialog):
         pp_lay.addSpacing(6)
         pp_lay.addWidget(_sep)
         pp_lay.addSpacing(6)
+        self._pp_sep = _sep
 
         # --- Editing sub-tabs ---
+        # In sidebar mode, the tab bar is hidden and a dynamic title label
+        # replaces it (the left pane drives tab selection).
         self._pp_tabs = QTabWidget()
 
         # Accent colors for tabs
@@ -5568,6 +6424,33 @@ class DicteeSetupDialog(QDialog):
                 font-weight: bold;
             }}
         """)
+
+        if getattr(self, "_pipeline_header_external", False):
+            self._pp_tabs.tabBar().hide()
+            # Header row wrapped in a QWidget so it can be hidden as a
+            # whole when the user selects the Post-processing root node
+            # (overview mode). Only holds the dynamic title — no enable
+            # checkbox: activation is done EXCLUSIVELY via the SVG.
+            self._pp_title_row_w = QWidget()
+            _title_row = QHBoxLayout(self._pp_title_row_w)
+            _title_row.setContentsMargins(0, 0, 0, 0)
+            _title_row.setSpacing(12)
+            self._pp_tab_title = QLabel()
+            self._pp_tab_title.setStyleSheet(
+                f"color: {accent_hex}; font-size: 24px; font-weight: bold; "
+                "padding: 6px 0 12px 0;")
+            _title_row.addWidget(self._pp_tab_title)
+            _title_row.addStretch(1)
+            pp_lay.addWidget(self._pp_title_row_w)
+
+            def _sync_pp_title(idx):
+                if idx < 0:
+                    return
+                self._pp_tab_title.setText(self._pp_tabs.tabText(idx))
+
+            self._pp_tabs.currentChanged.connect(_sync_pp_title)
+            # Initial sync deferred to after addTab calls below
+            self._pp_tab_title_sync = _sync_pp_title
 
         # Tab order: pipeline sequence with LLM moved to the end.
         # Rules(0) → Continuation(1) → Language rules(2) → Dictionary(3) → LLM(4)
@@ -5607,6 +6490,10 @@ class DicteeSetupDialog(QDialog):
         self._build_llm_tab(tab_llm_lay, conf)
         self._pp_tabs.addTab(tab_llm, _("LLM"))
 
+        # Initialize dynamic title now that tabs exist (sidebar mode only)
+        if hasattr(self, "_pp_tab_title_sync"):
+            self._pp_tab_title_sync(self._pp_tabs.currentIndex())
+
         # Tabs stay clickable (never Qt-disabled) but their title is grayed
         # via the disabled palette color when the corresponding step is off.
         _disabled_col = self.palette().color(
@@ -5615,27 +6502,10 @@ class DicteeSetupDialog(QDialog):
         _normal_col = self.palette().color(
             self.palette().ColorRole.WindowText)
 
-        # Map tab index → its content widget so we can gray it out when off.
-        # New order: Rules(0) → Continuation(1) → Lang(2) → Dict(3) → LLM(4)
-        _tab_widgets = {0: tab_rules, 1: tab_cont, 2: tab_lang, 3: tab_dict, 4: tab_llm}
-
-        def _set_tab_visual(idx, on):
-            tb = self._pp_tabs.tabBar()
-            tb.setTabTextColor(idx, _normal_col if on else _disabled_col)
-            w = _tab_widgets.get(idx)
-            if w is not None:
-                w.setEnabled(on)  # grays children + makes them non-editable
-
-        self.chk_pp_rules.toggled.connect(lambda on: _set_tab_visual(0, on))
-        self.chk_pp_continuation.toggled.connect(lambda on: _set_tab_visual(1, on))
-        self.chk_pp_language_rules.toggled.connect(lambda on: _set_tab_visual(2, on))
-        self.chk_pp_dict.toggled.connect(lambda on: _set_tab_visual(3, on))
-        self.chk_llm.toggled.connect(lambda on: _set_tab_visual(4, on))
-        _set_tab_visual(0, self.chk_pp_rules.isChecked())
-        _set_tab_visual(1, self.chk_pp_continuation.isChecked())
-        _set_tab_visual(2, self.chk_pp_language_rules.isChecked())
-        _set_tab_visual(3, self.chk_pp_dict.isChecked())
-        _set_tab_visual(4, self.chk_llm.isChecked())
+        # Sub-pages are always fully active: the step activation state is
+        # stored in self._pp_state / self._trpp_state and visualised via
+        # the SVG pipeline only. No greying of tab content from the step
+        # checkboxes anymore.
 
         # Edit mode button (masqué pour l'onglet Règles)
         self._btn_advanced = QPushButton(_("Edit mode"))
@@ -5696,29 +6566,143 @@ class DicteeSetupDialog(QDialog):
         pp_lay.addWidget(_test_toggle)
         pp_lay.addWidget(_test_body)
 
+        # Sidebar mode: Test accordion keeps its natural size when
+        # expanded. A dedicated spacer widget pushes Short text to the
+        # top in overview mode; it is hidden when a sub-section is
+        # visible so the tab content fills the remaining space above
+        # the Test panel.
+        if getattr(self, "_pipeline_header_external", False):
+            _test_body.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+            # Overview-only spacer: expands vertically only in overview
+            # mode. Must be inserted BEFORE the test accordion so tabs
+            # (which come earlier in the layout) can expand freely when
+            # visible, and the spacer fills the gap in overview mode.
+            self._pp_overview_spacer = QWidget()
+            self._pp_overview_spacer.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+            # Insert right before the test toggle
+            test_idx = pp_lay.indexOf(_test_toggle)
+            pp_lay.insertWidget(test_idx, self._pp_overview_spacer)
+
         # Directly embed pp_content (no outer QScrollArea): the sub-tabs
         # that actually need scrolling (Dictionary, Language rules) have
         # their own inner QScrollArea. An outer scroll was redundant and
         # produced a huge-handle scrollbar with no content to scroll.
         lay.addWidget(self._pp_content)
         self._pp_scroll = None
-        self._pp_content.setEnabled(self.chk_postprocess.isChecked())
-        self.chk_postprocess.toggled.connect(self._pp_content.setEnabled)
-        self.chk_postprocess.toggled.connect(self._pp_diagram.set_master)
-        self._pp_diagram.set_master(self.chk_postprocess.isChecked())
 
-        # Wire pipeline diagram refresh
+        # Per-step greying: a pipeline step is "effectively active" when
+        # at least one of the two pipelines (normal / translation) has it
+        # enabled, taking masters into account:
+        #     effective(step) = (master_normal AND _pp_state[step])
+        #                    OR (master_translate AND _trpp_state[step])
+        # When effectively inactive, both the sub-item in the sidebar tree
+        # AND the corresponding sub-page (tab content) are greyed.
+        # LLM is a special case: _trpp_state['llm'] is always False, so
+        # its effective state depends only on the normal pipeline.
+        def _apply_any_master_active():
+            # Build per-step effective activation map
+            effective = {}
+            for k in ("rules", "continuation", "language_rules", "dict", "llm"):
+                n = self._pp_master_normal and self._pp_state.get(k, False)
+                t = self._pp_master_translate and self._trpp_state.get(k, False)
+                effective[k] = bool(n or t)
+
+            # Sidebar sub-items under the Post-processing root.
+            # Grey them visually via foreground color when the step is
+            # effectively off, but KEEP them enabled so the user can
+            # still navigate to their page via clicks (either from
+            # sidebar or from the SVG pipeline).
+            tree = getattr(self, "_sidebar_tree", None)
+            pp_root = None
+            if tree is not None:
+                for i in range(tree.topLevelItemCount()):
+                    it = tree.topLevelItem(i)
+                    if it.childCount() == 5:
+                        pp_root = it
+                        break
+            step_order = ("rules", "continuation", "language_rules", "dict", "llm")
+            from PyQt6.QtGui import QBrush
+            _pal = self.palette()
+            _col_normal = _pal.color(_pal.ColorRole.WindowText)
+            _col_disabled = _pal.color(
+                _pal.ColorGroup.Disabled, _pal.ColorRole.WindowText)
+            if pp_root is not None:
+                for idx, k in enumerate(step_order):
+                    child = pp_root.child(idx)
+                    if child is not None:
+                        child.setForeground(
+                            0,
+                            QBrush(_col_normal if effective[k] else _col_disabled))
+
+            # Sub-page tab content
+            if hasattr(self, "_pp_tabs") and self._pp_tabs is not None:
+                for idx, k in enumerate(step_order):
+                    w = self._pp_tabs.widget(idx)
+                    if w is not None:
+                        w.setEnabled(effective[k])
+
+            # Rules page: the QSyntaxHighlighter needs an explicit refresh
+            # (setEnabled alone leaves highlighted text in its colored state).
+            if hasattr(self, "_update_rules_active"):
+                self._update_rules_active()
+        self._apply_any_master_active = _apply_any_master_active
+
+        def _on_master_normal_toggled(on):
+            self._pp_master_normal = bool(on)
+            _apply_any_master_active()
+            self._refresh_pp_diagrams()
+        self.chk_postprocess.toggled.connect(_on_master_normal_toggled)
+        # Wire translation master greyout too (connected earlier but
+        # without _apply_any_master_active; rewire here for clarity).
+        self.chk_pp_translate.toggled.connect(
+            lambda _on: _apply_any_master_active())
+
+        # Initial state
+        _apply_any_master_active()
+        self._refresh_pp_diagrams()
+
+        # Sidebar mode: grey the post-processing header (big title + tab
+        # checkbox) when the master post-processing is disabled, so the
+        # whole page looks consistently inactive.
+        if getattr(self, "_pipeline_header_external", False):
+            accent_hex = self.palette().color(
+                self.palette().ColorRole.Highlight).name()
+            dis_hex = self.palette().color(
+                self.palette().ColorGroup.Disabled,
+                self.palette().ColorRole.WindowText).name()
+
+            def _apply_pp_master(on):
+                col = accent_hex if on else dis_hex
+                self._pp_tab_title.setStyleSheet(
+                    f"color: {col}; font-size: 24px; font-weight: bold; "
+                    "padding: 6px 0 12px 0;")
+                if hasattr(self, "_pp_tabs"):
+                    self._pp_tabs.setEnabled(on)
+
+            self.chk_postprocess.toggled.connect(_apply_pp_master)
+            _apply_pp_master(self.chk_postprocess.isChecked())
+
+        # Wire pipeline diagram refresh (SVG is the source of activation —
+        # no per-tab enable checkbox to keep in sync anymore).
         for cb in (self.chk_pp_rules, self.chk_pp_continuation,
                    self.chk_pp_language_rules,
                    self.chk_pp_numbers, self.chk_pp_dict,
                    self.chk_pp_capitalization, self.chk_llm,
                    self.chk_pp_short_text):
             cb.toggled.connect(self._refresh_pp_diagram)
-        if hasattr(self, 'cmb_llm_position'):
-            self.cmb_llm_position.currentIndexChanged.connect(self._refresh_pp_diagram)
+        if hasattr(self, 'llm_position_group'):
+            self.llm_position_group.buttonToggled.connect(
+                lambda _btn, _checked: self._refresh_pp_diagram() if _checked else None)
         if hasattr(self, 'cmb_pp_short_text_max'):
             self.cmb_pp_short_text_max.currentIndexChanged.connect(self._refresh_pp_diagram)
         self._pp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
+        # Orange diagram: same handler. Clicks modify the shared state
+        # dict (via the hidden checkbox toggle), so both diagrams update
+        # in sync. LLM on the orange is cosmetic-only (forced off).
+        if hasattr(self, "_trpp_diagram") and self._trpp_diagram is not None:
+            self._trpp_diagram.widget.step_clicked.connect(self._on_pp_step_clicked)
         self._refresh_pp_diagram()
 
     def _maybe_show_rules_warning(self):
@@ -5756,6 +6740,79 @@ class DicteeSetupDialog(QDialog):
                 pass
 
     def _on_pp_step_clicked(self, key):
+        # Identify which diagram emitted the signal. sender() returns the
+        # _ClickableSvgWidget instance; compare with the two known widgets.
+        sender = self.sender()
+        is_translation = (
+            hasattr(self, "_trpp_diagram")
+            and self._trpp_diagram is not None
+            and sender is self._trpp_diagram.widget
+        )
+
+        # Navigation-only shortcuts (mic / ASR icons): jump to the
+        # corresponding sidebar section without toggling anything.
+        if key.startswith("nav:") and hasattr(self, "_sidebar_tree"):
+            target_label = {
+                "nav:microphone": _("Microphone"),
+                "nav:asr": _("ASR backend"),
+                "nav:translation": _("Translation"),
+            }.get(key)
+            if target_label:
+                tree = self._sidebar_tree
+                for i in range(tree.topLevelItemCount()):
+                    it = tree.topLevelItem(i)
+                    if it.text(0) == target_label:
+                        tree.setCurrentItem(it)
+                        return
+            return
+
+        # Translation source: the orange diagram has ITS OWN independent
+        # state dict (`self._trpp_state`). Clicks on it never touch the
+        # normal state. LLM is always force-off on the orange, so ignore
+        # any "llm" clicks on that diagram.
+        if is_translation:
+            if key == "llm":
+                # LLM is locked off in translation mode; silently ignore.
+                return
+            tab_idx = {
+                "rules": 0, "continuation": 1, "language_rules": 2,
+                "dict": 3,
+            }.get(key)
+            target_child = None
+            tree = getattr(self, "_sidebar_tree", None)
+            if tree is not None and tab_idx is not None:
+                for i in range(tree.topLevelItemCount()):
+                    it = tree.topLevelItem(i)
+                    if it.childCount() == 5:
+                        target_child = it.child(tab_idx)
+                        break
+
+            def _toggle_trpp():
+                self._trpp_state[key] = not self._trpp_state.get(key, True)
+                self._refresh_pp_diagrams()
+
+            steps_with_page = {"rules", "continuation", "language_rules", "dict"}
+            if key in steps_with_page:
+                if target_child is None:
+                    _toggle_trpp()
+                    return
+                already_on_page = (
+                    tree is not None
+                    and tree.currentItem() is target_child
+                )
+                if already_on_page:
+                    _toggle_trpp()
+                    return
+                # Navigate first; 2nd click (on page) will toggle.
+                tree.setCurrentItem(target_child)
+                return
+            # numbers, capitalization, short_text → direct toggle.
+            if key in self._trpp_state:
+                _toggle_trpp()
+            return
+
+        # Normal source (blue diagram): existing behavior, drives the
+        # hidden checkboxes which in turn update self._pp_state via signals.
         cb_map = {
             "rules": self.chk_pp_rules,
             "continuation": self.chk_pp_continuation,
@@ -5766,30 +6823,104 @@ class DicteeSetupDialog(QDialog):
             "llm": self.chk_llm,
             "short_text": getattr(self, 'chk_pp_short_text', None),
         }
+        steps_with_page = {"rules", "continuation", "language_rules", "dict", "llm"}
+        target_child = None
+        tab_idx = {
+            "rules": 0, "continuation": 1, "language_rules": 2,
+            "dict": 3, "llm": 4,
+        }.get(key)
+        tree = getattr(self, "_sidebar_tree", None)
+        if tree is not None and tab_idx is not None:
+            for i in range(tree.topLevelItemCount()):
+                it = tree.topLevelItem(i)
+                if it.childCount() == 5:
+                    target_child = it.child(tab_idx)
+                    break
+        if key in steps_with_page:
+            if target_child is None:
+                cb = cb_map.get(key)
+                if cb is not None:
+                    cb.toggle()
+                return
+            already_on_page = (
+                tree is not None
+                and tree.currentItem() is target_child
+            )
+            if already_on_page:
+                cb = cb_map.get(key)
+                if cb is not None:
+                    cb.toggle()
+                return
+            # Navigate first; 2nd click (on page) will toggle.
+            tree.setCurrentItem(target_child)
+            return
+        # Step without a page: toggle directly.
         cb = cb_map.get(key)
         if cb is not None:
             cb.toggle()
 
 
-    def _refresh_pp_diagram(self):
-        if not hasattr(self, '_pp_diagram'):
-            return
-        states = {
-            "rules": self.chk_pp_rules.isChecked(),
-            "continuation": self.chk_pp_continuation.isChecked(),
-            "language_rules": self.chk_pp_language_rules.isChecked(),
-            "numbers": self.chk_pp_numbers.isChecked(),
-            "dict": self.chk_pp_dict.isChecked(),
-            "capitalization": self.chk_pp_capitalization.isChecked(),
-            "short_text": self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True,
-        }
-        llm_pos = "hybrid"
-        if hasattr(self, 'cmb_llm_position'):
-            llm_pos = self.cmb_llm_position.currentData() or "hybrid"
+    def _refresh_pp_diagrams(self):
+        """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
+        from their INDEPENDENT state dicts + two masters."""
+        # Sync normal state from hidden checkboxes (they remain the
+        # persistence-side source of truth for normal mode).
+        if hasattr(self, "chk_pp_rules"):
+            self._pp_state["rules"] = self.chk_pp_rules.isChecked()
+        if hasattr(self, "chk_pp_continuation"):
+            self._pp_state["continuation"] = self.chk_pp_continuation.isChecked()
+        if hasattr(self, "chk_pp_language_rules"):
+            self._pp_state["language_rules"] = self.chk_pp_language_rules.isChecked()
+        if hasattr(self, "chk_pp_numbers"):
+            self._pp_state["numbers"] = self.chk_pp_numbers.isChecked()
+        if hasattr(self, "chk_pp_dict"):
+            self._pp_state["dict"] = self.chk_pp_dict.isChecked()
+        if hasattr(self, "chk_pp_capitalization"):
+            self._pp_state["capitalization"] = self.chk_pp_capitalization.isChecked()
+        if hasattr(self, "chk_pp_short_text"):
+            self._pp_state["short_text"] = self.chk_pp_short_text.isChecked()
+        if hasattr(self, "chk_llm"):
+            self._pp_state["llm"] = self.chk_llm.isChecked()
+
+        # Sync translation short-text checkbox FROM self._trpp_state so
+        # that SVG orange clicks (which write directly into the dict) are
+        # reflected in the visible checkbox. Use blockSignals to avoid
+        # triggering the toggled handler and re-entering this function.
+        if hasattr(self, "chk_trpp_short_text"):
+            desired = bool(self._trpp_state.get("short_text", True))
+            if self.chk_trpp_short_text.isChecked() != desired:
+                self.chk_trpp_short_text.blockSignals(True)
+                self.chk_trpp_short_text.setChecked(desired)
+                self.chk_trpp_short_text.blockSignals(False)
+
+        llm_pos = self._get_llm_position() if hasattr(self, "_get_llm_position") else "hybrid"
         st_max = 3
-        if hasattr(self, 'cmb_pp_short_text_max'):
+        if hasattr(self, "cmb_pp_short_text_max"):
             st_max = self.cmb_pp_short_text_max.currentData() or 3
-        self._pp_diagram.set_states(states, self.chk_llm.isChecked(), llm_pos, st_max)
+
+        if hasattr(self, "_pp_diagram") and self._pp_diagram is not None:
+            self._pp_diagram.set_master(self._pp_master_normal)
+            self._pp_diagram.set_states(
+                dict(self._pp_state),
+                bool(self._pp_state.get("llm", False)),
+                llm_pos, st_max)
+        if hasattr(self, "_trpp_diagram") and self._trpp_diagram is not None:
+            self._trpp_diagram.set_master(self._pp_master_translate)
+            # Orange reads its own independent state. LLM is force_off at
+            # construction so always rendered as disabled.
+            self._trpp_diagram.set_states(
+                dict(self._trpp_state),
+                bool(self._trpp_state.get("llm", False)),
+                llm_pos, st_max)
+
+        # Also reapply the per-step greying of sidebar sub-items and
+        # sub-pages (effective state = OR between normal/translation).
+        if hasattr(self, "_apply_any_master_active"):
+            self._apply_any_master_active()
+
+    # Backwards-compatibility shim (many connections call the old name).
+    def _refresh_pp_diagram(self):
+        self._refresh_pp_diagrams()
 
     def _build_llm_tab(self, lay, conf):
         """Build LLM post-processing tab content."""
@@ -5800,6 +6931,45 @@ class DicteeSetupDialog(QDialog):
         _llm_form = QWidget()
         llm_flay = QFormLayout(_llm_form)
         llm_flay.setContentsMargins(0, 0, 0, 0)
+
+        # LLM pipeline position — displayed FIRST (above the model combo)
+        # Radio buttons grouped in a QButtonGroup; data stored on each button.
+        if not hasattr(self, "_get_llm_position"):
+            def _get_llm_position_impl():
+                grp = getattr(self, "llm_position_group", None)
+                if grp is None:
+                    return "hybrid"
+                btn = grp.checkedButton()
+                if btn is None:
+                    return "hybrid"
+                return btn.property("llm_position") or "hybrid"
+            self._get_llm_position = _get_llm_position_impl
+        saved_pos = conf.get("DICTEE_LLM_POSITION", "hybrid")
+        self.llm_position_group = QButtonGroup(self)
+        self.llm_position_group.setExclusive(True)
+        _pos_row = QWidget()
+        _pos_hl = QHBoxLayout(_pos_row)
+        _pos_hl.setContentsMargins(0, 0, 0, 0)
+        _pos_hl.setSpacing(12)
+        for _val, _label in (
+            ("hybrid", _("Hybrid (recommended)")),
+            ("first", _("At start")),
+            ("last", _("At end")),
+        ):
+            _rb = QRadioButton(_label)
+            _rb.setProperty("llm_position", _val)
+            if _val == saved_pos:
+                _rb.setChecked(True)
+            self.llm_position_group.addButton(_rb)
+            _pos_hl.addWidget(_rb)
+        _pos_hl.addStretch(1)
+        # Ensure at least one is checked (fallback to hybrid)
+        if self.llm_position_group.checkedButton() is None:
+            for _b in self.llm_position_group.buttons():
+                if _b.property("llm_position") == "hybrid":
+                    _b.setChecked(True)
+                    break
+        llm_flay.addRow(_("Position in chain:"), _pos_row)
 
         self.cmb_llm_model = QComboBox()
         saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
@@ -5825,17 +6995,6 @@ class DicteeSetupDialog(QDialog):
             self.cmb_llm_model.setEditText(saved_model)
         llm_flay.addRow(_("Model:"), self.cmb_llm_model)
 
-        # LLM pipeline position
-        self.cmb_llm_position = QComboBox()
-        self.cmb_llm_position.addItem(_("Hybrid (recommended)"), "hybrid")
-        self.cmb_llm_position.addItem(_("Before post-processing"), "first")
-        self.cmb_llm_position.addItem(_("After post-processing"), "last")
-        saved_pos = conf.get("DICTEE_LLM_POSITION", "hybrid")
-        idx_pos = self.cmb_llm_position.findData(saved_pos)
-        if idx_pos >= 0:
-            self.cmb_llm_position.setCurrentIndex(idx_pos)
-        llm_flay.addRow(_("Position:"), self.cmb_llm_position)
-
         # System prompt presets
         self.cmb_llm_preset = QComboBox()
         self.cmb_llm_preset.addItem(_("Default"), "default")
@@ -5849,17 +7008,15 @@ class DicteeSetupDialog(QDialog):
 
         llm_vbox.addWidget(_llm_form)
 
-        # System prompt editor — full width, resizable via corner grip
+        # System prompt editor — expands to fill the available space.
         self.txt_llm_prompt = QTextEdit()
         self.txt_llm_prompt.setFont(self._monospace_font())
-        self.txt_llm_prompt.setMinimumHeight(80)
-        self.txt_llm_prompt.setMinimumWidth(200)
+        self.txt_llm_prompt.setMinimumHeight(200)
+        self.txt_llm_prompt.setMinimumWidth(400)
+        self.txt_llm_prompt.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._add_zoom_overlay(self.txt_llm_prompt)
-
-        _prompt_frame = _ResizableFrame(
-            self.txt_llm_prompt, min_w=200, min_h=80,
-            init_w=800, init_h=250)
-        llm_vbox.addWidget(_prompt_frame)
+        llm_vbox.addWidget(self.txt_llm_prompt, 1)
 
         # Populate prompt text and connect preset changes
         self._on_llm_preset_changed(self.cmb_llm_preset.currentData())
@@ -5869,12 +7026,6 @@ class DicteeSetupDialog(QDialog):
         self.chk_llm_cpu = QCheckBox(_("Force CPU (free GPU VRAM)"))
         self.chk_llm_cpu.setChecked(conf.get("DICTEE_LLM_CPU", "false") == "true")
         llm_vbox.addWidget(self.chk_llm_cpu)
-
-        lbl_vram = QLabel(
-            "<i>" + _("~3 GB VRAM with Gemma 3 4B (+ ~2.5 GB Parakeet)") + "</i>")
-        lbl_vram.setStyleSheet("font-size: 11px; opacity: 0.6;")
-        llm_vbox.addWidget(lbl_vram)
-        llm_vbox.addStretch()
 
     # ── LLM prompt presets ──────────────────────────────────────
 
@@ -5909,15 +7060,16 @@ class DicteeSetupDialog(QDialog):
         """Update system prompt QTextEdit when preset combo changes."""
         if preset_data == "custom":
             self.txt_llm_prompt.setReadOnly(False)
-            # Load existing custom file if available
+            self.txt_llm_prompt.setPlaceholderText(_("Entrez votre prompt ici"))
+            # Load existing custom file if available; otherwise start empty
+            # so the placeholder ghost text is visible.
             if os.path.isfile(self._LLM_CUSTOM_PROMPT_PATH):
                 with open(self._LLM_CUSTOM_PROMPT_PATH, encoding="utf-8") as f:
                     self.txt_llm_prompt.setPlainText(f.read().strip())
-            elif not self.txt_llm_prompt.toPlainText().strip():
-                # Start from FR preset as template
-                self.txt_llm_prompt.setPlainText(
-                    self._LLM_SYSTEM_PROMPTS.get("default", ""))
+            else:
+                self.txt_llm_prompt.setPlainText("")
         else:
+            self.txt_llm_prompt.setPlaceholderText("")
             self.txt_llm_prompt.setReadOnly(True)
             self.txt_llm_prompt.setPlainText(
                 self._LLM_SYSTEM_PROMPTS.get(preset_data, ""))
@@ -5978,26 +7130,56 @@ class DicteeSetupDialog(QDialog):
         def __init__(self, document):
             super().__init__(document)
             from PyQt6.QtGui import QTextCharFormat, QColor
+            # Grey-out format used when the rules step is disabled.
+            self._fmt_disabled = QTextCharFormat()
+            self._fmt_disabled.setForeground(QColor("#707070"))
+            self._active = True
             # Commentaires
-            self._fmt_comment = QTextCharFormat()
-            self._fmt_comment.setForeground(QColor("#808080"))
+            self._fmt_comment_color = QTextCharFormat()
+            self._fmt_comment_color.setForeground(QColor("#808080"))
             # Section headers ═══
-            self._fmt_header = QTextCharFormat()
-            self._fmt_header.setForeground(QColor("#B8860B"))
-            self._fmt_header.setFontWeight(700)
+            self._fmt_header_color = QTextCharFormat()
+            self._fmt_header_color.setForeground(QColor("#B8860B"))
+            self._fmt_header_color.setFontWeight(700)
             # [lang]
-            self._fmt_lang = QTextCharFormat()
-            self._fmt_lang.setForeground(QColor("#5DADE2"))
-            self._fmt_lang.setFontWeight(700)
+            self._fmt_lang_color = QTextCharFormat()
+            self._fmt_lang_color.setForeground(QColor("#5DADE2"))
+            self._fmt_lang_color.setFontWeight(700)
             # /pattern/
-            self._fmt_pattern = QTextCharFormat()
-            self._fmt_pattern.setForeground(QColor("#E67E22"))
+            self._fmt_pattern_color = QTextCharFormat()
+            self._fmt_pattern_color.setForeground(QColor("#E67E22"))
             # /replacement/
-            self._fmt_replacement = QTextCharFormat()
-            self._fmt_replacement.setForeground(QColor("#2ECC71"))
+            self._fmt_replacement_color = QTextCharFormat()
+            self._fmt_replacement_color.setForeground(QColor("#2ECC71"))
             # flags
-            self._fmt_flags = QTextCharFormat()
-            self._fmt_flags.setForeground(QColor("#AF7AC5"))
+            self._fmt_flags_color = QTextCharFormat()
+            self._fmt_flags_color.setForeground(QColor("#AF7AC5"))
+            self._refresh_fmts()
+
+        def _refresh_fmts(self):
+            if self._active:
+                self._fmt_comment = self._fmt_comment_color
+                self._fmt_header = self._fmt_header_color
+                self._fmt_lang = self._fmt_lang_color
+                self._fmt_pattern = self._fmt_pattern_color
+                self._fmt_replacement = self._fmt_replacement_color
+                self._fmt_flags = self._fmt_flags_color
+            else:
+                d = self._fmt_disabled
+                self._fmt_comment = d
+                self._fmt_header = d
+                self._fmt_lang = d
+                self._fmt_pattern = d
+                self._fmt_replacement = d
+                self._fmt_flags = d
+
+        def set_active(self, on):
+            on = bool(on)
+            if self._active == on:
+                return
+            self._active = on
+            self._refresh_fmts()
+            self.rehighlight()
 
         def highlightBlock(self, text):
             import re
@@ -6387,6 +7569,20 @@ class DicteeSetupDialog(QDialog):
 
         # Syntax highlighting
         self._rules_highlighter = self._RulesHighlighter(self._rules_editor.document())
+
+        # Rules editor greying: tied to the effective state of the "rules"
+        # step (active if enabled in at least one pipeline with its master
+        # on). setEnabled() alone does not update the syntax highlighter,
+        # so we explicitly toggle the highlighter's active state.
+        def _update_rules_active():
+            normal_on = self._pp_master_normal and self._pp_state.get("rules", False)
+            trans_on = self._pp_master_translate and self._trpp_state.get("rules", False)
+            on = bool(normal_on or trans_on)
+            self._rules_highlighter.set_active(on)
+            self._rules_editor.setEnabled(on)
+            if hasattr(self, "_rules_line_numbers"):
+                self._rules_line_numbers.setEnabled(on)
+        self._update_rules_active = _update_rules_active
 
         # Line numbers
         self._rules_line_numbers = self._LineNumberArea(self._rules_editor)
@@ -7231,12 +8427,8 @@ class DicteeSetupDialog(QDialog):
         self._btn_dict_redo.clicked.connect(self._dict_redo_smart)
         common_btns.addWidget(self._btn_dict_redo)
 
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_save = QPushButton(_("Save"))
         btn_save.setToolTip(_("Save all changes to disk"))
-        btn_save.setStyleSheet(
-            f"font-weight: bold; background-color: {accent}; color: white; "
-            f"padding: 4px 16px; border-radius: 4px;")
         btn_save.clicked.connect(self._dict_save_smart)
         common_btns.addWidget(btn_save)
 
@@ -8313,12 +9505,8 @@ class DicteeSetupDialog(QDialog):
         # --- Common toolbar ---
         common_btns = QHBoxLayout()
 
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         btn_cont_save = QPushButton(_("Save"))
         btn_cont_save.setToolTip(_("Save continuation words to disk"))
-        btn_cont_save.setStyleSheet(
-            f"font-weight: bold; background-color: {accent}; color: white; "
-            f"padding: 4px 16px; border-radius: 4px;")
         btn_cont_save.clicked.connect(self._cont_save_smart)
         common_btns.addWidget(btn_cont_save)
 
@@ -10425,11 +11613,32 @@ class DicteeSetupDialog(QDialog):
             env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
                 self.cmb_pp_short_text_max.currentData() or 3)
 
+        # Translation post-processing (applied AFTER the translation backend)
+        # Translation post-processing master: when true, dictee re-runs
+        # dictee-postprocess on the translated text with DICTEE_LANG_SOURCE
+        # set to the target language (LLM always forced off in that pass).
+        env["DICTEE_PP_TRANSLATE"] = "true" if self._pp_master_translate else "false"
+
+        # Translation-side per-step activation (independent from normal).
+        # These are mapped to DICTEE_PP_* at call time by the dictee shell
+        # script when running the 2nd post-process pass on translated text.
+        def _tb(key):
+            return "true" if self._trpp_state.get(key, True) else "false"
+        env["DICTEE_TRPP_RULES"]          = _tb("rules")
+        env["DICTEE_TRPP_CONTINUATION"]   = _tb("continuation")
+        env["DICTEE_TRPP_LANGUAGE_RULES"] = _tb("language_rules")
+        env["DICTEE_TRPP_NUMBERS"]        = _tb("numbers")
+        env["DICTEE_TRPP_DICT"]           = _tb("dict")
+        env["DICTEE_TRPP_CAPITALIZATION"] = _tb("capitalization")
+        env["DICTEE_TRPP_SHORT_TEXT"]     = _tb("short_text")
+        if hasattr(self, 'cmb_trpp_short_text_max'):
+            env["DICTEE_TRPP_SHORT_TEXT_MAX"] = str(
+                self.cmb_trpp_short_text_max.currentData() or 3)
+
         # LLM
         llm_on = _b("chk_llm", default=False)
         env["DICTEE_LLM_POSTPROCESS"] = llm_on
-        if hasattr(self, 'cmb_llm_position'):
-            env["DICTEE_LLM_POSITION"] = self.cmb_llm_position.currentData() or "hybrid"
+        env["DICTEE_LLM_POSITION"] = self._get_llm_position()
         if hasattr(self, 'cmb_llm_model'):
             env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
         if hasattr(self, 'cmb_llm_preset'):
@@ -10774,7 +11983,7 @@ class DicteeSetupDialog(QDialog):
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
         llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
-        llm_position = self.cmb_llm_position.currentData() if hasattr(self, 'cmb_llm_position') else "hybrid"
+        llm_position = self._get_llm_position()
         llm_custom_prompt = self.txt_llm_prompt.toPlainText() if hasattr(self, 'txt_llm_prompt') else ""
 
         # Continuation visual indicator
