@@ -36,6 +36,15 @@ jobs:
           msgfmt --check --output=/dev/null "$f"
         done
 
+  test-postprocess:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run postprocess tests
+      run: python3 tests/test-postprocess.py -v
+      env:
+        XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
+
   test-x86:
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +68,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    needs: [lint, test-x86, test-arm64]
+    needs: [lint, test-postprocess, test-x86, test-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
