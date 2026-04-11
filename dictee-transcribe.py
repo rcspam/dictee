@@ -19,10 +19,14 @@ import time
 try:
     from PyQt6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                QProcessEnvironment, QFileSystemWatcher,
-                               QUrl, pyqtSignal as Signal)
-    from PyQt6.QtGui import QShortcut, QKeySequence, QTextDocument
+                               QUrl, QSize, QRect, QRectF,
+                               QPropertyAnimation, QEasingCurve,
+                               pyqtSignal as Signal,
+                               pyqtProperty as Property)
+    from PyQt6.QtGui import (QShortcut, QKeySequence, QTextDocument,
+                              QPainter, QColor, QBrush, QPen)
     from PyQt6.QtWidgets import (
-        QApplication, QDialog, QVBoxLayout, QHBoxLayout,
+        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
         QMessageBox,
@@ -31,15 +35,138 @@ try:
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                 QProcessEnvironment, QFileSystemWatcher,
-                                Signal, QUrl)
-    from PySide6.QtGui import QShortcut, QKeySequence, QTextDocument
+                                Signal, QUrl, QSize, QRect, QRectF,
+                                QPropertyAnimation, QEasingCurve, Property)
+    from PySide6.QtGui import (QShortcut, QKeySequence, QTextDocument,
+                                QPainter, QColor, QBrush, QPen)
     from PySide6.QtWidgets import (
-        QApplication, QDialog, QVBoxLayout, QHBoxLayout,
+        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
         QMessageBox,
     )
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+
+
+class ToggleSwitch(QCheckBox):
+    """Plasma/iOS-style toggle switch (copied from dictee-setup.py).
+
+    Drop-in replacement for QCheckBox: accepts a label text, honours
+    isChecked/setChecked, the toggled signal, the enabled state, tooltips,
+    and stylesheets affecting font-size / font-weight (via self.font()).
+    Text atténuated when OFF, grey when disabled. Same visuals as the
+    dictee-setup ToggleSwitch for consistency across the dictee UI family.
+    """
+
+    _TRACK_W = 44
+    _TRACK_H = 22
+    _TRACK_RADIUS = 11
+    _HANDLE_RADIUS = 9
+    _TEXT_SPACING = 8
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._offset_val = 1.0 if self.isChecked() else 0.0
+        self._anim = QPropertyAnimation(self, b"offset", self)
+        self._anim.setDuration(180)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toggled.connect(self._animate)
+
+    def sizeHint(self):
+        fm = self.fontMetrics()
+        text = self.text()
+        h = max(self._TRACK_H, fm.height())
+        if text:
+            w = self._TRACK_W + self._TEXT_SPACING + fm.horizontalAdvance(text)
+        else:
+            w = self._TRACK_W
+        return QSize(w, h)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
+
+    def setChecked(self, checked):
+        checked = bool(checked)
+        was_checked = self.isChecked()
+        super().setChecked(checked)
+        if was_checked != checked and self.signalsBlocked():
+            self._animate(checked)
+
+    def _animate(self, checked):
+        self._anim.stop()
+        self._anim.setStartValue(self._offset_val)
+        self._anim.setEndValue(1.0 if checked else 0.0)
+        self._anim.start()
+
+    def _get_offset(self):
+        return self._offset_val
+
+    def _set_offset(self, value):
+        self._offset_val = value
+        self.update()
+
+    offset = Property(float, fget=_get_offset, fset=_set_offset)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pal = self.palette()
+        enabled = self.isEnabled()
+
+        off_color = QColor("#5a5a5a") if enabled else QColor("#3a3a3a")
+        on_color = pal.color(pal.ColorRole.Highlight)
+        if not enabled:
+            on_color = on_color.darker(160)
+        handle_color = QColor("#f4f4f4") if enabled else QColor("#aaaaaa")
+
+        t = self._offset_val
+        track = QColor(
+            int(off_color.red() * (1 - t) + on_color.red() * t),
+            int(off_color.green() * (1 - t) + on_color.green() * t),
+            int(off_color.blue() * (1 - t) + on_color.blue() * t),
+        )
+
+        total_h = self.height()
+        track_y = (total_h - self._TRACK_H) / 2
+        track_rect = QRectF(0, track_y, self._TRACK_W, self._TRACK_H)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(track))
+        p.drawRoundedRect(track_rect, self._TRACK_RADIUS, self._TRACK_RADIUS)
+
+        margin = (self._TRACK_H - self._HANDLE_RADIUS * 2) / 2
+        travel = self._TRACK_W - self._HANDLE_RADIUS * 2 - margin * 2
+        hx = margin + travel * self._offset_val
+        hy = track_y + margin
+        handle_rect = QRectF(hx, hy, self._HANDLE_RADIUS * 2, self._HANDLE_RADIUS * 2)
+        p.setBrush(QBrush(handle_color))
+        p.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        p.drawEllipse(handle_rect)
+
+        text = self.text()
+        if text:
+            if not enabled:
+                text_color = QColor("#9a9a9a")
+            elif not self.isChecked():
+                text_color = QColor(pal.color(pal.ColorRole.WindowText))
+                text_color.setAlpha(160)
+            else:
+                text_color = pal.color(pal.ColorRole.WindowText)
+            p.setPen(text_color)
+            p.setFont(self.font())
+            text_x = int(self._TRACK_W + self._TEXT_SPACING)
+            text_rect = QRect(text_x, 0, self.width() - text_x, total_h)
+            p.drawText(
+                text_rect,
+                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                text,
+            )
+
+        p.end()
 
 # === i18n ===
 
@@ -496,41 +623,57 @@ def _seconds_to_srt_time(seconds):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def _format_text(segments):
-    """Format diarized segments as plain text with speaker headers."""
+def _format_text(segments, name_map=None):
+    """Format diarized segments as plain text with speaker headers.
+
+    `name_map` is an optional {canonical_id: display_name} dict consulted at
+    render time; it never mutates segments. Speaker-change detection keeps
+    using the canonical id so consecutive segments remain grouped.
+    """
     lines = []
     prev_speaker = None
     for seg in segments:
         if seg["speaker"] != prev_speaker:
             if prev_speaker is not None:
                 lines.append("")  # blank line between speakers
-            lines.append(f"{seg['speaker']}:")
+            label = (name_map or {}).get(seg["speaker"], seg["speaker"])
+            lines.append(f"{label}:")
             prev_speaker = seg["speaker"]
         lines.append(f"     {seg['text']}")
     return "\n".join(lines)
 
 
-def _format_srt(segments):
-    """Format diarized segments as SRT subtitles."""
+def _format_srt(segments, name_map=None):
+    """Format diarized segments as SRT subtitles.
+
+    `name_map` (optional) substitutes the speaker label at render time.
+    """
     lines = []
     for i, seg in enumerate(segments, 1):
         start = _seconds_to_srt_time(seg["start"])
         end = _seconds_to_srt_time(seg["end"])
+        label = (name_map or {}).get(seg["speaker"], seg["speaker"])
         lines.append(f"{i}")
         lines.append(f"{start} --> {end}")
-        lines.append(f"[{seg['speaker']}] {seg['text']}")
+        lines.append(f"[{label}] {seg['text']}")
         lines.append("")
     return "\n".join(lines)
 
 
-def _format_json(segments):
-    """Format diarized segments as JSON."""
+def _format_json(segments, name_map=None):
+    """Format diarized segments as JSON.
+
+    Emits both `speaker_id` (canonical, stable) and `speaker` (renamed
+    when `name_map` is provided) so downstream consumers can round-trip.
+    """
     out = []
     for seg in segments:
+        display = (name_map or {}).get(seg["speaker"], seg["speaker"])
         out.append({
             "start": seg["start"],
             "end": seg["end"],
-            "speaker": seg["speaker"],
+            "speaker_id": seg["speaker"],
+            "speaker": display,
             "text": seg["text"],
         })
     return json.dumps(out, ensure_ascii=False, indent=2)
@@ -676,7 +819,7 @@ class ExportDialog(QDialog):
         lay_tabs = QVBoxLayout(group)
         self._tab_checks = []
         for i, (name, _text) in enumerate(tabs_info):
-            chk = QCheckBox(name)
+            chk = ToggleSwitch(name)
             if current_tab_index is not None:
                 chk.setChecked(i == current_tab_index)
             else:
@@ -688,9 +831,9 @@ class ExportDialog(QDialog):
         # -- Formats (checkboxes) --
         group_fmt = QGroupBox(_("Formats"))
         lay_fmt = QHBoxLayout(group_fmt)
-        self._chk_text = QCheckBox(_("Plain text (.txt)"))
-        self._chk_srt = QCheckBox(_("SRT (.srt)"))
-        self._chk_json = QCheckBox(_("JSON (.json)"))
+        self._chk_text = ToggleSwitch(_("Plain text (.txt)"))
+        self._chk_srt = ToggleSwitch(_("SRT (.srt)"))
+        self._chk_json = ToggleSwitch(_("JSON (.json)"))
         # Pre-check current format
         if current_format == "text":
             self._chk_text.setChecked(True)
@@ -777,6 +920,10 @@ class TranscribeWindow(QDialog):
         self._segments = []
         self._raw_text = ""  # raw transcription output (stored for reformat)
         self._was_diarized = False  # whether last transcription used diarization
+        # Per-window display map: {canonical_id -> custom_name}. Never mutates
+        # seg["speaker"] — consulted only at render time by the format fns.
+        self._speaker_name_map = {}
+        self._rename_line_edits = {}   # filled by _populate_rename_fields
         self._translate_thread = None
         self._audio_duration = 0.0
         self._transcribe_elapsed = 0.0
@@ -895,7 +1042,7 @@ class TranscribeWindow(QDialog):
         # -- Options: row 1 — diarization + sensitivity + format --
         lay_opts = QHBoxLayout()
 
-        self._chk_diarize = QCheckBox(_("Speaker identification (diarization)"))
+        self._chk_diarize = ToggleSwitch(_("Speaker identification (diarization)"))
         sortformer_ok = _sortformer_available()
         self._chk_diarize.setEnabled(sortformer_ok)
         if sortformer_ok:
@@ -948,7 +1095,7 @@ class TranscribeWindow(QDialog):
 
         # -- Options: row 2 — auto-translate --
         lay_opts2 = QHBoxLayout()
-        self._chk_auto_translate = QCheckBox(_("Auto-translate the transcription"))
+        self._chk_auto_translate = ToggleSwitch(_("Auto-translate the transcription"))
         self._chk_auto_translate.setToolTip(
             _("Automatically translate after transcription"))
         lay_opts2.addWidget(self._chk_auto_translate)
@@ -1044,6 +1191,9 @@ class TranscribeWindow(QDialog):
         self._lbl_status = QLabel()
         self._lbl_status.setVisible(False)
         layout.addWidget(self._lbl_status)
+
+        # -- Speaker rename panel (visible only after diarization) --
+        self._build_rename_section(layout)
 
         # -- Tab widget: Original + dynamic translation tabs --
         self._tabs = QTabWidget()
@@ -1355,6 +1505,8 @@ class TranscribeWindow(QDialog):
         widget = self._tabs.widget(index)
         if widget is None:
             self._sld_position.clear_markers()
+            if hasattr(self, '_grp_rename'):
+                self._grp_rename.setVisible(False)
             return
         segs = getattr(widget, '_diarize_segments', [])
         # Build markers only from this tab's segments
@@ -1368,6 +1520,17 @@ class TranscribeWindow(QDialog):
             color = SPEAKER_COLORS[spk_idx % len(SPEAKER_COLORS)]
             markers.append((int(seg["start"] * 1000), int(seg["end"] * 1000), color))
         self._sld_position.set_markers(markers)
+
+        # Sync the speaker rename panel with the active tab's map
+        if hasattr(self, '_grp_rename'):
+            if segs:
+                self._segments = list(segs)
+                self._was_diarized = True
+                self._speaker_name_map = dict(
+                    getattr(widget, "_speaker_name_map", {}) or {})
+                self._populate_rename_fields()
+            else:
+                self._grp_rename.setVisible(False)
 
     def _on_diarize_toggled(self, checked):
         self._lbl_sensitivity.setVisible(checked)
@@ -1622,6 +1785,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("No transcription result."))
             self._raw_text = ""
             self._segments = []
+            self._grp_rename.setVisible(False)
             self._update_translate_btn()
             return
 
@@ -1641,6 +1805,10 @@ class TranscribeWindow(QDialog):
         self._text_edit._raw_text = raw_output
         self._text_edit._was_diarized = True
         self._text_edit._diarize_segments = list(self._segments)
+        self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+
+        # Rebuild the rename panel for the new speakers
+        self._populate_rename_fields()
 
         # Auto-detect language
         detect_text = " ".join(seg["text"] for seg in self._segments) if self._segments else raw_output
@@ -1743,6 +1911,7 @@ class TranscribeWindow(QDialog):
                 self._text_edit.setPlainText(raw_output)
             self._raw_text = ""
             self._segments = []
+            self._grp_rename.setVisible(False)
             self._update_translate_btn()
             return
 
@@ -1751,6 +1920,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             self._raw_text = ""
             self._segments = []
+            self._grp_rename.setVisible(False)
             self._update_translate_btn()
             return
 
@@ -1778,6 +1948,10 @@ class TranscribeWindow(QDialog):
         self._text_edit._raw_text = raw_output
         self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
+        self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+
+        # Rebuild (or hide) the speaker rename panel
+        self._populate_rename_fields()
 
         # Auto-detect language and update source/target ComboBoxes
         detect_text = raw_output
@@ -1936,11 +2110,19 @@ class TranscribeWindow(QDialog):
         # Copy segments from source tab for marker support
         if source_tab and hasattr(source_tab, '_diarize_segments'):
             editor._diarize_segments = list(source_tab._diarize_segments)
+        # Inherit the speaker name map so renames applied on the source
+        # tab before translation are visible immediately in the new tab.
+        if source_tab and hasattr(source_tab, '_speaker_name_map'):
+            editor._speaker_name_map = dict(source_tab._speaker_name_map)
+        elif self._speaker_name_map:
+            editor._speaker_name_map = dict(self._speaker_name_map)
 
         # Store and display
         if translated_segments:
+            editor._diarize_segments = list(translated_segments)
             self._apply_format_to(editor, translated_segments, None)
         elif translated_text:
+            editor._raw_text = translated_text
             self._apply_format_to(editor, [], translated_text)
 
         # Switch to this translation tab
@@ -1968,16 +2150,23 @@ class TranscribeWindow(QDialog):
         self._apply_format_to(self._text_edit, self._segments, self._raw_text)
 
     def _apply_format_to(self, editor, segments, raw_text):
-        """Format and display text in the given editor."""
+        """Format and display text in the given editor.
+
+        Resolves the speaker name map per-tab (attached to editor) with a
+        fallback to the window-level map, so renaming propagates correctly
+        to translation tabs.
+        """
         fmt = self._cmb_format.currentData()
+        name_map = getattr(editor, "_speaker_name_map", None) \
+            or getattr(self, "_speaker_name_map", None)
 
         if self._was_diarized and segments:
             if fmt == "srt":
-                editor.setPlainText(_format_srt(segments))
+                editor.setPlainText(_format_srt(segments, name_map))
             elif fmt == "json":
-                editor.setPlainText(_format_json(segments))
+                editor.setPlainText(_format_json(segments, name_map))
             else:
-                self._set_colored_diarize_to(editor, segments)
+                self._set_colored_diarize_to(editor, segments, name_map)
         else:
             text = raw_text or ""
             if fmt == "json":
@@ -1989,8 +2178,14 @@ class TranscribeWindow(QDialog):
             else:
                 editor.setPlainText(text)
 
-    def _set_colored_diarize_to(self, editor, segments):
-        """Display diarized text with colored speaker headers in given editor."""
+    def _set_colored_diarize_to(self, editor, segments, name_map=None):
+        """Display diarized text with colored speaker headers in given editor.
+
+        The speaker-change detection compares canonical ids (seg["speaker"])
+        so consecutive segments from the same speaker stay grouped. The
+        header label uses the display name from `name_map` when present.
+        Colors are derived from the canonical id via `_speaker_color()`.
+        """
         import html as _html
         lines = []
         prev_speaker = None
@@ -1999,12 +2194,158 @@ class TranscribeWindow(QDialog):
                 if prev_speaker is not None:
                     lines.append("<br/>")
                 color = self._speaker_color(seg["speaker"])
+                label = (name_map or {}).get(seg["speaker"], seg["speaker"])
                 lines.append(
-                    f'<b style="color:{color}">{_html.escape(seg["speaker"])}:</b>')
+                    f'<b style="color:{color}">{_html.escape(label)}:</b>')
                 prev_speaker = seg["speaker"]
             lines.append(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{_html.escape(seg["text"])}')
         editor.setHtml(
             '<div style="white-space:pre-wrap">' + "<br/>".join(lines) + "</div>")
+
+    # ── Speaker rename panel ──────────────────────────────────────
+
+    def _build_rename_section(self, parent_layout):
+        """Group box for post-diarization speaker renaming.
+
+        Hidden by default; made visible when a diarized transcription
+        produces segments. Each row shows a color swatch matching the
+        canonical speaker id + a QLineEdit to set a custom display name.
+        """
+        self._grp_rename = QGroupBox(_("Renommer les locuteurs"))
+        self._grp_rename.setVisible(False)
+        gv = QVBoxLayout(self._grp_rename)
+        gv.setSpacing(4)
+        gv.setContentsMargins(8, 6, 8, 6)
+
+        # Two-column grid: up to 4 speakers fit on 2 rows × 2 cols.
+        self._rename_rows_layout = QGridLayout()
+        self._rename_rows_layout.setHorizontalSpacing(16)
+        self._rename_rows_layout.setVerticalSpacing(3)
+        gv.addLayout(self._rename_rows_layout)
+
+        lay_btns = QHBoxLayout()
+        self._btn_rename_apply = QPushButton(_("Appliquer"))
+        self._btn_rename_apply.setToolTip(_(
+            "Remplace les libellés des locuteurs dans toutes les vues et "
+            "exports (texte, SRT, JSON). Ne modifie pas les données brutes."))
+        self._btn_rename_apply.clicked.connect(self._apply_speaker_rename)
+        self._btn_rename_reset = QPushButton(_("Réinitialiser"))
+        self._btn_rename_reset.setToolTip(_(
+            "Efface les noms personnalisés et revient aux libellés "
+            "génériques Speaker 0, Speaker 1, etc."))
+        self._btn_rename_reset.clicked.connect(self._reset_speaker_rename)
+        lay_btns.addWidget(self._btn_rename_apply)
+        lay_btns.addWidget(self._btn_rename_reset)
+        lay_btns.addStretch()
+        gv.addLayout(lay_btns)
+
+        parent_layout.addWidget(self._grp_rename)
+
+    def _populate_rename_fields(self):
+        """Rebuild rename inputs from the current self._segments.
+
+        Speakers are laid out in a 2-column grid (up to 4 speakers = 2
+        rows × 2 columns, matching Sortformer's max). Called after each
+        successful diarization and on tab switches to the appropriate
+        tab. Hides the group box when there is nothing to rename.
+        """
+        # Clear previous widgets from the grid layout
+        while self._rename_rows_layout.count():
+            item = self._rename_rows_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._rename_line_edits = {}
+
+        if not self._was_diarized or not self._segments:
+            self._grp_rename.setVisible(False)
+            return
+
+        # Unique speakers in order of first appearance
+        seen = []
+        for seg in self._segments:
+            spk = seg["speaker"]
+            if spk not in seen:
+                seen.append(spk)
+
+        # Build one compact row widget per speaker, place in a 2-col grid
+        for i, spk in enumerate(seen):
+            cell = QWidget()
+            row = QHBoxLayout(cell)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+
+            swatch = QLabel()
+            swatch.setFixedSize(14, 14)
+            color = self._speaker_color(spk)
+            swatch.setStyleSheet(
+                f"background-color:{color}; border:1px solid #333;"
+                " border-radius:3px;")
+            row.addWidget(swatch)
+
+            lbl = QLabel(spk)
+            lbl.setFixedWidth(72)
+            lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+            row.addWidget(lbl)
+
+            le = QLineEdit()
+            le.setPlaceholderText(_("Nom (ex. Alice)"))
+            le.setText(self._speaker_name_map.get(spk, ""))
+            le.returnPressed.connect(self._apply_speaker_rename)
+            row.addWidget(le, 1)
+
+            grid_row, grid_col = divmod(i, 2)
+            self._rename_rows_layout.addWidget(cell, grid_row, grid_col)
+            self._rename_line_edits[spk] = le
+
+        # Equal stretch on both columns so the widths match
+        self._rename_rows_layout.setColumnStretch(0, 1)
+        self._rename_rows_layout.setColumnStretch(1, 1)
+
+        self._grp_rename.setVisible(True)
+
+    def _apply_speaker_rename(self):
+        """Collect QLineEdit values, update the display map, re-render.
+
+        Propagates the map to ALL tabs that hold diarized segments (the
+        active transcription tab and any translation tabs) so the user
+        sees renamed labels consistently across views and exports.
+        """
+        new_map = {}
+        for spk, le in self._rename_line_edits.items():
+            name = le.text().strip()
+            if name:
+                new_map[spk] = name
+
+        self._speaker_name_map = new_map
+        if hasattr(self, "_text_edit"):
+            self._text_edit._speaker_name_map = dict(new_map)
+
+        # Propagate to any other tab holding diarize segments (translation
+        # tabs spawned from this transcription).
+        for i in range(self._tabs.count()):
+            w = self._tabs.widget(i)
+            if not isinstance(w, QTextEdit):
+                continue
+            segs = getattr(w, "_diarize_segments", None)
+            if segs:
+                w._speaker_name_map = dict(new_map)
+                self._apply_format_to(w, segs, getattr(w, "_raw_text", ""))
+
+        # Refresh active tab explicitly too (covers the non-diarize case)
+        self._apply_format()
+
+        if new_map:
+            self._lbl_status.setText(_("Noms des locuteurs appliqués."))
+        else:
+            self._lbl_status.setText(_("Libellés par défaut restaurés."))
+        self._lbl_status.setVisible(True)
+
+    def _reset_speaker_rename(self):
+        """Clear all QLineEdits and re-apply an empty map."""
+        for le in self._rename_line_edits.values():
+            le.clear()
+        self._apply_speaker_rename()
 
     def _on_copy(self):
         editor = self._active_editor()
@@ -2073,21 +2414,26 @@ class TranscribeWindow(QDialog):
             for tab_name, text in selected:
                 # Find segments for this tab to reformat
                 content = text  # default: plain text from editor
-                if fmt != "text":
-                    # Try to find segments from the tab widget
-                    segments = None
-                    for i in range(self._tabs.count()):
-                        if self._tabs.tabText(i) == tab_name:
-                            w = self._tabs.widget(i)
-                            segs = getattr(w, '_diarize_segments', None)
-                            if segs:
-                                segments = segs
-                            break
+                # Locate the tab widget to fetch segments + per-tab name map
+                segments = None
+                name_map = None
+                for i in range(self._tabs.count()):
+                    if self._tabs.tabText(i) == tab_name:
+                        w = self._tabs.widget(i)
+                        segments = getattr(w, '_diarize_segments', None)
+                        name_map = getattr(w, '_speaker_name_map', None)
+                        break
 
+                if fmt == "text" and segments:
+                    # Re-render text format with renamed speakers so the
+                    # exported file reflects the current display map even
+                    # if the editor was never refreshed.
+                    content = _format_text(segments, name_map)
+                elif fmt != "text":
                     if segments and fmt == "srt":
-                        content = _format_srt(segments)
+                        content = _format_srt(segments, name_map)
                     elif segments and fmt == "json":
-                        content = _format_json(segments)
+                        content = _format_json(segments, name_map)
                     elif fmt == "json":
                         raw = self._raw_text if tab_name == self._tabs.tabText(0) else text
                         content = json.dumps([{"text": raw}], ensure_ascii=False, indent=2)

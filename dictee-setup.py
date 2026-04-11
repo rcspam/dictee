@@ -6451,7 +6451,12 @@ class DicteeSetupDialog(QDialog):
             "clic y navigue, le 2<sup>e</sup> clic (depuis la page) la bascule.<br>"
             "• Les étapes grisées sont inactives.<br>"
             "• L'ordre d'exécution est strict : une étape désactivée est "
-            "sautée, le texte passe à la suivante.")
+            "sautée, le texte passe à la suivante.<br><br>"
+            "<b>ℹ Diarisation</b><br>"
+            "Le mode diarisation (multi-locuteurs) ne passe pas par ces "
+            "pipelines : le texte brut est conservé tel quel pour préserver "
+            "les labels <code>[SPK1]</code>, <code>[SPK2]</code>… afin "
+            "d'éviter qu'ils soient dégradés par les règles typo / LLM.")
         help_btn = self._HelpLabel(help_text)
         # Bigger, more visible "?" placed right next to the title.
         help_btn.setStyleSheet(
@@ -6654,6 +6659,20 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_translate.toggled.connect(_trans_sub.setEnabled)
 
         lay.addWidget(self._pp_masters_row)
+
+        # Diarization note: explicit, visible once on the PP page.
+        _lbl_diarize_note = QLabel(_(
+            "ℹ <b>Diarisation</b> : en mode multi-locuteurs, le texte brut "
+            "est conservé tel quel (ni post-processing, ni traduction, "
+            "ni LLM) pour préserver les labels <code>[SPK1]</code>, "
+            "<code>[SPK2]</code>…"))
+        _lbl_diarize_note.setWordWrap(True)
+        _lbl_diarize_note.setTextFormat(Qt.TextFormat.RichText)
+        _lbl_diarize_note.setStyleSheet(
+            "QLabel { color: palette(text); background: palette(alternate-base);"
+            " border-left: 3px solid palette(highlight); border-radius: 3px;"
+            " padding: 6px 10px; font-size: 11px; }")
+        lay.addWidget(_lbl_diarize_note)
 
         # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
