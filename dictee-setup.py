@@ -29,7 +29,7 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 try:
     from PyQt6.QtCore import (
         Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QPropertyAnimation, QEasingCurve, pyqtSignal as Signal,
+        QUrl, QPropertyAnimation, QEasingCurve, pyqtSignal as Signal,
         pyqtProperty as Property,
     )
     from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
@@ -41,11 +41,11 @@ try:
         QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
         QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     )
-    from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
+    from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
 except ImportError:
     from PySide6.QtCore import (
         Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QPropertyAnimation, QEasingCurve, Signal, Property,
+        QUrl, QPropertyAnimation, QEasingCurve, Signal, Property,
     )
     from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
@@ -56,7 +56,7 @@ except ImportError:
         QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
         QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     )
-    from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
+    from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
 
 # === i18n ===
 
@@ -269,6 +269,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 llm_custom_prompt="",
                 continuation_indicator=">>",
                 audio_context=False, audio_context_timeout=30,
+                silence_rms=0.03,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False):
     """Update dictee.conf preserving comments and structure.
@@ -299,6 +300,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_POSTPROCESS": "true" if postprocess else "false",
         "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
+        "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
         "DICTEE_SETUP_DONE": "true",
     }
     # Conditional values (only written when non-default)
@@ -1501,16 +1503,81 @@ class _WhisperDownloadThread(QThread):
             self.done.emit(False, str(e))
 
 
+def _measure_wav_rms(wav_path):
+    """Measure normalized RMS amplitude of a WAV via `sox -n stat`.
+
+    Returns a float in 0..1. Returns 0.0 on error (missing sox, timeout,
+    unreadable file) — caller should treat that as "cannot verify" and
+    typically still proceed, since silencing a recording on a tooling
+    failure would be worse UX than an occasional hallucination.
+    """
+    try:
+        r = subprocess.run(
+            ["sox", wav_path, "-n", "stat"],
+            capture_output=True, text=True, timeout=5)
+        for line in r.stderr.splitlines():
+            if "RMS" in line and "amplitude" in line:
+                parts = line.split(":")
+                if len(parts) == 2:
+                    try:
+                        return float(parts[1].strip())
+                    except ValueError:
+                        pass
+                break
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    return 0.0
+
+
+def _silence_message(rms_measured, threshold):
+    """Pedagogical localized message shown when a test recording is skipped
+    because its RMS is below the silence threshold."""
+    return _(
+        "⚠ Aucune voix détectée (RMS {rms:.3f} < seuil {thr:.3f}).\n"
+        "Parle un peu plus fort, ou réduis le seuil de silence dans\n"
+        "Microphone → \"Tester le réglage du seuil\"."
+    ).format(rms=rms_measured, thr=threshold)
+
+
+def _read_silence_threshold_from_conf():
+    """Read DICTEE_SILENCE_RMS from ~/.config/dictee.conf (fallback 0.03).
+
+    Used by threads that don't have access to the DicteeSetupDialog
+    instance. Returns a float.
+    """
+    try:
+        path = os.path.expanduser("~/.config/dictee.conf")
+        if not os.path.isfile(path):
+            return 0.03
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("DICTEE_SILENCE_RMS="):
+                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    return float(val)
+    except (OSError, ValueError):
+        pass
+    return 0.03
+
+
 class _RuleTranscribeThread(QThread):
     """Thread pour transcrire un WAV lors du test de règle de post-traitement."""
     finished_sig = Signal(str)
 
-    def __init__(self, wav_path):
+    def __init__(self, wav_path, silence_threshold=None):
         super().__init__()
         self.wav_path = wav_path
+        self._silence_thr = (
+            silence_threshold if silence_threshold is not None
+            else _read_silence_threshold_from_conf())
 
     def run(self):
         try:
+            rms = _measure_wav_rms(self.wav_path)
+            if rms > 0 and rms < self._silence_thr:
+                self.finished_sig.emit(
+                    _silence_message(rms, self._silence_thr))
+                return
             result = subprocess.run(
                 ["transcribe-client", self.wav_path],
                 capture_output=True, text=True, timeout=30)
@@ -2246,17 +2313,28 @@ class ShortcutButton(QPushButton):
 
 
 class LevelMeter(QWidget):
-    """VU-mètre custom — rendu direct QPainter, très réactif."""
+    """VU-mètre custom — rendu direct QPainter, très réactif.
+
+    Supports an optional vertical threshold marker (`setThreshold(level)`)
+    drawn as a dashed white line — used by the silence-threshold slider in
+    the Microphone page to show where the cutoff sits on the meter scale.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._level = 0
+        self._threshold = -1  # disabled when negative
         self.setFixedHeight(14)
         self.setMinimumWidth(60)
 
     def setLevel(self, value):
         self._level = max(0, min(100, value))
         self.repaint()
+
+    def setThreshold(self, value):
+        """Set threshold marker position (0..100); negative = hide."""
+        self._threshold = int(value) if value is not None else -1
+        self.update()
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -2276,6 +2354,12 @@ class LevelMeter(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(grad)
             p.drawRoundedRect(2, 2, bar_w, h - 4, 3, 3)
+        # Threshold marker (dashed vertical line)
+        if 0 <= self._threshold <= 100:
+            x = 2 + int((w - 4) * self._threshold / 100)
+            pen = QPen(QColor(255, 255, 255, 220), 1.5, Qt.PenStyle.DashLine)
+            p.setPen(pen)
+            p.drawLine(x, 0, x, h - 1)
         p.end()
 
 
@@ -2325,7 +2409,7 @@ class TestTranslateThread(QThread):
     def __init__(self, duration=5, asr_backend="parakeet", trans_backend="trans:google",
                  source_lang="fr", target_lang="en", trans_engine="google",
                  lt_port=5000, ollama_model="translategemma", postprocess=False,
-                 parent=None):
+                 silence_threshold=None, parent=None):
         super().__init__(parent)
         self._duration = duration
         self._asr_backend = asr_backend
@@ -2336,6 +2420,9 @@ class TestTranslateThread(QThread):
         self._lt_port = lt_port
         self._ollama_model = ollama_model
         self._postprocess = postprocess
+        self._silence_thr = (
+            silence_threshold if silence_threshold is not None
+            else _read_silence_threshold_from_conf())
         self._rec_proc = None
         self._stopped = False
 
@@ -2472,6 +2559,12 @@ class TestTranslateThread(QThread):
                 self.result.emit(_("Error: ") + _("No audio recorded."))
                 return
 
+            # Silence threshold check (anti-hallucination)
+            _rms = _measure_wav_rms(wav_path)
+            if _rms > 0 and _rms < self._silence_thr:
+                self.result.emit(_silence_message(_rms, self._silence_thr))
+                return
+
             if self._asr_backend == "canary":
                 # Canary: single-pass ASR + translation
                 translated = self._translate_canary(wav_path)
@@ -2506,11 +2599,14 @@ class TestDicteeThread(QThread):
     """Enregistre le micro puis transcrit via transcribe-client <fichier>."""
     result = Signal(str)
 
-    def __init__(self, duration=5, postprocess=False, parent=None):
+    def __init__(self, duration=5, postprocess=False, silence_threshold=None, parent=None):
         super().__init__(parent)
         self._rec_proc = None
         self._duration = duration
         self._postprocess = postprocess
+        self._silence_thr = (
+            silence_threshold if silence_threshold is not None
+            else _read_silence_threshold_from_conf())
         self._stopped = False
 
     def stop(self):
@@ -2575,6 +2671,12 @@ class TestDicteeThread(QThread):
 
             if not os.path.exists(wav_path) or os.path.getsize(wav_path) < 100:
                 self.result.emit(_("Error: ") + _("No audio recorded."))
+                return
+
+            # Silence threshold check (anti-hallucination)
+            _rms = _measure_wav_rms(wav_path)
+            if _rms > 0 and _rms < self._silence_thr:
+                self.result.emit(_silence_message(_rms, self._silence_thr))
                 return
 
             # Transcrire via transcribe-client <fichier>
@@ -6253,8 +6355,12 @@ class DicteeSetupDialog(QDialog):
                     Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
                 self._popup.setStyleSheet(
                     "QLabel { background: palette(highlight); color: palette(highlighted-text);"
-                    " border: 1px solid palette(dark); border-radius: 4px;"
-                    " padding: 6px; }")
+                    " border: 1px solid palette(dark); border-radius: 6px;"
+                    " padding: 12px; font-size: 14px; }")
+                self._popup.setWordWrap(True)
+                self._popup.setMaximumWidth(480)
+                self._popup.setTextFormat(Qt.TextFormat.RichText)
+                self._popup.adjustSize()
             pos = self.mapToGlobal(self.rect().bottomLeft())
             self._popup.move(pos)
             self._popup.show()
@@ -6286,6 +6392,7 @@ class DicteeSetupDialog(QDialog):
         """Build the SVG pipeline diagram header.
 
         Contains:
+          - Accordion header bar (toggle arrow + title + help button)
           - Hint label
           - Blue pipeline diagram (Normal mode)
           - Orange pipeline diagram (Translation mode, LLM always off)
@@ -6293,7 +6400,7 @@ class DicteeSetupDialog(QDialog):
         Both diagrams render from the same `self._pp_state` dict (mirror).
         Each is wrapped in a row with a small label on the left.
         Idempotent: reuses existing diagram instances if already built."""
-        from PyQt6.QtWidgets import QScrollArea as _QSA
+        from PyQt6.QtWidgets import QScrollArea as _QSA, QToolButton
         from PyQt6.QtGui import QPalette, QColor
 
         container = QWidget()
@@ -6303,13 +6410,67 @@ class DicteeSetupDialog(QDialog):
 
         accent_hex = self.palette().color(
             self.palette().ColorRole.Highlight).name()
-        hint = QLabel(_(
-            "Cliquer sur les boutons de la chaîne de traitement "
-            "ci-dessous pour activer/désactiver les post-traitements"))
-        hint.setWordWrap(True)
-        hint.setStyleSheet(
-            f"color: {accent_hex}; font-size: 12px; font-weight: bold;")
-        c_lay.addWidget(hint)
+
+        # ── Accordion header bar: arrow + title + help button ──
+        header = QWidget()
+        hdr_lay = QHBoxLayout(header)
+        hdr_lay.setContentsMargins(4, 2, 4, 2)
+        hdr_lay.setSpacing(6)
+
+        toggle_btn = QToolButton()
+        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        toggle_btn.setArrowType(Qt.ArrowType.DownArrow)
+        toggle_btn.setText(_("Visualisation interactive des pipelines de post-traitement"))
+        toggle_btn.setCheckable(True)
+        toggle_btn.setChecked(True)
+        toggle_btn.setAutoRaise(True)
+        toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        toggle_btn.setStyleSheet(
+            "QToolButton { font-weight: bold; font-size: 17px;"
+            " color: white; border: none; padding: 4px 6px; }"
+            "QToolButton:hover { background: rgba(255,255,255,40); border-radius: 3px; }")
+        hdr_lay.addWidget(toggle_btn)
+
+        help_text = _(
+            "<b>Que voyez-vous ici ?</b><br>"
+            "Deux chaînes de traitement appliquées au texte reconnu par l'ASR, "
+            "dans l'ordre d'exécution de gauche à droite.<br><br>"
+            "<b>🔵 Diagramme bleu — Pipeline Normal</b><br>"
+            "Appliqué au texte dans la langue source (celle que vous dictez). "
+            "Corrige la ponctuation, les nombres, les règles de langue, "
+            "le dictionnaire perso, la capitalisation et peut finir par un "
+            "passage LLM optionnel pour la grammaire.<br><br>"
+            "<b>🟠 Diagramme orange — Pipeline Translation</b><br>"
+            "Appliqué une seule fois, <i>après</i> la traduction, sur le "
+            "texte déjà traduit, avec la langue cible comme référence. "
+            "Le passage LLM est toujours désactivé (les backends de "
+            "traduction produisent déjà du texte grammaticalement propre).<br><br>"
+            "<b>Comment interagir ?</b><br>"
+            "• Cliquer sur une étape l'active ou la désactive instantanément.<br>"
+            "• Si l'étape a sa propre page de configuration, le 1<sup>er</sup> "
+            "clic y navigue, le 2<sup>e</sup> clic (depuis la page) la bascule.<br>"
+            "• Les étapes grisées sont inactives.<br>"
+            "• L'ordre d'exécution est strict : une étape désactivée est "
+            "sautée, le texte passe à la suivante.")
+        help_btn = self._HelpLabel(help_text)
+        # Bigger, more visible "?" placed right next to the title.
+        help_btn.setStyleSheet(
+            "QLabel { border: 1px solid white;"
+            " border-radius: 9px; font-size: 16px; font-weight: bold;"
+            " color: white; background: transparent;"
+            " padding: 0px 4px; min-width: 0px; }"
+            "QLabel:hover { background: rgba(255,255,255,40); }")
+        help_btn.setCursor(Qt.CursorShape.WhatsThisCursor)
+        hdr_lay.addWidget(help_btn)
+        hdr_lay.addStretch(1)
+
+        c_lay.addWidget(header)
+
+        # ── Collapsible content ──
+        content = QWidget()
+        in_lay = QVBoxLayout(content)
+        in_lay.setContentsMargins(0, 0, 0, 0)
+        in_lay.setSpacing(4)
 
         def _make_row(diagram):
             sc = _QSA()
@@ -6324,7 +6485,7 @@ class DicteeSetupDialog(QDialog):
         # Blue (Normal) diagram — reuses the default palette (KDE Highlight)
         if not hasattr(self, "_pp_diagram") or self._pp_diagram is None:
             self._pp_diagram = _PipelineDiagram(self.palette())
-        c_lay.addWidget(_make_row(self._pp_diagram))
+        in_lay.addWidget(_make_row(self._pp_diagram))
 
         # Orange (Translation) diagram — palette override with orange Highlight,
         # LLM always forced off (translation never runs LLM).
@@ -6334,7 +6495,16 @@ class DicteeSetupDialog(QDialog):
             _orange_pal.setColor(QPalette.ColorRole.HighlightedText, QColor("white"))
             self._trpp_diagram = _PipelineDiagram(
                 _orange_pal, variant="orange", llm_force_off=True)
-        c_lay.addWidget(_make_row(self._trpp_diagram))
+        in_lay.addWidget(_make_row(self._trpp_diagram))
+
+        c_lay.addWidget(content)
+
+        # Wire accordion toggle
+        def _toggle_accordion(open_):
+            content.setVisible(open_)
+            toggle_btn.setArrowType(
+                Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
+        toggle_btn.toggled.connect(_toggle_accordion)
 
         return container
 
@@ -7995,7 +8165,10 @@ class DicteeSetupDialog(QDialog):
                 self._pw_proc.terminate()
                 self._pw_proc.wait()
             # Transcrire dans un thread pour ne pas bloquer l'UI
-            self._rule_transcribe_thread = _RuleTranscribeThread(tmpwav)
+            _thr = (
+                self.slider_silence.value() / 1000.0
+                if hasattr(self, 'slider_silence') else None)
+            self._rule_transcribe_thread = _RuleTranscribeThread(tmpwav, _thr)
             self._rule_transcribe_thread.finished_sig.connect(
                 lambda result, wav=tmpwav: (
                     setattr(self, '_rule_transcribe_result', result),
@@ -10435,9 +10608,407 @@ class DicteeSetupDialog(QDialog):
         self.mic_level = LevelMeter()
         lay_mic.addWidget(self.mic_level)
 
+        # Silence threshold slider + calibration playground are hidden in
+        # wizard mode — first-time users shouldn't be overwhelmed. The
+        # conf key DICTEE_SILENCE_RMS keeps its default 0.03 until the
+        # user opens the regular setup later.
+        if not self.wizard_mode:
+            self._build_silence_threshold_section(lay_mic, conf)
+
         # In wizard mode, start audio level only when page 4 becomes visible
         if not self.wizard_mode:
             self._start_audio_level()
+
+    def _build_silence_threshold_section(self, lay_mic, conf):
+        """Silence threshold slider + calibration playground.
+
+        Only called in non-wizard mode (regular setup).
+        """
+        # Silence threshold slider (anti-hallucination)
+        # Range 10..60 → 0.010..0.060. Default 30 (= 0.030).
+        try:
+            _saved_rms = float(conf.get("DICTEE_SILENCE_RMS", "0.03"))
+        except ValueError:
+            _saved_rms = 0.03
+        _saved_rms_int = max(10, min(60, int(round(_saved_rms * 1000))))
+
+        lay_sil = QHBoxLayout()
+        lay_sil.setSpacing(8)
+        lbl_sil = QLabel(_("Silence threshold:"))
+        lbl_sil.setToolTip(_(
+            "RMS level below which the recording is considered silent\n"
+            "and transcription is skipped. Prevents ASR hallucinations\n"
+            "(parasitic phrases invented on background noise)."))
+        self.slider_silence = QSlider(Qt.Orientation.Horizontal)
+        self.slider_silence.setRange(10, 60)
+        self.slider_silence.setValue(_saved_rms_int)
+        self.slider_silence.setTickInterval(10)
+        self.slider_silence.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.lbl_silence_val = QLabel(f"{_saved_rms_int / 1000:.3f}")
+        self.lbl_silence_val.setMinimumWidth(48)
+        self.lbl_silence_val.setStyleSheet("font-family: monospace;")
+
+        def _rms_to_meter_level(rms_int):
+            # rms_int is the slider value (10..60, representing 0.010..0.060).
+            # Meter level uses: level = (20*log10(rms_norm) + 50) * 2, same
+            # formula as AudioLevelMonitor, so the marker lines up with
+            # actual VU readings.
+            rms = rms_int / 1000.0
+            if rms <= 0:
+                return 0
+            db = 20 * math.log10(rms)
+            return max(0, min(100, int((db + 50) * 2)))
+
+        def _on_silence_changed(v):
+            self.lbl_silence_val.setText(f"{v / 1000:.3f}")
+            self.mic_level.setThreshold(_rms_to_meter_level(v))
+
+        self.slider_silence.valueChanged.connect(_on_silence_changed)
+        # Initial marker position
+        self.mic_level.setThreshold(_rms_to_meter_level(_saved_rms_int))
+        lay_sil.addWidget(lbl_sil)
+        lay_sil.addWidget(self.slider_silence, 1)
+        lay_sil.addWidget(self.lbl_silence_val)
+        lay_mic.addLayout(lay_sil)
+
+        lbl_sil_warn = QLabel(_(
+            "⚠ Trop bas → l'ASR peut halluciner sur le bruit de fond. "
+            "Trop haut → risque de couper les voix douces."))
+        lbl_sil_warn.setWordWrap(True)
+        lbl_sil_warn.setStyleSheet(
+            "color: #e67e22; font-size: 11px; padding-left: 4px;")
+        lay_mic.addWidget(lbl_sil_warn)
+
+        # Calibration lab (record → measure RMS → transcribe → compare)
+        self._build_calibration_section(lay_mic)
+
+    def _build_calibration_section(self, lay_mic):
+        """Calibration playground: record, listen, compare RMS vs threshold.
+
+        - Press to start / press to stop
+        - 4 records max, FIFO drop
+        - Non-persistent: WAVs in /dev/shm, cleaned on Apply or close
+        - Each card shows RMS measured, threshold at record time, source,
+          ASR backend, timestamp, verdict (skip or transcribed text)
+        """
+        self._calib_records = []
+        self._calib_rec_process = None
+        self._calib_rec_path = None
+        self._calib_counter = 0
+        self._calib_player = None
+        self._calib_audio_out = None
+        self._calib_playing_path = None
+
+        hdr = QHBoxLayout()
+        hdr.setSpacing(8)
+        lbl_title = QLabel(_("Tester le réglage du seuil :"))
+        lbl_title.setStyleSheet("font-weight: bold; font-size: 12px;")
+        hdr.addWidget(lbl_title)
+
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        _mic_icon = QIcon.fromTheme("audio-input-microphone")
+        self._btn_calib_record = (
+            QPushButton(_mic_icon, "") if not _mic_icon.isNull()
+            else QPushButton("🎙"))
+        self._btn_calib_record.setFixedSize(48, 48)
+        self._btn_calib_record.setIconSize(self._btn_calib_record.size() * 0.55)
+        self._btn_calib_record.setToolTip(_(
+            "Record a sample, measure its RMS, check whether the current "
+            "silence threshold would skip or transcribe it. Press again to stop."))
+        self._btn_calib_record.setStyleSheet(
+            f"background-color: {accent}; color: white; border-radius: 8px;")
+        self._btn_calib_record.clicked.connect(self._toggle_calib_recording)
+        hdr.addWidget(self._btn_calib_record)
+        hdr.addStretch(1)
+        self._lbl_calib_count = QLabel("0/4")
+        self._lbl_calib_count.setStyleSheet("color: #888; font-size: 11px;")
+        hdr.addWidget(self._lbl_calib_count)
+        lay_mic.addLayout(hdr)
+
+        self._calib_container = QWidget()
+        self._calib_lay = QVBoxLayout(self._calib_container)
+        self._calib_lay.setContentsMargins(0, 4, 0, 0)
+        self._calib_lay.setSpacing(6)
+        lay_mic.addWidget(self._calib_container)
+
+    def _toggle_calib_recording(self):
+        if self._calib_rec_process is not None:
+            self._stop_calib_recording()
+            return
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        shm_dir = "/dev/shm" if os.path.isdir("/dev/shm") else runtime_dir
+        self._calib_counter += 1
+        self._calib_rec_path = os.path.join(
+            shm_dir, f"dictee-calib-{os.getpid()}-{self._calib_counter}.wav")
+
+        src = self.cmb_audio_source.currentData() if hasattr(self, 'cmb_audio_source') else ""
+        pw_args = ["--rate", "16000", "--channels", "1", "--format", "s16"]
+        if src:
+            pw_args += ["--target", str(src)]
+        pw_args.append(self._calib_rec_path)
+
+        self._calib_rec_process = QProcess(self)
+        self._calib_rec_process.start("pw-record", pw_args)
+        _stop_icon = QIcon.fromTheme("media-playback-stop")
+        if not _stop_icon.isNull():
+            self._btn_calib_record.setIcon(_stop_icon)
+        else:
+            self._btn_calib_record.setText("⏹")
+        self._btn_calib_record.setStyleSheet(
+            "background-color: #c0392b; color: white; border-radius: 8px;")
+
+    def _stop_calib_recording(self):
+        proc = self._calib_rec_process
+        if proc is None:
+            return
+        proc.terminate()
+        proc.waitForFinished(2000)
+        self._calib_rec_process = None
+        # Restore mic icon + accent background
+        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+        _mic_icon = QIcon.fromTheme("audio-input-microphone")
+        if not _mic_icon.isNull():
+            self._btn_calib_record.setIcon(_mic_icon)
+            self._btn_calib_record.setText("")
+        else:
+            self._btn_calib_record.setIcon(QIcon())
+            self._btn_calib_record.setText("🎙")
+        self._btn_calib_record.setStyleSheet(
+            f"background-color: {accent}; color: white; border-radius: 8px;")
+
+        wav = self._calib_rec_path
+        self._calib_rec_path = None
+        if not wav or not os.path.isfile(wav):
+            return
+        self._process_calib_recording(wav)
+
+    def _process_calib_recording(self, wav_path):
+        import socket as _socket
+        import time
+
+        # Measure RMS via `sox ... -n stat`
+        rms_measured = 0.0
+        try:
+            res = subprocess.run(
+                ["sox", wav_path, "-n", "stat"],
+                capture_output=True, text=True, timeout=10)
+            for line in res.stderr.splitlines():
+                if "RMS" in line and "amplitude" in line:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        try:
+                            rms_measured = float(parts[1].strip())
+                        except ValueError:
+                            pass
+                    break
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        threshold = self.slider_silence.value() / 1000.0
+        skipped = rms_measured < threshold
+
+        src_label = self.cmb_audio_source.currentText() if hasattr(self, 'cmb_audio_source') else "?"
+        backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        timestamp = time.strftime("%H:%M:%S")
+
+        transcription = ""
+        if not skipped:
+            runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+            sock_path = os.path.join(runtime_dir, "transcribe.sock")
+            if not os.path.exists(sock_path):
+                sock_path = os.path.join(runtime_dir, "dictee", "transcribe.sock")
+            if not os.path.exists(sock_path):
+                sock_path = "/tmp/transcribe.sock"
+            try:
+                s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+                s.settimeout(20)
+                s.connect(sock_path)
+                s.sendall((wav_path + "\n").encode())
+                data = b""
+                while True:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                transcription = data.decode("utf-8").strip()
+                s.close()
+            except (OSError, _socket.error):
+                transcription = _("(ASR daemon unreachable)")
+
+        record = {
+            "path": wav_path,
+            "rms": rms_measured,
+            "threshold": threshold,
+            "source": src_label,
+            "backend": backend,
+            "timestamp": timestamp,
+            "skipped": skipped,
+            "transcription": transcription,
+        }
+        self._calib_records.insert(0, record)
+        while len(self._calib_records) > 4:
+            old = self._calib_records.pop()
+            try:
+                os.unlink(old["path"])
+            except OSError:
+                pass
+        self._refresh_calib_cards()
+
+    def _refresh_calib_cards(self):
+        while self._calib_lay.count():
+            item = self._calib_lay.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        for i, rec in enumerate(self._calib_records):
+            self._calib_lay.addWidget(self._make_calib_card(i, rec))
+        if hasattr(self, '_lbl_calib_count'):
+            self._lbl_calib_count.setText(f"{len(self._calib_records)}/4")
+
+    def _make_calib_card(self, index, rec):
+        card = QFrame()
+        card.setFrameShape(QFrame.Shape.StyledPanel)
+        card.setStyleSheet(
+            "QFrame { border: 1px solid palette(mid); border-radius: 6px;"
+            " background: palette(base); }")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(3)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(6)
+        btn_play = QPushButton()
+        is_playing = (
+            self._calib_playing_path == rec["path"]
+            and self._calib_player is not None
+            and self._calib_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        )
+        _play_ico = QIcon.fromTheme(
+            "media-playback-pause" if is_playing else "media-playback-start")
+        if not _play_ico.isNull():
+            btn_play.setIcon(_play_ico)
+        else:
+            btn_play.setText("⏸" if is_playing else "▶")
+        btn_play.setFixedSize(28, 24)
+        btn_play.setToolTip(_("Pause") if is_playing else _("Play"))
+        btn_play.clicked.connect(lambda _=False, p=rec["path"]: self._toggle_play_calib(p))
+        row1.addWidget(btn_play)
+
+        btn_del = QPushButton()
+        _del_icon = QIcon.fromTheme("edit-delete")
+        if _del_icon.isNull():
+            _del_icon = QIcon.fromTheme("user-trash")
+        if not _del_icon.isNull():
+            btn_del.setIcon(_del_icon)
+        else:
+            btn_del.setText("✕")
+        btn_del.setFixedSize(28, 24)
+        btn_del.setToolTip(_("Delete"))
+        btn_del.clicked.connect(lambda _=False, i=index: self._delete_calib(i))
+        row1.addWidget(btn_del)
+
+        rec_num = len(self._calib_records) - index
+        lbl_meta = QLabel(f"<b>#{rec_num}</b> — {rec['timestamp']}")
+        lbl_meta.setStyleSheet("font-size: 11px;")
+        row1.addWidget(lbl_meta)
+        row1.addStretch(1)
+        lay.addLayout(row1)
+
+        rms_str = f"{rec['rms']:.3f}"
+        thr_str = f"{rec['threshold']:.3f}"
+        mark = "✓" if not rec["skipped"] else "✗"
+        color = "#2ecc71" if not rec["skipped"] else "#e67e22"
+        lbl_rms = QLabel(
+            f"<span style='color:{color}; font-weight:bold;'>{mark}</span> "
+            f"RMS mesuré : <b>{rms_str}</b> &nbsp; Seuil : <b>{thr_str}</b>")
+        lbl_rms.setStyleSheet("font-size: 11px;")
+        lay.addWidget(lbl_rms)
+
+        lbl_src = QLabel(
+            f"Source : <i>{rec['source']}</i> &nbsp;|&nbsp; "
+            f"ASR : <i>{rec['backend']}</i>")
+        lbl_src.setStyleSheet("color: #888; font-size: 10px;")
+        lay.addWidget(lbl_src)
+
+        if rec["skipped"]:
+            lbl_verdict = QLabel("⚠ " + _("Silence détecté — skippé"))
+            lbl_verdict.setStyleSheet(
+                "color: #e67e22; font-style: italic; font-size: 11px;")
+        else:
+            text = rec["transcription"] or "(∅)"
+            lbl_verdict = QLabel(f"→ \"{text}\"")
+            lbl_verdict.setWordWrap(True)
+            lbl_verdict.setStyleSheet("color: #2ecc71; font-size: 11px;")
+        lay.addWidget(lbl_verdict)
+
+        return card
+
+    def _ensure_calib_player(self):
+        if self._calib_player is None:
+            self._calib_audio_out = QAudioOutput()
+            self._calib_player = QMediaPlayer()
+            self._calib_player.setAudioOutput(self._calib_audio_out)
+            self._calib_player.playbackStateChanged.connect(
+                lambda _s: self._refresh_calib_cards())
+
+    def _toggle_play_calib(self, path):
+        if not os.path.isfile(path):
+            return
+        self._ensure_calib_player()
+        player = self._calib_player
+        if self._calib_playing_path == path:
+            # Same file loaded — true pause/resume
+            if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
+                player.pause()
+            else:
+                player.play()
+        else:
+            player.stop()
+            player.setSource(QUrl.fromLocalFile(path))
+            self._calib_playing_path = path
+            player.play()
+
+    def _delete_calib(self, index):
+        if 0 <= index < len(self._calib_records):
+            rec = self._calib_records.pop(index)
+            try:
+                os.unlink(rec["path"])
+            except OSError:
+                pass
+            self._refresh_calib_cards()
+
+    def _cleanup_calib_records(self):
+        """Delete all temp WAVs from calibration records (on apply or close)."""
+        # Stop any ongoing recording
+        if getattr(self, '_calib_rec_process', None) is not None:
+            try:
+                self._calib_rec_process.terminate()
+                self._calib_rec_process.waitForFinished(1000)
+            except Exception:
+                pass
+            self._calib_rec_process = None
+        # Stop playback and release the source so the WAV can be unlinked
+        if getattr(self, '_calib_player', None) is not None:
+            try:
+                self._calib_player.stop()
+                self._calib_player.setSource(QUrl())
+            except Exception:
+                pass
+        self._calib_playing_path = None
+        for rec in getattr(self, '_calib_records', []):
+            try:
+                os.unlink(rec["path"])
+            except OSError:
+                pass
+        if hasattr(self, '_calib_rec_path') and self._calib_rec_path:
+            try:
+                os.unlink(self._calib_rec_path)
+            except OSError:
+                pass
+            self._calib_rec_path = None
+        self._calib_records = []
+        if hasattr(self, '_calib_lay'):
+            self._refresh_calib_cards()
 
     def _populate_audio_sources(self):
         """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
@@ -10618,6 +11189,7 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
+        self._cleanup_calib_records()
         # Wizard annulé : rien n'a été écrit sur disque, rien à nettoyer
         super().closeEvent(event)
 
@@ -10639,7 +11211,11 @@ class DicteeSetupDialog(QDialog):
         self._test_timer.timeout.connect(self._on_test_tick)
         self._test_timer.start(1000)
         pp_enabled = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else False
-        self._test_thread = TestDicteeThread(duration=5, postprocess=pp_enabled)
+        _thr = (
+            self.slider_silence.value() / 1000.0
+            if hasattr(self, 'slider_silence') else None)
+        self._test_thread = TestDicteeThread(
+            duration=5, postprocess=pp_enabled, silence_threshold=_thr)
         self._test_thread.result.connect(self._on_test_result)
         self._test_thread.start()
 
@@ -10695,10 +11271,14 @@ class DicteeSetupDialog(QDialog):
         ollama_model = self.cmb_ollama_model.currentText() if hasattr(self, 'cmb_ollama_model') else "translategemma"
         pp_enabled = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else False
 
+        _thr = (
+            self.slider_silence.value() / 1000.0
+            if hasattr(self, 'slider_silence') else None)
         self._test_thread = TestTranslateThread(
             duration=5, asr_backend=asr, trans_backend=trans_backend,
             source_lang=source, target_lang=target, trans_engine=trans_engine,
             lt_port=lt_port, ollama_model=ollama_model, postprocess=pp_enabled,
+            silence_threshold=_thr,
         )
         self._test_thread.result.connect(self._on_test_translate_result)
         self._test_thread.start()
@@ -11868,7 +12448,17 @@ class DicteeSetupDialog(QDialog):
             self._recording_process.terminate()
             self._recording_process.waitForFinished(2000)
             self._recording_process = None
-            self._btn_record.setText("\U0001f3a4")
+            # Restore mic icon + accent background
+            accent = self.palette().color(self.palette().ColorRole.Highlight).name()
+            _mic_icon = QIcon.fromTheme("audio-input-microphone")
+            if not _mic_icon.isNull():
+                self._btn_record.setIcon(_mic_icon)
+                self._btn_record.setText("")
+            else:
+                self._btn_record.setIcon(QIcon())
+                self._btn_record.setText("\U0001f3a4")
+            self._btn_record.setStyleSheet(
+                f"background-color: {accent}; color: white; border-radius: 8px;")
             self._transcribe_recorded()
             return
 
@@ -11906,7 +12496,15 @@ class DicteeSetupDialog(QDialog):
         self._recording_process.start("pw-record", [
             "--rate", "16000", "--channels", "1", "--format", "s16",
             self._tmp_wav])
-        self._btn_record.setText(_("Stop"))
+        _stop_icon = QIcon.fromTheme("media-playback-stop")
+        if not _stop_icon.isNull():
+            self._btn_record.setIcon(_stop_icon)
+            self._btn_record.setText("")
+        else:
+            self._btn_record.setIcon(QIcon())
+            self._btn_record.setText("⏹")
+        self._btn_record.setStyleSheet(
+            "background-color: #c0392b; color: white; border-radius: 8px;")
 
     def _transcribe_recorded(self):
         """Sends recorded WAV to daemon via Unix socket."""
@@ -11914,6 +12512,22 @@ class DicteeSetupDialog(QDialog):
         wav_path = getattr(self, '_tmp_wav', None)
         if not wav_path or not os.path.isfile(wav_path):
             return
+
+        # Silence threshold check — consistent with the main PTT flow
+        # and the calibration playground.
+        _thr = (
+            self.slider_silence.value() / 1000.0
+            if hasattr(self, 'slider_silence')
+            else _read_silence_threshold_from_conf())
+        _rms = _measure_wav_rms(wav_path)
+        if _rms > 0 and _rms < _thr:
+            self._test_input.setPlainText(_silence_message(_rms, _thr))
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
+            return
+
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
         sock_path = os.path.join(runtime_dir, "transcribe.sock")
         if not os.path.exists(sock_path):
@@ -12137,6 +12751,7 @@ class DicteeSetupDialog(QDialog):
         # Audio context buffer
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
+        silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         save_config(backend, lang_src, lang_tgt, clipboard,
@@ -12166,10 +12781,15 @@ class DicteeSetupDialog(QDialog):
                     continuation_indicator=continuation_indicator,
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
+                    silence_rms=silence_rms,
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
                     command_suffixes=self._command_suffixes,
                     debug=debug)
+
+        # Calibration playground: wipe temp recordings now that the
+        # threshold value has been validated and persisted.
+        self._cleanup_calib_records()
 
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)

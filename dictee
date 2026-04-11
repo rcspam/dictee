@@ -1112,10 +1112,15 @@ if [ -f "$PIDFILE" ]; then
     write_state "transcribing"
     stop_recording
 
-    # Skip transcription if recording is silence (nothing spoken)
+    # Skip transcription if recording is silence (nothing spoken).
+    # Threshold is user-tunable via DICTEE_SILENCE_RMS (dictee.conf),
+    # default 0.03. Lower = more sensitive (risk of ASR hallucinations
+    # on background noise). Higher = less sensitive (risk of dropping
+    # soft voices).
     _rms=$(sox "$RECORDING_FILE" -n stat 2>&1 | awk '/RMS.*amplitude/{print $3; exit}')
-    if [ -n "$_rms" ] && awk "BEGIN{exit(!($_rms < 0.03))}" 2>/dev/null; then
-        _dbg "silence detected (RMS=$_rms) — skipping transcription"
+    _silence_thresh="${DICTEE_SILENCE_RMS:-0.03}"
+    if [ -n "$_rms" ] && awk "BEGIN{exit(!($_rms < $_silence_thresh))}" 2>/dev/null; then
+        _dbg "silence detected (RMS=$_rms < threshold=$_silence_thresh) — skipping transcription"
         notify_dictee 0 audio-volume-muted-symbolic "Silence détecté — rien à transcrire"
         _close_id="${NOTIFY_SERVER_ID:-$(cat "$_NOTIFY_SID_FILE" 2>/dev/null)}"
         if [ -n "$_close_id" ]; then
