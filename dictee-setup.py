@@ -27,8 +27,12 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
     sys.path.append(_lib_dir)
 
 try:
-    from PyQt6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, pyqtSignal as Signal
-    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+    from PyQt6.QtCore import (
+        Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
+        QPropertyAnimation, QEasingCurve, pyqtSignal as Signal,
+        pyqtProperty as Property,
+    )
+    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -39,8 +43,11 @@ try:
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices
 except ImportError:
-    from PySide6.QtCore import Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, Signal
-    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+    from PySide6.QtCore import (
+        Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
+        QPropertyAnimation, QEasingCurve, Signal, Property,
+    )
+    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
@@ -2777,6 +2784,134 @@ class _GripHandle(QLabel):
         self._drag_origin = None
 
 
+class ToggleSwitch(QCheckBox):
+    """Plasma/iOS-style toggle switch with an oblong track and a sliding handle.
+
+    Drop-in replacement for QCheckBox: accepts a label text, honours
+    isChecked/setChecked, the toggled signal, the enabled state, tooltips
+    and stylesheets that affect font-size / font-weight (applied via
+    self.font()). Text colour follows the widget palette, so stylesheets
+    of the form `QCheckBox { color: X }` keep working after Qt polishes
+    the widget.
+    """
+
+    _TRACK_W = 44
+    _TRACK_H = 22
+    _TRACK_RADIUS = 11
+    _HANDLE_RADIUS = 9
+    _TEXT_SPACING = 8
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._offset_val = 1.0 if self.isChecked() else 0.0
+        self._anim = QPropertyAnimation(self, b"offset", self)
+        self._anim.setDuration(180)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toggled.connect(self._animate)
+
+    def sizeHint(self):
+        fm = self.fontMetrics()
+        text = self.text()
+        h = max(self._TRACK_H, fm.height())
+        if text:
+            w = self._TRACK_W + self._TEXT_SPACING + fm.horizontalAdvance(text)
+        else:
+            w = self._TRACK_W
+        return QSize(w, h)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
+
+    def setChecked(self, checked):
+        # When a caller wraps setChecked in blockSignals(True), the toggled
+        # signal is suppressed and our _animate slot never fires, leaving
+        # the handle stuck on the old side. Detect that and drive the
+        # animation ourselves so visual state always tracks logical state.
+        checked = bool(checked)
+        was_checked = self.isChecked()
+        super().setChecked(checked)
+        if was_checked != checked and self.signalsBlocked():
+            self._animate(checked)
+
+    def _animate(self, checked):
+        self._anim.stop()
+        self._anim.setStartValue(self._offset_val)
+        self._anim.setEndValue(1.0 if checked else 0.0)
+        self._anim.start()
+
+    def _get_offset(self):
+        return self._offset_val
+
+    def _set_offset(self, value):
+        self._offset_val = value
+        self.update()
+
+    offset = Property(float, fget=_get_offset, fset=_set_offset)
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pal = self.palette()
+        enabled = self.isEnabled()
+
+        off_color = QColor("#5a5a5a") if enabled else QColor("#3a3a3a")
+        on_color = pal.color(pal.ColorRole.Highlight)
+        if not enabled:
+            on_color = on_color.darker(160)
+        handle_color = QColor("#f4f4f4") if enabled else QColor("#aaaaaa")
+
+        t = self._offset_val
+        track = QColor(
+            int(off_color.red() * (1 - t) + on_color.red() * t),
+            int(off_color.green() * (1 - t) + on_color.green() * t),
+            int(off_color.blue() * (1 - t) + on_color.blue() * t),
+        )
+
+        total_h = self.height()
+        track_y = (total_h - self._TRACK_H) / 2
+        track_rect = QRectF(0, track_y, self._TRACK_W, self._TRACK_H)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(track))
+        p.drawRoundedRect(track_rect, self._TRACK_RADIUS, self._TRACK_RADIUS)
+
+        margin = (self._TRACK_H - self._HANDLE_RADIUS * 2) / 2
+        travel = self._TRACK_W - self._HANDLE_RADIUS * 2 - margin * 2
+        hx = margin + travel * self._offset_val
+        hy = track_y + margin
+        handle_rect = QRectF(hx, hy, self._HANDLE_RADIUS * 2, self._HANDLE_RADIUS * 2)
+        p.setBrush(QBrush(handle_color))
+        p.setPen(QPen(QColor(0, 0, 0, 70), 1))
+        p.drawEllipse(handle_rect)
+
+        text = self.text()
+        if text:
+            if not enabled:
+                text_color = QColor("#9a9a9a")
+            elif not self.isChecked():
+                # Slightly greyed when inactive — the label steps back
+                # until the user turns the switch on.
+                text_color = QColor(pal.color(pal.ColorRole.WindowText))
+                text_color.setAlpha(160)
+            else:
+                text_color = pal.color(pal.ColorRole.WindowText)
+            p.setPen(text_color)
+            p.setFont(self.font())
+            text_x = int(self._TRACK_W + self._TEXT_SPACING)
+            text_rect = QRect(text_x, 0, self.width() - text_x, total_h)
+            p.drawText(
+                text_rect,
+                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                text,
+            )
+
+        p.end()
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -3052,12 +3187,12 @@ class DicteeSetupDialog(QDialog):
         lay_opt = QVBoxLayout(grp_options)
         lay_opt.setSpacing(6)
         lay_opt.setContentsMargins(16, 16, 16, 12)
-        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
         lay_opt.addWidget(self.chk_clipboard)
 
         # Audio context buffer
-        self.chk_audio_context = QCheckBox(_("Audio context buffer"))
+        self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
         self.chk_audio_context.setToolTip(
             _("Accumulate audio from previous dictations to improve recognition\n"
@@ -3081,7 +3216,7 @@ class DicteeSetupDialog(QDialog):
         lay_ctx.addStretch()
         lay_opt.addLayout(lay_ctx)
 
-        self.chk_debug = QCheckBox(_("Debug mode (log to /tmp)"))
+        self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
         self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
         self.chk_debug.setToolTip(
             _("Write detailed logs to /tmp/dictee-debug-*.log\n"
@@ -3095,9 +3230,9 @@ class DicteeSetupDialog(QDialog):
         lay_notif = QVBoxLayout(grp_notif)
         lay_notif.setSpacing(6)
         lay_notif.setContentsMargins(16, 16, 16, 12)
-        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications = ToggleSwitch(_("Show notifications"))
         self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
-        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text = ToggleSwitch(_("Show transcribed text in notifications"))
         self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
         self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
         self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
@@ -3721,11 +3856,11 @@ class DicteeSetupDialog(QDialog):
         lay_opt = QVBoxLayout(grp_options)
         lay_opt.setSpacing(6)
         lay_opt.setContentsMargins(16, 16, 16, 12)
-        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
         lay_opt.addWidget(self.chk_clipboard)
 
-        self.chk_audio_context = QCheckBox(_("Audio context buffer"))
+        self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
         self.chk_audio_context.setToolTip(
             _("Accumulate audio from previous dictations to improve recognition\n"
@@ -3749,7 +3884,7 @@ class DicteeSetupDialog(QDialog):
         lay_ctx.addStretch()
         lay_opt.addLayout(lay_ctx)
 
-        self.chk_debug = QCheckBox(_("Debug mode (log to /tmp)"))
+        self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
         self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
         self.chk_debug.setToolTip(
             _("Write detailed logs to /tmp/dictee-debug-*.log\n"
@@ -3762,9 +3897,9 @@ class DicteeSetupDialog(QDialog):
         lay_notif = QVBoxLayout(grp_notif)
         lay_notif.setSpacing(6)
         lay_notif.setContentsMargins(16, 16, 16, 12)
-        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications = ToggleSwitch(_("Show notifications"))
         self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
-        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text = ToggleSwitch(_("Show transcribed text in notifications"))
         self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
         self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
         self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
@@ -4778,9 +4913,9 @@ class DicteeSetupDialog(QDialog):
         lay_notif = QVBoxLayout(grp_notif)
         lay_notif.setSpacing(6)
         lay_notif.setContentsMargins(16, 16, 16, 12)
-        self.chk_notifications = QCheckBox(_("Show notifications"))
+        self.chk_notifications = ToggleSwitch(_("Show notifications"))
         self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
-        self.chk_notifications_text = QCheckBox(_("Show transcribed text in notifications"))
+        self.chk_notifications_text = ToggleSwitch(_("Show transcribed text in notifications"))
         self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
         self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
         self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
@@ -4789,7 +4924,7 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(grp_notif)
 
         # Options
-        self.chk_clipboard = QCheckBox(_("Copy transcription to clipboard"))
+        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setStyleSheet("font-size: 11pt;")
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
         lay.addWidget(self.chk_clipboard)
@@ -5793,9 +5928,9 @@ class DicteeSetupDialog(QDialog):
 
     def _build_visual_section(self, lay_vis, conf):
         """Build visual feedback checkboxes and install button."""
-        self.chk_anim_speech = QCheckBox(_("animation-speech (overlay)"))
-        self.chk_plasmoid = QCheckBox(_("KDE Plasma widget (panel)"))
-        self.chk_gnome_ext = QCheckBox(_("GNOME Shell extension (not yet available)"))
+        self.chk_anim_speech = ToggleSwitch(_("animation-speech (overlay)"))
+        self.chk_plasmoid = ToggleSwitch(_("KDE Plasma widget (panel)"))
+        self.chk_gnome_ext = ToggleSwitch(_("GNOME Shell extension (not yet available)"))
         self.chk_gnome_ext.setEnabled(False)
 
         # Support legacy DICTEE_ANIMATION for migration
@@ -5816,7 +5951,7 @@ class DicteeSetupDialog(QDialog):
             elif self.de_type != "gnome" and _is_wayland:
                 self.chk_anim_speech.setChecked(True)
 
-        self.chk_tray = QCheckBox(_("Show notification area icon"))
+        self.chk_tray = ToggleSwitch(_("Show notification area icon"))
         self.chk_tray.setChecked(
             self._is_service_enabled("dictee-tray") or self.wizard_mode)
 
@@ -5954,7 +6089,7 @@ class DicteeSetupDialog(QDialog):
         grid_langs = QGridLayout()
         grid_langs.setSpacing(2)
         for i, (code, name) in enumerate(LANGUAGES):
-            chk = QCheckBox(f"{code} — {name}")
+            chk = ToggleSwitch(f"{code} — {name}")
             chk.setChecked(code in saved_lt_langs)
             chk.stateChanged.connect(self._on_lt_langs_changed)
             self._lt_lang_checks[code] = chk
@@ -6024,7 +6159,7 @@ class DicteeSetupDialog(QDialog):
         self.lbl_ollama_status.setWordWrap(True)
         lay_ollama.addWidget(self.lbl_ollama_status)
 
-        self.chk_ollama_cpu = QCheckBox(_("Force CPU (OLLAMA_NUM_GPU=0)"))
+        self.chk_ollama_cpu = ToggleSwitch(_("Force CPU (OLLAMA_NUM_GPU=0)"))
         self.chk_ollama_cpu.setChecked(conf.get("OLLAMA_NUM_GPU") == "0")
         self.chk_ollama_cpu.setToolTip(
             _("Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"))
@@ -6240,7 +6375,7 @@ class DicteeSetupDialog(QDialog):
             "padding: 1px 0; }}")
 
         # ── Master 1: Enable PP (normal) ──
-        self.chk_postprocess = QCheckBox(_("Enable PP"))
+        self.chk_postprocess = ToggleSwitch(_("Enable PP"))
         self.chk_postprocess.setChecked(self._pp_master_normal)
         if _sidebar:
             self.chk_postprocess.setStyleSheet(_master_style.format(col=_acc_hex))
@@ -6251,7 +6386,7 @@ class DicteeSetupDialog(QDialog):
         _nrow = QHBoxLayout(_normal_sub)
         _nrow.setContentsMargins(28, 0, 0, 0)
         _nrow.setSpacing(6)
-        self.chk_pp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_pp_short_text = ToggleSwitch(_("Short text fix"))
         self.chk_pp_short_text.setChecked(
             (conf.get("DICTEE_PP_SHORT_TEXT", "true") or "true").lower() == "true")
         self.chk_pp_short_text.setToolTip(_(
@@ -6281,8 +6416,12 @@ class DicteeSetupDialog(QDialog):
         _nrow.addStretch(1)
         _mlay.addWidget(_normal_sub)
 
+        # Sub-row follows master state: greyed when master PP is off
+        _normal_sub.setEnabled(self.chk_postprocess.isChecked())
+        self.chk_postprocess.toggled.connect(_normal_sub.setEnabled)
+
         # ── Master 2: Enable PP for translation ──
-        self.chk_pp_translate = QCheckBox(_("Enable PP for translation"))
+        self.chk_pp_translate = ToggleSwitch(_("Enable PP for translation"))
         self.chk_pp_translate.setChecked(self._pp_master_translate)
         self.chk_pp_translate.setToolTip(_(
             "When enabled, the translated text is passed through the "
@@ -6303,7 +6442,7 @@ class DicteeSetupDialog(QDialog):
         _trow = QHBoxLayout(_trans_sub)
         _trow.setContentsMargins(28, 0, 0, 0)
         _trow.setSpacing(6)
-        self.chk_trpp_short_text = QCheckBox(_("Short text fix"))
+        self.chk_trpp_short_text = ToggleSwitch(_("Short text fix"))
         self.chk_trpp_short_text.setChecked(
             bool(self._trpp_state.get("short_text", True)))
         self.chk_trpp_short_text.setToolTip(_(
@@ -6340,6 +6479,10 @@ class DicteeSetupDialog(QDialog):
         _trow.addStretch(1)
         _mlay.addWidget(_trans_sub)
 
+        # Sub-row follows master state: greyed when master PP-translate is off
+        _trans_sub.setEnabled(self.chk_pp_translate.isChecked())
+        self.chk_pp_translate.toggled.connect(_trans_sub.setEnabled)
+
         lay.addWidget(self._pp_masters_row)
 
         # Container for all PP content (grayed out if disabled)
@@ -6366,33 +6509,33 @@ class DicteeSetupDialog(QDialog):
         _hidden_lay = QVBoxLayout(_hidden_holder)
         _hidden_lay.setContentsMargins(0, 0, 0, 0)
 
-        self.chk_pp_rules = QCheckBox(_("Regex rules"), _hidden_holder)
+        self.chk_pp_rules = ToggleSwitch(_("Regex rules"), _hidden_holder)
         self.chk_pp_rules.setChecked(conf.get("DICTEE_PP_RULES", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_rules)
 
-        self.chk_pp_continuation = QCheckBox(_("Continuation"), _hidden_holder)
+        self.chk_pp_continuation = ToggleSwitch(_("Continuation"), _hidden_holder)
         self.chk_pp_continuation.setChecked(conf.get("DICTEE_PP_CONTINUATION", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_continuation)
 
-        self.chk_pp_language_rules = QCheckBox(_("Language rules"), _hidden_holder)
+        self.chk_pp_language_rules = ToggleSwitch(_("Language rules"), _hidden_holder)
         self.chk_pp_language_rules.setChecked(
             conf.get("DICTEE_PP_LANGUAGE_RULES", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_language_rules)
 
-        self.chk_pp_numbers = QCheckBox(_("Number conversion (text2num)"), _hidden_holder)
+        self.chk_pp_numbers = ToggleSwitch(_("Number conversion (text2num)"), _hidden_holder)
         self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_numbers)
 
-        self.chk_pp_dict = QCheckBox(_("Dictionary"), _hidden_holder)
+        self.chk_pp_dict = ToggleSwitch(_("Dictionary"), _hidden_holder)
         self.chk_pp_dict.setChecked(conf.get("DICTEE_PP_DICT", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_dict)
 
-        self.chk_pp_capitalization = QCheckBox(_("Auto-capitalization"), _hidden_holder)
+        self.chk_pp_capitalization = ToggleSwitch(_("Auto-capitalization"), _hidden_holder)
         self.chk_pp_capitalization.setChecked(conf.get("DICTEE_PP_CAPITALIZATION", "true") == "true")
         _hidden_lay.addWidget(self.chk_pp_capitalization)
 
         # LLM state holder (hidden; editable via its sub-menu).
-        self.chk_llm = QCheckBox(_("LLM grammar correction (ollama)"), _hidden_holder)
+        self.chk_llm = ToggleSwitch(_("LLM grammar correction (ollama)"), _hidden_holder)
         self.chk_llm.setChecked(conf.get("DICTEE_LLM_POSTPROCESS", "false") == "true")
         _hidden_lay.addWidget(self.chk_llm)
 
@@ -6727,7 +6870,7 @@ class DicteeSetupDialog(QDialog):
             "Rules are applied in order: a misplaced or wrong pattern may "
             "silently delete or corrupt text.\n\n"
             "Use the test panel below to verify your changes before saving."))
-        dont_show = QCheckBox(_("Don't show this warning again"))
+        dont_show = ToggleSwitch(_("Don't show this warning again"))
         box.setCheckBox(dont_show)
         box.setStandardButtons(QMessageBox.StandardButton.Ok)
         box.exec()
@@ -7023,7 +7166,7 @@ class DicteeSetupDialog(QDialog):
         self.cmb_llm_preset.currentIndexChanged.connect(
             lambda: self._on_llm_preset_changed(self.cmb_llm_preset.currentData()))
 
-        self.chk_llm_cpu = QCheckBox(_("Force CPU (free GPU VRAM)"))
+        self.chk_llm_cpu = ToggleSwitch(_("Force CPU (free GPU VRAM)"))
         self.chk_llm_cpu.setChecked(conf.get("DICTEE_LLM_CPU", "false") == "true")
         llm_vbox.addWidget(self.chk_llm_cpu)
 
@@ -7296,14 +7439,14 @@ class DicteeSetupDialog(QDialog):
         grp_fr_lay = QVBoxLayout(grp_fr)
         grp_fr_lay.setSpacing(4)
 
-        self.chk_pp_elisions = QCheckBox(_("Elisions"))
+        self.chk_pp_elisions = ToggleSwitch(_("Elisions"))
         self.chk_pp_elisions.setChecked(conf.get("DICTEE_PP_ELISIONS", "true") == "true")
         grp_fr_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_elisions,
             _("Applies French elision rules.\n"
               "Example: \"le arbre\" → \"l'arbre\",\n"
               "\"de eau\" → \"d'eau\"")))
 
-        self.chk_pp_typography = QCheckBox(_("Typography (non-breaking spaces)"))
+        self.chk_pp_typography = ToggleSwitch(_("Typography (non-breaking spaces)"))
         self.chk_pp_typography.setChecked(conf.get("DICTEE_PP_TYPOGRAPHY", "true") == "true")
         grp_fr_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_typography,
             _("Inserts non-breaking spaces before French\n"
@@ -7327,7 +7470,7 @@ class DicteeSetupDialog(QDialog):
         grp_it_lay = QVBoxLayout(grp_it)
         grp_it_lay.setSpacing(4)
 
-        self.chk_pp_elisions_it = QCheckBox(_("Elisions & contractions"))
+        self.chk_pp_elisions_it = ToggleSwitch(_("Elisions & contractions"))
         self.chk_pp_elisions_it.setChecked(conf.get("DICTEE_PP_ELISIONS_IT", "true") == "true")
         grp_it_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_elisions_it,
             _("Italian elisions and prepositional contractions.\n"
@@ -7342,7 +7485,7 @@ class DicteeSetupDialog(QDialog):
         grp_es_lay = QVBoxLayout(grp_es)
         grp_es_lay.setSpacing(4)
 
-        self.chk_pp_spanish = QCheckBox(_("Contractions & inverted punctuation"))
+        self.chk_pp_spanish = ToggleSwitch(_("Contractions & inverted punctuation"))
         self.chk_pp_spanish.setChecked(conf.get("DICTEE_PP_SPANISH", "true") == "true")
         grp_es_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_spanish,
             _("Spanish contractions and inverted punctuation.\n"
@@ -7356,7 +7499,7 @@ class DicteeSetupDialog(QDialog):
         grp_pt_lay = QVBoxLayout(grp_pt)
         grp_pt_lay.setSpacing(4)
 
-        self.chk_pp_portuguese = QCheckBox(_("Contractions"))
+        self.chk_pp_portuguese = ToggleSwitch(_("Contractions"))
         self.chk_pp_portuguese.setChecked(conf.get("DICTEE_PP_PORTUGUESE", "true") == "true")
         grp_pt_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_portuguese,
             _("Portuguese fused contractions.\n"
@@ -7370,7 +7513,7 @@ class DicteeSetupDialog(QDialog):
         grp_de_lay = QVBoxLayout(grp_de)
         grp_de_lay.setSpacing(4)
 
-        self.chk_pp_german = QCheckBox(_("Contractions & typography"))
+        self.chk_pp_german = ToggleSwitch(_("Contractions & typography"))
         self.chk_pp_german.setChecked(conf.get("DICTEE_PP_GERMAN", "true") == "true")
         grp_de_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_german,
             _("German contractions and typography.\n"
@@ -7385,7 +7528,7 @@ class DicteeSetupDialog(QDialog):
         grp_nl_lay = QVBoxLayout(grp_nl)
         grp_nl_lay.setSpacing(4)
 
-        self.chk_pp_dutch = QCheckBox(_("Contractions"))
+        self.chk_pp_dutch = ToggleSwitch(_("Contractions"))
         self.chk_pp_dutch.setChecked(conf.get("DICTEE_PP_DUTCH", "true") == "true")
         grp_nl_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_dutch,
             _("Dutch contractions and time expressions.\n"
@@ -7399,7 +7542,7 @@ class DicteeSetupDialog(QDialog):
         grp_ro_lay = QVBoxLayout(grp_ro)
         grp_ro_lay.setSpacing(4)
 
-        self.chk_pp_romanian = QCheckBox(_("Contractions & typography"))
+        self.chk_pp_romanian = ToggleSwitch(_("Contractions & typography"))
         self.chk_pp_romanian.setChecked(conf.get("DICTEE_PP_ROMANIAN", "true") == "true")
         grp_ro_lay.addWidget(self._pp_checkbox_with_help(self.chk_pp_romanian,
             _("Romanian contractions and typography.\n"
