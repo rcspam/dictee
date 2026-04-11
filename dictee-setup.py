@@ -1560,6 +1560,76 @@ def _read_silence_threshold_from_conf():
     return 0.03
 
 
+def _test_translate_text(text, src, tgt, conf):
+    """Synchronously translate text src->tgt using the configured backend.
+
+    Used by the post-processing test panel when Translation mode is on.
+    Reads backend settings from the conf dict (DICTEE_TRANSLATE_BACKEND,
+    DICTEE_TRANS_ENGINE, DICTEE_LIBRETRANSLATE_PORT, DICTEE_OLLAMA_MODEL).
+    Returns (translated, error_message). On failure, `translated` is the
+    original text and `error_message` is non-empty.
+    """
+    if not text.strip() or src == tgt:
+        return text, ""
+    backend = (conf.get("DICTEE_TRANSLATE_BACKEND", "trans") or "trans").strip()
+    try:
+        if backend.startswith("trans") or backend == "canary":
+            # 'trans' CLI is the fallback for canary too (canary is audio-only)
+            engine = (conf.get("DICTEE_TRANS_ENGINE", "google") or "google").strip()
+            r = subprocess.run(
+                ["trans", "-b", "-e", engine, f"{src}:{tgt}"],
+                input=text, capture_output=True, text=True, timeout=15)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip(), ""
+            return text, (r.stderr.strip() or "trans CLI failed")
+        if backend == "libretranslate":
+            import json as _json
+            import urllib.request as _ureq
+            port = conf.get("DICTEE_LIBRETRANSLATE_PORT", "5000") or "5000"
+            url = f"http://localhost:{port}/translate"
+            payload = _json.dumps({
+                "q": text, "source": src, "target": tgt}).encode()
+            req = _ureq.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"})
+            with _ureq.urlopen(req, timeout=10) as resp:
+                result = _json.loads(resp.read())
+            out = result.get("translatedText", "")
+            return (out, "") if out else (text, "libretranslate empty result")
+        if backend == "ollama":
+            model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma") or "translategemma"
+            # Match the dictee shell script prompt so the result is the
+            # translation ONLY — no "Here is the translation:" preamble,
+            # no echoing of the source text, no commentary.
+            prompt = (
+                f"You are a professional {src} to {tgt} translator. "
+                f"Your goal is to accurately convey the meaning and "
+                f"nuances of the original text while adhering to the "
+                f"target language grammar, vocabulary, and cultural "
+                f"sensitivities.\n"
+                f"Produce only the {tgt} translation, without any "
+                f"additional explanations or commentary. Please "
+                f"translate the following text:\n\n{text}"
+            )
+            r = subprocess.run(
+                ["ollama", "run", model, prompt],
+                capture_output=True, text=True, timeout=30)
+            if r.returncode == 0 and r.stdout.strip():
+                out = r.stdout.strip()
+                # Defensive cleanup: strip leading quotes, trailing
+                # "Translation:" labels, etc. that some models may add
+                # despite the instruction.
+                out = re.sub(
+                    r"^(?:translation|result|output)\s*[:：]\s*",
+                    "", out, flags=re.IGNORECASE)
+                out = out.strip('"\'`').strip()
+                return out, ""
+            return text, (r.stderr.strip() or "ollama failed")
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return text, str(exc)
+    return text, f"unknown backend: {backend}"
+
+
 class _RuleTranscribeThread(QThread):
     """Thread pour transcrire un WAV lors du test de règle de post-traitement."""
     finished_sig = Signal(str)
@@ -3545,6 +3615,9 @@ class DicteeSetupDialog(QDialog):
             # + pipeline header remain visible).
             on_pp_page = (idx is not None and int(idx) == 8)
             has_sub = pp_tab is not None
+            # Track overview state so the test panel can disable solo
+            # mode whenever we are on the PP root page.
+            self._pp_overview_mode = bool(on_pp_page and not has_sub)
             if on_pp_page and hasattr(self, "_pp_tabs"):
                 show_sub = has_sub
                 if hasattr(self, "_pp_title_row_w"):
@@ -3561,6 +3634,12 @@ class DicteeSetupDialog(QDialog):
                     self._pp_masters_row.setVisible(not show_sub)
                 if show_sub:
                     self._pp_tabs.setCurrentIndex(int(pp_tab))
+            # Always refresh the test header/solo on navigation so
+            # changing page invalidates any active solo mode.
+            if hasattr(self, "_update_test_header"):
+                self._update_test_header(
+                    self._pp_tabs.currentIndex()
+                    if hasattr(self, "_pp_tabs") else -1)
 
         tree.currentItemChanged.connect(_on_item_changed)
         tree.setCurrentItem(tree.topLevelItem(0))
@@ -6353,12 +6432,14 @@ class DicteeSetupDialog(QDialog):
                 self._popup = QLabel(self._help_text, self.window())
                 self._popup.setWindowFlags(
                     Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+                # Explicit high-contrast colors so rich text (code tags,
+                # italics, emojis) stays legible regardless of theme.
                 self._popup.setStyleSheet(
-                    "QLabel { background: palette(highlight); color: palette(highlighted-text);"
-                    " border: 1px solid palette(dark); border-radius: 6px;"
-                    " padding: 12px; font-size: 14px; }")
+                    "QLabel { background: #2b2b30; color: #e8e8e8;"
+                    " border: 1px solid #4a4a50; border-radius: 6px;"
+                    " padding: 14px; font-size: 13px; }")
                 self._popup.setWordWrap(True)
-                self._popup.setMaximumWidth(480)
+                self._popup.setMaximumWidth(520)
                 self._popup.setTextFormat(Qt.TextFormat.RichText)
                 self._popup.adjustSize()
             pos = self.mapToGlobal(self.rect().bottomLeft())
@@ -6452,7 +6533,7 @@ class DicteeSetupDialog(QDialog):
             "• Les étapes grisées sont inactives.<br>"
             "• L'ordre d'exécution est strict : une étape désactivée est "
             "sautée, le texte passe à la suivante.<br><br>"
-            "<b>ℹ Diarisation</b><br>"
+            "<b>⚠ Diarisation</b><br>"
             "Le mode diarisation (multi-locuteurs) ne passe pas par ces "
             "pipelines : le texte brut est conservé tel quel pour préserver "
             "les labels <code>[SPK1]</code>, <code>[SPK2]</code>… afin "
@@ -6661,17 +6742,27 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(self._pp_masters_row)
 
         # Diarization note: explicit, visible once on the PP page.
-        _lbl_diarize_note = QLabel(_(
-            "ℹ <b>Diarisation</b> : en mode multi-locuteurs, le texte brut "
-            "est conservé tel quel (ni post-processing, ni traduction, "
-            "ni LLM) pour préserver les labels <code>[SPK1]</code>, "
-            "<code>[SPK2]</code>…"))
+        _accent_hex = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        _lbl_diarize_note = QLabel(
+            "<span style='color:#e67e22;font-weight:bold;'>⚠ "
+            + _("Diarisation") + "</span> &nbsp;—&nbsp; "
+            + _(
+                "en mode multi-locuteurs, le texte brut est conservé tel "
+                "quel (ni post-processing, ni traduction, ni LLM) pour "
+                "préserver les labels ")
+            + "<span style='background:rgba(230,126,34,0.2);"
+              "padding:1px 5px;border-radius:3px;font-family:monospace;'>"
+              "[SPK1]</span>, "
+            + "<span style='background:rgba(230,126,34,0.2);"
+              "padding:1px 5px;border-radius:3px;font-family:monospace;'>"
+              "[SPK2]</span>…")
         _lbl_diarize_note.setWordWrap(True)
         _lbl_diarize_note.setTextFormat(Qt.TextFormat.RichText)
         _lbl_diarize_note.setStyleSheet(
-            "QLabel { color: palette(text); background: palette(alternate-base);"
-            " border-left: 3px solid palette(highlight); border-radius: 3px;"
-            " padding: 6px 10px; font-size: 11px; }")
+            "QLabel { font-size: 13px; padding: 10px 14px;"
+            " border: 1px solid #e67e22; border-left: 4px solid #e67e22;"
+            " border-radius: 4px; background: rgba(230,126,34,0.08); }")
         lay.addWidget(_lbl_diarize_note)
 
         # Container for all PP content (grayed out if disabled)
@@ -6884,16 +6975,31 @@ class DicteeSetupDialog(QDialog):
         test_lay = QVBoxLayout(_test_body)
         test_lay.setContentsMargins(8, 0, 8, 8)
         test_lay.setSpacing(4)
+        # No hardcoded min height — Qt computes _test_body.minimumSize()
+        # from the children natural mins (input row fixed 60px, warning
+        # label ~20px, details scroll min 60px). The outer QScrollArea
+        # picks this up so the test body contributes its REAL footprint
+        # to the layout's minimumSize() and the scrollbar appears iff
+        # expanding the test would squeeze the tabs above.
+        # Expose the accordion toggle BEFORE _build_test_panel so its
+        # sub-tab hook (_update_test_header) can refresh the label.
+        self._test_accordion_toggle = _test_toggle
         self._build_test_panel(test_lay)
         _test_body.setVisible(False)
 
         def _on_test_toggled(on):
-            _test_toggle.setText(("▼  " if on else "▶  ") + _("Test"))
             _test_body.setVisible(on)
+            self._refresh_test_accordion_label()
+            # When expanding, scroll the outer QScrollArea so the whole
+            # test body is visible — avoids the accordion opening off
+            # screen below the viewport on the sub-pages with tall tabs.
+            if on and getattr(self, "_pp_scroll", None) is not None:
+                def _do():
+                    self._pp_scroll.ensureWidgetVisible(_test_body, 0, 20)
+                QTimer.singleShot(0, _do)
         _test_toggle.toggled.connect(_on_test_toggled)
-        # Expose so other components (e.g. "↓ Test" button in rules tab)
-        # can auto-open the accordion when sending data into it.
-        self._test_accordion_toggle = _test_toggle
+        # Initial label reflects current PP sub-tab (if any)
+        self._refresh_test_accordion_label()
 
         pp_lay.addWidget(_test_toggle)
         pp_lay.addWidget(_test_body)
@@ -6917,12 +7023,37 @@ class DicteeSetupDialog(QDialog):
             test_idx = pp_lay.indexOf(_test_toggle)
             pp_lay.insertWidget(test_idx, self._pp_overview_spacer)
 
-        # Directly embed pp_content (no outer QScrollArea): the sub-tabs
-        # that actually need scrolling (Dictionary, Language rules) have
-        # their own inner QScrollArea. An outer scroll was redundant and
-        # produced a huge-handle scrollbar with no content to scroll.
-        lay.addWidget(self._pp_content)
-        self._pp_scroll = None
+        # Outer QScrollArea wrapping the whole PP content (tabs + test
+        # accordion). The goal: when the user expands the test panel,
+        # the Rules editor above (inside _pp_tabs) MUST NOT shrink —
+        # instead the outer scrollbar appears and the user scrolls
+        # down to the test.
+        #
+        # How it works:
+        # - _pp_tabs keeps its default Expanding policy so it grows to
+        #   fill all available space when there's room.
+        # - _pp_tabs AND _test_body both get an explicit setMinimumHeight.
+        #   Only hard minimums contribute to layout.minimumSize(), which
+        #   is what QScrollArea uses to decide when the scrollbar is
+        #   needed.
+        # - Sum of mins = tabs_min + test_body_min + other fixed stuff.
+        #   When test is hidden, test_body min is ignored by the layout
+        #   (Qt skips hidden widgets) → content min stays low → no
+        #   scroll on normal viewports. When test is visible, content
+        #   min jumps → if it exceeds the viewport, scrollbar appears
+        #   and tabs stay at their min height, not squeezed.
+        if hasattr(self, "_pp_tabs"):
+            self._pp_tabs.setMinimumHeight(480)
+
+        self._pp_scroll = QScrollArea()
+        self._pp_scroll.setWidgetResizable(True)
+        self._pp_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._pp_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._pp_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._pp_scroll.setWidget(self._pp_content)
+        lay.addWidget(self._pp_scroll)
 
         # Per-step greying: a pipeline step is "effectively active" when
         # at least one of the two pipelines (normal / translation) has it
@@ -9940,6 +10071,9 @@ class DicteeSetupDialog(QDialog):
             excl = self._parse_cont_exclusions(self._cont_path)
             for lang, wset in excl.items():
                 self._cont_excluded_words[lang] = wset
+            # Snapshot the loaded state so the test panel can detect
+            # pending-but-unsaved changes (merge warning).
+            self._snapshot_cont_state()
 
         # Determine active language
         active_lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
@@ -10185,6 +10319,9 @@ class DicteeSetupDialog(QDialog):
         self._cont_personal_words[lang].add(word)
         line_edit.clear()
         self._load_cont_form()
+        # Refresh the test panel so the user sees the effect immediately
+        if hasattr(self, '_schedule_test_run'):
+            self._schedule_test_run()
 
     def _on_cont_chip_clicked(self, link):
         """Handles click on personal chip (remove:lang:word)."""
@@ -10198,6 +10335,8 @@ class DicteeSetupDialog(QDialog):
         if lang in self._cont_personal_words:
             self._cont_personal_words[lang].discard(word)
         self._load_cont_form()
+        if hasattr(self, '_schedule_test_run'):
+            self._schedule_test_run()
 
     def _filter_cont_words(self):
         """Filters visible chips by search."""
@@ -10303,6 +10442,41 @@ class DicteeSetupDialog(QDialog):
                     words = sorted(self._cont_excluded_words[lang])
                     if words:
                         f.write(f"[exclude:{lang}] {' '.join(words)}\n")
+        # Refresh the unsaved-changes snapshot so the test panel warning
+        # clears right after Save.
+        self._snapshot_cont_state()
+        if hasattr(self, '_schedule_test_run'):
+            self._schedule_test_run()
+
+    def _snapshot_cont_state(self):
+        """Freeze the current in-memory continuation state as baseline.
+
+        Used by `_has_unsaved_cont_changes` to detect pending edits
+        that haven't been persisted to ~/.config/dictee/continuation.conf.
+        """
+        self._cont_personal_snapshot = {
+            k: set(v) for k, v in
+            getattr(self, '_cont_personal_words', {}).items()}
+        self._cont_excluded_snapshot = {
+            k: set(v) for k, v in
+            getattr(self, '_cont_excluded_words', {}).items()}
+
+    def _has_unsaved_cont_changes(self):
+        """Return True when in-memory continuation state diverges from
+        the last saved/loaded baseline."""
+        snap_a = getattr(self, '_cont_personal_snapshot', None)
+        snap_e = getattr(self, '_cont_excluded_snapshot', None)
+        if snap_a is None or snap_e is None:
+            return False
+        cur_a = getattr(self, '_cont_personal_words', {})
+        cur_e = getattr(self, '_cont_excluded_words', {})
+        all_langs = set(snap_a) | set(cur_a) | set(snap_e) | set(cur_e)
+        for lang in all_langs:
+            if snap_a.get(lang, set()) != cur_a.get(lang, set()):
+                return True
+            if snap_e.get(lang, set()) != cur_e.get(lang, set()):
+                return True
+        return False
 
     def _cont_save_smart(self):
         """Save (normal or advanced mode)."""
@@ -12186,16 +12360,39 @@ class DicteeSetupDialog(QDialog):
 
     # -- Panneau de test post-traitement --
 
-    class _TestInputFilter(QObject):
-        """Intercepte Enter dans le champ test pour ne pas ajouter de retour à la ligne."""
-        def __init__(self, parent):
-            super().__init__(parent)
-        def eventFilter(self, obj, event):
-            if event.type() == event.Type.KeyPress:
-                from PyQt6.QtCore import Qt as _Qt
-                if event.key() in (_Qt.Key.Key_Return, _Qt.Key.Key_Enter):
-                    return True  # bloquer Enter
-            return False
+    class _TestInputTextEdit(QTextEdit):
+        """QTextEdit qui NE sélectionne PAS le texte après paste / drop /
+        middle-click.
+
+        Qt sélectionne par défaut le texte inséré via drag-drop ET via
+        middle-click paste (primary selection X11) pour permettre à
+        l'utilisateur de le "revoir". Dans le panneau de test on veut
+        simplement voir le texte, cursor à la fin, sans sélection — pour
+        ne pas masquer le rendu ni gêner la frappe suivante.
+
+        Solution : on court-circuite complètement l'insertion par défaut
+        en utilisant `insertPlainText` qui, par design, n'a jamais de
+        sélection en sortie. On ignore volontairement les formats riches
+        (HTML, RTF) — le panneau de test ne traite que du texte brut de
+        toute façon.
+        """
+
+        def insertFromMimeData(self, source):
+            if source is not None and source.hasText():
+                self.insertPlainText(source.text())
+            else:
+                super().insertFromMimeData(source)
+
+    # Mapping: _pp_tabs tab index → (step_key, friendly_label).
+    # step_key matches the DICTEE_PP_* env var name segment used by
+    # dictee-postprocess (also used as STEP trace label on stderr).
+    _TEST_PAGE_STEPS = {
+        0: ("rules",          "Règles regex"),
+        1: ("continuation",   "Continuation"),
+        2: ("language_rules", "Règles de langue"),
+        3: ("dict",           "Dictionnaire"),
+        4: ("llm",            "LLM"),
+    }
 
     def _build_test_panel(self, lay):
         """Test panel: input → multiline output + mic."""
@@ -12212,16 +12409,84 @@ class DicteeSetupDialog(QDialog):
         self._lbl_test_lang.setText = _set_and_toggle
         lay.addWidget(self._lbl_test_lang)
 
-        row = QHBoxLayout()
-        row.setSpacing(4)
+        # Tracks the step_key (rules/continuation/...) of the current
+        # PP sub-tab. None when on the overview / unknown. Filled by
+        # _update_test_header.
+        self._test_current_step = None
 
-        self._test_input = QTextEdit()
+        # Hook into the PP sub-tab change to refresh the accordion label
+        # + the solo switch enabled state when the user navigates.
+        if hasattr(self, '_pp_tabs'):
+            self._pp_tabs.currentChanged.connect(self._update_test_header)
+
+        # Re-run the test when the live language selection changes, so
+        # the preview updates immediately without needing Apply.
+        for _attr in ('combo_src', 'combo_tgt', 'cmb_trans_backend',
+                      'cmb_trans_engine'):
+            _cb = getattr(self, _attr, None)
+            if _cb is not None:
+                _cb.currentIndexChanged.connect(self._schedule_test_run)
+
+        # Unsaved-continuation warning: shown only when the user has
+        # pending additions/exclusions in the Continuation section that
+        # haven't been persisted yet. The test panel simulates the
+        # post-Apply behaviour, so the preview CAN diverge from what
+        # running dictee at this exact moment would produce.
+        self._lbl_test_unsaved = QLabel(
+            "⚠ " + _(
+                "Modifications de continuation non enregistrées — "
+                "le test simule le comportement après Apply."))
+        self._lbl_test_unsaved.setWordWrap(True)
+        self._lbl_test_unsaved.setStyleSheet(
+            "QLabel { color: #e67e22; background: rgba(230,126,34,0.10);"
+            " border-left: 3px solid #e67e22; border-radius: 3px;"
+            " padding: 4px 8px; font-size: 11px; }")
+        self._lbl_test_unsaved.setVisible(False)
+        lay.addWidget(self._lbl_test_unsaved)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+
+        # Left column: Isoler (top) + Traduction (bottom). Stacked so
+        # both mode switches sit together at the start of the row, next
+        # to the input. Isoler is on top per user preference.
+        mode_col = QVBoxLayout()
+        mode_col.setSpacing(4)
+        mode_col.setContentsMargins(0, 0, 0, 0)
+
+        self._test_solo_switch = ToggleSwitch(_("Isoler"))
+        self._test_solo_switch.setToolTip(_(
+            "OFF : exécute le pipeline complet (tous les toggles actifs).\n"
+            "ON : exécute uniquement l'étape de la page actuellement "
+            "ouverte, en forçant temporairement les autres étapes à off. "
+            "Ne modifie pas la config persistante — utile pour voir l'effet "
+            "d'une seule étape en isolation."))
+        self._test_solo_switch.setEnabled(False)  # enabled once a page is known
+        self._test_solo_switch.toggled.connect(self._schedule_test_run)
+        mode_col.addWidget(self._test_solo_switch)
+
+        self._test_mode_switch = ToggleSwitch(_("Traduction"))
+        self._test_mode_switch.setChecked(False)
+        self._test_mode_switch.setToolTip(_(
+            "OFF : teste le pipeline Normal (bleu) dans la langue source "
+            "avec LLM optionnel.\n"
+            "ON : teste le pipeline Translation (orange) dans la langue "
+            "cible, LLM toujours forcé off. Les sub-steps sont ceux des "
+            "toggles TRPP (diagramme orange)."))
+        self._test_mode_switch.toggled.connect(self._schedule_test_run)
+        mode_col.addWidget(self._test_mode_switch)
+
+        row.addLayout(mode_col)
+
+        # Initial header refresh now that switches exist
+        if hasattr(self, '_pp_tabs'):
+            self._update_test_header(self._pp_tabs.currentIndex())
+
+        self._test_input = self._TestInputTextEdit()
         self._test_input.setPlaceholderText(_("Type text or record..."))
         self._test_input.setAcceptDrops(True)
         self._test_input.setFixedHeight(60)
         self._test_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        # Enter lance le test au lieu d'ajouter une ligne
-        self._test_input.installEventFilter(self._TestInputFilter(self._test_input))
         row.addWidget(self._test_input, 3)
 
         lbl_arrow = QLabel("\u2192")
@@ -12255,22 +12520,36 @@ class DicteeSetupDialog(QDialog):
 
         lay.addLayout(row)
 
-        # Pipeline details (hidden by default)
+        # Pipeline details inside a scroll area so long trace lines
+        # (many STEP entries with long before/after) don't push the
+        # test body past a reasonable height and squeeze the Rules
+        # editor above. The scroll area caps its height; the label
+        # inside is free to grow and scrolls vertically as needed.
         self._test_details_label = QLabel("")
         self._test_details_label.setWordWrap(True)
-        self._test_details_label.setStyleSheet("font-family: monospace; font-size: 10px;")
-        self._test_details_label.setVisible(False)
-        lay.addWidget(self._test_details_label)
+        self._test_details_label.setStyleSheet(
+            "font-family: monospace; font-size: 13px; line-height: 1.4;"
+            " padding: 4px 6px;")
+        self._test_details_label.setTextFormat(Qt.TextFormat.RichText)
+        self._test_details_label.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._test_details_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        btn_details.toggled.connect(self._test_details_label.setVisible)
+        self._test_details_scroll = QScrollArea()
+        self._test_details_scroll.setWidgetResizable(True)
+        self._test_details_scroll.setFrameShape(QFrame.Shape.StyledPanel)
+        self._test_details_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._test_details_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._test_details_scroll.setMaximumHeight(220)
+        self._test_details_scroll.setMinimumHeight(60)
+        self._test_details_scroll.setWidget(self._test_details_label)
+        self._test_details_scroll.setVisible(False)
+        lay.addWidget(self._test_details_scroll)
 
-        def _scroll_pp_to_bottom_when_details(on):
-            if on and getattr(self, '_pp_scroll', None) is not None:
-                def _do():
-                    bar = self._pp_scroll.verticalScrollBar()
-                    bar.setValue(bar.maximum())
-                QTimer.singleShot(0, _do)
-        btn_details.toggled.connect(_scroll_pp_to_bottom_when_details)
+        btn_details.toggled.connect(self._test_details_scroll.setVisible)
 
         # Connect
         self._test_input.textChanged.connect(self._schedule_test_run)
@@ -12288,12 +12567,136 @@ class DicteeSetupDialog(QDialog):
     def _schedule_test_run(self):
         self._test_timer.start()
 
+    def _load_continuation_words_for(self, lang):
+        """Load continuation words for the given language.
+
+        Mirrors dictee-postprocess.load_continuation() but also merges
+        the user's in-memory pending additions (`_cont_personal_words`)
+        and exclusions (`_cont_excluded_words`) so the test panel shows
+        the same result the user will get after Apply — without needing
+        to save the file first.
+
+        Not cached: the continuation sets can change on every keystroke
+        in the UI (add/remove chips) and the file is small.
+        """
+        import re as _re
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        paths = [
+            os.path.join(script_dir, "continuation.conf.default"),
+            "/usr/share/dictee/continuation.conf.default",
+            os.path.expanduser("~/.local/share/dictee/continuation.conf.default"),
+            os.path.expanduser("~/.config/dictee/continuation.conf"),
+        ]
+        _line_re = _re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+)$")
+        _exc_re = _re.compile(r"^\s*\[exclude:([a-z]{2})\]\s*(.+)$")
+        added = set()
+        excluded = set()
+        for p in paths:
+            if not os.path.isfile(p):
+                continue
+            try:
+                with open(p, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        m = _exc_re.match(line)
+                        if m:
+                            tag, wl = m.groups()
+                            if tag == lang:
+                                for w in wl.split():
+                                    excluded.add(w.lower())
+                            continue
+                        m = _line_re.match(line)
+                        if not m:
+                            continue
+                        tag, wl = m.groups()
+                        if tag == "*" or tag == lang:
+                            for w in wl.split():
+                                added.add(w.lower())
+            except OSError:
+                continue
+
+        # Merge in-memory pending additions/exclusions so the test
+        # reflects what the user WILL have after Apply, not just what
+        # is currently persisted on disk.
+        pending_add = getattr(self, '_cont_personal_words', {})
+        if isinstance(pending_add, dict):
+            added |= set(w.lower() for w in pending_add.get(lang, set()))
+        pending_excl = getattr(self, '_cont_excluded_words', {})
+        if isinstance(pending_excl, dict):
+            excluded |= set(w.lower() for w in pending_excl.get(lang, set()))
+
+        return added - excluded
+
+    def _update_test_header(self, idx):
+        """Update the test accordion label from the active PP sub-tab.
+
+        Policy:
+        - Every page change **invalidates** any active solo mode: the
+          Isoler switch is reset to OFF so the user cannot accidentally
+          isolate the wrong step after navigating.
+        - On the PP overview (`self._pp_overview_mode` = True) the solo
+          switch is **disabled entirely** — only the full pipeline test
+          is available on the root page.
+        - On a real sub-page, the switch is enabled and the accordion
+          label shows the friendly step name.
+        """
+        overview = bool(getattr(self, '_pp_overview_mode', False))
+        mapping = self._TEST_PAGE_STEPS.get(idx)
+        if overview or mapping is None:
+            self._test_current_step = None
+            if hasattr(self, '_test_solo_switch'):
+                self._test_solo_switch.setChecked(False)
+                self._test_solo_switch.setEnabled(False)
+        else:
+            step_key, _label = mapping
+            self._test_current_step = step_key
+            if hasattr(self, '_test_solo_switch'):
+                # Invalidate any previous solo state on page change
+                self._test_solo_switch.setChecked(False)
+                self._test_solo_switch.setEnabled(True)
+        self._refresh_test_accordion_label()
+        # Re-run the pipeline to refresh highlight / solo filtering
+        if hasattr(self, '_test_timer'):
+            self._schedule_test_run()
+
+    def _refresh_test_accordion_label(self):
+        """Set the accordion toggle text from its collapse state + page.
+
+        The label becomes `▶ Test : Dictionnaire` on a sub-page and
+        `▶ Test : global` on the PP overview / when no sub-page is
+        focused (the full pipeline runs there). Called by
+        _on_test_toggled and _update_test_header.
+        """
+        btn = getattr(self, '_test_accordion_toggle', None)
+        if btn is None:
+            return
+        arrow = "▼  " if btn.isChecked() else "▶  "
+        overview = bool(getattr(self, '_pp_overview_mode', False))
+        mapping = self._TEST_PAGE_STEPS.get(
+            self._pp_tabs.currentIndex() if hasattr(self, '_pp_tabs') else -1)
+        if overview or mapping is None:
+            suffix = _("Test : global")
+        else:
+            _step, friendly = mapping
+            suffix = _("Test : {page}").format(page=_(friendly))
+        btn.setText(arrow + suffix)
+
     def _run_test_pipeline(self):
         """Runs the real dictee-postprocess binary as a subprocess.
 
         Uses DICTEE_PP_DEBUG=1 to collect step-by-step traces on stderr, so
         this panel stays in sync with the actual pipeline (LLM, master
         switches, short_text included). Single source of truth.
+
+        Two modes driven by `self._test_mode_switch`:
+        - OFF = Normal (blue pipeline, source language, LLM optional)
+        - ON  = Translation (orange pipeline, target language, LLM forced
+          off, sub-steps from `_trpp_state`, mimicking exactly the 2nd
+          post-process pass the dictee shell script runs on translated
+          text at lines 1293-1338).
         """
         text = self._test_input.toPlainText()
         if not text.strip():
@@ -12301,17 +12704,76 @@ class DicteeSetupDialog(QDialog):
             self._test_details_label.setText("")
             return
 
-        lang = getattr(self, '_test_lang_override', "") or self.conf.get("DICTEE_LANG_SOURCE", "fr")
+        translate_mode = (
+            hasattr(self, '_test_mode_switch')
+            and self._test_mode_switch.isChecked())
+
+        # Read the LIVE source/target languages from the combo boxes
+        # instead of the saved conf — so changing the language in the
+        # Translation page immediately reflects in the test panel, no
+        # Apply needed.
+        def _live(attr, conf_key, default):
+            cb = getattr(self, attr, None)
+            if cb is not None:
+                val = cb.currentData()
+                if val:
+                    return val
+            return self.conf.get(conf_key, default) or default
+
+        live_src = _live("combo_src", "DICTEE_LANG_SOURCE", "fr")
+        live_tgt = _live("combo_tgt", "DICTEE_LANG_TARGET", "en")
+
+        # Translation mode: auto-translate the typed/recorded text from
+        # source to target BEFORE feeding it to dictee-postprocess, so
+        # the TRPP steps operate on the right language (mirroring the
+        # real dictee shell pipeline: ASR → translate → 2nd PP pass).
+        translated_from = ""
+        translate_error = ""
+        if translate_mode:
+            source_lang = live_src[:2]
+            target = live_tgt[:2]
+            lang = target
+            if source_lang != target:
+                # Build an effective conf that also reflects the LIVE
+                # translation backend / engine selected in the UI, so
+                # _test_translate_text dispatches to the right tool
+                # even if Apply hasn't been clicked yet.
+                _eff_conf = dict(self.conf)
+                if hasattr(self, 'cmb_trans_backend'):
+                    _b = self.cmb_trans_backend.currentData()
+                    if _b:
+                        _eff_conf["DICTEE_TRANSLATE_BACKEND"] = _b
+                if hasattr(self, 'cmb_trans_engine'):
+                    _e = self.cmb_trans_engine.currentData()
+                    if _e:
+                        _eff_conf["DICTEE_TRANS_ENGINE"] = _e
+                translated, translate_error = _test_translate_text(
+                    text, source_lang, target, _eff_conf)
+                if translated and translated != text:
+                    translated_from = text  # keep the pre-translation text
+                    text = translated
+        else:
+            lang = getattr(self, '_test_lang_override', "") or live_src
 
         # Master switch: bypass everything
-        pp_master = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
+        if translate_mode:
+            pp_master = self._pp_master_translate
+            master_off_msg = _(
+                "Translation post-processing disabled (master switch off) — "
+                "translated text passed through unchanged.")
+        else:
+            pp_master = self.chk_postprocess.isChecked() \
+                if hasattr(self, 'chk_postprocess') else True
+            master_off_msg = _(
+                "Post-processing disabled (master switch off) — text "
+                "passed through unchanged.")
+
         if not pp_master:
             display_output = text.replace("\n", "↵\n").replace("\t", "⇥\t")
             if display_output.endswith(" "):
                 display_output = display_output.rstrip(" ") + "␣"
             self._test_output.setPlainText(display_output)
-            self._test_details_label.setText(
-                _("Post-processing disabled (master switch off) — text passed through unchanged."))
+            self._test_details_label.setText(master_off_msg)
             return
 
         # Locate dictee-postprocess (dev tree first, then installed)
@@ -12333,62 +12795,139 @@ class DicteeSetupDialog(QDialog):
                 return "true" if default else "false"
             return "true" if w.isChecked() else "false"
 
+        def _tb(key):
+            return "true" if self._trpp_state.get(key, True) else "false"
+
         env = os.environ.copy()
         env["DICTEE_LANG_SOURCE"] = lang
         env["DICTEE_PP_DEBUG"] = "true"
-        env["DICTEE_PP_RULES"] = _b("chk_pp_rules")
-        env["DICTEE_PP_CONTINUATION"] = _b("chk_pp_continuation")
-        env["DICTEE_PP_LANGUAGE_RULES"] = _b("chk_pp_language_rules")
-        env["DICTEE_PP_ELISIONS"] = _b("chk_pp_elisions")
-        env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
-        env["DICTEE_PP_SPANISH"] = _b("chk_pp_spanish")
-        env["DICTEE_PP_PORTUGUESE"] = _b("chk_pp_portuguese")
-        env["DICTEE_PP_GERMAN"] = _b("chk_pp_german")
-        env["DICTEE_PP_DUTCH"] = _b("chk_pp_dutch")
-        env["DICTEE_PP_ROMANIAN"] = _b("chk_pp_romanian")
-        env["DICTEE_PP_NUMBERS"] = _b("chk_pp_numbers")
-        env["DICTEE_PP_TYPOGRAPHY"] = _b("chk_pp_typography")
-        env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
-        env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
-        env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
-        if hasattr(self, 'cmb_pp_short_text_max'):
-            env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
-                self.cmb_pp_short_text_max.currentData() or 3)
 
-        # Translation post-processing (applied AFTER the translation backend)
-        # Translation post-processing master: when true, dictee re-runs
-        # dictee-postprocess on the translated text with DICTEE_LANG_SOURCE
-        # set to the target language (LLM always forced off in that pass).
-        env["DICTEE_PP_TRANSLATE"] = "true" if self._pp_master_translate else "false"
+        # Command suffixes — rules with %SUFFIX_XX% placeholders are
+        # skipped by dictee-postprocess when their env var is empty.
+        # Pass the current UI state so the test matches runtime.
+        for _code, _sfx in getattr(self, '_command_suffixes', {}).items():
+            if _sfx:
+                env[f"DICTEE_COMMAND_SUFFIX_{_code.upper()}"] = _sfx
 
-        # Translation-side per-step activation (independent from normal).
-        # These are mapped to DICTEE_PP_* at call time by the dictee shell
-        # script when running the 2nd post-process pass on translated text.
-        def _tb(key):
-            return "true" if self._trpp_state.get(key, True) else "false"
-        env["DICTEE_TRPP_RULES"]          = _tb("rules")
-        env["DICTEE_TRPP_CONTINUATION"]   = _tb("continuation")
-        env["DICTEE_TRPP_LANGUAGE_RULES"] = _tb("language_rules")
-        env["DICTEE_TRPP_NUMBERS"]        = _tb("numbers")
-        env["DICTEE_TRPP_DICT"]           = _tb("dict")
-        env["DICTEE_TRPP_CAPITALIZATION"] = _tb("capitalization")
-        env["DICTEE_TRPP_SHORT_TEXT"]     = _tb("short_text")
-        if hasattr(self, 'cmb_trpp_short_text_max'):
-            env["DICTEE_TRPP_SHORT_TEXT_MAX"] = str(
-                self.cmb_trpp_short_text_max.currentData() or 3)
+        if translate_mode:
+            # Mirror the shell script's translation pass (dictee lines
+            # 1293-1338): DICTEE_TRPP_* are mapped to DICTEE_PP_* for
+            # this invocation. LLM always forced off.
+            env["DICTEE_PP_RULES"]          = _tb("rules")
+            env["DICTEE_PP_CONTINUATION"]   = _tb("continuation")
+            env["DICTEE_PP_LANGUAGE_RULES"] = _tb("language_rules")
+            env["DICTEE_PP_NUMBERS"]        = _tb("numbers")
+            env["DICTEE_PP_DICT"]           = _tb("dict")
+            env["DICTEE_PP_CAPITALIZATION"] = _tb("capitalization")
+            env["DICTEE_PP_SHORT_TEXT"]     = _tb("short_text")
+            if hasattr(self, 'cmb_trpp_short_text_max'):
+                env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
+                    self.cmb_trpp_short_text_max.currentData() or 3)
 
-        # LLM
-        llm_on = _b("chk_llm", default=False)
-        env["DICTEE_LLM_POSTPROCESS"] = llm_on
-        env["DICTEE_LLM_POSITION"] = self._get_llm_position()
-        if hasattr(self, 'cmb_llm_model'):
-            env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
-        if hasattr(self, 'cmb_llm_preset'):
-            env["DICTEE_LLM_SYSTEM_PROMPT"] = self.cmb_llm_preset.currentData() or "correction-fr"
-        if hasattr(self, 'txt_llm_prompt'):
-            env["DICTEE_LLM_CUSTOM_PROMPT"] = self.txt_llm_prompt.toPlainText()
-        # Tight LLM timeout so the UI stays responsive
-        env.setdefault("DICTEE_LLM_TIMEOUT", "15")
+            # Language-rules umbrella: when the TRPP umbrella is on, the
+            # individual language sub-flags inherit from the Normal (PP)
+            # side — same behaviour as the shell script. When off, all
+            # language sub-flags are forced to false.
+            if self._trpp_state.get("language_rules", True):
+                env["DICTEE_PP_ELISIONS"]    = _b("chk_pp_elisions")
+                env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
+                env["DICTEE_PP_SPANISH"]     = _b("chk_pp_spanish")
+                env["DICTEE_PP_PORTUGUESE"]  = _b("chk_pp_portuguese")
+                env["DICTEE_PP_GERMAN"]      = _b("chk_pp_german")
+                env["DICTEE_PP_DUTCH"]       = _b("chk_pp_dutch")
+                env["DICTEE_PP_ROMANIAN"]    = _b("chk_pp_romanian")
+                env["DICTEE_PP_TYPOGRAPHY"]  = _b("chk_pp_typography")
+            else:
+                for k in ("DICTEE_PP_ELISIONS", "DICTEE_PP_ELISIONS_IT",
+                          "DICTEE_PP_SPANISH", "DICTEE_PP_PORTUGUESE",
+                          "DICTEE_PP_GERMAN", "DICTEE_PP_DUTCH",
+                          "DICTEE_PP_ROMANIAN", "DICTEE_PP_TYPOGRAPHY"):
+                    env[k] = "false"
+
+            # LLM always forced off in translation pipeline
+            env["DICTEE_LLM_POSTPROCESS"] = "false"
+        else:
+            env["DICTEE_PP_RULES"] = _b("chk_pp_rules")
+            env["DICTEE_PP_CONTINUATION"] = _b("chk_pp_continuation")
+            env["DICTEE_PP_LANGUAGE_RULES"] = _b("chk_pp_language_rules")
+            env["DICTEE_PP_ELISIONS"] = _b("chk_pp_elisions")
+            env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
+            env["DICTEE_PP_SPANISH"] = _b("chk_pp_spanish")
+            env["DICTEE_PP_PORTUGUESE"] = _b("chk_pp_portuguese")
+            env["DICTEE_PP_GERMAN"] = _b("chk_pp_german")
+            env["DICTEE_PP_DUTCH"] = _b("chk_pp_dutch")
+            env["DICTEE_PP_ROMANIAN"] = _b("chk_pp_romanian")
+            env["DICTEE_PP_NUMBERS"] = _b("chk_pp_numbers")
+            env["DICTEE_PP_TYPOGRAPHY"] = _b("chk_pp_typography")
+            env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
+            env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
+            env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
+            if hasattr(self, 'cmb_pp_short_text_max'):
+                env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
+                    self.cmb_pp_short_text_max.currentData() or 3)
+
+            # LLM (normal mode only)
+            llm_on = _b("chk_llm", default=False)
+            env["DICTEE_LLM_POSTPROCESS"] = llm_on
+            env["DICTEE_LLM_POSITION"] = self._get_llm_position()
+            if hasattr(self, 'cmb_llm_model'):
+                env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
+            if hasattr(self, 'cmb_llm_preset'):
+                env["DICTEE_LLM_SYSTEM_PROMPT"] = self.cmb_llm_preset.currentData() or "correction-fr"
+            if hasattr(self, 'txt_llm_prompt'):
+                env["DICTEE_LLM_CUSTOM_PROMPT"] = self.txt_llm_prompt.toPlainText()
+            # Tight LLM timeout so the UI stays responsive
+            env.setdefault("DICTEE_LLM_TIMEOUT", "15")
+
+        # Solo mode: force-off all PP sub-steps except the one for the
+        # active sub-page. Does not touch persistent config — only the
+        # env vars for this single invocation. Short text stays off too
+        # (it's not mapped to a sub-page of its own).
+        solo_mode = (
+            hasattr(self, '_test_solo_switch')
+            and self._test_solo_switch.isEnabled()
+            and self._test_solo_switch.isChecked()
+            and self._test_current_step is not None)
+        if solo_mode:
+            _all_steps = [
+                "DICTEE_PP_RULES", "DICTEE_PP_CONTINUATION",
+                "DICTEE_PP_LANGUAGE_RULES", "DICTEE_PP_ELISIONS",
+                "DICTEE_PP_ELISIONS_IT", "DICTEE_PP_SPANISH",
+                "DICTEE_PP_PORTUGUESE", "DICTEE_PP_GERMAN",
+                "DICTEE_PP_DUTCH", "DICTEE_PP_ROMANIAN",
+                "DICTEE_PP_NUMBERS", "DICTEE_PP_TYPOGRAPHY",
+                "DICTEE_PP_DICT", "DICTEE_PP_CAPITALIZATION",
+                "DICTEE_PP_SHORT_TEXT",
+            ]
+            for k in _all_steps:
+                env[k] = "false"
+            env["DICTEE_LLM_POSTPROCESS"] = "false"
+            _step = self._test_current_step
+            if _step == "rules":
+                env["DICTEE_PP_RULES"] = "true"
+            elif _step == "continuation":
+                env["DICTEE_PP_CONTINUATION"] = "true"
+            elif _step == "language_rules":
+                # Umbrella ON + all language sub-flags ON so the user
+                # sees the full effect of the language-rules stage.
+                env["DICTEE_PP_LANGUAGE_RULES"] = "true"
+                for k in ("DICTEE_PP_ELISIONS", "DICTEE_PP_ELISIONS_IT",
+                          "DICTEE_PP_SPANISH", "DICTEE_PP_PORTUGUESE",
+                          "DICTEE_PP_GERMAN", "DICTEE_PP_DUTCH",
+                          "DICTEE_PP_ROMANIAN", "DICTEE_PP_TYPOGRAPHY"):
+                    env[k] = "true"
+            elif _step == "dict":
+                env["DICTEE_PP_DICT"] = "true"
+            elif _step == "llm" and not translate_mode:
+                env["DICTEE_LLM_POSTPROCESS"] = "true"
+
+        # Update the language indicator label to reflect the active mode
+        if hasattr(self, '_lbl_test_lang'):
+            if translate_mode:
+                self._lbl_test_lang.setText(
+                    _("Mode Translation → {lang}").format(lang=lang.upper()))
+            else:
+                self._lbl_test_lang.setText("")
 
         try:
             proc = subprocess.run(
@@ -12436,6 +12975,42 @@ class DicteeSetupDialog(QDialog):
             after = _dec(parts[3])
             steps.append((label, before, after))
 
+        # Continuation indicator: mirror the shell script's save_last_word
+        # logic. When the last word of the result is a continuation word
+        # in the active language, strip trailing punctuation and append
+        # the configured indicator (>>, ..., ↓, •…). This is what the
+        # user would actually see at runtime in their target app.
+        indicator_appended = False
+        _indicator_before = ""
+        if (env.get("DICTEE_PP_CONTINUATION", "false") == "true"
+                and result.strip()):
+            cont_words = self._load_continuation_words_for(lang)
+            if cont_words:
+                import re as _re
+                _m = _re.search(r"([A-Za-zÀ-ÿ''-]+)"
+                                r"[\.\,\?\!\u2026\s]*$", result.rstrip())
+                if _m:
+                    _last = _m.group(1).lower()
+                    if _last in cont_words:
+                        _indicator = self.conf.get(
+                            "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
+                        _indicator_before = result
+                        _stripped = _re.sub(
+                            r"[\.\,\?\!\u2026]+\s*$", "", result.rstrip())
+                        result = _stripped + _indicator
+                        indicator_appended = True
+
+        # Synthetic step entry so the details panel stays honest about
+        # the continuation indicator append (which happens here, in the
+        # test panel, not in dictee-postprocess itself).
+        if indicator_appended:
+            steps.append(("Continuation indicator", _indicator_before, result))
+
+        # Unsaved-continuation warning visibility
+        if hasattr(self, '_lbl_test_unsaved'):
+            self._lbl_test_unsaved.setVisible(
+                self._has_unsaved_cont_changes())
+
         # Output display (visible whitespace markers)
         display_output = result
         display_output = display_output.replace("\n", "↵\n")
@@ -12446,20 +13021,77 @@ class DicteeSetupDialog(QDialog):
             display_output = result.replace("\n", "↵").replace("\t", "⇥")
         self._test_output.setPlainText(display_output)
 
-        # Details
-        lines = []
+        # Details — built as rich HTML so the active step can be
+        # highlighted in accent color (follows the current PP sub-page).
+        import html as _html
+        _accent_html = self.palette().color(
+            self.palette().ColorRole.Highlight).name()
+        _current_step = getattr(self, '_test_current_step', None)
+
+        # Map each PP sub-page to a predicate matching STEP trace labels
+        # emitted by dictee-postprocess on stderr.
+        def _step_matches(trace_label, page_step):
+            if page_step is None:
+                return False
+            n = trace_label
+            if page_step == "rules":
+                return n == "Rules"
+            if page_step == "continuation":
+                return n == "Continuation" or n == "Continuation indicator"
+            if page_step == "language_rules":
+                return any(n.startswith(p) for p in (
+                    "Elisions", "Spanish", "Contractions",
+                    "German", "Dutch", "Romanian", "Typography"))
+            if page_step == "dict":
+                return n == "Dictionary"
+            if page_step == "llm":
+                return n.startswith("LLM")
+            return False
+
+        def _line(txt, highlight=False, warn=False):
+            escaped = _html.escape(txt).replace("\n", "<br/>")
+            if highlight:
+                return (f'<span style="color:{_accent_html}; '
+                        f'font-weight:bold;">{escaped}</span>')
+            if warn:
+                return f'<span style="color:#e67e22;">{escaped}</span>'
+            return escaped
+
+        html_lines = []
+        # Show the translate step on top when Translation mode is on
+        if translate_mode and translated_from:
+            src_short = translated_from if len(translated_from) <= 100 \
+                else translated_from[:100] + "\u2026"
+            tgt_short = text if len(text) <= 100 else text[:100] + "\u2026"
+            html_lines.append(_line(
+                _("\U0001f310 Translate: \u201c{src}\u201d \u2192 "
+                  "\u201c{tgt}\u201d").format(src=src_short, tgt=tgt_short)))
+        if translate_error:
+            html_lines.append(_line(
+                _("⚠ Translation failed: {err}").format(err=translate_error),
+                warn=True))
+        if solo_mode:
+            html_lines.append(_line(
+                _("🔬 Solo mode: only this step runs."),
+                highlight=True))
         if not steps and proc.returncode == 0:
-            lines.append(_("No pipeline steps ran."))
+            html_lines.append(_line(_("No pipeline steps ran.")))
         for i, (name, before, after) in enumerate(steps, 1):
             changed = before != after
             marker = " \u2190 " + _("changed") if changed else ""
             display = after.replace("\n", "\\n").replace("\t", "\\t")
             if len(display) > 100:
                 display = display[:100] + "\u2026"
-            lines.append(f"{i}. {name} \u2192 {display}{marker}")
+            raw = f"{i}. {name} \u2192 {display}{marker}"
+            is_current = _step_matches(name, _current_step)
+            html_lines.append(_line(raw, highlight=is_current))
         if proc.returncode != 0:
-            lines.append(f"[exit {proc.returncode}] {proc.stderr.splitlines()[-1] if proc.stderr else ''}")
-        self._test_details_label.setText("\n".join(lines))
+            html_lines.append(_line(
+                f"[exit {proc.returncode}] "
+                f"{proc.stderr.splitlines()[-1] if proc.stderr else ''}",
+                warn=True))
+        self._test_details_label.setTextFormat(Qt.TextFormat.RichText)
+        self._test_details_label.setText("<br/>".join(html_lines))
 
     def _toggle_recording(self):
         """Starts/stops microphone recording."""
