@@ -6240,9 +6240,43 @@ class DicteeSetupDialog(QDialog):
         _lbl_src.setStyleSheet("font-size: 11pt;")
         _lbl_tgt = QLabel(_("Target language:"))
         _lbl_tgt.setStyleSheet("font-size: 11pt;")
+
+        # Swap button between source and target
+        _btn_swap = QPushButton("⇄")
+        _btn_swap.setFixedSize(28, 28)
+        _btn_swap.setToolTip(_("Swap source and target languages"))
+        _btn_swap.setStyleSheet(
+            "QPushButton { font-size: 16px; border: 1px solid rgba(127,127,127,80);"
+            " border-radius: 4px; background: transparent; }"
+            "QPushButton:hover { background: rgba(127,127,127,40); }")
+        def _swap_langs():
+            src = self.combo_src.currentData()
+            tgt = self.combo_tgt.currentData()
+            if src and tgt and src != tgt:
+                self._lang_swap_guard = True
+                idx_s = self.combo_src.findData(tgt)
+                idx_t = self.combo_tgt.findData(src)
+                if idx_s >= 0 and idx_t >= 0:
+                    self.combo_src.setCurrentIndex(idx_s)
+                    self.combo_tgt.setCurrentIndex(idx_t)
+                self._lang_swap_guard = False
+                self._prev_src = self.combo_src.currentData()
+                self._prev_tgt = self.combo_tgt.currentData()
+        _btn_swap.clicked.connect(_swap_langs)
+
+        # Layout: [labels + combos] | [swap button centered between both rows]
+        _lang_grid = QHBoxLayout()
+        _lang_grid.setSpacing(8)
+        _lang_grid.addLayout(form_lang)
+
         form_lang.addRow(_lbl_src, self.combo_src)
         form_lang.addRow(_lbl_tgt, self.combo_tgt)
-        lay_tr.addLayout(form_lang)
+
+        _btn_swap.setFixedSize(28, self.combo_src.sizeHint().height() * 2 + form_lang.verticalSpacing())
+        _btn_swap.setText("⇅")
+        _lang_grid.addWidget(_btn_swap)
+        _lang_grid.addStretch()
+        lay_tr.addLayout(_lang_grid)
         lay_tr.addSpacing(4)
 
         # Backend ComboBox
@@ -6437,9 +6471,42 @@ class DicteeSetupDialog(QDialog):
                 self._update_lt_lang_checks()
                 self._on_lt_langs_changed()
                 self._check_lt_status()
-        self.combo_src.currentIndexChanged.connect(_on_lang_changed)
-        self.combo_src.currentIndexChanged.connect(lambda: self._update_canary_translation_visibility())
-        self.combo_tgt.currentIndexChanged.connect(_on_lang_changed)
+        self._lang_swap_guard = False
+        self._prev_src = self.combo_src.currentData()
+        self._prev_tgt = self.combo_tgt.currentData()
+
+        def _on_src_changed():
+            _on_lang_changed()
+            self._update_canary_translation_visibility()
+            if self._lang_swap_guard:
+                return
+            src = self.combo_src.currentData()
+            tgt = self.combo_tgt.currentData()
+            if src and tgt and src == tgt:
+                # Swap: set target to what source was before
+                self._lang_swap_guard = True
+                old_src = self._prev_src
+                idx = self.combo_tgt.findData(old_src)
+                if idx >= 0:
+                    self.combo_tgt.setCurrentIndex(idx)
+                self._lang_swap_guard = False
+            self._prev_src = src
+        self.combo_src.currentIndexChanged.connect(_on_src_changed)
+        def _on_tgt_changed():
+            _on_lang_changed()
+            if self._lang_swap_guard:
+                return
+            src = self.combo_src.currentData()
+            tgt = self.combo_tgt.currentData()
+            if src and tgt and src == tgt:
+                self._lang_swap_guard = True
+                old_tgt = self._prev_tgt
+                idx = self.combo_src.findData(old_tgt)
+                if idx >= 0:
+                    self.combo_src.setCurrentIndex(idx)
+                self._lang_swap_guard = False
+            self._prev_tgt = tgt
+        self.combo_tgt.currentIndexChanged.connect(_on_tgt_changed)
         self._update_lt_lang_checks()
         _on_trans_backend_changed()
 
