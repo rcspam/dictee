@@ -10,6 +10,10 @@ Supports PyQt6 (preferred) and PySide6 (fallback).
 import gettext
 import math
 import os
+
+# Suppress Wayland "grabbing the mouse only for popup windows" warnings
+# triggered by setCursor() on non-popup widgets (ToggleSwitch, grips, etc.)
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.wayland.warning=false")
 import re
 import shutil
 import struct
@@ -3155,14 +3159,14 @@ class DicteeSetupDialog(QDialog):
             "llm":            False,  # Never, runtime-enforced
         }
         # Pipeline mode: new unified variable; fall back to old bools for compat
-        _pm = conf.get("DICTEE_PIPELINE_MODE", "")
+        _pm = self.conf.get("DICTEE_PIPELINE_MODE", "")
         if _pm in ("normal", "normal+translate", "full_chain"):
             self._pipeline_mode = _pm
         else:
             # Derive from old variables
-            _pp_on = (conf.get("DICTEE_POSTPROCESS", "true") or "true").lower() == "true"
-            _tr_on = (conf.get("DICTEE_TRANSLATE", "false") or "false").lower() == "true"
-            _trpp_on = (conf.get("DICTEE_PP_TRANSLATE", "true") or "true").lower() == "true"
+            _pp_on = (self.conf.get("DICTEE_POSTPROCESS", "true") or "true").lower() == "true"
+            _tr_on = (self.conf.get("DICTEE_TRANSLATE", "false") or "false").lower() == "true"
+            _trpp_on = (self.conf.get("DICTEE_PP_TRANSLATE", "true") or "true").lower() == "true"
             if not _pp_on:
                 self._pipeline_mode = "normal"
             elif _tr_on and _trpp_on:
@@ -3572,13 +3576,21 @@ class DicteeSetupDialog(QDialog):
         self._pipeline_header_external = True
         pipeline_header = self._build_pipeline_header_widget()
 
-        page_pp = QWidget()
-        _lay = QVBoxLayout(page_pp)
+        page_pp_inner = QWidget()
+        _lay = QVBoxLayout(page_pp_inner)
         _lay.setContentsMargins(20, 8, 20, 16)
         _lay.setSpacing(6)
-        # _pp_parent property returns 'self' by default; post-processing
-        # will mount into _lay.
         self._build_postprocess_section(_lay, conf)
+
+        # Wrap in a QScrollArea like other pages, so the splitter
+        # resize is a simple viewport resize (no relayout storm).
+        page_pp = QScrollArea()
+        page_pp.setWidgetResizable(True)
+        page_pp.setFrameShape(QFrame.Shape.NoFrame)
+        page_pp.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        page_pp.setWidget(page_pp_inner)
+        self._pp_scroll = page_pp  # for ensureWidgetVisible calls
         self._sidebar_stack.addWidget(page_pp)
 
         # Section 9 : About (last)
@@ -6651,36 +6663,12 @@ class DicteeSetupDialog(QDialog):
             "QCheckBox {{ color: {col}; font-size: 14px; "
             "padding: 1px 0; }}")
 
-        # ── Pipeline mode combo (replaces 2 master checkboxes) ──
-        _mode_row = QHBoxLayout()
-        _mode_row.setSpacing(8)
-        _mode_label = QLabel(_("Pipeline mode:"))
-        _mode_label.setStyleSheet("font-size: 15px; font-weight: bold;")
-        _mode_row.addWidget(_mode_label)
-
-        self._pipeline_mode_combo = QComboBox()
-        self._pipeline_mode_combo.addItem(_("PP Normal"), "normal")
-        self._pipeline_mode_combo.addItem(_("PP Normal + Traduction"), "normal+translate")
-        self._pipeline_mode_combo.addItem(_("Chaîne complète"), "full_chain")
-        _idx = self._pipeline_mode_combo.findData(self._pipeline_mode)
-        if _idx >= 0:
-            self._pipeline_mode_combo.setCurrentIndex(_idx)
-        self._pipeline_mode_combo.setToolTip(_(
-            "PP Normal : ASR → post-traitement → sortie\n"
-            "PP Normal + Traduction : ASR → PP normal → traduction → sortie\n"
-            "Chaîne complète : ASR → PP normal → traduction → PP traduction → sortie"))
-        _mode_row.addStretch(1)
-        _mlay.addLayout(_mode_row)
-
-        # Hidden compat checkboxes — code elsewhere reads these
-        self.chk_postprocess = QCheckBox()
-        self.chk_postprocess.setChecked(True)
-        self.chk_postprocess.setVisible(False)
-        self.chk_pp_translate = QCheckBox()
-        self.chk_pp_translate.setChecked(self._pp_master_translate)
-        self.chk_pp_translate.setVisible(False)
-        self._pipeline_mode_combo.currentIndexChanged.connect(
-            self._on_pipeline_mode_changed)
+        # ── Master 1: Enable PP (normal) ──
+        self.chk_postprocess = ToggleSwitch(_("Enable PP"))
+        self.chk_postprocess.setChecked(self._pp_master_normal)
+        if _sidebar:
+            self.chk_postprocess.setStyleSheet(_master_style.format(col=_acc_hex))
+        _mlay.addWidget(self.chk_postprocess)
 
         # Normal sub-row: Short text fix  < [N▼] words  (indented)
         _normal_sub = QWidget()
@@ -6716,6 +6704,27 @@ class DicteeSetupDialog(QDialog):
         _nrow.addWidget(QLabel(_("words")))
         _nrow.addStretch(1)
         _mlay.addWidget(_normal_sub)
+
+        # Sub-row follows master state
+        _normal_sub.setEnabled(self.chk_postprocess.isChecked())
+        self.chk_postprocess.toggled.connect(_normal_sub.setEnabled)
+
+        # ── Master 2: Enable PP for translation ──
+        self.chk_pp_translate = ToggleSwitch(_("Enable PP for translation"))
+        self.chk_pp_translate.setChecked(self._pp_master_translate)
+        self.chk_pp_translate.setToolTip(_(
+            "When enabled, the translated text is passed through the "
+            "translation post-processing pipeline (orange), with the "
+            "target language as reference."))
+        if _sidebar:
+            self.chk_pp_translate.setStyleSheet(_master_style.format(col=_orange))
+
+        def _on_master_translate_toggled(on):
+            self._pp_master_translate = bool(on)
+            self._refresh_pp_diagrams()
+            self._update_test_chain_label()
+        self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
+        _mlay.addWidget(self.chk_pp_translate)
 
         # Translation sub-row: Short text fix + its own threshold combo.
         _trans_sub = QWidget()
@@ -6760,8 +6769,9 @@ class DicteeSetupDialog(QDialog):
         _mlay.addWidget(_trans_sub)
 
         # Sub-row enabled only in full_chain mode
-        self._trans_sub_widget = _trans_sub
-        _trans_sub.setEnabled(self._pipeline_mode == "full_chain")
+        # Sub-row follows master state
+        _trans_sub.setEnabled(self.chk_pp_translate.isChecked())
+        self.chk_pp_translate.toggled.connect(_trans_sub.setEnabled)
 
         lay.addWidget(self._pp_masters_row)
 
@@ -7009,21 +7019,17 @@ class DicteeSetupDialog(QDialog):
         _test_body.setVisible(False)
 
         def _on_test_toggled(on):
-            # Freeze tabs at their current height so opening the test
-            # panel triggers the outer scroll instead of squeezing editors.
+            self._freeze_pp()
+            # Freeze tabs at their current height so the test panel
+            # doesn't squeeze or stretch the editors above.
             if on and hasattr(self, "_pp_tabs"):
-                self._pp_tabs.setMinimumHeight(self._pp_tabs.height())
+                self._pp_tabs.setFixedHeight(self._pp_tabs.height())
             elif not on and hasattr(self, "_pp_tabs"):
                 self._pp_tabs.setMinimumHeight(480)
+                self._pp_tabs.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
             _test_body.setVisible(on)
             self._refresh_test_accordion_label()
-            # When expanding, scroll the outer QScrollArea so the whole
-            # test body is visible — avoids the accordion opening off
-            # screen below the viewport on the sub-pages with tall tabs.
-            if on and getattr(self, "_pp_scroll", None) is not None:
-                def _do():
-                    self._pp_scroll.ensureWidgetVisible(_test_body, 0, 20)
-                QTimer.singleShot(0, _do)
+            self._unfreeze_pp(20)
         _test_toggle.toggled.connect(_on_test_toggled)
         # Initial label reflects current PP sub-tab (if any)
         self._refresh_test_accordion_label()
@@ -7072,15 +7078,10 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, "_pp_tabs"):
             self._pp_tabs.setMinimumHeight(480)
 
-        self._pp_scroll = QScrollArea()
-        self._pp_scroll.setWidgetResizable(True)
-        self._pp_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._pp_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._pp_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._pp_scroll.setWidget(self._pp_content)
-        lay.addWidget(self._pp_scroll)
+        # _pp_scroll is now the outer QScrollArea wrapping page_pp_inner
+        # (created in _build_sidebar_ui). Store a reference for
+        # ensureWidgetVisible calls; addWidget _pp_content directly to lay.
+        lay.addWidget(self._pp_content)
 
         # Per-step greying: a pipeline step is "effectively active" when
         # at least one of the two pipelines (normal / translation) has it
@@ -7139,9 +7140,14 @@ class DicteeSetupDialog(QDialog):
                 self._update_rules_active()
         self._apply_any_master_active = _apply_any_master_active
 
-        # Pipeline mode combo drives all master state
-        self._pipeline_mode_combo.currentIndexChanged.connect(
-            lambda _: _apply_any_master_active())
+        def _on_master_normal_toggled(on):
+            self._pp_master_normal = bool(on)
+            _apply_any_master_active()
+            self._refresh_pp_diagrams()
+            self._update_test_chain_label()
+        self.chk_postprocess.toggled.connect(_on_master_normal_toggled)
+        self.chk_pp_translate.toggled.connect(
+            lambda _on: _apply_any_master_active())
 
         # Initial state
         _apply_any_master_active()
@@ -7157,10 +7163,16 @@ class DicteeSetupDialog(QDialog):
                 self.palette().ColorGroup.Disabled,
                 self.palette().ColorRole.WindowText).name()
 
-            # PP normal always on, title always active
-            self._pp_tab_title.setStyleSheet(
-                f"color: {accent_hex}; font-size: 24px; font-weight: bold; "
-                "padding: 6px 0 12px 0;")
+            def _apply_pp_master(on):
+                col = accent_hex if on else dis_hex
+                self._pp_tab_title.setStyleSheet(
+                    f"color: {col}; font-size: 24px; font-weight: bold; "
+                    "padding: 6px 0 12px 0;")
+                if hasattr(self, "_pp_tabs"):
+                    self._pp_tabs.setEnabled(on)
+
+            self.chk_postprocess.toggled.connect(_apply_pp_master)
+            _apply_pp_master(self.chk_postprocess.isChecked())
 
         # Wire pipeline diagram refresh (SVG is the source of activation —
         # no per-tab enable checkbox to keep in sync anymore).
@@ -7338,29 +7350,27 @@ class DicteeSetupDialog(QDialog):
             cb.toggle()
 
 
-    def _on_pipeline_mode_changed(self, _idx=None):
-        """Handle pipeline mode combo change — single source of truth."""
-        mode = self._pipeline_mode_combo.currentData()
-        self._pipeline_mode = mode
-        self._pp_master_normal = True
-        self._pp_master_translate = (mode == "full_chain")
-        # Sync hidden compat checkbox
-        if hasattr(self, 'chk_pp_translate'):
-            self.chk_pp_translate.setChecked(self._pp_master_translate)
-        # Grey translation sub-row
-        if hasattr(self, '_trans_sub_widget'):
-            self._trans_sub_widget.setEnabled(mode == "full_chain")
-        self._refresh_pp_diagrams()
-        # Sync test panel combo if it exists
-        if hasattr(self, '_test_mode_combo'):
-            if self._test_mode_combo.currentData() != mode:
-                self._test_mode_combo.blockSignals(True)
-                idx = self._test_mode_combo.findData(mode)
-                if idx >= 0:
-                    self._test_mode_combo.setCurrentIndex(idx)
-                self._test_mode_combo.blockSignals(False)
-                self._update_test_mode_icon()
-                self._schedule_test_run()
+    def _update_test_chain_label(self):
+        """Update the test panel chain label from the current toggle states."""
+        if not hasattr(self, '_test_mode_label'):
+            return
+        parts = []
+        if self._pp_master_normal:
+            parts.append(_("PP Normal"))
+        trad = (hasattr(self, '_test_trad_switch')
+                and self._test_trad_switch.isChecked())
+        if trad:
+            parts.append(_("Traduction"))
+        if trad and self._pp_master_translate:
+            parts.append(_("PP Traduction"))
+        self._test_mode_label.setText(" → ".join(parts) if parts else "—")
+        if hasattr(self, '_update_test_mode_icon'):
+            self._update_test_mode_icon()
+        # Force immediate re-run with freeze to avoid repaint artifacts
+        if hasattr(self, '_run_test_pipeline'):
+            self._freeze_pp()
+            self._run_test_pipeline()
+            self._unfreeze_pp(10)
 
     def _refresh_pp_diagrams(self):
         """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
@@ -12509,39 +12519,19 @@ class DicteeSetupDialog(QDialog):
         self._test_solo_switch.toggled.connect(self._schedule_test_run)
         mode_col.addWidget(self._test_solo_switch)
 
-        self._test_mode_combo = QComboBox()
-        self._test_mode_combo.addItem(_("PP Normal"), "normal")
-        self._test_mode_combo.addItem(_("PP Normal + Traduction"), "normal+translate")
-        self._test_mode_combo.addItem(_("Chaîne complète"), "full_chain")
-        _idx = self._test_mode_combo.findData(self._pipeline_mode)
-        if _idx >= 0:
-            self._test_mode_combo.setCurrentIndex(_idx)
-        self._test_mode_combo.setToolTip(_(
-            "PP Normal : texte → post-traitement langue source → sortie\n"
-            "PP Normal + Traduction : texte → PP normal → traduction → sortie\n"
-            "Chaîne complète : texte → PP normal → traduction → PP traduction → sortie"))
-        def _on_test_mode_changed(_idx):
-            # Sync PP page combo (if it exists)
-            mode = self._test_mode_combo.currentData()
-            if (hasattr(self, '_pipeline_mode_combo')
-                    and self._pipeline_mode_combo.currentData() != mode):
-                self._pipeline_mode_combo.blockSignals(True)
-                idx = self._pipeline_mode_combo.findData(mode)
-                if idx >= 0:
-                    self._pipeline_mode_combo.setCurrentIndex(idx)
-                self._pipeline_mode_combo.blockSignals(False)
-                # Update derived state directly (same as _on_pipeline_mode_changed)
-                self._pipeline_mode = mode
-                self._pp_master_translate = (mode == "full_chain")
-                if hasattr(self, 'chk_pp_translate'):
-                    self.chk_pp_translate.setChecked(self._pp_master_translate)
-                if hasattr(self, '_trans_sub_widget'):
-                    self._trans_sub_widget.setEnabled(mode == "full_chain")
-                self._refresh_pp_diagrams()
-            self._update_test_mode_icon()
-            self._schedule_test_run()
-        self._test_mode_combo.currentIndexChanged.connect(_on_test_mode_changed)
-        mode_col.addWidget(self._test_mode_combo)
+        self._test_trad_switch = ToggleSwitch(_("Traduction"))
+        self._test_trad_switch.setChecked(False)
+        self._test_trad_switch.setToolTip(_(
+            "OFF : teste le pipeline PP normal seul.\n"
+            "ON : ajoute la traduction (+ PP traduction si activé)."))
+        self._test_trad_switch.toggled.connect(lambda _: self._update_test_chain_label())
+        mode_col.addWidget(self._test_trad_switch)
+
+        # Chain description label
+        self._test_mode_label = QLabel()
+        self._test_mode_label.setStyleSheet("font-size: 11px; color: gray;")
+        self._test_mode_label.setWordWrap(True)
+        mode_col.addWidget(self._test_mode_label)
 
         row.addLayout(mode_col)
 
@@ -12552,8 +12542,75 @@ class DicteeSetupDialog(QDialog):
         self._test_input = self._TestInputTextEdit()
         self._test_input.setPlaceholderText(_("Type text or record..."))
         self._test_input.setAcceptDrops(True)
-        self._test_input.setFixedHeight(60)
+        # Default height: 5 lines of text + document margins
+        _fm = self._test_input.fontMetrics()
+        _5lines = _fm.lineSpacing() * 5 + self._test_input.document().documentMargin() * 2 + 4
+        _5lines = max(80, int(_5lines))
+        self._test_input.setMinimumHeight(_5lines)
+        self._test_input.setMaximumHeight(300)
         self._test_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Vertical resize grip (bottom edge of input)
+        _input_grip = QLabel(self._test_input)
+        _input_grip.setFixedHeight(8)
+        _input_grip.setCursor(Qt.CursorShape.SizeVerCursor)
+        _input_grip.setStyleSheet("background: transparent; border: none;")
+        _input_grip._drag_y = None
+        _input_grip._base_h = 0
+        _self = self
+
+        def _grip_paint(event):
+            p = QPainter(_input_grip)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pen = QPen(QColor(128, 128, 128))
+            pen.setWidth(1)
+            p.setPen(pen)
+            cx = _input_grip.width() // 2
+            for y in (1, 4, 7):
+                p.drawLine(cx - 10, y, cx + 10, y)
+            p.end()
+        _input_grip.paintEvent = _grip_paint
+
+        def _grip_press(event):
+            _input_grip._drag_y = event.position().y()
+            _input_grip._base_h = _self._test_input.height()
+            # Freeze tabs so they don't resize during drag
+            if hasattr(_self, '_pp_tabs'):
+                _input_grip._tabs_h = _self._pp_tabs.height()
+                _self._pp_tabs.setFixedHeight(_input_grip._tabs_h)
+            event.accept()
+        _input_grip.mousePressEvent = _grip_press
+
+        def _grip_move(event):
+            if _input_grip._drag_y is not None:
+                dy = int(event.position().y() - _input_grip._drag_y)
+                new_h = max(_5lines, min(300, _input_grip._base_h + dy))
+                _self._test_input.setFixedHeight(new_h)
+                _self._test_output.setFixedHeight(new_h)
+                _input_grip._base_h = new_h
+                _input_grip._drag_y = event.position().y()
+                event.accept()
+        _input_grip.mouseMoveEvent = _grip_move
+
+        def _grip_release(event):
+            _input_grip._drag_y = None
+            # Unfreeze tabs — restore minimum instead of fixed
+            if hasattr(_self, '_pp_tabs'):
+                _self._pp_tabs.setMinimumHeight(
+                    getattr(_input_grip, '_tabs_h', 480))
+                _self._pp_tabs.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
+            event.accept()
+        _input_grip.mouseReleaseEvent = _grip_release
+
+        def _reposition_grip(event=None):
+            _input_grip.setGeometry(
+                0, _self._test_input.height() - 8,
+                _self._test_input.width(), 8)
+            if event:
+                type(_self._test_input).resizeEvent(_self._test_input, event)
+        self._test_input.resizeEvent = _reposition_grip
+
+        self._test_input.setFixedHeight(_5lines)
         row.addWidget(self._test_input, 3)
 
         # Arrow column with ASR/Translate icon above
@@ -12587,7 +12644,7 @@ class DicteeSetupDialog(QDialog):
         self._test_output = QTextEdit()
         self._test_output.setReadOnly(True)
         self._test_output.setPlaceholderText(_("Output"))
-        self._test_output.setFixedHeight(60)
+        self._test_output.setFixedHeight(_5lines)
         self._test_output.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row.addWidget(self._test_output, 3)
 
@@ -12626,27 +12683,22 @@ class DicteeSetupDialog(QDialog):
         self._test_details_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self._test_details_frame = QFrame()
-        self._test_details_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        _df_lay = QVBoxLayout(self._test_details_frame)
-        _df_lay.setContentsMargins(0, 0, 0, 0)
-        _df_lay.addWidget(self._test_details_label)
-        self._test_details_frame.setVisible(False)
-        lay.addWidget(self._test_details_frame)
-        # Keep old name for toggle/scroll references
-        self._test_details_scroll = self._test_details_frame
+        self._test_details_scroll = QScrollArea()
+        self._test_details_scroll.setWidgetResizable(True)
+        self._test_details_scroll.setFrameShape(QFrame.Shape.StyledPanel)
+        self._test_details_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._test_details_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._test_details_scroll.setFixedHeight(180)
+        self._test_details_scroll.setWidget(self._test_details_label)
+        self._test_details_scroll.setVisible(False)
+        lay.addWidget(self._test_details_scroll)
 
         def _on_details_toggled(on):
+            self._freeze_pp()
             self._test_details_scroll.setVisible(on)
-            if on and getattr(self, "_pp_scroll", None) is not None:
-                def _do():
-                    # Force layout recalc so the outer scroll accounts
-                    # for the new details height, then scroll down.
-                    self._pp_content.updateGeometry()
-                    self._pp_scroll.widget().adjustSize()
-                    self._pp_scroll.ensureWidgetVisible(
-                        self._test_details_scroll, 0, 20)
-                QTimer.singleShot(0, _do)
+            self._unfreeze_pp(20)
         btn_details.toggled.connect(_on_details_toggled)
 
         # Connect
@@ -12657,10 +12709,27 @@ class DicteeSetupDialog(QDialog):
         self._test_timer = QTimer()
         self._test_timer.setSingleShot(True)
         self._test_timer.setInterval(300)
-        self._test_timer.timeout.connect(self._run_test_pipeline)
+        def _run_frozen():
+            self._freeze_pp()
+            self._run_test_pipeline()
+            self._unfreeze_pp(10)
+        self._test_timer.timeout.connect(_run_frozen)
 
         # Recording state
         self._recording_process = None
+
+    def _freeze_pp(self):
+        """Block repaints on the PP page to avoid intermediate layout artifacts."""
+        scroll = getattr(self, '_pp_scroll', None)
+        if scroll:
+            scroll.setUpdatesEnabled(False)
+
+    def _unfreeze_pp(self, delay=15):
+        """Re-enable repaints after layout settles."""
+        scroll = getattr(self, '_pp_scroll', None)
+        if scroll:
+            QTimer.singleShot(delay, lambda: (
+                scroll.setUpdatesEnabled(True), scroll.update()))
 
     def _schedule_test_run(self):
         self._test_timer.start()
@@ -12782,6 +12851,16 @@ class DicteeSetupDialog(QDialog):
             suffix = _("Test : {page}").format(page=_(friendly))
         btn.setText(arrow + suffix)
 
+    def _get_test_mode(self):
+        """Derive test pipeline mode from the current toggle states."""
+        trad = (hasattr(self, '_test_trad_switch')
+                and self._test_trad_switch.isChecked())
+        if trad and self._pp_master_translate:
+            return "full_chain"
+        elif trad:
+            return "normal+translate"
+        return "normal"
+
     def _update_test_mode_icon(self):
         """Update icons between input/output based on test mode."""
         icons = _icons_dir()
@@ -12796,8 +12875,7 @@ class DicteeSetupDialog(QDialog):
         is_dark = pal.color(QPalette.ColorRole.Window).lightness() < 128
         suffix = "dark" if is_dark else "light"
 
-        mode = (self._test_mode_combo.currentData()
-                if hasattr(self, '_test_mode_combo') else "normal")
+        mode = (self._get_test_mode())
         has_translate = mode in ("normal+translate", "full_chain")
 
         # ASR icon always visible
@@ -12830,7 +12908,7 @@ class DicteeSetupDialog(QDialog):
         this panel stays in sync with the actual pipeline (LLM, master
         switches, short_text included). Single source of truth.
 
-        Three modes driven by `self._test_mode_combo`:
+        Three modes derived from test toggles + PP masters:
         - "normal"           = PP Normal only (source language, LLM optional)
         - "normal+translate" = PP Normal → Translation → output
         - "full_chain"       = PP Normal → Translation → PP Translation → output
@@ -12841,8 +12919,7 @@ class DicteeSetupDialog(QDialog):
             self._test_details_label.setText("")
             return
 
-        test_mode = (self._test_mode_combo.currentData()
-                     if hasattr(self, '_test_mode_combo') else "normal")
+        test_mode = self._get_test_mode()
         needs_translate = test_mode in ("normal+translate", "full_chain")
         needs_trpp = test_mode == "full_chain"
 
@@ -13084,9 +13161,9 @@ class DicteeSetupDialog(QDialog):
             if source_lang != target:
                 _eff_conf = dict(self.conf)
                 if hasattr(self, 'cmb_trans_backend'):
-                    _b = self.cmb_trans_backend.currentData()
-                    if _b:
-                        _eff_conf["DICTEE_TRANSLATE_BACKEND"] = _b
+                    _tb_val = self.cmb_trans_backend.currentData()
+                    if _tb_val:
+                        _eff_conf["DICTEE_TRANSLATE_BACKEND"] = _tb_val
                 if hasattr(self, 'cmb_trans_engine'):
                     _e = self.cmb_trans_engine.currentData()
                     if _e:
@@ -13153,6 +13230,38 @@ class DicteeSetupDialog(QDialog):
                     trpp_error = str(e)
             else:
                 trpp_error = _("Translation post-processing disabled (master switch off)")
+
+        # Continuation indicator on the FINAL result (target language)
+        # when translation was applied. The first check (above) covers
+        # the source language after PP Normal; this one covers the target
+        # language after translation / TRPP.
+        if needs_translate and not indicator_appended and result.strip():
+            _final_lang = live_tgt[:2]
+            # Check continuation in the env that was actually used:
+            # Phase 3 env2 if full_chain, else Phase 1 env for the flag
+            _cont_on = True
+            if needs_trpp and 'env2' in dir():
+                _cont_on = env2.get("DICTEE_PP_CONTINUATION", "false") == "true"
+            else:
+                _cont_on = env.get("DICTEE_PP_CONTINUATION", "false") == "true"
+            if _cont_on:
+                cont_words = self._load_continuation_words_for(_final_lang)
+                if cont_words:
+                    import re as _re
+                    _m = _re.search(r"([A-Za-zÀ-ÿ''-]+)"
+                                    r"[\.\,\?\!\u2026\s]*$", result.rstrip())
+                    if _m:
+                        _last = _m.group(1).lower()
+                        if _last in cont_words:
+                            _indicator = self.conf.get(
+                                "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
+                            _indicator_before = result
+                            _stripped = _re.sub(
+                                r"[\.\,\?\!\u2026]+\s*$", "", result.rstrip())
+                            result = _stripped + _indicator
+                            indicator_appended = True
+                            steps.append(("Continuation indicator",
+                                          _indicator_before, result))
 
         # Unsaved-continuation warning visibility
         if hasattr(self, '_lbl_test_unsaved'):
@@ -13262,7 +13371,10 @@ class DicteeSetupDialog(QDialog):
                 f"{proc.stderr.splitlines()[-1] if proc.stderr else ''}",
                 warn=True))
         self._test_details_label.setTextFormat(Qt.TextFormat.RichText)
+        _prev_h = self._test_details_label.height()
         self._test_details_label.setText("<br/>".join(html_lines))
+
+
 
     def _toggle_recording(self):
         """Starts/stops microphone recording."""
@@ -13540,9 +13652,18 @@ class DicteeSetupDialog(QDialog):
             ptt_key_translate = 0
 
         # Post-processing
-        pipeline_mode = (self._pipeline_mode_combo.currentData()
-                         if hasattr(self, '_pipeline_mode_combo') else "normal")
-        postprocess = True  # PP normal always on
+        # Derive pipeline mode from the two master toggles
+        _pp_on = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
+        _trpp_on = self.chk_pp_translate.isChecked() if hasattr(self, 'chk_pp_translate') else False
+        # Translation is configured if a backend is set
+        _trad_on = bool(self.conf.get("DICTEE_TRANSLATE_BACKEND", ""))
+        if _pp_on and _trad_on and _trpp_on:
+            pipeline_mode = "full_chain"
+        elif _pp_on and _trad_on:
+            pipeline_mode = "normal+translate"
+        else:
+            pipeline_mode = "normal"
+        postprocess = _pp_on
         pp_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
         pp_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
         pp_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True

@@ -71,3 +71,24 @@ result = data.get("response", "").strip()
 ```
 
 **Note** : `ollama run` CLI ne supporte PAS `--system`. Seule l'API HTTP `/api/generate` a le paramètre `system`.
+
+---
+
+## 6. _freeze_pp / _unfreeze_pp — Anti-artefacts repaint pour layouts complexes
+
+**Fichier** : `dictee-setup.py` (méthodes de `DicteeSetupDialog`)
+
+**Usage** :
+```python
+self._freeze_pp()
+# ... changements de visibilité, taille, contenu ...
+self._unfreeze_pp(delay=15)  # ms avant repaint
+```
+
+**Principe** : Quand un widget change de taille ou de visibilité dans un layout complexe (QScrollArea + QTabWidget + contraintes de hauteur), Qt peint un frame intermédiaire avec des tailles incorrectes avant que le layout se stabilise. Cela crée des "fantômes" visuels pendant ~16ms.
+
+`_freeze_pp()` appelle `setUpdatesEnabled(False)` sur le QScrollArea parent, bloquant tout repaint. Le layout se recalcule en arrière-plan sans rien afficher. `_unfreeze_pp(delay)` réactive les repaints après `delay` ms via `QTimer.singleShot`, le temps que le layout se stabilise.
+
+**Quand l'utiliser** : Tout changement dans la zone test PP qui modifie la géométrie — ouverture/fermeture d'accordéon, affichage/masquage des détails, changement de taille input/output, exécution du pipeline test (mise à jour output + détails).
+
+**Piège** : Le délai doit être suffisant pour que le layout se stabilise (10-20ms typiquement). Trop court = artefact résiduel. Pas besoin de plus de 30ms.
