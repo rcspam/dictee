@@ -13089,7 +13089,7 @@ class DicteeSetupDialog(QDialog):
             self._test_details_label.setText("")
             return
 
-        result = proc.stdout
+        result = proc.stdout.rstrip(" ")  # strip trailing spaces (mirrors shell)
 
         # Parse step traces on stderr
         def _dec(s):
@@ -13137,6 +13137,9 @@ class DicteeSetupDialog(QDialog):
                                 r"[\.\,\?\!\u2026\s]*$", result.rstrip())
                 if _m:
                     _last = _m.group(1).lower()
+                    # Hyphenated words: "parles-tu" → check "tu"
+                    if "-" in _last:
+                        _last = _last.rsplit("-", 1)[-1]
                     if _last in cont_words:
                         _indicator = self.conf.get(
                             "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
@@ -13252,6 +13255,9 @@ class DicteeSetupDialog(QDialog):
                                     r"[\.\,\?\!\u2026\s]*$", result.rstrip())
                     if _m:
                         _last = _m.group(1).lower()
+                    # Hyphenated words: "parles-tu" → check "tu"
+                    if "-" in _last:
+                        _last = _last.rsplit("-", 1)[-1]
                         if _last in cont_words:
                             _indicator = self.conf.get(
                                 "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
