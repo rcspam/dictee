@@ -6500,10 +6500,10 @@ class DicteeSetupDialog(QDialog):
 
         toggle_btn = QToolButton()
         toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        toggle_btn.setArrowType(Qt.ArrowType.DownArrow)
+        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
         toggle_btn.setText(_("Visualisation interactive des pipelines de post-traitement"))
         toggle_btn.setCheckable(True)
-        toggle_btn.setChecked(True)
+        toggle_btn.setChecked(False)
         toggle_btn.setAutoRaise(True)
         toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         toggle_btn.setStyleSheet(
@@ -6584,6 +6584,7 @@ class DicteeSetupDialog(QDialog):
         in_lay.addWidget(_make_row(self._trpp_diagram))
 
         c_lay.addWidget(content)
+        content.setVisible(False)
 
         # Wire accordion toggle
         def _toggle_accordion(open_):
@@ -6976,11 +6977,8 @@ class DicteeSetupDialog(QDialog):
         test_lay.setContentsMargins(8, 0, 8, 8)
         test_lay.setSpacing(4)
         # No hardcoded min height — Qt computes _test_body.minimumSize()
-        # from the children natural mins (input row fixed 60px, warning
-        # label ~20px, details scroll min 60px). The outer QScrollArea
-        # picks this up so the test body contributes its REAL footprint
-        # to the layout's minimumSize() and the scrollbar appears iff
-        # expanding the test would squeeze the tabs above.
+        # from the children natural mins. The scroll protection is handled
+        # in _on_test_toggled by freezing _pp_tabs height.
         # Expose the accordion toggle BEFORE _build_test_panel so its
         # sub-tab hook (_update_test_header) can refresh the label.
         self._test_accordion_toggle = _test_toggle
@@ -6988,6 +6986,12 @@ class DicteeSetupDialog(QDialog):
         _test_body.setVisible(False)
 
         def _on_test_toggled(on):
+            # Freeze tabs at their current height so opening the test
+            # panel triggers the outer scroll instead of squeezing editors.
+            if on and hasattr(self, "_pp_tabs"):
+                self._pp_tabs.setMinimumHeight(self._pp_tabs.height())
+            elif not on and hasattr(self, "_pp_tabs"):
+                self._pp_tabs.setMinimumHeight(480)
             _test_body.setVisible(on)
             self._refresh_test_accordion_label()
             # When expanding, scroll the outer QScrollArea so the whole
@@ -7380,6 +7384,11 @@ class DicteeSetupDialog(QDialog):
         # sub-pages (effective state = OR between normal/translation).
         if hasattr(self, "_apply_any_master_active"):
             self._apply_any_master_active()
+
+        # Re-run the test panel so toggling a step (e.g. Dictionary OFF)
+        # is reflected immediately in the test output.
+        if hasattr(self, "_schedule_test_run"):
+            self._schedule_test_run()
 
     # Backwards-compatibility shim (many connections call the old name).
     def _refresh_pp_diagram(self):
@@ -12465,16 +12474,19 @@ class DicteeSetupDialog(QDialog):
         self._test_solo_switch.toggled.connect(self._schedule_test_run)
         mode_col.addWidget(self._test_solo_switch)
 
-        self._test_mode_switch = ToggleSwitch(_("Traduction"))
-        self._test_mode_switch.setChecked(False)
-        self._test_mode_switch.setToolTip(_(
-            "OFF : teste le pipeline Normal (bleu) dans la langue source "
-            "avec LLM optionnel.\n"
-            "ON : teste le pipeline Translation (orange) dans la langue "
-            "cible, LLM toujours forcé off. Les sub-steps sont ceux des "
-            "toggles TRPP (diagramme orange)."))
-        self._test_mode_switch.toggled.connect(self._schedule_test_run)
-        mode_col.addWidget(self._test_mode_switch)
+        self._test_mode_combo = QComboBox()
+        self._test_mode_combo.addItem(_("PP Normal"), "normal")
+        self._test_mode_combo.addItem(_("PP Normal + Traduction"), "normal+translate")
+        self._test_mode_combo.addItem(_("Chaîne complète"), "full_chain")
+        _has_trad = bool(self.conf.get("DICTEE_TRANSLATE_BACKEND", ""))
+        self._test_mode_combo.setCurrentIndex(1 if _has_trad else 0)
+        self._test_mode_combo.setToolTip(_(
+            "PP Normal : texte → post-traitement langue source → sortie\n"
+            "PP Normal + Traduction : texte → PP normal → traduction → sortie\n"
+            "Chaîne complète : texte → PP normal → traduction → PP traduction → sortie"))
+        self._test_mode_combo.currentIndexChanged.connect(self._schedule_test_run)
+        self._test_mode_combo.currentIndexChanged.connect(lambda _: self._update_test_mode_icon())
+        mode_col.addWidget(self._test_mode_combo)
 
         row.addLayout(mode_col)
 
@@ -12489,10 +12501,33 @@ class DicteeSetupDialog(QDialog):
         self._test_input.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row.addWidget(self._test_input, 3)
 
+        # Arrow column with ASR/Translate icon above
+        arrow_col = QVBoxLayout()
+        arrow_col.setSpacing(2)
+        arrow_col.setContentsMargins(0, 0, 0, 0)
+
+        self._test_mode_icon = QLabel()
+        self._test_mode_icon.setFixedSize(32, 32)
+        self._test_mode_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        arrow_col.addWidget(self._test_mode_icon, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self._test_translate_icon = QLabel()
+        self._test_translate_icon.setFixedSize(32, 32)
+        self._test_translate_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._test_translate_icon.setVisible(False)
+        arrow_col.addWidget(self._test_translate_icon, 0, Qt.AlignmentFlag.AlignCenter)
+
         lbl_arrow = QLabel("\u2192")
-        lbl_arrow.setFixedWidth(20)
+        lbl_arrow.setStyleSheet("font-size: 22px; font-weight: bold;")
         lbl_arrow.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addWidget(lbl_arrow)
+        arrow_col.addWidget(lbl_arrow, 0, Qt.AlignmentFlag.AlignCenter)
+
+        arrow_widget = QWidget()
+        arrow_widget.setFixedWidth(40)
+        arrow_widget.setLayout(arrow_col)
+        row.addWidget(arrow_widget)
+
+        self._update_test_mode_icon()
 
         self._test_output = QTextEdit()
         self._test_output.setReadOnly(True)
@@ -12536,20 +12571,28 @@ class DicteeSetupDialog(QDialog):
         self._test_details_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
-        self._test_details_scroll = QScrollArea()
-        self._test_details_scroll.setWidgetResizable(True)
-        self._test_details_scroll.setFrameShape(QFrame.Shape.StyledPanel)
-        self._test_details_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._test_details_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self._test_details_scroll.setMaximumHeight(220)
-        self._test_details_scroll.setMinimumHeight(60)
-        self._test_details_scroll.setWidget(self._test_details_label)
-        self._test_details_scroll.setVisible(False)
-        lay.addWidget(self._test_details_scroll)
+        self._test_details_frame = QFrame()
+        self._test_details_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        _df_lay = QVBoxLayout(self._test_details_frame)
+        _df_lay.setContentsMargins(0, 0, 0, 0)
+        _df_lay.addWidget(self._test_details_label)
+        self._test_details_frame.setVisible(False)
+        lay.addWidget(self._test_details_frame)
+        # Keep old name for toggle/scroll references
+        self._test_details_scroll = self._test_details_frame
 
-        btn_details.toggled.connect(self._test_details_scroll.setVisible)
+        def _on_details_toggled(on):
+            self._test_details_scroll.setVisible(on)
+            if on and getattr(self, "_pp_scroll", None) is not None:
+                def _do():
+                    # Force layout recalc so the outer scroll accounts
+                    # for the new details height, then scroll down.
+                    self._pp_content.updateGeometry()
+                    self._pp_scroll.widget().adjustSize()
+                    self._pp_scroll.ensureWidgetVisible(
+                        self._test_details_scroll, 0, 20)
+                QTimer.singleShot(0, _do)
+        btn_details.toggled.connect(_on_details_toggled)
 
         # Connect
         self._test_input.textChanged.connect(self._schedule_test_run)
@@ -12683,6 +12726,47 @@ class DicteeSetupDialog(QDialog):
             _step, friendly = mapping
             suffix = _("Test : {page}").format(page=_(friendly))
         btn.setText(arrow + suffix)
+
+    def _update_test_mode_icon(self):
+        """Update icons between input/output based on test mode."""
+        icons = _icons_dir()
+        if not icons:
+            self._test_mode_icon.clear()
+            if hasattr(self, '_test_translate_icon'):
+                self._test_translate_icon.clear()
+                self._test_translate_icon.setVisible(False)
+            return
+        from PyQt6.QtGui import QPalette
+        pal = self.palette()
+        is_dark = pal.color(QPalette.ColorRole.Window).lightness() < 128
+        suffix = "dark" if is_dark else "light"
+
+        mode = (self._test_mode_combo.currentData()
+                if hasattr(self, '_test_mode_combo') else "normal")
+        has_translate = mode in ("normal+translate", "full_chain")
+
+        # ASR icon always visible
+        asr_path = os.path.join(icons, f"asr-symbolic-{suffix}.svg")
+        if os.path.isfile(asr_path):
+            pm = QPixmap(asr_path)
+            self._test_mode_icon.setPixmap(
+                pm.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio,
+                          Qt.TransformationMode.SmoothTransformation))
+        else:
+            self._test_mode_icon.clear()
+
+        # Translate icon: visible only for modes with translation
+        if hasattr(self, '_test_translate_icon'):
+            self._test_translate_icon.setVisible(has_translate)
+            if has_translate:
+                trad_path = os.path.join(icons, f"translate-symbolic-orange-{suffix}.svg")
+                if os.path.isfile(trad_path):
+                    pm = QPixmap(trad_path)
+                    self._test_translate_icon.setPixmap(
+                        pm.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio,
+                                  Qt.TransformationMode.SmoothTransformation))
+                else:
+                    self._test_translate_icon.clear()
 
     def _run_test_pipeline(self):
         """Runs the real dictee-postprocess binary as a subprocess.
