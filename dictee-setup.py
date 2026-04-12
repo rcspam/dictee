@@ -12775,12 +12775,10 @@ class DicteeSetupDialog(QDialog):
         this panel stays in sync with the actual pipeline (LLM, master
         switches, short_text included). Single source of truth.
 
-        Two modes driven by `self._test_mode_switch`:
-        - OFF = Normal (blue pipeline, source language, LLM optional)
-        - ON  = Translation (orange pipeline, target language, LLM forced
-          off, sub-steps from `_trpp_state`, mimicking exactly the 2nd
-          post-process pass the dictee shell script runs on translated
-          text at lines 1293-1338).
+        Three modes driven by `self._test_mode_combo`:
+        - "normal"           = PP Normal only (source language, LLM optional)
+        - "normal+translate" = PP Normal → Translation → output
+        - "full_chain"       = PP Normal → Translation → PP Translation → output
         """
         text = self._test_input.toPlainText()
         if not text.strip():
@@ -12788,9 +12786,10 @@ class DicteeSetupDialog(QDialog):
             self._test_details_label.setText("")
             return
 
-        translate_mode = (
-            hasattr(self, '_test_mode_switch')
-            and self._test_mode_switch.isChecked())
+        test_mode = (self._test_mode_combo.currentData()
+                     if hasattr(self, '_test_mode_combo') else "normal")
+        needs_translate = test_mode in ("normal+translate", "full_chain")
+        needs_trpp = test_mode == "full_chain"
 
         # Read the LIVE source/target languages from the combo boxes
         # instead of the saved conf — so changing the language in the
@@ -12807,57 +12806,20 @@ class DicteeSetupDialog(QDialog):
         live_src = _live("combo_src", "DICTEE_LANG_SOURCE", "fr")
         live_tgt = _live("combo_tgt", "DICTEE_LANG_TARGET", "en")
 
-        # Translation mode: auto-translate the typed/recorded text from
-        # source to target BEFORE feeding it to dictee-postprocess, so
-        # the TRPP steps operate on the right language (mirroring the
-        # real dictee shell pipeline: ASR → translate → 2nd PP pass).
-        translated_from = ""
-        translate_error = ""
-        if translate_mode:
-            source_lang = live_src[:2]
-            target = live_tgt[:2]
-            lang = target
-            if source_lang != target:
-                # Build an effective conf that also reflects the LIVE
-                # translation backend / engine selected in the UI, so
-                # _test_translate_text dispatches to the right tool
-                # even if Apply hasn't been clicked yet.
-                _eff_conf = dict(self.conf)
-                if hasattr(self, 'cmb_trans_backend'):
-                    _b = self.cmb_trans_backend.currentData()
-                    if _b:
-                        _eff_conf["DICTEE_TRANSLATE_BACKEND"] = _b
-                if hasattr(self, 'cmb_trans_engine'):
-                    _e = self.cmb_trans_engine.currentData()
-                    if _e:
-                        _eff_conf["DICTEE_TRANS_ENGINE"] = _e
-                translated, translate_error = _test_translate_text(
-                    text, source_lang, target, _eff_conf)
-                if translated and translated != text:
-                    translated_from = text  # keep the pre-translation text
-                    text = translated
-        else:
-            lang = getattr(self, '_test_lang_override', "") or live_src
+        # First subprocess always uses source language for PP Normal
+        lang = getattr(self, '_test_lang_override', "") or live_src
 
-        # Master switch: bypass everything
-        if translate_mode:
-            pp_master = self._pp_master_translate
-            master_off_msg = _(
-                "Translation post-processing disabled (master switch off) — "
-                "translated text passed through unchanged.")
-        else:
-            pp_master = self.chk_postprocess.isChecked() \
-                if hasattr(self, 'chk_postprocess') else True
-            master_off_msg = _(
-                "Post-processing disabled (master switch off) — text "
-                "passed through unchanged.")
-
+        # Master switch: always check PP Normal master
+        pp_master = self.chk_postprocess.isChecked() \
+            if hasattr(self, 'chk_postprocess') else True
         if not pp_master:
             display_output = text.replace("\n", "↵\n").replace("\t", "⇥\t")
             if display_output.endswith(" "):
                 display_output = display_output.rstrip(" ") + "␣"
             self._test_output.setPlainText(display_output)
-            self._test_details_label.setText(master_off_msg)
+            self._test_details_label.setText(_(
+                "Post-processing disabled (master switch off) — text "
+                "passed through unchanged."))
             return
 
         # Locate dictee-postprocess (dev tree first, then installed)
@@ -12893,75 +12855,38 @@ class DicteeSetupDialog(QDialog):
             if _sfx:
                 env[f"DICTEE_COMMAND_SUFFIX_{_code.upper()}"] = _sfx
 
-        if translate_mode:
-            # Mirror the shell script's translation pass (dictee lines
-            # 1293-1338): DICTEE_TRPP_* are mapped to DICTEE_PP_* for
-            # this invocation. LLM always forced off.
-            env["DICTEE_PP_RULES"]          = _tb("rules")
-            env["DICTEE_PP_CONTINUATION"]   = _tb("continuation")
-            env["DICTEE_PP_LANGUAGE_RULES"] = _tb("language_rules")
-            env["DICTEE_PP_NUMBERS"]        = _tb("numbers")
-            env["DICTEE_PP_DICT"]           = _tb("dict")
-            env["DICTEE_PP_CAPITALIZATION"] = _tb("capitalization")
-            env["DICTEE_PP_SHORT_TEXT"]     = _tb("short_text")
-            if hasattr(self, 'cmb_trpp_short_text_max'):
-                env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
-                    self.cmb_trpp_short_text_max.currentData() or 3)
+        # PP Normal env vars (always source language)
+        env["DICTEE_PP_RULES"] = _b("chk_pp_rules")
+        env["DICTEE_PP_CONTINUATION"] = _b("chk_pp_continuation")
+        env["DICTEE_PP_LANGUAGE_RULES"] = _b("chk_pp_language_rules")
+        env["DICTEE_PP_ELISIONS"] = _b("chk_pp_elisions")
+        env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
+        env["DICTEE_PP_SPANISH"] = _b("chk_pp_spanish")
+        env["DICTEE_PP_PORTUGUESE"] = _b("chk_pp_portuguese")
+        env["DICTEE_PP_GERMAN"] = _b("chk_pp_german")
+        env["DICTEE_PP_DUTCH"] = _b("chk_pp_dutch")
+        env["DICTEE_PP_ROMANIAN"] = _b("chk_pp_romanian")
+        env["DICTEE_PP_NUMBERS"] = _b("chk_pp_numbers")
+        env["DICTEE_PP_TYPOGRAPHY"] = _b("chk_pp_typography")
+        env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
+        env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
+        env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
+        if hasattr(self, 'cmb_pp_short_text_max'):
+            env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
+                self.cmb_pp_short_text_max.currentData() or 3)
 
-            # Language-rules umbrella: when the TRPP umbrella is on, the
-            # individual language sub-flags inherit from the Normal (PP)
-            # side — same behaviour as the shell script. When off, all
-            # language sub-flags are forced to false.
-            if self._trpp_state.get("language_rules", True):
-                env["DICTEE_PP_ELISIONS"]    = _b("chk_pp_elisions")
-                env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
-                env["DICTEE_PP_SPANISH"]     = _b("chk_pp_spanish")
-                env["DICTEE_PP_PORTUGUESE"]  = _b("chk_pp_portuguese")
-                env["DICTEE_PP_GERMAN"]      = _b("chk_pp_german")
-                env["DICTEE_PP_DUTCH"]       = _b("chk_pp_dutch")
-                env["DICTEE_PP_ROMANIAN"]    = _b("chk_pp_romanian")
-                env["DICTEE_PP_TYPOGRAPHY"]  = _b("chk_pp_typography")
-            else:
-                for k in ("DICTEE_PP_ELISIONS", "DICTEE_PP_ELISIONS_IT",
-                          "DICTEE_PP_SPANISH", "DICTEE_PP_PORTUGUESE",
-                          "DICTEE_PP_GERMAN", "DICTEE_PP_DUTCH",
-                          "DICTEE_PP_ROMANIAN", "DICTEE_PP_TYPOGRAPHY"):
-                    env[k] = "false"
-
-            # LLM always forced off in translation pipeline
-            env["DICTEE_LLM_POSTPROCESS"] = "false"
-        else:
-            env["DICTEE_PP_RULES"] = _b("chk_pp_rules")
-            env["DICTEE_PP_CONTINUATION"] = _b("chk_pp_continuation")
-            env["DICTEE_PP_LANGUAGE_RULES"] = _b("chk_pp_language_rules")
-            env["DICTEE_PP_ELISIONS"] = _b("chk_pp_elisions")
-            env["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
-            env["DICTEE_PP_SPANISH"] = _b("chk_pp_spanish")
-            env["DICTEE_PP_PORTUGUESE"] = _b("chk_pp_portuguese")
-            env["DICTEE_PP_GERMAN"] = _b("chk_pp_german")
-            env["DICTEE_PP_DUTCH"] = _b("chk_pp_dutch")
-            env["DICTEE_PP_ROMANIAN"] = _b("chk_pp_romanian")
-            env["DICTEE_PP_NUMBERS"] = _b("chk_pp_numbers")
-            env["DICTEE_PP_TYPOGRAPHY"] = _b("chk_pp_typography")
-            env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
-            env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
-            env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
-            if hasattr(self, 'cmb_pp_short_text_max'):
-                env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
-                    self.cmb_pp_short_text_max.currentData() or 3)
-
-            # LLM (normal mode only)
-            llm_on = _b("chk_llm", default=False)
-            env["DICTEE_LLM_POSTPROCESS"] = llm_on
-            env["DICTEE_LLM_POSITION"] = self._get_llm_position()
-            if hasattr(self, 'cmb_llm_model'):
-                env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
-            if hasattr(self, 'cmb_llm_preset'):
-                env["DICTEE_LLM_SYSTEM_PROMPT"] = self.cmb_llm_preset.currentData() or "correction-fr"
-            if hasattr(self, 'txt_llm_prompt'):
-                env["DICTEE_LLM_CUSTOM_PROMPT"] = self.txt_llm_prompt.toPlainText()
-            # Tight LLM timeout so the UI stays responsive
-            env.setdefault("DICTEE_LLM_TIMEOUT", "15")
+        # LLM (normal mode only)
+        llm_on = _b("chk_llm", default=False)
+        env["DICTEE_LLM_POSTPROCESS"] = llm_on
+        env["DICTEE_LLM_POSITION"] = self._get_llm_position()
+        if hasattr(self, 'cmb_llm_model'):
+            env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
+        if hasattr(self, 'cmb_llm_preset'):
+            env["DICTEE_LLM_SYSTEM_PROMPT"] = self.cmb_llm_preset.currentData() or "correction-fr"
+        if hasattr(self, 'txt_llm_prompt'):
+            env["DICTEE_LLM_CUSTOM_PROMPT"] = self.txt_llm_prompt.toPlainText()
+        # Tight LLM timeout so the UI stays responsive
+        env.setdefault("DICTEE_LLM_TIMEOUT", "15")
 
         # Solo mode: force-off all PP sub-steps except the one for the
         # active sub-page. Does not touch persistent config — only the
@@ -13002,16 +12927,21 @@ class DicteeSetupDialog(QDialog):
                     env[k] = "true"
             elif _step == "dict":
                 env["DICTEE_PP_DICT"] = "true"
-            elif _step == "llm" and not translate_mode:
+            elif _step == "llm" and test_mode == "normal":
                 env["DICTEE_LLM_POSTPROCESS"] = "true"
 
         # Update the language indicator label to reflect the active mode
         if hasattr(self, '_lbl_test_lang'):
-            if translate_mode:
-                self._lbl_test_lang.setText(
-                    _("Mode Translation → {lang}").format(lang=lang.upper()))
-            else:
+            if test_mode == "normal":
                 self._lbl_test_lang.setText("")
+            elif test_mode == "normal+translate":
+                self._lbl_test_lang.setText(
+                    _("PP Normal → Traduction {src}→{tgt}").format(
+                        src=live_src[:2].upper(), tgt=live_tgt[:2].upper()))
+            elif test_mode == "full_chain":
+                self._lbl_test_lang.setText(
+                    _("PP Normal → Trad → PP Trad ({tgt})").format(
+                        tgt=live_tgt[:2].upper()))
 
         try:
             proc = subprocess.run(
@@ -13090,6 +13020,85 @@ class DicteeSetupDialog(QDialog):
         if indicator_appended:
             steps.append(("Continuation indicator", _indicator_before, result))
 
+        # --- Phase 2: Translation (modes normal+translate, full_chain) ---
+        translated_from = ""
+        translate_error = ""
+        if needs_translate and result.strip():
+            source_lang = live_src[:2]
+            target = live_tgt[:2]
+            if source_lang != target:
+                _eff_conf = dict(self.conf)
+                if hasattr(self, 'cmb_trans_backend'):
+                    _b = self.cmb_trans_backend.currentData()
+                    if _b:
+                        _eff_conf["DICTEE_TRANSLATE_BACKEND"] = _b
+                if hasattr(self, 'cmb_trans_engine'):
+                    _e = self.cmb_trans_engine.currentData()
+                    if _e:
+                        _eff_conf["DICTEE_TRANS_ENGINE"] = _e
+                translated, translate_error = _test_translate_text(
+                    result, source_lang, target, _eff_conf)
+                if translated and translated != result:
+                    translated_from = result
+                    result = translated
+
+        # --- Phase 3: PP Translation (full_chain only) ---
+        trpp_steps = []
+        trpp_error = ""
+        if needs_trpp and result.strip():
+            trpp_master = getattr(self, '_pp_master_translate', True)
+            if trpp_master:
+                env2 = os.environ.copy()
+                env2["DICTEE_LANG_SOURCE"] = live_tgt[:2]
+                env2["DICTEE_PP_DEBUG"] = "true"
+                for _code, _sfx in getattr(self, '_command_suffixes', {}).items():
+                    if _sfx:
+                        env2[f"DICTEE_COMMAND_SUFFIX_{_code.upper()}"] = _sfx
+                env2["DICTEE_PP_RULES"]          = _tb("rules")
+                env2["DICTEE_PP_CONTINUATION"]   = _tb("continuation")
+                env2["DICTEE_PP_LANGUAGE_RULES"] = _tb("language_rules")
+                env2["DICTEE_PP_NUMBERS"]        = _tb("numbers")
+                env2["DICTEE_PP_DICT"]           = _tb("dict")
+                env2["DICTEE_PP_CAPITALIZATION"] = _tb("capitalization")
+                env2["DICTEE_PP_SHORT_TEXT"]     = _tb("short_text")
+                if hasattr(self, 'cmb_trpp_short_text_max'):
+                    env2["DICTEE_PP_SHORT_TEXT_MAX"] = str(
+                        self.cmb_trpp_short_text_max.currentData() or 3)
+                if self._trpp_state.get("language_rules", True):
+                    env2["DICTEE_PP_ELISIONS"]    = _b("chk_pp_elisions")
+                    env2["DICTEE_PP_ELISIONS_IT"] = _b("chk_pp_elisions_it")
+                    env2["DICTEE_PP_SPANISH"]     = _b("chk_pp_spanish")
+                    env2["DICTEE_PP_PORTUGUESE"]  = _b("chk_pp_portuguese")
+                    env2["DICTEE_PP_GERMAN"]      = _b("chk_pp_german")
+                    env2["DICTEE_PP_DUTCH"]       = _b("chk_pp_dutch")
+                    env2["DICTEE_PP_ROMANIAN"]    = _b("chk_pp_romanian")
+                    env2["DICTEE_PP_TYPOGRAPHY"]  = _b("chk_pp_typography")
+                else:
+                    for k in ("DICTEE_PP_ELISIONS", "DICTEE_PP_ELISIONS_IT",
+                              "DICTEE_PP_SPANISH", "DICTEE_PP_PORTUGUESE",
+                              "DICTEE_PP_GERMAN", "DICTEE_PP_DUTCH",
+                              "DICTEE_PP_ROMANIAN", "DICTEE_PP_TYPOGRAPHY"):
+                        env2[k] = "false"
+                env2["DICTEE_LLM_POSTPROCESS"] = "false"
+                try:
+                    proc2 = subprocess.run(
+                        [sys.executable, pp_path],
+                        input=result, capture_output=True, text=True,
+                        env=env2, timeout=30)
+                    result = proc2.stdout
+                    for line in proc2.stderr.splitlines():
+                        if not line.startswith("STEP\t"):
+                            continue
+                        parts = line.split("\t", 3)
+                        if len(parts) == 4:
+                            trpp_steps.append((parts[1], _dec(parts[2]), _dec(parts[3])))
+                except subprocess.TimeoutExpired:
+                    trpp_error = _("Timeout PP traduction")
+                except Exception as e:
+                    trpp_error = str(e)
+            else:
+                trpp_error = _("Translation post-processing disabled (master switch off)")
+
         # Unsaved-continuation warning visibility
         if hasattr(self, '_lbl_test_unsaved'):
             self._lbl_test_unsaved.setVisible(
@@ -13142,18 +13151,6 @@ class DicteeSetupDialog(QDialog):
             return escaped
 
         html_lines = []
-        # Show the translate step on top when Translation mode is on
-        if translate_mode and translated_from:
-            src_short = translated_from if len(translated_from) <= 100 \
-                else translated_from[:100] + "\u2026"
-            tgt_short = text if len(text) <= 100 else text[:100] + "\u2026"
-            html_lines.append(_line(
-                _("\U0001f310 Translate: \u201c{src}\u201d \u2192 "
-                  "\u201c{tgt}\u201d").format(src=src_short, tgt=tgt_short)))
-        if translate_error:
-            html_lines.append(_line(
-                _("⚠ Translation failed: {err}").format(err=translate_error),
-                warn=True))
         if solo_mode:
             html_lines.append(_line(
                 _("🔬 Solo mode: only this step runs."),
@@ -13169,6 +13166,41 @@ class DicteeSetupDialog(QDialog):
             raw = f"{i}. {name} \u2192 {display}{marker}"
             is_current = _step_matches(name, _current_step)
             html_lines.append(_line(raw, highlight=is_current))
+
+        # Translation step (Phase 2)
+        if needs_translate and translated_from:
+            src_short = translated_from if len(translated_from) <= 100 \
+                else translated_from[:100] + "\u2026"
+            tgt_short = result if not needs_trpp else (
+                translated_from if len(translated_from) <= 100 else translated_from[:100] + "\u2026")
+            # For full_chain, show pre-TRPP text, not final result
+            if needs_trpp and translated_from:
+                _pre_trpp = translated_from  # text before TRPP
+            html_lines.append(_line(
+                _("\U0001f310 Translate: \u201c{src}\u201d \u2192 "
+                  "\u201c{tgt}\u201d").format(src=src_short, tgt=tgt_short)))
+        if translate_error:
+            html_lines.append(_line(
+                _("⚠ Translation failed: {err}").format(err=translate_error),
+                warn=True))
+
+        # TRPP steps (Phase 3, full_chain only)
+        if trpp_steps:
+            html_lines.append(_line("── PP Traduction ──"))
+            step_offset = len(steps)
+            for i, (name, before, after) in enumerate(trpp_steps, step_offset + 1):
+                changed = before != after
+                marker = " \u2190 " + _("changed") if changed else ""
+                display_text = after.replace("\n", "\\n").replace("\t", "\\t")
+                if len(display_text) > 100:
+                    display_text = display_text[:100] + "\u2026"
+                raw = f"{i}. {name} \u2192 {display_text}{marker}"
+                html_lines.append(_line(raw))
+        if trpp_error:
+            html_lines.append(_line(
+                _("⚠ PP Traduction: {err}").format(err=trpp_error),
+                warn=True))
+
         if proc.returncode != 0:
             html_lines.append(_line(
                 f"[exit {proc.returncode}] "
