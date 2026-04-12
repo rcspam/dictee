@@ -254,7 +254,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
-                ptt_mod_translate="", postprocess=True,
+                ptt_mod_translate="", postprocess=True, pipeline_mode="normal",
                 pp_elisions=True, pp_elisions_it=True,
                 pp_spanish=True, pp_portuguese=True, pp_german=True,
                 pp_dutch=True, pp_romanian=True,
@@ -297,7 +297,10 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
         "DICTEE_PTT_MODE": ptt_mode,
         "DICTEE_PTT_KEY": str(ptt_key),
-        "DICTEE_POSTPROCESS": "true" if postprocess else "false",
+        "DICTEE_PIPELINE_MODE": pipeline_mode,
+        "DICTEE_POSTPROCESS": "true",  # PP normal always on
+        "DICTEE_PP_TRANSLATE": "true" if pipeline_mode == "full_chain" else "false",
+        "DICTEE_TRANSLATE": "true" if pipeline_mode in ("normal+translate", "full_chain") else "false",
         "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
@@ -3151,9 +3154,26 @@ class DicteeSetupDialog(QDialog):
             "short_text":     _cb("DICTEE_TRPP_SHORT_TEXT",     "true"),
             "llm":            False,  # Never, runtime-enforced
         }
-        # Two independent masters: normal PP and translation PP.
-        self._pp_master_normal    = _cb("DICTEE_POSTPROCESS", "true")
-        self._pp_master_translate = _cb("DICTEE_PP_TRANSLATE", "true")
+        # Pipeline mode: new unified variable; fall back to old bools for compat
+        _pm = conf.get("DICTEE_PIPELINE_MODE", "")
+        if _pm in ("normal", "normal+translate", "full_chain"):
+            self._pipeline_mode = _pm
+        else:
+            # Derive from old variables
+            _pp_on = (conf.get("DICTEE_POSTPROCESS", "true") or "true").lower() == "true"
+            _tr_on = (conf.get("DICTEE_TRANSLATE", "false") or "false").lower() == "true"
+            _trpp_on = (conf.get("DICTEE_PP_TRANSLATE", "true") or "true").lower() == "true"
+            if not _pp_on:
+                self._pipeline_mode = "normal"
+            elif _tr_on and _trpp_on:
+                self._pipeline_mode = "full_chain"
+            elif _tr_on:
+                self._pipeline_mode = "normal+translate"
+            else:
+                self._pipeline_mode = "normal"
+        # Derived booleans for code that still reads them
+        self._pp_master_normal = True  # PP normal always on
+        self._pp_master_translate = (self._pipeline_mode == "full_chain")
 
         # Prevent accidental scroll on interactive widgets (must be before UI build)
         self._scroll_guard = ScrollGuardFilter(self)
