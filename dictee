@@ -789,7 +789,26 @@ else:
 # Parse arguments — dictee.conf values serve as defaults,
 # CLI arguments override them.
 TRANSLATE_BACKEND="${DICTEE_TRANSLATE_BACKEND:-trans}"
-TRANSLATE="${DICTEE_TRANSLATE:-false}"
+PIPELINE_MODE="${DICTEE_PIPELINE_MODE:-}"
+# Backwards compat: if DICTEE_PIPELINE_MODE is not set, derive from old vars
+if [ -z "$PIPELINE_MODE" ]; then
+    if [ "${DICTEE_TRANSLATE:-false}" = "true" ]; then
+        if [ "${DICTEE_PP_TRANSLATE:-true}" = "true" ]; then
+            PIPELINE_MODE="full_chain"
+        else
+            PIPELINE_MODE="normal+translate"
+        fi
+    else
+        PIPELINE_MODE="normal"
+    fi
+fi
+# Derived flag for existing code
+case "$PIPELINE_MODE" in
+    normal)           TRANSLATE=false ;;
+    normal+translate) TRANSLATE=true ;;
+    full_chain)       TRANSLATE=true ;;
+    *)                TRANSLATE=false; PIPELINE_MODE="normal" ;;
+esac
 CANCEL=false
 
 for arg in "$@"; do
@@ -798,6 +817,7 @@ for arg in "$@"; do
         CANCEL=true
         ;;
     --translate)
+        PIPELINE_MODE="normal+translate"
         TRANSLATE=true
         ;;
     --ollama)
@@ -1098,6 +1118,10 @@ if [ -f "$PIDFILE" ]; then
     # Retrieve options used at startup
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
         TRANSLATE=true
+        # Use configured pipeline mode; default to normal+translate
+        if [ "$PIPELINE_MODE" = "normal" ]; then
+            PIPELINE_MODE="normal+translate"
+        fi
     fi
     if [ -f "$TRANSLATE_BACKEND_FILE" ]; then
         TRANSLATE_BACKEND=$(cat "$TRANSLATE_BACKEND_FILE")
@@ -1295,7 +1319,7 @@ if [ -f "$PIDFILE" ]; then
             # so this one call does everything. LLM is always forced off
             # in this 2nd pass — translation backends already produce
             # grammatically-clean text.
-            if [ "${DICTEE_PP_TRANSLATE:-true}" = "true" ] \
+            if [ "$PIPELINE_MODE" = "full_chain" ] \
                && command -v dictee-postprocess >/dev/null 2>&1; then
                 # DICTEE_TRPP_* vars are the translation-side per-step
                 # activation state (independent from DICTEE_PP_*). Map
