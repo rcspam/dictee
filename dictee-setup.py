@@ -13540,7 +13540,9 @@ class DicteeSetupDialog(QDialog):
             ptt_key_translate = 0
 
         # Post-processing
-        postprocess = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
+        pipeline_mode = (self._pipeline_mode_combo.currentData()
+                         if hasattr(self, '_pipeline_mode_combo') else "normal")
+        postprocess = True  # PP normal always on
         pp_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
         pp_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
         pp_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True
@@ -13585,6 +13587,7 @@ class DicteeSetupDialog(QDialog):
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
                     postprocess=postprocess,
+                    pipeline_mode=pipeline_mode,
                     pp_elisions=pp_elisions, pp_elisions_it=pp_elisions_it,
                     pp_spanish=pp_spanish, pp_portuguese=pp_portuguese,
                     pp_german=pp_german, pp_dutch=pp_dutch,
