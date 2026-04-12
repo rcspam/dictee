@@ -12513,14 +12513,34 @@ class DicteeSetupDialog(QDialog):
         self._test_mode_combo.addItem(_("PP Normal"), "normal")
         self._test_mode_combo.addItem(_("PP Normal + Traduction"), "normal+translate")
         self._test_mode_combo.addItem(_("Chaîne complète"), "full_chain")
-        _has_trad = bool(self.conf.get("DICTEE_TRANSLATE_BACKEND", ""))
-        self._test_mode_combo.setCurrentIndex(1 if _has_trad else 0)
+        _idx = self._test_mode_combo.findData(self._pipeline_mode)
+        if _idx >= 0:
+            self._test_mode_combo.setCurrentIndex(_idx)
         self._test_mode_combo.setToolTip(_(
             "PP Normal : texte → post-traitement langue source → sortie\n"
             "PP Normal + Traduction : texte → PP normal → traduction → sortie\n"
             "Chaîne complète : texte → PP normal → traduction → PP traduction → sortie"))
-        self._test_mode_combo.currentIndexChanged.connect(self._schedule_test_run)
-        self._test_mode_combo.currentIndexChanged.connect(lambda _: self._update_test_mode_icon())
+        def _on_test_mode_changed(_idx):
+            # Sync PP page combo (if it exists)
+            mode = self._test_mode_combo.currentData()
+            if (hasattr(self, '_pipeline_mode_combo')
+                    and self._pipeline_mode_combo.currentData() != mode):
+                self._pipeline_mode_combo.blockSignals(True)
+                idx = self._pipeline_mode_combo.findData(mode)
+                if idx >= 0:
+                    self._pipeline_mode_combo.setCurrentIndex(idx)
+                self._pipeline_mode_combo.blockSignals(False)
+                # Update derived state directly (same as _on_pipeline_mode_changed)
+                self._pipeline_mode = mode
+                self._pp_master_translate = (mode == "full_chain")
+                if hasattr(self, 'chk_pp_translate'):
+                    self.chk_pp_translate.setChecked(self._pp_master_translate)
+                if hasattr(self, '_trans_sub_widget'):
+                    self._trans_sub_widget.setEnabled(mode == "full_chain")
+                self._refresh_pp_diagrams()
+            self._update_test_mode_icon()
+            self._schedule_test_run()
+        self._test_mode_combo.currentIndexChanged.connect(_on_test_mode_changed)
         mode_col.addWidget(self._test_mode_combo)
 
         row.addLayout(mode_col)
