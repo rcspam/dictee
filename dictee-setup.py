@@ -258,7 +258,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
-                ptt_mod_translate="", postprocess=True, pipeline_mode="normal",
+                ptt_mod_translate="", postprocess=True, pp_translate=True,
                 pp_elisions=True, pp_elisions_it=True,
                 pp_spanish=True, pp_portuguese=True, pp_german=True,
                 pp_dutch=True, pp_romanian=True,
@@ -301,10 +301,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
         "DICTEE_PTT_MODE": ptt_mode,
         "DICTEE_PTT_KEY": str(ptt_key),
-        "DICTEE_PIPELINE_MODE": pipeline_mode,
-        "DICTEE_POSTPROCESS": "true",  # PP normal always on
-        "DICTEE_PP_TRANSLATE": "true" if pipeline_mode == "full_chain" else "false",
-        "DICTEE_TRANSLATE": "true" if pipeline_mode in ("normal+translate", "full_chain") else "false",
+        "DICTEE_POSTPROCESS": "true" if postprocess else "false",
+        "DICTEE_PP_TRANSLATE": "true" if pp_translate else "false",
         "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
@@ -2983,6 +2981,8 @@ class ToggleSwitch(QCheckBox):
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Limit clickable area to the toggle + label, not the full row
+        self.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._offset_val = 1.0 if self.isChecked() else 0.0
         self._anim = QPropertyAnimation(self, b"offset", self)
         self._anim.setDuration(180)
@@ -7000,9 +7000,11 @@ class DicteeSetupDialog(QDialog):
         _test_toggle = QPushButton("▶  " + _("Test"))
         _test_toggle.setCheckable(True)
         _test_toggle.setChecked(False)
+        _test_toggle.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         _test_toggle.setStyleSheet(
             "QPushButton { text-align: left; font-weight: bold; "
-            "padding: 6px; border: none; }"
+            "padding: 6px 12px; border: none; }"
             "QPushButton:hover { background-color: rgba(127,127,127,30); }"
         )
         _test_body = QFrame()
@@ -9049,7 +9051,8 @@ class DicteeSetupDialog(QDialog):
                 btn_title = f"\u25be {cat_name} ({n_entries} {entry_lbl})"
                 btn_toggle = QPushButton(btn_title)
                 btn_toggle.setFlat(True)
-                btn_toggle.setStyleSheet("text-align: left; font-weight: bold; padding: 4px;")
+                btn_toggle.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+                btn_toggle.setStyleSheet("text-align: left; font-weight: bold; padding: 4px 12px;")
                 layout.addWidget(btn_toggle)
 
                 content_w = QWidget()
@@ -9841,9 +9844,11 @@ class DicteeSetupDialog(QDialog):
         _info_toggle = QPushButton("\u25b8  " + _("Explanation"))
         _info_toggle.setCheckable(True)
         _info_toggle.setChecked(False)
+        _info_toggle.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         _info_toggle.setStyleSheet(
             "QPushButton { text-align: left; font-weight: bold; "
-            "padding: 4px; border: none; }"
+            "padding: 4px 12px; border: none; }"
             "QPushButton:hover { background-color: rgba(127,127,127,30); }"
         )
 
@@ -10156,7 +10161,8 @@ class DicteeSetupDialog(QDialog):
             # Bouton titre repliable
             btn_lang = QPushButton(("\u25be " if lang == active_lang else "\u25b8 ") + title)
             btn_lang.setFlat(True)
-            btn_lang.setStyleSheet("text-align: left; font-weight: bold; padding: 4px;")
+            btn_lang.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            btn_lang.setStyleSheet("text-align: left; font-weight: bold; padding: 4px 12px;")
             layout.addWidget(btn_lang)
 
             group = QWidget()
@@ -10196,7 +10202,8 @@ class DicteeSetupDialog(QDialog):
             btn_show_sys = QPushButton(
                 f"{_sys_arrow} {_('System words')} ({sys_count})")
             btn_show_sys.setFlat(True)
-            btn_show_sys.setStyleSheet("text-align: left; color: gray; padding: 2px;")
+            btn_show_sys.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+            btn_show_sys.setStyleSheet("text-align: left; color: gray; padding: 2px 12px;")
             group_lay.addWidget(btn_show_sys)
 
             # System chips
@@ -12481,22 +12488,6 @@ class DicteeSetupDialog(QDialog):
             if _cb is not None:
                 _cb.currentIndexChanged.connect(self._schedule_test_run)
 
-        # Unsaved-continuation warning: shown only when the user has
-        # pending additions/exclusions in the Continuation section that
-        # haven't been persisted yet. The test panel simulates the
-        # post-Apply behaviour, so the preview CAN diverge from what
-        # running dictee at this exact moment would produce.
-        self._lbl_test_unsaved = QLabel(
-            "⚠ " + _(
-                "Modifications de continuation non enregistrées — "
-                "le test simule le comportement après Apply."))
-        self._lbl_test_unsaved.setWordWrap(True)
-        self._lbl_test_unsaved.setStyleSheet(
-            "QLabel { color: #e67e22; background: rgba(230,126,34,0.10);"
-            " border-left: 3px solid #e67e22; border-radius: 3px;"
-            " padding: 4px 8px; font-size: 11px; }")
-        self._lbl_test_unsaved.setVisible(False)
-        lay.addWidget(self._lbl_test_unsaved)
 
         row = QHBoxLayout()
         row.setSpacing(6)
@@ -12641,12 +12632,26 @@ class DicteeSetupDialog(QDialog):
 
         self._update_test_mode_icon()
 
+        # Output column: unsaved warning label + output text
+        _out_col = QVBoxLayout()
+        _out_col.setSpacing(0)
+        _out_col.setContentsMargins(0, 0, 0, 0)
+
+        self._lbl_test_unsaved = QLabel(_("Non enregistré"))
+        self._lbl_test_unsaved.setStyleSheet(
+            "QLabel { color: #e03030; font-size: 13px; font-weight: bold;"
+            " padding: 0 2px; }")
+        self._lbl_test_unsaved.setVisible(False)
+        _out_col.addWidget(self._lbl_test_unsaved)
+
         self._test_output = QTextEdit()
         self._test_output.setReadOnly(True)
         self._test_output.setPlaceholderText(_("Output"))
         self._test_output.setFixedHeight(_5lines)
         self._test_output.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        row.addWidget(self._test_output, 3)
+        _out_col.addWidget(self._test_output)
+
+        row.addLayout(_out_col, 3)
 
         accent = self.palette().color(self.palette().ColorRole.Highlight).name()
         _mic_icon = QIcon.fromTheme("audio-input-microphone")
@@ -13550,13 +13555,19 @@ class DicteeSetupDialog(QDialog):
 
     def _on_apply(self, show_message=True):
         _dbg_setup("_on_apply: saving configuration")
-        # Save the rules editor content too — user expects Apply to persist
+        # Save ALL editor content — user expects Apply to persist
         # every pending change, not just the checkboxes.
         _rules_error = ""
         if hasattr(self, "_save_rules_file_silent"):
             _rules_ok, _rules_err = self._save_rules_file_silent()
             if not _rules_ok:
                 _rules_error = _rules_err
+        # Continuation words (personal additions/exclusions)
+        if hasattr(self, "_save_cont_personal"):
+            self._save_cont_personal()
+        # Dictionary
+        if hasattr(self, "_save_dict_official"):
+            self._save_dict_official()
         # Snapshot PTT-related config BEFORE save_config() to detect if
         # a dictee-ptt restart is actually needed. For post-processing
         # toggles (the common case) no restart is required — dictee bash
@@ -13658,18 +13669,15 @@ class DicteeSetupDialog(QDialog):
             ptt_key_translate = 0
 
         # Post-processing
-        # Derive pipeline mode from the two master toggles
+        # Pipeline mode: translation is activated at RUNTIME via --translate
+        # shortcut, not via Apply. The config only stores whether PP and TRPP
+        # are enabled. The mode is derived at runtime from --translate flag +
+        # these config values.
         _pp_on = self.chk_postprocess.isChecked() if hasattr(self, 'chk_postprocess') else True
         _trpp_on = self.chk_pp_translate.isChecked() if hasattr(self, 'chk_pp_translate') else False
-        # Translation is configured if a backend is set
-        _trad_on = bool(self.conf.get("DICTEE_TRANSLATE_BACKEND", ""))
-        if _pp_on and _trad_on and _trpp_on:
-            pipeline_mode = "full_chain"
-        elif _pp_on and _trad_on:
-            pipeline_mode = "normal+translate"
-        else:
-            pipeline_mode = "normal"
+        pipeline_mode = "normal"  # always normal — --translate overrides at runtime
         postprocess = _pp_on
+        pp_translate = _trpp_on
         pp_elisions = self.chk_pp_elisions.isChecked() if hasattr(self, 'chk_pp_elisions') else True
         pp_elisions_it = self.chk_pp_elisions_it.isChecked() if hasattr(self, 'chk_pp_elisions_it') else True
         pp_spanish = self.chk_pp_spanish.isChecked() if hasattr(self, 'chk_pp_spanish') else True
@@ -13714,7 +13722,7 @@ class DicteeSetupDialog(QDialog):
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
                     postprocess=postprocess,
-                    pipeline_mode=pipeline_mode,
+                    pp_translate=pp_translate,
                     pp_elisions=pp_elisions, pp_elisions_it=pp_elisions_it,
                     pp_spanish=pp_spanish, pp_portuguese=pp_portuguese,
                     pp_german=pp_german, pp_dutch=pp_dutch,
