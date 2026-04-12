@@ -6651,12 +6651,36 @@ class DicteeSetupDialog(QDialog):
             "QCheckBox {{ color: {col}; font-size: 14px; "
             "padding: 1px 0; }}")
 
-        # ── Master 1: Enable PP (normal) ──
-        self.chk_postprocess = ToggleSwitch(_("Enable PP"))
-        self.chk_postprocess.setChecked(self._pp_master_normal)
-        if _sidebar:
-            self.chk_postprocess.setStyleSheet(_master_style.format(col=_acc_hex))
-        _mlay.addWidget(self.chk_postprocess)
+        # ── Pipeline mode combo (replaces 2 master checkboxes) ──
+        _mode_row = QHBoxLayout()
+        _mode_row.setSpacing(8)
+        _mode_label = QLabel(_("Pipeline mode:"))
+        _mode_label.setStyleSheet("font-size: 15px; font-weight: bold;")
+        _mode_row.addWidget(_mode_label)
+
+        self._pipeline_mode_combo = QComboBox()
+        self._pipeline_mode_combo.addItem(_("PP Normal"), "normal")
+        self._pipeline_mode_combo.addItem(_("PP Normal + Traduction"), "normal+translate")
+        self._pipeline_mode_combo.addItem(_("Chaîne complète"), "full_chain")
+        _idx = self._pipeline_mode_combo.findData(self._pipeline_mode)
+        if _idx >= 0:
+            self._pipeline_mode_combo.setCurrentIndex(_idx)
+        self._pipeline_mode_combo.setToolTip(_(
+            "PP Normal : ASR → post-traitement → sortie\n"
+            "PP Normal + Traduction : ASR → PP normal → traduction → sortie\n"
+            "Chaîne complète : ASR → PP normal → traduction → PP traduction → sortie"))
+        _mode_row.addStretch(1)
+        _mlay.addLayout(_mode_row)
+
+        # Hidden compat checkboxes — code elsewhere reads these
+        self.chk_postprocess = QCheckBox()
+        self.chk_postprocess.setChecked(True)
+        self.chk_postprocess.setVisible(False)
+        self.chk_pp_translate = QCheckBox()
+        self.chk_pp_translate.setChecked(self._pp_master_translate)
+        self.chk_pp_translate.setVisible(False)
+        self._pipeline_mode_combo.currentIndexChanged.connect(
+            self._on_pipeline_mode_changed)
 
         # Normal sub-row: Short text fix  < [N▼] words  (indented)
         _normal_sub = QWidget()
@@ -6692,27 +6716,6 @@ class DicteeSetupDialog(QDialog):
         _nrow.addWidget(QLabel(_("words")))
         _nrow.addStretch(1)
         _mlay.addWidget(_normal_sub)
-
-        # Sub-row follows master state: greyed when master PP is off
-        _normal_sub.setEnabled(self.chk_postprocess.isChecked())
-        self.chk_postprocess.toggled.connect(_normal_sub.setEnabled)
-
-        # ── Master 2: Enable PP for translation ──
-        self.chk_pp_translate = ToggleSwitch(_("Enable PP for translation"))
-        self.chk_pp_translate.setChecked(self._pp_master_translate)
-        self.chk_pp_translate.setToolTip(_(
-            "When enabled, the translated text is passed through the "
-            "translation post-processing pipeline (orange), with the "
-            "target language as reference. The LLM step is never run "
-            "on translated text."))
-        if _sidebar:
-            self.chk_pp_translate.setStyleSheet(_master_style.format(col=_orange))
-
-        def _on_master_translate_toggled(on):
-            self._pp_master_translate = bool(on)
-            self._refresh_pp_diagrams()
-        self.chk_pp_translate.toggled.connect(_on_master_translate_toggled)
-        _mlay.addWidget(self.chk_pp_translate)
 
         # Translation sub-row: Short text fix + its own threshold combo.
         _trans_sub = QWidget()
@@ -6756,9 +6759,9 @@ class DicteeSetupDialog(QDialog):
         _trow.addStretch(1)
         _mlay.addWidget(_trans_sub)
 
-        # Sub-row follows master state: greyed when master PP-translate is off
-        _trans_sub.setEnabled(self.chk_pp_translate.isChecked())
-        self.chk_pp_translate.toggled.connect(_trans_sub.setEnabled)
+        # Sub-row enabled only in full_chain mode
+        self._trans_sub_widget = _trans_sub
+        _trans_sub.setEnabled(self._pipeline_mode == "full_chain")
 
         lay.addWidget(self._pp_masters_row)
 
@@ -7136,15 +7139,9 @@ class DicteeSetupDialog(QDialog):
                 self._update_rules_active()
         self._apply_any_master_active = _apply_any_master_active
 
-        def _on_master_normal_toggled(on):
-            self._pp_master_normal = bool(on)
-            _apply_any_master_active()
-            self._refresh_pp_diagrams()
-        self.chk_postprocess.toggled.connect(_on_master_normal_toggled)
-        # Wire translation master greyout too (connected earlier but
-        # without _apply_any_master_active; rewire here for clarity).
-        self.chk_pp_translate.toggled.connect(
-            lambda _on: _apply_any_master_active())
+        # Pipeline mode combo drives all master state
+        self._pipeline_mode_combo.currentIndexChanged.connect(
+            lambda _: _apply_any_master_active())
 
         # Initial state
         _apply_any_master_active()
@@ -7160,16 +7157,10 @@ class DicteeSetupDialog(QDialog):
                 self.palette().ColorGroup.Disabled,
                 self.palette().ColorRole.WindowText).name()
 
-            def _apply_pp_master(on):
-                col = accent_hex if on else dis_hex
-                self._pp_tab_title.setStyleSheet(
-                    f"color: {col}; font-size: 24px; font-weight: bold; "
-                    "padding: 6px 0 12px 0;")
-                if hasattr(self, "_pp_tabs"):
-                    self._pp_tabs.setEnabled(on)
-
-            self.chk_postprocess.toggled.connect(_apply_pp_master)
-            _apply_pp_master(self.chk_postprocess.isChecked())
+            # PP normal always on, title always active
+            self._pp_tab_title.setStyleSheet(
+                f"color: {accent_hex}; font-size: 24px; font-weight: bold; "
+                "padding: 6px 0 12px 0;")
 
         # Wire pipeline diagram refresh (SVG is the source of activation —
         # no per-tab enable checkbox to keep in sync anymore).
@@ -7346,6 +7337,30 @@ class DicteeSetupDialog(QDialog):
         if cb is not None:
             cb.toggle()
 
+
+    def _on_pipeline_mode_changed(self, _idx=None):
+        """Handle pipeline mode combo change — single source of truth."""
+        mode = self._pipeline_mode_combo.currentData()
+        self._pipeline_mode = mode
+        self._pp_master_normal = True
+        self._pp_master_translate = (mode == "full_chain")
+        # Sync hidden compat checkbox
+        if hasattr(self, 'chk_pp_translate'):
+            self.chk_pp_translate.setChecked(self._pp_master_translate)
+        # Grey translation sub-row
+        if hasattr(self, '_trans_sub_widget'):
+            self._trans_sub_widget.setEnabled(mode == "full_chain")
+        self._refresh_pp_diagrams()
+        # Sync test panel combo if it exists
+        if hasattr(self, '_test_mode_combo'):
+            if self._test_mode_combo.currentData() != mode:
+                self._test_mode_combo.blockSignals(True)
+                idx = self._test_mode_combo.findData(mode)
+                if idx >= 0:
+                    self._test_mode_combo.setCurrentIndex(idx)
+                self._test_mode_combo.blockSignals(False)
+                self._update_test_mode_icon()
+                self._schedule_test_run()
 
     def _refresh_pp_diagrams(self):
         """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
