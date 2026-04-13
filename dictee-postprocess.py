@@ -814,12 +814,15 @@ def llm_postprocess(text):
     _dbg(f"LLM START model={model} preset={preset} position={position} "
          f"timeout={timeout}s input={len(text)} chars")
 
-    payload = _json.dumps({
+    _payload_dict = {
         "model": model,
         "system": system_prompt,
         "prompt": text,
         "stream": False,
-    }).encode("utf-8")
+    }
+    if _os.environ.get("OLLAMA_NUM_GPU") == "0":
+        _payload_dict["options"] = {"num_gpu": 0}
+    payload = _json.dumps(_payload_dict).encode("utf-8")
 
     t0 = _time.monotonic()
     try:

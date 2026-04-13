@@ -1011,10 +1011,15 @@ ${text}"
             notify_dictee 0 translate-symbolic "Chargement du modèle ${model%%:*}…"
         fi
         local _ollama_result
-        _ollama_result=$(python3 - "$model" "$prompt" <<'PYEOF'
-import json, urllib.request, sys
+        local _num_gpu="${OLLAMA_NUM_GPU:-}"
+        _ollama_result=$(python3 - "$model" "$prompt" "$_num_gpu" <<'PYEOF'
+import json, urllib.request, sys, os
 model, prompt = sys.argv[1], sys.argv[2]
-data = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
+num_gpu = sys.argv[3] if len(sys.argv) > 3 else ""
+payload = {"model": model, "prompt": prompt, "stream": False}
+if num_gpu == "0":
+    payload["options"] = {"num_gpu": 0}
+data = json.dumps(payload).encode()
 req = urllib.request.Request("http://localhost:11434/api/generate", data=data, headers={"Content-Type": "application/json"})
 resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
 print(resp.get("response", "").strip())
