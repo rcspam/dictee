@@ -12199,6 +12199,8 @@ class DicteeSetupDialog(QDialog):
         self.btn_lt_restart_langs.setVisible(False)
         self.lbl_lt_langs_hint.setVisible(False)
         self._check_lt_status()
+        # Refresh target language combo with newly available languages
+        self._update_tgt_languages()
 
     def _on_setup_docker(self):
         _dbg_setup("_on_setup_docker")
@@ -12316,6 +12318,8 @@ class DicteeSetupDialog(QDialog):
         if not success:
             QMessageBox.critical(self, _("Error"), message)
         self._check_lt_status()
+        # Refresh target language combo with newly available languages
+        self._update_tgt_languages()
 
     # -- Modèles ASR --
 
