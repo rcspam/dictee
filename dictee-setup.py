@@ -13147,6 +13147,27 @@ class DicteeSetupDialog(QDialog):
                     _("PP Normal → Trad → PP Trad ({tgt})").format(
                         tgt=live_tgt[:2].upper()))
 
+        # Continuation keyword: if text starts with the configured keyword
+        # (e.g. "minuscule"), strip it and lowercase the rest — mirrors
+        # apply_continuation() in the dictee shell script.
+        keyword_stripped = False
+        _kw = getattr(self, '_cont_keywords', {}).get(lang[:2], "minuscule")
+        if _kw:
+            import re as _re_kw
+            # Build regex like the shell: hyphens/spaces → [- ]?, s? suffix
+            _kw_pat = _re_kw.sub(r"[\s-]", "[- ]?", _kw.lower())
+            _kw_re = _re_kw.compile(
+                r"^" + _kw_pat + r"s?[.,]?\s*(.*)", _re_kw.IGNORECASE | _re_kw.DOTALL)
+            _kw_m = _kw_re.match(text)
+            if _kw_m:
+                _kw_rest = _kw_m.group(1)
+                _kw_before = text
+                if _kw_rest:
+                    text = _kw_rest[0].lower() + _kw_rest[1:]
+                else:
+                    text = ""
+                keyword_stripped = True
+
         try:
             proc = subprocess.run(
                 [sys.executable, pp_path],
@@ -13182,6 +13203,8 @@ class DicteeSetupDialog(QDialog):
             return "".join(out)
 
         steps = []
+        if keyword_stripped:
+            steps.append(("Continuation keyword", _kw_before, text))
         for line in proc.stderr.splitlines():
             if not line.startswith("STEP\t"):
                 continue
