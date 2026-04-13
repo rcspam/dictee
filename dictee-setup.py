@@ -787,6 +787,16 @@ def ollama_is_installed():
     return shutil.which("ollama") is not None
 
 
+def ollama_is_running():
+    """Vérifie si le service ollama est accessible."""
+    try:
+        import urllib.request
+        urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
 def get_system_ram_gb():
     """Retourne la RAM totale en Go."""
     try:
@@ -892,7 +902,7 @@ def ollama_list_models():
             models = []
             for line in result.stdout.strip().split("\n")[1:]:  # skip header
                 if line.strip():
-                    models.append(line.split()[0].split(":")[0])
+                    models.append(line.split()[0])  # keep full name:tag
             return models
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
@@ -12046,7 +12056,15 @@ class DicteeSetupDialog(QDialog):
         if warnings:
             hw_info = "<br>" + "<br>".join(warnings)
 
-        if ollama_has_model(model):
+        if not ollama_is_running():
+            self.lbl_ollama_status.setText(
+                '<span style="color: red;">⚠ ' +
+                _("Ollama service is not running") + '</span><br>'
+                '<small><code>sudo systemctl start ollama</code></small>' +
+                hw_info
+            )
+            self.btn_ollama_pull.setVisible(False)
+        elif ollama_has_model(model):
             self.lbl_ollama_status.setText(
                 '<span style="color: green;">✓ ' +
                 _("Model {model} ready").format(model=model) + '</span>' +

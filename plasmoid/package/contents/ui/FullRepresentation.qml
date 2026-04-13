@@ -528,16 +528,23 @@ RowLayout {
         QQC2.ComboBox {
             id: transCombo
             Kirigami.Theme.inherit: true
+            property bool ltWarning: root.currentTranslateBackend === "libretranslate" && !root.ltRunning
+            property bool ollamaError: root.currentTranslateBackend === "ollama" && root.ollamaStatus !== "ok"
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
-                border.color: "#e04040"
-                border.width: 2
+                border.color: transCombo.ltWarning ? "#e04040"
+                            : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "stopped") ? "#e04040"
+                            : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "no-model") ? "#e90"
+                            : "transparent"
+                border.width: (transCombo.ltWarning || transCombo.ollamaError) ? 2 : 0
                 radius: 4
-                visible: root.currentTranslateBackend === "libretranslate" && !root.ltRunning
+                visible: transCombo.ltWarning || transCombo.ollamaError
             }
-            displayText: (root.currentTranslateBackend === "libretranslate" && !root.ltRunning)
-                         ? i18n("LT arrêté") : currentText
+            displayText: transCombo.ltWarning ? i18n("LT arrêté")
+                       : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "stopped") ? i18n("Ollama arrêté")
+                       : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "no-model") ? i18n("Modèle absent")
+                       : currentText
             model: ListModel {
                 id: transModel
                 ListElement { text: "Google"; value: "google" }
@@ -567,8 +574,11 @@ RowLayout {
                     executable.run(root.translateLangsCmd + " " + val)
                     if (val === "libretranslate") {
                         executable.run(root.ltCheckCmd)
+                    } else if (val === "ollama") {
+                        executable.run(root.ollamaCheckCmd)
                     } else {
                         root.ltRunning = false
+                        root.ollamaStatus = "ok"
                     }
                 } else {
                     // Revert

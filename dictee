@@ -991,18 +991,23 @@ translate() {
     ollama)
         trap - ERR
         local model="${DICTEE_OLLAMA_MODEL:-translategemma}"
-        # Check if model is already downloaded
-        if ! ollama list 2>/dev/null | grep -q "${model%%:*}"; then
+        # Check if Ollama service is reachable
+        if ! curl -s --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1; then
+            echo "Erreur Ollama: service arrêté ou inaccessible (port 11434)" >&2
+            return 1
+        fi
+        # Add :latest only if no explicit tag
+        [[ "$model" == *:* ]] || model="${model}:latest"
+        # Check if model is already downloaded (exact match on name:tag)
+        if ! ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$model"; then
             notify_dictee 0 emblem-downloads "Téléchargement du modèle ${model}…" "Premier lancement, veuillez patienter"
         fi
         local prompt="You are a professional ${LANG_SOURCE} to ${LANG_TARGET} translator. Your goal is to accurately convey the meaning and nuances of the original text while adhering to the target language grammar, vocabulary, and cultural sensitivities.
 Produce only the ${LANG_TARGET} translation, without any additional explanations or commentary. Please translate the following text:
 
 ${text}"
-        # Add :latest only if no explicit tag
-        [[ "$model" == *:* ]] || model="${model}:latest"
         # Notify only if model needs loading into VRAM (cold start ~5s)
-        if ! ollama ps 2>/dev/null | grep -q "${model%%:*}"; then
+        if ! ollama ps 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$model"; then
             notify_dictee 0 translate-symbolic "Chargement du modèle ${model%%:*}…"
         fi
         local _ollama_result
@@ -1318,11 +1323,15 @@ if [ -f "$PIDFILE" ]; then
     if [ "$TRANSLATE" = true ]; then
         notify_dictee 0 audio-chat-none-symbolic "Traduction en cours..."
 
+        _trans_err=""
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
             translated=$(transcribe_canary_translate "$RECORDING_FILE" "$LANG_TARGET" 2>/dev/null) || translated=""
             _trans_label="canary"
         else
-            translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>/dev/null) || translated=""
+            _trans_err_file="/tmp/dictee_trans_err${_UID_SUFFIX}"
+            translated=$(translate "$transcribed" "$TRANSLATE_BACKEND" 2>"$_trans_err_file") || translated=""
+            _trans_err=$(cat "$_trans_err_file" 2>/dev/null | head -c 200)
+            rm -f "$_trans_err_file"
             _trans_label="$TRANSLATE_BACKEND"
         fi
         if [ -n "$translated" ]; then
@@ -1399,7 +1408,11 @@ if [ -f "$PIDFILE" ]; then
             copy_to_clipboard "$transcribed"
             type_text "$transcribed"
             save_last_word "$transcribed"
-            notify_dictee 5000 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            if [ -n "$_trans_err" ]; then
+                notify_dictee 5000 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "$_trans_err"
+            else
+                notify_dictee 5000 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            fi
             if command -v paplay >/dev/null 2>&1; then
                 paplay /usr/share/sounds/freedesktop/stereo/device-removed.oga &
             fi

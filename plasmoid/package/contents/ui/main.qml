@@ -183,6 +183,8 @@ PlasmoidItem {
                 root.micMuted = stdout.indexOf("[MUTED]") !== -1
             } else if (source === ltCheckCmd) {
                 root.ltRunning = (stdout.trim() === "true")
+            } else if (source === ollamaCheckCmd) {
+                root.ollamaStatus = stdout.trim()  // "ok", "no-model", or "stopped"
             } else if (stdout.indexOf("DICTEE_DEBUG_ON") !== -1) {
                 root.debugEnabled = true
                 _dbg("debug enabled via DICTEE_DEBUG=true")
@@ -306,6 +308,13 @@ PlasmoidItem {
     property string lastTranslateBackendForLangs: ""
     property bool ltRunning: false
     property string ltCheckCmd: "bash -c 'docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false'"
+    // Ollama status: "ok" = running + model present, "no-model" = running but model missing, "stopped" = service down
+    property string ollamaStatus: "ok"
+    property string ollamaCheckCmd: "bash -c '" +
+        "if ! curl -s --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1; then echo stopped; " +
+        "else m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); " +
+        "[[ \"$m\" == *:* ]] || m=\"${m}:latest\"; " +
+        "if ollama list 2>/dev/null | awk \"NR>1{print \\$1}\" | grep -qx \"$m\"; then echo ok; else echo no-model; fi; fi'"
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
@@ -314,9 +323,11 @@ PlasmoidItem {
         // Refresh translate langs (always — combo may be empty on first open)
         root.lastTranslateBackendForLangs = root.currentTranslateBackend
         executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
-        // Check LT container status
+        // Check translation backend status
         if (root.currentTranslateBackend === "libretranslate") {
             executable.run(ltCheckCmd)
+        } else if (root.currentTranslateBackend === "ollama") {
+            executable.run(ollamaCheckCmd)
         }
     }
 
