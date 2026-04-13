@@ -6577,6 +6577,8 @@ class DicteeSetupDialog(QDialog):
             if data == "ollama":
                 self._check_ollama_status()
             self._update_tgt_languages()
+            if hasattr(self, '_schedule_test_run'):
+                self._schedule_test_run()
         self.cmb_trans_backend.currentIndexChanged.connect(lambda: _on_trans_backend_changed())
         # Rafraîchir le statut et checkboxes LibreTranslate quand on change la langue
         def _on_lang_changed():
@@ -6607,6 +6609,8 @@ class DicteeSetupDialog(QDialog):
                     self.combo_tgt.setCurrentIndex(idx)
                 self._lang_swap_guard = False
             self._prev_src = src
+            if hasattr(self, '_schedule_test_run'):
+                self._schedule_test_run()
         self.combo_src.currentIndexChanged.connect(_on_src_changed)
         def _on_tgt_changed():
             _on_lang_changed()
@@ -6622,6 +6626,8 @@ class DicteeSetupDialog(QDialog):
                     self.combo_src.setCurrentIndex(idx)
                 self._lang_swap_guard = False
             self._prev_tgt = tgt
+            if hasattr(self, '_schedule_test_run'):
+                self._schedule_test_run()
         self.combo_tgt.currentIndexChanged.connect(_on_tgt_changed)
         self._update_lt_lang_checks()
         _on_trans_backend_changed()
@@ -12823,6 +12829,30 @@ class DicteeSetupDialog(QDialog):
         self._test_input.resizeEvent = _reposition_grip
 
         self._test_input.setFixedHeight(_5lines)
+
+        # Clear button (top-right corner of input)
+        _btn_clear_input = QPushButton("↺", self._test_input)
+        _btn_clear_input.setFixedSize(24, 24)
+        _btn_clear_input.setCursor(Qt.CursorShape.PointingHandCursor)
+        _btn_clear_input.setToolTip(_("Clear input"))
+        _btn_clear_input.setStyleSheet(
+            "QPushButton { font-size: 18px; font-weight: bold; border: none;"
+            " background: rgba(127,127,127,50); border-radius: 12px; color: rgba(200,200,200,180); }"
+            "QPushButton:hover { background: rgba(127,127,127,90); color: white; }")
+        _btn_clear_input.clicked.connect(lambda: self._test_input.clear())
+
+        def _reposition_clear(event=None):
+            _btn_clear_input.move(
+                _self._test_input.width() - 24, 4)
+            if event:
+                type(_self._test_input).resizeEvent(_self._test_input, event)
+        _old_resize = self._test_input.resizeEvent
+        def _combined_resize(event=None):
+            _reposition_clear(None)
+            _old_resize(event)
+        self._test_input.resizeEvent = _combined_resize
+        _reposition_clear()
+
         row.addWidget(self._test_input, 3)
 
         # Arrow column with ASR/Translate icon above
@@ -12958,7 +12988,8 @@ class DicteeSetupDialog(QDialog):
                 scroll.setUpdatesEnabled(True), scroll.update()))
 
     def _schedule_test_run(self):
-        self._test_timer.start()
+        if hasattr(self, '_test_timer'):
+            self._test_timer.start()
 
     def _load_continuation_words_for(self, lang):
         """Load continuation words for the given language.
@@ -13372,8 +13403,15 @@ class DicteeSetupDialog(QDialog):
         # in the active language, strip trailing punctuation and append
         # the configured indicator (>>, ..., ↓, •…). This is what the
         # user would actually see at runtime in their target app.
+        #
+        # In translate mode, dictee checks the SOURCE text last word but
+        # appends >> to the TRANSLATED text. So here we detect continuation
+        # on the source result but defer appending until after translation.
         indicator_appended = False
+        _source_continuation = False
         _indicator_before = ""
+        _indicator = self.conf.get(
+            "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
         if (env.get("DICTEE_PP_CONTINUATION", "false") == "true"
                 and result.strip()):
             cont_words = self._load_continuation_words_for(lang)
@@ -13383,17 +13421,18 @@ class DicteeSetupDialog(QDialog):
                                 r"[\.\,\?\!\u2026\s]*$", result.rstrip())
                 if _m:
                     _last = _m.group(1).lower()
-                    # Hyphenated words: "parles-tu" → check "tu"
                     if "-" in _last:
                         _last = _last.rsplit("-", 1)[-1]
                     if _last in cont_words:
-                        _indicator = self.conf.get(
-                            "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
-                        _indicator_before = result
-                        _stripped = _re.sub(
-                            r"[\.\,\?\!\u2026]+\s*$", "", result.rstrip())
-                        result = _stripped + _indicator
-                        indicator_appended = True
+                        if needs_translate:
+                            # Defer: just flag it, append after translation
+                            _source_continuation = True
+                        else:
+                            _indicator_before = result
+                            _stripped = _re.sub(
+                                r"[\.\,\?\!\u2026]+\s*$", "", result.rstrip())
+                            result = _stripped + _indicator
+                            indicator_appended = True
 
         # Synthetic step entry so the details panel stays honest about
         # the continuation indicator append (which happens here, in the
@@ -13422,6 +13461,16 @@ class DicteeSetupDialog(QDialog):
                 if translated and translated != result:
                     translated_from = result
                     result = translated
+
+        # Source continuation deferred: append >> to translated text
+        if _source_continuation and result.strip():
+            import re as _re
+            _indicator_before = result
+            _stripped = _re.sub(
+                r"[\.\,\?\!\u2026]+\s*$", "", result.rstrip())
+            result = _stripped + _indicator
+            indicator_appended = True
+            steps.append(("Continuation indicator", _indicator_before, result))
 
         # --- Phase 3: PP Translation (full_chain only) ---
         trpp_steps = []
@@ -13707,7 +13756,10 @@ class DicteeSetupDialog(QDialog):
             else _read_silence_threshold_from_conf())
         _rms = _measure_wav_rms(wav_path)
         if _rms > 0 and _rms < _thr:
-            self._test_input.setPlainText(_silence_message(_rms, _thr))
+            self._test_output.setHtml('<span style="font-size: 16pt;">🔇</span>')
+            self._test_details_label.setText(
+                _("Silence detected (RMS {rms:.3f} < threshold {thr:.3f})").format(
+                    rms=_rms, thr=_thr))
             try:
                 os.unlink(wav_path)
             except OSError:
