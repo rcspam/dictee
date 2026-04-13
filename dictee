@@ -1376,12 +1376,10 @@ if [ -f "$PIDFILE" ]; then
             # language continuation words, then append indicator to TRANSLATED
             # text (mirrors dictee-setup test panel logic).
             save_last_word "$transcribed" translated
-            _dbg "translate-paste: translated='$(echo -n "$translated" | xxd -p)' len=${#translated}"
             copy_to_clipboard "$translated"
             # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
             # dotool "type" cannot handle these characters, use clipboard paste
             if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
-                _dbg "translate-paste: CJK detected → ctrl+V"
                 sleep 0.1
                 safe_dotool_key_ctrl "ctrl+V"
             else
