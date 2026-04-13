@@ -1367,6 +1367,10 @@ if [ -f "$PIDFILE" ]; then
                     translated="$_trpp_out"
                 fi
             fi
+            # Continuation: check SOURCE text last word against source
+            # language continuation words, then append indicator to TRANSLATED
+            # text (mirrors dictee-setup test panel logic).
+            save_last_word "$transcribed" translated
             copy_to_clipboard "$translated"
             # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
             # dotool "type" cannot handle these characters, use clipboard paste
@@ -1376,7 +1380,6 @@ if [ -f "$PIDFILE" ]; then
             else
                 type_text "$translated"
             fi
-            save_last_word "$translated"
             notify_dictee 0 clipboard-paste-symbolic "$LANG_LABEL ($_trans_label):" "<i>\"$transcribed\"</i> → <b>\"$translated\"</b>"
         else
             copy_to_clipboard "$transcribed"

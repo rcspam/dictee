@@ -13327,9 +13327,9 @@ class DicteeSetupDialog(QDialog):
                                     r"[\.\,\?\!\u2026\s]*$", result.rstrip())
                     if _m:
                         _last = _m.group(1).lower()
-                    # Hyphenated words: "parles-tu" → check "tu"
-                    if "-" in _last:
-                        _last = _last.rsplit("-", 1)[-1]
+                        # Hyphenated words: "parles-tu" → check "tu"
+                        if "-" in _last:
+                            _last = _last.rsplit("-", 1)[-1]
                         if _last in cont_words:
                             _indicator = self.conf.get(
                                 "DICTEE_CONTINUATION_INDICATOR", ">>") or ">>"
