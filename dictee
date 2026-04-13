@@ -28,6 +28,11 @@ if [ -f "$DICTEE_CONF" ]; then
     set +a
 fi
 
+# Ensure Wayland env vars are set (dictee-ptt may not inherit them)
+if [ -z "$WAYLAND_DISPLAY" ] && [ -S "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/wayland-0" ]; then
+    export WAYLAND_DISPLAY="wayland-0"
+fi
+
 # === COMMON FUNCTIONS ===
 _DBG_CONTEXT="dictee"
 for _p in "$(dirname "$(readlink -f "$0")")" /usr/lib/dictee; do
@@ -845,7 +850,7 @@ done
 
 copy_to_clipboard() {
     [ "$CLIPBOARD" = true ] || return 0
-    if command -v wl-copy >/dev/null 2>&1 && [ "$XDG_SESSION_TYPE" = "wayland" ]; then
+    if command -v wl-copy >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then
         echo -n "$1" | wl-copy
     elif command -v xclip >/dev/null 2>&1; then
         echo -n "$1" | xclip -selection clipboard
@@ -949,10 +954,10 @@ translate() {
             return 1
         fi
         local missing=""
-        if ! echo "$avail_langs" | python3 -c "import json,sys; codes=[l['code'] for l in json.load(sys.stdin)]; sys.exit(0 if '${LANG_SOURCE}' in codes else 1)" 2>/dev/null; then
+        if ! echo "$avail_langs" | python3 -c "import json,sys; codes=[l['code'].split('-')[0] for l in json.load(sys.stdin)]; sys.exit(0 if '${LANG_SOURCE}' in codes else 1)" 2>/dev/null; then
             missing="${LANG_SOURCE}"
         fi
-        if ! echo "$avail_langs" | python3 -c "import json,sys; codes=[l['code'] for l in json.load(sys.stdin)]; sys.exit(0 if '${LANG_TARGET}' in codes else 1)" 2>/dev/null; then
+        if ! echo "$avail_langs" | python3 -c "import json,sys; codes=[l['code'].split('-')[0] for l in json.load(sys.stdin)]; sys.exit(0 if '${LANG_TARGET}' in codes else 1)" 2>/dev/null; then
             if [ -n "$missing" ]; then
                 missing="${missing}, ${LANG_TARGET}"
             else
@@ -1371,10 +1376,12 @@ if [ -f "$PIDFILE" ]; then
             # language continuation words, then append indicator to TRANSLATED
             # text (mirrors dictee-setup test panel logic).
             save_last_word "$transcribed" translated
+            _dbg "translate-paste: translated='$(echo -n "$translated" | xxd -p)' len=${#translated}"
             copy_to_clipboard "$translated"
             # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
             # dotool "type" cannot handle these characters, use clipboard paste
             if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
+                _dbg "translate-paste: CJK detected → ctrl+V"
                 sleep 0.1
                 safe_dotool_key_ctrl "ctrl+V"
             else

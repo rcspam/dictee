@@ -581,31 +581,27 @@ RowLayout {
                     executable.run(root.translateLangsCmd + " " + root.currentTranslateBackend)
                 }
             }
+            function syncLangCombo() {
+                var target = root.currentLangTarget
+                for (var j = 0; j < langModel.count; j++) {
+                    if (langModel.get(j).value === target) {
+                        langCombo.currentIndex = j
+                        return
+                    }
+                }
+            }
             Connections {
                 target: root
+                function onCurrentLangTargetChanged() {
+                    langCombo.syncLangCombo()
+                }
                 function onAvailableLangTargetChanged() {
-                    var prev = root.currentLangTarget
                     langModel.clear()
                     for (var i = 0; i < root.availableLangTarget.length; i++) {
                         var code = root.availableLangTarget[i]
                         langModel.append({ text: code, value: code })
                     }
-                    // Restore previous selection
-                    var found = false
-                    for (var j = 0; j < langModel.count; j++) {
-                        if (langModel.get(j).value === prev) {
-                            langCombo.currentIndex = j
-                            found = true
-                            break
-                        }
-                    }
-                    if (!found && langModel.count > 0) {
-                        langCombo.currentIndex = 0
-                        // Update config to match the fallback language
-                        var fallback = langModel.get(0).value
-                        root.currentLangTarget = fallback
-                        executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_LANG_TARGET=\" \"$conf\" && sed -i \"s|^DICTEE_LANG_TARGET=.*|DICTEE_LANG_TARGET=" + fallback + "|\" \"$conf\" || echo \"DICTEE_LANG_TARGET=" + fallback + "\" >> \"$conf\"'")
-                    }
+                    langCombo.syncLangCombo()
                 }
             }
             delegate: QQC2.ItemDelegate {

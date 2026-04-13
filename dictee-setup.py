@@ -1909,11 +1909,38 @@ def libretranslate_available_languages(port=LIBRETRANSLATE_PORT, max_age=5):
         url = f"http://localhost:{port}/languages"
         with urllib.request.urlopen(url, timeout=3) as resp:
             data = _json.loads(resp.read())
-            result = [lang["code"] for lang in data]
+            # Normalize LT codes to ISO 639-1 (e.g. zh-Hans → zh)
+            result = list({lang["code"].split("-")[0] for lang in data})
             _lt_langs_cache.update({"langs": result, "time": now, "port": port})
             return result
     except Exception:
         return []
+
+
+def _sync_volume_for_languages(languages):
+    """Clear the persistent volume only if new language models are needed."""
+    import re
+    requested = set(languages.split(","))
+    try:
+        result = docker_cmd([
+            "docker", "run", "--rm",
+            "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
+            "alpine", "ls", "/data/share/argos-translate/packages/",
+        ], capture_output=True, text=True, timeout=10)
+        installed_langs = set()
+        for pkg in result.stdout.strip().splitlines():
+            name = re.sub(r'^translate-', '', pkg)
+            name = re.sub(r'-[\d]+_[\d]+$', '', name)
+            installed_langs |= set(name.split("_"))
+        missing = requested - installed_langs
+        if missing:
+            docker_cmd([
+                "docker", "run", "--rm",
+                "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
+                "alpine", "rm", "-rf", "/data/share", "/data/cache",
+            ], capture_output=True, timeout=10)
+    except Exception:
+        pass
 
 
 def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de"):
@@ -1934,6 +1961,8 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
         if needs_recreate:
             docker_cmd(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                            capture_output=True, timeout=10)
+            # Sync volume: only clear if new languages need downloading
+            _sync_volume_for_languages(languages)
             docker_cmd([
                 "docker", "run", "-d",
                 "--name", LIBRETRANSLATE_CONTAINER,
@@ -2094,6 +2123,10 @@ class _DockerActionThread(QThread):
                 self.progress.emit(_("Stopping container…"))
                 docker_cmd(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                                capture_output=True, timeout=15)
+                # Sync volume packages with requested languages:
+                # remove packages for languages no longer requested,
+                # clear index to force re-download of missing models.
+                self._sync_volume_packages()
                 self.progress.emit(_("Starting container with {langs}…").format(
                     langs=self._languages))
                 result = docker_cmd([
@@ -2115,6 +2148,53 @@ class _DockerActionThread(QThread):
             self.done.emit(True, "")
         except Exception as e:
             self.done.emit(False, str(e))
+
+    @staticmethod
+    def _pkg_lang_codes(pkg_name):
+        """Extract language codes from an Argos package directory name.
+
+        Handles both formats:
+          translate-en_fr-1_9  →  {'en', 'fr'}
+          en_it                →  {'en', 'it'}
+        """
+        import re
+        # Strip 'translate-' prefix if present
+        name = re.sub(r'^translate-', '', pkg_name)
+        # Strip version suffix (-V_V)
+        name = re.sub(r'-[\d]+_[\d]+$', '', name)
+        # Split on '_' to get language codes
+        return set(name.split("_"))
+
+    def _sync_volume_packages(self):
+        """Clear the volume only if requested languages are missing.
+
+        Never remove existing packages — they stay cached in the volume
+        for potential re-use. --load-only controls what LT loads into
+        memory, not what's on disk.
+        """
+        requested = set(self._languages.split(","))
+        try:
+            result = docker_cmd([
+                "docker", "run", "--rm",
+                "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
+                "alpine", "ls", "/data/share/argos-translate/packages/",
+            ], capture_output=True, text=True, timeout=10)
+            installed_langs = set()
+            for pkg in result.stdout.strip().splitlines():
+                if pkg:
+                    installed_langs |= self._pkg_lang_codes(pkg)
+
+            missing = requested - installed_langs
+            if missing:
+                self.progress.emit(_("Downloading models for: {langs}…").format(
+                    langs=", ".join(sorted(missing))))
+                docker_cmd([
+                    "docker", "run", "--rm",
+                    "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
+                    "alpine", "rm", "-rf", "/data/share", "/data/cache",
+                ], capture_output=True, timeout=10)
+        except Exception:
+            pass
 
     def _wait_ready(self):
         """Attend que l'API LibreTranslate soit prête (max 180s).
@@ -11687,33 +11767,14 @@ class DicteeSetupDialog(QDialog):
             allowed = {vosk_lang} if vosk_lang else ASR_LANGUAGES.get("vosk")
         else:
             allowed = ASR_LANGUAGES.get(asr)
-        # When LibreTranslate is the translation backend, restrict source
-        # to languages available in LT (intersection ASR ∩ LT)
-        if (hasattr(self, 'cmb_trans_backend')
-                and self.cmb_trans_backend.currentData() == "libretranslate"):
-            lt_langs = self._get_lt_effective_languages()
-            if lt_langs and allowed:
-                allowed = allowed & lt_langs
-            elif lt_langs:
-                allowed = lt_langs
         self._filter_lang_combo(self.combo_src, allowed)
-
-    def _get_lt_effective_languages(self):
-        """Return the selected LT checkbox languages (source of truth)."""
-        if hasattr(self, '_lt_lang_checks'):
-            selected = set(self._get_lt_selected_langs())
-            return selected if selected else None
-        return None
 
     def _update_tgt_languages(self):
         """Filtre la langue cible selon le backend de traduction sélectionné."""
         if not hasattr(self, 'cmb_trans_backend'):
             return
         backend = self.cmb_trans_backend.currentData()
-        if backend == "libretranslate":
-            allowed = self._get_lt_effective_languages()
-        else:
-            allowed = TRANSLATE_LANGUAGES.get(backend)
+        allowed = TRANSLATE_LANGUAGES.get(backend)
         self._filter_lang_combo(self.combo_tgt, allowed)
 
     def _update_canary_translation_visibility(self):
@@ -12079,15 +12140,39 @@ class DicteeSetupDialog(QDialog):
                 if tgt not in avail:
                     missing.append(tgt)
                 if missing:
-                    status_html += (
-                        '<br><span style="color: orange;">⚠ ' +
-                        _("Language(s) not available: {langs}").format(
-                            langs=", ".join(missing)) +
-                        '</span><br><small>' +
-                        _("Available: {langs}. Restart to add missing languages.").format(
-                            langs=", ".join(avail)) +
-                        '</small>'
-                    )
+                    # Check if missing langs were requested but failed to load
+                    # (not supported by LibreTranslate)
+                    try:
+                        _args = docker_cmd(
+                            ["docker", "inspect", "-f", "{{.Args}}",
+                             LIBRETRANSLATE_CONTAINER],
+                            capture_output=True, text=True, timeout=3
+                        ).stdout.strip()
+                    except Exception:
+                        _args = ""
+                    unsupported = [l for l in missing if l in _args]
+                    need_restart = [l for l in missing if l not in _args]
+                    if unsupported:
+                        status_html += (
+                            '<br><span style="color: orange;">⚠ ' +
+                            _("Language(s) not supported by LibreTranslate: "
+                              "{langs}").format(
+                                langs=", ".join(unsupported)) +
+                            '</span>')
+                    if need_restart:
+                        status_html += (
+                            '<br><span style="color: orange;">⚠ ' +
+                            _("Language(s) not loaded: {langs}").format(
+                                langs=", ".join(need_restart)) +
+                            '</span><br><small>' +
+                            _("Restart to add missing languages.") +
+                            '</small>')
+                    if not need_restart:
+                        status_html += (
+                            '<br><small>' +
+                            _("Available: {langs}").format(
+                                langs=", ".join(sorted(avail))) +
+                            '</small>')
             self.lbl_lt_status.setText(status_html)
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(False)
@@ -12149,9 +12234,6 @@ class DicteeSetupDialog(QDialog):
         else:
             self.lbl_lt_langs_hint.setVisible(False)
             self.btn_lt_restart_langs.setVisible(False)
-        # Update language combos to reflect the new selection
-        self._update_src_languages()
-        self._update_tgt_languages()
 
     def _on_lt_restart_langs(self):
         """Redémarre le conteneur Docker avec les nouvelles langues."""

@@ -590,7 +590,13 @@ PlasmoidItem {
             })() + "'")
     }
 
-    // Refresh translate langs + audio sources when popup opens
+    // Refresh config when popup opens (catches changes from dictee-setup Apply)
+    onExpandedChanged: {
+        if (expanded) {
+            refreshBackends()
+        }
+    }
+
     // Load debug flag and start audio daemon
     Component.onCompleted: {
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")

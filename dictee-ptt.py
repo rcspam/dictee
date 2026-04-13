@@ -172,12 +172,20 @@ def find_dictee_bin():
     return "dictee"
 
 
+def _ensure_wayland_env(env):
+    """Inject Wayland env vars if missing (sg/systemd may strip them)."""
+    if "WAYLAND_DISPLAY" not in env:
+        runtime = env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        if os.path.exists(os.path.join(runtime, "wayland-0")):
+            env["WAYLAND_DISPLAY"] = "wayland-0"
+    return env
+
+
 def run_dictee_async(*args, no_animation=False):
     """Lance dictee en subprocess non-bloquant."""
     cmd = [DICTEE_BIN] + list(args)
-    env = None
+    env = _ensure_wayland_env(os.environ.copy())
     if no_animation:
-        env = os.environ.copy()
         env["DICTEE_ANIM_SPEECH"] = "false"
     try:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
