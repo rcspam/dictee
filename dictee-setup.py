@@ -8772,6 +8772,8 @@ class DicteeSetupDialog(QDialog):
                 _("Cannot save — syntax error:\n\n{err}").format(err=err))
             return
         QMessageBox.information(self._pp_parent, "dictee", _("Rules saved."))
+        if hasattr(self, '_schedule_test_run'):
+            self._schedule_test_run()
 
     def _restore_rules_defaults(self):
         import os as _os
@@ -9651,6 +9653,8 @@ class DicteeSetupDialog(QDialog):
             self._save_dict_to_tmp()
             self._save_dict_official()
             QMessageBox.information(self._pp_parent, "dictee", _("Dictionary saved."))
+        if hasattr(self, '_schedule_test_run'):
+            self._schedule_test_run()
 
     def _dict_update_undo_buttons(self):
         """Synchronise l'état enabled des boutons undo/redo."""
@@ -13166,15 +13170,6 @@ class DicteeSetupDialog(QDialog):
         # Master switch: always check PP Normal master
         pp_master = self.chk_postprocess.isChecked() \
             if hasattr(self, 'chk_postprocess') else True
-        if not pp_master:
-            display_output = text.replace("\n", "↵\n").replace("\t", "⇥\t")
-            if display_output.endswith(" "):
-                display_output = display_output.rstrip(" ") + "␣"
-            self._test_output.setPlainText(display_output)
-            self._test_details_label.setText(_(
-                "Post-processing disabled (master switch off) — text "
-                "passed through unchanged."))
-            return
 
         # Locate dictee-postprocess (dev tree first, then installed)
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13318,21 +13313,26 @@ class DicteeSetupDialog(QDialog):
                     text = ""
                 keyword_stripped = True
 
-        try:
-            proc = subprocess.run(
-                [sys.executable, pp_path],
-                input=text, capture_output=True, text=True,
-                env=env, timeout=30)
-        except subprocess.TimeoutExpired:
-            self._test_output.setPlainText(_("Timeout running post-processing"))
-            self._test_details_label.setText("")
-            return
-        except Exception as e:
-            self._test_output.setPlainText(f"Error: {e}")
-            self._test_details_label.setText("")
-            return
+        # Skip PP subprocess if master is off — pass text through to translation
+        steps = []
+        if not pp_master:
+            result = text
+        else:
+            try:
+                proc = subprocess.run(
+                    [sys.executable, pp_path],
+                    input=text, capture_output=True, text=True,
+                    env=env, timeout=30)
+            except subprocess.TimeoutExpired:
+                self._test_output.setPlainText(_("Timeout running post-processing"))
+                self._test_details_label.setText("")
+                return
+            except Exception as e:
+                self._test_output.setPlainText(f"Error: {e}")
+                self._test_details_label.setText("")
+                return
 
-        result = proc.stdout.rstrip(" ")  # strip trailing spaces (mirrors shell)
+            result = proc.stdout.rstrip(" ")  # strip trailing spaces (mirrors shell)
 
         # Parse step traces on stderr
         def _dec(s):
@@ -13352,19 +13352,20 @@ class DicteeSetupDialog(QDialog):
                 i += 1
             return "".join(out)
 
-        steps = []
-        if keyword_stripped:
-            steps.append(("Continuation keyword", _kw_before, text))
-        for line in proc.stderr.splitlines():
-            if not line.startswith("STEP\t"):
-                continue
-            parts = line.split("\t", 3)
-            if len(parts) != 4:
-                continue
-            label = parts[1]
-            before = _dec(parts[2])
-            after = _dec(parts[3])
-            steps.append((label, before, after))
+        if pp_master:
+            steps = []
+            if keyword_stripped:
+                steps.append(("Continuation keyword", _kw_before, text))
+            for line in proc.stderr.splitlines():
+                if not line.startswith("STEP\t"):
+                    continue
+                parts = line.split("\t", 3)
+                if len(parts) != 4:
+                    continue
+                label = parts[1]
+                before = _dec(parts[2])
+                after = _dec(parts[3])
+                steps.append((label, before, after))
 
         # Continuation indicator: mirror the shell script's save_last_word
         # logic. When the last word of the result is a continuation word
@@ -13570,7 +13571,7 @@ class DicteeSetupDialog(QDialog):
             html_lines.append(_line(
                 _("🔬 Solo mode: only this step runs."),
                 highlight=True))
-        if not steps and proc.returncode == 0:
+        if not steps and (not pp_master or (pp_master and proc.returncode == 0)):
             html_lines.append(_line(_("No pipeline steps ran.")))
         for i, (name, before, after) in enumerate(steps, 1):
             changed = before != after
@@ -13616,7 +13617,7 @@ class DicteeSetupDialog(QDialog):
                 _("⚠ PP Traduction: {err}").format(err=trpp_error),
                 warn=True))
 
-        if proc.returncode != 0:
+        if pp_master and proc.returncode != 0:
             html_lines.append(_line(
                 f"[exit {proc.returncode}] "
                 f"{proc.stderr.splitlines()[-1] if proc.stderr else ''}",
