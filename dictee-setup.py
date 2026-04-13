@@ -13963,6 +13963,10 @@ class DicteeSetupDialog(QDialog):
 
     def _prompt_lt_server(self):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
+        # Skip if a restart is already in progress
+        # (user clicked "Restart with new languages" before Apply)
+        if self._lt_is_busy():
+            return
         selected = set(self._get_lt_selected_langs())
         running = docker_container_running()
         port_text = self.spin_lt_port.currentText()
