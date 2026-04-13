@@ -1641,20 +1641,26 @@ def _test_translate_text(text, src, tgt, conf):
                 f"additional explanations or commentary. Please "
                 f"translate the following text:\n\n{text}"
             )
-            r = subprocess.run(
-                ["ollama", "run", model, prompt],
-                capture_output=True, text=True, timeout=30)
-            if r.returncode == 0 and r.stdout.strip():
-                out = r.stdout.strip()
-                # Defensive cleanup: strip leading quotes, trailing
-                # "Translation:" labels, etc. that some models may add
-                # despite the instruction.
+            import json as _json
+            import urllib.request as _ureq
+            if ":" not in model:
+                model += ":latest"
+            payload_dict = {"model": model, "prompt": prompt, "stream": False}
+            if conf.get("OLLAMA_NUM_GPU") == "0":
+                payload_dict["options"] = {"num_gpu": 0}
+            data = _json.dumps(payload_dict).encode()
+            req = _ureq.Request(
+                "http://localhost:11434/api/generate",
+                data=data, headers={"Content-Type": "application/json"})
+            resp = _json.loads(_ureq.urlopen(req, timeout=30).read())
+            out = resp.get("response", "").strip()
+            if out:
                 out = re.sub(
                     r"^(?:translation|result|output)\s*[:：]\s*",
                     "", out, flags=re.IGNORECASE)
                 out = out.strip('"\'`').strip()
                 return out, ""
-            return text, (r.stderr.strip() or "ollama failed")
+            return text, "ollama empty response"
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
         return text, str(exc)
     return text, f"unknown backend: {backend}"
@@ -2723,11 +2729,26 @@ class TestTranslateThread(QThread):
             result = json.loads(resp.read())
             return result.get("translatedText", "")
         elif self._trans_backend == "ollama":
-            r = subprocess.run(
-                ["ollama", "run", self._ollama_model,
-                 f"Translate from {self._source_lang} to {self._target_lang}: {text}"],
-                capture_output=True, text=True, timeout=30)
-            return r.stdout.strip() if r.returncode == 0 else ""
+            import json as _json
+            import urllib.request as _ureq
+            model = self._ollama_model
+            if ":" not in model:
+                model += ":latest"
+            prompt = (
+                f"You are a professional {self._source_lang} to "
+                f"{self._target_lang} translator. Produce only the "
+                f"{self._target_lang} translation, without any additional "
+                f"explanations or commentary. Please translate the "
+                f"following text:\n\n{text}")
+            payload = {"model": model, "prompt": prompt, "stream": False}
+            if os.environ.get("OLLAMA_NUM_GPU") == "0":
+                payload["options"] = {"num_gpu": 0}
+            data = _json.dumps(payload).encode()
+            req = _ureq.Request(
+                "http://localhost:11434/api/generate",
+                data=data, headers={"Content-Type": "application/json"})
+            resp = _json.loads(_ureq.urlopen(req, timeout=30).read())
+            return resp.get("response", "").strip()
         return ""
 
     def run(self):
