@@ -824,7 +824,11 @@ for arg in "$@"; do
         CANCEL=true
         ;;
     --translate)
-        PIPELINE_MODE="normal+translate"
+        if [ "${DICTEE_PP_TRANSLATE:-true}" = "true" ]; then
+            PIPELINE_MODE="full_chain"
+        else
+            PIPELINE_MODE="normal+translate"
+        fi
         TRANSLATE=true
         ;;
     --ollama)
@@ -1125,9 +1129,13 @@ if [ -f "$PIDFILE" ]; then
     # Retrieve options used at startup
     if [ -f "$TRANSLATE_FLAG_FILE" ]; then
         TRANSLATE=true
-        # Use configured pipeline mode; default to normal+translate
+        # Use configured pipeline mode; default depends on DICTEE_PP_TRANSLATE
         if [ "$PIPELINE_MODE" = "normal" ]; then
-            PIPELINE_MODE="normal+translate"
+            if [ "${DICTEE_PP_TRANSLATE:-true}" = "true" ]; then
+                PIPELINE_MODE="full_chain"
+            else
+                PIPELINE_MODE="normal+translate"
+            fi
         fi
     fi
     if [ -f "$TRANSLATE_BACKEND_FILE" ]; then
@@ -1328,6 +1336,7 @@ if [ -f "$PIDFILE" ]; then
             # grammatically-clean text.
             if [ "$PIPELINE_MODE" = "full_chain" ] \
                && command -v dictee-postprocess >/dev/null 2>&1; then
+                _dbg "TRPP: running 2nd-pass PP on translated text (lang=${LANG_TARGET:0:2})"
                 # DICTEE_TRPP_* vars are the translation-side per-step
                 # activation state (independent from DICTEE_PP_*). Map
                 # them to DICTEE_PP_* for the 2nd run so the engine sees

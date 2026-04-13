@@ -6336,16 +6336,35 @@ class DicteeSetupDialog(QDialog):
         def _swap_langs():
             src = self.combo_src.currentData()
             tgt = self.combo_tgt.currentData()
-            if src and tgt and src != tgt:
-                self._lang_swap_guard = True
-                idx_s = self.combo_src.findData(tgt)
-                idx_t = self.combo_tgt.findData(src)
-                if idx_s >= 0 and idx_t >= 0:
-                    self.combo_src.setCurrentIndex(idx_s)
-                    self.combo_tgt.setCurrentIndex(idx_t)
-                self._lang_swap_guard = False
-                self._prev_src = self.combo_src.currentData()
-                self._prev_tgt = self.combo_tgt.currentData()
+            if not src or not tgt or src == tgt:
+                return
+            # Canary: swap only allowed when EN is one of the two languages
+            asr = ""
+            if self.wizard_mode and hasattr(self, '_wizard_asr'):
+                asr = self._wizard_asr
+            elif hasattr(self, 'cmb_asr_backend'):
+                asr = self.cmb_asr_backend.currentData() or ""
+            if asr == "canary" and "en" not in (src, tgt):
+                return
+            # Block all signals during swap to prevent cascading filters
+            self.combo_src.blockSignals(True)
+            self.combo_tgt.blockSignals(True)
+            if asr == "canary":
+                # Repopulate both combos with all Canary languages
+                self._filter_lang_combo(self.combo_src, CANARY_LANGUAGES)
+                self._filter_lang_combo(self.combo_tgt, CANARY_LANGUAGES)
+            idx_s = self.combo_src.findData(tgt)
+            idx_t = self.combo_tgt.findData(src)
+            if idx_s >= 0 and idx_t >= 0:
+                self.combo_src.setCurrentIndex(idx_s)
+                self.combo_tgt.setCurrentIndex(idx_t)
+            self._prev_src = self.combo_src.currentData()
+            self._prev_tgt = self.combo_tgt.currentData()
+            self.combo_src.blockSignals(False)
+            self.combo_tgt.blockSignals(False)
+            # Re-apply Canary target constraints after swap
+            if asr == "canary":
+                self._update_canary_translation_visibility()
         _btn_swap.clicked.connect(_swap_langs)
 
         # Layout: [labels + combos] | [swap button centered between both rows]
@@ -6551,6 +6570,9 @@ class DicteeSetupDialog(QDialog):
         self.cmb_trans_backend.currentIndexChanged.connect(lambda: _on_trans_backend_changed())
         # Rafraîchir le statut et checkboxes LibreTranslate quand on change la langue
         def _on_lang_changed():
+            # Skip if combos are being repopulated (currentData may be None)
+            if not self.combo_src.currentData() or not self.combo_tgt.currentData():
+                return
             if self.cmb_trans_backend.currentData() == "libretranslate":
                 self._update_lt_lang_checks()
                 self._on_lt_langs_changed()
@@ -11740,6 +11762,7 @@ class DicteeSetupDialog(QDialog):
         """Repeuple un combo avec uniquement les langues autorisées.
         allowed_codes=None signifie toutes les langues."""
         current = combo.currentData()
+        was_blocked = combo.signalsBlocked()
         combo.blockSignals(True)
         combo.clear()
         for code, name in LANGUAGES:
@@ -11751,7 +11774,7 @@ class DicteeSetupDialog(QDialog):
             combo.setCurrentIndex(idx)
         else:
             combo.setCurrentIndex(0)
-        combo.blockSignals(False)
+        combo.blockSignals(was_blocked)
 
     def _update_src_languages(self):
         """Filtre la langue source selon le backend ASR sélectionné."""
@@ -12193,9 +12216,13 @@ class DicteeSetupDialog(QDialog):
             if chk.isChecked():
                 langs.add(code)
         # Toujours inclure source et cible
-        langs.add(self.combo_src.currentData())
-        langs.add(self.combo_tgt.currentData())
-        return sorted(langs)
+        src = self.combo_src.currentData()
+        tgt = self.combo_tgt.currentData()
+        if src:
+            langs.add(src)
+        if tgt:
+            langs.add(tgt)
+        return sorted(lang for lang in langs if lang is not None)
 
     def _update_lt_lang_checks(self):
         """Coche automatiquement les langues source/cible (sans griser)."""

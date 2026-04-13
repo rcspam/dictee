@@ -311,6 +311,13 @@
 [*] /\b(\w+)\s+\1\b/\1/ig
 
 # ═══════════════════════════════════════════════════════════════════════
+# STEP 4b — ASR misrecognition corrections
+# ═══════════════════════════════════════════════════════════════════════
+# Parakeet sometimes splits "le" as "l'eux" or "l'e" in short utterances
+[fr] /\bl'eux\b/le/ig
+[fr] /\bl'e\b/le/ig
+
+# ═══════════════════════════════════════════════════════════════════════
 # STEP 5 — Punctuation cleanup (deduplicate ASR + voice command doubles)
 # ═══════════════════════════════════════════════════════════════════════
 [*] /\.{3,}/…/g
