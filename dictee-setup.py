@@ -14221,10 +14221,11 @@ class DicteeSetupDialog(QDialog):
         if running:
             # Vérifier si les langues ont changé
             installed = set(libretranslate_available_languages(port=port))
-            if selected == installed:
-                return  # Rien à faire, tout est à jour
-            # Langues différentes → proposer restart
+            # Only care about languages we NEED but don't have.
+            # Extra languages in the container are harmless — don't prompt to remove them.
             added = selected - installed
+            if not added:
+                return  # All needed languages are available
             removed = installed - selected
             details = []
             if added:

@@ -189,18 +189,16 @@ msgid "Short text fix"
 msgstr "Correction texte court"
 
 #: dictee-setup.py:1050
-#, fuzzy
 msgid "For transcriptions under N words:"
-msgstr "Aucun résultat de transcription."
+msgstr "Pour les transcriptions de moins de N mots :"
 
 #: dictee-setup.py:1051
 msgid "strip trailing punctuation and lowercase."
 msgstr "supprime la ponctuation finale et met en minuscule."
 
 #: dictee-setup.py:1052
-#, fuzzy
 msgid "LLM grammar correction"
-msgstr "Correction grammaticale LLM (ollama)"
+msgstr "Correction grammaticale LLM"
 
 #: dictee-setup.py:1053
 msgid "Local Ollama model fixes grammar,"
@@ -235,9 +233,8 @@ msgid "Translation"
 msgstr "Traduction"
 
 #: dictee-setup.py:1057
-#, fuzzy
 msgid "Jump to the Translation section."
-msgstr "Aucun résultat de traduction."
+msgstr "Aller à la section Traduction."
 
 #: dictee-setup.py:1355
 msgid "Creating virtual environment…"
@@ -1422,26 +1419,23 @@ msgid "Enable PP"
 msgstr "Activer le PP"
 
 #: dictee-setup.py:6258
-#, fuzzy
 msgid ""
 "For transcriptions with fewer than N words, remove trailing punctuation and "
 "lowercase capitalized words."
 msgstr ""
-"Pour les transcriptions de moins de N mots,\n"
-"supprime la ponctuation finale et met en\n"
-"minuscules les mots capitalisés."
+"Pour les transcriptions de moins de N mots, supprime la ponctuation finale "
+"et met en minuscules les mots capitalisés."
 
 #: dictee-setup.py:6263 dictee-setup.py:6321
 msgid "<"
 msgstr "<"
 
 #: dictee-setup.py:6275
-#, fuzzy
 msgid ""
 "Maximum word count for a transcription to be considered \"short\" and "
 "receive the short-text treatment."
 msgstr ""
-"Nombre maximum de mots pour qu'une transcription soit considérée\n"
+"Nombre maximum de mots pour qu'une transcription soit considérée "
 "comme « courte » et reçoive le traitement texte court."
 
 #: dictee-setup.py:6280 dictee-setup.py:6339 dictee-setup.py:9631
@@ -1454,13 +1448,13 @@ msgstr "Activer le PP pour la traduction"
 
 #: dictee-setup.py:6288
 msgid ""
-"When enabled, the translated text is passed through the translation post-"
-"processing pipeline (orange), with the target language as reference. The LLM "
-"step is never run on translated text."
+"When enabled, the translated text is passed through the "
+"translation post-processing pipeline (orange), with the "
+"target language as reference."
 msgstr ""
 "Lorsque cette option est activée, le texte traduit est repassé dans le "
 "pipeline de post-traitement dédié (orange), avec la langue cible comme "
-"référence. Le LLM n'est jamais exécuté sur du texte traduit."
+"référence."
 
 #: dictee-setup.py:6310
 msgid ""
@@ -1471,12 +1465,11 @@ msgstr ""
 "de traduction met en majuscule les mots isolés : ex. « maison » → « House » → « house »."
 
 #: dictee-setup.py:6333
-#, fuzzy
 msgid ""
 "Maximum word count for a translated transcription to be considered \"short\" "
 "and receive the short-text treatment."
 msgstr ""
-"Nombre maximum de mots pour qu'une transcription soit considérée\n"
+"Nombre maximum de mots pour qu'une transcription traduite soit considérée "
 "comme « courte » et reçoive le traitement texte court."
 
 #: dictee-setup.py:6382
