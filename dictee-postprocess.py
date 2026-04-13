@@ -281,8 +281,8 @@ def fix_short_text(text):
     # Skip voice commands: pure punctuation/whitespace/newlines
     if not stripped or not any(c.isalnum() for c in stripped):
         return text
-    # Multiline text is never "short text"
-    if '\n' in stripped:
+    # Text with newlines (voice command "à la ligne") is never "short text"
+    if '\n' in text:
         return text
     words = stripped.split()
     if len(words) >= _SHORT_TEXT_MAX_WORDS:
@@ -993,11 +993,11 @@ def main():
         text = llm_postprocess(text)
         _trace("LLM [last]", _before, text)
 
-    # Strip internal markers used by voice-command rules
-    text = text.replace("\x01", "").replace("\x02", "")
-    # Defense in depth: strip any other control char that could be interpreted
-    # as a key sequence downstream (keep only \t=0x09 and \n=0x0a).
-    text = "".join(c for c in text if c == "\t" or c == "\n" or ord(c) >= 0x20)
+    # Defense in depth: strip control chars that could be interpreted
+    # as a key sequence downstream.
+    # Keep: \x01 (ctrl+j marker), \x02 (force end-of-sentence marker),
+    #        \t (0x09), \n (0x0a) — dictee strips \x01/\x02 after save_last_word.
+    text = "".join(c for c in text if c in ("\x01", "\x02", "\t", "\n") or ord(c) >= 0x20)
 
     sys.stdout.write(text)
 

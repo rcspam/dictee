@@ -211,7 +211,9 @@ type_text() {
     # Keep only \x09 (tab), \x0a (newline), \x01 (ctrl+j marker, handled below).
     # Prevents any hidden escape sequence from reaching dotool and firing keys
     # outside the ones explicitly enabled.
-    text=$(printf '%s' "$text" | LC_ALL=C tr -d '\000\003-\010\013\014\016-\037\177')
+    # Sentinel 'X' prevents $() from stripping trailing newlines
+    text=$(printf '%sX' "$text" | LC_ALL=C tr -d '\000\003-\010\013\014\016-\037\177')
+    text="${text%X}"
     # Convert to dotool commands: "type ..." + "key enter/tab/ctrl+j" between segments
     # \x01 marker = ctrl+j (newline without submit, from "contrôle j" voice command)
     # The continuation indicator (CONTINUATION_INDICATOR) is part of the text

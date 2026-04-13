@@ -3576,11 +3576,11 @@ class TestEdgeCasesExtended(unittest.TestCase):
         # depending on the ratio logic — just ensure no crash
         self.assertIsInstance(result, str)
 
-    def test_internal_markers_stripped(self):
-        """\\x01 and \\x02 markers stripped from output."""
+    def test_internal_markers_preserved(self):
+        """\\x01 and \\x02 markers preserved for dictee to handle."""
         result = run_postprocess("Hello\x01world\x02end.", lang="en")
-        self.assertNotIn("\x01", result)
-        self.assertNotIn("\x02", result)
+        self.assertIn("\x01", result)
+        self.assertIn("\x02", result)
 
 
 # ══════════════════════════════════════════════════════════════════════
