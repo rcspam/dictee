@@ -275,7 +275,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 audio_context=False, audio_context_timeout=30,
                 silence_rms=0.03,
                 notifications=True, notifications_text=True,
-                command_suffixes=None, debug=False):
+                command_suffixes=None, debug=False,
+                trpp_states=None, trpp_short_text_max=3):
     """Update dictee.conf preserving comments and structure.
 
     Reads the existing file (or the template on first run), then patches
@@ -349,6 +350,20 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
     values["DICTEE_PP_SHORT_TEXT_MAX"] = str(pp_short_text_max)
+    # Translation post-processing flags (TRPP)
+    if trpp_states:
+        _trpp_map = {
+            "rules": "DICTEE_TRPP_RULES",
+            "continuation": "DICTEE_TRPP_CONTINUATION",
+            "language_rules": "DICTEE_TRPP_LANGUAGE_RULES",
+            "numbers": "DICTEE_TRPP_NUMBERS",
+            "dict": "DICTEE_TRPP_DICT",
+            "capitalization": "DICTEE_TRPP_CAPITALIZATION",
+            "short_text": "DICTEE_TRPP_SHORT_TEXT",
+        }
+        for k, conf_key in _trpp_map.items():
+            values[conf_key] = "true" if trpp_states.get(k, True) else "false"
+        values["DICTEE_TRPP_SHORT_TEXT_MAX"] = str(trpp_short_text_max)
     # Continuation visual indicator — must NOT go through _s() because it
     # would strip <, >, & exactly the chars we want. Wrap in single quotes
     # so bash sources it literally; escape any inner single quote.
@@ -1133,8 +1148,8 @@ class _PipelineDiagram:
             }
         return {
             "accent": accent, "accent_dark": accent_dark,
-            "dis_text": "#bcbcbc", "dis_bg": "#e6e6e6",
-            "dis_border": "#c0c0c0", "icon_suffix": "light",
+            "dis_text": "#808080", "dis_bg": "#d8d8d8",
+            "dis_border": "#a0a0a0", "icon_suffix": "light",
         }
 
     def _ordered_steps(self):
@@ -6727,10 +6742,11 @@ class DicteeSetupDialog(QDialog):
         toggle_btn.setChecked(False)
         toggle_btn.setAutoRaise(True)
         toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        _fg = self.palette().color(self.palette().ColorRole.WindowText).name()
         toggle_btn.setStyleSheet(
-            "QToolButton { font-weight: bold; font-size: 17px;"
-            " color: white; border: none; padding: 4px 6px; }"
-            "QToolButton:hover { background: rgba(255,255,255,40); border-radius: 3px; }")
+            f"QToolButton {{ font-weight: bold; font-size: 17px;"
+            f" color: {_fg}; border: none; padding: 4px 6px; }}"
+            f"QToolButton:hover {{ background: rgba(127,127,127,40); border-radius: 3px; }}")
         hdr_lay.addWidget(toggle_btn)
 
         help_text = _(
@@ -14038,7 +14054,11 @@ class DicteeSetupDialog(QDialog):
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
                     command_suffixes=self._command_suffixes,
-                    debug=debug)
+                    debug=debug,
+                    trpp_states=dict(self._trpp_state),
+                    trpp_short_text_max=(
+                        self.cmb_trpp_short_text_max.currentData()
+                        if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3)
 
         # Calibration playground: wipe temp recordings now that the
         # threshold value has been validated and persisted.

@@ -114,11 +114,11 @@ msgstr "Reglas regex"
 
 #: dictee-setup.py:1032
 msgid "Fix common ASR errors:"
-msgstr ""
+msgstr "Corregir errores comunes de ASR:"
 
 #: dictee-setup.py:1033
 msgid "voice commands, punctuation, formatting."
-msgstr ""
+msgstr "comandos de voz, puntuación, formato."
 
 #: dictee-setup.py:1034 dictee-setup.py:3291 dictee-setup.py:6373
 #: dictee-setup.py:6470
@@ -127,11 +127,11 @@ msgstr "Continuación"
 
 #: dictee-setup.py:1035
 msgid "Remove erroneous periods after closed-class words"
-msgstr ""
+msgstr "Eliminar puntos erróneos tras palabras funcionales"
 
 #: dictee-setup.py:1036
 msgid "so sentences flow across push-to-talk segments."
-msgstr ""
+msgstr "para que las frases fluyan entre segmentos push-to-talk."
 
 #: dictee-setup.py:1037 dictee-setup.py:3292 dictee-setup.py:6377
 #: dictee-setup.py:6477
@@ -145,7 +145,7 @@ msgstr "Reglas de idioma"
 
 #: dictee-setup.py:1039
 msgid "FR/IT elisions, DE/ES/PT/NL/RO corrections."
-msgstr ""
+msgstr "elisiones FR/IT, correcciones DE/ES/PT/NL/RO."
 
 #: dictee-setup.py:1040
 msgid "Numbers"
@@ -160,7 +160,7 @@ msgstr ""
 
 #: dictee-setup.py:1042
 msgid "Example: \"twenty-three\" → \"23\"."
-msgstr ""
+msgstr "Ejemplo: «veintitrés» → «23»."
 
 #: dictee-setup.py:1043 dictee-setup.py:3293 dictee-setup.py:6386
 #: dictee-setup.py:6484
@@ -169,7 +169,7 @@ msgstr "Diccionario"
 
 #: dictee-setup.py:1044
 msgid "Exact word replacements from the system"
-msgstr ""
+msgstr "Reemplazos exactos de palabras desde los diccionarios"
 
 #: dictee-setup.py:1045
 #, fuzzy
@@ -182,11 +182,11 @@ msgstr "Capitalización"
 
 #: dictee-setup.py:1047
 msgid "Uppercase first letter after . ! ?"
-msgstr ""
+msgstr "Primera letra en mayúscula después de . ! ?"
 
 #: dictee-setup.py:1048
 msgid "Essential for Vosk/Whisper backends."
-msgstr ""
+msgstr "Imprescindible para los backends Vosk/Whisper."
 
 #: dictee-setup.py:1049 dictee-setup.py:6254 dictee-setup.py:6306
 msgid "Short text fix"
@@ -199,7 +199,7 @@ msgstr "Sin resultado de transcripción."
 
 #: dictee-setup.py:1051
 msgid "strip trailing punctuation and lowercase."
-msgstr ""
+msgstr "eliminar puntuación final y pasar a minúsculas."
 
 #: dictee-setup.py:1052
 #, fuzzy
@@ -208,11 +208,11 @@ msgstr "Corrección gramatical LLM (ollama)"
 
 #: dictee-setup.py:1053
 msgid "Local Ollama model fixes grammar,"
-msgstr ""
+msgstr "El modelo local Ollama corrige gramática,"
 
 #: dictee-setup.py:1054
 msgid "spelling, accents and punctuation."
-msgstr ""
+msgstr "ortografía, acentos y puntuación."
 
 #: dictee-setup.py:1055 dictee-setup.py:3043 dictee-setup.py:3281
 #: dictee-setup.py:3704 dictee-setup.py:4758 dictee-setup.py:6756
@@ -221,7 +221,7 @@ msgstr "Micrófono"
 
 #: dictee-setup.py:1055
 msgid "Jump to the Microphone section."
-msgstr ""
+msgstr "Ir a la sección Micrófono."
 
 #: dictee-setup.py:1056 dictee-setup.py:2965 dictee-setup.py:3282
 #: dictee-setup.py:3657 dictee-setup.py:6757 dictee-tray.py:452
@@ -231,7 +231,7 @@ msgstr "Motor ASR"
 
 #: dictee-setup.py:1056
 msgid "Jump to the ASR backend section."
-msgstr ""
+msgstr "Ir a la sección Motor ASR."
 
 #: dictee-setup.py:1057 dictee-setup.py:3283 dictee-setup.py:4550
 #: dictee-setup.py:6758 dictee-tray.py:468 dictee-tray.py:824
@@ -239,9 +239,8 @@ msgid "Translation"
 msgstr "Traducción"
 
 #: dictee-setup.py:1057
-#, fuzzy
 msgid "Jump to the Translation section."
-msgstr "Sin resultado de traducción."
+msgstr "Ir a la sección Traducción."
 
 #: dictee-setup.py:1355
 msgid "Creating virtual environment…"
@@ -1421,7 +1420,7 @@ msgstr ""
 
 #: dictee-setup.py:6243
 msgid "Enable PP"
-msgstr ""
+msgstr "Activar PP"
 
 #: dictee-setup.py:6258
 #, fuzzy
@@ -1467,6 +1466,8 @@ msgid ""
 "Apply the short-text fix to translated text. Useful when the translation "
 "backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."
 msgstr ""
+"Aplicar la corrección de texto corto al texto traducido. Útil cuando el "
+"motor de traducción pone en mayúscula palabras sueltas, p. ej. 'maison' → 'House' → 'house'."
 
 #: dictee-setup.py:6333
 #, fuzzy

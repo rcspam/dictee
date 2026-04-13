@@ -195,7 +195,7 @@ msgstr "Aucun résultat de transcription."
 
 #: dictee-setup.py:1051
 msgid "strip trailing punctuation and lowercase."
-msgstr ""
+msgstr "supprime la ponctuation finale et met en minuscule."
 
 #: dictee-setup.py:1052
 #, fuzzy
@@ -204,11 +204,11 @@ msgstr "Correction grammaticale LLM (ollama)"
 
 #: dictee-setup.py:1053
 msgid "Local Ollama model fixes grammar,"
-msgstr ""
+msgstr "Le modèle Ollama local corrige la grammaire,"
 
 #: dictee-setup.py:1054
 msgid "spelling, accents and punctuation."
-msgstr ""
+msgstr "l'orthographe, les accents et la ponctuation."
 
 #: dictee-setup.py:1055 dictee-setup.py:3043 dictee-setup.py:3281
 #: dictee-setup.py:3704 dictee-setup.py:4758 dictee-setup.py:6756
@@ -217,7 +217,7 @@ msgstr "Microphone"
 
 #: dictee-setup.py:1055
 msgid "Jump to the Microphone section."
-msgstr ""
+msgstr "Aller à la section Microphone."
 
 #: dictee-setup.py:1056 dictee-setup.py:2965 dictee-setup.py:3282
 #: dictee-setup.py:3657 dictee-setup.py:6757 dictee-tray.py:452
@@ -227,7 +227,7 @@ msgstr "Moteur ASR"
 
 #: dictee-setup.py:1056
 msgid "Jump to the ASR backend section."
-msgstr ""
+msgstr "Aller à la section du moteur ASR."
 
 #: dictee-setup.py:1057 dictee-setup.py:3283 dictee-setup.py:4550
 #: dictee-setup.py:6758 dictee-tray.py:468 dictee-tray.py:824
@@ -1467,6 +1467,8 @@ msgid ""
 "Apply the short-text fix to translated text. Useful when the translation "
 "backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."
 msgstr ""
+"Appliquer la correction texte court au texte traduit. Utile quand le backend "
+"de traduction met en majuscule les mots isolés : ex. « maison » → « House » → « house »."
 
 #: dictee-setup.py:6333
 #, fuzzy

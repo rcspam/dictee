@@ -114,11 +114,11 @@ msgstr "Regole regex"
 
 #: dictee-setup.py:1032
 msgid "Fix common ASR errors:"
-msgstr ""
+msgstr "Corregge gli errori comuni dell'ASR:"
 
 #: dictee-setup.py:1033
 msgid "voice commands, punctuation, formatting."
-msgstr ""
+msgstr "comandi vocali, punteggiatura, formattazione."
 
 #: dictee-setup.py:1034 dictee-setup.py:3291 dictee-setup.py:6373
 #: dictee-setup.py:6470
@@ -127,11 +127,11 @@ msgstr "Continuazione"
 
 #: dictee-setup.py:1035
 msgid "Remove erroneous periods after closed-class words"
-msgstr ""
+msgstr "Rimuove i punti errati dopo le parole funzionali"
 
 #: dictee-setup.py:1036
 msgid "so sentences flow across push-to-talk segments."
-msgstr ""
+msgstr "affinché le frasi scorrano tra i segmenti push-to-talk."
 
 #: dictee-setup.py:1037 dictee-setup.py:3292 dictee-setup.py:6377
 #: dictee-setup.py:6477
@@ -145,7 +145,7 @@ msgstr "Regole linguistiche"
 
 #: dictee-setup.py:1039
 msgid "FR/IT elisions, DE/ES/PT/NL/RO corrections."
-msgstr ""
+msgstr "elisioni FR/IT, correzioni DE/ES/PT/NL/RO."
 
 #: dictee-setup.py:1040
 msgid "Numbers"
@@ -160,7 +160,7 @@ msgstr ""
 
 #: dictee-setup.py:1042
 msgid "Example: \"twenty-three\" → \"23\"."
-msgstr ""
+msgstr "Esempio: \"ventitré\" → \"23\"."
 
 #: dictee-setup.py:1043 dictee-setup.py:3293 dictee-setup.py:6386
 #: dictee-setup.py:6484
@@ -169,7 +169,7 @@ msgstr "Dizionario"
 
 #: dictee-setup.py:1044
 msgid "Exact word replacements from the system"
-msgstr ""
+msgstr "Sostituzioni esatte di parole dai dizionari"
 
 #: dictee-setup.py:1045
 #, fuzzy
@@ -182,11 +182,11 @@ msgstr "Capitalizzazione"
 
 #: dictee-setup.py:1047
 msgid "Uppercase first letter after . ! ?"
-msgstr ""
+msgstr "Prima lettera maiuscola dopo . ! ?"
 
 #: dictee-setup.py:1048
 msgid "Essential for Vosk/Whisper backends."
-msgstr ""
+msgstr "Indispensabile per i backend Vosk/Whisper."
 
 #: dictee-setup.py:1049 dictee-setup.py:6254 dictee-setup.py:6306
 msgid "Short text fix"
@@ -199,7 +199,7 @@ msgstr "Nessun risultato di trascrizione."
 
 #: dictee-setup.py:1051
 msgid "strip trailing punctuation and lowercase."
-msgstr ""
+msgstr "rimuove la punteggiatura finale e converte in minuscolo."
 
 #: dictee-setup.py:1052
 #, fuzzy
@@ -208,11 +208,11 @@ msgstr "Correzione grammaticale LLM (ollama)"
 
 #: dictee-setup.py:1053
 msgid "Local Ollama model fixes grammar,"
-msgstr ""
+msgstr "Il modello locale Ollama corregge grammatica,"
 
 #: dictee-setup.py:1054
 msgid "spelling, accents and punctuation."
-msgstr ""
+msgstr "ortografia, accenti e punteggiatura."
 
 #: dictee-setup.py:1055 dictee-setup.py:3043 dictee-setup.py:3281
 #: dictee-setup.py:3704 dictee-setup.py:4758 dictee-setup.py:6756
@@ -221,7 +221,7 @@ msgstr "Microfono"
 
 #: dictee-setup.py:1055
 msgid "Jump to the Microphone section."
-msgstr ""
+msgstr "Vai alla sezione Microfono."
 
 #: dictee-setup.py:1056 dictee-setup.py:2965 dictee-setup.py:3282
 #: dictee-setup.py:3657 dictee-setup.py:6757 dictee-tray.py:452
@@ -231,7 +231,7 @@ msgstr "Motore ASR"
 
 #: dictee-setup.py:1056
 msgid "Jump to the ASR backend section."
-msgstr ""
+msgstr "Vai alla sezione Motore ASR."
 
 #: dictee-setup.py:1057 dictee-setup.py:3283 dictee-setup.py:4550
 #: dictee-setup.py:6758 dictee-tray.py:468 dictee-tray.py:824
@@ -239,9 +239,8 @@ msgid "Translation"
 msgstr "Traduzione"
 
 #: dictee-setup.py:1057
-#, fuzzy
 msgid "Jump to the Translation section."
-msgstr "Nessun risultato di traduzione."
+msgstr "Vai alla sezione Traduzione."
 
 #: dictee-setup.py:1355
 msgid "Creating virtual environment…"
@@ -1416,7 +1415,7 @@ msgstr ""
 
 #: dictee-setup.py:6243
 msgid "Enable PP"
-msgstr ""
+msgstr "Attivare PP"
 
 #: dictee-setup.py:6258
 #, fuzzy
@@ -1462,6 +1461,8 @@ msgid ""
 "Apply the short-text fix to translated text. Useful when the translation "
 "backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."
 msgstr ""
+"Applica la correzione testo breve al testo tradotto. Utile quando il motore "
+"di traduzione mette in maiuscolo parole singole, es. 'maison' → 'House' → 'house'."
 
 #: dictee-setup.py:6333
 #, fuzzy

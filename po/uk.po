@@ -115,11 +115,11 @@ msgstr "Правила regex"
 
 #: dictee-setup.py:1032
 msgid "Fix common ASR errors:"
-msgstr ""
+msgstr "Виправити типові помилки ASR:"
 
 #: dictee-setup.py:1033
 msgid "voice commands, punctuation, formatting."
-msgstr ""
+msgstr "голосові команди, пунктуація, форматування."
 
 #: dictee-setup.py:1034 dictee-setup.py:3291 dictee-setup.py:6373
 #: dictee-setup.py:6470
@@ -128,11 +128,11 @@ msgstr "Продовження"
 
 #: dictee-setup.py:1035
 msgid "Remove erroneous periods after closed-class words"
-msgstr ""
+msgstr "Видалити помилкові крапки після службових слів,"
 
 #: dictee-setup.py:1036
 msgid "so sentences flow across push-to-talk segments."
-msgstr ""
+msgstr "щоб речення плавно з'єднувались між сегментами push-to-talk."
 
 #: dictee-setup.py:1037 dictee-setup.py:3292 dictee-setup.py:6377
 #: dictee-setup.py:6477
@@ -146,7 +146,7 @@ msgstr "Мовні правила"
 
 #: dictee-setup.py:1039
 msgid "FR/IT elisions, DE/ES/PT/NL/RO corrections."
-msgstr ""
+msgstr "елізії FR/IT, виправлення DE/ES/PT/NL/RO."
 
 #: dictee-setup.py:1040
 msgid "Numbers"
@@ -161,7 +161,7 @@ msgstr ""
 
 #: dictee-setup.py:1042
 msgid "Example: \"twenty-three\" → \"23\"."
-msgstr ""
+msgstr "Приклад: \"двадцять три\" → \"23\"."
 
 #: dictee-setup.py:1043 dictee-setup.py:3293 dictee-setup.py:6386
 #: dictee-setup.py:6484
@@ -170,7 +170,7 @@ msgstr "Словник"
 
 #: dictee-setup.py:1044
 msgid "Exact word replacements from the system"
-msgstr ""
+msgstr "Точна заміна слів із системного"
 
 #: dictee-setup.py:1045
 #, fuzzy
@@ -183,11 +183,11 @@ msgstr "Капіталізація"
 
 #: dictee-setup.py:1047
 msgid "Uppercase first letter after . ! ?"
-msgstr ""
+msgstr "Велика літера після . ! ?"
 
 #: dictee-setup.py:1048
 msgid "Essential for Vosk/Whisper backends."
-msgstr ""
+msgstr "Необхідно для бекендів Vosk/Whisper."
 
 #: dictee-setup.py:1049 dictee-setup.py:6254 dictee-setup.py:6306
 msgid "Short text fix"
@@ -200,7 +200,7 @@ msgstr "Немає результату транскрипції."
 
 #: dictee-setup.py:1051
 msgid "strip trailing punctuation and lowercase."
-msgstr ""
+msgstr "видалити кінцеву пунктуацію та перевести в нижній регістр."
 
 #: dictee-setup.py:1052
 #, fuzzy
@@ -209,11 +209,11 @@ msgstr "Виправлення граматики LLM (ollama)"
 
 #: dictee-setup.py:1053
 msgid "Local Ollama model fixes grammar,"
-msgstr ""
+msgstr "Локальна модель Ollama виправляє граматику,"
 
 #: dictee-setup.py:1054
 msgid "spelling, accents and punctuation."
-msgstr ""
+msgstr "орфографію, наголоси та пунктуацію."
 
 #: dictee-setup.py:1055 dictee-setup.py:3043 dictee-setup.py:3281
 #: dictee-setup.py:3704 dictee-setup.py:4758 dictee-setup.py:6756
@@ -222,7 +222,7 @@ msgstr "Мікрофон"
 
 #: dictee-setup.py:1055
 msgid "Jump to the Microphone section."
-msgstr ""
+msgstr "Перейти до розділу Мікрофон."
 
 #: dictee-setup.py:1056 dictee-setup.py:2965 dictee-setup.py:3282
 #: dictee-setup.py:3657 dictee-setup.py:6757 dictee-tray.py:452
@@ -232,7 +232,7 @@ msgstr "Модуль ASR"
 
 #: dictee-setup.py:1056
 msgid "Jump to the ASR backend section."
-msgstr ""
+msgstr "Перейти до розділу Модуль ASR."
 
 #: dictee-setup.py:1057 dictee-setup.py:3283 dictee-setup.py:4550
 #: dictee-setup.py:6758 dictee-tray.py:468 dictee-tray.py:824
@@ -240,9 +240,8 @@ msgid "Translation"
 msgstr "Переклад"
 
 #: dictee-setup.py:1057
-#, fuzzy
 msgid "Jump to the Translation section."
-msgstr "Немає результату перекладу."
+msgstr "Перейти до розділу Переклад."
 
 #: dictee-setup.py:1355
 msgid "Creating virtual environment…"
@@ -1403,7 +1402,7 @@ msgstr ""
 
 #: dictee-setup.py:6243
 msgid "Enable PP"
-msgstr ""
+msgstr "Увімкнути PP"
 
 #: dictee-setup.py:6258
 #, fuzzy
@@ -1449,6 +1448,8 @@ msgid ""
 "Apply the short-text fix to translated text. Useful when the translation "
 "backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."
 msgstr ""
+"Застосувати виправлення короткого тексту до перекладеного тексту. Корисно, "
+"коли бекенд перекладу ставить великі літери в окремих словах, напр. 'maison' → 'House' → 'house'."
 
 #: dictee-setup.py:6333
 #, fuzzy
