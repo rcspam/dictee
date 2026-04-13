@@ -1399,7 +1399,10 @@ if [ -f "$PIDFILE" ]; then
             copy_to_clipboard "$transcribed"
             type_text "$transcribed"
             save_last_word "$transcribed"
-            notify_dictee 0 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            notify_dictee 5000 dialog-warning-symbolic "Traduction échouée ($TRANSLATE_BACKEND)" "<i>\"$transcribed\"</i>"
+            if command -v paplay >/dev/null 2>&1; then
+                paplay /usr/share/sounds/freedesktop/stereo/device-removed.oga &
+            fi
         fi
     else
         copy_to_clipboard "$transcribed"
@@ -1428,6 +1431,8 @@ else
     case "$_current_state" in
         idle|"")
             ;;  # OK to record (empty = first boot, no state file yet)
+        offline)
+            ;;  # Let it through — daemon check below will notify the user
         diarize-ready)
             # Auto-enable diarize when state is diarize-ready (tray/F9 without --diarize flag)
             if [ "$DIARIZE" != "true" ]; then
@@ -1448,9 +1453,9 @@ else
         if ! systemctl --user is-active --quiet "$_ASR_SERVICE" 2>/dev/null; then
             _dbg "start-recording: BLOCKED — daemon $_ASR_SERVICE not active"
             trap - ERR
-            notify_dictee 0 dialog-error "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_ASR_SERVICE"
+            notify_dictee 5000 dialog-error "Daemon $_backend non démarré" "Démarrer le daemon depuis le plasmoid ou lancer : systemctl --user start $_ASR_SERVICE"
             if command -v paplay >/dev/null 2>&1; then
-                paplay /usr/share/sounds/freedesktop/stereo/dialog-error.oga &
+                paplay /usr/share/sounds/freedesktop/stereo/device-removed.oga &
             fi
             exit 0
         fi

@@ -181,6 +181,8 @@ PlasmoidItem {
                     root.micVolume = parseFloat(volMatch[1])
                 }
                 root.micMuted = stdout.indexOf("[MUTED]") !== -1
+            } else if (source === ltCheckCmd) {
+                root.ltRunning = (stdout.trim() === "true")
             } else if (stdout.indexOf("DICTEE_DEBUG_ON") !== -1) {
                 root.debugEnabled = true
                 _dbg("debug enabled via DICTEE_DEBUG=true")
@@ -302,6 +304,8 @@ PlasmoidItem {
         "{ [ -d /usr/share/dictee/sortformer ] || [ -d \"$dd/sortformer\" ]; } && echo sortformer'"
 
     property string lastTranslateBackendForLangs: ""
+    property bool ltRunning: false
+    property string ltCheckCmd: "bash -c 'docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false'"
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
@@ -310,6 +314,10 @@ PlasmoidItem {
         // Refresh translate langs (always — combo may be empty on first open)
         root.lastTranslateBackendForLangs = root.currentTranslateBackend
         executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
+        // Check LT container status
+        if (root.currentTranslateBackend === "libretranslate") {
+            executable.run(ltCheckCmd)
+        }
     }
 
     // Ping-pong pour l'état aussi

@@ -528,6 +528,16 @@ RowLayout {
         QQC2.ComboBox {
             id: transCombo
             Kirigami.Theme.inherit: true
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: "#e04040"
+                border.width: 2
+                radius: 4
+                visible: root.currentTranslateBackend === "libretranslate" && !root.ltRunning
+            }
+            displayText: (root.currentTranslateBackend === "libretranslate" && !root.ltRunning)
+                         ? i18n("LT arrêté") : currentText
             model: ListModel {
                 id: transModel
                 ListElement { text: "Google"; value: "google" }
@@ -555,6 +565,11 @@ RowLayout {
                     root.currentTranslateBackend = val
                     executable.run("dictee-switch-backend translate " + val)
                     executable.run(root.translateLangsCmd + " " + val)
+                    if (val === "libretranslate") {
+                        executable.run(root.ltCheckCmd)
+                    } else {
+                        root.ltRunning = false
+                    }
                 } else {
                     // Revert
                     for (var i = 0; i < transModel.count; i++) {

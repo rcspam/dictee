@@ -75,6 +75,7 @@ _UID_SUFFIX = f"-{os.getuid()}"
 PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
 OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
 
+
 EV_KEY = 1
 KEY_DOWN = 1
 KEY_UP = 0
@@ -345,8 +346,8 @@ class PttState:
                     return
                 _st = read_state()
                 if _st == "offline":
-                    return
-                if _st == "transcribing":
+                    pass  # let dictee handle the error notification
+                elif _st == "transcribing":
                     print("[ptt] hold: BLOCKED (transcribing)")
                     return
                 self.last_down_time = now
@@ -385,8 +386,8 @@ class PttState:
                 if not self.recording:
                     _st = read_state()
                     if _st == "offline":
-                        return
-                    if _st == "transcribing":
+                        pass  # let dictee handle the error notification
+                    elif _st == "transcribing":
                         print("[ptt] toggle: BLOCKED (transcribing)")
                         return
                 self.last_down_time = now
@@ -407,8 +408,8 @@ class PttState:
                     return
                 _st = read_state()
                 if _st == "offline":
-                    return
-                if _st == "transcribing":
+                    pass  # let dictee handle the error notification
+                elif _st == "transcribing":
                     print("[ptt] hold: BLOCKED translate (transcribing)")
                     return
                 self.last_down_time = now
@@ -446,8 +447,8 @@ class PttState:
                 if not self.recording_translate:
                     _st = read_state()
                     if _st == "offline":
-                        return
-                    if _st == "transcribing":
+                        pass  # let dictee handle the error notification
+                    elif _st == "transcribing":
                         print("[ptt] toggle: BLOCKED translate (transcribing)")
                         return
                 self.last_down_time = now
