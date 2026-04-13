@@ -1812,6 +1812,7 @@ class ModelDownloadThread(QThread):
 
 LIBRETRANSLATE_IMAGE = "libretranslate/libretranslate"
 LIBRETRANSLATE_CONTAINER = "dictee-libretranslate"
+LIBRETRANSLATE_VOLUME = "dictee-lt-models"
 LIBRETRANSLATE_PORT = 5000
 
 
@@ -1936,6 +1937,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
             docker_cmd([
                 "docker", "run", "-d",
                 "--name", LIBRETRANSLATE_CONTAINER,
+                "-v", f"{LIBRETRANSLATE_VOLUME}:/home/libretranslate/.local",
                 "-p", f"{port}:5000",
                 "--restart", "unless-stopped",
                 LIBRETRANSLATE_IMAGE,
@@ -1948,6 +1950,7 @@ def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de
         docker_cmd([
             "docker", "run", "-d",
             "--name", LIBRETRANSLATE_CONTAINER,
+            "-v", f"{LIBRETRANSLATE_VOLUME}:/home/libretranslate/.local",
             "-p", f"{port}:5000",
             "--restart", "unless-stopped",
             LIBRETRANSLATE_IMAGE,
@@ -2096,6 +2099,7 @@ class _DockerActionThread(QThread):
                 result = docker_cmd([
                     "docker", "run", "-d",
                     "--name", LIBRETRANSLATE_CONTAINER,
+                    "-v", f"{LIBRETRANSLATE_VOLUME}:/home/libretranslate/.local",
                     "-p", f"{self._port}:5000",
                     "--restart", "unless-stopped",
                     LIBRETRANSLATE_IMAGE,
@@ -11661,13 +11665,13 @@ class DicteeSetupDialog(QDialog):
         for code, name in LANGUAGES:
             if allowed_codes is None or code in allowed_codes:
                 combo.addItem(f"{code} — {name}", code)
-        combo.blockSignals(False)
         # Restore selection précédente si toujours disponible
         idx = combo.findData(current)
         if idx >= 0:
             combo.setCurrentIndex(idx)
         else:
             combo.setCurrentIndex(0)
+        combo.blockSignals(False)
 
     def _update_src_languages(self):
         """Filtre la langue source selon le backend ASR sélectionné."""
@@ -11683,7 +11687,23 @@ class DicteeSetupDialog(QDialog):
             allowed = {vosk_lang} if vosk_lang else ASR_LANGUAGES.get("vosk")
         else:
             allowed = ASR_LANGUAGES.get(asr)
+        # When LibreTranslate is the translation backend, restrict source
+        # to languages available in LT (intersection ASR ∩ LT)
+        if (hasattr(self, 'cmb_trans_backend')
+                and self.cmb_trans_backend.currentData() == "libretranslate"):
+            lt_langs = self._get_lt_effective_languages()
+            if lt_langs and allowed:
+                allowed = allowed & lt_langs
+            elif lt_langs:
+                allowed = lt_langs
         self._filter_lang_combo(self.combo_src, allowed)
+
+    def _get_lt_effective_languages(self):
+        """Return the selected LT checkbox languages (source of truth)."""
+        if hasattr(self, '_lt_lang_checks'):
+            selected = set(self._get_lt_selected_langs())
+            return selected if selected else None
+        return None
 
     def _update_tgt_languages(self):
         """Filtre la langue cible selon le backend de traduction sélectionné."""
@@ -11691,11 +11711,7 @@ class DicteeSetupDialog(QDialog):
             return
         backend = self.cmb_trans_backend.currentData()
         if backend == "libretranslate":
-            # Langues installées dans Docker
-            _lt_txt = self.spin_lt_port.currentText() if hasattr(self, 'spin_lt_port') else ""
-            port = int(_lt_txt) if _lt_txt.isdigit() else 5000
-            avail = libretranslate_available_languages(port=port)
-            allowed = set(avail) if avail else None
+            allowed = self._get_lt_effective_languages()
         else:
             allowed = TRANSLATE_LANGUAGES.get(backend)
         self._filter_lang_combo(self.combo_tgt, allowed)
@@ -12133,6 +12149,9 @@ class DicteeSetupDialog(QDialog):
         else:
             self.lbl_lt_langs_hint.setVisible(False)
             self.btn_lt_restart_langs.setVisible(False)
+        # Update language combos to reflect the new selection
+        self._update_src_languages()
+        self._update_tgt_languages()
 
     def _on_lt_restart_langs(self):
         """Redémarre le conteneur Docker avec les nouvelles langues."""
