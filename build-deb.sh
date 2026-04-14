@@ -107,6 +107,11 @@ build_plasmoid() {
         echo "Plasmoid source not found, skipping"
         return
     fi
+    # Regenerate Defaults.js from config/main.xml (source of truth for kcfg
+    # defaults, used by the "Reset icon settings" button).
+    if [ -x plasmoid/gen-defaults.py ]; then
+        python3 plasmoid/gen-defaults.py
+    fi
     (cd "$PLASMOID_SRC" && zip -r "../../dictee.plasmoid" metadata.json contents/)
     mkdir -p "$PKG_DIR/usr/share/dictee"
     cp dictee.plasmoid "$PKG_DIR/usr/share/dictee/"

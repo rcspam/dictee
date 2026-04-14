@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.kcmutils as KCM
 import org.kde.plasma.plasma5support as Plasma5Support
+import "Defaults.js" as Defaults
 
 KCM.SimpleKCM {
     id: configPage
@@ -62,55 +63,39 @@ KCM.SimpleKCM {
     property double cfg_envelopePower: 1.0
     property double cfg_envelopeCenter: 0.5
 
-    // Restore all icon-animation settings to defaults from config/main.xml.
-    // Does NOT touch other preferences (polling, audio context, transcription…).
+    // Restore icon-animation settings to defaults. Values come from
+    // Defaults.js, which is auto-generated from config/main.xml by
+    // plasmoid/gen-defaults.py. Run that script after changing any kcfg
+    // default. Settings not listed here (polling, audioContext, pinPopup,
+    // showLastTranscription, previewMode) are deliberately preserved.
+    readonly property var _iconResetKeys: [
+        "animationStyle",
+        "barCount", "barSpacing", "barRadius", "barMinHeight",
+        "barIdleAnimation", "animationSpeed", "barSensitivity",
+        "waveWidth", "waveThickness", "waveFrequency", "waveAmplitude",
+        "waveSpeed", "waveFill", "waveSensitivity",
+        "pulseRings", "pulseThickness", "pulseSpeed", "pulseSensitivity",
+        "dotCount", "dotSize", "dotBounce", "dotSpacing", "dotSpeed",
+        "dotSensitivity",
+        "waveformBars", "waveformSpacing", "waveformRadius",
+        "waveformMinHeight", "waveformSensitivity",
+        "useRainbow", "rainbowStartHue", "rainbowEndHue",
+        "audioSensitivity", "noiseGate",
+        "envelopePower", "envelopeCenter",
+    ]
+
     function resetIconSettings() {
-        cfg_animationStyle    = "bars"
-        // Bars
-        cfg_barCount          = 15
-        cfg_barSpacing        = 2
-        cfg_barRadius         = 1
-        cfg_barMinHeight      = 0.2
-        cfg_barIdleAnimation  = false
-        cfg_animationSpeed    = 300
-        cfg_barSensitivity    = 2.0
-        // Wave
-        cfg_waveWidth         = 80
-        cfg_waveThickness     = 3
-        cfg_waveFrequency     = 2.0
-        cfg_waveAmplitude     = 0.8
-        cfg_waveSpeed         = 400
-        cfg_waveFill          = true
-        cfg_waveSensitivity   = 2.0
-        // Pulse
-        cfg_pulseRings        = 3
-        cfg_pulseThickness    = 2
-        cfg_pulseSpeed        = 800
-        cfg_pulseSensitivity  = 2.0
-        // Dots
-        cfg_dotCount          = 9
-        cfg_dotSize           = 6
-        cfg_dotBounce         = 40
-        cfg_dotSpacing        = 3
-        cfg_dotSpeed          = 400
-        cfg_dotSensitivity    = 2.0
-        // Waveform
-        cfg_waveformBars      = 17
-        cfg_waveformSpacing   = 2
-        cfg_waveformRadius    = 2
-        cfg_waveformMinHeight = 0.1
-        cfg_waveformSensitivity = 2.0
-        // Rainbow
-        cfg_useRainbow        = false
-        cfg_rainbowStartHue   = 0
-        cfg_rainbowEndHue     = 270
-        // Shared
-        cfg_audioSensitivity  = 2.0
-        cfg_noiseGate         = 0.05
-        cfg_envelopePower     = 1.0
-        cfg_envelopeCenter    = 0.5
-        // Sync the combo box (property alias is set via currentValue → index)
-        animationStyleCombo.currentIndex = animationStyleCombo.indexOfValue("bars")
+        for (var i = 0; i < _iconResetKeys.length; i++) {
+            var key = _iconResetKeys[i]
+            if (!(key in Defaults.defaults)) {
+                console.warn("resetIconSettings: missing default for", key)
+                continue
+            }
+            configPage["cfg_" + key] = Defaults.defaults[key]
+        }
+        // Sync the combo (property alias drives currentValue via index)
+        animationStyleCombo.currentIndex =
+            animationStyleCombo.indexOfValue(Defaults.defaults.animationStyle)
     }
 
     // Sensibilité active selon le style courant
