@@ -594,6 +594,17 @@ audio_context_enabled() {
     [ "${DICTEE_AUDIO_CONTEXT:-false}" = "true" ]
 }
 
+# Whitelist of Whisper models with reliable word_timestamps.
+# large-v3 / turbo / distil-* have dégradé DTW alignment → audio-context split
+# eats words at the boundary. See whisper.cpp#2480.
+whisper_has_reliable_timestamps() {
+    local m="${DICTEE_WHISPER_MODEL:-small}"
+    case "${m,,}" in
+        tiny|base|small|medium) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Check if buffer exists and is not expired
 buffer_valid() {
     if [ ! -f "$BUFFER_FILE" ] || [ ! -f "$BUFFER_TS_FILE" ]; then
@@ -1230,6 +1241,12 @@ if [ -f "$PIDFILE" ]; then
             if [ "$_backend" = "vosk" ]; then
                 # Vosk: no timestamps, no context
                 _dbg "audio-context: backend vosk has no timestamps, skipping context"
+                used_context=false
+                rm -f "$COMBINED_FILE"
+            elif [ "$_backend" = "whisper" ] && ! whisper_has_reliable_timestamps; then
+                # Whisper large-v3 / turbo / distil-*: DTW alignment dégradé,
+                # split_by_timestamp mange les mots au bord. Skip context.
+                _dbg "audio-context: whisper model '${DICTEE_WHISPER_MODEL:-small}' has unreliable timestamps, skipping context"
                 used_context=false
                 rm -f "$COMBINED_FILE"
             elif [ "$_backend" = "canary" ]; then
