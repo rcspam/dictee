@@ -1466,14 +1466,16 @@ printf '\\nBACKSPACE=%s\\n' "$(cat "$_BS_FILE")"
         self.assertTrue(text.startswith(","))
 
     def test_colon_start_after_period(self):
+        # FR typography prepends NBSP (U+00A0) before ':' at head of push
         text, bs = self._run(".1:école", ": la suite.")
         self.assertGreater(bs, 0)
-        self.assertTrue(text.startswith(":"))
+        self.assertTrue(text.startswith("\u00a0:") or text.startswith(":"))
 
     def test_semicolon_start_after_period(self):
+        # FR typography prepends NNBSP (U+202F) before ';' at head of push
         text, bs = self._run(".1:école", "; la suite.")
         self.assertGreater(bs, 0)
-        self.assertTrue(text.startswith(";"))
+        self.assertTrue(text.startswith("\u202f;") or text.startswith(";"))
 
     def test_exclamation_start_after_period(self):
         """! en début : backspace, garder casse (pas dans [,\\;:])."""

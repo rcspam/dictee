@@ -415,6 +415,20 @@ apply_continuation() {
             _cont_backspace "${bs_count:-1}"
         elif [[ "$last_char" == [,F] ]]; then
             _cont_backspace 1
+        elif [[ "$last_char" == "_" ]] && $hourglass; then
+            # Continuation indicator was appended without trailing punctuation;
+            # erase only the indicator (_cont_backspace adds hourglass_len).
+            _cont_backspace 0
+        fi
+        # French typography: insert NNBSP/NBSP before high punctuation in
+        # head-of-push position. The Python postprocess regex requires a
+        # non-whitespace char before the punctuation (lookbehind (?<=\S)),
+        # so it never fires when the push starts with !?;: .
+        if [ "${LANG_SOURCE:-}" = "fr" ] && [ "${DICTEE_PP_TYPOGRAPHY:-true}" = "true" ]; then
+            case "$fc" in
+                '!'|'?'|';')  _ref=$'\u202f'"$_ref" ;;
+                ':')          _ref=$'\u00a0'"$_ref" ;;
+            esac
         fi
         # Lowercase only after , ; : (continuation)
         # Keep case after . ! ? (new sentence)
