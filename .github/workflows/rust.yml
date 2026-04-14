@@ -45,6 +45,13 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
 
+  test-apply-continuation:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run apply_continuation tests
+      run: bash tests/test-apply-continuation.sh
+
   test-x86:
     runs-on: ubuntu-latest
     steps:
@@ -68,7 +75,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    needs: [lint, test-postprocess, test-x86, test-arm64]
+    needs: [lint, test-postprocess, test-apply-continuation, test-x86, test-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
