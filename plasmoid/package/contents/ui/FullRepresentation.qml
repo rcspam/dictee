@@ -678,10 +678,7 @@ RowLayout {
             icon.name: "document-open"
             flat: true
             onClicked: fullRep.actionRequested("transcribe-file")
-            QQC2.ToolTip.text: i18n("Open an audio file for transcription")
-
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            tooltipText: i18n("Open an audio file for transcription")
         }
 
         ThemedButton {
@@ -689,10 +686,7 @@ RowLayout {
             icon.name: "document-edit"
             flat: true
             onClicked: fullRep.actionRequested("postprocess")
-            QQC2.ToolTip.text: i18n("Configure post-processing rules (regex, dictionary, continuation)")
-
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            tooltipText: i18n("Configure post-processing rules (regex, dictionary, continuation)")
         }
 
         ThemedButton {
@@ -700,10 +694,7 @@ RowLayout {
             icon.name: "configure"
             flat: root.dicteeConfigured
             onClicked: fullRep.actionRequested("setup")
-            QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
-
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            tooltipText: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
 
             Rectangle {
                 anchors.fill: parent

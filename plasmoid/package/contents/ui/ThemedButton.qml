@@ -10,10 +10,23 @@ import org.kde.kirigami as Kirigami
 QQC2.Button {
     id: control
 
+    // Tooltip text: use this instead of `QQC2.ToolTip.text` + `visible: hovered`,
+    // which causes a known Qt blink loop (the tooltip overlay steals hover from
+    // the button → button.hovered drops → tooltip hides → re-hover → loop, and
+    // clicks become impossible during the blink). HoverHandler doesn't suffer
+    // from this because it tracks the actual cursor position, not the
+    // hierarchical hover state of the button.
+    property string tooltipText: ""
+
     leftPadding: Kirigami.Units.smallSpacing * 2
     rightPadding: Kirigami.Units.smallSpacing * 2
     topPadding: Kirigami.Units.smallSpacing
     bottomPadding: Kirigami.Units.smallSpacing
+
+    HoverHandler { id: _tooltipHover }
+    QQC2.ToolTip.text: control.tooltipText
+    QQC2.ToolTip.visible: control.tooltipText !== "" && _tooltipHover.hovered
+    QQC2.ToolTip.delay: 500
 
     background: Rectangle {
         radius: 3
