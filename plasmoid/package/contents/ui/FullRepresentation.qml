@@ -17,9 +17,25 @@ RowLayout {
     // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
+    // Le popup est un PlasmaQuick.Dialog dont le fond suit le thème du panel
+    // (souvent sombre, même en Breeze Light). On recouvre ce fond par un
+    // Rectangle qui suit Kirigami.Theme.backgroundColor du colorSet View
+    // (défini sur PlasmoidItem dans main.qml) pour un popup blanc en thème
+    // clair, sombre en thème sombre.
+    Rectangle {
+        parent: fullRep
+        anchors.fill: fullRep
+        anchors.margins: -Kirigami.Units.largeSpacing
+        z: -1
+        color: Kirigami.Theme.backgroundColor
+        radius: Kirigami.Units.largeSpacing * 1.5
+    }
+
     ColumnLayout {
+        id: leftColumn
         Layout.fillWidth: true
-        Layout.fillHeight: true
+        Layout.fillHeight: false
+        Layout.alignment: Qt.AlignTop
 
     // Rafraîchir les sources audio à l'ouverture, fermer les ComboBox à la fermeture
     onVisibleChanged: {
@@ -30,10 +46,10 @@ RowLayout {
         }
     }
 
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 36
+    Layout.preferredWidth: Kirigami.Units.gridUnit * 40
     Layout.preferredHeight: implicitHeight
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 36
-    Layout.maximumWidth: Kirigami.Units.gridUnit * 40
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 40
+    Layout.maximumWidth: Kirigami.Units.gridUnit * 48
 
     spacing: Kirigami.Units.smallSpacing
 
@@ -246,7 +262,7 @@ RowLayout {
         Layout.fillWidth: true
         visible: !root.dicteeConfigured
         text: i18n("Press the Configure Dictée button below to get started.")
-        color: "#e90"
+        color: Kirigami.Theme.neutralTextColor
         wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
         font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
@@ -263,7 +279,7 @@ RowLayout {
             Layout.preferredWidth: 0
             implicitHeight: btnDictate.implicitHeight
 
-            PlasmaComponents.Button {
+            ThemedButton {
                 id: btnDictate
                 anchors.fill: parent
                 text: i18n("Dictation")
@@ -300,7 +316,7 @@ RowLayout {
             Layout.preferredWidth: 0
             implicitHeight: btnTranslate.implicitHeight
 
-            PlasmaComponents.Button {
+            ThemedButton {
                 id: btnTranslate
                 anchors.fill: parent
                 text: i18n("Translate")
@@ -332,7 +348,7 @@ RowLayout {
             }
         }
 
-        PlasmaComponents.Button {
+        ThemedButton {
             id: btnDiarize
             Layout.fillWidth: true
             Layout.preferredWidth: 0
@@ -364,8 +380,8 @@ RowLayout {
                         }
                     }
                     color: {
-                        if (fullRep.state === "diarize-ready") return "#98c379"
-                        if (fullRep.state === "recording" && root.activeButton === "diarize") return "#e06c75"
+                        if (fullRep.state === "diarize-ready") return Kirigami.Theme.positiveTextColor
+                        if (fullRep.state === "recording" && root.activeButton === "diarize") return Kirigami.Theme.negativeTextColor
                         return Kirigami.Theme.textColor
                     }
                 }
@@ -657,7 +673,7 @@ RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
-        PlasmaComponents.Button {
+        ThemedButton {
             text: i18n("Transcribe file")
             icon.name: "document-open"
             flat: true
@@ -668,7 +684,7 @@ RowLayout {
             QQC2.ToolTip.delay: 500
         }
 
-        PlasmaComponents.Button {
+        ThemedButton {
             text: i18n("Post-processing...")
             icon.name: "document-edit"
             flat: true
@@ -679,7 +695,7 @@ RowLayout {
             QQC2.ToolTip.delay: 500
         }
 
-        PlasmaComponents.Button {
+        ThemedButton {
             text: i18n("Configure Dictée")
             icon.name: "configure"
             flat: root.dicteeConfigured
@@ -705,7 +721,7 @@ RowLayout {
             icon.name: "edit-reset"
             display: PlasmaComponents.AbstractButton.IconOnly
             Kirigami.Theme.inherit: false
-            Kirigami.Theme.textColor: "#c0392b"
+            Kirigami.Theme.textColor: Kirigami.Theme.negativeTextColor
             onClicked: fullRep.actionRequested("reset")
             PlasmaComponents.ToolTip { text: i18n("Reset everything — stop all processes, restart daemon") }
         }
@@ -726,24 +742,33 @@ RowLayout {
 
     // Séparateur vertical avant le slider micro
     Kirigami.Separator {
-        Layout.fillHeight: true
-        Layout.topMargin: Kirigami.Units.largeSpacing * 4
+        Layout.fillHeight: false
+        Layout.preferredHeight: leftColumn.implicitHeight
+        Layout.maximumHeight: leftColumn.implicitHeight
+        Layout.alignment: Qt.AlignTop
     }
 
     // Vertical microphone volume slider + level meter (right side)
     ColumnLayout {
-        Layout.fillHeight: true
+        Layout.fillHeight: false
+        Layout.preferredHeight: leftColumn.implicitHeight
+        Layout.maximumHeight: leftColumn.implicitHeight
+        Layout.alignment: Qt.AlignTop
         Layout.preferredWidth: 50
-        Layout.topMargin: Kirigami.Units.largeSpacing * 4
         spacing: Kirigami.Units.smallSpacing
+
+        // Top spacer — pushes mic icon down so it sits just above the slider,
+        // which itself starts at the audio source combo row.
+        Item {
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+        }
 
         Kirigami.Icon {
             source: root.micMuted ? "microphone-sensitivity-muted" : "audio-input-microphone"
-            color: root.micMuted ? "#e06c75" : Kirigami.Theme.textColor
+            color: root.micMuted ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
             Layout.preferredWidth: Kirigami.Units.iconSizes.small
             Layout.preferredHeight: Kirigami.Units.iconSizes.small
             Layout.alignment: Qt.AlignHCenter
-            Layout.bottomMargin: Kirigami.Units.smallSpacing
             MouseArea {
                 id: micIconMouse
                 anchors.fill: parent
@@ -758,62 +783,80 @@ RowLayout {
             QQC2.ToolTip.delay: 300
         }
 
-        RowLayout {
+        // Vertical slider with integrated peak meter overlay.
+        // Inspired by plasma-pa's VolumeSlider: the slider groove is drawn
+        // manually so a second highlighted bar, driven by root.audioLevel,
+        // can be superimposed on top of the volume fill.
+        QQC2.Slider {
+            id: micSlider
             Layout.fillHeight: true
-            spacing: 4
-
-            QQC2.Slider {
-                id: micSlider
-                Layout.fillHeight: true
-                orientation: Qt.Vertical
-                from: 0.0
-                to: 0.6
-                stepSize: 0.0
-                snapMode: QQC2.Slider.NoSnap
-                value: root.micVolume
-                onMoved: {
-                    root.micVolume = value
-                    executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
-                }
-                QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
-    
-                QQC2.ToolTip.visible: hovered
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: Kirigami.Units.gridUnit
+            orientation: Qt.Vertical
+            from: 0.0
+            to: 0.6
+            stepSize: 0.0
+            snapMode: QQC2.Slider.NoSnap
+            value: root.micVolume
+            onMoved: {
+                root.micVolume = value
+                executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+            }
+            QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+            QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 300
+
+            // Draggable knob — round handle over the vertical groove
+            handle: Rectangle {
+                x: micSlider.leftPadding + (micSlider.availableWidth - width) / 2
+                y: micSlider.topPadding + (micSlider.availableHeight - height) * (1 - micSlider.position)
+                width: Kirigami.Units.gridUnit * 0.9
+                height: width
+                radius: width / 2
+                color: micSlider.pressed
+                    ? Kirigami.Theme.highlightColor
+                    : Kirigami.Theme.alternateBackgroundColor
+                border.color: Kirigami.Theme.highlightColor
+                border.width: 2
+                z: 10
             }
 
-            // Level meter — barre verticale alignée sur le slider
-            Rectangle {
-                Layout.fillHeight: true
-                Layout.preferredWidth: 6
-                radius: 3
+            background: Rectangle {
+                x: micSlider.leftPadding + (micSlider.availableWidth - width) / 2
+                y: micSlider.topPadding
+                width: 8
+                height: micSlider.availableHeight
+                radius: 4
                 color: Kirigami.Theme.backgroundColor
                 border.color: Kirigami.Theme.disabledTextColor
                 border.width: 1
                 clip: true
 
+                // Volume fill — shows the slider's current value
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - 2
+                    height: Math.max(0, (parent.height - 2) * micSlider.position)
+                    radius: 2
+                    color: Kirigami.Theme.highlightColor
+                    opacity: 0.35
+                }
+
+                // Peak meter — shows the live audio level
                 Rectangle {
                     anchors.bottom: parent.bottom
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 2
                     property real level: root.audioLevel || 0.0
-                    height: Math.max(0, parent.height * Math.min(1.0, level * 1.5))
+                    height: Math.max(0, (parent.height - 2) * Math.min(1.0, level * 1.5))
                     radius: 2
                     color: level > 0.8 ? Kirigami.Theme.negativeTextColor
                          : level > 0.4 ? Kirigami.Theme.neutralTextColor
                          : Kirigami.Theme.positiveTextColor
-
                     Behavior on height {
                         NumberAnimation { duration: 50 }
                     }
-                }
-
-                QQC2.ToolTip.text: i18n("Audio input level")
-                QQC2.ToolTip.visible: levelMeterMouse.containsMouse
-            QQC2.ToolTip.delay: 300
-                MouseArea {
-                    id: levelMeterMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
                 }
             }
         }

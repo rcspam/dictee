@@ -62,6 +62,57 @@ KCM.SimpleKCM {
     property double cfg_envelopePower: 1.0
     property double cfg_envelopeCenter: 0.5
 
+    // Restore all icon-animation settings to defaults from config/main.xml.
+    // Does NOT touch other preferences (polling, audio context, transcription…).
+    function resetIconSettings() {
+        cfg_animationStyle    = "bars"
+        // Bars
+        cfg_barCount          = 15
+        cfg_barSpacing        = 2
+        cfg_barRadius         = 1
+        cfg_barMinHeight      = 0.2
+        cfg_barIdleAnimation  = false
+        cfg_animationSpeed    = 300
+        cfg_barSensitivity    = 2.0
+        // Wave
+        cfg_waveWidth         = 80
+        cfg_waveThickness     = 3
+        cfg_waveFrequency     = 2.0
+        cfg_waveAmplitude     = 0.8
+        cfg_waveSpeed         = 400
+        cfg_waveFill          = true
+        cfg_waveSensitivity   = 2.0
+        // Pulse
+        cfg_pulseRings        = 3
+        cfg_pulseThickness    = 2
+        cfg_pulseSpeed        = 800
+        cfg_pulseSensitivity  = 2.0
+        // Dots
+        cfg_dotCount          = 9
+        cfg_dotSize           = 6
+        cfg_dotBounce         = 40
+        cfg_dotSpacing        = 3
+        cfg_dotSpeed          = 400
+        cfg_dotSensitivity    = 2.0
+        // Waveform
+        cfg_waveformBars      = 17
+        cfg_waveformSpacing   = 2
+        cfg_waveformRadius    = 2
+        cfg_waveformMinHeight = 0.1
+        cfg_waveformSensitivity = 2.0
+        // Rainbow
+        cfg_useRainbow        = false
+        cfg_rainbowStartHue   = 0
+        cfg_rainbowEndHue     = 270
+        // Shared
+        cfg_audioSensitivity  = 2.0
+        cfg_noiseGate         = 0.05
+        cfg_envelopePower     = 1.0
+        cfg_envelopeCenter    = 0.5
+        // Sync the combo box (property alias is set via currentValue → index)
+        animationStyleCombo.currentIndex = animationStyleCombo.indexOfValue("bars")
+    }
+
     // Sensibilité active selon le style courant
     readonly property real activeSensitivity: {
         var style = animationStyleCombo.currentValue || "bars"
@@ -352,6 +403,32 @@ KCM.SimpleKCM {
         Kirigami.Separator {
             Kirigami.FormData.label: i18n("Animation")
             Kirigami.FormData.isSection: true
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Reset icon settings:")
+            spacing: Kirigami.Units.smallSpacing
+            QQC2.Button {
+                text: i18n("Reset to defaults")
+                icon.name: "edit-reset"
+                onClicked: resetConfirm.open()
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Restore all icon animation settings (style, bars, wave, pulse, dots, waveform, rainbow, sensitivity, envelope, noise gate) to their installation defaults. Other preferences (polling, transcription display, audio context) are not affected.")
+            }
+        }
+
+        QQC2.Dialog {
+            id: resetConfirm
+            title: i18n("Reset icon settings")
+            modal: true
+            standardButtons: QQC2.Dialog.Yes | QQC2.Dialog.Cancel
+            anchors.centerIn: parent
+            QQC2.Label {
+                text: i18n("All icon animation settings will be restored to defaults.\nContinue?")
+                wrapMode: Text.WordWrap
+            }
+            onAccepted: configPage.resetIconSettings()
         }
 
         QQC2.ComboBox {

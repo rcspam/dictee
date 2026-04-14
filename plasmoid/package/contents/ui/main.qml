@@ -8,6 +8,12 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
+    // Le plasmoid hérite par défaut du color set du panel (souvent sombre).
+    // Forcer View garantit que le popup (FullRepresentation) suit le thème des
+    // applications — blanc en Breeze Light, sombre en Breeze Dark.
+    Kirigami.Theme.colorSet: Kirigami.Theme.View
+    Kirigami.Theme.inherit: false
+
     // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
     property bool dicteeInstalled: true
@@ -506,7 +512,8 @@ PlasmoidItem {
 
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
-        barColor: root.barColor
+        // barColor calculated locally in the compact using its
+        // Complementary palette (panel-aware contrast).
         audioLevel: root.audioLevel
         audioBands: root.audioBands
         sensitivity: root.activeSensitivity

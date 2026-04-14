@@ -82,7 +82,7 @@
 
         <!-- Bars parameters -->
         <entry name="barCount" type="Int">
-            <default>16</default>
+            <default>15</default>
         </entry>
         <entry name="barSpacing" type="Int">
             <default>2</default>

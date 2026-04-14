@@ -6,8 +6,22 @@ import org.kde.kirigami as Kirigami
 Item {
     id: compact
 
+    // Use the app-theme palette (Window/View) so idle bars are as dark as
+    // the app textColor in light mode (~#232629) — "bien noir" on a light
+    // theme. In dark mode this stays light. Complementary would invert the
+    // logic and give white on white, which we don't want here.
+    Kirigami.Theme.colorSet: Kirigami.Theme.Window
+    Kirigami.Theme.inherit: false
+
     property string state: "offline"
-    property color barColor: Kirigami.Theme.textColor
+    property color barColor: {
+        switch (state) {
+        case "recording":    return Kirigami.Theme.highlightColor
+        case "transcribing": return Kirigami.Theme.positiveTextColor
+        case "offline":      return Kirigami.Theme.negativeTextColor
+        default:             return Kirigami.Theme.textColor
+        }
+    }
     property real audioLevel: 0.0
     property var audioBands: []
     property real sensitivity: 2.0

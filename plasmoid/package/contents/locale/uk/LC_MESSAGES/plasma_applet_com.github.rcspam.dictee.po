@@ -6,8 +6,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.0.0\n"
-"Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-06 09:46+0200\n"
+"Report-Msgid-Bugs-To: https://github.com/rcspam/dictee\n"
+"POT-Creation-Date: 2026-04-14 20:14+0200\n"
 "PO-Revision-Date: 2024-01-01 00:00+0000\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: Ukrainian\n"
@@ -18,287 +18,66 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && "
 "n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
-#: plasmoid/package/contents/ui/main.qml:59
-msgid "Dictée not installed"
-msgstr "Dictée не встановлено"
-
-#: plasmoid/package/contents/ui/main.qml:60
-msgid "Dictée not configured — run dictee-setup"
-msgstr "Dictée не налаштовано — запустіть dictee-setup"
-
-#: plasmoid/package/contents/ui/main.qml:61
-msgid "Daemon stopped"
-msgstr "Daemon зупинено"
-
-#: plasmoid/package/contents/ui/main.qml:63
-msgid "Daemon active"
-msgstr "Daemon активний"
-
-#: plasmoid/package/contents/ui/main.qml:65
-#: plasmoid/package/contents/ui/FullRepresentation.qml:122
-msgid "Recording…"
-msgstr "Запис…"
-
-#: plasmoid/package/contents/ui/main.qml:67
-#: plasmoid/package/contents/ui/FullRepresentation.qml:124
-msgid "Transcribing…"
-msgstr "Транскрипція…"
-
-#: plasmoid/package/contents/ui/main.qml:69
-msgid "Switching backend…"
-msgstr "Перемикання backend…"
-
-#: plasmoid/package/contents/ui/main.qml:71
-#: plasmoid/package/contents/ui/FullRepresentation.qml:128
-msgid "Preparing…"
-msgstr "Підготовка..."
-
-#: plasmoid/package/contents/ui/main.qml:73
-#: plasmoid/package/contents/ui/FullRepresentation.qml:130
-msgid "Diarize ready"
-msgstr "Діаризація готова"
-
-#: plasmoid/package/contents/ui/main.qml:75
-#: plasmoid/package/contents/ui/FullRepresentation.qml:132
-msgid "Diarizing…"
-msgstr "Діаризація…"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:47
-msgid "Dictée"
-msgstr "Dictée"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:57
-msgid "Unpin popup"
-msgstr "Відкріпити спливаюче вікно"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:57
-msgid "Pin popup"
-msgstr "Закріпити спливаюче вікно"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:116
-msgid "Not installed"
-msgstr "Не встановлено"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:117
-msgid "Not configured"
-msgstr "Не налаштовано"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:118
-msgid "Stopped"
-msgstr "Зупинено"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:120
-msgid "Active"
-msgstr "Активний"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:126
-msgid "Switching…"
-msgstr "Перемикання…"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:148
-msgid "Start daemon"
-msgstr "Запустити daemon"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:148
-msgid "Stop daemon"
-msgstr "Зупинити daemon"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:248
-msgid "Press the Configure Dictée button below to get started."
-msgstr "Натисніть кнопку «Налаштувати Dictée» нижче, щоб розпочати."
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:269
-msgid "Dictation"
-msgstr "Диктант"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:306
-msgid "Translate"
-msgstr "Перекласти"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:357
-msgid "Preparing… (click to cancel)"
-msgstr "Підготовка… (натисніть для скасування)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:358
-msgid "Start diarization"
-msgstr "Почати діаризацію"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:359
-msgid "Diarization in progress..."
-msgstr "Діаризація триває..."
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:362
-msgid "Stop diarization"
-msgstr "Зупинити діаризацію"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:363
-msgid "Diarization"
-msgstr "Діаризація"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:405
-msgid "Sortformer model not installed. Configure in dictee-setup."
-msgstr "Модель Sortformer не встановлено. Налаштуйте в dictee-setup."
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:407
-msgid "Freeing GPU memory..."
-msgstr "Звільнення пам'яті GPU..."
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:408
-msgid "Click to start recording with speaker identification"
-msgstr "Натисн��ть, щоб почати запис з ідентифікацією мовців"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:410
-msgid "Click to stop and identify speakers"
-msgstr "Натисніть, щоб зупинити та ідентифікувати мовців"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:411
-#: plasmoid/package/contents/ui/FullRepresentation.qml:412
-msgid "Record and identify speakers (max 4)"
-msgstr "Записати та ідентифікувати мовців (макс. 4)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:436
-msgid "Last transcription:"
-msgstr "Остання транскрипція:"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:463
-msgid "ASR:"
-msgstr "ASR:"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:511
-msgid "Context"
-msgstr "Контекст"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:514
-msgid ""
-"Accumulate audio from previous dictations to improve recognition of short or "
-"technical words."
-msgstr ""
-"Накопичувати аудіо з попередніх диктувань для покращення розпізнавання "
-"коротких або технічних слів."
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:523
-msgid "Translation:"
-msgstr "Переклад:"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:626
-msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
-msgstr "Мова перекладу — додати мови в Налаштування Dictée (LibreTranslate)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:627
-msgid "Target language for translation"
-msgstr "Мова перекладу"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:640
-msgid "Transcribe file"
-msgstr "Транскрибувати файл"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:644
-msgid "Open an audio file for transcription"
-msgstr "Відкрити аудіофайл для транскрипції"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:651
-msgid "Post-processing..."
-msgstr "Постобробка..."
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:655
-msgid "Configure post-processing rules (regex, dictionary, continuation)"
-msgstr "Налаштувати правила постобробки (regex, словник, продовження)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:662
-msgid "Configure Dictée"
-msgstr "Налаштувати Dictée"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:666
-msgid "Open dictee-setup to configure ASR, translation, shortcuts"
-msgstr ""
-"Відкрити dictee-setup для налаштування ASR, перекладу і комбінаційВідкрити "
-"dictee-setup для налаштування ASR, перекладу, комбінацій клавіш"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:689
-msgid "Reset everything — stop all processes, restart daemon"
-msgstr "Скинути все — зупинити процеси, перезапустити демон"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:698
-msgid "Live microphone animation preview"
-msgstr "Попередній перегляд анімації мікрофона"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:735
-msgid "Microphone muted — click to unmute"
-msgstr "Мікрофон вимкнено — натисніть, щоб увімкнути"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:735
-msgid "Microphone — click to mute"
-msgstr "Мікрофон — натисніть для вимкнення"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:757
-#, javascript-format
-msgid "Microphone volume: %1%"
-msgstr "Гучність мікрофона: %1%"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:789
-msgid "Audio input level"
-msgstr "Рівень аудіовходу"
-
-#: plasmoid/package/contents/ui/configGeneral.qml:120
+#: package/contents/ui/configGeneral.qml:171
 msgid "Calibration done!"
 msgstr "Калібрування завершено!"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:122
+#: package/contents/ui/configGeneral.qml:173
 msgid "Calibration failed"
 msgstr "Калібрування не вдалося"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:194
+#: package/contents/ui/configGeneral.qml:245
 msgid "General"
 msgstr "Загальне"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:199
+#: package/contents/ui/configGeneral.qml:250
 msgid "Polling interval (ms):"
 msgstr "Інтервал опитування (мс):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:208
+#: package/contents/ui/configGeneral.qml:259
 msgid "How often the widget checks if the daemon is running (in milliseconds)."
 msgstr "Як часто віджет перевіряє, чи працює daemon (у мілісекундах)."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:213
+#: package/contents/ui/configGeneral.qml:264
 msgid "Show last transcription:"
 msgstr "Показати останню транскрипцію:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:219
+#: package/contents/ui/configGeneral.qml:270
 msgid "Display the last transcribed text in the popup window."
 msgstr "Відображати останній транскрибований текст у спливаючому вікні."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:225
+#: package/contents/ui/configGeneral.qml:276
 msgid "Preview mode (test with mic):"
 msgstr "Режим попереднього перегляду (тест з мікрофоном):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:230
+#: package/contents/ui/configGeneral.qml:281
 msgid "Audio context buffer:"
 msgstr "Буфер аудіоконтексту:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:235
+#: package/contents/ui/configGeneral.qml:286
 msgid "Microphone volume:"
 msgstr "Гучність мікрофона:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:259
+#: package/contents/ui/configGeneral.qml:310
 msgid ""
 "Adjust the microphone input volume (PipeWire/PulseAudio default source)."
 msgstr ""
 "Налаштувати вхідну гучність мікрофона (джерело за замовчуванням PipeWire/"
 "PulseAudio)."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:265
+#: package/contents/ui/configGeneral.qml:316
 msgid "Noise floor:"
 msgstr "Рівень шуму:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:268
+#: package/contents/ui/configGeneral.qml:319
 msgid "Calibrate"
 msgstr "Калібрувати"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:271
+#: package/contents/ui/configGeneral.qml:322
 msgid "Recording silence…"
 msgstr "Запис тиші…"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:277
+#: package/contents/ui/configGeneral.qml:328
 msgid ""
 "Record 5 seconds of silence to calibrate the background noise level. This "
 "improves animation accuracy."
@@ -306,11 +85,11 @@ msgstr ""
 "Запишіть 5 секунд тиші для калібрування рівня фонового шуму. Це покращує "
 "точність анімації."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:288
+#: package/contents/ui/configGeneral.qml:339
 msgid "Noise gate:"
 msgstr "Noise gate:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:302
+#: package/contents/ui/configGeneral.qml:353
 msgid ""
 "Audio levels below this threshold are zeroed. Increase to suppress "
 "background noise and get clean silence."
@@ -318,19 +97,19 @@ msgstr ""
 "Рівні звуку нижче цього порогу обнуляються. Збільшіть для придушення "
 "фонового шуму та отримання чистої тиші."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:307
+#: package/contents/ui/configGeneral.qml:358
 msgid "Envelope shape:"
 msgstr "Форма огинаючої:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:318
+#: package/contents/ui/configGeneral.qml:369
 msgid "Flat"
 msgstr "Плоска"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:320
+#: package/contents/ui/configGeneral.qml:371
 msgid "Normal"
 msgstr "Нормальна"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:326
+#: package/contents/ui/configGeneral.qml:377
 msgid ""
 "Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, "
 "higher = more peaked at the center."
@@ -338,11 +117,11 @@ msgstr ""
 "Контролює форму огинаючої Ганна. 0 = плоска (рівномірні смуги), 1 = "
 "нормальна, більше = більш загострена в центрі."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:331
+#: package/contents/ui/configGeneral.qml:382
 msgid "Envelope center:"
 msgstr "Центр огинаючої:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:347
+#: package/contents/ui/configGeneral.qml:398
 msgid ""
 "Shift the envelope peak across the frequency range (80–4000 Hz). Useful with "
 "rainbow colors to emphasize different frequency bands."
@@ -350,161 +129,421 @@ msgstr ""
 "Зсунути пік огинаючої по діапазону частот (80–4000 Гц). Корисно з "
 "веселковими кольорами для виділення різних частотних смуг."
 
-#: plasmoid/package/contents/ui/configGeneral.qml:353
+#: package/contents/ui/configGeneral.qml:404
 msgid "Animation"
 msgstr "Анімація"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:359
+#: package/contents/ui/configGeneral.qml:409
+#, fuzzy
+msgid "Reset icon settings:"
+msgstr "Налаштування пульсу"
+
+#: package/contents/ui/configGeneral.qml:412
+msgid "Reset to defaults"
+msgstr ""
+
+#: package/contents/ui/configGeneral.qml:417
+msgid ""
+"Restore all icon animation settings (style, bars, wave, pulse, dots, "
+"waveform, rainbow, sensitivity, envelope, noise gate) to their installation "
+"defaults. Other preferences (polling, transcription display, audio context) "
+"are not affected."
+msgstr ""
+
+#: package/contents/ui/configGeneral.qml:423
+#, fuzzy
+msgid "Reset icon settings"
+msgstr "Налаштування пульсу"
+
+#: package/contents/ui/configGeneral.qml:428
+msgid ""
+"All icon animation settings will be restored to defaults.\n"
+"Continue?"
+msgstr ""
+
+#: package/contents/ui/configGeneral.qml:436
 msgid "Animation style:"
 msgstr "Стиль анімації:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:361
+#: package/contents/ui/configGeneral.qml:438
 msgid "Bars (default)"
 msgstr "Смуги (за замовчуванням)"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:362
+#: package/contents/ui/configGeneral.qml:439
 msgid "Wave"
 msgstr "Хвиля"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:363
+#: package/contents/ui/configGeneral.qml:440
 msgid "Pulse"
 msgstr "Пульс"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:364
+#: package/contents/ui/configGeneral.qml:441
 msgid "Dots"
 msgstr "Крапки"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:365
+#: package/contents/ui/configGeneral.qml:442
 msgid "Waveform"
 msgstr "Хвильова форма"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:376
+#: package/contents/ui/configGeneral.qml:453
 msgid "Rainbow colors:"
 msgstr "Веселкові кольори:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:380
+#: package/contents/ui/configGeneral.qml:457
 msgid "Start hue:"
 msgstr "Початковий тон:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:396
+#: package/contents/ui/configGeneral.qml:473
 msgid "End hue:"
 msgstr "Кінцевий тон:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:413
+#: package/contents/ui/configGeneral.qml:490
 msgid "Preview:"
 msgstr "Попередній перегляд:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:765
+#: package/contents/ui/configGeneral.qml:842
 msgid "Bars settings"
 msgstr "Налаштування смуг"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:771
-#: plasmoid/package/contents/ui/configGeneral.qml:846
-#: plasmoid/package/contents/ui/configGeneral.qml:923
-#: plasmoid/package/contents/ui/configGeneral.qml:972
-#: plasmoid/package/contents/ui/configGeneral.qml:1038
+#: package/contents/ui/configGeneral.qml:848
+#: package/contents/ui/configGeneral.qml:923
+#: package/contents/ui/configGeneral.qml:1000
+#: package/contents/ui/configGeneral.qml:1049
+#: package/contents/ui/configGeneral.qml:1115
 msgid "Sensitivity:"
 msgstr "Чутливість:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:789
-#: plasmoid/package/contents/ui/configGeneral.qml:1056
+#: package/contents/ui/configGeneral.qml:866
+#: package/contents/ui/configGeneral.qml:1133
 msgid "Number of bars:"
 msgstr "Кількість смуг:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:797
-#: plasmoid/package/contents/ui/configGeneral.qml:1064
+#: package/contents/ui/configGeneral.qml:874
+#: package/contents/ui/configGeneral.qml:1141
 msgid "Bar spacing (px):"
 msgstr "Відстань між смугами (px):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:805
-#: plasmoid/package/contents/ui/configGeneral.qml:1072
+#: package/contents/ui/configGeneral.qml:882
+#: package/contents/ui/configGeneral.qml:1149
 msgid "Bar corner radius:"
 msgstr "Радіус кутів смуг:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:813
-#: plasmoid/package/contents/ui/configGeneral.qml:1080
+#: package/contents/ui/configGeneral.qml:890
+#: package/contents/ui/configGeneral.qml:1157
 msgid "Min height (%):"
 msgstr "Мінімальна висота (%):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:825
+#: package/contents/ui/configGeneral.qml:902
 msgid "Idle breathing animation:"
 msgstr "Анімація дихання в режимі очікування:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:831
+#: package/contents/ui/configGeneral.qml:908
 msgid "Animation speed (ms):"
 msgstr "Швидкість анімації (мс):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:840
+#: package/contents/ui/configGeneral.qml:917
 msgid "Wave settings"
 msgstr "Налаштування хвилі"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:864
+#: package/contents/ui/configGeneral.qml:941
 msgid "Width (px):"
 msgstr "Ширина (px):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:872
+#: package/contents/ui/configGeneral.qml:949
 msgid "Line thickness (px):"
 msgstr "Товщина лінії (px):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:880
+#: package/contents/ui/configGeneral.qml:957
 msgid "Wave frequency:"
 msgstr "Частота хвилі:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:891
+#: package/contents/ui/configGeneral.qml:968
 msgid "Amplitude (%):"
 msgstr "Амплітуда (%):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:902
+#: package/contents/ui/configGeneral.qml:979
 msgid "Wave speed (ms):"
 msgstr "Швидкість хвилі (мс):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:911
+#: package/contents/ui/configGeneral.qml:988
 msgid "Fill under wave:"
 msgstr "Заповнити під хвилею:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:917
+#: package/contents/ui/configGeneral.qml:994
 msgid "Pulse settings"
 msgstr "Налаштування пульсу"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:941
+#: package/contents/ui/configGeneral.qml:1018
 msgid "Number of rings:"
 msgstr "Кількість кілець:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:949
+#: package/contents/ui/configGeneral.qml:1026
 msgid "Ring thickness (px):"
 msgstr "Товщина кілець (px):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:957
+#: package/contents/ui/configGeneral.qml:1034
 msgid "Pulse speed (ms):"
 msgstr "Швидкість пульсу (мс):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:966
+#: package/contents/ui/configGeneral.qml:1043
 msgid "Dots settings"
 msgstr "Налаштування крапок"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:990
+#: package/contents/ui/configGeneral.qml:1067
 msgid "Number of dots:"
 msgstr "Кількість крапок:"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:998
+#: package/contents/ui/configGeneral.qml:1075
 msgid "Dot size (px):"
 msgstr "Розмір крапок (px):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:1006
+#: package/contents/ui/configGeneral.qml:1083
 msgid "Dot spacing (px):"
 msgstr "Відстань між крапками (px):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:1014
+#: package/contents/ui/configGeneral.qml:1091
 msgid "Bounce amplitude (%):"
 msgstr "Амплітуда стрибка (%):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:1023
+#: package/contents/ui/configGeneral.qml:1100
 msgid "Bounce speed (ms):"
 msgstr "Швидкість стрибка (мс):"
 
-#: plasmoid/package/contents/ui/configGeneral.qml:1032
+#: package/contents/ui/configGeneral.qml:1109
 msgid "Waveform settings"
 msgstr "Налаштування хвильової форми"
+
+#: package/contents/ui/FullRepresentation.qml:63
+msgid "Dictée"
+msgstr "Dictée"
+
+#: package/contents/ui/FullRepresentation.qml:73
+msgid "Unpin popup"
+msgstr "Відкріпити спливаюче вікно"
+
+#: package/contents/ui/FullRepresentation.qml:73
+msgid "Pin popup"
+msgstr "Закріпити спливаюче вікно"
+
+#: package/contents/ui/FullRepresentation.qml:132
+msgid "Not installed"
+msgstr "Не встановлено"
+
+#: package/contents/ui/FullRepresentation.qml:133
+msgid "Not configured"
+msgstr "Не налаштовано"
+
+#: package/contents/ui/FullRepresentation.qml:134
+msgid "Stopped"
+msgstr "Зупинено"
+
+#: package/contents/ui/FullRepresentation.qml:136
+msgid "Active"
+msgstr "Активний"
+
+#: package/contents/ui/FullRepresentation.qml:138
+#: package/contents/ui/main.qml:71
+msgid "Recording…"
+msgstr "Запис…"
+
+#: package/contents/ui/FullRepresentation.qml:140
+#: package/contents/ui/main.qml:73
+msgid "Transcribing…"
+msgstr "Транскрипція…"
+
+#: package/contents/ui/FullRepresentation.qml:142
+msgid "Switching…"
+msgstr "Перемикання…"
+
+#: package/contents/ui/FullRepresentation.qml:144
+#: package/contents/ui/main.qml:77
+msgid "Preparing…"
+msgstr "Підготовка..."
+
+#: package/contents/ui/FullRepresentation.qml:146
+#: package/contents/ui/main.qml:79
+msgid "Diarize ready"
+msgstr "Діаризація готова"
+
+#: package/contents/ui/FullRepresentation.qml:148
+#: package/contents/ui/main.qml:81
+msgid "Diarizing…"
+msgstr "Діаризація…"
+
+#: package/contents/ui/FullRepresentation.qml:164
+msgid "Start daemon"
+msgstr "Запустити daemon"
+
+#: package/contents/ui/FullRepresentation.qml:164
+msgid "Stop daemon"
+msgstr "Зупинити daemon"
+
+#: package/contents/ui/FullRepresentation.qml:264
+msgid "Press the Configure Dictée button below to get started."
+msgstr "Натисніть кнопку «Налаштувати Dictée» нижче, щоб розпочати."
+
+#: package/contents/ui/FullRepresentation.qml:285
+msgid "Dictation"
+msgstr "Диктант"
+
+#: package/contents/ui/FullRepresentation.qml:322
+msgid "Translate"
+msgstr "Перекласти"
+
+#: package/contents/ui/FullRepresentation.qml:373
+msgid "Preparing… (click to cancel)"
+msgstr "Підготовка… (натисніть для скасування)"
+
+#: package/contents/ui/FullRepresentation.qml:374
+msgid "Start diarization"
+msgstr "Почати діаризацію"
+
+#: package/contents/ui/FullRepresentation.qml:375
+msgid "Diarization in progress..."
+msgstr "Діаризація триває..."
+
+#: package/contents/ui/FullRepresentation.qml:378
+msgid "Stop diarization"
+msgstr "Зупинити діаризацію"
+
+#: package/contents/ui/FullRepresentation.qml:379
+msgid "Diarization"
+msgstr "Діаризація"
+
+#: package/contents/ui/FullRepresentation.qml:421
+msgid "Sortformer model not installed. Configure in dictee-setup."
+msgstr "Модель Sortformer не встановлено. Налаштуйте в dictee-setup."
+
+#: package/contents/ui/FullRepresentation.qml:423
+msgid "Freeing GPU memory..."
+msgstr "Звільнення пам'яті GPU..."
+
+#: package/contents/ui/FullRepresentation.qml:424
+msgid "Click to start recording with speaker identification"
+msgstr "Натисн��ть, щоб почати запис з ідентифікацією мовців"
+
+#: package/contents/ui/FullRepresentation.qml:426
+msgid "Click to stop and identify speakers"
+msgstr "Натисніть, щоб зупинити та ідентифікувати мовців"
+
+#: package/contents/ui/FullRepresentation.qml:427
+#: package/contents/ui/FullRepresentation.qml:428
+msgid "Record and identify speakers (max 4)"
+msgstr "Записати та ідентифікувати мовців (макс. 4)"
+
+#: package/contents/ui/FullRepresentation.qml:452
+msgid "Last transcription:"
+msgstr "Остання транскрипція:"
+
+#: package/contents/ui/FullRepresentation.qml:479
+msgid "ASR:"
+msgstr "ASR:"
+
+#: package/contents/ui/FullRepresentation.qml:527
+msgid "Context"
+msgstr "Контекст"
+
+#: package/contents/ui/FullRepresentation.qml:530
+msgid ""
+"Accumulate audio from previous dictations to improve recognition of short or "
+"technical words."
+msgstr ""
+"Накопичувати аудіо з попередніх диктувань для покращення розпізнавання "
+"коротких або технічних слів."
+
+#: package/contents/ui/FullRepresentation.qml:539
+msgid "Translation:"
+msgstr "Переклад:"
+
+#: package/contents/ui/FullRepresentation.qml:560
+msgid "LT arrêté"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:561
+msgid "Ollama arrêté"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:562
+msgid "Modèle absent"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:663
+msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
+msgstr "Мова перекладу — додати мови в Налаштування Dictée (LibreTranslate)"
+
+#: package/contents/ui/FullRepresentation.qml:664
+msgid "Target language for translation"
+msgstr "Мова перекладу"
+
+#: package/contents/ui/FullRepresentation.qml:677
+msgid "Transcribe file"
+msgstr "Транскрибувати файл"
+
+#: package/contents/ui/FullRepresentation.qml:681
+msgid "Open an audio file for transcription"
+msgstr "Відкрити аудіофайл для транскрипції"
+
+#: package/contents/ui/FullRepresentation.qml:688
+msgid "Post-processing..."
+msgstr "Постобробка..."
+
+#: package/contents/ui/FullRepresentation.qml:692
+msgid "Configure post-processing rules (regex, dictionary, continuation)"
+msgstr "Налаштувати правила постобробки (regex, словник, продовження)"
+
+#: package/contents/ui/FullRepresentation.qml:699
+msgid "Configure Dictée"
+msgstr "Налаштувати Dictée"
+
+#: package/contents/ui/FullRepresentation.qml:703
+msgid "Open dictee-setup to configure ASR, translation, shortcuts"
+msgstr ""
+"Відкрити dictee-setup для налаштування ASR, перекладу і комбінаційВідкрити "
+"dictee-setup для налаштування ASR, перекладу, комбінацій клавіш"
+
+#: package/contents/ui/FullRepresentation.qml:726
+msgid "Reset everything — stop all processes, restart daemon"
+msgstr "Скинути все — зупинити процеси, перезапустити демон"
+
+#: package/contents/ui/FullRepresentation.qml:735
+msgid "Live microphone animation preview"
+msgstr "Попередній перегляд анімації мікрофона"
+
+#: package/contents/ui/FullRepresentation.qml:781
+msgid "Microphone muted — click to unmute"
+msgstr "Мікрофон вимкнено — натисніть, щоб увімкнути"
+
+#: package/contents/ui/FullRepresentation.qml:781
+msgid "Microphone — click to mute"
+msgstr "Мікрофон — натисніть для вимкнення"
+
+#: package/contents/ui/FullRepresentation.qml:805
+#, javascript-format
+msgid "Microphone volume: %1%"
+msgstr "Гучність мікрофона: %1%"
+
+#: package/contents/ui/main.qml:65
+msgid "Dictée not installed"
+msgstr "Dictée не встановлено"
+
+#: package/contents/ui/main.qml:66
+msgid "Dictée not configured — run dictee-setup"
+msgstr "Dictée не налаштовано — запустіть dictee-setup"
+
+#: package/contents/ui/main.qml:67
+msgid "Daemon stopped"
+msgstr "Daemon зупинено"
+
+#: package/contents/ui/main.qml:69
+msgid "Daemon active"
+msgstr "Daemon активний"
+
+#: package/contents/ui/main.qml:75
+msgid "Switching backend…"
+msgstr "Перемикання backend…"
+
+#~ msgid "Audio input level"
+#~ msgstr "Рівень аудіовходу"
 
 #~ msgid "Dictée not installed — install dictee package"
 #~ msgstr "Dictée не встановлено — встановіть пакет dictee"
