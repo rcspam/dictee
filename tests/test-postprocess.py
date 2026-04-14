@@ -1280,6 +1280,24 @@ if [ -f "$LAST_WORD_FILE" ]; then cat "$LAST_WORD_FILE"; else echo "DELETED"; fi
     def test_single_word_no_punct(self):
         self.assertEqual(self._run("Oui"), "_:Oui")
 
+    def test_continuation_preserves_word_with_unicode_ellipsis(self):
+        """Regression: Whisper ends sentences with '…' (U+2026, 1 bash char
+        but 3 keystrokes after type_text). save_last_word must strip 1 bash
+        char, not 3, when appending the continuation indicator — otherwise
+        'Je pars pour…' becomes 'Je pars po>>' instead of 'Je pars pour>>'."""
+        bash_text = "Je pars pour…"
+        script = BASH_PREAMBLE + f"""
+CONTINUATION_INDICATOR=">>"
+CONTINUATION_INDICATOR_LEN=2
+rm -f "$LAST_WORD_FILE"
+transcribed=$'{bash_text}'
+save_last_word "$transcribed" transcribed
+printf '%s' "$transcribed"
+"""
+        output = run_bash_test(script)
+        # "pour" is a continuation word → indicator appended, "…" stripped
+        self.assertEqual(output, "Je pars pour>>")
+
 
 class TestFixContinuationPython(unittest.TestCase):
     """Tests pour fix_continuation() dans dictee-postprocess.py."""

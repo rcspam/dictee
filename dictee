@@ -562,15 +562,13 @@ save_last_word() {
         local _cw="${!_cw_var}"
         if [[ -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local -n _text_ref="$2"
-            # Strip trailing punctuation from the text before appending the
+            # Strip the trailing punctuation from the text before appending the
             # indicator, otherwise the user briefly sees "le.>>" during the
-            # pause. The number of chars to strip is encoded in $marker.
-            local _strip=0
-            case "$marker" in
-                .3) _strip=3 ;;
-                .2) _strip=2 ;;
-                .1|,|F) _strip=1 ;;
-            esac
+            # pause. The number of bash chars to strip equals the difference
+            # between trimmed and stripped (the marker encodes keystroke count
+            # for apply_continuation, not bash char count — '…' is 1 bash char
+            # but 3 keystrokes after type_text conversion).
+            local _strip=$((${#trimmed} - ${#stripped}))
             if [ "$_strip" -gt 0 ]; then
                 # Trim trailing spaces first (consistent with $trimmed logic)
                 _text_ref="${_text_ref%"${_text_ref##*[! ]}"}"
