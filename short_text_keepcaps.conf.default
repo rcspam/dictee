@@ -5,12 +5,15 @@
 # DICTEE_PP_SHORT_TEXT_MAX words (default 3). Without this list, short
 # texts are forced to lowercase.
 #
-# Typical use: greetings and courtesies that you dictate alone
+# Typical use: greetings and formal correspondence (letters, emails)
+# where each greeting or closing is dictated on its own line.
 #   "Bonjour" → kept as "Bonjour" instead of being lowercased to "bonjour"
 #
 # Format: [lang] expression1, expression2, expression3, ...
 # Multiple lines per language allowed (cumulative).
-# Matching is done on the full text after strip(), case-insensitive.
+# Matching is done on the full text after strip(), case-insensitive
+# and accent-insensitive (NFD). A match on the FIRST WORD also triggers
+# the exception (e.g. "cher ami" preserves "Cher").
 # Blank lines and comments (#) are ignored.
 #
 # User customization: ~/.config/dictee/short_text_keepcaps.conf
@@ -18,10 +21,125 @@
 #   [xx] expr1, expr2       → add expressions to language xx
 #   [exclude:xx] expr1, …   → remove expressions provided by this system file
 
-[fr] cher, chers, chère, chères, bonjour, bonsoir, bonne nuit, bonne journée, bonne soirée, salut, merci, monsieur, madame, mademoiselle, messieurs, mesdames, oui, non, d'accord, bienvenue, enchanté, enchantée, désolé, désolée, pardon, excusez-moi, au revoir, à bientôt, à demain, à plus tard
-[en] dear, hello, hi, hey, good morning, good afternoon, good evening, good night, thanks, thank you, sir, madam, ma'am, yes, no, ok, okay, welcome, sorry, excuse me, goodbye, bye
-[de] hallo, guten tag, guten morgen, guten abend, gute nacht, danke, herr, frau, ja, nein, bitte, willkommen, entschuldigung, tschüss, auf wiedersehen
-[es] hola, buenos días, buenas tardes, buenas noches, gracias, señor, señora, señorita, sí, no, de acuerdo, bienvenido, bienvenida, perdón, disculpe, adiós
-[it] ciao, buongiorno, buonasera, buonanotte, grazie, signore, signora, signorina, sì, no, va bene, benvenuto, benvenuta, scusa, scusi, arrivederci
-[pt] olá, bom dia, boa tarde, boa noite, obrigado, obrigada, senhor, senhora, sim, não, está bem, bem-vindo, bem-vinda, desculpe, adeus, tchau
-[uk] привіт, добрий день, доброго ранку, добрий вечір, на добраніч, дякую, пан, пані, так, ні, добре, ласкаво просимо, вибачте, до побачення
+# ─── Français ─────────────────────────────────────────────────────────
+# Salutations et politesses courantes
+[fr] bonjour, bonsoir, bonne nuit, bonne journée, bonne soirée, bonne matinée, bon après-midi
+[fr] salut, coucou, merci, merci beaucoup, merci bien, s'il vous plaît, s'il te plaît, je vous en prie
+[fr] oui, non, d'accord, bienvenue, enchanté, enchantée, désolé, désolée, pardon, excusez-moi
+[fr] au revoir, à bientôt, à demain, à plus tard, à tout à l'heure, à la prochaine, bonne continuation
+[fr] félicitations, bravo, tous mes vœux, joyeux anniversaire, joyeuses fêtes
+# Appels pour courrier officiel
+[fr] monsieur, madame, mademoiselle, messieurs, mesdames, mesdemoiselles
+[fr] cher, chers, chère, chères, très cher, très chère
+[fr] maître, maîtres, docteur, docteurs, professeur, professeurs
+[fr] monseigneur, révérend père, mon général, mon colonel, mon capitaine, mon lieutenant, mon commandant
+[fr] à qui de droit, à l'attention de
+# Formules de conclusion pour lettres officielles
+[fr] cordialement, bien cordialement, respectueusement, bien à vous, bien à toi, amicalement
+[fr] sincèrement, sincères salutations, meilleures salutations, salutations distinguées
+[fr] veuillez agréer, je vous prie d'agréer, je vous prie de croire, je vous prie de recevoir
+[fr] avec mes remerciements, avec mes salutations, dans l'attente de votre réponse
+[fr] dans cette attente, dans l'attente de vous lire, restant à votre disposition
+
+# ─── English ──────────────────────────────────────────────────────────
+[en] hello, hi, hey, good morning, good afternoon, good evening, good night
+[en] thanks, thank you, many thanks, thanks a lot, please, you're welcome
+[en] yes, no, ok, okay, welcome, sorry, apologies, excuse me, pardon me
+[en] goodbye, bye, farewell, see you, see you soon, see you later, take care
+[en] congratulations, congrats, happy birthday, best wishes, all the best
+# Letter openings
+[en] sir, madam, ma'am, mister, misses, miss, sirs, madams
+[en] dear, dearest, dear sir, dear madam, dear sir or madam
+[en] to whom it may concern, dear hiring manager, attention
+[en] doctor, professor, reverend, your honour, your excellency
+# Letter closings
+[en] sincerely, yours sincerely, yours truly, yours faithfully, faithfully yours
+[en] best regards, kind regards, warm regards, best wishes, with regards
+[en] cordially, respectfully, respectfully yours, with appreciation, with gratitude
+[en] looking forward to hearing from you, awaiting your reply
+
+# ─── Deutsch ──────────────────────────────────────────────────────────
+[de] hallo, guten tag, guten morgen, guten abend, gute nacht, schönen tag
+[de] danke, vielen dank, herzlichen dank, bitte, bitte schön, gern geschehen
+[de] ja, nein, okay, einverstanden, willkommen, herzlich willkommen
+[de] entschuldigung, verzeihung, es tut mir leid, pardon
+[de] tschüss, tschüs, auf wiedersehen, bis bald, bis später, bis morgen
+[de] glückwunsch, herzlichen glückwunsch, alles gute, frohe weihnachten
+# Briefanreden
+[de] herr, frau, fräulein, damen und herren
+[de] sehr geehrter, sehr geehrte, sehr geehrter herr, sehr geehrte frau
+[de] sehr geehrte damen und herren, lieber, liebe, liebster, liebste
+[de] herr doktor, herr professor, frau doktor, frau professor
+# Briefschlüsse
+[de] mit freundlichen grüßen, freundliche grüße, viele grüße, herzliche grüße
+[de] beste grüße, liebe grüße, mit besten grüßen, mit herzlichen grüßen
+[de] hochachtungsvoll, mit vorzüglicher hochachtung
+
+# ─── Español ──────────────────────────────────────────────────────────
+[es] hola, buenos días, buenas tardes, buenas noches, buen día
+[es] gracias, muchas gracias, mil gracias, por favor, de nada
+[es] sí, no, de acuerdo, bienvenido, bienvenida, bienvenidos, bienvenidas
+[es] perdón, disculpe, disculpa, lo siento, perdóneme
+[es] adiós, hasta luego, hasta pronto, hasta mañana, nos vemos, chao
+[es] felicidades, enhorabuena, feliz cumpleaños, mis mejores deseos
+# Saludos formales
+[es] señor, señora, señorita, señores, señoras, don, doña
+[es] estimado, estimada, estimados, estimadas, distinguido, distinguida
+[es] querido, querida, queridos, queridas, apreciado, apreciada
+[es] a quien corresponda, a la atención de
+[es] doctor, doctora, profesor, profesora
+# Despedidas formales
+[es] atentamente, cordialmente, saludos cordiales, un cordial saludo, un saludo
+[es] respetuosamente, le saluda atentamente, reciba un cordial saludo
+[es] quedando a su disposición, en espera de su respuesta
+
+# ─── Italiano ─────────────────────────────────────────────────────────
+[it] ciao, buongiorno, buonasera, buonanotte, buon pomeriggio, salve
+[it] grazie, grazie mille, molte grazie, prego, per favore, per piacere
+[it] sì, no, va bene, d'accordo, benvenuto, benvenuta, benvenuti, benvenute
+[it] scusa, scusi, scusate, mi dispiace, mi scusi
+[it] arrivederci, arrivederla, a presto, a domani, a dopo, ci vediamo
+[it] congratulazioni, auguri, tanti auguri, buon compleanno, buone feste
+# Saluti formali
+[it] signore, signora, signorina, signori, signore
+[it] egregio, egregia, egregi, egregie, gentile, gentili, gentilissimo, gentilissima
+[it] caro, cara, cari, care, carissimo, carissima
+[it] spettabile, illustrissimo, illustrissima
+[it] dottore, dottoressa, professore, professoressa, avvocato, ingegnere
+[it] a chi di competenza, alla cortese attenzione di
+# Chiusure formali
+[it] cordiali saluti, distinti saluti, saluti, cordialmente, con stima
+[it] con osservanza, in attesa di un suo riscontro, rimanendo a sua disposizione
+
+# ─── Português ────────────────────────────────────────────────────────
+[pt] olá, bom dia, boa tarde, boa noite, bom apetite
+[pt] obrigado, obrigada, muito obrigado, muito obrigada, por favor, de nada
+[pt] sim, não, está bem, claro, bem-vindo, bem-vinda, bem-vindos, bem-vindas
+[pt] desculpe, desculpa, perdão, peço desculpa
+[pt] adeus, tchau, até logo, até já, até amanhã, até breve, até à próxima
+[pt] parabéns, felicitações, feliz aniversário, votos de felicidades
+# Vocativos formais
+[pt] senhor, senhora, senhorita, senhores, senhoras
+[pt] caro, cara, caros, caras, prezado, prezada, prezados, prezadas
+[pt] ilustre, ilustríssimo, ilustríssima, estimado, estimada
+[pt] doutor, doutora, professor, professora
+[pt] a quem possa interessar, a/c de
+# Despedidas formais
+[pt] atenciosamente, cordialmente, com os melhores cumprimentos, cumprimentos
+[pt] respeitosamente, com respeito, aguardando sua resposta
+[pt] despeço-me atenciosamente, os meus melhores cumprimentos
+
+# ─── Українська ───────────────────────────────────────────────────────
+[uk] привіт, вітаю, добрий день, доброго ранку, добрий вечір, на добраніч, доброго дня
+[uk] дякую, щиро дякую, будь ласка, прошу
+[uk] так, ні, добре, гаразд, ласкаво просимо, запрошуємо
+[uk] вибачте, пробачте, перепрошую, мені шкода
+[uk] до побачення, бувайте, до зустрічі, до завтра, до скорої зустрічі
+[uk] вітаю, вітаємо, мої найкращі побажання, з днем народження
+# Звернення у листуванні
+[uk] пане, пані, панове, шановний, шановна, шановні, шановний пане, шановна пані
+[uk] шановні пані та панове, дорогий, дорога, дорогі, любий, люба
+[uk] пан доктор, пан професор, пані доктор, пані професор
+# Завершення листа
+[uk] з повагою, з найкращими побажаннями, щиро ваш, щиро ваша, щиро
+[uk] з пошаною, з вдячністю, з нетерпінням чекаю вашої відповіді
