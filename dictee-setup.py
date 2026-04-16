@@ -14165,6 +14165,26 @@ class DicteeSetupDialog(QDialog):
         # threshold value has been validated and persisted.
         self._cleanup_calib_records()
 
+        # Clear ephemeral runtime state so the next push starts clean after a
+        # config change: stale continuation marker (>>), obsolete audio-context
+        # buffer from a previous source language, leftover translate error.
+        # These caches can bite the first push after Apply if not cleared.
+        _uid = os.getuid()
+        _ephemeral = [
+            "/dev/shm/.dictee_last_word",
+            f"/dev/shm/.dictee_buffer-{_uid}.wav",
+            f"/dev/shm/.dictee_buffer_ts-{_uid}",
+            f"/dev/shm/.dictee_buffer_text-{_uid}",
+            f"/tmp/dictee_trans_err-{_uid}",
+        ]
+        for _f in _ephemeral:
+            try:
+                os.unlink(_f)
+            except FileNotFoundError:
+                pass
+            except Exception as _e:
+                _dbg_setup(f"_on_apply: cleanup {_f} failed: {_e}")
+
         # Systemd services — reload first (needed after first .deb install)
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 

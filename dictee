@@ -332,14 +332,17 @@ if [ -n "$_CONT_KEYWORD" ]; then
 fi
 
 apply_continuation() {
-    # Usage: apply_continuation VARNAME
+    # Usage: apply_continuation VARNAME [KEEPCAPS_HIT]
     # Modifies the variable in place (no subshell)
     # Buffer markers:
     #   , → comma (always continuation, space + lowercase)
     #   .N → period(s) (continuation if last word is closed-class, else space + keep case)
     #   F → end of sentence (! ; : » )) — space + keep case
     #   _ → no punctuation (mid-sentence, space + lowercase)
+    # KEEPCAPS_HIT=true means the PP matched a short-text keepcaps exception
+    # (e.g. "Mesdames" vocatif) → never lowercase in mode "_".
     local -n _ref="$1"
+    local _keepcaps_hit="${2:-false}"
     _dbg "apply_continuation: input='$(echo -n "$_ref" | xxd -p)' last_word_file='$(cat "$LAST_WORD_FILE" 2>/dev/null)'"
     # If text starts with \n ("new line" voice command), do not modify
     if [[ "$_ref" == $'\n'* ]]; then return; fi
@@ -468,6 +471,7 @@ apply_continuation() {
         _ref=" ${_ref}"
     elif [ "$last_char" = "_" ]; then
         # No punctuation: mid-sentence, space + lowercase
+        # Exception: keepcaps hit → preserve case (vocatif "Mesdames")
         if $hourglass; then
             # Erase the indicator (hourglass_len backspaces from marker),
             # no punctuation to remove on top.
@@ -478,7 +482,11 @@ apply_continuation() {
             done
             printf '%s' "$_bs_cmd" | safe_dotool
         fi
-        _ref=" ${_ref,}"
+        if $_keepcaps_hit; then
+            _ref=" ${_ref}"
+        else
+            _ref=" ${_ref,}"
+        fi
     fi
 }
 
@@ -1345,8 +1353,17 @@ if [ -f "$PIDFILE" ]; then
     # when continuation adds a space on next push)
     transcribed="${transcribed%"${transcribed##*[! ]}"}"
 
+    # Short-text keepcaps marker: \x03 at start means the PP matched a
+    # keepcaps exception (e.g. "Mesdames" dictated alone). apply_continuation
+    # must NOT lowercase this word even in mode "_" (unfinished sentence).
+    _keepcaps_hit=false
+    if [[ "$transcribed" == $'\x03'* ]]; then
+        _keepcaps_hit=true
+        transcribed="${transcribed#$'\x03'}"
+    fi
+
     # Cross-push continuation: adapt text if previous sentence was incomplete
-    apply_continuation transcribed
+    apply_continuation transcribed "$_keepcaps_hit"
 
     # Save recording as buffer for next push (only if non-empty transcription)
     if audio_context_enabled && [ -n "$transcribed" ]; then
@@ -1356,6 +1373,14 @@ if [ -f "$PIDFILE" ]; then
 
     if [ "$TRANSLATE" = true ]; then
         notify_dictee 0 audio-chat-none-symbolic "Traduction en cours..."
+
+        # Preserve leading space from apply_continuation: translation backends
+        # (LibreTranslate, Google, Ollama) strip leading whitespace, which would
+        # collide the translated text with the previous push once the ">>"
+        # indicator has been erased. Example bug: "Hello>>" + "chat" → "Hellocat"
+        # instead of "Hello cat".
+        _cont_space=""
+        [[ "$transcribed" == " "* ]] && _cont_space=" "
 
         _trans_err=""
         if [ "$DICTEE_ASR_BACKEND" = "canary" ]; then
@@ -1423,6 +1448,12 @@ if [ -f "$PIDFILE" ]; then
                 if [ -n "$_trpp_out" ]; then
                     translated="$_trpp_out"
                 fi
+            fi
+            # Restore leading space if continuation added one (must be placed
+            # AFTER the PP trad pass because dictee-postprocess strips leading
+            # whitespace). See _cont_space comment above.
+            if [ -n "$_cont_space" ] && [[ "$translated" != " "* ]]; then
+                translated="${_cont_space}${translated}"
             fi
             # Continuation: check SOURCE text last word against source
             # language continuation words, then append indicator to TRANSLATED

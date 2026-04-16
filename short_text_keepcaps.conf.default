@@ -1,0 +1,27 @@
+# Short text exceptions per language — dictee
+#
+# Words and expressions that KEEP their original case (from the
+# capitalization step) even when the total transcription is shorter than
+# DICTEE_PP_SHORT_TEXT_MAX words (default 3). Without this list, short
+# texts are forced to lowercase.
+#
+# Typical use: greetings and courtesies that you dictate alone
+#   "Bonjour" → kept as "Bonjour" instead of being lowercased to "bonjour"
+#
+# Format: [lang] expression1, expression2, expression3, ...
+# Multiple lines per language allowed (cumulative).
+# Matching is done on the full text after strip(), case-insensitive.
+# Blank lines and comments (#) are ignored.
+#
+# User customization: ~/.config/dictee/short_text_keepcaps.conf
+# The user file SUPPLEMENTS the system file:
+#   [xx] expr1, expr2       → add expressions to language xx
+#   [exclude:xx] expr1, …   → remove expressions provided by this system file
+
+[fr] cher, chers, chère, chères, bonjour, bonsoir, bonne nuit, bonne journée, bonne soirée, salut, merci, monsieur, madame, mademoiselle, messieurs, mesdames, oui, non, d'accord, bienvenue, enchanté, enchantée, désolé, désolée, pardon, excusez-moi, au revoir, à bientôt, à demain, à plus tard
+[en] dear, hello, hi, hey, good morning, good afternoon, good evening, good night, thanks, thank you, sir, madam, ma'am, yes, no, ok, okay, welcome, sorry, excuse me, goodbye, bye
+[de] hallo, guten tag, guten morgen, guten abend, gute nacht, danke, herr, frau, ja, nein, bitte, willkommen, entschuldigung, tschüss, auf wiedersehen
+[es] hola, buenos días, buenas tardes, buenas noches, gracias, señor, señora, señorita, sí, no, de acuerdo, bienvenido, bienvenida, perdón, disculpe, adiós
+[it] ciao, buongiorno, buonasera, buonanotte, grazie, signore, signora, signorina, sì, no, va bene, benvenuto, benvenuta, scusa, scusi, arrivederci
+[pt] olá, bom dia, boa tarde, boa noite, obrigado, obrigada, senhor, senhora, sim, não, está bem, bem-vindo, bem-vinda, desculpe, adeus, tchau
+[uk] привіт, добрий день, доброго ранку, добрий вечір, на добраніч, дякую, пан, пані, так, ні, добре, ласкаво просимо, вибачте, до побачення

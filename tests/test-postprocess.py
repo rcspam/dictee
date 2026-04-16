@@ -997,7 +997,8 @@ class TestCapitalization(unittest.TestCase):
                     self.assertTrue(first_alpha.isupper(), f"'{stripped}' ne commence pas par une majuscule")
 
     def test_capitalization_disabled(self):
-        result = run_postprocess("bonjour.", env_extra={"DICTEE_PP_CAPITALIZATION": "false"})
+        # Use "maison" — not a keepcaps exception, so short_text lowercases it.
+        result = run_postprocess("maison.", env_extra={"DICTEE_PP_CAPITALIZATION": "false"})
         self.assertTrue(result[0].islower())
 
     def test_accented_char(self):
@@ -1055,8 +1056,10 @@ class TestPipelineIntegration(unittest.TestCase):
 
     def test_single_word(self):
         # Short text (< 3 words) is lowercased and trailing punctuation stripped
-        result = run_postprocess("bonjour")
-        self.assertEqual(result, "bonjour")
+        # NB: use "table" — not a keepcaps exception. Greetings like "bonjour"
+        # are now whitelisted (see test_short_text_keepcaps_*).
+        result = run_postprocess("table")
+        self.assertEqual(result, "table")
 
     def test_preserve_newlines_from_commands(self):
         result = run_postprocess("Ligne un. Point à la ligne. Ligne deux.")
@@ -1845,6 +1848,75 @@ class TestASRVariantsFR(unittest.TestCase):
         self.assertIn("_", result)
 
 
+class TestShortTextKeepcaps(unittest.TestCase):
+    """Short-text exceptions via short_text_keepcaps.conf.default.
+
+    Greetings and courtesy words dictated alone keep their capital letter
+    and their trailing punctuation — fix_short_text is skipped entirely.
+    A leading \\x03 marker is emitted so dictee bash's apply_continuation
+    won't lowercase the word in mode "_". Tests strip it before comparison.
+    """
+
+    @staticmethod
+    def _clean(result):
+        # Strip leading \x03 keepcaps marker (internal PP→bash signal)
+        return result.lstrip("\x03")
+
+    def test_fr_bonjour_kept(self):
+        self.assertEqual(self._clean(run_postprocess("Bonjour", lang="fr")), "Bonjour")
+
+    def test_fr_bonjour_with_period_kept(self):
+        self.assertEqual(self._clean(run_postprocess("Bonjour.", lang="fr")), "Bonjour.")
+
+    def test_fr_bonjour_case_insensitive_match(self):
+        # "bonjour" already lowercase → no change (keepcaps has nothing to
+        # undo), but still matches the exception and doesn't get stripped.
+        self.assertEqual(self._clean(run_postprocess("bonjour.", lang="fr")), "Bonjour.")
+
+    def test_fr_merci_kept(self):
+        # FR typography inserts NNBSP (U+202F) before ! → "Merci\u202f!"
+        self.assertEqual(self._clean(run_postprocess("Merci!", lang="fr")), "Merci\u202f!")
+
+    def test_en_hello_kept(self):
+        self.assertEqual(self._clean(run_postprocess("Hello", lang="en")), "Hello")
+
+    def test_en_hello_not_kept_in_fr(self):
+        # "Hello" is not a FR keepcaps entry → usual short-text lowercasing.
+        self.assertEqual(run_postprocess("Hello", lang="fr"), "hello")
+
+    def test_de_hallo_kept(self):
+        self.assertEqual(self._clean(run_postprocess("Hallo", lang="de")), "Hallo")
+
+    def test_unrelated_word_still_lowered(self):
+        # "Maison" is not in FR keepcaps → short text lowercases.
+        self.assertEqual(run_postprocess("Maison.", lang="fr"), "maison")
+
+    def test_fr_keepcaps_survives_point_final(self):
+        # "point final" voice command produces "." + \x02 (force end-of-sentence).
+        # The \x02 marker must be stripped before the keepcaps lookup, otherwise
+        # "Bonjour.\x02" never matches "bonjour" and gets lowercased.
+        result = run_postprocess(
+            "bonjour point final", lang="fr",
+            env_extra={"DICTEE_COMMAND_SUFFIX_FR": "final"})
+        # Strip keepcaps marker and \x02 (end-of-sentence) — both are internal.
+        self.assertEqual(self._clean(result).rstrip("\x02"), "Bonjour.")
+
+    def test_fr_au_revoir_kept(self):
+        self.assertEqual(self._clean(run_postprocess("Au revoir", lang="fr")), "Au revoir")
+
+    def test_fr_mesdames_kept(self):
+        self.assertEqual(self._clean(run_postprocess("Mesdames", lang="fr")), "Mesdames")
+
+    def test_keepcaps_marker_present_when_match(self):
+        # The PP must emit \x03 at the start so dictee bash knows to skip
+        # lowercasing in apply_continuation mode "_".
+        self.assertTrue(run_postprocess("Bonjour", lang="fr").startswith("\x03"))
+
+    def test_keepcaps_marker_absent_when_no_match(self):
+        # No keepcaps match → no marker
+        self.assertFalse(run_postprocess("Maison", lang="fr").startswith("\x03"))
+
+
 class TestShortTextRobustness(unittest.TestCase):
     """Tests robustesse pour la correction de texte court (< 3 mots).
 
@@ -1862,8 +1934,8 @@ class TestShortTextRobustness(unittest.TestCase):
         self.assertEqual(run_postprocess("A"), "a")
 
     def test_single_word_lowered(self):
-        """Mot unique capitalisé → minuscule."""
-        self.assertEqual(run_postprocess("Bonjour"), "bonjour")
+        """Mot unique capitalisé → minuscule (mot hors keepcaps)."""
+        self.assertEqual(run_postprocess("Maison"), "maison")
 
     def test_two_words_lowered(self):
         """Deux mots capitalisés → minuscule, sans point."""
@@ -1892,11 +1964,12 @@ class TestShortTextRobustness(unittest.TestCase):
         self.assertIn("\n", result)
 
     def test_single_word_with_period(self):
-        """Un mot + point → minuscule, point supprimé."""
-        self.assertEqual(run_postprocess("Merci."), "merci")
+        """Un mot + point → minuscule, point supprimé (mot hors keepcaps)."""
+        self.assertEqual(run_postprocess("Table."), "table")
 
     def test_single_word_with_exclamation(self):
-        self.assertEqual(run_postprocess("Merci!"), "merci")
+        """Un mot + ! → minuscule, ! supprimé (mot hors keepcaps)."""
+        self.assertEqual(run_postprocess("Chaise!"), "chaise")
 
     def test_two_words_mixed(self):
         """Un mot normal + un acronyme."""
@@ -3139,8 +3212,9 @@ class TestTranslationPipeline(unittest.TestCase):
         self.assertIn("Goodbye", result)
 
     def test_trpp_short_text(self):
-        """TRPP short text: <=3 words → lowercase, no trailing punct."""
-        result = self._run_trpp("Bonjour.", "fr")
+        """TRPP short text: <=3 words → lowercase, no trailing punct.
+        Use "Table." — not a keepcaps exception."""
+        result = self._run_trpp("Table.", "fr")
         self.assertFalse(result.endswith("."), f"Trailing punct: {result}")
         # Short text lowercases
         self.assertEqual(result[0], result[0].lower(),
@@ -3810,9 +3884,9 @@ class TestShortTextEdgeCases(unittest.TestCase):
     """Extended short text correction tests."""
 
     def test_one_word_lowercase(self):
-        """Single word → lowercase, no trailing punct."""
-        result = run_postprocess("Bonjour.", lang="fr")
-        self.assertEqual(result, "bonjour")
+        """Single word → lowercase, no trailing punct (mot hors keepcaps)."""
+        result = run_postprocess("Voiture.", lang="fr")
+        self.assertEqual(result, "voiture")
 
     def test_two_words_lowercase(self):
         """Two words → lowercase, no trailing punct."""

@@ -86,6 +86,14 @@ SYSTEM_CONT_CANDIDATES = [
 
 USER_CONT = os.path.join(XDG_CONFIG, "dictee", "continuation.conf")
 
+SYSTEM_KEEPCAPS_CANDIDATES = [
+    os.path.join(_SCRIPT_DIR, "short_text_keepcaps.conf.default"),
+    "/usr/share/dictee/short_text_keepcaps.conf.default",
+    os.path.join(XDG_DATA, "dictee", "short_text_keepcaps.conf.default"),
+]
+
+USER_KEEPCAPS = os.path.join(XDG_CONFIG, "dictee", "short_text_keepcaps.conf")
+
 LANG = os.environ.get("DICTEE_LANG_SOURCE", "").lower()[:2]
 
 # Command suffix per language (disambiguates "point" from the word "point")
@@ -272,11 +280,80 @@ try:
 except ValueError:
     _SHORT_TEXT_MAX_WORDS = 3
 
-def fix_short_text(text):
+
+_KEEPCAPS_LINE_RE = re.compile(r"^\s*\[([a-z]{2}|\*)\]\s*(.+)$")
+_KEEPCAPS_EXCLUDE_RE = re.compile(r"^\s*\[exclude:([a-z]{2}|\*)\]\s*(.+)$")
+
+
+def _normalize_keepcaps(s):
+    """Lowercase + strip combining accents (NFD).
+
+    Parakeet/Whisper sometimes emit "a demain" instead of "à demain"; the
+    keepcaps match must be accent-insensitive so both forms trigger the
+    exception."""
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", s.lower())
+    return "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+
+
+def _parse_keepcaps(path):
+    """Returns (added, excluded) sets of accent-normalized expressions for LANG."""
+    added = set()
+    excluded = set()
+    if not os.path.isfile(path):
+        return added, excluded
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = _KEEPCAPS_EXCLUDE_RE.match(line)
+            if m:
+                lang_tag, expr_list = m.groups()
+                if lang_tag != "*" and LANG and lang_tag != LANG:
+                    continue
+                for expr in expr_list.split(","):
+                    expr = _normalize_keepcaps(expr.strip())
+                    if expr:
+                        excluded.add(expr)
+                continue
+            m = _KEEPCAPS_LINE_RE.match(line)
+            if not m:
+                continue
+            lang_tag, expr_list = m.groups()
+            if lang_tag != "*" and LANG and lang_tag != LANG:
+                continue
+            for expr in expr_list.split(","):
+                expr = _normalize_keepcaps(expr.strip())
+                if expr:
+                    added.add(expr)
+    return added, excluded
+
+
+def load_keepcaps():
+    """Loads system short-text exceptions, merged with user additions/exclusions."""
+    exprs = set()
+    for candidate in SYSTEM_KEEPCAPS_CANDIDATES:
+        if os.path.isfile(candidate):
+            sys_added, _ = _parse_keepcaps(candidate)
+            exprs = sys_added
+            break
+    if os.path.isfile(USER_KEEPCAPS):
+        user_added, user_excluded = _parse_keepcaps(USER_KEEPCAPS)
+        exprs |= user_added
+        exprs -= user_excluded
+    return exprs
+
+
+def fix_short_text(text, keepcaps=None):
     """For transcriptions with fewer than 3 words, remove trailing
     punctuation and lowercase Capitalized words.  Preserves acronyms
     (ALL CAPS) and mixed-case words (iPhone).  Skips voice commands
-    (pure punctuation, whitespace, or newlines)."""
+    (pure punctuation, whitespace, or newlines).
+
+    If the full text (case-insensitive, stripped of trailing .!?,) matches
+    an entry in `keepcaps`, the text is returned unchanged — typical case:
+    greetings like "Bonjour" dictated alone should keep their capital."""
     stripped = text.strip()
     # Skip voice commands: pure punctuation/whitespace/newlines
     if not stripped or not any(c.isalnum() for c in stripped):
@@ -287,6 +364,20 @@ def fix_short_text(text):
     words = stripped.split()
     if len(words) >= _SHORT_TEXT_MAX_WORDS:
         return text
+    # Exception list: if the stripped text (minus forced end-of-sentence
+    # marker \x02 from "point final", trailing punctuation, and French
+    # NNBSP/NBSP inserted before high punctuation) matches a keepcaps
+    # entry, skip the whole short-text logic. Match is accent-insensitive
+    # because ASR engines sometimes drop accents ("a demain" vs "à demain").
+    # A \x03 marker is prepended so that dictee bash's apply_continuation
+    # knows not to lowercase this word in the "_" (no-punctuation) branch.
+    if keepcaps:
+        _probe = stripped.rstrip("\x02")
+        if _probe and _probe[-1] in ".!?,;:":
+            _probe = _probe[:-1]
+        _probe = _probe.rstrip()  # strip NNBSP, NBSP, plain space
+        if _normalize_keepcaps(_probe) in keepcaps:
+            return "\x03" + text
     # Remove trailing punctuation
     if text and text[-1] in ".!?,":
         text = text[:-1]
@@ -987,7 +1078,7 @@ def main():
     # 12. Short text correction (< N words: remove trailing punct, lowercase)
     if _env_bool("DICTEE_PP_SHORT_TEXT"):
         _before = text
-        text = fix_short_text(text)
+        text = fix_short_text(text, keepcaps=load_keepcaps())
         _trace(f"Short text < {_SHORT_TEXT_MAX_WORDS}w", _before, text)
 
     # 13. LLM correction — position "last" (after all post-processing)
@@ -999,8 +1090,13 @@ def main():
     # Defense in depth: strip control chars that could be interpreted
     # as a key sequence downstream.
     # Keep: \x01 (ctrl+j marker), \x02 (force end-of-sentence marker),
-    #        \t (0x09), \n (0x0a) — dictee strips \x01/\x02 after save_last_word.
+    #       \t (0x09), \n (0x0a) — dictee strips them after save_last_word.
+    # \x03 (short_text keepcaps hit) is only kept when it appears as the
+    # leading character — other \x03 occurrences are stripped.
+    _leading_keepcaps = text.startswith("\x03")
     text = "".join(c for c in text if c in ("\x01", "\x02", "\t", "\n") or ord(c) >= 0x20)
+    if _leading_keepcaps:
+        text = "\x03" + text
 
     sys.stdout.write(text)
 
