@@ -850,15 +850,31 @@ def _convert_version_number(text):
     return pattern.sub(_replace, text)
 
 
+# Decimal comma: "1, 5" → "1,5" when it looks like a decimal (no other
+# ", digit" nearby meaning a list). Applies to FR/DE/ES/IT/PT (comma as
+# decimal separator). EN uses "." so no effect.
+_DECIMAL_COMMA_LANGS = frozenset({'fr', 'de', 'es', 'it', 'pt'})
+# Match "X, Y" pair of numbers only when NOT part of a list:
+#   - no "digit or comma" + space immediately BEFORE (lookbehind)
+#   - no ", digit" immediately AFTER (lookahead)
+# So "1, 5" → "1,5" is compacted but "1, 2, 3" keeps its spaces.
+_DECIMAL_COMMA_RE = re.compile(
+    r'(?<![0-9,]\s)(\d+),\s+(\d+)(?!\s*,\s*\d)')
+
+
 def convert_numbers(text):
     """Convertit les nombres en toutes lettres en chiffres."""
     text = _convert_version_number(text)
-    if not _HAS_TEXT2NUM or LANG not in _TEXT2NUM_LANGS:
-        return text
-    try:
-        return alpha2digit(text, LANG)
-    except Exception:
-        return text
+    if _HAS_TEXT2NUM and LANG in _TEXT2NUM_LANGS:
+        try:
+            text = alpha2digit(text, LANG)
+        except Exception:
+            pass
+    # Compact decimal commas: "1, 5" → "1,5". Keep lists "1, 2, 3" intact
+    # via the negative lookahead (another ", digit" after the pair).
+    if LANG in _DECIMAL_COMMA_LANGS:
+        text = _DECIMAL_COMMA_RE.sub(r'\1,\2', text)
+    return text
 
 
 # ── French typography ────────────────────────────────────────────
