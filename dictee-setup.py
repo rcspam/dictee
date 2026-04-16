@@ -2025,21 +2025,27 @@ def docker_stop_libretranslate():
 
 
 def _docker_container_size():
-    """Retourne la taille du conteneur LibreTranslate (ex: '1.2 GB')."""
+    """Retourne la taille du volume modèles LibreTranslate (ex: '1.2 GB').
+
+    Mesure le volume monté (où sont stockés les modèles Argos), pas le
+    writable layer — ce dernier ne bouge pas quand LibreTranslate télécharge
+    des modèles puisque le volume est externe au conteneur.
+    """
     try:
         result = docker_cmd(
-            ["docker", "ps", "-s", "--filter", f"name={LIBRETRANSLATE_CONTAINER}",
-             "--format", "{{.Size}}"],
+            ["docker", "exec", LIBRETRANSLATE_CONTAINER,
+             "du", "-sb", "/home/libretranslate/.local"],
             capture_output=True, text=True, timeout=5)
-        size_str = result.stdout.strip()
-        if size_str:
-            # Format: "479MB (virtual 1.16GB)" → on prend "virtual 1.16GB"
-            if "virtual" in size_str:
-                import re
-                m = re.search(r'virtual\s+([\d.]+\s*[KMGT]B)', size_str)
-                if m:
-                    return m.group(1)
-            return size_str
+        out = result.stdout.strip()
+        if out:
+            bytes_str = out.split()[0]
+            if bytes_str.isdigit():
+                size_b = int(bytes_str)
+                if size_b >= 1_000_000_000:
+                    return f"{size_b / 1_000_000_000:.2f} GB"
+                if size_b >= 1_000_000:
+                    return f"{size_b / 1_000_000:.0f} MB"
+                return f"{size_b / 1_000:.0f} kB"
     except Exception:
         pass
     return ""
@@ -2150,14 +2156,22 @@ class _DockerActionThread(QThread):
                 self.progress.emit(_("Starting container…"))
                 docker_start_libretranslate(port=self._port, languages=self._languages)
                 self._wait_ready()
-            elif self._action == "restart":
+            elif self._action in ("restart", "purge"):
                 self.progress.emit(_("Stopping container…"))
                 docker_cmd(["docker", "rm", "-f", LIBRETRANSLATE_CONTAINER],
                                capture_output=True, timeout=15)
-                # Sync volume packages with requested languages:
-                # remove packages for languages no longer requested,
-                # clear index to force re-download of missing models.
-                self._sync_volume_packages()
+                if self._action == "purge":
+                    self.progress.emit(_("Clearing downloaded models…"))
+                    docker_cmd([
+                        "docker", "run", "--rm",
+                        "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
+                        "alpine", "rm", "-rf", "/data/share", "/data/cache",
+                    ], capture_output=True, timeout=30)
+                else:
+                    # Sync volume packages with requested languages:
+                    # remove packages for languages no longer requested,
+                    # clear index to force re-download of missing models.
+                    self._sync_volume_packages()
                 self.progress.emit(_("Starting container with {langs}…").format(
                     langs=self._languages))
                 result = docker_cmd([
@@ -6499,6 +6513,12 @@ class DicteeSetupDialog(QDialog):
 
         self.btn_lt_restart_langs = QPushButton(_("Restart with new languages"))
         self.btn_lt_restart_langs.setVisible(False)
+        self.btn_lt_restart_langs.setStyleSheet(
+            "QPushButton { color: white; background-color: #c84;"
+            " font-weight: bold; padding: 8px 16px; border-radius: 4px;"
+            " border: none; }"
+            "QPushButton:hover { background-color: #a63; }"
+            "QPushButton:disabled { background-color: #888; color: #ddd; }")
         self.btn_lt_restart_langs.clicked.connect(self._on_lt_restart_langs)
         lay_lt.addWidget(self.btn_lt_restart_langs)
 
@@ -6520,6 +6540,17 @@ class DicteeSetupDialog(QDialog):
         self.btn_lt_stop.setVisible(False)
         self.btn_lt_stop.clicked.connect(self._on_lt_stop)
         lay_lt_buttons.addWidget(self.btn_lt_stop)
+        self.btn_lt_purge = QPushButton(_("Purge models"))
+        self.btn_lt_purge.setVisible(False)
+        self.btn_lt_purge.setToolTip(_(
+            "LibreTranslate keeps every language model you have ever "
+            "downloaded on disk, even after you remove a language from the "
+            "selection. It filters at load time, never at cleanup.\n\n"
+            "This button deletes all cached models in the Docker volume, "
+            "then re-downloads only the currently selected languages. "
+            "Use it to reclaim disk space after many language changes."))
+        self.btn_lt_purge.clicked.connect(self._on_lt_purge)
+        lay_lt_buttons.addWidget(self.btn_lt_purge)
         lay_lt_buttons.addStretch()
         lay_lt.addLayout(lay_lt_buttons)
 
@@ -12167,6 +12198,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(False)
             self.btn_lt_stop.setVisible(False)
+            self.btn_lt_purge.setVisible(False)
             return
 
         needs_daemon = not docker_daemon_running()
@@ -12190,6 +12222,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(False)
             self.btn_lt_stop.setVisible(False)
+            self.btn_lt_purge.setVisible(False)
             return
         if hasattr(self, '_btn_fix_docker'):
             self._btn_fix_docker.setVisible(False)
@@ -12203,6 +12236,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_pull.setEnabled(True)
             self.btn_lt_start.setVisible(False)
             self.btn_lt_stop.setVisible(False)
+            self.btn_lt_purge.setVisible(False)
             return
 
         if docker_container_running():
@@ -12265,6 +12299,7 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(False)
             self.btn_lt_stop.setVisible(True)
+            self.btn_lt_purge.setVisible(True)
         else:
             self.lbl_lt_status.setText(
                 '<span style="color: orange;">⚠ ' +
@@ -12273,6 +12308,19 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(True)
             self.btn_lt_stop.setVisible(False)
+            self.btn_lt_purge.setVisible(False)
+
+        # Polling périodique : voir la taille du conteneur grossir pendant que
+        # LibreTranslate télécharge les modèles après un restart avec nouvelles langues
+        if not hasattr(self, '_lt_size_timer'):
+            self._lt_size_timer = QTimer(self)
+            self._lt_size_timer.setInterval(10000)
+            self._lt_size_timer.timeout.connect(self._check_lt_status)
+        if docker_container_running() and self.lt_widget.isVisible():
+            if not self._lt_size_timer.isActive():
+                self._lt_size_timer.start()
+        else:
+            self._lt_size_timer.stop()
 
     def _get_lt_selected_langs(self):
         """Retourne les langues cochées, en forçant source et cible."""
@@ -12326,6 +12374,7 @@ class DicteeSetupDialog(QDialog):
         else:
             self.lbl_lt_langs_hint.setVisible(False)
             self.btn_lt_restart_langs.setVisible(False)
+        self._check_lt_status()
 
     def _on_lt_restart_langs(self):
         """Redémarre le conteneur Docker avec les nouvelles langues."""
@@ -12485,6 +12534,36 @@ class DicteeSetupDialog(QDialog):
         self._lt_action_thread.done.connect(self._on_lt_action_finished)
         self._lt_action_thread.start()
 
+    def _on_lt_purge(self):
+        _dbg_setup("_on_lt_purge")
+        if self._lt_is_busy():
+            return
+        reply = QMessageBox.question(
+            self, _("Purge downloaded models"),
+            _("This deletes every language model cached in the LibreTranslate "
+              "volume, then re-downloads only the currently selected "
+              "languages.\n\n"
+              "Use this to reclaim disk space after adding or removing "
+              "languages several times.\n\n"
+              "Continue?"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        languages = ",".join(self._get_lt_selected_langs())
+        port_text = self.spin_lt_port.currentText()
+        port = int(port_text) if port_text.isdigit() else 5000
+        self._save_lt_langs_to_config(languages)
+        self._lt_set_buttons_busy(True)
+        self.lbl_lt_status.setText(
+            '<span style="color: #888;">⏳ ' +
+            _("Purging cached models and restarting…") + '</span>')
+        self._lt_action_thread = _DockerActionThread(
+            "purge", port=port, languages=languages)
+        self._lt_action_thread.progress.connect(self._on_lt_progress)
+        self._lt_action_thread.done.connect(self._on_lt_restart_langs_finished)
+        self._lt_action_thread.start()
+
     def _lt_is_busy(self):
         """Vérifie si une opération Docker est en cours."""
         return (self._lt_action_thread is not None
@@ -12496,6 +12575,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_lt_start.setEnabled(enabled)
         self.btn_lt_stop.setEnabled(enabled)
         self.btn_lt_restart_langs.setEnabled(enabled)
+        self.btn_lt_purge.setEnabled(enabled)
         self.progress_lt.setVisible(busy)
 
     def _on_lt_progress(self, text):
