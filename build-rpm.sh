@@ -82,7 +82,11 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$buildroot/usr/lib/dictee/"
 
     # Patcher shebangs pour packaging RPM (guidelines Fedora)
-    # /usr/bin/env python3 → /usr/bin/python3 pour utiliser le Python système
+    # /usr/bin/env python3 → /usr/bin/python3 pour utiliser le Python système.
+    # dictee-ptt a un shebang spécial (#!/usr/bin/env -S python3 -u) pour
+    # forcer unbuffered — on le patche séparément.
+    sed -i '1s|^#!/usr/bin/env -S python3 -u|#!/usr/bin/python3 -u|' \
+        "$buildroot/usr/bin/dictee-ptt"
     sed -i '1s|^#!/usr/bin/env python3|#!/usr/bin/python3|' \
         "$buildroot/usr/bin/dictee-setup" \
         "$buildroot/usr/bin/dictee-tray" \
@@ -147,6 +151,7 @@ prepare_buildroot() {
     echo "$VERSION build $BUILD_HASH" > "$buildroot/usr/share/dictee/VERSION"
     cp ./dictionary.conf.default "$buildroot/usr/share/dictee/dictionary.conf.default"
     cp ./continuation.conf.default "$buildroot/usr/share/dictee/continuation.conf.default"
+    cp ./short_text_keepcaps.conf.default "$buildroot/usr/share/dictee/short_text_keepcaps.conf.default"
     cp ./dictee.conf.example "$buildroot/usr/share/dictee/dictee.conf.example"
 
     # Doc

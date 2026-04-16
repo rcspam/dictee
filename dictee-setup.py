@@ -14614,7 +14614,8 @@ class DicteeSetupDialog(QDialog):
         # These caches can bite the first push after Apply if not cleared.
         _uid = os.getuid()
         _ephemeral = [
-            "/dev/shm/.dictee_last_word",
+            f"/dev/shm/.dictee_last_word-{_uid}",
+            f"/dev/shm/.dictee_pp-{_uid}",
             f"/dev/shm/.dictee_buffer-{_uid}.wav",
             f"/dev/shm/.dictee_buffer_ts-{_uid}",
             f"/dev/shm/.dictee_buffer_text-{_uid}",

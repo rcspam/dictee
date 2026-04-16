@@ -172,7 +172,7 @@ if [ -d "$SCRIPT_DIR/usr/share/dictee/assets/logos" ]; then
 fi
 
 # Règles et configs de post-traitement par défaut
-for conf in rules.conf.default dictionary.conf.default continuation.conf.default dictee.conf.example VERSION; do
+for conf in rules.conf.default dictionary.conf.default continuation.conf.default short_text_keepcaps.conf.default dictee.conf.example VERSION; do
     if [ -f "$SCRIPT_DIR/usr/share/dictee/$conf" ]; then
         install -Dm644 "$SCRIPT_DIR/usr/share/dictee/$conf" "$MODEL_DIR/$conf"
     fi

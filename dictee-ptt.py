@@ -732,19 +732,38 @@ def main():
     conf = load_config()
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
+
+    def _parse_key(raw, label):
+        """Parse a key code, keeping the default silently on malformed input.
+        dictee.conf can be edited by hand ("F9" instead of "67"); crashing
+        the daemon on startup would leave PTT silently dead."""
+        try:
+            return int(raw)
+        except (ValueError, TypeError):
+            print(f"[ptt] WARNING: {label}={raw!r} is not a valid keycode, keeping default")
+            return None
+
     if "DICTEE_PTT_KEY" in conf:
-        key_dictee = int(conf["DICTEE_PTT_KEY"])
+        _parsed = _parse_key(conf["DICTEE_PTT_KEY"], "DICTEE_PTT_KEY")
+        if _parsed is not None:
+            key_dictee = _parsed
     if "DICTEE_PTT_KEY_TRANSLATE" in conf:
-        key_translate = int(conf["DICTEE_PTT_KEY_TRANSLATE"])
+        _parsed = _parse_key(conf["DICTEE_PTT_KEY_TRANSLATE"], "DICTEE_PTT_KEY_TRANSLATE")
+        if _parsed is not None:
+            key_translate = _parsed
     mod_translate = conf.get("DICTEE_PTT_MOD_TRANSLATE", mod_translate)
 
     for arg in sys.argv[1:]:
         if arg.startswith("--mode="):
             mode = arg.split("=", 1)[1]
         elif arg.startswith("--key="):
-            key_dictee = int(arg.split("=", 1)[1])
+            _parsed = _parse_key(arg.split("=", 1)[1], "--key")
+            if _parsed is not None:
+                key_dictee = _parsed
         elif arg.startswith("--key-translate="):
-            key_translate = int(arg.split("=", 1)[1])
+            _parsed = _parse_key(arg.split("=", 1)[1], "--key-translate")
+            if _parsed is not None:
+                key_translate = _parsed
         elif arg.startswith("--mod-translate="):
             mod_translate = arg.split("=", 1)[1]
         elif arg == "--help":

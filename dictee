@@ -107,13 +107,15 @@ fi
 export DOTOOL_XKB_LAYOUT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
+# Ensure the cache directory exists (minimal profiles, containers, fresh users)
+mkdir -p "$HOME/.cache" 2>/dev/null
 PIDFILE="/tmp/recording_dictee_pid${_UID_SUFFIX}"
 ID_TMP_FILE="/tmp/notify_dictee${_UID_SUFFIX}"
 MUT_FILE="/tmp/mut_dictee${_UID_SUFFIX}"
 TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 DIARIZE_FLAG_FILE="/tmp/dictee_diarize${_UID_SUFFIX}"
-LAST_WORD_FILE="/dev/shm/.dictee_last_word"
+LAST_WORD_FILE="/dev/shm/.dictee_last_word${_UID_SUFFIX}"
 
 # Audio context buffer
 BUFFER_FILE="/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav"
@@ -963,18 +965,20 @@ transcribe() {
 }
 
 transcribe_canary_translate() {
-    # Send WAV path + target language to Canary daemon via extended protocol
+    # Send WAV path + target language to Canary daemon via extended protocol.
+    # sock_path is passed as argv[1] (not interpolated into the Python literal)
+    # so exotic runtime paths with quotes cannot break the Python source.
     local audio_file="$1"
     local target_lang="$2"
     local sock_path
     sock_path=$(_daemon_socket)
     printf '%s\tlang:%s\n' "$audio_file" "$target_lang" | \
-        python3 -c "
+        python3 -c '
 import socket, sys
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-sock.connect('$sock_path')
+sock.connect(sys.argv[1])
 sock.sendall(sys.stdin.buffer.read())
-data = b''
+data = b""
 while True:
     chunk = sock.recv(4096)
     if not chunk:
@@ -982,7 +986,7 @@ while True:
     data += chunk
 sock.close()
 sys.stdout.buffer.write(data)
-"
+' "$sock_path"
 }
 
 translate() {
@@ -1356,10 +1360,10 @@ if [ -f "$PIDFILE" ]; then
         exit 1
     fi
     if [ -n "$SUPPRIME" ]; then
-        echo "$raw" | dictee-postprocess > /dev/shm/.dictee_pp 2>>/tmp/dictee-postprocess.log
-        transcribed=$(cat /dev/shm/.dictee_pp; printf x)
+        echo "$raw" | dictee-postprocess > "/dev/shm/.dictee_pp${_UID_SUFFIX}" 2>>/tmp/dictee-postprocess.log
+        transcribed=$(cat "/dev/shm/.dictee_pp${_UID_SUFFIX}"; printf x)
         transcribed="${transcribed%x}"
-        rm -f /dev/shm/.dictee_pp
+        rm -f "/dev/shm/.dictee_pp${_UID_SUFFIX}"
     else
         transcribed="$raw"
     fi

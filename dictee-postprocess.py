@@ -38,6 +38,7 @@ Environment variables:
 import json as _json
 import os
 import re
+import socket
 import sys
 import urllib.request
 import urllib.error
@@ -1089,7 +1090,7 @@ def llm_postprocess(text):
     except urllib.error.URLError as e:
         elapsed = _time.monotonic() - t0
         _dbg(f"LLM FAIL URLError after {elapsed:.2f}s: {e}")
-    except TimeoutError:
+    except (TimeoutError, socket.timeout):
         elapsed = _time.monotonic() - t0
         _dbg(f"LLM FAIL Timeout after {elapsed:.2f}s (limit={timeout}s)")
     except (OSError, ValueError) as e:

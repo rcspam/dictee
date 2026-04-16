@@ -43,6 +43,7 @@ BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 echo "$VERSION build $BUILD_HASH" > "$PKG_DIR/usr/share/dictee/VERSION"
 cp ./dictionary.conf.default "$PKG_DIR/usr/share/dictee/dictionary.conf.default"
 cp ./continuation.conf.default "$PKG_DIR/usr/share/dictee/continuation.conf.default"
+cp ./short_text_keepcaps.conf.default "$PKG_DIR/usr/share/dictee/short_text_keepcaps.conf.default"
 
 # Copier les assets (bannières SVG pour le wizard)
 echo "=== Copie des assets ==="
@@ -371,6 +372,7 @@ build_tarball() {
     cp "$PKG_DIR/usr/share/dictee/rules.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/dictionary.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/continuation.conf.default" "$TARBALL_DIR/usr/share/dictee/"
+    cp "$PKG_DIR/usr/share/dictee/short_text_keepcaps.conf.default" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/dictee.conf.example" "$TARBALL_DIR/usr/share/dictee/"
     cp "$PKG_DIR/usr/share/dictee/assets/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/"
     if [ -d "$PKG_DIR/usr/share/dictee/assets/logos" ]; then
