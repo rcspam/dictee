@@ -40,6 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install Python test deps
+      run: python3 -m pip install --user text-to-num
     - name: Run postprocess tests
       run: python3 tests/test-postprocess.py -v
       env:
