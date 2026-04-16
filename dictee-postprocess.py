@@ -345,15 +345,23 @@ def load_keepcaps():
     return exprs
 
 
-def fix_short_text(text, keepcaps=None):
+def fix_short_text(text, keepcaps=None, extended=False):
     """For transcriptions with fewer than 3 words, remove trailing
     punctuation and lowercase Capitalized words.  Preserves acronyms
     (ALL CAPS) and mixed-case words (iPhone).  Skips voice commands
     (pure punctuation, whitespace, or newlines).
 
-    If the full text (case-insensitive, stripped of trailing .!?,) matches
-    an entry in `keepcaps`, the text is returned unchanged — typical case:
-    greetings like "Bonjour" dictated alone should keep their capital."""
+    Keepcaps list: when a short text matches (full or first-word), the
+    canonical form is emitted with a leading \\x03 marker — dictee bash
+    uses it to skip lowercasing in apply_continuation mode "_".
+
+    Extended mode (opt-in, via DICTEE_PP_KEEPCAPS_EXTENDED):
+      - Full-list expressions match regardless of length (so
+        "to whom it may concern" or "je vous prie de croire" trigger
+        the keepcaps treatment even with 4+ words).
+      - First-word match on a long text emits the \\x03 signal only
+        (text unchanged) so apply_continuation can preserve case
+        after a comma or a period+continuation word."""
     stripped = text.strip()
     # Skip voice commands: pure punctuation/whitespace/newlines
     if not stripped or not any(c.isalnum() for c in stripped):
@@ -361,12 +369,11 @@ def fix_short_text(text, keepcaps=None):
     # Text with newlines (voice command "à la ligne") is never "short text"
     if '\n' in text:
         return text
+
     words = stripped.split()
-    if len(words) >= _SHORT_TEXT_MAX_WORDS:
-        return text
-    # Exception list: if the stripped text (minus trailing punctuation
-    # and French NNBSP/NBSP) matches a keepcaps entry, emit:
-    #   \x03 + <first-char-uppercased core> + <explicit-punct tail>
+    is_short = len(words) < _SHORT_TEXT_MAX_WORDS
+
+    # Exception list handling (emits \x03 signal for downstream bash).
     # Rules for the tail:
     #   - \x02 marker (internal "point final") is ALWAYS dropped.
     #   - "." is dropped UNLESS \x02 was present (ASR often auto-inserts
@@ -376,8 +383,6 @@ def fix_short_text(text, keepcaps=None):
     #     explicit voice commands ("virgule", "point d'exclamation"…).
     #   - Surrounding NNBSP/NBSP (from FR typography) preserved with them.
     # Accent-insensitive match (ASR sometimes drops accents).
-    # The \x03 marker tells dictee bash's apply_continuation not to
-    # lowercase in the "_" branch.
     if keepcaps:
         _has_x02 = "\x02" in stripped
         _base = stripped.rstrip("\x02")
@@ -388,30 +393,41 @@ def fix_short_text(text, keepcaps=None):
         else:
             _tail = ""
             _core = _base.rstrip()
-        # Full-text match: "bonjour", "bonne nuit", "au revoir"…
-        # OR first-word match: "cher ami" / "bonjour, monsieur" → keepcaps
-        # matches the first word alone, preserve its uppercase while leaving
-        # the rest untouched. Trailing punct on the first word ("bonjour,")
-        # is stripped before matching.
-        _match = False
-        if _core:
-            if _normalize_keepcaps(_core) in keepcaps:
-                _match = True
-            else:
-                _parts = _core.split(maxsplit=1)
-                if _parts:
-                    _first = _parts[0].rstrip(",.!?;:")
-                    if _normalize_keepcaps(_first) in keepcaps:
-                        _match = True
-        if _match:
+
+        def _build_out():
             out = _core[0].upper() + _core[1:] if _core[0].islower() else _core
             if _tail:
                 _last = _tail[-1]
                 if _last == "." and not _has_x02:
                     pass  # ASR auto-period → drop
                 else:
-                    out = out + _tail
-            return "\x03" + out
+                    out_with_tail = out + _tail
+                    return out_with_tail
+            return out
+
+        # Full-text match: "bonjour", "bonne nuit", "au revoir",
+        # "to whom it may concern", "je vous prie de croire"…
+        # Short text: always triggers. Long text: only with extended mode.
+        if _core and _normalize_keepcaps(_core) in keepcaps:
+            if is_short or extended:
+                return "\x03" + _build_out()
+
+        # First-word match: "cher ami", "bonjour, monsieur"…
+        _parts = _core.split(maxsplit=1) if _core else []
+        if _parts:
+            _first = _parts[0].rstrip(",.!?;:")
+            if _first and _normalize_keepcaps(_first) in keepcaps:
+                if is_short:
+                    # Full keepcaps treatment — force upper, strip/keep tail
+                    return "\x03" + _build_out()
+                elif extended:
+                    # Long text: emit the signal only. Text is untouched so
+                    # fix_capitalization's work (if any) is preserved.
+                    return "\x03" + text
+
+    # Normal short-text handling (no match, or disabled)
+    if not is_short:
+        return text
     # Remove trailing punctuation
     if text and text[-1] in ".!?,":
         text = text[:-1]
@@ -1112,7 +1128,12 @@ def main():
     # 12. Short text correction (< N words: remove trailing punct, lowercase)
     if _env_bool("DICTEE_PP_SHORT_TEXT"):
         _before = text
-        text = fix_short_text(text, keepcaps=load_keepcaps())
+        # Keepcaps master toggle (default: on). Extended mode (default: on)
+        # makes the keepcaps matching work beyond SHORT_TEXT_MAX_WORDS.
+        _kc_on = _env_bool("DICTEE_PP_KEEPCAPS")
+        _kc = load_keepcaps() if _kc_on else None
+        _ext = _env_bool("DICTEE_PP_KEEPCAPS_EXTENDED") if _kc_on else False
+        text = fix_short_text(text, keepcaps=_kc, extended=_ext)
         _trace(f"Short text < {_SHORT_TEXT_MAX_WORDS}w", _before, text)
 
     # 13. LLM correction — position "last" (after all post-processing)

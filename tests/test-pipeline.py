@@ -156,6 +156,9 @@ def run_pipeline(
         timeout=30,
     )
     pp_output = result.stdout.rstrip(" ")
+    # Strip the \x03 keepcaps marker — mirrors what dictee bash does before
+    # passing the text downstream (translate, continuation, type_text).
+    pp_output = pp_output.lstrip("\x03")
     pp_steps = [
         line.split("\t")[1]
         for line in result.stderr.splitlines()
@@ -203,7 +206,7 @@ def run_pipeline(
             env=trpp_env_full,
             timeout=30,
         )
-        pp_output = result2.stdout.rstrip(" ")
+        pp_output = result2.stdout.rstrip(" ").lstrip("\x03")
         trpp_steps = [
             line.split("\t")[1]
             for line in result2.stderr.splitlines()

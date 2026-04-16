@@ -449,9 +449,20 @@ apply_continuation() {
         return
     fi
 
+    # Extended keepcaps: when a word from the list is detected as the first
+    # token of this push, the \x03 marker triggers case preservation even
+    # after a comma or a period+continuation word (vocatif pattern:
+    # "Je vous prie de croire, Monsieur, …"). Gated by env var so the
+    # behavior is opt-out.
+    local _kc_ext="${DICTEE_PP_KEEPCAPS_EXTENDED:-true}"
+
     if [ "$last_char" = "," ]; then
-        # After comma: always continue (space + lowercase)
-        _ref=" ${_ref,}"
+        # After comma: continue (space + lowercase), unless keepcaps+extended
+        if $_keepcaps_hit && [ "$_kc_ext" = "true" ]; then
+            _ref=" ${_ref}"
+        else
+            _ref=" ${_ref,}"
+        fi
     elif [[ "$last_char" == .* ]]; then
         # After period(s): continue only if last word is closed-class
         # Marker format: .N where N = number of backspaces (1, 2, or 3)
@@ -461,7 +472,11 @@ apply_continuation() {
         if [[ -n "$lower" && -n "$_cw" && "$_cw" == *" $lower "* ]]; then
             local bs_count="${last_char#.}"
             _cont_backspace "${bs_count:-1}"
-            _ref=" ${_ref,}"
+            if $_keepcaps_hit && [ "$_kc_ext" = "true" ]; then
+                _ref=" ${_ref}"
+            else
+                _ref=" ${_ref,}"
+            fi
         else
             # Sentence complete: space, keep case
             _ref=" ${_ref}"

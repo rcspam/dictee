@@ -269,6 +269,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 pp_rules=True, pp_continuation=True,
                 pp_language_rules=True,
                 pp_short_text=True, pp_short_text_max=3,
+                pp_keepcaps=True, pp_keepcaps_extended=True,
                 llm_postprocess=False, llm_model="gemma3:4b",
                 llm_timeout=10, llm_cpu=False,
                 llm_system_prompt="default", llm_position="hybrid",
@@ -348,6 +349,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_PP_CONTINUATION": pp_continuation,
         "DICTEE_PP_LANGUAGE_RULES": pp_language_rules,
         "DICTEE_PP_SHORT_TEXT": pp_short_text,
+        "DICTEE_PP_KEEPCAPS": pp_keepcaps,
+        "DICTEE_PP_KEEPCAPS_EXTENDED": pp_keepcaps_extended,
     }
     for key, enabled in _pp_flags.items():
         values[key] = "true" if enabled else "false"
@@ -7258,14 +7261,36 @@ class DicteeSetupDialog(QDialog):
         # Shared "Exceptions…" button — used for both source-lang (PP normal)
         # and target-lang (PP translate) short-text keepcaps; the dialog
         # switches between languages via its own combo.
+        self.chk_pp_keepcaps = ToggleSwitch(_("Exceptions"))
+        self.chk_pp_keepcaps.setChecked(
+            (conf.get("DICTEE_PP_KEEPCAPS", "true") or "true").lower() == "true")
+        self.chk_pp_keepcaps.setToolTip(_(
+            "Enable the short-text exceptions list.\n"
+            "Words and expressions from the list keep their\n"
+            "capitalization when dictated alone — greetings,\n"
+            "formal openings/closings, courtesies…"))
+
         self.btn_pp_keepcaps = QPushButton(_("Exceptions…"))
         self.btn_pp_keepcaps.setToolTip(_(
-            "Short-text capitalization exceptions\n"
-            "for all languages (source and target).\n"
-            "Greetings, courtesies…"))
+            "Edit the short-text capitalization exceptions.\n"
+            "Shared for all languages (source and target) —\n"
+            "greetings, courtesies, formal correspondence."))
         self.btn_pp_keepcaps.clicked.connect(self._on_edit_keepcaps)
         self.btn_pp_keepcaps.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        self.chk_pp_keepcaps_ext = ToggleSwitch(_("Extended match"))
+        self.chk_pp_keepcaps_ext.setChecked(
+            (conf.get("DICTEE_PP_KEEPCAPS_EXTENDED", "true") or "true").lower() == "true")
+        self.chk_pp_keepcaps_ext.setToolTip(_(
+            "Apply the exception matching beyond short texts:\n"
+            "• A full list expression (\"to whom it may concern\",\n"
+            "  \"je vous prie de croire\") triggers keepcaps\n"
+            "  regardless of length.\n"
+            "• A first-word match on a longer text emits a signal\n"
+            "  so the next push preserves its capital after a\n"
+            "  comma or a period+continuation word.\n"
+            "Disable if you find the behavior too aggressive."))
 
         def _update_keepcaps_enabled():
             # Enabled if at least one of the two short_text toggles is on and
@@ -7275,8 +7300,14 @@ class DicteeSetupDialog(QDialog):
             tgt_on = (self.chk_pp_translate.isChecked()
                       and getattr(self, 'chk_trpp_short_text', None)
                       and self.chk_trpp_short_text.isChecked())
-            self.btn_pp_keepcaps.setEnabled(bool(src_on or tgt_on))
+            any_short = bool(src_on or tgt_on)
+            kc = self.chk_pp_keepcaps.isChecked()
+            self.chk_pp_keepcaps.setEnabled(any_short)
+            self.btn_pp_keepcaps.setEnabled(any_short and kc)
+            self.chk_pp_keepcaps_ext.setEnabled(any_short and kc)
         self._update_keepcaps_enabled = _update_keepcaps_enabled
+        self.chk_pp_keepcaps.toggled.connect(
+            lambda _on: self._update_keepcaps_enabled())
 
         # ── Master 2: Enable PP for translation ──
         self.chk_pp_translate = ToggleSwitch(_("Enable PP for translation"))
@@ -7362,15 +7393,17 @@ class DicteeSetupDialog(QDialog):
         _keepcaps_sep.setFrameShadow(QFrame.Shadow.Sunken)
         lay.addWidget(_keepcaps_sep)
 
-        # Shared Exceptions… row — between the two PP masters and the
-        # diarization warning. The dialog covers all languages (source +
-        # target) via its own combo.
+        # Shared Exceptions row — between the two PP masters and the
+        # diarization warning. Layout: [Exceptions toggle] [Exceptions… button]
+        # [Extended match toggle] — dialog covers all langs via its own combo.
         _keepcaps_row = QHBoxLayout()
         _keepcaps_row.setContentsMargins(0, 4, 0, 4)
         _keepcaps_row.setSpacing(8)
+        _keepcaps_row.addWidget(self.chk_pp_keepcaps)
         _keepcaps_row.addWidget(self.btn_pp_keepcaps)
+        _keepcaps_row.addWidget(self.chk_pp_keepcaps_ext)
         _keepcaps_lbl = QLabel(_(
-            "Short-text exceptions — shared for both source and target languages."))
+            "Shared source + target. Words from the list keep their capital."))
         _keepcaps_lbl.setStyleSheet("color: #888; font-style: italic;")
         _keepcaps_lbl.setWordWrap(True)
         _keepcaps_row.addWidget(_keepcaps_lbl, 1)
@@ -13720,6 +13753,8 @@ class DicteeSetupDialog(QDialog):
         env["DICTEE_PP_DICT"] = _b("chk_pp_dict")
         env["DICTEE_PP_CAPITALIZATION"] = _b("chk_pp_capitalization")
         env["DICTEE_PP_SHORT_TEXT"] = _b("chk_pp_short_text")
+        env["DICTEE_PP_KEEPCAPS"] = _b("chk_pp_keepcaps")
+        env["DICTEE_PP_KEEPCAPS_EXTENDED"] = _b("chk_pp_keepcaps_ext")
         if hasattr(self, 'cmb_pp_short_text_max'):
             env["DICTEE_PP_SHORT_TEXT_MAX"] = str(
                 self.cmb_pp_short_text_max.currentData() or 3)
@@ -14457,6 +14492,8 @@ class DicteeSetupDialog(QDialog):
         pp_short_text = self.chk_pp_short_text.isChecked() if hasattr(self, 'chk_pp_short_text') else True
         pp_short_text_max = (self.cmb_pp_short_text_max.currentData()
                              if hasattr(self, 'cmb_pp_short_text_max') else 3) or 3
+        pp_keepcaps = self.chk_pp_keepcaps.isChecked() if hasattr(self, 'chk_pp_keepcaps') else True
+        pp_keepcaps_ext = self.chk_pp_keepcaps_ext.isChecked() if hasattr(self, 'chk_pp_keepcaps_ext') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
@@ -14495,6 +14532,8 @@ class DicteeSetupDialog(QDialog):
                     pp_language_rules=pp_language_rules,
                     pp_short_text=pp_short_text,
                     pp_short_text_max=pp_short_text_max,
+                    pp_keepcaps=pp_keepcaps,
+                    pp_keepcaps_extended=pp_keepcaps_ext,
                     llm_postprocess=llm_postprocess,
                     llm_model=llm_model, llm_cpu=llm_cpu,
                     llm_system_prompt=llm_system_prompt,

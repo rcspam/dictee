@@ -28,8 +28,12 @@ NBSP = '\u00a0'
 NNBSP = '\u202f'
 
 
-def run_postprocess(text, lang="fr", env_extra=None):
-    """Exécute dictee-postprocess.py et retourne le résultat."""
+def run_postprocess(text, lang="fr", env_extra=None, keep_markers=False):
+    """Exécute dictee-postprocess.py et retourne le résultat.
+
+    Le marker interne \\x03 (keepcaps hit) est strippé par défaut pour que
+    les comparaisons d'égalité fonctionnent comme avant l'ajout du flag.
+    Passer keep_markers=True pour le voir."""
     env = os.environ.copy()
     env["DICTEE_LANG_SOURCE"] = lang
     env["DICTEE_LLM_POSTPROCESS"] = "false"
@@ -39,7 +43,10 @@ def run_postprocess(text, lang="fr", env_extra=None):
         [sys.executable, POSTPROCESS],
         input=text, capture_output=True, text=True, env=env,
     )
-    return result.stdout
+    out = result.stdout
+    if not keep_markers:
+        out = out.lstrip("\x03")
+    return out
 
 
 def run_postprocess_with_trace(text, lang="fr", env_extra=None):
@@ -1926,11 +1933,13 @@ class TestShortTextKeepcaps(unittest.TestCase):
     def test_keepcaps_marker_present_when_match(self):
         # The PP must emit \x03 at the start so dictee bash knows to skip
         # lowercasing in apply_continuation mode "_".
-        self.assertTrue(run_postprocess("Bonjour", lang="fr").startswith("\x03"))
+        self.assertTrue(
+            run_postprocess("Bonjour", lang="fr", keep_markers=True).startswith("\x03"))
 
     def test_keepcaps_marker_absent_when_no_match(self):
         # No keepcaps match → no marker
-        self.assertFalse(run_postprocess("Maison", lang="fr").startswith("\x03"))
+        self.assertFalse(
+            run_postprocess("Maison", lang="fr", keep_markers=True).startswith("\x03"))
 
     def test_fr_first_word_keepcaps_cher_ami(self):
         # "cher" is in keepcaps, "ami" is not. First-word match preserves
