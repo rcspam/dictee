@@ -2035,6 +2035,8 @@ def _docker_container_size():
     Mesure le volume monté (où sont stockés les modèles Argos), pas le
     writable layer — ce dernier ne bouge pas quand LibreTranslate télécharge
     des modèles puisque le volume est externe au conteneur.
+
+    ⚠ Bloquant — utiliser _DockerSizeThread depuis le thread UI.
     """
     try:
         result = docker_cmd(
@@ -2054,6 +2056,15 @@ def _docker_container_size():
     except Exception:
         pass
     return ""
+
+
+class _DockerSizeThread(QThread):
+    """Fetch `du -sb` of the LibreTranslate volume in background so the
+    UI thread never blocks up to 5 s on a slow Docker daemon."""
+    done = Signal(str)
+
+    def run(self):
+        self.done.emit(_docker_container_size())
 
 
 class _DockerSetupThread(QThread):
@@ -3256,6 +3267,9 @@ _KEEPCAPS_SYS_CANDIDATES = [
     os.path.join(os.path.dirname(os.path.abspath(__file__)),
                  "short_text_keepcaps.conf.default"),
     "/usr/share/dictee/short_text_keepcaps.conf.default",
+    os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "short_text_keepcaps.conf.default"),
 ]
 
 
@@ -3481,6 +3495,14 @@ class KeepcapsDialog(QDialog):
     def _on_add(self):
         w = self.edit_add.text().strip()
         if not w:
+            return
+        # The "," separates expressions in the conf file — reject it here
+        # to avoid silent corruption on save/reload round-trip.
+        if "," in w:
+            QMessageBox.warning(
+                self, "dictee",
+                _("An expression cannot contain a comma.\n"
+                  "Commas are used as separators in the config file."))
             return
         entry = self._state[self._current_lang]
         lc = w.lower()
@@ -7393,21 +7415,34 @@ class DicteeSetupDialog(QDialog):
         _keepcaps_sep.setFrameShadow(QFrame.Shadow.Sunken)
         lay.addWidget(_keepcaps_sep)
 
-        # Shared Exceptions row — between the two PP masters and the
-        # diarization warning. Layout: [Exceptions toggle] [Exceptions… button]
-        # [Extended match toggle] — dialog covers all langs via its own combo.
-        _keepcaps_row = QHBoxLayout()
-        _keepcaps_row.setContentsMargins(0, 4, 0, 4)
-        _keepcaps_row.setSpacing(8)
-        _keepcaps_row.addWidget(self.chk_pp_keepcaps)
-        _keepcaps_row.addWidget(self.btn_pp_keepcaps)
-        _keepcaps_row.addWidget(self.chk_pp_keepcaps_ext)
+        # Shared Exceptions block — between the two PP masters and the
+        # diarization warning. Two rows stacked:
+        #   Row 1: [Exceptions toggle] [Exceptions… button]  Hint label
+        #   Row 2: indented [Extended match toggle]
+        _keepcaps_block = QVBoxLayout()
+        _keepcaps_block.setContentsMargins(0, 4, 0, 4)
+        _keepcaps_block.setSpacing(2)
+
+        _keepcaps_row1 = QHBoxLayout()
+        _keepcaps_row1.setContentsMargins(0, 0, 0, 0)
+        _keepcaps_row1.setSpacing(8)
+        _keepcaps_row1.addWidget(self.chk_pp_keepcaps)
+        _keepcaps_row1.addWidget(self.btn_pp_keepcaps)
         _keepcaps_lbl = QLabel(_(
             "Shared source + target. Words from the list keep their capital."))
         _keepcaps_lbl.setStyleSheet("color: #888; font-style: italic;")
         _keepcaps_lbl.setWordWrap(True)
-        _keepcaps_row.addWidget(_keepcaps_lbl, 1)
-        lay.addLayout(_keepcaps_row)
+        _keepcaps_row1.addWidget(_keepcaps_lbl, 1)
+        _keepcaps_block.addLayout(_keepcaps_row1)
+
+        _keepcaps_row2 = QHBoxLayout()
+        _keepcaps_row2.setContentsMargins(28, 0, 0, 0)  # indent
+        _keepcaps_row2.setSpacing(6)
+        _keepcaps_row2.addWidget(self.chk_pp_keepcaps_ext)
+        _keepcaps_row2.addStretch(1)
+        _keepcaps_block.addLayout(_keepcaps_row2)
+
+        lay.addLayout(_keepcaps_block)
         self._update_keepcaps_enabled()
 
         # Diarization note: explicit, visible once on the PP page.
@@ -12621,9 +12656,16 @@ class DicteeSetupDialog(QDialog):
         if docker_container_running():
             port_text = self.spin_lt_port.currentText()
             port = int(port_text) if port_text.isdigit() else 5000
-            # Taille du conteneur (image + données modèles)
-            size_info = _docker_container_size()
+            # Use cached size (updated asynchronously by _DockerSizeThread)
+            # so the UI thread never blocks on `docker exec du -sb`.
+            size_info = getattr(self, '_lt_last_size', '')
             size_str = f" — {size_info}" if size_info else ""
+            # Trigger async size fetch (no-op if one is already running)
+            _existing = getattr(self, '_lt_size_thread', None)
+            if _existing is None or not _existing.isRunning():
+                self._lt_size_thread = _DockerSizeThread()
+                self._lt_size_thread.done.connect(self._on_lt_size_fetched)
+                self._lt_size_thread.start()
             status_html = (
                 '<span style="color: green;">✓ ' +
                 _("LibreTranslate running on port {port}").format(port=port) +
@@ -12688,6 +12730,8 @@ class DicteeSetupDialog(QDialog):
             self.btn_lt_start.setVisible(True)
             self.btn_lt_stop.setVisible(False)
             self.btn_lt_purge.setVisible(False)
+            # Container stopped → next start may change size; clear cache
+            self._lt_last_size = ""
 
         # Polling périodique : voir la taille du conteneur grossir pendant que
         # LibreTranslate télécharge les modèles après un restart avec nouvelles langues
@@ -12828,6 +12872,14 @@ class DicteeSetupDialog(QDialog):
         dlg = KeepcapsDialog(self)
         # Qt modal dialog show
         getattr(dlg, "exec")()
+
+    def _on_lt_size_fetched(self, size):
+        """Called from _DockerSizeThread when a new size reading is available.
+        Re-renders the status label only if the value actually changed."""
+        if size != getattr(self, '_lt_last_size', ''):
+            self._lt_last_size = size
+            # Refresh status label with the new cached size
+            self._check_lt_status()
 
     def _on_setup_docker(self):
         _dbg_setup("_on_setup_docker")

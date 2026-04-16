@@ -1461,6 +1461,12 @@ if [ -f "$PIDFILE" ]; then
                     DICTEE_PP_TYPOGRAPHY="$_trpp_ty" \
                     dictee-postprocess 2>>/tmp/dictee-postprocess.log)
                 if [ -n "$_trpp_out" ]; then
+                    # Strip the \x03 keepcaps marker — it is only meaningful
+                    # on the source-language pass (consumed by apply_continuation
+                    # above), never on the translated text that goes straight
+                    # to type_text/clipboard. Without this, an ETX byte would
+                    # appear in the document for every translated greeting.
+                    _trpp_out="${_trpp_out#$'\x03'}"
                     translated="$_trpp_out"
                 fi
             fi

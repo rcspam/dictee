@@ -385,7 +385,9 @@ def fix_short_text(text, keepcaps=None, extended=False):
     # Accent-insensitive match (ASR sometimes drops accents).
     if keepcaps:
         _has_x02 = "\x02" in stripped
-        _base = stripped.rstrip("\x02")
+        # Strip ALL \x02 markers (defensive: the rules always place them at
+        # the tail after ".", but don't depend on that position).
+        _base = stripped.replace("\x02", "")
         _tail_m = re.search(r"[\s\u00a0\u202f]*[,.!?;:]$", _base)
         if _tail_m:
             _tail = _base[_tail_m.start():]

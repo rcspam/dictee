@@ -1963,6 +1963,45 @@ class TestShortTextKeepcaps(unittest.TestCase):
         # "cher" in 2nd position → NOT triggered (only first-word match).
         self.assertEqual(run_postprocess("table cher", lang="fr"), "table cher")
 
+    # --- Extended mode (DICTEE_PP_KEEPCAPS_EXTENDED) ---
+
+    def test_extended_full_match_long_text_emits_marker(self):
+        # "je vous prie de croire" (6 words) = full-list FR entry.
+        # Extended ON → \x03 emitted, treated as keepcaps regardless of length.
+        result = run_postprocess(
+            "je vous prie de croire", lang="fr",
+            keep_markers=True,
+            env_extra={"DICTEE_PP_KEEPCAPS_EXTENDED": "true"})
+        self.assertTrue(result.startswith("\x03"))
+
+    def test_extended_first_word_long_text_signal_only(self):
+        # First-word "bonjour" matches but text is long → emit \x03 signal
+        # without altering the text (the bash side consumes it).
+        result = run_postprocess(
+            "bonjour mes amis comment allez-vous", lang="fr",
+            keep_markers=True,
+            env_extra={"DICTEE_PP_KEEPCAPS_EXTENDED": "true"})
+        self.assertTrue(result.startswith("\x03"))
+        self.assertIn("bonjour mes amis", result.lower())
+
+    def test_extended_disabled_no_marker_on_long_text(self):
+        # With extended=false, long text → no \x03 emitted at all.
+        result = run_postprocess(
+            "je vous prie de croire", lang="fr",
+            keep_markers=True,
+            env_extra={"DICTEE_PP_KEEPCAPS_EXTENDED": "false"})
+        self.assertFalse(result.startswith("\x03"))
+
+    def test_keepcaps_master_off_no_marker(self):
+        # Master toggle off → keepcaps fully disabled, standard short-text
+        # behavior (lowercase + strip trailing punct).
+        result = run_postprocess(
+            "Bonjour.", lang="fr",
+            keep_markers=True,
+            env_extra={"DICTEE_PP_KEEPCAPS": "false"})
+        self.assertFalse(result.startswith("\x03"))
+        self.assertEqual(result, "bonjour")
+
 
 class TestShortTextRobustness(unittest.TestCase):
     """Tests robustesse pour la correction de texte court (< 3 mots).
