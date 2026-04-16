@@ -644,14 +644,14 @@ class TestPipelineStepIsolation(unittest.TestCase):
         self.assertTrue(r.output[0].isupper())
 
     def test_short_text_only(self):
-        """Only DICTEE_PP_SHORT_TEXT=true."""
+        """Only DICTEE_PP_SHORT_TEXT=true. Use "Maison" — not in keepcaps."""
         r = run_pipeline(
-            "Bonjour.",
+            "Maison.",
             lang_src="fr",
             pp_env=self._env_only("DICTEE_PP_SHORT_TEXT"),
         )
         # Short text: < 3 words → lowercase + strip trailing punct
-        self.assertEqual(r.output, "bonjour")
+        self.assertEqual(r.output, "maison")
 
     def test_language_rules_only(self):
         """Only DICTEE_PP_LANGUAGE_RULES=true."""
@@ -815,9 +815,9 @@ class TestPipelineShortText(unittest.TestCase):
     """Short text correction (< 3 words)."""
 
     def test_short_text_single_word(self):
-        """'Bonjour.' → 'bonjour' (lowercase, no period)."""
-        r = run_pipeline("Bonjour.", lang_src="fr")
-        self.assertEqual(r.output, "bonjour")
+        """Short text on a non-keepcaps word: "Maison." → "maison"."""
+        r = run_pipeline("Maison.", lang_src="fr")
+        self.assertEqual(r.output, "maison")
 
     def test_short_text_two_words(self):
         """'Très bien.' → 'très bien'."""
@@ -831,25 +831,22 @@ class TestPipelineShortText(unittest.TestCase):
         self.assertTrue(r.output[0].isupper())
 
     def test_short_text_translated(self):
-        """After translate, short text fix on target lang."""
-        # "Bonjour." → PP short text → "bonjour" (lowercase, no period)
-        # → translate("bonjour") → mock doesn't have lowercase key → [EN] fallback
-        # Use a custom translate_fn to handle this
-        def translate_lc(text, src, tgt):
-            if text.strip().lower() == "bonjour":
-                return "Hello", ""
+        """After translate, short text fix on target lang (non-keepcaps word)."""
+        def translate_maison(text, src, tgt):
+            if text.strip().lower() == "maison":
+                return "House", ""
             return mock_translate(text, src, tgt)
 
         r = run_pipeline(
-            "Bonjour.",
+            "Maison.",
             mode="full_chain",
             lang_src="fr",
             lang_tgt="en",
-            translate_fn=translate_lc,
+            translate_fn=translate_maison,
         )
-        # "Bonjour." → PP → "bonjour" → translate → "Hello"
-        # → TRPP: "Hello" is 1 word, short text → "hello"
-        self.assertEqual(r.output, "hello")
+        # "Maison." → PP → "maison" → translate → "House"
+        # → TRPP: "House" is 1 word, not in keepcaps, short text → "house"
+        self.assertEqual(r.output, "house")
 
     def test_short_text_preserves_acronyms(self):
         """Short text should preserve ALL CAPS words."""

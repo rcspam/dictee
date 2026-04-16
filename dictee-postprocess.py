@@ -364,20 +364,54 @@ def fix_short_text(text, keepcaps=None):
     words = stripped.split()
     if len(words) >= _SHORT_TEXT_MAX_WORDS:
         return text
-    # Exception list: if the stripped text (minus forced end-of-sentence
-    # marker \x02 from "point final", trailing punctuation, and French
-    # NNBSP/NBSP inserted before high punctuation) matches a keepcaps
-    # entry, skip the whole short-text logic. Match is accent-insensitive
-    # because ASR engines sometimes drop accents ("a demain" vs "à demain").
-    # A \x03 marker is prepended so that dictee bash's apply_continuation
-    # knows not to lowercase this word in the "_" (no-punctuation) branch.
+    # Exception list: if the stripped text (minus trailing punctuation
+    # and French NNBSP/NBSP) matches a keepcaps entry, emit:
+    #   \x03 + <first-char-uppercased core> + <explicit-punct tail>
+    # Rules for the tail:
+    #   - \x02 marker (internal "point final") is ALWAYS dropped.
+    #   - "." is dropped UNLESS \x02 was present (ASR often auto-inserts
+    #     a period; we only keep it when the user explicitly said
+    #     "point final"); in that case the "." is restored without \x02.
+    #   - "," ";" ":" "!" "?" are always kept — they only appear via
+    #     explicit voice commands ("virgule", "point d'exclamation"…).
+    #   - Surrounding NNBSP/NBSP (from FR typography) preserved with them.
+    # Accent-insensitive match (ASR sometimes drops accents).
+    # The \x03 marker tells dictee bash's apply_continuation not to
+    # lowercase in the "_" branch.
     if keepcaps:
-        _probe = stripped.rstrip("\x02")
-        if _probe and _probe[-1] in ".!?,;:":
-            _probe = _probe[:-1]
-        _probe = _probe.rstrip()  # strip NNBSP, NBSP, plain space
-        if _normalize_keepcaps(_probe) in keepcaps:
-            return "\x03" + text
+        _has_x02 = "\x02" in stripped
+        _base = stripped.rstrip("\x02")
+        _tail_m = re.search(r"[\s\u00a0\u202f]*[,.!?;:]$", _base)
+        if _tail_m:
+            _tail = _base[_tail_m.start():]
+            _core = _base[:_tail_m.start()].rstrip()
+        else:
+            _tail = ""
+            _core = _base.rstrip()
+        # Full-text match: "bonjour", "bonne nuit", "au revoir"…
+        # OR first-word match: "cher ami" / "bonjour, monsieur" → keepcaps
+        # matches the first word alone, preserve its uppercase while leaving
+        # the rest untouched. Trailing punct on the first word ("bonjour,")
+        # is stripped before matching.
+        _match = False
+        if _core:
+            if _normalize_keepcaps(_core) in keepcaps:
+                _match = True
+            else:
+                _parts = _core.split(maxsplit=1)
+                if _parts:
+                    _first = _parts[0].rstrip(",.!?;:")
+                    if _normalize_keepcaps(_first) in keepcaps:
+                        _match = True
+        if _match:
+            out = _core[0].upper() + _core[1:] if _core[0].islower() else _core
+            if _tail:
+                _last = _tail[-1]
+                if _last == "." and not _has_x02:
+                    pass  # ASR auto-period → drop
+                else:
+                    out = out + _tail
+            return "\x03" + out
     # Remove trailing punctuation
     if text and text[-1] in ".!?,":
         text = text[:-1]

@@ -1865,17 +1865,22 @@ class TestShortTextKeepcaps(unittest.TestCase):
     def test_fr_bonjour_kept(self):
         self.assertEqual(self._clean(run_postprocess("Bonjour", lang="fr")), "Bonjour")
 
-    def test_fr_bonjour_with_period_kept(self):
-        self.assertEqual(self._clean(run_postprocess("Bonjour.", lang="fr")), "Bonjour.")
+    def test_fr_bonjour_with_period_stripped(self):
+        # Keepcaps emits the canonical form: no trailing punct, first char
+        # uppercased. "Bonjour." → "Bonjour".
+        self.assertEqual(self._clean(run_postprocess("Bonjour.", lang="fr")), "Bonjour")
 
     def test_fr_bonjour_case_insensitive_match(self):
-        # "bonjour" already lowercase → no change (keepcaps has nothing to
-        # undo), but still matches the exception and doesn't get stripped.
-        self.assertEqual(self._clean(run_postprocess("bonjour.", lang="fr")), "Bonjour.")
+        # "bonjour." lowercase input → "Bonjour" (trailing punct stripped,
+        # first char uppercased).
+        self.assertEqual(self._clean(run_postprocess("bonjour.", lang="fr")), "Bonjour")
 
-    def test_fr_merci_kept(self):
-        # FR typography inserts NNBSP (U+202F) before ! → "Merci\u202f!"
-        self.assertEqual(self._clean(run_postprocess("Merci!", lang="fr")), "Merci\u202f!")
+    def test_fr_merci_explicit_exclamation_kept(self):
+        # "!" is always an explicit voice command ("point d'exclamation") so
+        # it is preserved, along with the NNBSP inserted by FR typography.
+        self.assertEqual(
+            self._clean(run_postprocess("Merci!", lang="fr")),
+            "Merci\u202f!")
 
     def test_en_hello_kept(self):
         self.assertEqual(self._clean(run_postprocess("Hello", lang="en")), "Hello")
@@ -1891,15 +1896,26 @@ class TestShortTextKeepcaps(unittest.TestCase):
         # "Maison" is not in FR keepcaps → short text lowercases.
         self.assertEqual(run_postprocess("Maison.", lang="fr"), "maison")
 
-    def test_fr_keepcaps_survives_point_final(self):
-        # "point final" voice command produces "." + \x02 (force end-of-sentence).
-        # The \x02 marker must be stripped before the keepcaps lookup, otherwise
-        # "Bonjour.\x02" never matches "bonjour" and gets lowercased.
+    def test_fr_keepcaps_point_final_keeps_period(self):
+        # "point final" is an explicit voice command → keep the period (but
+        # strip the internal \x02 marker).
         result = run_postprocess(
             "bonjour point final", lang="fr",
             env_extra={"DICTEE_COMMAND_SUFFIX_FR": "final"})
-        # Strip keepcaps marker and \x02 (end-of-sentence) — both are internal.
-        self.assertEqual(self._clean(result).rstrip("\x02"), "Bonjour.")
+        self.assertEqual(self._clean(result), "Bonjour.")
+
+    def test_fr_keepcaps_virgule_kept(self):
+        # "," is always an explicit voice command → preserved.
+        self.assertEqual(
+            self._clean(run_postprocess("mesdames virgule", lang="fr")),
+            "Mesdames,")
+
+    def test_fr_keepcaps_auto_period_stripped(self):
+        # ASR may auto-append "." at sentence end without the user saying
+        # "point final". Without \x02 marker, that "." is dropped.
+        self.assertEqual(
+            self._clean(run_postprocess("Bonjour.", lang="fr")),
+            "Bonjour")
 
     def test_fr_au_revoir_kept(self):
         self.assertEqual(self._clean(run_postprocess("Au revoir", lang="fr")), "Au revoir")
@@ -1915,6 +1931,28 @@ class TestShortTextKeepcaps(unittest.TestCase):
     def test_keepcaps_marker_absent_when_no_match(self):
         # No keepcaps match → no marker
         self.assertFalse(run_postprocess("Maison", lang="fr").startswith("\x03"))
+
+    def test_fr_first_word_keepcaps_cher_ami(self):
+        # "cher" is in keepcaps, "ami" is not. First-word match preserves
+        # the uppercase on "cher" while leaving "ami" as-is.
+        self.assertEqual(self._clean(run_postprocess("cher ami", lang="fr")), "Cher ami")
+
+    def test_fr_first_word_keepcaps_chere_isabelle(self):
+        self.assertEqual(
+            self._clean(run_postprocess("chère Isabelle", lang="fr")),
+            "Chère Isabelle")
+
+    def test_fr_first_word_keepcaps_drops_auto_period(self):
+        self.assertEqual(self._clean(run_postprocess("cher ami.", lang="fr")), "Cher ami")
+
+    def test_fr_first_word_keepcaps_keeps_virgule(self):
+        self.assertEqual(
+            self._clean(run_postprocess("cher ami virgule", lang="fr")),
+            "Cher ami,")
+
+    def test_fr_second_word_keepcaps_ignored(self):
+        # "cher" in 2nd position → NOT triggered (only first-word match).
+        self.assertEqual(run_postprocess("table cher", lang="fr"), "table cher")
 
 
 class TestShortTextRobustness(unittest.TestCase):
@@ -3889,9 +3927,9 @@ class TestShortTextEdgeCases(unittest.TestCase):
         self.assertEqual(result, "voiture")
 
     def test_two_words_lowercase(self):
-        """Two words → lowercase, no trailing punct."""
-        result = run_postprocess("Bonjour monde.", lang="fr")
-        self.assertEqual(result, "bonjour monde")
+        """Two words → lowercase, no trailing punct (hors keepcaps)."""
+        result = run_postprocess("Maison verte.", lang="fr")
+        self.assertEqual(result, "maison verte")
 
     def test_three_words_not_short(self):
         """Three words (= max default 3) → NOT short (threshold is strict <)."""
