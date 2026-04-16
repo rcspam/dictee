@@ -37,20 +37,20 @@
 # 3a. Combined punctuation+newline (BEFORE simple punctuation)
 # "à la ligne" alone is too ambiguous ("la pêche à la ligne" = fishing line)
 # Text form (ASR without native punctuation)
-[fr] /[,.\s]*point d'interrogation (?:à )?la ligne[,.\s]*/?\n/ig
-[fr] /[,.\s]*point d'exclamation (?:à )?la ligne[,.\s]*/!\n/ig
-[fr] /[,.\s]*points? de suspension (?:à )?la ligne[,.\s]*/…\n/ig
-[fr] /[,.\s]*deux points (?:à )?la ligne[,.\s]*/:\n/ig
-[fr] /[,.\s]*point virgule (?:à )?la ligne[,.\s]*/;\n/ig
-[fr] /[,.\s]*virgule (?:à )?la ligne[,.\s]*/,\n/ig
-[fr] /[,.\s]*point (?:à )?la ligne[,.\s]*/.\n/ig
+[fr] /[,.\s]*point d'interrogation (?:[à|a] )?la ligne[,.\s]*/?\n/ig
+[fr] /[,.\s]*point d'exclamation (?:[à|a] )?la ligne[,.\s]*/!\n/ig
+[fr] /[,.\s]*points? de suspension (?:[à|a] )?la ligne[,.\s]*/…\n/ig
+[fr] /[,.\s]*deux points (?:[à|a] )?la ligne[,.\s]*/:\n/ig
+[fr] /[,.\s]*point virgule (?:[à|a] )?la ligne[,.\s]*/;\n/ig
+[fr] /[,.\s]*virgule (?:[à|a] )?la ligne[,.\s]*/,\n/ig
+[fr] /[,.\s]*point (?:[à|a] )?la ligne[,.\s]*/.\n/ig
 # Symbol form (Parakeet converts punctuation natively)
-[fr] /\s*:\s*(?:à )?la ligne[,.\s]*/:\n/ig
-[fr] /\s*;\s*(?:à )?la ligne[,.\s]*/;\n/ig
-[fr] /\s*\?\s*(?:à )?la ligne[,.\s]*/?\n/ig
-[fr] /\s*!\s*(?:à )?la ligne[,.\s]*/!\n/ig
-[fr] /\s*,\s*(?:à )?la ligne[,.\s]*/,\n/ig
-[fr] /\s*\.\s*(?:à )?la ligne[,.\s]*/.\n/ig
+[fr] /\s*:\s*(?:[à|a] )?la ligne[,.\s]*/:\n/ig
+[fr] /\s*;\s*(?:[à|a] )?la ligne[,.\s]*/;\n/ig
+[fr] /\s*\?\s*(?:[à|a] )?la ligne[,.\s]*/?\n/ig
+[fr] /\s*!\s*(?:[à|a] )?la ligne[,.\s]*/!\n/ig
+[fr] /\s*,\s*(?:[à|a] )?la ligne[,.\s]*/,\n/ig
+[fr] /\s*\.\s*(?:[à|a] )?la ligne[,.\s]*/.\n/ig
 # "à la ligne" alone only at start of text/line (not mid-sentence)
 [fr] /^[,.\s]*(?:[àÀaA] )?la ligne[,.\s]*/\n/igm
 # Parakeet misdetects "à la ligne" as Cyrillic on short audio
@@ -104,7 +104,7 @@
 [fr] /[,.\s]*tire[tz][,.\s]*/- /ig
 # 3c. Line breaks
 [fr] /[,.\s]*(?:nouveau|nouvel|nouveaux) (?:paragraphe|alinéa)[,.\s]*/\n\n/ig
-[fr] /[,.\s]*(?:retour (?:à )?la ligne|saut de ligne)[,.\s]*/\n/ig
+[fr] /[,.\s]*(?:retour (?:[àa] )?la ligne|saut de ligne)[,.\s]*/\n/ig
 # 3d. Markdown — Parakeet may transcribe "dièse" as text, "dièz", or "#"
 # Repeated forms
 [fr] /[,.\s]*(?:di[èeéa][sz]?e?|#)[,.\s]*(?:di[èeéa][sz]?e?|#)[,.\s]*(?:di[èeéa][sz]?e?|#)[,.\s]*espaces?[,.\s]*/### /ig
@@ -130,9 +130,9 @@
 [en] /\s*,\s*(?:new|next) line[,.\s]*/,\n/ig
 [en] /\s*\.\s*(?:new|next) line[,.\s]*/.\n/ig
 # 3b. Non-ambiguous commands (no suffix needed)
-[en] /[,.\s]*\bquestion mark\b[,.\s]*/?/ig
-[en] /[,.\s]*\b(?:exclamation (?:mark|point))\b[,.\s]*/!/ig
-[en] /[,.\s]*\b(?:ellipsis|dot dot dot|three dots)\b[,.\s]*/…/ig
+[en] /[,.\s]*\bquestion mark\b[,.\s]*/? /ig
+[en] /[,.\s]*\b(?:exclamation (?:mark|point))\b[,.\s]*/! /ig
+[en] /[,.\s]*\b(?:ellipsis|dot dot dot|three dots)\b[,.\s]*/… /ig
 # Non-ambiguous commands (no suffix needed)
 [en] /[,.\s]*\bsemicolon\b[,.\s]*/; /ig
 [en] /[,.\s]*\bcomma\b[,.\s]*/, /ig
