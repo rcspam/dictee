@@ -1063,7 +1063,7 @@ def llm_postprocess(text):
         "prompt": text,
         "stream": False,
     }
-    if _os.environ.get("OLLAMA_NUM_GPU") == "0":
+    if os.environ.get("OLLAMA_NUM_GPU") == "0":
         _payload_dict["options"] = {"num_gpu": 0}
     payload = _json.dumps(_payload_dict).encode("utf-8")
 
