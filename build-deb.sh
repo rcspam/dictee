@@ -232,8 +232,13 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 
-    # Cleanup CUDA libs for CPU build (keep shared scripts/modules)
-    rm -f "$PKG_DIR/usr/lib/dictee/"*.so "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
+    # Cleanup CUDA libs for CPU build (keep shared scripts/modules).
+    # Glob *.so* catches libcudart.so.12 / libcufft.so.11 too (the plain
+    # *.so only matches libonnxruntime.so, leaving 278 MB of CUDA libs
+    # behind inside the CPU .deb).
+    rm -f "$PKG_DIR/usr/lib/dictee/"*.so \
+          "$PKG_DIR/usr/lib/dictee/"*.so.* \
+          "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
     echo "Built: dictee-cuda_${VERSION}_amd64.deb"
 }
 
