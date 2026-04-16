@@ -767,8 +767,92 @@ except ImportError:
 _TEXT2NUM_LANGS = frozenset({'fr', 'en', 'es', 'pt', 'de', 'it', 'nl'})
 
 
+# Small number words per language — for version numbers like "1.3.0".
+# text_to_num does NOT reliably convert "un"/"one"/"zéro" in isolation
+# (ambiguity with indefinite article / silent zero).
+_VERSION_WORDS = {
+    "fr": {
+        "zéro": "0", "zero": "0",
+        "un": "1", "une": "1",
+        "deux": "2", "trois": "3", "quatre": "4", "cinq": "5",
+        "six": "6", "sept": "7", "huit": "8", "neuf": "9",
+        "dix": "10",
+    },
+    "en": {
+        "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+        "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+        "ten": "10",
+    },
+    "de": {
+        "null": "0", "eins": "1", "ein": "1", "eine": "1", "zwei": "2",
+        "drei": "3", "vier": "4", "fünf": "5", "sechs": "6",
+        "sieben": "7", "acht": "8", "neun": "9", "zehn": "10",
+    },
+    "es": {
+        "cero": "0", "uno": "1", "una": "1", "un": "1", "dos": "2",
+        "tres": "3", "cuatro": "4", "cinco": "5", "seis": "6",
+        "siete": "7", "ocho": "8", "nueve": "9", "diez": "10",
+    },
+    "it": {
+        "zero": "0", "uno": "1", "una": "1", "un": "1", "due": "2",
+        "tre": "3", "quattro": "4", "cinque": "5", "sei": "6",
+        "sette": "7", "otto": "8", "nove": "9", "dieci": "10",
+    },
+    "pt": {
+        "zero": "0", "um": "1", "uma": "1", "dois": "2", "duas": "2",
+        "três": "3", "quatro": "4", "cinco": "5", "seis": "6",
+        "sete": "7", "oito": "8", "nove": "9", "dez": "10",
+    },
+}
+
+# Word for "point" (the version separator) per language.
+_VERSION_POINT_WORDS = {
+    "fr": "point",
+    "en": "point",  # "dot" covered by dedicated rule elsewhere
+    "de": "punkt",
+    "es": "punto",
+    "it": "punto",
+    "pt": "ponto",
+}
+
+
+def _convert_version_number(text):
+    """Turn "X point Y point Z" → "X.Y.Z" when the tokens are small
+    numbers (word or digit). Safe against prose: requires a number-like
+    token on BOTH sides of each "point", so "un point de vue" is not
+    rewritten."""
+    words = _VERSION_WORDS.get(LANG)
+    point_word = _VERSION_POINT_WORDS.get(LANG)
+    if not words or not point_word:
+        return text
+    alts = "|".join(sorted(map(re.escape, words.keys()),
+                           key=len, reverse=True))
+    num_re = rf"(?:{alts}|\d+)"
+    # At least one "point" separator between two number tokens; may repeat.
+    pattern = re.compile(
+        rf"\b({num_re})(?:\s+{re.escape(point_word)}\s+(?:{num_re}))+\b",
+        re.IGNORECASE)
+
+    def _replace(m):
+        tokens = re.split(rf"\s+{re.escape(point_word)}\s+",
+                          m.group(0), flags=re.IGNORECASE)
+        digits = []
+        for tok in tokens:
+            low = tok.lower()
+            if low in words:
+                digits.append(words[low])
+            elif tok.isdigit():
+                digits.append(tok)
+            else:
+                return m.group(0)  # unexpected, keep verbatim
+        return ".".join(digits)
+
+    return pattern.sub(_replace, text)
+
+
 def convert_numbers(text):
     """Convertit les nombres en toutes lettres en chiffres."""
+    text = _convert_version_number(text)
     if not _HAS_TEXT2NUM or LANG not in _TEXT2NUM_LANGS:
         return text
     try:
