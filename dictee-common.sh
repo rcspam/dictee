@@ -35,6 +35,22 @@ if [ "${DICTEE_DEBUG:-}" != "true" ] && [ -f "$DICTEE_CONF" ]; then
 fi
 export DICTEE_DEBUG="${DICTEE_DEBUG:-false}"
 
+# Detect GNOME Shell (includes Ubuntu's default session).
+_is_gnome_shell() {
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        *GNOME*|*gnome*) return 0 ;;
+    esac
+    case "${DESKTOP_SESSION:-}" in
+        *gnome*|*ubuntu*) return 0 ;;
+    esac
+    return 1
+}
+
+# Strip HTML tags for plain-text display (used when merging body into summary).
+_strip_html() {
+    printf '%s' "$1" | sed -E 's/<[^>]*>//g'
+}
+
 # Read notification settings live from conf (called by notify_dictee)
 _read_notify_conf() {
     if [ -f "$DICTEE_CONF" ]; then
@@ -83,6 +99,14 @@ notify_dictee() {
     fi
     # Strip body text if text display disabled
     if [ "${DICTEE_NOTIFICATIONS_TEXT:-true}" = "false" ]; then body=""; fi
+    # GNOME Shell only shows the Summary on banners — the Body stays hidden in
+    # the notification tray. Merge body into summary so the user sees the full
+    # transcribed text inline (like KDE does natively).
+    if [ -n "$body" ] && _is_gnome_shell; then
+        body=$(_strip_html "$body")
+        msg="$msg  —  $body"
+        body=""
+    fi
     _dbg "notify: timeout=$timeout icon=$icon msg='$msg' body='${body:0:80}'"
     # Read server ID from previous async notification if available
     if [ -f "$_NOTIFY_SID_FILE" ]; then
@@ -111,6 +135,12 @@ notify_dictee_async() {
     fi
     # Strip body text if text display disabled
     if [ "${DICTEE_NOTIFICATIONS_TEXT:-true}" = "false" ]; then body=""; fi
+    # Same GNOME merge logic as notify_dictee (see above).
+    if [ -n "$body" ] && _is_gnome_shell; then
+        body=$(_strip_html "$body")
+        msg="$msg  —  $body"
+        body=""
+    fi
     _dbg "notify-async: timeout=$timeout icon=$icon msg='$msg'"
     (
         local _sid
