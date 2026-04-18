@@ -14954,21 +14954,28 @@ def main():
         # "clic bouton depuis le setup visible" qui fonctionne.
         QTimer.singleShot(0, dialog._open_postprocess_dialog)
     else:
+        # Anti-flicker on X11 — canonical Qt pattern.
+        # The blink is caused by the WM mapping the window BEFORE Qt has
+        # finished laying out and painting it, so the compositor briefly
+        # shows stale framebuffer content (terminal text, etc.).
+        # Trick (from Qt forum): show() the dialog with WA_DontShowOnScreen
+        # so Qt fully lays it out OFF SCREEN, process events, hide(), remove
+        # the attribute, then show() for real — all geometry is cached and
+        # the first real paint is immediate.
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        dialog.show()
+        for _ in range(10):
+            if not app.processEvents():
+                break
+        dialog.hide()
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
         # Center the window at its final geometry.
         _screen = app.primaryScreen()
         if _screen is not None:
             _geo = _screen.availableGeometry()
             dialog.move(_geo.center().x() - dialog.width() // 2,
                         _geo.center().y() - dialog.height() // 2)
-        # Anti-flicker on X11: when the WM maps the window Qt hasn't painted
-        # yet, so the compositor briefly shows stale framebuffer content from
-        # whatever was underneath (terminal, previous window). Trick: map the
-        # window fully transparent, let Qt finish its first paint pass via
-        # processEvents(), then fade in to full opacity.
-        dialog.setWindowOpacity(0.0)
         dialog.show()
-        app.processEvents()
-        dialog.setWindowOpacity(1.0)
     app.exec()
 
 
