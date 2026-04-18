@@ -50,84 +50,95 @@
 
 ## Installation
 
-Télécharger le `.deb` depuis les [Releases](../../releases), puis :
+### Installation en une commande (recommandée)
+
+L'installateur en ligne détecte automatiquement votre distribution et votre GPU, ajoute le dépôt NVIDIA CUDA si nécessaire, et installe le bon paquet :
 
 ```bash
-# Version GPU (nécessite le dépôt NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
-sudo dpkg -i dictee-cuda_1.2.0_amd64.deb
-
-# Version CPU (tout ordinateur, aucun dépôt supplémentaire requis)
-sudo dpkg -i dictee-cpu_1.2.0_amd64.deb
-
-# Installer les dépendances manquantes
-sudo apt-get install -f
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash
 ```
 
-> **Note :** La version GPU nécessite cuDNN provenant du [dépôt NVIDIA CUDA](#version-gpu--dépendances-nvidia-cuda), qui n'est pas inclus dans les dépôts standards Ubuntu/Fedora. Sans celui-ci, la version GPU fonctionnera en mode CPU uniquement.
+Fonctionne sur **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Bascule sur l'installateur tarball pour les autres distributions.
 
-**Fedora / openSUSE :**
+**Options** (à passer après `--`) :
 
 ```bash
-# Version GPU (NVIDIA CUDA — voir « Dépendances CUDA » ci-dessous)
-sudo dnf install ./dictee-cuda-1.2.0-1.x86_64.rpm
+# Forcer CPU (pas de détection GPU)
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --cpu
 
-# Version CPU (tout ordinateur)
-sudo dnf install ./dictee-cpu-1.2.0-1.x86_64.rpm
+# Forcer GPU (CUDA)
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --gpu
+
+# Installer une version spécifique
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --version 1.3.0
+
+# Mode non-interactif (auto-détection GPU, pas de prompts)
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --non-interactive
 ```
 
-**Arch Linux (AUR) :**
+---
 
-Un `PKGBUILD` est disponible à la racine du dépôt. Il compile depuis les sources et inclut tous les composants (x86_64 et aarch64).
+### Installation manuelle
 
-**aarch64 (ARM64) :**
+Télécharger le paquet depuis les [Releases](../../releases).
 
-Les paquets pré-compilés sont x86_64 uniquement. Sur aarch64 (Raspberry Pi 5, Ampere, etc.), compilez depuis les sources — voir ci-dessous. CUDA est limité aux NVIDIA Jetson sur cette architecture ; la plupart des utilisateurs utiliseront le mode CPU.
+**Ubuntu / Debian — GPU (NVIDIA) :**
+
+> ⚠ Le paquet GPU dépend de `libcudnn9-cuda-12`, disponible uniquement dans le dépôt APT NVIDIA CUDA. **Ajoutez-le d'abord**, sinon l'installation échouera.
+
+```bash
+# 1) Ajouter le dépôt NVIDIA CUDA (une fois pour toutes)
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+
+# 2) Installer dictee (toutes les dépendances se résolvent automatiquement)
+sudo apt install ./dictee-cuda_1.3.0_amd64.deb
+```
+
+> Remplacer `ubuntu2404` par votre version (`ubuntu2204`, `ubuntu2504`, …) — voir [dépôts NVIDIA CUDA](https://developer.download.nvidia.com/compute/cuda/repos/).
+
+**Ubuntu / Debian — CPU :**
+
+```bash
+sudo apt install ./dictee-cpu_1.3.0_amd64.deb
+```
+
+**Fedora / openSUSE — GPU :**
+
+```bash
+sudo dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora41/x86_64/cuda-fedora41.repo
+sudo dnf install ./dictee-cuda-1.3.0-1.x86_64.rpm
+```
+
+**Fedora / openSUSE — CPU :**
+
+```bash
+sudo dnf install ./dictee-cpu-1.3.0-1.x86_64.rpm
+```
+
+**Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clone + `makepkg -si`.
+
+**aarch64 (ARM64) :** pas de paquet pré-compilé — compilation depuis les sources. CUDA limité aux NVIDIA Jetson.
 
 **Autres distributions (.tar.gz) :**
 
 ```bash
-tar xzf dictee-1.2.0_amd64.tar.gz
-cd dictee-1.2.0
+tar xzf dictee-1.3.0_amd64.tar.gz
+cd dictee-1.3.0
 sudo ./install.sh
 ```
 
 **Depuis les sources :**
 
 ```bash
-tar xzf dictee-1.2.0-source.tar.gz
-cd dictee-1.2.0-source
+tar xzf dictee-1.3.0-source.tar.gz
+cd dictee-1.3.0-source
 cargo build --release --features sortformer
 sudo ./install.sh
 ```
 
-> Pour les instructions de compilation détaillées et les features Cargo, voir [docs/building.md](docs/building.md).
-
-### Version GPU : dépendances NVIDIA CUDA
-
-La version GPU (`dictee-cuda`) nécessite cuDNN, qui n'est **pas disponible** dans les dépôts standards Ubuntu/Fedora. Il faut ajouter le dépôt NVIDIA CUDA :
-
-**Ubuntu / Debian :**
-
-```bash
-wget -qO - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/3bf863cc.pub | \
-  sudo gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] \
-  https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/ /" | \
-  sudo tee /etc/apt/sources.list.d/cuda-ubuntu2404-x86_64.list
-sudo apt update
-sudo apt install libcudnn9-cuda-12
-```
-
-> Remplacer `ubuntu2404` par votre version (`ubuntu2204`, `ubuntu2504`, etc.). Voir [dépôts NVIDIA CUDA](https://developer.download.nvidia.com/compute/cuda/repos/).
-
-**Fedora :**
-
-```bash
-sudo dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora41/x86_64/cuda-fedora41.repo
-sudo dnf install libcudnn9-cuda-12
-```
-
-> Sans cuDNN, la version GPU fonctionne automatiquement en mode CPU. `dictee-setup` détectera le problème et vous guidera.
+> Instructions de compilation détaillées : [docs/building.md](docs/building.md).
 
 ---
 
