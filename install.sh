@@ -17,7 +17,9 @@
 set -euo pipefail
 
 REPO="rcspam/dictee"
-GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
+# Use /releases?per_page=1 (newest release, including prereleases) rather than
+# /releases/latest which skips prereleases — needed as long as 1.3.0 ships as beta.
+GITHUB_API="https://api.github.com/repos/${REPO}/releases?per_page=1"
 
 # ---- Colors ----
 if [[ -t 1 ]]; then
