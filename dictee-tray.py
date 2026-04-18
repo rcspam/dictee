@@ -675,6 +675,13 @@ class DicteeTrayAppIndicator:
         self._check_daemon()
         self._check_state()
         self._apply_state()
+        # Refresh sensitive/checked state of the ASR/translate submenus so
+        # newly-installed backends (user just ran « Install Whisper » from
+        # dictee-setup) become selectable without restarting the tray.
+        # The menu.show signal only fires when the menu is opened, which
+        # misses the case where the user installs something while the menu
+        # is closed.
+        self._refresh_backend_radios()
         # Re-setup file watch si perdu
         self._setup_file_watch()
         return True  # GLib.SOURCE_CONTINUE
@@ -1097,6 +1104,10 @@ class DicteeTrayQt:
             self._watcher.addPath(STATE_FILE)
         self._check_state()
         self._apply_state()
+        # Refresh the ASR/translate submenu state (enabled/checked) so newly-
+        # installed engines appear selectable without restarting the tray.
+        self._refresh_asr_menu()
+        self._refresh_trans_menu()
 
     def _poll_daemon_start_qt(self):
         self._start_retries += 1
