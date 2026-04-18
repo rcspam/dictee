@@ -13294,6 +13294,61 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 
+    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None):
+        """Return (ok, error_message) for the given ASR backend.
+        Checks that the engine is actually installed AND that at least one
+        language/model for it is available. Parakeet is always considered
+        ready (it ships with the dictee package)."""
+        if backend == "parakeet":
+            return True, ""
+        if backend == "canary":
+            # Canary uses the transcribe-daemon binary shared with parakeet.
+            # It also needs the CUDA providers for reasonable speed.
+            if not os.path.isdir("/usr/share/dictee/canary") \
+                    and not os.path.isfile(
+                        os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")):
+                return False, _(
+                    "The Canary model is not installed.\n\n"
+                    "Download it from the ASR backend page before enabling Canary.")
+            if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
+                return False, _(
+                    "Canary requires the CUDA build of dictee "
+                    "(dictee-cuda .deb / .rpm).\n\n"
+                    "On a CPU-only install, Canary is too slow to be usable.")
+            return True, ""
+        if backend == "vosk":
+            if not venv_is_installed(VOSK_VENV):
+                return False, _(
+                    "Vosk is not installed.\n\n"
+                    "Click « Install Vosk » on the ASR backend page before enabling it.")
+            if not self._any_model_installed("vosk"):
+                return False, _(
+                    "Vosk is installed, but no language model has been downloaded.\n\n"
+                    "Select a language in the Vosk combo box and click Download.")
+            # Also require the currently selected lang to be installed
+            if vosk_lang and not self._vosk_model_installed(vosk_lang):
+                return False, _(
+                    "The Vosk model for « {lang} » is not downloaded yet.\n\n"
+                    "Pick it in the combo box and click Download, or choose a language "
+                    "whose model is already installed.").format(lang=vosk_lang)
+            return True, ""
+        if backend == "whisper":
+            if not venv_is_installed(WHISPER_VENV):
+                return False, _(
+                    "faster-whisper is not installed.\n\n"
+                    "Click « Install Whisper » on the ASR backend page before enabling it.")
+            if not self._any_model_installed("whisper"):
+                return False, _(
+                    "Whisper is installed, but no model has been downloaded.\n\n"
+                    "Pick a Whisper model (small / turbo / large-v3…) and click Download.")
+            if whisper_model and not self._whisper_model_cached(whisper_model):
+                return False, _(
+                    "The Whisper model « {model} » is not downloaded yet.\n\n"
+                    "Click Download next to it, or choose a model that is already "
+                    "available.").format(model=whisper_model)
+            return True, ""
+        return True, ""
+
     def _any_model_installed(self, name):
         """Returns True if at least one model is installed for the given engine."""
         if name == "vosk":
@@ -14635,6 +14690,16 @@ class DicteeSetupDialog(QDialog):
         whisper_model = self.cmb_whisper_model.currentData() or "small"
         whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
+
+        # Guard: refuse to save an ASR backend that is not actually usable.
+        # Without this, the user can pick Vosk/Whisper/Canary, click Apply,
+        # and end up with DICTEE_ASR_BACKEND set in dictee.conf pointing to
+        # an engine that can't start → transcription silently fails on F9.
+        _ready_ok, _ready_msg = self._asr_backend_ready(
+            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model)
+        if not _ready_ok:
+            QMessageBox.warning(self, _("ASR backend not ready"), _ready_msg)
+            return
 
         # Audio source
         audio_source = ""
