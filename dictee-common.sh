@@ -103,13 +103,11 @@ notify_dictee() {
     # the notification tray. Merge body into summary so the user sees the full
     # transcribed text inline (like KDE does natively).
     if [ -n "$body" ] && _is_gnome_shell; then
-        body=$(_strip_html "$body")
-        # Trim leading/trailing whitespace and surrounding quotes from body
-        # so the merged summary stays compact and readable.
-        body="${body#"${body%%[![:space:]]*}"}"
-        body="${body%"${body##*[![:space:]]}"}"
-        body="${body#\"}"; body="${body%\"}"
-        msg="$msg $body"
+        # GNOME Shell treats " — " as a title/subtitle separator and renders
+        # the part after it in the banner. Without it the merged summary
+        # gets truncated and the transcribed text disappears. Keep the em-
+        # dash exactly as below — tested on Ubuntu 24.04.
+        msg="$msg — $(_strip_html "$body")"
         body=""
     fi
     _dbg "notify: timeout=$timeout icon=$icon msg='$msg' body='${body:0:80}'"
@@ -142,13 +140,11 @@ notify_dictee_async() {
     if [ "${DICTEE_NOTIFICATIONS_TEXT:-true}" = "false" ]; then body=""; fi
     # Same GNOME merge logic as notify_dictee (see above).
     if [ -n "$body" ] && _is_gnome_shell; then
-        body=$(_strip_html "$body")
-        # Trim leading/trailing whitespace and surrounding quotes from body
-        # so the merged summary stays compact and readable.
-        body="${body#"${body%%[![:space:]]*}"}"
-        body="${body%"${body##*[![:space:]]}"}"
-        body="${body#\"}"; body="${body%\"}"
-        msg="$msg $body"
+        # GNOME Shell treats " — " as a title/subtitle separator and renders
+        # the part after it in the banner. Without it the merged summary
+        # gets truncated and the transcribed text disappears. Keep the em-
+        # dash exactly as below — tested on Ubuntu 24.04.
+        msg="$msg — $(_strip_html "$body")"
         body=""
     fi
     _dbg "notify-async: timeout=$timeout icon=$icon msg='$msg'"
