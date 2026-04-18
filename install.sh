@@ -62,13 +62,13 @@ EOF
 # =============================================================================
 
 mode_online() {
-    local BACKEND="" NON_INTERACTIVE=0 VERSION=""
+    local BACKEND="" NON_INTERACTIVE=0 REQUESTED_VERSION=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --cpu)             BACKEND="cpu"; shift ;;
             --gpu)             BACKEND="gpu"; shift ;;
-            --version)         VERSION="${2:-}"; shift 2 ;;
+            --version)         REQUESTED_VERSION="${2:-}"; shift 2 ;;
             --non-interactive) NON_INTERACTIVE=1; shift ;;
             *)                 die "Unknown online option: $1 (run with --help)" ;;
         esac
@@ -132,9 +132,9 @@ mode_online() {
 
     # ---- Fetch release info ----
     local RELEASE_JSON RELEASE_TAG
-    if [[ -n "$VERSION" ]]; then
-        RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/v${VERSION}")" \
-            || die "Cannot fetch release v${VERSION}"
+    if [[ -n "$REQUESTED_VERSION" ]]; then
+        RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/v${REQUESTED_VERSION}")" \
+            || die "Cannot fetch release v${REQUESTED_VERSION}"
     else
         RELEASE_JSON="$(curl -fsSL "$GITHUB_API")" || die "Cannot reach GitHub API"
     fi
