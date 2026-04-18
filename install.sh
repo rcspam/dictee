@@ -153,6 +153,20 @@ mode_online() {
             | head -1
     }
 
+    # Download helper with retry in bash (keeps curl's --progress-bar clean;
+    # curl's own --retry prints warnings that collide with the progress bar).
+    download_with_retry() {
+        local out="$1" url="$2" attempts=3
+        for ((i=1; i<=attempts; i++)); do
+            curl -fL --progress-bar -o "$out" "$url" && return 0
+            if (( i < attempts )); then
+                warn "Download failed, retrying in 2s (attempt $((i+1))/${attempts})..."
+                sleep 2
+            fi
+        done
+        return 1
+    }
+
     # Build NVIDIA CUDA keyring URL with runtime fallback if the native repo
     # does not exist (NVIDIA removes old ones and lags on new releases).
     nvidia_keyring_url() {
@@ -209,7 +223,7 @@ mode_online() {
         [[ -n "$deb_url" ]] || die "No matching .deb asset in release ${RELEASE_TAG}"
         local deb_file="${deb_url##*/}"
         info "Downloading ${deb_file}..."
-        curl -fL --retry 3 --retry-delay 2 --retry-all-errors -o "$deb_file" "$deb_url" || die "Download failed"
+        download_with_retry "$deb_file" "$deb_url" || die "Download failed"
         ok "Downloaded"
 
         info "Installing..."
@@ -234,7 +248,7 @@ mode_online() {
         [[ -n "$rpm_url" ]] || die "No matching .rpm asset in release ${RELEASE_TAG}"
         local rpm_file="${rpm_url##*/}"
         info "Downloading ${rpm_file}..."
-        curl -fL --retry 3 --retry-delay 2 --retry-all-errors -o "$rpm_file" "$rpm_url"
+        download_with_retry "$rpm_file" "$rpm_url"
         ok "Downloaded"
 
         info "Installing..."
@@ -260,7 +274,7 @@ mode_online() {
         [[ -n "$rpm_url" ]] || die "No matching .rpm asset in release ${RELEASE_TAG}"
         local rpm_file="${rpm_url##*/}"
         info "Downloading ${rpm_file}..."
-        curl -fL --retry 3 --retry-delay 2 --retry-all-errors -o "$rpm_file" "$rpm_url"
+        download_with_retry "$rpm_file" "$rpm_url"
         ok "Downloaded"
 
         info "Installing (zypper)..."
@@ -316,7 +330,7 @@ mode_online() {
         [[ -n "$tar_url" ]] || die "No tarball found in release ${RELEASE_TAG}"
         local tar_file="${tar_url##*/}"
         info "Downloading ${tar_file}..."
-        curl -fL --retry 3 --retry-delay 2 --retry-all-errors -o "$tar_file" "$tar_url"
+        download_with_retry "$tar_file" "$tar_url"
         tar xzf "$tar_file"
         local dir="${tar_file%.tar.gz}"
         cd "$dir" || die "Cannot enter extracted directory"
