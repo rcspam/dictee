@@ -142,7 +142,7 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, libcudart12 | cuda-cudart-12-8 | cuda-cudart-12-6, libcublas12 | libcublas-12-8 | libcublas-12-6, libcufft11 | libcufft-12-8 | libcufft-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, libnvrtc12 | libnvrtc-12-8 | libnvrtc-12-6
-Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
+Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -262,7 +262,7 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
-Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator
+Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
