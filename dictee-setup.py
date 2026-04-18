@@ -13272,11 +13272,43 @@ class DicteeSetupDialog(QDialog):
             btn_del.setVisible(True)
             for w in config_widgets:
                 w.setEnabled(True)
+            # Remind the user to download at least one language/model —
+            # the venv on its own doesn't transcribe anything.
+            if not self._any_model_installed(name):
+                if name == "vosk":
+                    hint = _("Now select a language in the combo box and click Download "
+                             "to fetch at least one Vosk language model — without it, "
+                             "Vosk cannot transcribe anything.")
+                else:  # whisper
+                    hint = _("Now pick a Whisper model (small / turbo / large-v3…) and "
+                             "click Download — Whisper cannot transcribe until at least "
+                             "one model is downloaded.")
+                QMessageBox.information(
+                    self,
+                    _("{name} installed").format(name=engine),
+                    _("{engine} engine installed successfully.").format(engine=engine)
+                    + "\n\n" + hint)
         else:
             self._update_venv_button(btn, engine, False)
             btn_del.setVisible(False)
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
+
+    def _any_model_installed(self, name):
+        """Returns True if at least one model is installed for the given engine."""
+        if name == "vosk":
+            for code in VOSK_MODELS:
+                if self._vosk_model_installed(code):
+                    return True
+            return False
+        if name == "whisper":
+            # WHISPER_MODELS is a list of (model_id, display_name) tuples.
+            # Do NOT use `_` as the throwaway var — it shadows gettext.
+            for _mid, _dname in WHISPER_MODELS:
+                if self._whisper_model_cached(_mid):
+                    return True
+            return False
+        return True
 
     def _delete_venv(self, name):
         """Delete a Vosk or Whisper venv after user confirmation."""
