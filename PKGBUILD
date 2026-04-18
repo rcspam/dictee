@@ -1,8 +1,8 @@
 # Maintainer: rcspam <rcspams@gmail.com>
 pkgname=dictee
-pkgver=1.3.0.beta1
+pkgver=1.3.0.beta2
 pkgrel=1
-_tag=1.3.0-beta1
+_tag=1.3.0-beta2
 pkgdesc="Fast push-to-talk voice dictation for Linux with NVIDIA Parakeet, Vosk and faster-whisper"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
