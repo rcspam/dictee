@@ -104,7 +104,12 @@ notify_dictee() {
     # transcribed text inline (like KDE does natively).
     if [ -n "$body" ] && _is_gnome_shell; then
         body=$(_strip_html "$body")
-        msg="$msg  —  $body"
+        # Trim leading/trailing whitespace and surrounding quotes from body
+        # so the merged summary stays compact and readable.
+        body="${body#"${body%%[![:space:]]*}"}"
+        body="${body%"${body##*[![:space:]]}"}"
+        body="${body#\"}"; body="${body%\"}"
+        msg="$msg $body"
         body=""
     fi
     _dbg "notify: timeout=$timeout icon=$icon msg='$msg' body='${body:0:80}'"
@@ -138,7 +143,12 @@ notify_dictee_async() {
     # Same GNOME merge logic as notify_dictee (see above).
     if [ -n "$body" ] && _is_gnome_shell; then
         body=$(_strip_html "$body")
-        msg="$msg  —  $body"
+        # Trim leading/trailing whitespace and surrounding quotes from body
+        # so the merged summary stays compact and readable.
+        body="${body#"${body%%[![:space:]]*}"}"
+        body="${body%"${body##*[![:space:]]}"}"
+        body="${body#\"}"; body="${body%\"}"
+        msg="$msg $body"
         body=""
     fi
     _dbg "notify-async: timeout=$timeout icon=$icon msg='$msg'"
