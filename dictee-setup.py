@@ -4679,15 +4679,14 @@ class DicteeSetupDialog(QDialog):
         self.btn_prev.clicked.connect(self._wizard_prev)
         nav.addWidget(self.btn_prev)
 
-        self.lbl_step = QLabel()
-        self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        nav.addWidget(self.lbl_step, 1)
-
         self.btn_cancel_wizard = QPushButton(_("Quit setup"))
         self.btn_cancel_wizard.clicked.connect(self.close)
         self.btn_cancel_wizard.setVisible(self._is_first_setup)
         nav.addWidget(self.btn_cancel_wizard)
-        nav.addSpacing(20)
+
+        self.lbl_step = QLabel()
+        self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nav.addWidget(self.lbl_step, 1)
 
         self.btn_next = QPushButton(_("Next"))
         self.btn_next.clicked.connect(self._wizard_next)
