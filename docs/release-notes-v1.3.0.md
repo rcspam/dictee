@@ -270,13 +270,14 @@
 ## 📦 Packaging & distribution
 
 ### One-liner online installer (new)
-- **`install-online.sh`** — one-shot installer hosted on GitHub, invoked as `curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash`.
+- **Dual-mode `install.sh`** — a single installer serves both the `curl | bash` online flow and the local tarball install. Hosted on GitHub, invoked as `curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash`, or `sudo ./install.sh` inside an extracted tarball.
+- Auto-detects the mode (online vs tarball) from the script's directory; override with `--online` or `--tarball`.
 - Auto-detects the distro family (Ubuntu / Debian / Fedora / openSUSE / Arch) and falls back to the tarball installer elsewhere.
 - Auto-detects an NVIDIA GPU and prompts CPU vs GPU (reads from `/dev/tty` so it works when piped).
 - Adds the NVIDIA CUDA APT repository automatically on Ubuntu/Debian (cuda-keyring), adds the openSUSE CUDA repo via `zypper addrepo`, and on Arch it picks up `yay` / `paru` to install the AUR-only `dotool` dependency.
 - Runtime fallback when a NVIDIA repo version doesn't exist yet for a brand-new distro release (HEAD request + older-repo fallback).
-- Flags: `--cpu`, `--gpu`, `--version X.Y.Z`, `--non-interactive`, `--help`.
-- Companion **`uninstall-online.sh`** auto-detects the install method (`dpkg`, `rpm`, `pacman`, or tarball) and calls the right remover. `--purge` also wipes `~/.config/dictee`, ONNX models and the LibreTranslate Docker volume.
+- Flags: `--cpu`, `--gpu`, `--version X.Y.Z`, `--non-interactive`, `--online`, `--tarball`, `--help`.
+- Companion universal **`uninstall.sh`** auto-detects the install method (`dpkg`, `rpm`, `pacman`, or tarball) and calls the right remover inline. `--purge` also wipes `~/.config/dictee`, ONNX models and the LibreTranslate Docker volume.
 
 ### CUDA build
 - Full CUDA build support: `load-dynamic` flag, `libonnxruntime.so`, CUDA 12 deps and intelligent postinst.
@@ -359,7 +360,7 @@ For every release: 3 `.deb` (cpu / cuda / plasmoid) + 3 `.rpm` (cpu / cuda / pla
 **One-liner (recommended):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
 ```
 
 Auto-detects your distro (Ubuntu, Debian, Fedora, openSUSE, Arch) and GPU, adds the NVIDIA CUDA repo if needed, and installs the right package.

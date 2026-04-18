@@ -352,6 +352,8 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### T. Packaging & build
 
 **Added**
+- **Dual-mode `install.sh`** — same script used for both `curl | bash` online install and the local tarball install. Auto-detects the mode from the script's directory, with `--online` / `--tarball` flags to override. Handles Ubuntu/Debian/Fedora/openSUSE/Arch online, falls back to the tarball installer elsewhere. Auto-detects NVIDIA GPU and adds the CUDA repo (Ubuntu/Debian cuda-keyring, Fedora repo via dnf, openSUSE repo via zypper). Arch picks up `yay` / `paru` for the AUR-only `dotool` dependency.
+- **Universal `uninstall.sh`** — auto-detects `dpkg` / `rpm` / `pacman` / tarball installs and removes each layer inline. `--purge` also wipes `~/.config/dictee`, ONNX models and the LibreTranslate Docker volume.
 - Full CUDA build support: `load-dynamic` flag, `libonnxruntime.so`, CUDA 12 deps and intelligent postinst.
 - CUDA runtime libraries (`libcufft.so.11`, `libcudart.so.12`) included in CUDA packages.
 - CI: `text-to-num` installed and `text2num` package name fixed for the number-conversion tests.

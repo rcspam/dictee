@@ -55,7 +55,7 @@
 The online installer auto-detects your distro and GPU, adds the NVIDIA CUDA repository if needed, and installs the right package:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
 ```
 
 Works on **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Falls back to the tarball installer on other distros.
@@ -64,16 +64,16 @@ Works on **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Falls back to the tar
 
 ```bash
 # Force CPU (no GPU detection)
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --cpu
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --cpu
 
 # Force GPU (CUDA)
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --gpu
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Install a specific version
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --version 1.3.0
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.0
 
 # Non-interactive (auto-detect GPU, no prompts)
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install-online.sh | bash -s -- --non-interactive
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
 ```
 
 ---
