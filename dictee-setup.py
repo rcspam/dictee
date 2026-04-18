@@ -6876,8 +6876,15 @@ class DicteeSetupDialog(QDialog):
         lay_lt.addLayout(lay_lt_port)
 
         # -- Langues LibreTranslate --
+        _lang_header = QHBoxLayout()
         lbl_lt_langs = QLabel("<small>" + _("Languages to load in LibreTranslate:") + "</small>")
-        lay_lt.addWidget(lbl_lt_langs)
+        _lang_header.addWidget(lbl_lt_langs)
+        _lang_header.addStretch()
+        btn_deselect_all = QPushButton(_("Deselect all"))
+        btn_deselect_all.setStyleSheet("padding: 2px 10px; font-size: 11px;")
+        btn_deselect_all.clicked.connect(self._on_lt_deselect_all_langs)
+        _lang_header.addWidget(btn_deselect_all)
+        lay_lt.addLayout(_lang_header)
 
         saved_lt_langs = set(
             conf.get("DICTEE_LIBRETRANSLATE_LANGS", "en,fr,es,de,it,pt,uk,ru,tr,ar,zh,hi,bn,ja,ko").split(","))
@@ -12855,6 +12862,21 @@ class DicteeSetupDialog(QDialog):
                 chk.blockSignals(True)
                 chk.setChecked(True)
                 chk.blockSignals(False)
+
+    def _on_lt_deselect_all_langs(self):
+        """Uncheck all LibreTranslate languages in one click.
+        Source/target are re-checked automatically because they are mandatory."""
+        # Block signals to avoid firing _on_lt_langs_changed N times (and N
+        # HTTP calls to libretranslate_available_languages); fire it once at
+        # the end instead.
+        for chk in self._lt_lang_checks.values():
+            chk.blockSignals(True)
+            chk.setChecked(False)
+            chk.blockSignals(False)
+        # Re-check source/target (mandatory)
+        self._update_lt_lang_checks()
+        # Update hint label / restart button once
+        self._on_lt_langs_changed()
 
     def _on_lt_langs_changed(self):
         """Affiche le bouton de redémarrage si les langues ont changé."""
