@@ -3206,14 +3206,14 @@ class ToggleSwitch(QCheckBox):
 
         if is_light:
             off_color = QColor("#ffffff") if enabled else QColor("#e8e8e8")
-            handle_off = QColor("#9a9a9a") if enabled else QColor("#bcbcbc")
-            handle_on = QColor("#ffffff") if enabled else QColor("#e8e8e8")
             border_on = True
         else:
             off_color = QColor("#5a5a5a") if enabled else QColor("#3a3a3a")
-            handle_off = QColor("#f4f4f4") if enabled else QColor("#aaaaaa")
-            handle_on = handle_off
             border_on = False
+
+        # Handle stays white (white when enabled, light-grey when disabled)
+        # in both themes — only the track changes colour on toggle.
+        handle_color = QColor("#ffffff") if enabled else QColor("#bcbcbc")
 
         on_color = pal.color(pal.ColorRole.Highlight)
         if not enabled:
@@ -3224,11 +3224,6 @@ class ToggleSwitch(QCheckBox):
             int(off_color.red() * (1 - t) + on_color.red() * t),
             int(off_color.green() * (1 - t) + on_color.green() * t),
             int(off_color.blue() * (1 - t) + on_color.blue() * t),
-        )
-        handle_color = QColor(
-            int(handle_off.red() * (1 - t) + handle_on.red() * t),
-            int(handle_off.green() * (1 - t) + handle_on.green() * t),
-            int(handle_off.blue() * (1 - t) + handle_on.blue() * t),
         )
 
         total_h = self.height()
