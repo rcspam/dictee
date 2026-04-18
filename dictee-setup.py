@@ -4464,7 +4464,10 @@ class DicteeSetupDialog(QDialog):
         # using the GPU or falling back to CPU because no GPU / no cuDNN.
         _pkg_name = install_info.get("label", "").split(" ")[0].lower()
         if "cuda" in _pkg_name:
-            _gpu, _cudnn, _ = check_cuda_gpu_ready()
+            # NOTE: do NOT unpack into a local "_" — it shadows the gettext
+            # translation function used everywhere else in this function.
+            _gpu, _cudnn, _cudnn_msg = check_cuda_gpu_ready()
+            del _cudnn_msg
             if _gpu and _cudnn:
                 _rt_html = (
                     "<span style='color:#4a4;'>"
