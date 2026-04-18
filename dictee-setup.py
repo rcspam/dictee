@@ -10194,6 +10194,9 @@ class DicteeSetupDialog(QDialog):
 
     def _save_dict_official(self):
         """Copie .tmp → officiel (bouton Enregistrer)."""
+        # Wizard mode: dictionary tab wasn't built → nothing to save here.
+        if not hasattr(self, '_dict_rows') or not hasattr(self, '_dict_path'):
+            return
         result = self._dict_collect_entries()
         if result is None:
             return
@@ -11155,6 +11158,12 @@ class DicteeSetupDialog(QDialog):
     def _save_cont_personal(self):
         """Saves personal words + keyword to ~/.config/dictee/continuation.conf."""
         import os as _os
+
+        # Wizard mode: continuation tab wasn't built → nothing to save here.
+        # The ~/.config/dictee/continuation.conf will be created lazily when
+        # the user opens the PP page later.
+        if not hasattr(self, '_cont_path') or not hasattr(self, '_cont_personal_words'):
+            return
 
         _os.makedirs(_os.path.dirname(self._cont_path), exist_ok=True)
         with open(self._cont_path, "w", encoding="utf-8") as f:
