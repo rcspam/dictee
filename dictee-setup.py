@@ -14954,6 +14954,19 @@ def main():
         # "clic bouton depuis le setup visible" qui fonctionne.
         QTimer.singleShot(0, dialog._open_postprocess_dialog)
     else:
+        # Prevent the "small window blink" some WMs (KDE/KWin) show when they
+        # map the window before Qt finishes its first layout pass: polish +
+        # activate the layout, then explicitly position the window on screen
+        # so the WM does not have a chance to pick its own default geometry.
+        dialog.ensurePolished()
+        _lay = dialog.layout()
+        if _lay is not None:
+            _lay.activate()
+        _screen = app.primaryScreen()
+        if _screen is not None:
+            _geo = _screen.availableGeometry()
+            dialog.move(_geo.center().x() - dialog.width() // 2,
+                        _geo.center().y() - dialog.height() // 2)
         dialog.show()
     app.exec()
 
