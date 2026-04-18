@@ -47,8 +47,14 @@ case "${1:-}" in
         ;;
 esac
 
-# First-run guard: launch wizard if no config or setup not completed
+# First-run guard: launch wizard if no config or setup not completed.
+# Skip if a dictee-setup instance is already running — otherwise, pressing
+# F8/F9 during the wizard's shortcut-capture step triggers dictee-ptt, which
+# calls back into this script and spawns a second wizard window.
 if [ ! -f "$DICTEE_CONF" ] || ! grep -q "DICTEE_SETUP_DONE=true" "$DICTEE_CONF" 2>/dev/null; then
+    if pgrep -u "${USER:-$(id -un)}" -f '[d]ictee-setup' >/dev/null 2>&1; then
+        exit 0
+    fi
     exec dictee-setup --wizard
 fi
 
