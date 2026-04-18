@@ -18,8 +18,9 @@ DICTEE_CONF="${DICTEE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf}"
 STATE_FILE="/dev/shm/.dictee_state"
 STATE_LOCK="/dev/shm/.dictee_state.lock"
 
-# Fixed notification ID — all dictee notifications replace each other
-# Fixed notification replace-id — all dictee notifications replace each other
+# Legacy fixed notification ID — kept for compatibility but no longer used
+# as --replace-id (GNOME is strict and requires the server-assigned ID).
+# shellcheck disable=SC2034
 NOTIFY_ID=424200
 # Server-side notification ID (for D-Bus CloseNotification)
 NOTIFY_SERVER_ID=""
@@ -111,16 +112,21 @@ notify_dictee() {
         body=""
     fi
     _dbg "notify: timeout=$timeout icon=$icon msg='$msg' body='${body:0:80}'"
-    # Read server ID from previous async notification if available
+    # Read the SERVER-assigned ID from the previous notification (stored by
+    # notify-send -p) so we can actually replace it. On GNOME, --replace-id
+    # must be the server-side ID; passing an arbitrary fixed ID (like the
+    # legacy NOTIFY_ID=424200) creates a brand new notification each time,
+    # which is why dictee notifs were piling up on Ubuntu/GNOME.
+    local _prev=""
     if [ -f "$_NOTIFY_SID_FILE" ]; then
-        local _prev
         _prev=$(cat "$_NOTIFY_SID_FILE" 2>/dev/null)
-        if [ -n "$_prev" ] && [ "$_prev" != "0" ]; then
-            NOTIFY_SERVER_ID="$_prev"
-        fi
     fi
     local _sid
-    _sid=$(notify-send -p --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+    if [ -n "$_prev" ] && [ "$_prev" != "0" ]; then
+        _sid=$(notify-send -p --replace-id="$_prev" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+    else
+        _sid=$(notify-send -p -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+    fi
     if [ -n "$_sid" ] && [ "$_sid" != "0" ]; then
         NOTIFY_SERVER_ID="$_sid"
         echo "$_sid" > "$_NOTIFY_SID_FILE"
@@ -148,9 +154,17 @@ notify_dictee_async() {
         body=""
     fi
     _dbg "notify-async: timeout=$timeout icon=$icon msg='$msg'"
+    local _prev=""
+    if [ -f "$_NOTIFY_SID_FILE" ]; then
+        _prev=$(cat "$_NOTIFY_SID_FILE" 2>/dev/null)
+    fi
     (
         local _sid
-        _sid=$(notify-send -p --replace-id="$NOTIFY_ID" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+        if [ -n "$_prev" ] && [ "$_prev" != "0" ]; then
+            _sid=$(notify-send -p --replace-id="$_prev" -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+        else
+            _sid=$(notify-send -p -t "$timeout" -i "$icon" -a Dictee "$msg" ${body:+"$body"} 2>/dev/null) || true
+        fi
         if [ -n "$_sid" ] && [ "$_sid" != "0" ]; then
             echo "$_sid" > "$_NOTIFY_SID_FILE"
         fi
