@@ -14954,19 +14954,8 @@ def main():
         # "clic bouton depuis le setup visible" qui fonctionne.
         QTimer.singleShot(0, dialog._open_postprocess_dialog)
     else:
-        # Anti-flicker on X11 — the compositor briefly shows stale framebuffer
-        # content (terminal text, previous window) before Qt's first paint.
-        # Fix: force the widget to paint an opaque background immediately on
-        # its first expose via autoFillBackground + WA_OpaquePaintEvent.
-        #
-        # - autoFillBackground = True → Qt fills the widget with its palette
-        #   Window color on every paint (including the very first one), so
-        #   there is no transparent gap where stale pixels could show.
-        # - WA_OpaquePaintEvent = True → tells Qt the widget fully covers its
-        #   area with opaque content, so X doesn't need to erase before paint.
-        dialog.setAutoFillBackground(True)
-        dialog.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-        # Center the window at its final geometry.
+        # Center the window at its final geometry before show() so the WM
+        # does not briefly map it at its default placeholder position.
         _screen = app.primaryScreen()
         if _screen is not None:
             _geo = _screen.availableGeometry()
