@@ -14699,7 +14699,7 @@ class DicteeSetupDialog(QDialog):
             asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model)
         if not _ready_ok:
             QMessageBox.warning(self, _("ASR backend not ready"), _ready_msg)
-            return
+            return False
 
         # Audio source
         audio_source = ""
@@ -14981,6 +14981,9 @@ class DicteeSetupDialog(QDialog):
                 self, "dictee",
                 _("Cannot save rules — syntax error:\n\n{err}").format(err=_rules_error))
 
+        # Signal successful save so _on_ok knows it can close the dialog.
+        return True
+
     def _prompt_lt_server(self):
         """Propose de démarrer/redémarrer LibreTranslate après Apply."""
         # Skip if a restart is already in progress
@@ -15039,7 +15042,12 @@ class DicteeSetupDialog(QDialog):
     def _on_ok(self):
         _dbg_setup("_on_ok")
         if self._dirty:
-            self._on_apply()
+            # _on_apply returns False when a guard aborted the save (e.g. the
+            # chosen ASR backend isn't actually installed). In that case we
+            # must NOT close the dialog — otherwise the user ends up with
+            # dictee-setup gone and an unchanged (or broken) dictee.conf.
+            if self._on_apply() is False:
+                return
         # Ne pas fermer si LibreTranslate est en cours de démarrage
         if getattr(self, '_lt_starting_after_apply', False):
             return
