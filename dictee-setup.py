@@ -14954,18 +14954,21 @@ def main():
         # "clic bouton depuis le setup visible" qui fonctionne.
         QTimer.singleShot(0, dialog._open_postprocess_dialog)
     else:
-        # Position the window explicitly at its final geometry before show()
-        # so the WM does not briefly map it at its default placeholder size.
-        # Do NOT call adjustSize() / recursive layout activate here — the size
-        # is already set by _build_sidebar_ui / _build_wizard_ui (1270x1050 or
-        # 1100x900), and recursive activation blocks ~1 s on classic mode
-        # which made the blink worse, not better.
+        # Center the window at its final geometry.
         _screen = app.primaryScreen()
         if _screen is not None:
             _geo = _screen.availableGeometry()
             dialog.move(_geo.center().x() - dialog.width() // 2,
                         _geo.center().y() - dialog.height() // 2)
+        # Anti-flicker on X11: when the WM maps the window Qt hasn't painted
+        # yet, so the compositor briefly shows stale framebuffer content from
+        # whatever was underneath (terminal, previous window). Trick: map the
+        # window fully transparent, let Qt finish its first paint pass via
+        # processEvents(), then fade in to full opacity.
+        dialog.setWindowOpacity(0.0)
         dialog.show()
+        app.processEvents()
+        dialog.setWindowOpacity(1.0)
     app.exec()
 
 
