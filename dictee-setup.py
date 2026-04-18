@@ -4434,6 +4434,37 @@ class DicteeSetupDialog(QDialog):
         lbl_install.setStyleSheet("font-size: 12px;")
         lay.addWidget(lbl_install)
 
+        # Runtime mode (CUDA active vs CPU fallback) — visible so the user
+        # can tell at a glance whether the dictee-cuda package is actually
+        # using the GPU or falling back to CPU because no GPU / no cuDNN.
+        _pkg_name = install_info.get("label", "").split(" ")[0].lower()
+        if "cuda" in _pkg_name:
+            _gpu, _cudnn, _ = check_cuda_gpu_ready()
+            if _gpu and _cudnn:
+                _rt_html = (
+                    "<span style='color:#4a4;'>"
+                    + _("Runtime: CUDA active (GPU acceleration)") +
+                    "</span>")
+            elif _gpu and not _cudnn:
+                _rt_html = (
+                    "<span style='color:#a84;'>"
+                    + _("Runtime: CPU fallback (GPU detected but cuDNN missing)") +
+                    "</span>")
+            else:
+                _rt_html = (
+                    "<span style='color:#888;'>"
+                    + _("Runtime: CPU fallback (no NVIDIA GPU detected)") +
+                    "</span>")
+        elif "cpu" in _pkg_name:
+            _rt_html = "<span style='opacity:0.8;'>" + _("Runtime: CPU only") + "</span>"
+        else:
+            _rt_html = ""
+        if _rt_html:
+            lbl_runtime = QLabel(_rt_html)
+            lbl_runtime.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_runtime.setStyleSheet("font-size: 12px;")
+            lay.addWidget(lbl_runtime)
+
         lbl_upd_status = QLabel(_("Click \"Check for updates\" to query GitHub."))
         lbl_upd_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_upd_status.setWordWrap(True)
