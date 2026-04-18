@@ -13823,7 +13823,8 @@ class DicteeSetupDialog(QDialog):
         # LLM (normal mode only)
         llm_on = _b("chk_llm", default=False)
         env["DICTEE_LLM_POSTPROCESS"] = llm_on
-        env["DICTEE_LLM_POSITION"] = self._get_llm_position()
+        env["DICTEE_LLM_POSITION"] = (
+            self._get_llm_position() if hasattr(self, '_get_llm_position') else "hybrid")
         if hasattr(self, 'cmb_llm_model'):
             env["DICTEE_LLM_MODEL"] = self.cmb_llm_model.currentText() or "gemma3:4b"
         if hasattr(self, 'cmb_llm_preset'):
@@ -14559,7 +14560,7 @@ class DicteeSetupDialog(QDialog):
         llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
         llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
-        llm_position = self._get_llm_position()
+        llm_position = self._get_llm_position() if hasattr(self, '_get_llm_position') else "hybrid"
         llm_custom_prompt = self.txt_llm_prompt.toPlainText() if hasattr(self, 'txt_llm_prompt') else ""
 
         # Continuation visual indicator
