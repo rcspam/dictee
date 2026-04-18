@@ -3198,11 +3198,26 @@ class ToggleSwitch(QCheckBox):
         pal = self.palette()
         enabled = self.isEnabled()
 
-        off_color = QColor("#5a5a5a") if enabled else QColor("#3a3a3a")
+        # Detect light vs dark theme from the Window palette role so the
+        # toggle reads cleanly in both. Light theme uses a white/light-grey
+        # track (with a soft border for contrast against the dialog bg);
+        # dark theme keeps the original grey track.
+        is_light = pal.color(pal.ColorRole.Window).lightness() > 128
+
+        if is_light:
+            off_color = QColor("#ffffff") if enabled else QColor("#e8e8e8")
+            handle_off = QColor("#9a9a9a") if enabled else QColor("#bcbcbc")
+            handle_on = QColor("#ffffff") if enabled else QColor("#e8e8e8")
+            border_on = True
+        else:
+            off_color = QColor("#5a5a5a") if enabled else QColor("#3a3a3a")
+            handle_off = QColor("#f4f4f4") if enabled else QColor("#aaaaaa")
+            handle_on = handle_off
+            border_on = False
+
         on_color = pal.color(pal.ColorRole.Highlight)
         if not enabled:
             on_color = on_color.darker(160)
-        handle_color = QColor("#f4f4f4") if enabled else QColor("#aaaaaa")
 
         t = self._offset_val
         track = QColor(
@@ -3210,11 +3225,23 @@ class ToggleSwitch(QCheckBox):
             int(off_color.green() * (1 - t) + on_color.green() * t),
             int(off_color.blue() * (1 - t) + on_color.blue() * t),
         )
+        handle_color = QColor(
+            int(handle_off.red() * (1 - t) + handle_on.red() * t),
+            int(handle_off.green() * (1 - t) + handle_on.green() * t),
+            int(handle_off.blue() * (1 - t) + handle_on.blue() * t),
+        )
 
         total_h = self.height()
         track_y = (total_h - self._TRACK_H) / 2
         track_rect = QRectF(0, track_y, self._TRACK_W, self._TRACK_H)
-        p.setPen(Qt.PenStyle.NoPen)
+        # On light theme, fade a 1px border in as we move toward the
+        # inactive (off/white) state so the track stays visible on a
+        # white dialog background. Fades out when turning on.
+        if border_on:
+            border_alpha = int(170 * (1 - t))
+            p.setPen(QPen(QColor(120, 120, 120, border_alpha), 1))
+        else:
+            p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(track))
         p.drawRoundedRect(track_rect, self._TRACK_RADIUS, self._TRACK_RADIUS)
 
