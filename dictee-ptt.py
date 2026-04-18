@@ -581,6 +581,12 @@ def run_evdev(ptt):
                             ui.write_event(event)
                             continue
 
+                        # Pause marker: when dictee-setup captures a shortcut
+                        # (F8/F9 etc), it creates this file so we forward every
+                        # key to Qt instead of consuming the configured PTT keys.
+                        if os.path.exists(f"/tmp/.dictee-ptt-pause-{os.getuid()}"):
+                            ui.write_event(event)
+                            continue
                         consumed = ptt.handle_event(event.code, event.value)
                         if not consumed:
                             ui.write_event(event)

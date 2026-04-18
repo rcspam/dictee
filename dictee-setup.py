@@ -2489,10 +2489,26 @@ class ShortcutButton(QPushButton):
         self._changed = False
         self.clicked.connect(self._start_capture)
 
+    # Lock file read by dictee-ptt — while it exists, the daemon forwards all
+    # keys to Qt instead of consuming the configured PTT keys (F8/F9).
+    _PTT_PAUSE_PATH = f"/tmp/.dictee-ptt-pause-{os.getuid()}"
+
+    def _set_ptt_pause(self, paused):
+        try:
+            if paused:
+                open(self._PTT_PAUSE_PATH, "w").close()
+            else:
+                if os.path.exists(self._PTT_PAUSE_PATH):
+                    os.unlink(self._PTT_PAUSE_PATH)
+        except OSError:
+            pass
+
     def _start_capture(self):
         self._capturing = True
         self.setText(_("Press a key combination…"))
         self.setFocus()
+        # Pause dictee-ptt so F8/F9 reach Qt instead of being consumed
+        self._set_ptt_pause(True)
 
     def keyPressEvent(self, event):
         if not self._capturing:
@@ -2521,7 +2537,16 @@ class ShortcutButton(QPushButton):
         self._sequence = seq
         self._changed = True
         self.setText(_("Shortcut: {label}").format(label=seq.toString(_NATIVE_TEXT)))
+        # Capture done — let dictee-ptt resume normal behavior
+        self._set_ptt_pause(False)
         self.shortcutCaptured.emit(seq)
+
+    def focusOutEvent(self, event):
+        # If user clicks away while capturing, abort and unpause dictee-ptt
+        if self._capturing:
+            self._capturing = False
+            self._set_ptt_pause(False)
+        super().focusOutEvent(event)
 
     def sequence(self):
         return self._sequence
