@@ -301,7 +301,12 @@ PlasmoidItem {
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
         "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
-        "[ -d \"$dd/canary-env/lib\" ] && echo canary; " +
+        // Canary: Rust native (transcribe-daemon --canary), needs CUDA libs bundled
+        // (CPU-only install is too slow in practice → hide Canary from the UI)
+        "{ [ -d /usr/share/dictee/canary ] || [ -f \"$dd/canary/encoder-model.onnx\" ]; } " +
+        "  && command -v transcribe-daemon >/dev/null 2>&1 " +
+        "  && [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] " +
+        "  && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
         "echo ---; " +

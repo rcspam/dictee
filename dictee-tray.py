@@ -168,8 +168,13 @@ def _asr_service_exists(key):
             return False
         return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(os.path.join(data_dir, "tdt"))
     if key == "canary":
-        # Canary uses the same Rust binary as Parakeet (transcribe-daemon --canary)
+        # Canary uses the same Rust binary as Parakeet (transcribe-daemon --canary).
+        # Canary is a heavy encoder — only usable with CUDA acceleration in
+        # practice. On CPU-only installs (no libonnxruntime_providers_cuda.so
+        # bundled) we treat Canary as not installed so it stays greyed out.
         if not shutil.which("transcribe-daemon"):
+            return False
+        if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
             return False
         return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
     # Vosk/Whisper: check venv
