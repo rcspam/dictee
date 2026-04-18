@@ -14954,40 +14954,18 @@ def main():
         # "clic bouton depuis le setup visible" qui fonctionne.
         QTimer.singleShot(0, dialog._open_postprocess_dialog)
     else:
-        # Prevent the "small window blink" at startup by forcing a full layout
-        # pass BEFORE the WM maps the window. Same family as the FlowLayout /
-        # hidden-child sizing issues we had in the continuation/dict scrolls:
-        # Qt defers layout computation, and if the widget is mapped too early
-        # the WM briefly shows it at a placeholder size.
-        #
-        # Strategy:
-        # 1. Polish the widget tree so QStyle-dependent sizes are resolved.
-        # 2. Recursively activate every child QLayout so sizeHints are real.
-        # 3. adjustSize() to ask Qt for the final natural size, then clamp to
-        #    the minimum so wizard pages stay readable.
-        # 4. Position explicitly on screen.
-        # 5. Defer show() via QTimer.singleShot(0, ...) so the event loop
-        #    processes any pending resize events before the WM maps the
-        #    window for real.
-        dialog.ensurePolished()
-        for _w in dialog.findChildren(QWidget):
-            _cl = _w.layout()
-            if _cl is not None:
-                _cl.activate()
-        _tl = dialog.layout()
-        if _tl is not None:
-            _tl.activate()
-        dialog.adjustSize()
-        _min = dialog.minimumSize()
-        if _min.width() > dialog.width() or _min.height() > dialog.height():
-            dialog.resize(max(dialog.width(), _min.width()),
-                          max(dialog.height(), _min.height()))
+        # Position the window explicitly at its final geometry before show()
+        # so the WM does not briefly map it at its default placeholder size.
+        # Do NOT call adjustSize() / recursive layout activate here — the size
+        # is already set by _build_sidebar_ui / _build_wizard_ui (1270x1050 or
+        # 1100x900), and recursive activation blocks ~1 s on classic mode
+        # which made the blink worse, not better.
         _screen = app.primaryScreen()
         if _screen is not None:
             _geo = _screen.availableGeometry()
             dialog.move(_geo.center().x() - dialog.width() // 2,
                         _geo.center().y() - dialog.height() // 2)
-        QTimer.singleShot(0, dialog.show)
+        dialog.show()
     app.exec()
 
 
