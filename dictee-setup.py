@@ -9180,41 +9180,52 @@ class DicteeSetupDialog(QDialog):
 
         raw = getattr(self, '_rule_transcribe_result', '')
         if raw:
+            # Run raw through postprocess first — if existing rules already
+            # transform it, no new rule is needed (avoids proposing duplicates).
+            try:
+                import subprocess as _sp
+                lang = self._rule_lang.currentText()
+                env = dict(os.environ, DICTEE_LANG_SOURCE=lang)
+                proc = _sp.run(["dictee-postprocess"],
+                    input=raw, capture_output=True, text=True,
+                    timeout=10, env=env)
+                processed = proc.stdout.strip()
+            except Exception:
+                processed = raw
+
             cyrillic_chars = [c for c in raw if '\u0400' <= c <= '\u04ff']
+            already_covered = (processed != raw)
+
             if cyrillic_chars:
-                word = _re.sub(r'[.,!?\s]+$', '', raw).strip()
-                word = _re.sub(r'^[.,!?\s]+', '', word).strip()
-                self._rule_pattern.setText(f"^[,.\\s]*{word}[,.\\s]*")
-                self._rule_replacement.setText("\\n")
-                self._rule_flags.setText("igm")
-                for i in range(self._rule_section.count()):
-                    if "STEP 3" in self._rule_section.itemText(i):
-                        self._rule_section.setCurrentIndex(i)
-                        break
-                self._rule_preview.setText(
-                    f"<b>RAW:</b> {raw}<br>"
-                    f"<span style='color: red;'>⚠ {_('Cyrillic detected — rule pre-filled for voice command replacement.')}</span>")
-            else:
-                self._rule_pattern.setText(raw)
-                try:
-                    import subprocess as _sp
-                    lang = self._rule_lang.currentText()
-                    env = dict(os.environ, DICTEE_LANG_SOURCE=lang)
-                    proc = _sp.run(["dictee-postprocess"],
-                        input=raw, capture_output=True, text=True,
-                        timeout=10, env=env)
-                    processed = proc.stdout.strip()
-                except Exception:
-                    processed = raw
-                if processed == raw:
+                if already_covered:
                     self._rule_preview.setText(
                         f"<b>RAW:</b> {raw}<br>"
-                        f"<span style='color: orange;'>⚠ {_('No rule matched — a new rule is needed.')}</span>")
+                        f"<b>PROCESSED:</b> {processed}<br>"
+                        f"<span style='color: green;'>✓ {_('Cyrillic already covered by an existing rule — no new rule needed.')}</span>")
                 else:
+                    word = _re.sub(r'[.,!?\s]+$', '', raw).strip()
+                    word = _re.sub(r'^[.,!?\s]+', '', word).strip()
+                    self._rule_pattern.setText(f"^[,.\\s]*{word}[,.\\s]*")
+                    self._rule_replacement.setText("\\n")
+                    self._rule_flags.setText("igm")
+                    for i in range(self._rule_section.count()):
+                        if "STEP 3" in self._rule_section.itemText(i):
+                            self._rule_section.setCurrentIndex(i)
+                            break
+                    self._rule_preview.setText(
+                        f"<b>RAW:</b> {raw}<br>"
+                        f"<span style='color: red;'>⚠ {_('Cyrillic detected — rule pre-filled for voice command replacement.')}</span>")
+            else:
+                self._rule_pattern.setText(raw)
+                if already_covered:
                     self._rule_preview.setText(
                         f"<b>RAW:</b> {raw}<br>"
                         f"<b>PROCESSED:</b> {processed}<br>"
                         f"<span style='color: green;'>✓ {_('Existing rules already transform this text.')}</span>")
+                else:
+                    self._rule_preview.setText(
+                        f"<b>RAW:</b> {raw}<br>"
+                        f"<span style='color: orange;'>⚠ {_('No rule matched — a new rule is needed.')}</span>")
             self._rule_preview.setVisible(True)
             self._rule_replacement.setFocus()
         else:
