@@ -4213,6 +4213,9 @@ class DicteeSetupDialog(QDialog):
                 # Master checkboxes row: visible ONLY in overview mode.
                 if hasattr(self, "_pp_masters_row"):
                     self._pp_masters_row.setVisible(not show_sub)
+                # Overview-only extras (Exceptions + diarize note): same logic.
+                if hasattr(self, "_pp_overview_extras"):
+                    self._pp_overview_extras.setVisible(not show_sub)
                 if show_sub:
                     self._pp_tabs.setCurrentIndex(int(pp_tab))
             # Always refresh the test header/solo on navigation so
@@ -7570,12 +7573,21 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(self._pp_masters_row)
 
+        # Overview-only extras (Exceptions block + diarize warning) —
+        # wrapped so they can be hidden when a sub-page is active,
+        # like _pp_masters_row. These belong to the PP OVERVIEW, not
+        # the Rules/Continuation/Language/Dict/LLM sub-tabs.
+        self._pp_overview_extras = QWidget()
+        _extras_lay = QVBoxLayout(self._pp_overview_extras)
+        _extras_lay.setContentsMargins(0, 0, 0, 0)
+        _extras_lay.setSpacing(6)
+
         # Separator: visually detach the shared Exceptions row from the
         # two PP masters above.
         _keepcaps_sep = QFrame()
         _keepcaps_sep.setFrameShape(QFrame.Shape.HLine)
         _keepcaps_sep.setFrameShadow(QFrame.Shadow.Sunken)
-        lay.addWidget(_keepcaps_sep)
+        _extras_lay.addWidget(_keepcaps_sep)
 
         # Shared Exceptions block — between the two PP masters and the
         # diarization warning. Two rows stacked:
@@ -7604,7 +7616,7 @@ class DicteeSetupDialog(QDialog):
         _keepcaps_row2.addStretch(1)
         _keepcaps_block.addLayout(_keepcaps_row2)
 
-        lay.addLayout(_keepcaps_block)
+        _extras_lay.addLayout(_keepcaps_block)
         self._update_keepcaps_enabled()
 
         # Diarization note: explicit, visible once on the PP page.
@@ -7629,7 +7641,9 @@ class DicteeSetupDialog(QDialog):
             "QLabel { font-size: 13px; padding: 10px 14px;"
             " border: 1px solid #e67e22; border-left: 4px solid #e67e22;"
             " border-radius: 4px; background: rgba(230,126,34,0.08); }")
-        lay.addWidget(_lbl_diarize_note)
+        _extras_lay.addWidget(_lbl_diarize_note)
+
+        lay.addWidget(self._pp_overview_extras)
 
         # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
