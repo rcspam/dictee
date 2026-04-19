@@ -127,6 +127,11 @@ package() {
         done
     fi
 
+    # Vendor text2num (pure-Python, ~50KB)
+    install -d "$pkgdir/usr/lib/dictee/vendor"
+    pip install --target "$pkgdir/usr/lib/dictee/vendor" --no-deps --no-compile --quiet text2num \
+        || echo "WARNING: text2num vendor install failed"
+
     # Locales (compiled in build())
     for lang in fr de es it pt uk; do
         if [ -f "po/$lang.mo" ]; then
