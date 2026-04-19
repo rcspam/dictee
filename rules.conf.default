@@ -87,6 +87,7 @@
 [fr] /[,.\s]*[Vv]irgule[,.\s]*/, /ig
 [fr] /^[,.\s]*[Вв]ер[гд][юу]л[яь][,.\s]*/, /igm
 [fr] /^[,.\s]*[Вв]ергуля[,.\s]*/, /igm
+[fr] /^[,.\s]*[Вв]ердюль[,.\s]*/, /igm
 # Quotes & parentheses (accept both imperative "ouvrez" and infinitive "ouvrir")
 [fr] /[,.\s]*ouvr(?:e|ez|ir) (?:les )?gui(?:lle)?mets?[,.\s]*/« /ig
 [fr] /[,.\s]*ferm(?:e|ez|er) (?:les )?gui(?:lle)?mets?[,.\s]*/ »/ig
