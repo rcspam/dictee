@@ -98,7 +98,7 @@ USER_KEEPCAPS = os.path.join(XDG_CONFIG, "dictee", "short_text_keepcaps.conf")
 LANG = os.environ.get("DICTEE_LANG_SOURCE", "").lower()[:2]
 
 # Command suffix per language (disambiguates "point" from the word "point")
-# e.g. DICTEE_COMMAND_SUFFIX_FR=suivi → "point suivi" → "."
+# e.g. DICTEE_COMMAND_SUFFIX_FR=finale?s? → "point final" → "."
 _COMMAND_SUFFIXES = {}
 for _code in ("fr", "en", "de", "es", "it", "pt", "uk"):
     _val = os.environ.get(f"DICTEE_COMMAND_SUFFIX_{_code.upper()}", "").strip()

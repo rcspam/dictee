@@ -67,14 +67,21 @@ show_result() {
     echo -e "${CYAN}──────────────────────────────────────${NC}"
     echo -e "${YELLOW}RAW${NC}        ${BOLD}$raw${NC}"
 
-    # If raw contains non-latin characters, show a ready-to-use rule
+    # If raw contains non-latin characters, decide based on whether
+    # processing already transformed it.
     if echo "$raw" | grep -qP '[А-Яа-яЁё]'; then
-        # Escape regex special chars and strip trailing punctuation for the pattern
-        local pattern
-        pattern=$(echo "$raw" | sed 's/[.?!,]*$//' | sed 's/[]\/$*.^[]/\\&/g')
-        echo -e "${RED}CYRILLIQUE${NC} ${DIM}Parakeet a détecté du cyrillique au lieu du français${NC}"
-        echo -e "${DIM}Règle prête à copier dans rules.conf :${NC}"
-        echo -e "${GREEN}[fr] /^[,.\\s]*${pattern}[,.\\s]*/\\n/igm${NC}"
+        if [ "$raw" != "$processed" ]; then
+            # An existing rule already matched — no new rule needed.
+            echo -e "${RED}CYRILLIQUE${NC} ${GREEN}✓ déjà couvert par une règle existante${NC}"
+        else
+            # No rule matched — propose new ones (with \n and ", " variants).
+            local pattern
+            pattern=$(echo "$raw" | sed 's/[.?!,]*$//' | sed 's/[]\/$*.^[]/\\&/g')
+            echo -e "${RED}CYRILLIQUE${NC} ${DIM}Parakeet a détecté du cyrillique — aucune règle existante ne matche${NC}"
+            echo -e "${DIM}Règles candidates (choisis selon l'intention) :${NC}"
+            echo -e "  ${DIM}→ pour « virgule » :${NC} ${GREEN}[fr] /^[,.\\s]*${pattern}[,.\\s]*/, /igm${NC}"
+            echo -e "  ${DIM}→ pour « à la ligne » :${NC} ${GREEN}[fr] /^[,.\\s]*${pattern}[,.\\s]*/\\n/igm${NC}"
+        fi
     fi
 
     # Show processed with visible control chars

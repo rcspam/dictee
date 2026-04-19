@@ -120,7 +120,7 @@ DICTEE_POSTPROCESS=true
 
 # Mot-clé ajouté après une commande vocale pour la distinguer de la dictée
 # Un par langue (regex, vide = pas de suffixe)
-#DICTEE_COMMAND_SUFFIX_FR=final[se]?
+#DICTEE_COMMAND_SUFFIX_FR=finale?s?
 #DICTEE_COMMAND_SUFFIX_EN=done
 #DICTEE_COMMAND_SUFFIX_ES=listo
 #DICTEE_COMMAND_SUFFIX_DE=weiter
