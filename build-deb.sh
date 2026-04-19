@@ -53,6 +53,10 @@ if [ -d "./assets/logos" ]; then
     mkdir -p "$PKG_DIR/usr/share/dictee/assets/logos"
     cp ./assets/logos/*.svg "$PKG_DIR/usr/share/dictee/assets/logos/"
 fi
+if [ -d "./assets/icons" ]; then
+    mkdir -p "$PKG_DIR/usr/share/dictee/assets/icons"
+    cp ./assets/icons/*.svg "$PKG_DIR/usr/share/dictee/assets/icons/"
+fi
 
 
 # Compiler et copier les traductions
@@ -378,6 +382,10 @@ build_tarball() {
     if [ -d "$PKG_DIR/usr/share/dictee/assets/logos" ]; then
         mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/logos"
         cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
+    fi
+    if [ -d "$PKG_DIR/usr/share/dictee/assets/icons" ]; then
+        mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/icons"
+        cp "$PKG_DIR/usr/share/dictee/assets/icons/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/icons/"
     fi
 
 

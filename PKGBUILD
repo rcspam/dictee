@@ -120,6 +120,12 @@ package() {
             [ -f "$f" ] && install -Dm644 "$f" "$pkgdir/usr/share/dictee/assets/logos/$(basename "$f")"
         done
     fi
+    if [ -d assets/icons ]; then
+        install -d "$pkgdir/usr/share/dictee/assets/icons"
+        for f in assets/icons/*.svg; do
+            [ -f "$f" ] && install -Dm644 "$f" "$pkgdir/usr/share/dictee/assets/icons/$(basename "$f")"
+        done
+    fi
 
     # Locales (compiled in build())
     for lang in fr de es it pt uk; do

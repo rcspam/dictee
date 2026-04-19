@@ -132,12 +132,16 @@ prepare_buildroot() {
     mkdir -p "$buildroot/usr/share/applications"
     cp "$PKG_DIR/usr/share/applications/"*.desktop "$buildroot/usr/share/applications/"
 
-    # Assets (bannières + logos)
+    # Assets (bannières + logos + icons)
     mkdir -p "$buildroot/usr/share/dictee/assets"
     cp ./assets/banner-dark.svg ./assets/banner-light.svg "$buildroot/usr/share/dictee/assets/"
     if [ -d "./assets/logos" ]; then
         mkdir -p "$buildroot/usr/share/dictee/assets/logos"
         cp ./assets/logos/*.svg "$buildroot/usr/share/dictee/assets/logos/"
+    fi
+    if [ -d "./assets/icons" ]; then
+        mkdir -p "$buildroot/usr/share/dictee/assets/icons"
+        cp ./assets/icons/*.svg "$buildroot/usr/share/dictee/assets/icons/"
     fi
 
 
