@@ -139,9 +139,14 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
     if command -v docker >/dev/null 2>&1; then
         # Start and enable Docker daemon if not running
         if ! systemctl is-active --quiet docker 2>/dev/null; then
-            systemctl start docker 2>/dev/null || true
             systemctl enable docker 2>/dev/null || true
-            echo "✓ Docker démarré et activé"
+            if systemctl start docker 2>/dev/null; then
+                echo "✓ Docker démarré et activé"
+            else
+                echo "⚠ Docker install OK mais start a échoué (VM sans nested-virt ?) — non bloquant"
+            fi
+        else
+            echo "✓ Docker déjà actif"
         fi
         if ! id -nG "$user" | grep -qw docker; then
             usermod -aG docker "$user"
