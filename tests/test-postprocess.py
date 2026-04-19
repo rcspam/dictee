@@ -1313,7 +1313,7 @@ class TestFixContinuationPython(unittest.TestCase):
     """Tests pour fix_continuation() dans dictee-postprocess.py."""
 
     def _load(self, lang="fr"):
-        import importlib
+        import importlib.util
         spec = importlib.util.spec_from_file_location(
             "dictee_postprocess", POSTPROCESS)
         pp = importlib.util.module_from_spec(spec)
