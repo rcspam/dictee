@@ -1431,17 +1431,29 @@ class VenvInstallThread(QThread):
             if result.returncode != 0:
                 self.done.emit(False, result.stderr.strip())
                 return
-            pip = os.path.join(self.venv_path, "bin", "pip")
+            # Use `python -m pip` instead of the pip script — avoids issues
+            # where the ensurepip pip binary has shebang quirks on some
+            # Fedora/Python versions. Also forces use of the venv's own Python.
+            python = os.path.join(self.venv_path, "bin", "python3")
+            pip_cmd = [python, "-m", "pip"]
             # Upgrade pip first — ensurepip often ships an outdated version
-            # and the update notice is confusing for users.
+            # (e.g. pip 25.3) that can hit install bugs on Python 3.14+.
+            # Hard requirement, not best-effort: if pip upgrade fails,
+            # the subsequent package install may fail too (observed on
+            # Fedora 44 KDE: Errno 2 / No such file or directory).
             self.progress.emit(_("Upgrading pip…"))
-            subprocess.run(
-                [pip, "install", "--upgrade", "pip"],
-                capture_output=True, text=True, timeout=120,
+            r_pip = subprocess.run(
+                pip_cmd + ["install", "--upgrade", "pip"],
+                capture_output=True, text=True, timeout=300,
             )
+            if r_pip.returncode != 0:
+                self.done.emit(False,
+                    _("Failed to upgrade pip in the venv:") + "\n\n"
+                    + (r_pip.stderr.strip() or r_pip.stdout.strip())[-500:])
+                return
             self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
             result = subprocess.run(
-                [pip, "install", "--upgrade", self.pip_package],
+                pip_cmd + ["install", "--upgrade", self.pip_package],
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode != 0:
