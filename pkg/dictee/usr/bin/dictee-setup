@@ -1384,6 +1384,32 @@ def venv_is_installed(venv_path):
     return False
 
 
+def has_text2num():
+    """Check if text2num is importable via a dictee venv (user or system).
+
+    dictee-postprocess.py looks for text_to_num in:
+      1. ~/.local/share/dictee/postprocess-env/ (user, optional)
+      2. /usr/share/dictee/postprocess-env/ (system, created by postinst)
+    """
+    candidates = [
+        os.path.expanduser("~/.local/share/dictee/postprocess-env/bin/python3"),
+        "/usr/share/dictee/postprocess-env/bin/python3",
+    ]
+    for py in candidates:
+        if not os.path.isfile(py):
+            continue
+        try:
+            r = subprocess.run(
+                [py, "-c", "from text_to_num import alpha2digit"],
+                capture_output=True, timeout=2,
+            )
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 class VenvInstallThread(QThread):
     """Thread pour créer un venv et installer un package pip."""
     done = Signal(bool, str)
@@ -1406,6 +1432,13 @@ class VenvInstallThread(QThread):
                 self.done.emit(False, result.stderr.strip())
                 return
             pip = os.path.join(self.venv_path, "bin", "pip")
+            # Upgrade pip first — ensurepip often ships an outdated version
+            # and the update notice is confusing for users.
+            self.progress.emit(_("Upgrading pip…"))
+            subprocess.run(
+                [pip, "install", "--upgrade", "pip"],
+                capture_output=True, text=True, timeout=120,
+            )
             self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
             result = subprocess.run(
                 [pip, "install", "--upgrade", self.pip_package],
@@ -7625,6 +7658,24 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_pp_numbers = ToggleSwitch(_("Number conversion (text2num)"), _hidden_holder)
         self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
+        if not has_text2num():
+            # Force OFF so the SVG pipeline step renders as disabled too,
+            # and Apply writes DICTEE_PP_NUMBERS=false (matches reality).
+            self.chk_pp_numbers.setChecked(False)
+            self.chk_pp_numbers.setEnabled(False)
+            # Also sync the diagram state dicts (which were already seeded
+            # from config before this point — signals won't propagate at init).
+            if hasattr(self, "_pp_state"):
+                self._pp_state["numbers"] = False
+            if hasattr(self, "_trpp_state"):
+                self._trpp_state["numbers"] = False
+            self.chk_pp_numbers.setToolTip(
+                "<span style='color:#c0392b;'><b>" + _("text2num not installed") + "</b><br>"
+                + _("Reinstall dictee, or manually:") + "<br>"
+                + "<code>sudo python3 -m venv /usr/share/dictee/postprocess-env</code><br>"
+                + "<code>sudo /usr/share/dictee/postprocess-env/bin/pip install text2num</code>"
+                + "</span>"
+            )
         _hidden_lay.addWidget(self.chk_pp_numbers)
 
         self.chk_pp_dict = ToggleSwitch(_("Dictionary"), _hidden_holder)
@@ -8067,6 +8118,10 @@ class DicteeSetupDialog(QDialog):
                         break
 
             def _toggle_trpp():
+                # "numbers" requires text2num — block toggle if absent.
+                if key == "numbers" and not has_text2num():
+                    self._show_text2num_missing()
+                    return
                 self._trpp_state[key] = not self._trpp_state.get(key, True)
                 self._refresh_pp_diagrams()
 
@@ -8118,8 +8173,10 @@ class DicteeSetupDialog(QDialog):
         if key in steps_with_page:
             if target_child is None:
                 cb = cb_map.get(key)
-                if cb is not None:
+                if cb is not None and cb.isEnabled():
                     cb.toggle()
+                elif key == "numbers":
+                    self._show_text2num_missing()
                 return
             already_on_page = (
                 tree is not None
@@ -8127,16 +8184,38 @@ class DicteeSetupDialog(QDialog):
             )
             if already_on_page:
                 cb = cb_map.get(key)
-                if cb is not None:
+                if cb is not None and cb.isEnabled():
                     cb.toggle()
+                elif key == "numbers":
+                    self._show_text2num_missing()
                 return
             # Navigate first; 2nd click (on page) will toggle.
             tree.setCurrentItem(target_child)
             return
-        # Step without a page: toggle directly.
+        # Step without a page: toggle directly (respect disabled state —
+        # e.g. "numbers" is disabled when text2num is not installed).
         cb = cb_map.get(key)
-        if cb is not None:
+        if cb is not None and cb.isEnabled():
             cb.toggle()
+        elif key == "numbers":
+            self._show_text2num_missing()
+
+
+    def _show_text2num_missing(self):
+        """Display a warning dialog explaining how to install text2num."""
+        title = _("Number conversion unavailable")
+        body = (
+            _("text2num is not installed on this system. "
+              "It should have been installed automatically with dictee.")
+            + "\n\n"
+            + _("To install it manually, run:")
+            + "\n\n"
+            + "sudo python3 -m venv /usr/share/dictee/postprocess-env\n"
+            + "sudo /usr/share/dictee/postprocess-env/bin/pip install text2num"
+            + "\n\n"
+            + _("Then restart dictee-setup.")
+        )
+        QMessageBox.warning(self, title, body)
 
 
     def _update_test_chain_label(self):
