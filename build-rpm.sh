@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.3.0~beta2"
+VERSION="1.3.0~beta3"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
