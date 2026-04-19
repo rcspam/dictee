@@ -524,7 +524,7 @@ save_last_word() {
         rm -f "$LAST_WORD_FILE"
         return
     fi
-    # \x02 = forced end-of-sentence (from "point suivi" etc.)
+    # \x02 = forced end-of-sentence (from "point final" etc.)
     local force_end=false
     if [[ "$text" == *$'\x02'* ]]; then
         force_end=true

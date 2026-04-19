@@ -3617,7 +3617,7 @@ class DicteeSetupDialog(QDialog):
         self._venv_threads = {}
         self._audio_monitor = None
         # Command suffixes — init from conf, fallback to defaults
-        _sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+        _sfx_defaults = {"fr": "finale?s?", "en": "done", "de": "weiter",
                          "es": "listo", "it": "seguito", "pt": "pronto",
                          "uk": "далі"}
         _tmp_conf = load_config() if _conf_exists else {}
@@ -8704,7 +8704,7 @@ class DicteeSetupDialog(QDialog):
             "The suffix is a word you say <b>after</b> the ambiguous command "
             "to confirm it's a voice command, not a regular word.<br><br>"
             "<b>Examples by language:</b><br>"
-            "• FR (suffix = \"suivi\"): \"point suivi\" → \".\" — "
+            "• FR (suffix = \"finale?s?\"): \"point final\" → \".\" — "
             "but \"un bon point\" → kept as text<br>"
             "• EN (suffix = \"done\"): \"period done\" → \".\" — "
             "but \"a long period\" → kept as text<br>"
@@ -8734,7 +8734,7 @@ class DicteeSetupDialog(QDialog):
         self._suffix_lang = QComboBox()
         self._suffix_lang.setFixedWidth(60)
         _lang = self.conf.get("DICTEE_LANG_SOURCE", "fr")
-        self._sfx_defaults = {"fr": "suivi", "en": "done", "de": "weiter",
+        self._sfx_defaults = {"fr": "finale?s?", "en": "done", "de": "weiter",
                               "es": "listo", "it": "seguito", "pt": "pronto",
                               "uk": "далі"}
         self._command_suffixes = {}
