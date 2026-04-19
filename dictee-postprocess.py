@@ -43,11 +43,10 @@ import sys
 import urllib.request
 import urllib.error
 
-# ── text_to_num bootstrap ─────────────────────────────────────────────
-# Priority order for finding text_to_num (used by convert_numbers):
-#   1. User venv ~/.local/share/dictee/postprocess-env (if user created it)
-#   2. System vendor dir /usr/lib/dictee/vendor (bundled in .deb/.rpm)
-# sys.path injection — re-exec via os.execv would lose stdin (pipe).
+# ── Venv bootstrap ───────────────────────────────────────────────────
+# If a dedicated venv exists (with text2num, etc.),
+# add its site-packages to sys.path so imports work without re-exec.
+# Re-exec via os.execv would lose stdin (pipe), so we inject the path instead.
 
 XDG_DATA = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
 _VENV_DIR = os.path.join(XDG_DATA, "dictee", "postprocess-env")
@@ -58,11 +57,6 @@ _VENV_SITE = os.path.join(
 )
 if os.path.isdir(_VENV_SITE) and _VENV_SITE not in sys.path:
     sys.path.insert(0, _VENV_SITE)
-
-# System-wide vendor directory (text2num bundled in the package)
-_VENDOR_DIR = "/usr/lib/dictee/vendor"
-if os.path.isdir(_VENDOR_DIR) and _VENDOR_DIR not in sys.path:
-    sys.path.append(_VENDOR_DIR)
 
 # ── Chemins ──────────────────────────────────────────────────────────
 

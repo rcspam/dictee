@@ -31,7 +31,6 @@ PROMOTION.md
 # Artefacts de build
 *.rpm
 *.plasmoid
-pkg/dictee/usr/lib/dictee/vendor/
 
 # Fichiers internes
 docs/superpowers/

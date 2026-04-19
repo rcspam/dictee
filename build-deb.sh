@@ -58,14 +58,6 @@ if [ -d "./assets/icons" ]; then
     cp ./assets/icons/*.svg "$PKG_DIR/usr/share/dictee/assets/icons/"
 fi
 
-# Vendor text2num (pure-Python, ~50KB) — bundled so the number conversion
-# feature works out of the box without requiring a user venv.
-echo "=== Vendoring text2num ==="
-rm -rf "$PKG_DIR/usr/lib/dictee/vendor"
-mkdir -p "$PKG_DIR/usr/lib/dictee/vendor"
-pip install --target "$PKG_DIR/usr/lib/dictee/vendor" --no-deps --no-compile --quiet text2num \
-    || echo "WARNING: text2num vendor install failed (needs internet)"
-
 
 # Compiler et copier les traductions
 echo "=== Compilation des traductions ==="
@@ -355,12 +347,6 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/usr/lib/dictee"
     cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$TARBALL_DIR/usr/lib/dictee/"
     cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$TARBALL_DIR/usr/lib/dictee/"
-
-    # Vendored text2num
-    if [ -d "$PKG_DIR/usr/lib/dictee/vendor" ]; then
-        mkdir -p "$TARBALL_DIR/usr/lib/dictee/vendor"
-        cp -r "$PKG_DIR/usr/lib/dictee/vendor/." "$TARBALL_DIR/usr/lib/dictee/vendor/"
-    fi
 
     # Udev rules (dotool)
     cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$TARBALL_DIR/etc/udev/rules.d/"

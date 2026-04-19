@@ -144,12 +144,6 @@ prepare_buildroot() {
         cp ./assets/icons/*.svg "$buildroot/usr/share/dictee/assets/icons/"
     fi
 
-    # Vendor text2num (pure-Python, ~50KB)
-    rm -rf "$buildroot/usr/lib/dictee/vendor"
-    mkdir -p "$buildroot/usr/lib/dictee/vendor"
-    pip install --target "$buildroot/usr/lib/dictee/vendor" --no-deps --no-compile --quiet text2num \
-        || echo "WARNING: text2num vendor install failed"
-
 
     # Plasmoid + rules
     mkdir -p "$buildroot/usr/share/dictee"
