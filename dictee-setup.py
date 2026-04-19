@@ -7652,6 +7652,9 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_numbers = ToggleSwitch(_("Number conversion (text2num)"), _hidden_holder)
         self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
         if not has_text2num():
+            # Force OFF so the SVG pipeline step renders as disabled too,
+            # and Apply writes DICTEE_PP_NUMBERS=false (matches reality).
+            self.chk_pp_numbers.setChecked(False)
             self.chk_pp_numbers.setEnabled(False)
             self.chk_pp_numbers.setToolTip(
                 "<span style='color:#c0392b;'><b>" + _("text2num not installed") + "</b><br>"
