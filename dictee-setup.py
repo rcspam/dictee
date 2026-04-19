@@ -8111,6 +8111,9 @@ class DicteeSetupDialog(QDialog):
                         break
 
             def _toggle_trpp():
+                # "numbers" requires text2num — block toggle if absent.
+                if key == "numbers" and not has_text2num():
+                    return
                 self._trpp_state[key] = not self._trpp_state.get(key, True)
                 self._refresh_pp_diagrams()
 
@@ -8162,7 +8165,7 @@ class DicteeSetupDialog(QDialog):
         if key in steps_with_page:
             if target_child is None:
                 cb = cb_map.get(key)
-                if cb is not None:
+                if cb is not None and cb.isEnabled():
                     cb.toggle()
                 return
             already_on_page = (
@@ -8171,15 +8174,16 @@ class DicteeSetupDialog(QDialog):
             )
             if already_on_page:
                 cb = cb_map.get(key)
-                if cb is not None:
+                if cb is not None and cb.isEnabled():
                     cb.toggle()
                 return
             # Navigate first; 2nd click (on page) will toggle.
             tree.setCurrentItem(target_child)
             return
-        # Step without a page: toggle directly.
+        # Step without a page: toggle directly (respect disabled state —
+        # e.g. "numbers" is disabled when text2num is not installed).
         cb = cb_map.get(key)
-        if cb is not None:
+        if cb is not None and cb.isEnabled():
             cb.toggle()
 
 
