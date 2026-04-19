@@ -49,14 +49,14 @@ import urllib.error
 # Re-exec via os.execv would lose stdin (pipe), so we inject the path instead.
 
 XDG_DATA = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
-_VENV_DIR = os.path.join(XDG_DATA, "dictee", "postprocess-env")
-_VENV_SITE = os.path.join(
-    _VENV_DIR, "lib",
-    f"python{sys.version_info.major}.{sys.version_info.minor}",
-    "site-packages",
-)
-if os.path.isdir(_VENV_SITE) and _VENV_SITE not in sys.path:
-    sys.path.insert(0, _VENV_SITE)
+_pyver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+for _venv_dir in (
+    os.path.join(XDG_DATA, "dictee", "postprocess-env"),  # user venv (optional)
+    "/usr/share/dictee/postprocess-env",                   # system venv (package)
+):
+    _site = os.path.join(_venv_dir, "lib", _pyver, "site-packages")
+    if os.path.isdir(_site) and _site not in sys.path:
+        sys.path.insert(0, _site)
 
 # ── Chemins ──────────────────────────────────────────────────────────
 

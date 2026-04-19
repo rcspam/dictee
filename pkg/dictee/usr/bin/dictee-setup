@@ -4662,7 +4662,37 @@ class DicteeSetupDialog(QDialog):
 
     @staticmethod
     def _is_dark_theme():
-        """Détecte si le thème Qt courant est sombre."""
+        """Detects dark theme via desktop settings (GNOME/KDE) with Qt fallback.
+
+        Qt's palette is unreliable when no platform-theme integration is
+        installed (e.g. Fedora GNOME without qgnomeplatform-qt6) — it falls
+        back to Fusion, which reads as dark even under a light desktop.
+        """
+        import subprocess
+        # 1. KDE Plasma — kreadconfig6 on kdeglobals
+        try:
+            r = subprocess.run(
+                ["kreadconfig6", "--file", "kdeglobals", "--group", "General",
+                 "--key", "ColorScheme"],
+                capture_output=True, text=True, timeout=1)
+            if r.returncode == 0 and r.stdout.strip():
+                return "Dark" in r.stdout
+        except Exception:
+            pass
+        # 2. GNOME — gsettings color-scheme
+        try:
+            r = subprocess.run(
+                ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                capture_output=True, text=True, timeout=1)
+            if r.returncode == 0:
+                val = r.stdout.strip().strip("'\"")
+                if val == "prefer-dark":
+                    return True
+                if val in ("prefer-light", "default"):
+                    return False
+        except Exception:
+            pass
+        # 3. Qt palette fallback
         app = QApplication.instance()
         if app:
             bg = app.palette().color(app.palette().ColorRole.Window)
