@@ -32,6 +32,7 @@ optdepends=(
     'cudnn: NVIDIA cuDNN for GPU acceleration'
 )
 makedepends=('rust' 'cargo' 'gettext' 'git')
+install=dictee.install
 source=("$pkgname-$_tag.tar.gz::https://github.com/rcspam/dictee/archive/v$_tag.tar.gz")
 sha256sums=('SKIP')
 

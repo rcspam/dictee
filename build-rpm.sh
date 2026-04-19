@@ -377,10 +377,22 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
 
+# Create Python venv for text2num (number conversion)
+PP_VENV="/usr/share/dictee/postprocess-env"
+if command -v python3 >/dev/null 2>&1; then
+    if [ ! -d "\$PP_VENV" ]; then
+        python3 -m venv "\$PP_VENV" 2>/dev/null && \
+            "\$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null || true
+    else
+        "\$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null || true
+    fi
+fi
+
 %postun
 ldconfig 2>/dev/null || true
 if [ "\$1" -eq 0 ]; then
     # Full uninstall (not upgrade)
+    rm -rf /usr/share/dictee/postprocess-env
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
     # Stop and disable user services
@@ -555,8 +567,20 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
 
+# Create Python venv for text2num (number conversion)
+PP_VENV="/usr/share/dictee/postprocess-env"
+if command -v python3 >/dev/null 2>&1; then
+    if [ ! -d "\$PP_VENV" ]; then
+        python3 -m venv "\$PP_VENV" 2>/dev/null && \
+            "\$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null || true
+    else
+        "\$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null || true
+    fi
+fi
+
 %postun
 if [ "\$1" -eq 0 ]; then
+    rm -rf /usr/share/dictee/postprocess-env
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
     for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do

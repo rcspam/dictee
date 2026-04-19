@@ -21,6 +21,9 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     # Reload udev rules
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
+
+    # Remove venv Python (text2num) — créé au postinst, pas tracké par dpkg
+    rm -rf /usr/share/dictee/postprocess-env
 fi
 
 exit 0

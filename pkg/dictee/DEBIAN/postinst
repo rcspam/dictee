@@ -259,6 +259,27 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
 done
 
 echo ""
+echo "=== Venv Python système (text2num — conversion des nombres) ==="
+PP_VENV="/usr/share/dictee/postprocess-env"
+if command -v python3 >/dev/null 2>&1; then
+    if [ ! -d "$PP_VENV" ]; then
+        if python3 -m venv "$PP_VENV" 2>/dev/null; then
+            if "$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null; then
+                echo "✓ Venv postprocess créé avec text2num"
+            else
+                echo "⚠ Venv créé mais pip install text2num a échoué (pas d'internet ?)"
+            fi
+        else
+            echo "⚠ python3 -m venv a échoué — python3-venv installé ?"
+        fi
+    else
+        # Venv existe déjà (réinstall/upgrade) : tenter upgrade text2num
+        "$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null
+        echo "✓ Venv postprocess déjà présent"
+    fi
+fi
+
+echo ""
 echo "=== Parakeet Transcribe installé ==="
 echo ""
 echo "Les services seront activés automatiquement au prochain login."

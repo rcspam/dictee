@@ -1,0 +1,24 @@
+post_install() {
+    # Create Python venv for text2num (number conversion)
+    PP_VENV="/usr/share/dictee/postprocess-env"
+    if command -v python3 >/dev/null 2>&1; then
+        if [ ! -d "$PP_VENV" ]; then
+            python3 -m venv "$PP_VENV" 2>/dev/null && \
+                "$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null || \
+                echo "Warning: text2num install failed (check internet)"
+        fi
+    fi
+}
+
+post_upgrade() {
+    PP_VENV="/usr/share/dictee/postprocess-env"
+    if [ -d "$PP_VENV" ] && command -v python3 >/dev/null 2>&1; then
+        "$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null || true
+    else
+        post_install
+    fi
+}
+
+pre_remove() {
+    rm -rf /usr/share/dictee/postprocess-env
+}
