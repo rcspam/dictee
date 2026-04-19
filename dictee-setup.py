@@ -7896,6 +7896,12 @@ class DicteeSetupDialog(QDialog):
             _test_body.setVisible(on)
             self._refresh_test_accordion_label()
             self._unfreeze_pp(20)
+            # Auto-scroll to reveal the test panel when opened
+            if on:
+                scroll = getattr(self, "_pp_scroll", None)
+                if scroll:
+                    QTimer.singleShot(
+                        40, lambda: scroll.ensureWidgetVisible(_test_body, 0, 40))
         _test_toggle.toggled.connect(_on_test_toggled)
         # Initial label reflects current PP sub-tab (if any)
         self._refresh_test_accordion_label()
@@ -10878,22 +10884,14 @@ class DicteeSetupDialog(QDialog):
         ind_lay.addStretch()
         form_top_lay.addLayout(ind_lay)
 
-        # Variants label (indented under the kw combo+field on the row above)
-        _variants_lay = QHBoxLayout()
-        _variants_spacer = QLabel()
-        _variants_spacer.setFixedWidth(
-            ind_label.sizeHint().width() + 6
-            + self.cmb_continuation_indicator.width() + 6
-            + 20
-            + kw_label.sizeHint().width() + 6
-            + self._cont_kw_lang.sizeHint().width() + 6
-        )
+        # Variants label — own line, wraps if too long. Small left indent
+        # instead of a fixed spacer so the label can shrink with the window.
         self._cont_kw_variants = QLabel()
-        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
-        _variants_lay.addWidget(_variants_spacer)
-        _variants_lay.addWidget(self._cont_kw_variants)
-        _variants_lay.addStretch()
-        form_top_lay.addLayout(_variants_lay)
+        self._cont_kw_variants.setStyleSheet(
+            "color: gray; font-size: 11px; padding-left: 20px;")
+        self._cont_kw_variants.setWordWrap(True)
+        self._cont_kw_variants.setMinimumWidth(1)
+        form_top_lay.addWidget(self._cont_kw_variants)
         self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
         # --- Separator ---
@@ -11541,7 +11539,15 @@ class DicteeSetupDialog(QDialog):
             variants.add(with_hyphen)
             variants.add(with_hyphen.capitalize())
         sorted_v = sorted(variants, key=lambda s: (s.lower(), s))
-        self._cont_kw_variants.setText(_("Accepted: ") + ", ".join(sorted_v))
+        full = ", ".join(sorted_v)
+        max_shown = 4
+        if len(sorted_v) > max_shown:
+            shown = ", ".join(sorted_v[:max_shown]) + _(", … (+{n} more)").format(
+                n=len(sorted_v) - max_shown)
+        else:
+            shown = full
+        self._cont_kw_variants.setText(_("Accepted: ") + shown)
+        self._cont_kw_variants.setToolTip(_("Accepted: ") + full)
 
     def _on_cont_kw_lang_changed(self, lang):
         """Switch continuation keyword when language combo changes."""
@@ -13861,6 +13867,13 @@ class DicteeSetupDialog(QDialog):
             self._freeze_pp()
             self._test_details_scroll.setVisible(on)
             self._unfreeze_pp(20)
+            # Auto-scroll to reveal the details panel when opened
+            if on:
+                scroll = getattr(self, "_pp_scroll", None)
+                if scroll:
+                    QTimer.singleShot(
+                        40, lambda: scroll.ensureWidgetVisible(
+                            self._test_details_scroll, 0, 40))
         btn_details.toggled.connect(_on_details_toggled)
 
         # Connect
