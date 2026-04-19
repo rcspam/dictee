@@ -8113,6 +8113,7 @@ class DicteeSetupDialog(QDialog):
             def _toggle_trpp():
                 # "numbers" requires text2num — block toggle if absent.
                 if key == "numbers" and not has_text2num():
+                    self._show_text2num_missing()
                     return
                 self._trpp_state[key] = not self._trpp_state.get(key, True)
                 self._refresh_pp_diagrams()
@@ -8167,6 +8168,8 @@ class DicteeSetupDialog(QDialog):
                 cb = cb_map.get(key)
                 if cb is not None and cb.isEnabled():
                     cb.toggle()
+                elif key == "numbers":
+                    self._show_text2num_missing()
                 return
             already_on_page = (
                 tree is not None
@@ -8176,6 +8179,8 @@ class DicteeSetupDialog(QDialog):
                 cb = cb_map.get(key)
                 if cb is not None and cb.isEnabled():
                     cb.toggle()
+                elif key == "numbers":
+                    self._show_text2num_missing()
                 return
             # Navigate first; 2nd click (on page) will toggle.
             tree.setCurrentItem(target_child)
@@ -8185,6 +8190,25 @@ class DicteeSetupDialog(QDialog):
         cb = cb_map.get(key)
         if cb is not None and cb.isEnabled():
             cb.toggle()
+        elif key == "numbers":
+            self._show_text2num_missing()
+
+
+    def _show_text2num_missing(self):
+        """Display a warning dialog explaining how to install text2num."""
+        title = _("Number conversion unavailable")
+        body = (
+            _("text2num is not installed on this system. "
+              "It should have been installed automatically with dictee.")
+            + "\n\n"
+            + _("To install it manually, run:")
+            + "\n\n"
+            + "sudo python3 -m venv /usr/share/dictee/postprocess-env\n"
+            + "sudo /usr/share/dictee/postprocess-env/bin/pip install text2num"
+            + "\n\n"
+            + _("Then restart dictee-setup.")
+        )
+        QMessageBox.warning(self, title, body)
 
 
     def _update_test_chain_label(self):
