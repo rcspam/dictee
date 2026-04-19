@@ -35,6 +35,44 @@ err()  { echo "${C_RED}✗${C_OFF} $*" >&2; }
 die()  { err "$@"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
 
+# Offer to launch dictee-setup when a graphical session is available.
+# Usage: launch_wizard [user]  (user = optional; defaults to current user)
+launch_wizard() {
+    local target_user="${1:-}"
+    local sudo_env=""
+    local gui_display="${DISPLAY:-}"
+    local gui_wayland="${WAYLAND_DISPLAY:-}"
+
+    # In tarball/root mode, inspect the real user's environment instead of root's.
+    if [[ -n "$target_user" && "$target_user" != "$(id -un)" ]]; then
+        local uid; uid=$(id -u "$target_user" 2>/dev/null) || return 0
+        gui_display=$(sudo -u "$target_user" sh -c 'echo "${DISPLAY:-}"' 2>/dev/null || echo "")
+        gui_wayland=$(sudo -u "$target_user" sh -c 'echo "${WAYLAND_DISPLAY:-}"' 2>/dev/null || echo "")
+        sudo_env="sudo -u $target_user -E env DISPLAY=${gui_display} WAYLAND_DISPLAY=${gui_wayland} XDG_RUNTIME_DIR=/run/user/${uid}"
+    fi
+
+    if [[ -z "$gui_display" && -z "$gui_wayland" ]]; then
+        return 0
+    fi
+
+    local ans=""
+    if [[ -r /dev/tty ]]; then
+        echo
+        read -p "Launch dictee-setup now? [Y/n] " -t 10 -r ans < /dev/tty || ans=""
+    fi
+    case "${ans:-y}" in
+        [Nn]*) return 0 ;;
+    esac
+
+    info "Launching dictee-setup..."
+    if [[ -n "$sudo_env" ]]; then
+        nohup $sudo_env dictee-setup >/dev/null 2>&1 &
+    else
+        nohup dictee-setup >/dev/null 2>&1 &
+    fi
+    disown || true
+}
+
 usage() {
     cat <<'EOF'
 dictee installer (dual-mode)
@@ -185,7 +223,8 @@ mode_online() {
     # ---- Temp dir ----
     local TMPDIR; TMPDIR="${TMPDIR:-/tmp}/dictee-install-$$"
     mkdir -p "$TMPDIR"
-    trap 'rm -rf "$TMPDIR"' EXIT
+    # Expand $TMPDIR at trap-registration time — the local var is gone by EXIT.
+    trap "rm -rf '$TMPDIR'" EXIT
     cd "$TMPDIR"
 
     # ---- Distro-specific install ----
@@ -354,6 +393,8 @@ mode_online() {
     echo "  ${C_BOLD}dictee --help${C_OFF}   # CLI usage"
     echo
     echo "Documentation: https://github.com/${REPO}"
+
+    launch_wizard
 }
 
 # =============================================================================
@@ -577,6 +618,8 @@ mode_tarball() {
     echo "  ${C_BOLD}dictee --help${C_OFF}   # CLI usage"
     echo
     echo "Uninstall: sudo ./uninstall.sh"
+
+    launch_wizard "${SUDO_USER:-}"
 }
 
 # =============================================================================
