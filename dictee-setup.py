@@ -1384,6 +1384,32 @@ def venv_is_installed(venv_path):
     return False
 
 
+def has_text2num():
+    """Check if text2num is importable via a dictee venv (user or system).
+
+    dictee-postprocess.py looks for text_to_num in:
+      1. ~/.local/share/dictee/postprocess-env/ (user, optional)
+      2. /usr/share/dictee/postprocess-env/ (system, created by postinst)
+    """
+    candidates = [
+        os.path.expanduser("~/.local/share/dictee/postprocess-env/bin/python3"),
+        "/usr/share/dictee/postprocess-env/bin/python3",
+    ]
+    for py in candidates:
+        if not os.path.isfile(py):
+            continue
+        try:
+            r = subprocess.run(
+                [py, "-c", "from text_to_num import alpha2digit"],
+                capture_output=True, timeout=2,
+            )
+            if r.returncode == 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
 class VenvInstallThread(QThread):
     """Thread pour créer un venv et installer un package pip."""
     done = Signal(bool, str)
@@ -7625,6 +7651,15 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_pp_numbers = ToggleSwitch(_("Number conversion (text2num)"), _hidden_holder)
         self.chk_pp_numbers.setChecked(conf.get("DICTEE_PP_NUMBERS", "true") == "true")
+        if not has_text2num():
+            self.chk_pp_numbers.setEnabled(False)
+            self.chk_pp_numbers.setToolTip(
+                "<span style='color:#c0392b;'><b>" + _("text2num not installed") + "</b><br>"
+                + _("Reinstall dictee, or manually:") + "<br>"
+                + "<code>sudo python3 -m venv /usr/share/dictee/postprocess-env</code><br>"
+                + "<code>sudo /usr/share/dictee/postprocess-env/bin/pip install text2num</code>"
+                + "</span>"
+            )
         _hidden_lay.addWidget(self.chk_pp_numbers)
 
         self.chk_pp_dict = ToggleSwitch(_("Dictionary"), _hidden_holder)
