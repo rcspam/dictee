@@ -8,7 +8,7 @@ Type=simple
 EnvironmentFile=-%h/.config/dictee.conf
 ExecStart=/usr/bin/transcribe-daemon-vosk
 ExecStartPost=/bin/bash -c 'echo idle > /dev/shm/.dictee_state'
-ExecStopPost=/bin/bash -c 'echo offline > /dev/shm/.dictee_state'
+ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
 Restart=on-failure
 RestartSec=5
 Environment=XDG_RUNTIME_DIR=/run/user/%U
