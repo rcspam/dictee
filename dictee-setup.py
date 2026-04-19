@@ -7656,6 +7656,12 @@ class DicteeSetupDialog(QDialog):
             # and Apply writes DICTEE_PP_NUMBERS=false (matches reality).
             self.chk_pp_numbers.setChecked(False)
             self.chk_pp_numbers.setEnabled(False)
+            # Also sync the diagram state dicts (which were already seeded
+            # from config before this point — signals won't propagate at init).
+            if hasattr(self, "_pp_state"):
+                self._pp_state["numbers"] = False
+            if hasattr(self, "_trpp_state"):
+                self._trpp_state["numbers"] = False
             self.chk_pp_numbers.setToolTip(
                 "<span style='color:#c0392b;'><b>" + _("text2num not installed") + "</b><br>"
                 + _("Reinstall dictee, or manually:") + "<br>"
