@@ -4136,12 +4136,8 @@ class DicteeSetupDialog(QDialog):
         page_pp = QScrollArea()
         page_pp.setWidgetResizable(True)
         page_pp.setFrameShape(QFrame.Shape.NoFrame)
-        # AsNeeded (au lieu de AlwaysOff) : si le contenu d'un sous-tab
-        # (Rules Add-row, Dict toolbar, etc.) dépasse la largeur du viewport,
-        # la scrollbar apparaît plutôt que de forcer l'user à redimensionner
-        # la fenêtre. Le cas normal (fenêtre large) reste sans scroll.
         page_pp.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         page_pp.setWidget(page_pp_inner)
         self._pp_scroll = page_pp  # for ensureWidgetVisible calls
         self._sidebar_stack.addWidget(page_pp)
@@ -8901,11 +8897,14 @@ class DicteeSetupDialog(QDialog):
         # Warning popup is shown on tab entry (see _maybe_show_rules_warning),
         # not as a permanent label — the user can dismiss it permanently.
 
-        # --- Rule creator (single line) ---
+        # --- Rule creator (two lines) ---
+        # Row 1: lang / pattern / replacement / flags   (wide inputs)
+        # Row 2: Insert [combo] [at end] [Add] [Record]  (compact actions)
         add_grp = QGroupBox(_("Add a rule"))
         add_grp_lay = QVBoxLayout(add_grp)
-        add_lay = QHBoxLayout()
-        add_lay.setSpacing(6)
+
+        add_row1 = QHBoxLayout()
+        add_row1.setSpacing(6)
 
         self._rule_lang = QComboBox()
         self._rule_lang.setFixedWidth(60)
@@ -8916,60 +8915,64 @@ class DicteeSetupDialog(QDialog):
         idx = self._rule_lang.findText(lang_src)
         if idx >= 0:
             self._rule_lang.setCurrentIndex(idx)
-        add_lay.addWidget(self._rule_lang)
+        add_row1.addWidget(self._rule_lang)
 
-        add_lay.addWidget(QLabel("/"))
+        add_row1.addWidget(QLabel("/"))
         self._rule_pattern = QLineEdit()
         self._rule_pattern.setPlaceholderText(_("Pattern (what the ASR says)"))
         self._rule_pattern.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_pattern, 3)
+        add_row1.addWidget(self._rule_pattern, 3)
 
-        add_lay.addWidget(QLabel("/"))
+        add_row1.addWidget(QLabel("/"))
         self._rule_replacement = QLineEdit()
         self._rule_replacement.setPlaceholderText(_("Replacement (\\n = newline)"))
         self._rule_replacement.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_replacement, 3)
+        add_row1.addWidget(self._rule_replacement, 3)
 
-        add_lay.addWidget(QLabel("/"))
+        add_row1.addWidget(QLabel("/"))
         self._rule_flags = QLineEdit("ig")
         self._rule_flags.setFixedWidth(40)
         self._rule_flags.setFont(self._monospace_font())
         self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
-        add_lay.addWidget(self._rule_flags)
+        add_row1.addWidget(self._rule_flags)
 
-        add_lay.addSpacing(6)
-        add_lay.addWidget(QLabel(_("Insert:")))
+        add_row2 = QHBoxLayout()
+        add_row2.setSpacing(6)
+        add_row2.addWidget(QLabel(_("Insert:")))
         self._rule_section = QComboBox()
         self._rule_section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._rule_section.setMinimumWidth(100)
-        add_lay.addWidget(self._rule_section, 2)
+        self._rule_section.setMinimumWidth(140)
+        add_row2.addWidget(self._rule_section, 1)
 
         self._rule_position = QComboBox()
         self._rule_position.addItem(_("at end"), "end")
         self._rule_position.addItem(_("at beginning"), "begin")
-        self._rule_position.setFixedWidth(85)
+        self._rule_position.setFixedWidth(110)
         self._rule_position.setEnabled(False)
-        add_lay.addWidget(self._rule_position)
+        add_row2.addWidget(self._rule_position)
 
         self._rule_section.currentIndexChanged.connect(
             lambda: self._rule_position.setEnabled(
                 self._rule_section.currentData() == "section"))
 
+        add_row2.addStretch(1)
+
         btn_add_rule = QPushButton("+ " + _("Add"))
         btn_add_rule.clicked.connect(self._add_rule_to_editor)
-        add_lay.addWidget(btn_add_rule)
+        add_row2.addWidget(btn_add_rule)
 
         self._btn_record_rule = QPushButton(QIcon.fromTheme("audio-input-microphone"), _("Record"))
         self._btn_record_rule.setToolTip(_("Record audio, transcribe, and fill the pattern field"))
         self._btn_record_rule.clicked.connect(self._record_for_rule)
-        add_lay.addWidget(self._btn_record_rule)
+        add_row2.addWidget(self._btn_record_rule)
 
         # Label to show RAW/PROCESSED after recording
         self._rule_preview = QLabel()
         self._rule_preview.setWordWrap(True)
         self._rule_preview.setVisible(False)
 
-        add_grp_lay.addLayout(add_lay)
+        add_grp_lay.addLayout(add_row1)
+        add_grp_lay.addLayout(add_row2)
         add_grp_lay.addWidget(self._rule_preview)
 
         lay.addWidget(add_grp)
@@ -9742,7 +9745,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_search.setEditable(True)
         self._dict_search.lineEdit().addAction(
             QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
-        self._dict_search.setMinimumWidth(140)
+        self._dict_search.setMinimumWidth(180)
         self._dict_search.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         toolbar.addWidget(self._dict_search)
 
