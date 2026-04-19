@@ -264,6 +264,8 @@ PP_VENV="/usr/share/dictee/postprocess-env"
 if command -v python3 >/dev/null 2>&1; then
     if [ ! -d "$PP_VENV" ]; then
         if python3 -m venv "$PP_VENV" 2>/dev/null; then
+            # Upgrade pip d'abord (ensurepip embarque souvent une version ancienne)
+            "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
             if "$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null; then
                 echo "✓ Venv postprocess créé avec text2num"
             else
@@ -273,7 +275,8 @@ if command -v python3 >/dev/null 2>&1; then
             echo "⚠ python3 -m venv a échoué — python3-venv installé ?"
         fi
     else
-        # Venv existe déjà (réinstall/upgrade) : tenter upgrade text2num
+        # Venv existe déjà (réinstall/upgrade) : upgrade pip + text2num
+        "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         "$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null
         echo "✓ Venv postprocess déjà présent"
     fi

@@ -381,9 +381,12 @@ done
 PP_VENV="/usr/share/dictee/postprocess-env"
 if command -v python3 >/dev/null 2>&1; then
     if [ ! -d "\$PP_VENV" ]; then
-        python3 -m venv "\$PP_VENV" 2>/dev/null && \
+        if python3 -m venv "\$PP_VENV" 2>/dev/null; then
+            "\$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
             "\$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null || true
+        fi
     else
+        "\$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         "\$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null || true
     fi
 fi
@@ -571,9 +574,12 @@ done
 PP_VENV="/usr/share/dictee/postprocess-env"
 if command -v python3 >/dev/null 2>&1; then
     if [ ! -d "\$PP_VENV" ]; then
-        python3 -m venv "\$PP_VENV" 2>/dev/null && \
+        if python3 -m venv "\$PP_VENV" 2>/dev/null; then
+            "\$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
             "\$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null || true
+        fi
     else
+        "\$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
         "\$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null || true
     fi
 fi

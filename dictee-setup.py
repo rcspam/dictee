@@ -1432,6 +1432,13 @@ class VenvInstallThread(QThread):
                 self.done.emit(False, result.stderr.strip())
                 return
             pip = os.path.join(self.venv_path, "bin", "pip")
+            # Upgrade pip first — ensurepip often ships an outdated version
+            # and the update notice is confusing for users.
+            self.progress.emit(_("Upgrading pip…"))
+            subprocess.run(
+                [pip, "install", "--upgrade", "pip"],
+                capture_output=True, text=True, timeout=120,
+            )
             self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
             result = subprocess.run(
                 [pip, "install", "--upgrade", self.pip_package],
