@@ -4136,8 +4136,12 @@ class DicteeSetupDialog(QDialog):
         page_pp = QScrollArea()
         page_pp.setWidgetResizable(True)
         page_pp.setFrameShape(QFrame.Shape.NoFrame)
+        # AsNeeded (au lieu de AlwaysOff) : si le contenu d'un sous-tab
+        # (Rules Add-row, Dict toolbar, etc.) dépasse la largeur du viewport,
+        # la scrollbar apparaît plutôt que de forcer l'user à redimensionner
+        # la fenêtre. Le cas normal (fenêtre large) reste sans scroll.
         page_pp.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         page_pp.setWidget(page_pp_inner)
         self._pp_scroll = page_pp  # for ensureWidgetVisible calls
         self._sidebar_stack.addWidget(page_pp)
