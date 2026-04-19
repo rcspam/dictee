@@ -8,6 +8,12 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
+    // Le plasmoid hérite par défaut du color set du panel (souvent sombre).
+    // Forcer View garantit que le popup (FullRepresentation) suit le thème des
+    // applications — blanc en Breeze Light, sombre en Breeze Dark.
+    Kirigami.Theme.colorSet: Kirigami.Theme.View
+    Kirigami.Theme.inherit: false
+
     // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
     property bool dicteeInstalled: true
@@ -40,6 +46,8 @@ PlasmoidItem {
             return Kirigami.Theme.highlightColor
         case "transcribing":
             return Kirigami.Theme.positiveTextColor
+        case "offline":
+            return Kirigami.Theme.negativeTextColor
         case "idle":
             return Kirigami.Theme.textColor
         default:
@@ -179,6 +187,10 @@ PlasmoidItem {
                     root.micVolume = parseFloat(volMatch[1])
                 }
                 root.micMuted = stdout.indexOf("[MUTED]") !== -1
+            } else if (source === ltCheckCmd) {
+                root.ltRunning = (stdout.trim() === "true")
+            } else if (source === ollamaCheckCmd) {
+                root.ollamaStatus = stdout.trim()  // "ok", "no-model", or "stopped"
             } else if (stdout.indexOf("DICTEE_DEBUG_ON") !== -1) {
                 root.debugEnabled = true
                 _dbg("debug enabled via DICTEE_DEBUG=true")
@@ -264,7 +276,7 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
+    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
@@ -289,7 +301,12 @@ PlasmoidItem {
     property string checkInstalledCmd: "bash -c '" +
         "dd=${XDG_DATA_HOME:-$HOME/.local/share}/dictee; " +
         "{ [ -d /usr/share/dictee/tdt ] || [ -d \"$dd/tdt\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo parakeet; " +
-        "[ -d \"$dd/canary-env/lib\" ] && echo canary; " +
+        // Canary: Rust native (transcribe-daemon --canary), needs CUDA libs bundled
+        // (CPU-only install is too slow in practice → hide Canary from the UI)
+        "{ [ -d /usr/share/dictee/canary ] || [ -f \"$dd/canary/encoder-model.onnx\" ]; } " +
+        "  && command -v transcribe-daemon >/dev/null 2>&1 " +
+        "  && [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] " +
+        "  && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
         "echo ---; " +
@@ -300,6 +317,15 @@ PlasmoidItem {
         "{ [ -d /usr/share/dictee/sortformer ] || [ -d \"$dd/sortformer\" ]; } && echo sortformer'"
 
     property string lastTranslateBackendForLangs: ""
+    property bool ltRunning: false
+    property string ltCheckCmd: "bash -c 'docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false'"
+    // Ollama status: "ok" = running + model present, "no-model" = running but model missing, "stopped" = service down
+    property string ollamaStatus: "ok"
+    property string ollamaCheckCmd: "bash -c '" +
+        "if ! curl -s --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1; then echo stopped; " +
+        "else m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); " +
+        "[[ \"$m\" == *:* ]] || m=\"${m}:latest\"; " +
+        "if ollama list 2>/dev/null | awk \"NR>1{print \\$1}\" | grep -qx \"$m\"; then echo ok; else echo no-model; fi; fi'"
     function refreshBackends() {
         executable.run(readConfCmd)
         executable.run(checkInstalledCmd)
@@ -308,6 +334,12 @@ PlasmoidItem {
         // Refresh translate langs (always — combo may be empty on first open)
         root.lastTranslateBackendForLangs = root.currentTranslateBackend
         executable.run(translateLangsCmd + " " + root.currentTranslateBackend)
+        // Check translation backend status
+        if (root.currentTranslateBackend === "libretranslate") {
+            executable.run(ltCheckCmd)
+        } else if (root.currentTranslateBackend === "ollama") {
+            executable.run(ollamaCheckCmd)
+        }
     }
 
     // Ping-pong pour l'état aussi
@@ -485,7 +517,8 @@ PlasmoidItem {
 
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
-        barColor: root.barColor
+        // barColor calculated locally in the compact using its
+        // Complementary palette (panel-aware contrast).
         audioLevel: root.audioLevel
         audioBands: root.audioBands
         sensitivity: root.activeSensitivity
@@ -530,10 +563,10 @@ PlasmoidItem {
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
                 "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
                 "fi; " +
-                "systemctl --user enable --now $svc'")
+                "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
         case "stop-daemon":
-            executable.run("bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user stop $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
+            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
             var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
@@ -546,7 +579,11 @@ PlasmoidItem {
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")
             break
         case "setup":
-            executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")
+            if (root.dicteeConfigured) {
+                executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup")
+            } else {
+                executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup --wizard")
+            }
             break
         case "postprocess":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup --postprocess")
@@ -584,7 +621,13 @@ PlasmoidItem {
             })() + "'")
     }
 
-    // Refresh translate langs + audio sources when popup opens
+    // Refresh config when popup opens (catches changes from dictee-setup Apply)
+    onExpandedChanged: {
+        if (expanded) {
+            refreshBackends()
+        }
+    }
+
     // Load debug flag and start audio daemon
     Component.onCompleted: {
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")

@@ -45,11 +45,28 @@ CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
 STATE_FILE = "/dev/shm/.dictee_state"
 
 
+def _daemon_socket_exists():
+    """Vérifie si le socket du daemon ASR existe (daemon actif sans fichier d'état)."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return os.path.exists(os.path.join(runtime_dir, "transcribe.sock"))
+
+
 def read_state():
     """Lit l'état courant de dictee depuis le fichier d'état."""
     try:
         return open(STATE_FILE).read().strip()
-    except (FileNotFoundError, PermissionError):
+    except FileNotFoundError:
+        # Après reboot, /dev/shm est vide mais le daemon peut être actif.
+        # Vérifier la socket avant de déclarer offline.
+        if _daemon_socket_exists():
+            try:
+                with open(STATE_FILE, "w") as f:
+                    f.write("idle\n")
+            except OSError:
+                pass
+            return "idle"
+        return "offline"
+    except PermissionError:
         return "offline"
 
 
@@ -57,6 +74,7 @@ DICTEE_BIN = None  # auto-detect
 _UID_SUFFIX = f"-{os.getuid()}"
 PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
 OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
+
 
 EV_KEY = 1
 KEY_DOWN = 1
@@ -155,13 +173,21 @@ def find_dictee_bin():
     return "dictee"
 
 
+def _ensure_wayland_env(env):
+    """Inject Wayland env vars if missing (sg/systemd may strip them)."""
+    if "WAYLAND_DISPLAY" not in env:
+        runtime = env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        if os.path.exists(os.path.join(runtime, "wayland-0")):
+            env["WAYLAND_DISPLAY"] = "wayland-0"
+    return env
+
+
 def run_dictee_async(*args, no_animation=False):
     """Lance dictee en subprocess non-bloquant."""
     cmd = [DICTEE_BIN] + list(args)
-    env = None
+    env = _ensure_wayland_env(os.environ.copy())
     if no_animation:
-        env = os.environ.copy()
-        env["DICTEE_ANIMATION"] = "none"
+        env["DICTEE_ANIM_SPEECH"] = "false"
     try:
         subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     except Exception as e:
@@ -318,6 +344,12 @@ class PttState:
             if value == KEY_DOWN and not self.recording:
                 if not self._check_debounce(now):
                     return
+                _st = read_state()
+                if _st == "offline":
+                    pass  # let dictee handle the error notification
+                elif _st == "transcribing":
+                    print("[ptt] hold: BLOCKED (transcribing)")
+                    return
                 self.last_down_time = now
                 print("[ptt] hold: start")
                 run_dictee_async(no_animation=True)
@@ -334,9 +366,12 @@ class PttState:
                     run_dictee_async("--cancel")
                 else:
                     # Écrire "transcribing" immédiatement pour stopper l'animation
+                    # (sauf si offline — l'utilisateur a explicitement arrêté le daemon)
                     try:
-                        with open("/dev/shm/.dictee_state", "w") as f:
-                            f.write("transcribing\n")
+                        cur = open(STATE_FILE).read().strip() if os.path.isfile(STATE_FILE) else ""
+                        if cur != "offline":
+                            with open(STATE_FILE, "w") as f:
+                                f.write("transcribing\n")
                     except OSError:
                         pass
                     print("[ptt] hold: stop")
@@ -347,6 +382,14 @@ class PttState:
             if value == KEY_DOWN:
                 if not self._check_debounce(now):
                     return
+                # Block if daemon offline or still transcribing
+                if not self.recording:
+                    _st = read_state()
+                    if _st == "offline":
+                        pass  # let dictee handle the error notification
+                    elif _st == "transcribing":
+                        print("[ptt] toggle: BLOCKED (transcribing)")
+                        return
                 self.last_down_time = now
                 if not self.recording:
                     print("[ptt] toggle: start")
@@ -362,6 +405,12 @@ class PttState:
         if self.mode == "hold":
             if value == KEY_DOWN and not self.recording_translate:
                 if not self._check_debounce(now):
+                    return
+                _st = read_state()
+                if _st == "offline":
+                    pass  # let dictee handle the error notification
+                elif _st == "transcribing":
+                    print("[ptt] hold: BLOCKED translate (transcribing)")
                     return
                 self.last_down_time = now
                 print("[ptt] hold: start+translate")
@@ -380,8 +429,10 @@ class PttState:
                 else:
                     # Écrire "transcribing" immédiatement pour stopper l'animation
                     try:
-                        with open("/dev/shm/.dictee_state", "w") as f:
-                            f.write("transcribing\n")
+                        cur = open(STATE_FILE).read().strip() if os.path.isfile(STATE_FILE) else ""
+                        if cur != "offline":
+                            with open(STATE_FILE, "w") as f:
+                                f.write("transcribing\n")
                     except OSError:
                         pass
                     print("[ptt] hold: stop+translate")
@@ -392,6 +443,14 @@ class PttState:
             if value == KEY_DOWN:
                 if not self._check_debounce(now):
                     return
+                # Block if daemon offline or still transcribing
+                if not self.recording_translate:
+                    _st = read_state()
+                    if _st == "offline":
+                        pass  # let dictee handle the error notification
+                    elif _st == "transcribing":
+                        print("[ptt] toggle: BLOCKED translate (transcribing)")
+                        return
                 self.last_down_time = now
                 if not self.recording_translate:
                     print("[ptt] toggle: start+translate")
@@ -522,6 +581,12 @@ def run_evdev(ptt):
                             ui.write_event(event)
                             continue
 
+                        # Pause marker: when dictee-setup captures a shortcut
+                        # (F8/F9 etc), it creates this file so we forward every
+                        # key to Qt instead of consuming the configured PTT keys.
+                        if os.path.exists(f"/tmp/.dictee-ptt-pause-{os.getuid()}"):
+                            ui.write_event(event)
+                            continue
                         consumed = ptt.handle_event(event.code, event.value)
                         if not consumed:
                             ui.write_event(event)
@@ -673,19 +738,38 @@ def main():
     conf = load_config()
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
+
+    def _parse_key(raw, label):
+        """Parse a key code, keeping the default silently on malformed input.
+        dictee.conf can be edited by hand ("F9" instead of "67"); crashing
+        the daemon on startup would leave PTT silently dead."""
+        try:
+            return int(raw)
+        except (ValueError, TypeError):
+            print(f"[ptt] WARNING: {label}={raw!r} is not a valid keycode, keeping default")
+            return None
+
     if "DICTEE_PTT_KEY" in conf:
-        key_dictee = int(conf["DICTEE_PTT_KEY"])
+        _parsed = _parse_key(conf["DICTEE_PTT_KEY"], "DICTEE_PTT_KEY")
+        if _parsed is not None:
+            key_dictee = _parsed
     if "DICTEE_PTT_KEY_TRANSLATE" in conf:
-        key_translate = int(conf["DICTEE_PTT_KEY_TRANSLATE"])
+        _parsed = _parse_key(conf["DICTEE_PTT_KEY_TRANSLATE"], "DICTEE_PTT_KEY_TRANSLATE")
+        if _parsed is not None:
+            key_translate = _parsed
     mod_translate = conf.get("DICTEE_PTT_MOD_TRANSLATE", mod_translate)
 
     for arg in sys.argv[1:]:
         if arg.startswith("--mode="):
             mode = arg.split("=", 1)[1]
         elif arg.startswith("--key="):
-            key_dictee = int(arg.split("=", 1)[1])
+            _parsed = _parse_key(arg.split("=", 1)[1], "--key")
+            if _parsed is not None:
+                key_dictee = _parsed
         elif arg.startswith("--key-translate="):
-            key_translate = int(arg.split("=", 1)[1])
+            _parsed = _parse_key(arg.split("=", 1)[1], "--key-translate")
+            if _parsed is not None:
+                key_translate = _parsed
         elif arg.startswith("--mod-translate="):
             mod_translate = arg.split("=", 1)[1]
         elif arg == "--help":

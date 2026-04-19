@@ -17,9 +17,25 @@ RowLayout {
     // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
+    // Le popup est un PlasmaQuick.Dialog dont le fond suit le thème du panel
+    // (souvent sombre, même en Breeze Light). On recouvre ce fond par un
+    // Rectangle qui suit Kirigami.Theme.backgroundColor du colorSet View
+    // (défini sur PlasmoidItem dans main.qml) pour un popup blanc en thème
+    // clair, sombre en thème sombre.
+    Rectangle {
+        parent: fullRep
+        anchors.fill: fullRep
+        anchors.margins: -Kirigami.Units.largeSpacing
+        z: -1
+        color: Kirigami.Theme.backgroundColor
+        radius: Kirigami.Units.largeSpacing * 1.5
+    }
+
     ColumnLayout {
+        id: leftColumn
         Layout.fillWidth: true
-        Layout.fillHeight: true
+        Layout.fillHeight: false
+        Layout.alignment: Qt.AlignTop
 
     // Rafraîchir les sources audio à l'ouverture, fermer les ComboBox à la fermeture
     onVisibleChanged: {
@@ -30,10 +46,10 @@ RowLayout {
         }
     }
 
-    Layout.preferredWidth: Kirigami.Units.gridUnit * 36
+    Layout.preferredWidth: Kirigami.Units.gridUnit * 40
     Layout.preferredHeight: implicitHeight
-    Layout.minimumWidth: Kirigami.Units.gridUnit * 36
-    Layout.maximumWidth: Kirigami.Units.gridUnit * 40
+    Layout.minimumWidth: Kirigami.Units.gridUnit * 40
+    Layout.maximumWidth: Kirigami.Units.gridUnit * 48
 
     spacing: Kirigami.Units.smallSpacing
 
@@ -92,19 +108,19 @@ RowLayout {
                     color: {
                         switch (fullRep.state) {
                         case "offline":
-                            return Kirigami.Theme.negativeTextColor
+                            return "#e74c3c"  // rouge
                         case "recording":
-                            return Kirigami.Theme.highlightColor
+                            return "#3498db"  // bleu
                         case "transcribing":
-                            return Kirigami.Theme.positiveTextColor
+                            return "#2ecc71"  // vert
                         case "switching":
-                            return Kirigami.Theme.neutralTextColor
+                            return "#e67e22"  // orange
                         case "preparing":
                         case "diarize-ready":
                         case "diarizing":
-                            return "#9B59B6"
+                            return "#9B59B6"  // violet
                         default:
-                            return Kirigami.Theme.positiveTextColor
+                            return "#2ecc71"  // vert (idle)
                         }
                     }
                 }
@@ -246,7 +262,7 @@ RowLayout {
         Layout.fillWidth: true
         visible: !root.dicteeConfigured
         text: i18n("Press the Configure Dictée button below to get started.")
-        color: "#e90"
+        color: Kirigami.Theme.neutralTextColor
         wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
         font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
@@ -263,7 +279,7 @@ RowLayout {
             Layout.preferredWidth: 0
             implicitHeight: btnDictate.implicitHeight
 
-            PlasmaComponents.Button {
+            ThemedButton {
                 id: btnDictate
                 anchors.fill: parent
                 text: i18n("Dictation")
@@ -300,7 +316,7 @@ RowLayout {
             Layout.preferredWidth: 0
             implicitHeight: btnTranslate.implicitHeight
 
-            PlasmaComponents.Button {
+            ThemedButton {
                 id: btnTranslate
                 anchors.fill: parent
                 text: i18n("Translate")
@@ -332,7 +348,7 @@ RowLayout {
             }
         }
 
-        PlasmaComponents.Button {
+        ThemedButton {
             id: btnDiarize
             Layout.fillWidth: true
             Layout.preferredWidth: 0
@@ -364,8 +380,8 @@ RowLayout {
                         }
                     }
                     color: {
-                        if (fullRep.state === "diarize-ready") return "#98c379"
-                        if (fullRep.state === "recording" && root.activeButton === "diarize") return "#e06c75"
+                        if (fullRep.state === "diarize-ready") return Kirigami.Theme.positiveTextColor
+                        if (fullRep.state === "recording" && root.activeButton === "diarize") return Kirigami.Theme.negativeTextColor
                         return Kirigami.Theme.textColor
                     }
                 }
@@ -412,6 +428,7 @@ RowLayout {
                     default: return i18n("Record and identify speakers (max 4)")
                 }
             }
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -511,6 +528,7 @@ RowLayout {
             checked: root.audioContextEnabled
             onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
             QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -526,6 +544,23 @@ RowLayout {
         QQC2.ComboBox {
             id: transCombo
             Kirigami.Theme.inherit: true
+            property bool ltWarning: root.currentTranslateBackend === "libretranslate" && !root.ltRunning
+            property bool ollamaError: root.currentTranslateBackend === "ollama" && root.ollamaStatus !== "ok"
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: transCombo.ltWarning ? "#e04040"
+                            : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "stopped") ? "#e04040"
+                            : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "no-model") ? "#e90"
+                            : "transparent"
+                border.width: (transCombo.ltWarning || transCombo.ollamaError) ? 2 : 0
+                radius: 4
+                visible: transCombo.ltWarning || transCombo.ollamaError
+            }
+            displayText: transCombo.ltWarning ? i18n("LT arrêté")
+                       : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "stopped") ? i18n("Ollama arrêté")
+                       : (root.currentTranslateBackend === "ollama" && root.ollamaStatus === "no-model") ? i18n("Modèle absent")
+                       : currentText
             model: ListModel {
                 id: transModel
                 ListElement { text: "Google"; value: "google" }
@@ -553,6 +588,14 @@ RowLayout {
                     root.currentTranslateBackend = val
                     executable.run("dictee-switch-backend translate " + val)
                     executable.run(root.translateLangsCmd + " " + val)
+                    if (val === "libretranslate") {
+                        executable.run(root.ltCheckCmd)
+                    } else if (val === "ollama") {
+                        executable.run(root.ollamaCheckCmd)
+                    } else {
+                        root.ltRunning = false
+                        root.ollamaStatus = "ok"
+                    }
                 } else {
                     // Revert
                     for (var i = 0; i < transModel.count; i++) {
@@ -579,31 +622,27 @@ RowLayout {
                     executable.run(root.translateLangsCmd + " " + root.currentTranslateBackend)
                 }
             }
+            function syncLangCombo() {
+                var target = root.currentLangTarget
+                for (var j = 0; j < langModel.count; j++) {
+                    if (langModel.get(j).value === target) {
+                        langCombo.currentIndex = j
+                        return
+                    }
+                }
+            }
             Connections {
                 target: root
+                function onCurrentLangTargetChanged() {
+                    langCombo.syncLangCombo()
+                }
                 function onAvailableLangTargetChanged() {
-                    var prev = root.currentLangTarget
                     langModel.clear()
                     for (var i = 0; i < root.availableLangTarget.length; i++) {
                         var code = root.availableLangTarget[i]
                         langModel.append({ text: code, value: code })
                     }
-                    // Restore previous selection
-                    var found = false
-                    for (var j = 0; j < langModel.count; j++) {
-                        if (langModel.get(j).value === prev) {
-                            langCombo.currentIndex = j
-                            found = true
-                            break
-                        }
-                    }
-                    if (!found && langModel.count > 0) {
-                        langCombo.currentIndex = 0
-                        // Update config to match the fallback language
-                        var fallback = langModel.get(0).value
-                        root.currentLangTarget = fallback
-                        executable.run("bash -c 'conf=\"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\"; grep -q \"^DICTEE_LANG_TARGET=\" \"$conf\" && sed -i \"s|^DICTEE_LANG_TARGET=.*|DICTEE_LANG_TARGET=" + fallback + "|\" \"$conf\" || echo \"DICTEE_LANG_TARGET=" + fallback + "\" >> \"$conf\"'")
-                    }
+                    langCombo.syncLangCombo()
                 }
             }
             delegate: QQC2.ItemDelegate {
@@ -623,6 +662,7 @@ RowLayout {
             QQC2.ToolTip.text: root.currentTranslateBackend === "libretranslate"
                 ? i18n("Target language — add languages in Configure Dictée (LibreTranslate)")
                 : i18n("Target language for translation")
+
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
@@ -633,51 +673,36 @@ RowLayout {
         Layout.fillWidth: true
         spacing: Kirigami.Units.smallSpacing
 
-        PlasmaComponents.Button {
+        ThemedButton {
             text: i18n("Transcribe file")
             icon.name: "document-open"
             flat: true
             onClicked: fullRep.actionRequested("transcribe-file")
-            QQC2.ToolTip.text: i18n("Open an audio file for transcription")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            tooltipText: i18n("Open an audio file for transcription")
         }
 
-        PlasmaComponents.Button {
+        ThemedButton {
             text: i18n("Post-processing...")
             icon.name: "document-edit"
             flat: true
             onClicked: fullRep.actionRequested("postprocess")
-            QQC2.ToolTip.text: i18n("Configure post-processing rules (regex, dictionary, continuation)")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            tooltipText: i18n("Configure post-processing rules (regex, dictionary, continuation)")
         }
 
-        PlasmaComponents.Button {
+        ThemedButton {
             text: i18n("Configure Dictée")
             icon.name: "configure"
             flat: root.dicteeConfigured
             onClicked: fullRep.actionRequested("setup")
-            QQC2.ToolTip.text: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+            tooltipText: i18n("Open dictee-setup to configure ASR, translation, shortcuts")
 
-            background: Rectangle {
-                visible: !root.dicteeConfigured
+            Rectangle {
+                anchors.fill: parent
                 color: "transparent"
                 border.color: "#e90"
                 border.width: 2
                 radius: 4
-            }
-
-            contentItem: Text {
                 visible: !root.dicteeConfigured
-                text: parent.text
-                color: "#e90"
-                font.bold: true
-                font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.1
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
             }
         }
 
@@ -687,7 +712,7 @@ RowLayout {
             icon.name: "edit-reset"
             display: PlasmaComponents.AbstractButton.IconOnly
             Kirigami.Theme.inherit: false
-            Kirigami.Theme.textColor: "#c0392b"
+            Kirigami.Theme.textColor: Kirigami.Theme.negativeTextColor
             onClicked: fullRep.actionRequested("reset")
             PlasmaComponents.ToolTip { text: i18n("Reset everything — stop all processes, restart daemon") }
         }
@@ -708,24 +733,33 @@ RowLayout {
 
     // Séparateur vertical avant le slider micro
     Kirigami.Separator {
-        Layout.fillHeight: true
-        Layout.topMargin: Kirigami.Units.largeSpacing * 4
+        Layout.fillHeight: false
+        Layout.preferredHeight: leftColumn.implicitHeight
+        Layout.maximumHeight: leftColumn.implicitHeight
+        Layout.alignment: Qt.AlignTop
     }
 
     // Vertical microphone volume slider + level meter (right side)
     ColumnLayout {
-        Layout.fillHeight: true
+        Layout.fillHeight: false
+        Layout.preferredHeight: leftColumn.implicitHeight
+        Layout.maximumHeight: leftColumn.implicitHeight
+        Layout.alignment: Qt.AlignTop
         Layout.preferredWidth: 50
-        Layout.topMargin: Kirigami.Units.largeSpacing * 4
         spacing: Kirigami.Units.smallSpacing
+
+        // Top spacer — pushes mic icon down so it sits just above the slider,
+        // which itself starts at the audio source combo row.
+        Item {
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+        }
 
         Kirigami.Icon {
             source: root.micMuted ? "microphone-sensitivity-muted" : "audio-input-microphone"
-            color: root.micMuted ? "#e06c75" : Kirigami.Theme.textColor
+            color: root.micMuted ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
             Layout.preferredWidth: Kirigami.Units.iconSizes.small
             Layout.preferredHeight: Kirigami.Units.iconSizes.small
             Layout.alignment: Qt.AlignHCenter
-            Layout.bottomMargin: Kirigami.Units.smallSpacing
             MouseArea {
                 id: micIconMouse
                 anchors.fill: parent
@@ -740,61 +774,80 @@ RowLayout {
             QQC2.ToolTip.delay: 300
         }
 
-        RowLayout {
+        // Vertical slider with integrated peak meter overlay.
+        // Inspired by plasma-pa's VolumeSlider: the slider groove is drawn
+        // manually so a second highlighted bar, driven by root.audioLevel,
+        // can be superimposed on top of the volume fill.
+        QQC2.Slider {
+            id: micSlider
             Layout.fillHeight: true
-            spacing: 4
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: Kirigami.Units.gridUnit
+            orientation: Qt.Vertical
+            from: 0.0
+            to: 0.6
+            stepSize: 0.0
+            snapMode: QQC2.Slider.NoSnap
+            value: root.micVolume
+            onMoved: {
+                root.micVolume = value
+                executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+            }
+            QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.delay: 300
 
-            QQC2.Slider {
-                id: micSlider
-                Layout.fillHeight: true
-                orientation: Qt.Vertical
-                from: 0.0
-                to: 0.6
-                stepSize: 0.0
-                snapMode: QQC2.Slider.NoSnap
-                value: root.micVolume
-                onMoved: {
-                    root.micVolume = value
-                    executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
-                }
-                QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
-                QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.delay: 300
+            // Draggable knob — round handle over the vertical groove
+            handle: Rectangle {
+                x: micSlider.leftPadding + (micSlider.availableWidth - width) / 2
+                y: micSlider.topPadding + (micSlider.availableHeight - height) * (1 - micSlider.position)
+                width: Kirigami.Units.gridUnit * 0.9
+                height: width
+                radius: width / 2
+                color: micSlider.pressed
+                    ? Kirigami.Theme.highlightColor
+                    : Kirigami.Theme.alternateBackgroundColor
+                border.color: Kirigami.Theme.highlightColor
+                border.width: 2
+                z: 10
             }
 
-            // Level meter — barre verticale alignée sur le slider
-            Rectangle {
-                Layout.fillHeight: true
-                Layout.preferredWidth: 6
-                radius: 3
+            background: Rectangle {
+                x: micSlider.leftPadding + (micSlider.availableWidth - width) / 2
+                y: micSlider.topPadding
+                width: 8
+                height: micSlider.availableHeight
+                radius: 4
                 color: Kirigami.Theme.backgroundColor
                 border.color: Kirigami.Theme.disabledTextColor
                 border.width: 1
                 clip: true
 
+                // Volume fill — shows the slider's current value
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width - 2
+                    height: Math.max(0, (parent.height - 2) * micSlider.position)
+                    radius: 2
+                    color: Kirigami.Theme.highlightColor
+                    opacity: 0.35
+                }
+
+                // Peak meter — shows the live audio level
                 Rectangle {
                     anchors.bottom: parent.bottom
                     anchors.horizontalCenter: parent.horizontalCenter
                     width: parent.width - 2
                     property real level: root.audioLevel || 0.0
-                    height: Math.max(0, parent.height * Math.min(1.0, level * 1.5))
+                    height: Math.max(0, (parent.height - 2) * Math.min(1.0, level * 1.5))
                     radius: 2
                     color: level > 0.8 ? Kirigami.Theme.negativeTextColor
                          : level > 0.4 ? Kirigami.Theme.neutralTextColor
                          : Kirigami.Theme.positiveTextColor
-
                     Behavior on height {
                         NumberAnimation { duration: 50 }
                     }
-                }
-
-                QQC2.ToolTip.text: i18n("Audio input level")
-                QQC2.ToolTip.visible: levelMeterMouse.containsMouse
-                QQC2.ToolTip.delay: 300
-                MouseArea {
-                    id: levelMeterMouse
-                    anchors.fill: parent
-                    hoverEnabled: true
                 }
             }
         }

@@ -6,8 +6,12 @@
 # Format: [lang] word1 word2 word3 ...
 # One [lang] per line. Multiple lines per language allowed (cumulative).
 #
-# User customization: copy to ~/.config/dictee/continuation.conf
-# The user file SUPPLEMENTS the system file (no replacement).
+# User customization: ~/.config/dictee/continuation.conf
+# The user file SUPPLEMENTS the system file (no replacement):
+#   [xx] word1 word2       → add words to language xx
+#   [exclude:xx] word1 …   → remove words provided by this system file
+#   [keyword:xx] word      → override the continuation keyword for xx
+# The Continuation tab in dictee-setup manages all three automatically.
 #
 # Continuation keyword: say this word at the start of a push-to-talk
 # to remove the previous punctuation and continue in lowercase.
@@ -33,7 +37,7 @@
 # Object / reflexive pronouns
 [fr] me te se lui leur
 # Demonstratives
-[fr] ce ça cet cette ces
+[fr] ce cet cette ces
 # Possessives
 [fr] mon ton son ma ta sa mes tes ses notre votre nos vos leurs
 # Auxiliaries & common verbs

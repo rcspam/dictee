@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.kcmutils as KCM
 import org.kde.plasma.plasma5support as Plasma5Support
+import "Defaults.js" as Defaults
 
 KCM.SimpleKCM {
     id: configPage
@@ -11,6 +12,7 @@ KCM.SimpleKCM {
     property alias cfg_pollingInterval: pollingIntervalSpin.value
     property alias cfg_showLastTranscription: showTranscriptionCheck.checked
     property alias cfg_previewMode: previewModeCheck.checked
+    property alias cfg_audioContext: audioContextCheck.checked
     property double cfg_audioSensitivity: 2.0
     property double cfg_barSensitivity: 2.0
     property double cfg_waveSensitivity: 2.0
@@ -60,6 +62,41 @@ KCM.SimpleKCM {
     property double cfg_noiseGate: 0.05
     property double cfg_envelopePower: 1.0
     property double cfg_envelopeCenter: 0.5
+
+    // Restore icon-animation settings to defaults. Values come from
+    // Defaults.js, which is auto-generated from config/main.xml by
+    // plasmoid/gen-defaults.py. Run that script after changing any kcfg
+    // default. Settings not listed here (polling, audioContext, pinPopup,
+    // showLastTranscription, previewMode) are deliberately preserved.
+    readonly property var _iconResetKeys: [
+        "animationStyle",
+        "barCount", "barSpacing", "barRadius", "barMinHeight",
+        "barIdleAnimation", "animationSpeed", "barSensitivity",
+        "waveWidth", "waveThickness", "waveFrequency", "waveAmplitude",
+        "waveSpeed", "waveFill", "waveSensitivity",
+        "pulseRings", "pulseThickness", "pulseSpeed", "pulseSensitivity",
+        "dotCount", "dotSize", "dotBounce", "dotSpacing", "dotSpeed",
+        "dotSensitivity",
+        "waveformBars", "waveformSpacing", "waveformRadius",
+        "waveformMinHeight", "waveformSensitivity",
+        "useRainbow", "rainbowStartHue", "rainbowEndHue",
+        "audioSensitivity", "noiseGate",
+        "envelopePower", "envelopeCenter",
+    ]
+
+    function resetIconSettings() {
+        for (var i = 0; i < _iconResetKeys.length; i++) {
+            var key = _iconResetKeys[i]
+            if (!(key in Defaults.defaults)) {
+                console.warn("resetIconSettings: missing default for", key)
+                continue
+            }
+            configPage["cfg_" + key] = Defaults.defaults[key]
+        }
+        // Sync the combo (property alias drives currentValue via index)
+        animationStyleCombo.currentIndex =
+            animationStyleCombo.indexOfValue(Defaults.defaults.animationStyle)
+    }
 
     // Sensibilité active selon le style courant
     readonly property real activeSensitivity: {
@@ -224,6 +261,11 @@ KCM.SimpleKCM {
             Kirigami.FormData.label: i18n("Preview mode (test with mic):")
         }
 
+        QQC2.CheckBox {
+            id: audioContextCheck
+            Kirigami.FormData.label: i18n("Audio context buffer:")
+        }
+
         // === Volume micro ===
         RowLayout {
             Kirigami.FormData.label: i18n("Microphone volume:")
@@ -346,6 +388,32 @@ KCM.SimpleKCM {
         Kirigami.Separator {
             Kirigami.FormData.label: i18n("Animation")
             Kirigami.FormData.isSection: true
+        }
+
+        RowLayout {
+            Kirigami.FormData.label: i18n("Reset icon settings:")
+            spacing: Kirigami.Units.smallSpacing
+            QQC2.Button {
+                text: i18n("Reset to defaults")
+                icon.name: "edit-reset"
+                onClicked: resetConfirm.open()
+            }
+            Kirigami.ContextualHelpButton {
+                toolTipText: i18n("Restore all icon animation settings (style, bars, wave, pulse, dots, waveform, rainbow, sensitivity, envelope, noise gate) to their installation defaults. Other preferences (polling, transcription display, audio context) are not affected.")
+            }
+        }
+
+        QQC2.Dialog {
+            id: resetConfirm
+            title: i18n("Reset icon settings")
+            modal: true
+            standardButtons: QQC2.Dialog.Yes | QQC2.Dialog.Cancel
+            anchors.centerIn: parent
+            QQC2.Label {
+                text: i18n("All icon animation settings will be restored to defaults.\nContinue?")
+                wrapMode: Text.WordWrap
+            }
+            onAccepted: configPage.resetIconSettings()
         }
 
         QQC2.ComboBox {

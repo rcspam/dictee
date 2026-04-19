@@ -76,7 +76,12 @@ Item {
                 y: (wfRow.height - height) / 2
 
                 opacity: {
-                    if (wfAnim.state !== "recording") return 0.5
+                    if (wfAnim.state !== "recording") {
+                        // En thème clair (textColor sombre), garder l'opacité
+                        // pleine pour que les barres ressortent sur le panel.
+                        // En thème sombre on conserve 0.5 historique.
+                        return Kirigami.Theme.textColor.hslLightness > 0.5 ? 0.5 : 0.9
+                    }
                     return 0.4 + 0.6 * effectiveLevel
                 }
 

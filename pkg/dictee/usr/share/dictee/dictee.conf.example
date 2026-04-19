@@ -18,7 +18,7 @@ DICTEE_LANG_SOURCE=fr
 DICTEE_LANG_TARGET=en
 
 # ── Whisper ──────────────────────────────────────────────────────────────────
-# Modèle faster-whisper : tiny, small, medium, large-v3
+# Modèle faster-whisper : tiny, small, medium, large-v3-turbo, large-v3
 # ou un repo HuggingFace CTranslate2 : Systran/faster-distil-whisper-large-v3
 DICTEE_WHISPER_MODEL=small
 
@@ -75,8 +75,11 @@ DICTEE_PTT_KEY=67
 # Copier le texte dans le presse-papier
 DICTEE_CLIPBOARD=true
 
-# Animation visuelle : speech | plasmoid | both | none
-DICTEE_ANIMATION=plasmoid
+# Overlay animation-speech (Wayland layer-shell : KDE, Sway, Hyprland)
+DICTEE_ANIM_SPEECH=true
+
+# Widget KDE Plasma (panneau / barre des tâches)
+DICTEE_ANIM_PLASMOID=false
 
 # ============================================================================
 # Post-traitement du texte
@@ -101,12 +104,39 @@ DICTEE_POSTPROCESS=true
 #DICTEE_PP_DICT=true
 #DICTEE_PP_RULES=true
 #DICTEE_PP_CONTINUATION=true
+#DICTEE_PP_SHORT_TEXT=true
 
 # Post-traitement LLM (nécessite ollama)
 #DICTEE_LLM_POSTPROCESS=false
-#DICTEE_LLM_MODEL=ministral:3b
+#DICTEE_LLM_MODEL=gemma3:4b
 #DICTEE_LLM_TIMEOUT=10
 #DICTEE_LLM_CPU=false
+#DICTEE_LLM_SYSTEM_PROMPT=default
+#DICTEE_LLM_POSITION=hybrid
+
+# ============================================================================
+# Suffixes de commandes vocales
+# ============================================================================
+
+# Mot-clé ajouté après une commande vocale pour la distinguer de la dictée
+# Un par langue (regex, vide = pas de suffixe)
+#DICTEE_COMMAND_SUFFIX_FR=final[se]?
+#DICTEE_COMMAND_SUFFIX_EN=done
+#DICTEE_COMMAND_SUFFIX_ES=listo
+#DICTEE_COMMAND_SUFFIX_DE=weiter
+#DICTEE_COMMAND_SUFFIX_IT=seguito
+#DICTEE_COMMAND_SUFFIX_PT=pronto
+#DICTEE_COMMAND_SUFFIX_UK=далі
+
+# ============================================================================
+# Notifications
+# ============================================================================
+
+# Activer les notifications desktop (début/fin enregistrement, erreurs)
+#DICTEE_NOTIFICATIONS=true
+
+# Afficher le texte transcrit dans la notification
+#DICTEE_NOTIFICATIONS_TEXT=true
 
 # ============================================================================
 # Buffer de contexte audio
@@ -126,6 +156,14 @@ DICTEE_AUDIO_CONTEXT_TIMEOUT=30
 # Activer les logs de debug (shell + Rust + Python)
 # Logs dans /tmp/dictee-debug-<uid>.log
 #DICTEE_DEBUG=false
+
+# ============================================================================
+# Diarisation (interne)
+# ============================================================================
+
+# Backend ASR utilisé avant passage en mode diarisation (restauré après)
+# Géré automatiquement par dictee-switch-backend, ne pas modifier
+#DICTEE_PRE_DIARIZE_BACKEND=
 
 # ============================================================================
 # Marqueur interne — ne pas modifier

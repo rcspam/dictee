@@ -20,6 +20,11 @@
             <default>false</default>
         </entry>
 
+        <!-- Audio context buffer (accumulate audio from previous dictations) -->
+        <entry name="audioContext" type="Bool">
+            <default>false</default>
+        </entry>
+
         <!-- Pin popup (keep open when clicking outside) -->
         <entry name="pinPopup" type="Bool">
             <default>false</default>
@@ -97,7 +102,7 @@
 
         <!-- Wave parameters -->
         <entry name="waveWidth" type="Int">
-            <default>60</default>
+            <default>80</default>
         </entry>
         <entry name="waveThickness" type="Int">
             <default>3</default>
@@ -128,7 +133,7 @@
 
         <!-- Waveform parameters -->
         <entry name="waveformBars" type="Int">
-            <default>12</default>
+            <default>17</default>
         </entry>
         <entry name="waveformSpacing" type="Int">
             <default>2</default>
@@ -145,7 +150,7 @@
 
         <!-- Dots parameters -->
         <entry name="dotCount" type="Int">
-            <default>10</default>
+            <default>9</default>
         </entry>
         <entry name="dotSize" type="Int">
             <default>6</default>

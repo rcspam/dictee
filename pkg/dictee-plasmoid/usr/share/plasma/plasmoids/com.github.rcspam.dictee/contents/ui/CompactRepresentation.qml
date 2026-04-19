@@ -6,8 +6,22 @@ import org.kde.kirigami as Kirigami
 Item {
     id: compact
 
+    // Use the app-theme palette (Window/View) so idle bars are as dark as
+    // the app textColor in light mode (~#232629) — "bien noir" on a light
+    // theme. In dark mode this stays light. Complementary would invert the
+    // logic and give white on white, which we don't want here.
+    Kirigami.Theme.colorSet: Kirigami.Theme.Window
+    Kirigami.Theme.inherit: false
+
     property string state: "offline"
-    property color barColor: Kirigami.Theme.textColor
+    property color barColor: {
+        switch (state) {
+        case "recording":    return Kirigami.Theme.highlightColor
+        case "transcribing": return Kirigami.Theme.positiveTextColor
+        case "offline":      return Kirigami.Theme.negativeTextColor
+        default:             return Kirigami.Theme.textColor
+        }
+    }
     property real audioLevel: 0.0
     property var audioBands: []
     property real sensitivity: 2.0
@@ -42,7 +56,7 @@ Item {
     }
     Layout.preferredHeight: Kirigami.Units.iconSizes.medium
 
-    opacity: state === "offline" ? 0.4 : 1.0
+    opacity: state === "offline" ? 0.7 : 1.0
 
     Behavior on opacity {
         NumberAnimation { duration: 300 }
@@ -70,6 +84,11 @@ Item {
         onWidthChanged: if (width > 0 && height > 0) requestPaint()
         onHeightChanged: if (width > 0 && height > 0) requestPaint()
         onVisibleChanged: if (visible && width > 0 && height > 0) requestPaint()
+
+        Connections {
+            target: compact
+            function onBarColorChanged() { if (idleWaveform.visible && idleWaveform.width > 0) idleWaveform.requestPaint() }
+        }
 
         onPaint: {
             var ctx = getContext("2d")

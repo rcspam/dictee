@@ -62,7 +62,9 @@ Item {
             }
 
             opacity: {
-                if (pulseAnim.state !== "recording") return 0.4
+                if (pulseAnim.state !== "recording") {
+                    return Kirigami.Theme.textColor.hslLightness > 0.5 ? 0.4 : 0.75
+                }
                 return 0.4 + 0.6 * ringLevel
             }
 
@@ -89,7 +91,9 @@ Item {
         }
 
         scale: pulseAnim.state === "recording" ? 0.5 + 0.5 * pulseAnim.amplifiedLevel : 0.8
-        opacity: pulseAnim.state === "recording" ? 0.6 + 0.4 * pulseAnim.amplifiedLevel : 0.5
+        opacity: pulseAnim.state === "recording"
+            ? 0.6 + 0.4 * pulseAnim.amplifiedLevel
+            : (Kirigami.Theme.textColor.hslLightness > 0.5 ? 0.5 : 0.9)
 
         Behavior on scale {
             NumberAnimation { duration: 80; easing.type: Easing.OutQuad }

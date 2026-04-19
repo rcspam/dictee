@@ -56,7 +56,9 @@ Item {
                 }
 
                 opacity: {
-                    if (dotsAnim.state !== "recording") return 0.5
+                    if (dotsAnim.state !== "recording") {
+                        return Kirigami.Theme.textColor.hslLightness > 0.5 ? 0.5 : 0.9
+                    }
                     return 0.4 + 0.6 * dotLevel
                 }
 
