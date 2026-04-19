@@ -8933,17 +8933,17 @@ class DicteeSetupDialog(QDialog):
         self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
         add_lay.addWidget(self._rule_flags)
 
-        add_lay.addSpacing(8)
+        add_lay.addSpacing(6)
         add_lay.addWidget(QLabel(_("Insert:")))
         self._rule_section = QComboBox()
         self._rule_section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._rule_section.setMinimumWidth(140)
+        self._rule_section.setMinimumWidth(100)
         add_lay.addWidget(self._rule_section, 2)
 
         self._rule_position = QComboBox()
         self._rule_position.addItem(_("at end"), "end")
         self._rule_position.addItem(_("at beginning"), "begin")
-        self._rule_position.setFixedWidth(110)
+        self._rule_position.setFixedWidth(85)
         self._rule_position.setEnabled(False)
         add_lay.addWidget(self._rule_position)
 
@@ -9738,7 +9738,7 @@ class DicteeSetupDialog(QDialog):
         self._dict_search.setEditable(True)
         self._dict_search.lineEdit().addAction(
             QIcon.fromTheme("edit-find"), QLineEdit.ActionPosition.LeadingPosition)
-        self._dict_search.setMinimumWidth(180)
+        self._dict_search.setMinimumWidth(140)
         self._dict_search.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         toolbar.addWidget(self._dict_search)
 
