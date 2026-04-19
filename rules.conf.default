@@ -419,7 +419,6 @@
 [fr] /\bbarre oblique\b/\u002f/ig
 [fr] /\bastérisques?\b/*/ig
 [fr] /\bpourcents?\b/%/ig
-[fr] /\bégale?\b/=/ig
 [fr] /\bguillemets?\b/"/ig
 [fr] /\bbarre verticale\b/|/ig
 

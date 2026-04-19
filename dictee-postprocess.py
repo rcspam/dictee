@@ -875,7 +875,31 @@ def convert_numbers(text):
     # via the negative lookahead (another ", digit" after the pair).
     if LANG in _DECIMAL_COMMA_LANGS:
         text = _DECIMAL_COMMA_RE.sub(r'\1,\2', text)
+    # FR times: "23 heures 15" → "23h15", "3 heures 5" → "03h05".
+    # Runs after alpha2digit so "vingt-trois heures quinze" is caught too.
+    if LANG == 'fr':
+        text = _FR_TIMES_RE.sub(_fr_times_sub, text)
+        # FR "égal(e)" → "=" only when surrounded by digits (with or
+        # without whitespace). Runs after alpha2digit so it catches
+        # "quatre égale trente-deux" once normalized to digits.
+        text = _FR_EGAL_RE.sub(r'\1=\2', text)
     return text
+
+
+# FR times: "H heure(s) MM" → "HHhMM" (both padded to 2 digits).
+# Bounds h ≤ 23 and m ≤ 59 guard against false positives like "25 heures 80".
+_FR_TIMES_RE = re.compile(r'\b(\d{1,2})\s+heures?\s+(\d{1,2})\b')
+
+def _fr_times_sub(match):
+    h = int(match.group(1))
+    m = int(match.group(2))
+    if h > 23 or m > 59:
+        return match.group(0)
+    return f"{h:02d}h{m:02d}"
+
+# FR "égal(e)" → "=" when flanked by digits (with or without spaces).
+# Capture the digit+space on each side so whitespace is preserved.
+_FR_EGAL_RE = re.compile(r'(\d\s*)égale?(\s*\d)', re.IGNORECASE)
 
 
 # ── French typography ────────────────────────────────────────────
