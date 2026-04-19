@@ -325,18 +325,29 @@ for _pattern in "\\[keyword:${_LANG_TAG}\\]" "\\[keyword\\]"; do
     done
 done
 _CONT_KEYWORD="${_CONT_KEYWORD:-minuscule}"
-_CONT_KEYWORD_RE=""
+# Build regex list: keyword may be a comma-separated list of aliases
+# (e.g. "minuscule, miniscule" covers Parakeet + Whisper ASR misspellings).
+# Stored as a bash array of complete regexes.
+_CONT_KEYWORD_REGEXES=()
 if [ -n "$_CONT_KEYWORD" ]; then
-    _kw="${_CONT_KEYWORD,,}"
-    # Replace spaces and hyphens with [- ]? to match all variants
-    # Use placeholder to avoid double substitution
-    _kw="${_kw//-/§}"
-    _kw="${_kw// /§}"
-    _kw="${_kw//§/[- ]?}"
-    # Match is done on ${_ref,,} (lowercase) so no need for [cC] prefix
-    # s? tolerates ASR plural ("minuscules")
-    _CONT_KEYWORD_RE="^${_kw}s?[.,]?[[:space:]]*(.*)"
-    unset _kw
+    # Split on comma
+    _old_ifs="$IFS"; IFS=','
+    read -ra _cont_aliases <<< "$_CONT_KEYWORD"
+    IFS="$_old_ifs"
+    for _alias in "${_cont_aliases[@]}"; do
+        # Trim whitespace
+        _alias="${_alias#"${_alias%%[! ]*}"}"
+        _alias="${_alias%"${_alias##*[! ]}"}"
+        [ -z "$_alias" ] && continue
+        _kw="${_alias,,}"
+        # Replace spaces and hyphens with [- ]? to match all variants
+        _kw="${_kw//-/§}"
+        _kw="${_kw// /§}"
+        _kw="${_kw//§/[- ]?}"
+        # s? tolerates ASR plural ("minuscules")
+        _CONT_KEYWORD_REGEXES+=("^${_kw}s?[.,]?[[:space:]]*")
+    done
+    unset _kw _alias _cont_aliases _old_ifs
 fi
 
 apply_continuation() {
@@ -395,10 +406,20 @@ apply_continuation() {
 
     # Continuation keyword: remove last punctuation + lowercase
     # Configurable via continuation keyword (default: minuscule)
-    if [ -n "$_CONT_KEYWORD_RE" ] && [[ "${_ref,,}" =~ $_CONT_KEYWORD_RE ]]; then
-        # Match was on lowercase — extract rest from original _ref at same offset
-        local matched_len=$(( ${#_ref} - ${#BASH_REMATCH[1]} ))
-        local rest="${_ref:matched_len}"
+    # Supports a list of aliases (e.g. "minuscule, miniscule") to tolerate
+    # ASR variants across Parakeet/Whisper/Vosk.
+    local _lref="${_ref,,}"
+    local _matched_prefix=""
+    local _re
+    for _re in "${_CONT_KEYWORD_REGEXES[@]}"; do
+        if [[ "$_lref" =~ $_re ]]; then
+            _matched_prefix="${BASH_REMATCH[0]}"
+            break
+        fi
+    done
+    if [ -n "$_matched_prefix" ]; then
+        # Extract rest from original _ref at the matched prefix offset
+        local rest="${_ref:${#_matched_prefix}}"
         rest="${rest#"${rest%%[! ]*}"}"
         # Backspace the punctuation (or ~) from the previous push
         if [[ "$last_char" == .* ]]; then

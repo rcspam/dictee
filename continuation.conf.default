@@ -17,8 +17,11 @@
 # to remove the previous punctuation and continue in lowercase.
 # Example: "je mange." + "minuscule du fromage" → "je mange du fromage"
 # Set to empty to disable. Override in user file with [keyword:xx] your-word
-[keyword:fr] minuscule
-[keyword:en] lowercase
+# Comma-separated aliases are allowed — useful to tolerate ASR variants
+# (e.g. Whisper sometimes outputs "miniscule" instead of "minuscule"):
+#   [keyword:fr] minuscule, miniscule
+[keyword:fr] minuscule, miniscule
+[keyword:en] lowercase, lower case
 [keyword:de] kleinschreibung
 [keyword:es] minúscula
 [keyword:it] minuscola
