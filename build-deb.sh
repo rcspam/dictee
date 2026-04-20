@@ -196,12 +196,23 @@ EOF
     echo "Using libonnxruntime.so from: $ORT_LIB"
     cp -L "$ORT_LIB" "$PKG_DIR/usr/lib/dictee/"
 
-    # Provider libs from cargo build output
+    # Provider libs from the same directory as libonnxruntime.so.
+    # ORT_DIR was historically undefined — fall back to dirname(ORT_LIB).
+    ORT_LIB_DIR="$(dirname "$ORT_LIB")"
+    _missing_providers=""
     for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-        if [ -f "$ORT_DIR/lib/$lib" ]; then
-            cp "$ORT_DIR/lib/$lib" "$PKG_DIR/usr/lib/dictee/"
+        if [ -f "$ORT_LIB_DIR/$lib" ]; then
+            cp -L "$ORT_LIB_DIR/$lib" "$PKG_DIR/usr/lib/dictee/"
+            echo "  $lib ← $ORT_LIB_DIR/$lib"
+        else
+            _missing_providers="$_missing_providers $lib"
         fi
     done
+    if [ -n "$_missing_providers" ]; then
+        echo "ERROR: CUDA providers missing in $ORT_LIB_DIR:$_missing_providers" >&2
+        echo "The CUDA package will silently fall back to CPU at runtime." >&2
+        exit 1
+    fi
 
     # CUDA runtime libs (chercher dans : CUDA toolkit, système, pip/uv)
     for lib in libcufft.so.11 libcudart.so.12; do
