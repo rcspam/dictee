@@ -4604,42 +4604,75 @@ class DicteeSetupDialog(QDialog):
 
     @staticmethod
     def _is_dark_theme():
-        """Detects dark theme via desktop settings (GNOME/KDE) with Qt fallback.
+        """Detects dark theme via the current DE's config, Qt palette fallback.
 
-        Qt's palette is unreliable when no platform-theme integration is
-        installed (e.g. Fedora GNOME without qgnomeplatform-qt6) — it falls
-        back to Fusion, which reads as dark even under a light desktop.
+        Picks the probe matching XDG_CURRENT_DESKTOP and does NOT cross-probe:
+        on a fresh Fedora KDE session, gsettings returns 'prefer-dark' by
+        default, which would misreport a light Plasma session as dark.
+
+        Qt's palette is used as a last-resort fallback; it's unreliable
+        without platform-theme integration (Fusion reads as dark even in
+        a light desktop).
+
+        TODO(rc2): extract to dictee_theme_detect.py + add unit tests
+        covering: KDE-dark, KDE-light, KDE-empty-ColorScheme, GNOME-*,
+        headless (XDG empty), unknown DE.
         """
         import subprocess
-        # 1. KDE Plasma — kreadconfig6 on kdeglobals
-        try:
-            r = subprocess.run(
-                ["kreadconfig6", "--file", "kdeglobals", "--group", "General",
-                 "--key", "ColorScheme"],
-                capture_output=True, text=True, timeout=1)
-            if r.returncode == 0 and r.stdout.strip():
-                return "Dark" in r.stdout
-        except Exception:
-            pass
-        # 2. GNOME — gsettings color-scheme
-        try:
-            r = subprocess.run(
-                ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
-                capture_output=True, text=True, timeout=1)
-            if r.returncode == 0:
-                val = r.stdout.strip().strip("'\"")
-                if val == "prefer-dark":
-                    return True
-                if val in ("prefer-light", "default"):
-                    return False
-        except Exception:
-            pass
-        # 3. Qt palette fallback
-        app = QApplication.instance()
-        if app:
-            bg = app.palette().color(app.palette().ColorRole.Window)
-            return bg.lightness() < 128
-        return True
+        desktop = (os.environ.get("XDG_CURRENT_DESKTOP") or "").upper()
+        is_kde = "KDE" in desktop or "PLASMA" in desktop
+        is_gnome = any(x in desktop for x in ("GNOME", "UNITY", "CINNAMON", "MATE", "XFCE"))
+
+        def _kde_probe():
+            try:
+                r = subprocess.run(
+                    ["kreadconfig6", "--file", "kdeglobals", "--group", "General",
+                     "--key", "ColorScheme"],
+                    capture_output=True, text=True, timeout=1)
+                if r.returncode == 0 and r.stdout.strip():
+                    return "Dark" in r.stdout
+            except Exception:
+                pass
+            return None
+
+        def _gnome_probe():
+            try:
+                r = subprocess.run(
+                    ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                    capture_output=True, text=True, timeout=1)
+                if r.returncode == 0:
+                    val = r.stdout.strip().strip("'\"")
+                    if val == "prefer-dark":
+                        return True
+                    if val in ("prefer-light", "default"):
+                        return False
+            except Exception:
+                pass
+            return None
+
+        def _qt_fallback():
+            app = QApplication.instance()
+            if app:
+                bg = app.palette().color(app.palette().ColorRole.Window)
+                return bg.lightness() < 128
+            return True
+
+        # Preferred DE first; if inconclusive, skip cross-probing and use Qt
+        if is_kde:
+            v = _kde_probe()
+            return v if v is not None else _qt_fallback()
+        if is_gnome:
+            v = _gnome_probe()
+            return v if v is not None else _qt_fallback()
+
+        # No DE hint (headless/SSH/other): try both, then Qt fallback
+        v = _kde_probe()
+        if v is not None:
+            return v
+        v = _gnome_probe()
+        if v is not None:
+            return v
+        return _qt_fallback()
 
     @staticmethod
     def _render_svg(svg_path, width):
