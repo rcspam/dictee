@@ -42,6 +42,10 @@ name = "transcribe-diarize"
 path = "src/bin/transcribe_diarize.rs"
 
 [[bin]]
+name = "transcribe-diarize-batch"
+path = "src/bin/transcribe_diarize_batch.rs"
+
+[[bin]]
 name = "transcribe-stream-diarize"
 path = "src/bin/transcribe_stream_diarize.rs"
 

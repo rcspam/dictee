@@ -339,6 +339,12 @@ Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les 
 
 ---
 
+## Limitations connues
+
+- **Diarisation + transcription sur un GPU 8 Go** sont limitées à environ **10-15 min d'audio**. `transcribe-diarize` charge en une passe tout le mel-spectrogramme Parakeet-TDT (~185 Mo de VRAM par minute d'audio), ce qui sature un GPU grand public au-delà de ~15 min et provoque une erreur ONNX OOM (`Failed to allocate memory for requested buffer of size ...` sur `/pre_encode/conv/conv.0/Conv`).
+  Sortformer est un modèle streaming (chunks internes de 10 s) et n'a pas de limite de durée.
+  **Contournements** : découpez le fichier en parties ≤ 10 min et traitez-les en plusieurs passes, désactivez la diarisation, ou utilisez le backend CPU. Le découpage automatique est prévu pour la v1.4.
+
 ## Feuille de route
 
 **v1.3.0 (actuelle) :** UI sidebar avec double diagramme pipeline (normal + traduction), post-traitement LLM (Ollama), buffer de continuation, conversion nombres, 682 tests automatisés, intégration CI

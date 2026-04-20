@@ -3750,14 +3750,58 @@ class DicteeSetupDialog(QDialog):
             if self.wizard_mode and self._conf_existed_before_wizard and hasattr(self, 'stack'):
                 # Jump to translation page (page 3) only if config already exists
                 self.stack.setCurrentIndex(3)
+            elif hasattr(self, '_sidebar_tree'):
+                # Sidebar mode: select the Translation entry (stack index 2)
+                QTimer.singleShot(0, lambda: self._select_sidebar_item(2))
             elif hasattr(self, '_main_scroll') and hasattr(self, '_grp_translate'):
-                # Classic mode: scroll to translation section
+                # Legacy classic mode: scroll to translation section
                 def _scroll_to_translation():
                     target = self._grp_translate
-                    # Map widget position to scroll area coordinates
                     pos = target.mapTo(self._main_scroll.widget(), target.rect().topLeft())
                     self._main_scroll.verticalScrollBar().setValue(pos.y())
                 QTimer.singleShot(100, _scroll_to_translation)
+        if getattr(self, '_open_postprocess', False):
+            self._open_postprocess = False
+            if hasattr(self, '_sidebar_tree'):
+                # Sidebar mode: select the Post-processing entry (stack index 8)
+                QTimer.singleShot(0, lambda: self._select_sidebar_item(8))
+
+    def _select_sidebar_item(self, stack_idx, pp_tab=None):
+        """Select a sidebar tree item by its stack index (and optional PP sub-tab).
+
+        Walks the tree, matches UserRole == stack_idx (and UserRole+1 == pp_tab
+        when provided) and sets it current, triggering _on_item_changed which
+        handles the page switch + PP tab switching.
+        """
+        tree = getattr(self, '_sidebar_tree', None)
+        if tree is None:
+            return False
+
+        def _find(parent):
+            count = parent.childCount() if hasattr(parent, 'childCount') else parent.topLevelItemCount()
+            for i in range(count):
+                item = parent.child(i) if hasattr(parent, 'child') else parent.topLevelItem(i)
+                idx = item.data(0, Qt.ItemDataRole.UserRole)
+                tab = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                if idx is not None and int(idx) == int(stack_idx):
+                    if pp_tab is None:
+                        if tab is None:
+                            return item
+                    elif tab is not None and int(tab) == int(pp_tab):
+                        return item
+                found = _find(item)
+                if found is not None:
+                    return found
+            return None
+
+        target = _find(tree)
+        if target is None and pp_tab is not None:
+            # Fallback: select the parent page without a specific sub-tab
+            target = _find(tree)
+        if target is not None:
+            tree.setCurrentItem(target)
+            return True
+        return False
 
     @property
     def _pp_parent(self):
@@ -7750,12 +7794,20 @@ class DicteeSetupDialog(QDialog):
             self._pp_tabs.tabBar().hide()
             # Header row wrapped in a QWidget so it can be hidden as a
             # whole when the user selects the Post-processing root node
-            # (overview mode). Only holds the dynamic title — no enable
-            # checkbox: activation is done EXCLUSIVELY via the SVG.
+            # (overview mode). Holds an enable toggle (writes the normal
+            # pipeline only) + the dynamic title. The toggle is ON when
+            # EITHER the normal OR the translate pipeline has this step
+            # enabled — so the user sees the step is "live" somewhere
+            # even with the interactive SVG accordion collapsed.
             self._pp_title_row_w = QWidget()
             _title_row = QHBoxLayout(self._pp_title_row_w)
             _title_row.setContentsMargins(0, 0, 0, 0)
             _title_row.setSpacing(12)
+            self._pp_tab_enable_chk = ToggleSwitch("")
+            self._pp_tab_enable_chk.setToolTip(
+                _("Enable this step in the normal pipeline. "
+                  "Stays ON while the translation pipeline has it active."))
+            _title_row.addWidget(self._pp_tab_enable_chk)
             self._pp_tab_title = QLabel()
             self._pp_tab_title.setStyleSheet(
                 f"color: {accent_hex}; font-size: 24px; font-weight: bold; "
@@ -7764,10 +7816,46 @@ class DicteeSetupDialog(QDialog):
             _title_row.addStretch(1)
             pp_lay.addWidget(self._pp_title_row_w)
 
+            def _on_tab_enable_toggled(checked):
+                idx = self._pp_tabs.currentIndex() if hasattr(self, '_pp_tabs') else -1
+                key = self._PP_TAB_KEY_BY_IDX.get(idx)
+                if key is None:
+                    return
+                # Memo of translate state cut by the toggle — used to
+                # restore it on the next re-activation. Cleared on restore.
+                if not hasattr(self, '_pp_translate_before_off'):
+                    self._pp_translate_before_off = {}
+                if checked:
+                    # Activating: force normal ON.
+                    self._pp_state[key] = True
+                    # Restore translate if we cut it previously.
+                    if key in self._pp_translate_before_off:
+                        self._trpp_state[key] = self._pp_translate_before_off.pop(key)
+                else:
+                    # Deactivating: cut BOTH pipelines; remember translate.
+                    if self._trpp_state.get(key):
+                        self._pp_translate_before_off[key] = True
+                    self._pp_state[key] = False
+                    self._trpp_state[key] = False
+                # Keep the normal master checkbox in sync (blockSignals to
+                # avoid re-entering _refresh_pp_diagrams via its toggled).
+                master_attr = self._PP_MASTER_CHK_BY_KEY.get(key)
+                if master_attr and hasattr(self, master_attr):
+                    chk = getattr(self, master_attr)
+                    chk.blockSignals(True)
+                    chk.setChecked(bool(checked))
+                    chk.blockSignals(False)
+                # LLM in translate pipeline is always forced OFF at runtime.
+                if key == "llm":
+                    self._trpp_state["llm"] = False
+                self._refresh_pp_diagrams()
+            self._pp_tab_enable_chk.toggled.connect(_on_tab_enable_toggled)
+
             def _sync_pp_title(idx):
                 if idx < 0:
                     return
                 self._pp_tab_title.setText(self._pp_tabs.tabText(idx))
+                self._sync_pp_tab_enable_chk()
 
             self._pp_tabs.currentChanged.connect(_sync_pp_title)
             # Initial sync deferred to after addTab calls below
@@ -8272,6 +8360,39 @@ class DicteeSetupDialog(QDialog):
             self._run_test_pipeline()
             self._unfreeze_pp(10)
 
+    # Mapping used by the sub-page title enable toggle (above each tab).
+    _PP_TAB_KEY_BY_IDX = {
+        0: "rules",
+        1: "continuation",
+        2: "language_rules",
+        3: "dict",
+        4: "llm",
+    }
+    _PP_MASTER_CHK_BY_KEY = {
+        "rules":          "chk_pp_rules",
+        "continuation":   "chk_pp_continuation",
+        "language_rules": "chk_pp_language_rules",
+        "dict":           "chk_pp_dict",
+        "llm":            "chk_llm",
+    }
+
+    def _sync_pp_tab_enable_chk(self):
+        """Mirror the title-row enable toggle on combined normal OR translate state."""
+        if not hasattr(self, '_pp_tab_enable_chk'):
+            return
+        if not hasattr(self, '_pp_tabs'):
+            return
+        idx = self._pp_tabs.currentIndex()
+        key = self._PP_TAB_KEY_BY_IDX.get(idx)
+        if key is None:
+            return
+        combined = bool(
+            self._pp_state.get(key, False)
+            or self._trpp_state.get(key, False))
+        self._pp_tab_enable_chk.blockSignals(True)
+        self._pp_tab_enable_chk.setChecked(combined)
+        self._pp_tab_enable_chk.blockSignals(False)
+
     def _refresh_pp_diagrams(self):
         """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
         from their INDEPENDENT state dicts + two masters."""
@@ -8330,6 +8451,10 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, "_apply_any_master_active"):
             self._apply_any_master_active()
 
+        # Keep the sub-page title toggle in sync with the combined state
+        # (clicking a node in either SVG must flip the title toggle too).
+        self._sync_pp_tab_enable_chk()
+
         # Re-run the test panel so toggling a step (e.g. Dictionary OFF)
         # is reflected immediately in the test output.
         if hasattr(self, "_schedule_test_run"):
@@ -8342,12 +8467,18 @@ class DicteeSetupDialog(QDialog):
     def _build_llm_tab(self, lay, conf):
         """Build LLM post-processing tab content."""
         llm_vbox = lay
-        llm_vbox.setSpacing(6)
+        llm_vbox.setSpacing(2)
+        # Keep the parent's horizontal margins but drop vertical padding
+        _m = llm_vbox.contentsMargins()
+        llm_vbox.setContentsMargins(_m.left(), 0, _m.right(), 0)
 
         # Top row: combos in a QFormLayout
         _llm_form = QWidget()
+        _llm_form.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         llm_flay = QFormLayout(_llm_form)
         llm_flay.setContentsMargins(0, 0, 0, 0)
+        llm_flay.setVerticalSpacing(4)
 
         # LLM pipeline position — displayed FIRST (above the model combo)
         # Radio buttons grouped in a QButtonGroup; data stored on each button.
@@ -8388,29 +8519,36 @@ class DicteeSetupDialog(QDialog):
                     break
         llm_flay.addRow(_("Position in chain:"), _pos_row)
 
+        # Model combo + refresh button on one row
         self.cmb_llm_model = QComboBox()
-        saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
         self.cmb_llm_model.setEditable(True)
-        self.cmb_llm_model.addItem("gemma3:4b")
-        self.cmb_llm_model.addItem("gemma3:1b")
-        self.cmb_llm_model.addItem("ministral-3:3b")
-        # Detect installed models
-        try:
-            import subprocess as _sp
-            out = _sp.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
-            if out.returncode == 0:
-                for line in out.stdout.strip().splitlines()[1:]:
-                    name = line.split()[0] if line.split() else ""
-                    if name and self.cmb_llm_model.findText(name) < 0:
-                        self.cmb_llm_model.addItem(name)
-        except (FileNotFoundError, _sp.TimeoutExpired):
-            pass
-        idx = self.cmb_llm_model.findText(saved_model)
-        if idx >= 0:
-            self.cmb_llm_model.setCurrentIndex(idx)
-        else:
-            self.cmb_llm_model.setEditText(saved_model)
-        llm_flay.addRow(_("Model:"), self.cmb_llm_model)
+        self.cmb_llm_model.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_refresh_llm_models = QPushButton("🔄")
+        self.btn_refresh_llm_models.setToolTip(
+            _("Rescan installed Ollama models"))
+        self.btn_refresh_llm_models.setFixedWidth(36)
+        self.btn_refresh_llm_models.clicked.connect(self._on_refresh_llm_models)
+        _llm_model_row = QHBoxLayout()
+        _llm_model_row.setContentsMargins(0, 0, 0, 0)
+        _llm_model_row.addWidget(self.cmb_llm_model, 1)
+        _llm_model_row.addWidget(self.btn_refresh_llm_models)
+        _llm_model_row_w = QWidget()
+        _llm_model_row_w.setLayout(_llm_model_row)
+        llm_flay.addRow(_("Model:"), _llm_model_row_w)
+
+        # Status label below the combo (live check of Ollama state + model)
+        self.lbl_llm_ollama_status = QLabel("")
+        self.lbl_llm_ollama_status.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_llm_ollama_status.setWordWrap(True)
+        llm_flay.addRow("", self.lbl_llm_ollama_status)
+
+        # Populate from installed Ollama + recommended (not-installed suffix)
+        saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
+        self._populate_llm_model_combo(preferred_text=saved_model)
+        self._check_llm_ollama_status()
+        self.cmb_llm_model.currentTextChanged.connect(
+            lambda _t: self._check_llm_ollama_status())
 
         # System prompt presets
         self.cmb_llm_preset = QComboBox()
@@ -8425,15 +8563,24 @@ class DicteeSetupDialog(QDialog):
 
         llm_vbox.addWidget(_llm_form)
 
-        # System prompt editor — expands to fill the available space.
+        # System prompt editor — default 25 lines, user-resizable down to
+        # 5 lines or up to 800 px via a grip on the bottom edge.
         self.txt_llm_prompt = QTextEdit()
         self.txt_llm_prompt.setFont(self._monospace_font())
-        self.txt_llm_prompt.setMinimumHeight(200)
+        _fm = self.txt_llm_prompt.fontMetrics()
+        _margin = self.txt_llm_prompt.document().documentMargin()
+        _line_h = _fm.lineSpacing()
+        _min_h = max(80, int(_line_h * 5 + _margin * 2 + 4))
+        _default_h = max(_min_h, int(_line_h * 25 + _margin * 2 + 4))
+        _max_h = 900
         self.txt_llm_prompt.setMinimumWidth(400)
         self.txt_llm_prompt.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.txt_llm_prompt.setFixedHeight(_default_h)
         self._add_zoom_overlay(self.txt_llm_prompt)
-        llm_vbox.addWidget(self.txt_llm_prompt, 1)
+        self._add_vertical_resize_grip(
+            self.txt_llm_prompt, min_h=_min_h, max_h=_max_h)
+        llm_vbox.addWidget(self.txt_llm_prompt, 0)
 
         # Populate prompt text and connect preset changes
         self._on_llm_preset_changed(self.cmb_llm_preset.currentData())
@@ -8472,6 +8619,98 @@ class DicteeSetupDialog(QDialog):
     _LLM_CUSTOM_PROMPT_PATH = os.path.join(
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
         "dictee", "llm-system-prompt.txt")
+
+    # ── LLM model combo — live Ollama sync ─────────────────────
+
+    # Recommended models shown even when not installed (suffixed).
+    _LLM_RECOMMENDED = ("gemma3:4b", "gemma3:1b", "ministral-3:3b")
+
+    def _llm_not_installed_suffix(self):
+        return " — " + _("not installed")
+
+    def _strip_llm_suffix(self, text):
+        """Strip the ' — not installed' suffix from a display name."""
+        if not text:
+            return text
+        suf = self._llm_not_installed_suffix()
+        return text[:-len(suf)] if text.endswith(suf) else text
+
+    def _current_llm_model(self):
+        """Return the real model name from the combo (data first, then stripped text)."""
+        data = self.cmb_llm_model.currentData()
+        if data:
+            return data
+        return self._strip_llm_suffix(self.cmb_llm_model.currentText()).strip()
+
+    def _populate_llm_model_combo(self, preferred_text=None):
+        """Rebuild the LLM model combo from installed Ollama models + recommended."""
+        current = preferred_text if preferred_text is not None else self._current_llm_model()
+        current = self._strip_llm_suffix(current or "").strip()
+
+        self.cmb_llm_model.blockSignals(True)
+        self.cmb_llm_model.clear()
+
+        installed = ollama_list_models() if ollama_is_installed() else []
+        seen_bases = set()
+        for name in installed:
+            self.cmb_llm_model.addItem(name, name)
+            # track base name without tag to avoid duplicates with recommended
+            seen_bases.add(name.split(":")[0])
+        suf = self._llm_not_installed_suffix()
+        for rec in self._LLM_RECOMMENDED:
+            if ollama_has_model(rec):
+                continue  # already present via installed loop
+            # If base name (e.g. "gemma3") matches any installed tag, skip the recommended entry
+            if rec.split(":")[0] in seen_bases and not any(
+                    inst.split(":")[0] == rec.split(":")[0] and inst == rec
+                    for inst in installed):
+                # User has a different tag for this family — still show the recommended for clarity
+                pass
+            self.cmb_llm_model.addItem(rec + suf, rec)
+
+        # Restore selection
+        idx = self.cmb_llm_model.findData(current)
+        if idx >= 0:
+            self.cmb_llm_model.setCurrentIndex(idx)
+        elif current:
+            self.cmb_llm_model.setEditText(current)
+        self.cmb_llm_model.blockSignals(False)
+
+    def _on_refresh_llm_models(self):
+        _dbg_setup("_on_refresh_llm_models")
+        self._populate_llm_model_combo()
+        self._check_llm_ollama_status()
+
+    def _check_llm_ollama_status(self):
+        """Update the status label below the LLM model combo."""
+        if not hasattr(self, 'lbl_llm_ollama_status'):
+            return
+        model = self._current_llm_model()
+        if not model:
+            self.lbl_llm_ollama_status.setText("")
+            return
+        if not ollama_is_installed():
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #c0392b;">⚠ ' +
+                _("Ollama is not installed") +
+                ' — <a href="https://ollama.com">ollama.com</a></span>')
+            self.lbl_llm_ollama_status.setOpenExternalLinks(True)
+            return
+        if not ollama_is_running():
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #c0392b;">⚠ ' +
+                _("Ollama service is not running") +
+                ' — <code>sudo systemctl start ollama</code></span>')
+            return
+        if ollama_has_model(model):
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #27ae60;">✓ ' +
+                _("Model {model} ready").format(model=model) + '</span>')
+        else:
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #d68910;">⚠ ' +
+                _("Model {model} not installed — run").format(model=model) +
+                f' <code>ollama pull {model}</code></span>')
 
     def _on_llm_preset_changed(self, preset_data):
         """Update system prompt QTextEdit when preset combo changes."""
@@ -8527,6 +8766,61 @@ class DicteeSetupDialog(QDialog):
         QShortcut(QKeySequence("Ctrl++"), editor).activated.connect(lambda: editor.zoomIn(2))
         QShortcut(QKeySequence("Ctrl+="), editor).activated.connect(lambda: editor.zoomIn(2))
         QShortcut(QKeySequence("Ctrl+-"), editor).activated.connect(lambda: editor.zoomOut(2))
+
+    @staticmethod
+    def _add_vertical_resize_grip(widget, min_h=80, max_h=600):
+        """Add a bottom-edge vertical resize grip to a QWidget (QTextEdit, etc.).
+
+        Same UX as the PP test input: 3-line stripe handle at the bottom,
+        drag to resize between min_h and max_h. The widget keeps a fixed
+        height (updated on release) so it does not fight the parent layout.
+        """
+        grip = QLabel(widget)
+        grip.setFixedHeight(8)
+        grip.setCursor(Qt.CursorShape.SizeVerCursor)
+        grip.setStyleSheet("background: transparent; border: none;")
+        grip._drag_y = None
+        grip._base_h = 0
+
+        def _paint(_event):
+            p = QPainter(grip)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pen = QPen(QColor(128, 128, 128))
+            pen.setWidth(1)
+            p.setPen(pen)
+            cx = grip.width() // 2
+            for y in (1, 4, 7):
+                p.drawLine(cx - 10, y, cx + 10, y)
+            p.end()
+        grip.paintEvent = _paint
+
+        def _press(event):
+            grip._drag_y = event.position().y()
+            grip._base_h = widget.height()
+            event.accept()
+        grip.mousePressEvent = _press
+
+        def _move(event):
+            if grip._drag_y is not None:
+                dy = int(event.position().y() - grip._drag_y)
+                new_h = max(min_h, min(max_h, grip._base_h + dy))
+                widget.setFixedHeight(new_h)
+                grip._base_h = new_h
+                grip._drag_y = event.position().y()
+                event.accept()
+        grip.mouseMoveEvent = _move
+
+        def _release(_event):
+            grip._drag_y = None
+        grip.mouseReleaseEvent = _release
+
+        _orig_resize = widget.resizeEvent
+
+        def _reposition(event):
+            grip.setGeometry(0, widget.height() - 8, widget.width(), 8)
+            if _orig_resize:
+                _orig_resize(event)
+        widget.resizeEvent = _reposition
 
     @staticmethod
     def _monospace_font():
@@ -14544,13 +14838,21 @@ class DicteeSetupDialog(QDialog):
                 highlight=True))
         if not steps and (not pp_master or (pp_master and proc.returncode == 0)):
             html_lines.append(_line(_("No pipeline steps ran.")))
+        # Resolve LLM model label once for trace enrichment
+        _llm_label = ""
+        if hasattr(self, '_current_llm_model'):
+            _lm = self._current_llm_model()
+            if _lm:
+                _llm_label = f" [{_lm}]"
         for i, (name, before, after) in enumerate(steps, 1):
             changed = before != after
             marker = " \u2190 " + _("changed") if changed else ""
             display = after.replace("\n", "\\n").replace("\t", "\\t")
             if len(display) > 100:
                 display = display[:100] + "\u2026"
-            raw = f"{i}. {name} \u2192 {display}{marker}"
+            # Append model tag to LLM steps: "LLM" → "LLM [gemma3:4b]"
+            display_name = f"{name}{_llm_label}" if name.startswith("LLM") else name
+            raw = f"{i}. {display_name} \u2192 {display}{marker}"
             is_current = _step_matches(name, _current_step)
             html_lines.append(_line(raw, highlight=is_current))
 
@@ -14581,7 +14883,8 @@ class DicteeSetupDialog(QDialog):
                 display_text = after.replace("\n", "\\n").replace("\t", "\\t")
                 if len(display_text) > 100:
                     display_text = display_text[:100] + "\u2026"
-                raw = f"{i}. {name} \u2192 {display_text}{marker}"
+                display_name = f"{name}{_llm_label}" if name.startswith("LLM") else name
+                raw = f"{i}. {display_name} \u2192 {display_text}{marker}"
                 html_lines.append(_line(raw))
         if trpp_error:
             html_lines.append(_line(
@@ -14923,7 +15226,26 @@ class DicteeSetupDialog(QDialog):
         pp_keepcaps = self.chk_pp_keepcaps.isChecked() if hasattr(self, 'chk_pp_keepcaps') else True
         pp_keepcaps_ext = self.chk_pp_keepcaps_ext.isChecked() if hasattr(self, 'chk_pp_keepcaps_ext') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
-        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
+        # Use the real model name (strip "— not installed" suffix if present)
+        if hasattr(self, '_current_llm_model'):
+            llm_model = self._current_llm_model() or "gemma3:4b"
+        else:
+            llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
+        # If LLM post-processing is enabled, warn when the selected model is missing
+        if llm_postprocess and hasattr(self, 'cmb_llm_model') and llm_model:
+            if not ollama_has_model(llm_model):
+                reply = QMessageBox.warning(
+                    self,
+                    _("LLM model not installed"),
+                    _("The LLM model '{model}' is not installed in Ollama.\n\n"
+                      "Run in a terminal:\n  ollama pull {model}\n\n"
+                      "Save the configuration anyway?").format(model=llm_model),
+                    QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    _dbg_setup(f"_on_apply: cancelled — llm_model '{llm_model}' not installed")
+                    return
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
         llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
         llm_position = self._get_llm_position() if hasattr(self, '_get_llm_position') else "hybrid"
@@ -15298,22 +15620,16 @@ def main():
     _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
     dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
                                open_translation=args.translation)
-    if args.postprocess:
-        # Mode --postprocess : ne JAMAIS afficher la main window (DicteeSetupDialog
-        # est un QDialog qui, montré puis caché, laisse KWin dans un état bancal
-        # où le dodge du panel ne se déclenche plus pour la dialog post-process).
-        # Ouvrir directement la post-process window — équivalent au chemin
-        # "clic bouton depuis le setup visible" qui fonctionne.
-        QTimer.singleShot(0, dialog._open_postprocess_dialog)
-    else:
-        # Center the window at its final geometry before show() so the WM
-        # does not briefly map it at its default placeholder position.
-        _screen = app.primaryScreen()
-        if _screen is not None:
-            _geo = _screen.availableGeometry()
-            dialog.move(_geo.center().x() - dialog.width() // 2,
-                        _geo.center().y() - dialog.height() // 2)
-        dialog.show()
+    # All CLI flags (--postprocess, --translation) open the main sidebar
+    # window; navigation to the matching entry is handled in showEvent via
+    # _select_sidebar_item. The legacy standalone PP dialog stays accessible
+    # from the wizard button only.
+    _screen = app.primaryScreen()
+    if _screen is not None:
+        _geo = _screen.availableGeometry()
+        dialog.move(_geo.center().x() - dialog.width() // 2,
+                    _geo.center().y() - dialog.height() // 2)
+    dialog.show()
     app.exec()
 
 

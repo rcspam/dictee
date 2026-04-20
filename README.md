@@ -339,6 +339,12 @@ Configure from `dictee --setup` → Post-processing tab, or test rules with `dic
 
 ---
 
+## Known limitations
+
+- **Diarization + transcription on an 8 GB GPU** is capped around **10-15 min of audio**. `transcribe-diarize` loads the full Parakeet-TDT mel-spectrogram in one pass (~185 MB of VRAM per minute of audio), which overflows a typical consumer GPU past ~15 min and causes an ONNX OOM (`Failed to allocate memory for requested buffer of size ...` on `/pre_encode/conv/conv.0/Conv`).
+  Sortformer itself is a streaming model (10 s chunks internally) and has no duration limit.
+  **Workarounds**: split the file into ≤ 10-min parts and process them in several passes, disable diarization, or use the CPU backend. Auto-chunking is planned for v1.4.
+
 ## Roadmap
 
 **v1.3.0 (current):** Sidebar UI with dual pipeline diagrams (normal + translation), LLM post-processing (Ollama), continuation buffer, number conversion, 682 automated tests, CI integration
