@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import QtQuick.Controls as QQC2
@@ -29,6 +30,27 @@ RowLayout {
         z: -1
         color: Kirigami.Theme.backgroundColor
         radius: Kirigami.Units.largeSpacing * 1.5
+    }
+
+    // Close any open ComboBox dropdown when the plasmoid window becomes
+    // inactive (panel icon clicked, focus lost…). Otherwise the dropdown
+    // is a separate Popup that outlives a plasmoid collapse and reappears
+    // when the user reopens the plasmoid. Watching fullRep.visible is not
+    // enough — the Item stays visible when the window is hidden; Window.active
+    // is the signal that actually fires on panel collapse.
+    function _closeAllDropdowns() {
+        if (audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
+        if (asrCombo.popup.visible) asrCombo.popup.close()
+        if (transCombo.popup.visible) transCombo.popup.close()
+        if (langCombo.popup.visible) langCombo.popup.close()
+    }
+    property bool windowActive: Window.active
+    onWindowActiveChanged: if (!windowActive) _closeAllDropdowns()
+    Connections {
+        target: Plasmoid
+        function onExpandedChanged() {
+            if (!Plasmoid.expanded) fullRep._closeAllDropdowns()
+        }
     }
 
     ColumnLayout {
@@ -659,7 +681,10 @@ RowLayout {
             Kirigami.Theme.inherit: true
             model: ListModel { id: langModel }
             textRole: "text"
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+            // Keep combo compact; force dropdown popup wider than the combo
+            // so long codes (pt-BR, zh-CN…) fit without eliding.
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 3.5
+            Component.onCompleted: popup.width = Kirigami.Units.gridUnit * 6
             onPressedChanged: {
                 if (pressed) {
                     root.lastTranslateBackendForLangs = ""
