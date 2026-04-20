@@ -123,6 +123,48 @@ LANGUAGES = [
     ("ar", "العربية"),
 ]
 
+# Extended English names for codes returned by dictee-translate-langs for
+# cloud backends (google/bing ~130, ollama ~90). Used when a code isn't
+# present in LANGUAGES (native names).
+TARGET_LANG_NAMES_EN = {
+    "af": "Afrikaans", "am": "Amharic", "ar": "Arabic", "as": "Assamese",
+    "ay": "Aymara", "az": "Azerbaijani", "ba": "Bashkir", "be": "Belarusian",
+    "bg": "Bulgarian", "bm": "Bambara", "bn": "Bengali", "bo": "Tibetan",
+    "bs": "Bosnian", "ca": "Catalan", "co": "Corsican", "cs": "Czech",
+    "cv": "Chuvash", "cy": "Welsh", "da": "Danish", "de": "German",
+    "dv": "Dhivehi", "ee": "Ewe", "el": "Greek", "en": "English",
+    "eo": "Esperanto", "es": "Spanish", "et": "Estonian", "eu": "Basque",
+    "fa": "Persian", "fi": "Finnish", "fj": "Fijian", "fo": "Faroese",
+    "fr": "French", "fr-CA": "French (Canada)", "fy": "Western Frisian",
+    "ga": "Irish", "gd": "Scottish Gaelic", "gl": "Galician",
+    "gn": "Guarani", "gu": "Gujarati", "ha": "Hausa", "he": "Hebrew",
+    "hi": "Hindi", "hr": "Croatian", "ht": "Haitian Creole",
+    "hu": "Hungarian", "hy": "Armenian", "id": "Indonesian",
+    "ig": "Igbo", "is": "Icelandic", "it": "Italian", "iu": "Inuktitut",
+    "ja": "Japanese", "jv": "Javanese", "ka": "Georgian", "kk": "Kazakh",
+    "km": "Khmer", "kn": "Kannada", "ko": "Korean", "ku": "Kurdish",
+    "ky": "Kyrgyz", "la": "Latin", "lb": "Luxembourgish", "lg": "Ganda",
+    "ln": "Lingala", "lo": "Lao", "lt": "Lithuanian", "lv": "Latvian",
+    "mg": "Malagasy", "mi": "Maori", "mk": "Macedonian", "ml": "Malayalam",
+    "mn": "Mongolian", "mr": "Marathi", "ms": "Malay", "mt": "Maltese",
+    "my": "Burmese", "ne": "Nepali", "nl": "Dutch", "no": "Norwegian",
+    "ny": "Chichewa", "om": "Oromo", "or": "Odia", "pa": "Punjabi",
+    "pl": "Polish", "ps": "Pashto", "pt": "Portuguese",
+    "pt-BR": "Portuguese (Brazil)", "pt-PT": "Portuguese (Portugal)",
+    "qu": "Quechua", "ro": "Romanian", "ru": "Russian", "rw": "Kinyarwanda",
+    "sa": "Sanskrit", "sd": "Sindhi", "si": "Sinhala", "sk": "Slovak",
+    "sl": "Slovenian", "sm": "Samoan", "sn": "Shona", "so": "Somali",
+    "sq": "Albanian", "sr": "Serbian", "st": "Sesotho", "su": "Sundanese",
+    "sv": "Swedish", "sw": "Swahili", "ta": "Tamil", "te": "Telugu",
+    "tg": "Tajik", "th": "Thai", "ti": "Tigrinya", "tk": "Turkmen",
+    "tl": "Tagalog", "to": "Tongan", "tr": "Turkish", "ts": "Tsonga",
+    "tt": "Tatar", "tw": "Twi", "ty": "Tahitian", "ug": "Uyghur",
+    "uk": "Ukrainian", "ur": "Urdu", "uz": "Uzbek", "vi": "Vietnamese",
+    "xh": "Xhosa", "yi": "Yiddish", "yo": "Yoruba", "zh": "Chinese",
+    "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional)",
+    "zu": "Zulu",
+}
+
 # Languages supported by each ASR backend (pour filtrer la langue source)
 # Parakeet TDT 0.6B v3: 25 European languages (source: NVIDIA HuggingFace)
 PARAKEET_LANGUAGES = {
@@ -6773,6 +6815,13 @@ class DicteeSetupDialog(QDialog):
 
         self.combo_src = QComboBox()
         self.combo_tgt = QComboBox()
+        # Keep both combos at the same visual width, independent of item
+        # text length (target can hold long names like "pt-BR — Portuguese
+        # (Brazil)" once cloud backends are selected).
+        for _c in (self.combo_src, self.combo_tgt):
+            _c.setMinimumContentsLength(28)
+            _c.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         for code, name in LANGUAGES:
             self.combo_src.addItem(f"{code} — {name}", code)
             self.combo_tgt.addItem(f"{code} — {name}", code)
@@ -7022,21 +7071,29 @@ class DicteeSetupDialog(QDialog):
         self.combo_ollama_model.currentIndexChanged.connect(self._on_ollama_model_changed)
         self._ollama_pull_thread = None
 
-        # Restore saved backend
-        saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "")
-        saved_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
-        if saved_backend == "ollama":
-            self._set_combo_by_data(self.cmb_trans_backend, "ollama", 0)
-        elif saved_backend == "libretranslate":
-            self._set_combo_by_data(self.cmb_trans_backend, "libretranslate", 0)
-        elif saved_backend == "trans" and saved_engine == "bing":
-            self._set_combo_by_data(self.cmb_trans_backend, "trans:bing", 0)
-        elif saved_backend == "trans":
-            self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
+        # Restore saved backend. In wizard mode, mirror the card selected on
+        # page 4 (_wizard_trans) so lt_widget/ollama_widget/tgt-lang filter
+        # match the visible card — otherwise the combo defaulted to
+        # libretranslate and the user saw LT options after picking Google.
+        if self.wizard_mode and getattr(self, '_wizard_trans', None):
+            data_map = {"google": "trans:google", "bing": "trans:bing",
+                        "libretranslate": "libretranslate", "ollama": "ollama"}
+            self._set_combo_by_data(
+                self.cmb_trans_backend,
+                data_map.get(self._wizard_trans, self._wizard_trans), 0)
         else:
-            # Pas de config → wizard: libretranslate, classique: google
-            default = "libretranslate" if self.wizard_mode else "trans:google"
-            self._set_combo_by_data(self.cmb_trans_backend, default, 0)
+            saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "")
+            saved_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
+            if saved_backend == "ollama":
+                self._set_combo_by_data(self.cmb_trans_backend, "ollama", 0)
+            elif saved_backend == "libretranslate":
+                self._set_combo_by_data(self.cmb_trans_backend, "libretranslate", 0)
+            elif saved_backend == "trans" and saved_engine == "bing":
+                self._set_combo_by_data(self.cmb_trans_backend, "trans:bing", 0)
+            elif saved_backend == "trans":
+                self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
+            else:
+                self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
 
         def _on_trans_backend_changed():
             data = self.cmb_trans_backend.currentData()
@@ -12710,22 +12767,55 @@ class DicteeSetupDialog(QDialog):
     # -- Filtrage langues selon backend --
 
     def _filter_lang_combo(self, combo, allowed_codes):
-        """Repeuple un combo avec uniquement les langues autorisées.
-        allowed_codes=None signifie toutes les langues."""
+        """Repeuple un combo avec les langues spécifiées.
+
+        allowed_codes peut être :
+          - None            → toutes les entrées de LANGUAGES (29 langues)
+          - set / frozenset → filtre LANGUAGES, garde l'ordre LANGUAGES
+          - list            → utilise la liste dans l'ordre donné
+                              (pour les cibles issues de dictee-translate-langs)
+        Les noms affichés : natifs via LANGUAGES si présent, sinon anglais
+        via TARGET_LANG_NAMES_EN, sinon juste le code.
+        """
         current = combo.currentData()
         was_blocked = combo.signalsBlocked()
         combo.blockSignals(True)
         combo.clear()
-        for code, name in LANGUAGES:
-            if allowed_codes is None or code in allowed_codes:
-                combo.addItem(f"{code} — {name}", code)
-        # Restore selection précédente si toujours disponible
+        native = dict(LANGUAGES)
+        if allowed_codes is None:
+            codes = [c for c, _ in LANGUAGES]
+        elif isinstance(allowed_codes, (set, frozenset)):
+            codes = [c for c, _ in LANGUAGES if c in allowed_codes]
+        else:
+            codes = list(allowed_codes)
+        for code in codes:
+            name = native.get(code) or TARGET_LANG_NAMES_EN.get(code, code)
+            combo.addItem(f"{code} — {name}", code)
         idx = combo.findData(current)
         if idx >= 0:
             combo.setCurrentIndex(idx)
         else:
             combo.setCurrentIndex(0)
         combo.blockSignals(was_blocked)
+
+    def _fetch_target_langs_from_script(self, backend_short):
+        """Run dictee-translate-langs to get target languages for a backend.
+
+        Returns a list of codes (preferred order) or None on failure.
+        Separator '---' from the script is stripped.
+        """
+        import subprocess
+        try:
+            r = subprocess.run(
+                ["dictee-translate-langs", backend_short],
+                capture_output=True, text=True, timeout=3)
+            if r.returncode == 0:
+                raw = r.stdout.strip()
+                if raw:
+                    return [c for c in raw.split(",") if c and c != "---"]
+        except Exception:
+            pass
+        return None
 
     def _update_src_languages(self):
         """Filtre la langue source selon le backend ASR sélectionné."""
@@ -12744,10 +12834,28 @@ class DicteeSetupDialog(QDialog):
         self._filter_lang_combo(self.combo_src, allowed)
 
     def _update_tgt_languages(self):
-        """Filtre la langue cible selon le backend de traduction sélectionné."""
+        """Filtre la langue cible selon le backend de traduction sélectionné.
+
+        For cloud (google/bing), ollama and libretranslate, ask
+        dictee-translate-langs for the full list (~130 for google/bing,
+        ~90 for ollama, dynamic for LT). Fallback to the static
+        TRANSLATE_LANGUAGES map (29 LANGUAGES) if the script fails.
+        """
         if not hasattr(self, 'cmb_trans_backend'):
             return
         backend = self.cmb_trans_backend.currentData()
+        short_map = {
+            "trans:google": "google",
+            "trans:bing": "bing",
+            "ollama": "ollama",
+            "libretranslate": "libretranslate",
+        }
+        short = short_map.get(backend)
+        if short:
+            codes = self._fetch_target_langs_from_script(short)
+            if codes:
+                self._filter_lang_combo(self.combo_tgt, codes)
+                return
         allowed = TRANSLATE_LANGUAGES.get(backend)
         self._filter_lang_combo(self.combo_tgt, allowed)
 
