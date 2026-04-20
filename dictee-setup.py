@@ -3768,13 +3768,6 @@ class DicteeSetupDialog(QDialog):
             elif hasattr(self, '_sidebar_tree'):
                 # Sidebar mode: select the Translation entry (stack index 2)
                 QTimer.singleShot(0, lambda: self._select_sidebar_item(2))
-            elif hasattr(self, '_main_scroll') and hasattr(self, '_grp_translate'):
-                # Legacy classic mode: scroll to translation section
-                def _scroll_to_translation():
-                    target = self._grp_translate
-                    pos = target.mapTo(self._main_scroll.widget(), target.rect().topLeft())
-                    self._main_scroll.verticalScrollBar().setValue(pos.y())
-                QTimer.singleShot(100, _scroll_to_translation)
         if getattr(self, '_open_postprocess', False):
             self._open_postprocess = False
             if hasattr(self, '_sidebar_tree'):
@@ -3932,214 +3925,6 @@ class DicteeSetupDialog(QDialog):
             dlg.finished.connect(self.close)
         dlg.show()
 
-    # ── Classic mode ──────────────────────────────────────────────
-
-    def _build_classic_ui(self):
-        conf = self.conf
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._main_scroll = scroll
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 16)
-
-        # -- Section backend ASR --
-        grp_asr = QGroupBox(_("ASR backend"))
-        lay_asr = QVBoxLayout(grp_asr)
-        lay_asr.setSpacing(8)
-        lay_asr.setContentsMargins(16, 16, 16, 12)
-
-        current_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
-        self.cmb_asr_backend = QComboBox()
-        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
-        self.cmb_asr_backend.addItem("Vosk", "vosk")
-        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
-        gpu_total, _free = get_gpu_vram_gb()
-        if gpu_total > 0:
-            self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
-        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
-        lay_asr.addWidget(self.cmb_asr_backend)
-
-        # cuDNN warning
-        gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
-        if gpu_detected and not cudnn_ok:
-            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
-            warn_lbl.setWordWrap(True)
-            warn_lbl.setStyleSheet(
-                "background: #442200; border: 1px solid #885500;"
-                " border-radius: 6px; padding: 8px;")
-            warn_lbl.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse)
-            lay_asr.addWidget(warn_lbl)
-
-
-        self._build_parakeet_options(lay_asr)
-
-        self._build_vosk_options(lay_asr)
-        self._build_whisper_options(lay_asr)
-        self._build_canary_options(lay_asr)
-
-        def _on_asr_changed():
-            backend = self.cmb_asr_backend.currentData()
-            _dbg_setup(f"_on_asr_changed: {backend}")
-            self.w_parakeet_options.setVisible(backend == "parakeet")
-            self.w_vosk_options.setVisible(backend == "vosk")
-            self.w_whisper_options.setVisible(backend == "whisper")
-            self.w_canary_options.setVisible(backend == "canary")
-            self._update_canary_translation_visibility()
-            if hasattr(self, 'combo_src'):
-                self._update_src_languages()
-        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
-        _on_asr_changed()
-
-        layout.addWidget(grp_asr)
-
-        # -- Section raccourci --
-        grp_shortcut = QGroupBox(_("Keyboard shortcut"))
-        lay_sc = QVBoxLayout(grp_shortcut)
-        lay_sc.setSpacing(8)
-        lay_sc.setContentsMargins(16, 16, 16, 12)
-        self._build_shortcut_section(lay_sc)
-        layout.addWidget(grp_shortcut)
-
-        # -- Section retour visuel --
-        grp_visual = QGroupBox(_("Visual feedback"))
-        lay_vis = QVBoxLayout(grp_visual)
-        lay_vis.setSpacing(6)
-        lay_vis.setContentsMargins(16, 16, 16, 12)
-        self._build_visual_section(lay_vis, conf)
-        layout.addWidget(grp_visual)
-
-        # -- Section traduction --
-        self._grp_translate = grp_translate = QGroupBox()
-        lay_tr = QVBoxLayout(grp_translate)
-        lay_tr.setSpacing(6)
-        lay_tr.setContentsMargins(16, 16, 16, 12)
-        self._build_translation_section(lay_tr, conf)
-        layout.addWidget(grp_translate)
-
-        # Apply canary state after translation section is built
-        self._update_canary_translation_visibility()
-
-        # -- Microphone section --
-        grp_mic = QGroupBox(_("Microphone"))
-        lay_mic = QVBoxLayout(grp_mic)
-        lay_mic.setSpacing(6)
-        lay_mic.setContentsMargins(16, 16, 16, 12)
-        self._build_mic_section(lay_mic, conf)
-        layout.addWidget(grp_mic)
-
-        # -- Options section --
-        grp_options = QGroupBox(_("Options"))
-        lay_opt = QVBoxLayout(grp_options)
-        lay_opt.setSpacing(6)
-        lay_opt.setContentsMargins(16, 16, 16, 12)
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
-        lay_opt.addWidget(self.chk_clipboard)
-
-        # Audio context buffer
-        self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
-        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
-        self.chk_audio_context.setToolTip(
-            _("Accumulate audio from previous dictations to improve recognition\n"
-              "of short or technical words at the start of sentences."))
-        lay_opt.addWidget(self.chk_audio_context)
-
-        lay_ctx = QHBoxLayout()
-        lay_ctx.setSpacing(8)
-        lbl_ctx = QLabel(_("Context duration (seconds):"))
-        lbl_ctx.setToolTip(
-            _("Maximum duration of accumulated audio context.\n"
-              "Also the inactivity timeout: the buffer expires\n"
-              "after this many seconds without a non-empty dictation."))
-        self.spin_audio_context_timeout = QSpinBox()
-        self.spin_audio_context_timeout.setRange(5, 120)
-        self.spin_audio_context_timeout.setValue(
-            int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
-        self.spin_audio_context_timeout.setSuffix(" s")
-        lay_ctx.addWidget(lbl_ctx)
-        lay_ctx.addWidget(self.spin_audio_context_timeout)
-        lay_ctx.addStretch()
-        lay_opt.addLayout(lay_ctx)
-
-        self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
-        self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
-        self.chk_debug.setToolTip(
-            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
-              "for troubleshooting dictation and continuation issues."))
-        lay_opt.addWidget(self.chk_debug)
-
-        layout.addWidget(grp_options)
-
-        # -- Notifications section --
-        grp_notif = QGroupBox(_("Notifications"))
-        lay_notif = QVBoxLayout(grp_notif)
-        lay_notif.setSpacing(6)
-        lay_notif.setContentsMargins(16, 16, 16, 12)
-        self.chk_notifications = ToggleSwitch(_("Show notifications"))
-        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
-        self.chk_notifications_text = ToggleSwitch(_("Show transcribed text in notifications"))
-        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
-        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
-        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
-        lay_notif.addWidget(self.chk_notifications)
-        lay_notif.addWidget(self.chk_notifications_text)
-        layout.addWidget(grp_notif)
-
-        # -- Post-processing button --
-        btn_postprocess = QPushButton(_("Post-processing..."))
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        btn_postprocess.setStyleSheet(
-            f"font-weight: bold; padding: 8px 16px; font-size: 13px;")
-        btn_postprocess.clicked.connect(self._open_postprocess_dialog)
-        layout.addWidget(btn_postprocess)
-
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer_layout.addWidget(scroll, 1)
-
-        # -- Boutons --
-        lay_buttons = QHBoxLayout()
-        lay_buttons.setContentsMargins(20, 8, 20, 16)
-
-        btn_wizard = QPushButton(_("Setup wizard"))
-        btn_wizard.clicked.connect(self._on_launch_wizard)
-        lay_buttons.addWidget(btn_wizard)
-
-        lay_buttons.addStretch()
-
-        btn_cancel = QPushButton(_("Cancel"))
-        btn_cancel.clicked.connect(self.reject)
-        lay_buttons.addWidget(btn_cancel)
-        lay_buttons.addSpacing(8)
-        btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply_clicked)
-        lay_buttons.addWidget(btn_apply)
-        lay_buttons.addSpacing(8)
-        btn_ok = QPushButton(_("OK"))
-        btn_ok.setDefault(True)
-        btn_ok.clicked.connect(self._on_ok)
-        lay_buttons.addWidget(btn_ok)
-
-        outer_layout.addLayout(lay_buttons)
-
-        # Mark _dirty when any config widget changes
-        for w in content.findChildren(QComboBox):
-            w.currentIndexChanged.connect(self._mark_dirty)
-        for w in content.findChildren(QCheckBox):
-            w.toggled.connect(self._mark_dirty)
-
-        content_h = content.sizeHint().height()
-        buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
-        self.setMaximumHeight(content_h + buttons_h + 10)
     def _on_launch_wizard(self):
         _dbg_setup("_on_launch_wizard")
         """Ferme le dialog et relance en mode wizard."""
@@ -4980,7 +4765,11 @@ class DicteeSetupDialog(QDialog):
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
                 if self.ollama_widget.parent() is None:
-                    self._tr_layout.addWidget(self.ollama_widget)
+                    # Insert just before the trailing stretch added by the
+                    # wizard page so the widget sits right below the other
+                    # form controls instead of being pushed to the bottom.
+                    _insert_at = max(0, self._tr_layout.count() - 1)
+                    self._tr_layout.insertWidget(_insert_at, self.ollama_widget)
                 self.ollama_widget.show()
             else:
                 self.ollama_widget.hide()
@@ -7022,24 +6811,28 @@ class DicteeSetupDialog(QDialog):
         lay_tr.addLayout(_lang_grid)
         lay_tr.addSpacing(4)
 
-        # Backend ComboBox
+        # Backend ComboBox — in wizard mode, the backend was already chosen
+        # on page 4 via the cards; the combo stays in the object model (many
+        # signal handlers depend on it) but is hidden from the UI. To change
+        # the backend, the user goes back to the cards page.
         lbl_backend = QLabel(_("Backend:"))
         lbl_backend.setStyleSheet("font-size: 11pt;")
         lay_tr.addWidget(lbl_backend)
 
         self.cmb_trans_backend = QComboBox()
-        # Local-first order in wizard
+        self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
+        self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
+        self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
+        self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
         if self.wizard_mode:
-            self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
-            self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
-            self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
-            self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
+            # Wizard: backend already chosen via cards on page 4 → this combo
+            # must NOT appear on page 5. Don't add it to the layout at all
+            # (keeps the attribute accessible for handlers via hasattr).
+            lbl_backend.setParent(None)
+            lbl_backend.deleteLater()
+            self.cmb_trans_backend.setParent(None)
         else:
-            self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
-            self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
-            self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
-            self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
-        lay_tr.addWidget(self.cmb_trans_backend)
+            lay_tr.addWidget(self.cmb_trans_backend)
 
         # LibreTranslate widget
         self.lt_widget = QFrame()
@@ -7218,7 +7011,11 @@ class DicteeSetupDialog(QDialog):
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
                 if self.ollama_widget.parent() is None:
-                    self._tr_layout.addWidget(self.ollama_widget)
+                    # Insert before the trailing stretch added by the wizard
+                    # page so Model + Force CPU sit right under the language
+                    # combos instead of being pushed to the bottom.
+                    _insert_at = max(0, self._tr_layout.count() - 1)
+                    self._tr_layout.insertWidget(_insert_at, self.ollama_widget)
                 self.ollama_widget.show()
             else:
                 self.ollama_widget.hide()
@@ -8701,7 +8498,11 @@ class DicteeSetupDialog(QDialog):
         return text[:-len(suf)] if text.endswith(suf) else text
 
     def _current_llm_model(self):
-        """Return the real model name from the combo (data first, then stripped text)."""
+        """Return the real model name from the combo (data first, then stripped
+        text). Returns "" when the combo does not exist (e.g. wizard mode —
+        the LLM page is built only in sidebar mode)."""
+        if not hasattr(self, 'cmb_llm_model'):
+            return ""
         data = self.cmb_llm_model.currentData()
         if data:
             return data
@@ -12932,13 +12733,17 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_canary_translation_notice'):
             self._canary_translation_notice.setVisible(is_canary)
 
-        # Masquer la ComboBox backend traduction si Canary
+        # Masquer la ComboBox backend traduction si Canary.
+        # En wizard, cmb_trans_backend est détaché (setParent(None) dans
+        # _build_translation_section) pour ne pas apparaître sur la page 5.
+        # Ne jamais setVisible sur un widget détaché, sinon Qt l'affiche
+        # comme une top-level window flottante.
         w = getattr(self, 'cmb_trans_backend', None)
-        if w:
+        if w and w.parent() is not None:
             w.setVisible(not is_canary)
         # lt_widget: visible seulement si pas Canary ET backend == libretranslate
         w = getattr(self, 'lt_widget', None)
-        if w:
+        if w and w.parent() is not None:
             if is_canary:
                 w.setVisible(False)
             else:
