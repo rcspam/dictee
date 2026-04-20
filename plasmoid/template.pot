@@ -1,14 +1,14 @@
 # SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR rcspam
-# This file is distributed under the same license as the plasma_applet_com.github.rcspam.dictee package.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the dictee-plasmoid package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.3.0\n"
-"Report-Msgid-Bugs-To: https://github.com/rcspam/dictee\n"
-"POT-Creation-Date: 2026-04-14 20:14+0200\n"
+"Project-Id-Version: dictee-plasmoid 1.3.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-04-20 14:22+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,120 +17,120 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: package/contents/ui/configGeneral.qml:171
+#: package/contents/ui/configGeneral.qml:156
 msgid "Calibration done!"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:173
+#: package/contents/ui/configGeneral.qml:158
 msgid "Calibration failed"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:245
+#: package/contents/ui/configGeneral.qml:230
 msgid "General"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:250
+#: package/contents/ui/configGeneral.qml:235
 msgid "Polling interval (ms):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:259
+#: package/contents/ui/configGeneral.qml:244
 msgid "How often the widget checks if the daemon is running (in milliseconds)."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:264
+#: package/contents/ui/configGeneral.qml:249
 msgid "Show last transcription:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:270
+#: package/contents/ui/configGeneral.qml:255
 msgid "Display the last transcribed text in the popup window."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:276
+#: package/contents/ui/configGeneral.qml:261
 msgid "Preview mode (test with mic):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:281
+#: package/contents/ui/configGeneral.qml:266
 msgid "Audio context buffer:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:286
+#: package/contents/ui/configGeneral.qml:271
 msgid "Microphone volume:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:310
+#: package/contents/ui/configGeneral.qml:295
 msgid ""
 "Adjust the microphone input volume (PipeWire/PulseAudio default source)."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:316
+#: package/contents/ui/configGeneral.qml:301
 msgid "Noise floor:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:319
+#: package/contents/ui/configGeneral.qml:304
 msgid "Calibrate"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:322
+#: package/contents/ui/configGeneral.qml:307
 msgid "Recording silence…"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:328
+#: package/contents/ui/configGeneral.qml:313
 msgid ""
 "Record 5 seconds of silence to calibrate the background noise level. This "
 "improves animation accuracy."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:339
+#: package/contents/ui/configGeneral.qml:324
 msgid "Noise gate:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:353
+#: package/contents/ui/configGeneral.qml:338
 msgid ""
 "Audio levels below this threshold are zeroed. Increase to suppress "
 "background noise and get clean silence."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:358
+#: package/contents/ui/configGeneral.qml:343
 msgid "Envelope shape:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:369
+#: package/contents/ui/configGeneral.qml:354
 msgid "Flat"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:371
+#: package/contents/ui/configGeneral.qml:356
 msgid "Normal"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:377
+#: package/contents/ui/configGeneral.qml:362
 msgid ""
 "Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, "
 "higher = more peaked at the center."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:382
+#: package/contents/ui/configGeneral.qml:367
 msgid "Envelope center:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:398
+#: package/contents/ui/configGeneral.qml:383
 msgid ""
 "Shift the envelope peak across the frequency range (80–4000 Hz). Useful with "
 "rainbow colors to emphasize different frequency bands."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:404
+#: package/contents/ui/configGeneral.qml:389
 msgid "Animation"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:409
+#: package/contents/ui/configGeneral.qml:394
 msgid "Reset icon settings:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:412
+#: package/contents/ui/configGeneral.qml:397
 msgid "Reset to defaults"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:417
+#: package/contents/ui/configGeneral.qml:402
 msgid ""
 "Restore all icon animation settings (style, bars, wave, pulse, dots, "
 "waveform, rainbow, sensitivity, envelope, noise gate) to their installation "
@@ -138,165 +138,165 @@ msgid ""
 "are not affected."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:423
+#: package/contents/ui/configGeneral.qml:408
 msgid "Reset icon settings"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:428
+#: package/contents/ui/configGeneral.qml:413
 msgid ""
 "All icon animation settings will be restored to defaults.\n"
 "Continue?"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:436
+#: package/contents/ui/configGeneral.qml:421
 msgid "Animation style:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:438
+#: package/contents/ui/configGeneral.qml:423
 msgid "Bars (default)"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:439
+#: package/contents/ui/configGeneral.qml:424
 msgid "Wave"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:440
+#: package/contents/ui/configGeneral.qml:425
 msgid "Pulse"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:441
+#: package/contents/ui/configGeneral.qml:426
 msgid "Dots"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:442
+#: package/contents/ui/configGeneral.qml:427
 msgid "Waveform"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:453
+#: package/contents/ui/configGeneral.qml:438
 msgid "Rainbow colors:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:457
+#: package/contents/ui/configGeneral.qml:442
 msgid "Start hue:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:473
+#: package/contents/ui/configGeneral.qml:458
 msgid "End hue:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:490
+#: package/contents/ui/configGeneral.qml:475
 msgid "Preview:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:842
+#: package/contents/ui/configGeneral.qml:827
 msgid "Bars settings"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:848
-#: package/contents/ui/configGeneral.qml:923
-#: package/contents/ui/configGeneral.qml:1000
-#: package/contents/ui/configGeneral.qml:1049
-#: package/contents/ui/configGeneral.qml:1115
+#: package/contents/ui/configGeneral.qml:833
+#: package/contents/ui/configGeneral.qml:908
+#: package/contents/ui/configGeneral.qml:985
+#: package/contents/ui/configGeneral.qml:1034
+#: package/contents/ui/configGeneral.qml:1100
 msgid "Sensitivity:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:866
-#: package/contents/ui/configGeneral.qml:1133
+#: package/contents/ui/configGeneral.qml:851
+#: package/contents/ui/configGeneral.qml:1118
 msgid "Number of bars:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:874
-#: package/contents/ui/configGeneral.qml:1141
+#: package/contents/ui/configGeneral.qml:859
+#: package/contents/ui/configGeneral.qml:1126
 msgid "Bar spacing (px):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:882
-#: package/contents/ui/configGeneral.qml:1149
+#: package/contents/ui/configGeneral.qml:867
+#: package/contents/ui/configGeneral.qml:1134
 msgid "Bar corner radius:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:890
-#: package/contents/ui/configGeneral.qml:1157
+#: package/contents/ui/configGeneral.qml:875
+#: package/contents/ui/configGeneral.qml:1142
 msgid "Min height (%):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:902
+#: package/contents/ui/configGeneral.qml:887
 msgid "Idle breathing animation:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:908
+#: package/contents/ui/configGeneral.qml:893
 msgid "Animation speed (ms):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:917
+#: package/contents/ui/configGeneral.qml:902
 msgid "Wave settings"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:941
+#: package/contents/ui/configGeneral.qml:926
 msgid "Width (px):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:949
+#: package/contents/ui/configGeneral.qml:934
 msgid "Line thickness (px):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:957
+#: package/contents/ui/configGeneral.qml:942
 msgid "Wave frequency:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:968
+#: package/contents/ui/configGeneral.qml:953
 msgid "Amplitude (%):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:979
+#: package/contents/ui/configGeneral.qml:964
 msgid "Wave speed (ms):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:988
+#: package/contents/ui/configGeneral.qml:973
 msgid "Fill under wave:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:994
+#: package/contents/ui/configGeneral.qml:979
 msgid "Pulse settings"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1018
+#: package/contents/ui/configGeneral.qml:1003
 msgid "Number of rings:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1026
+#: package/contents/ui/configGeneral.qml:1011
 msgid "Ring thickness (px):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1034
+#: package/contents/ui/configGeneral.qml:1019
 msgid "Pulse speed (ms):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1043
+#: package/contents/ui/configGeneral.qml:1028
 msgid "Dots settings"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1067
+#: package/contents/ui/configGeneral.qml:1052
 msgid "Number of dots:"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1075
+#: package/contents/ui/configGeneral.qml:1060
 msgid "Dot size (px):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1083
+#: package/contents/ui/configGeneral.qml:1068
 msgid "Dot spacing (px):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1091
+#: package/contents/ui/configGeneral.qml:1076
 msgid "Bounce amplitude (%):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1100
+#: package/contents/ui/configGeneral.qml:1085
 msgid "Bounce speed (ms):"
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:1109
+#: package/contents/ui/configGeneral.qml:1094
 msgid "Waveform settings"
 msgstr ""
 
@@ -382,19 +382,19 @@ msgid "Preparing… (click to cancel)"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml:374
-msgid "Start diarization"
+msgid "Start meeting"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml:375
-msgid "Diarization in progress..."
+msgid "Meeting in progress…"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml:378
-msgid "Stop diarization"
+msgid "Stop meeting"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml:379
-msgid "Diarization"
+msgid "Meeting"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml:421
@@ -427,80 +427,90 @@ msgid "ASR:"
 msgstr ""
 
 #: package/contents/ui/FullRepresentation.qml:527
+msgid "LLM"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:531
+msgid ""
+"Enable LLM post-processing (grammar and spell correction via local Ollama "
+"model)."
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:547
 msgid "Context"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:530
+#: package/contents/ui/FullRepresentation.qml:551
 msgid ""
 "Accumulate audio from previous dictations to improve recognition of short or "
 "technical words."
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:539
+#: package/contents/ui/FullRepresentation.qml:565
+msgid "Short"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:569
+msgid "Enable short-text fix on both normal and translation pipelines."
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml:584
 msgid "Translation:"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:560
+#: package/contents/ui/FullRepresentation.qml:605
 msgid "LT arrêté"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:561
+#: package/contents/ui/FullRepresentation.qml:606
 msgid "Ollama arrêté"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:562
+#: package/contents/ui/FullRepresentation.qml:607
 msgid "Modèle absent"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:663
+#: package/contents/ui/FullRepresentation.qml:708
 msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:664
+#: package/contents/ui/FullRepresentation.qml:709
 msgid "Target language for translation"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:677
+#: package/contents/ui/FullRepresentation.qml:722
 msgid "Transcribe file"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:681
+#: package/contents/ui/FullRepresentation.qml:726
 msgid "Open an audio file for transcription"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:688
-msgid "Post-processing..."
-msgstr ""
-
-#: package/contents/ui/FullRepresentation.qml:692
-msgid "Configure post-processing rules (regex, dictionary, continuation)"
-msgstr ""
-
-#: package/contents/ui/FullRepresentation.qml:699
+#: package/contents/ui/FullRepresentation.qml:730
 msgid "Configure Dictée"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:703
+#: package/contents/ui/FullRepresentation.qml:734
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:726
+#: package/contents/ui/FullRepresentation.qml:754
 msgid "Reset everything — stop all processes, restart daemon"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:735
+#: package/contents/ui/FullRepresentation.qml:763
 msgid "Live microphone animation preview"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:781
+#: package/contents/ui/FullRepresentation.qml:809
 msgid "Microphone muted — click to unmute"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:781
+#: package/contents/ui/FullRepresentation.qml:809
 msgid "Microphone — click to mute"
 msgstr ""
 
-#: package/contents/ui/FullRepresentation.qml:805
+#: package/contents/ui/FullRepresentation.qml:833
 #, javascript-format
 msgid "Microphone volume: %1%"
 msgstr ""

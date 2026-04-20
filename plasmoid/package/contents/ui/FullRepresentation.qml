@@ -371,12 +371,12 @@ RowLayout {
                     text: {
                         switch (fullRep.state) {
                             case "preparing":     return i18n("Preparing… (click to cancel)")
-                            case "diarize-ready":  return i18n("Start diarization")
-                            case "diarizing":     return i18n("Diarization in progress...")
+                            case "diarize-ready":  return i18n("Start meeting")
+                            case "diarizing":     return i18n("Meeting in progress…")
                             default:
                                 if (fullRep.state === "recording" && root.activeButton === "diarize")
-                                    return i18n("Stop diarization")
-                                return i18n("Diarization")
+                                    return i18n("Stop meeting")
+                                return i18n("Meeting")
                         }
                     }
                     color: {
@@ -523,14 +523,59 @@ RowLayout {
         }
 
         QQC2.CheckBox {
+            id: chkLlm
+            text: i18n("LLM")
+            checked: root.llmPostprocessEnabled
+            onToggled: executable.run("dictee-switch-backend llm " + (checked ? "true" : "false"))
+            PlasmaComponents.ToolTip {
+                text: i18n("Enable LLM post-processing (grammar and spell correction via local Ollama model).")
+            }
+            // Restore the binding after a user click may have broken it, so
+            // changes from the tray / CLI / dictee-setup keep propagating.
+            Connections {
+                target: root
+                function onLlmPostprocessEnabledChanged() {
+                    if (chkLlm.checked !== root.llmPostprocessEnabled) {
+                        chkLlm.checked = root.llmPostprocessEnabled
+                    }
+                }
+            }
+        }
+
+        QQC2.CheckBox {
             id: chkAudioContext
             text: i18n("Context")
             checked: root.audioContextEnabled
             onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
-            QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+            PlasmaComponents.ToolTip {
+                text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+            }
+            Connections {
+                target: root
+                function onAudioContextEnabledChanged() {
+                    if (chkAudioContext.checked !== root.audioContextEnabled) {
+                        chkAudioContext.checked = root.audioContextEnabled
+                    }
+                }
+            }
+        }
 
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+        QQC2.CheckBox {
+            id: chkShortText
+            text: i18n("Short")
+            checked: root.shortTextEnabled
+            onToggled: executable.run("dictee-switch-backend short_text " + (checked ? "true" : "false"))
+            PlasmaComponents.ToolTip {
+                text: i18n("Enable short-text fix on both normal and translation pipelines.")
+            }
+            Connections {
+                target: root
+                function onShortTextEnabledChanged() {
+                    if (chkShortText.checked !== root.shortTextEnabled) {
+                        chkShortText.checked = root.shortTextEnabled
+                    }
+                }
+            }
         }
 
         Item { Layout.fillWidth: true }
@@ -614,7 +659,7 @@ RowLayout {
             Kirigami.Theme.inherit: true
             model: ListModel { id: langModel }
             textRole: "text"
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 3
             onPressedChanged: {
                 if (pressed) {
                     root.lastTranslateBackendForLangs = ""
@@ -679,14 +724,6 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("transcribe-file")
             tooltipText: i18n("Open an audio file for transcription")
-        }
-
-        ThemedButton {
-            text: i18n("Post-processing...")
-            icon.name: "document-edit"
-            flat: true
-            onClicked: fullRep.actionRequested("postprocess")
-            tooltipText: i18n("Configure post-processing rules (regex, dictionary, continuation)")
         }
 
         ThemedButton {

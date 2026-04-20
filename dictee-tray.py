@@ -490,12 +490,13 @@ class DicteeTrayAppIndicator:
         item_transcribe.connect("activate", lambda _: subprocess.Popen(["dictee-transcribe"]))
         self.menu.append(item_transcribe)
 
-        self.item_diarize_gtk = Gtk.CheckMenuItem(label=_("Live diarization"))
+        self.item_diarize_gtk = Gtk.CheckMenuItem(label=_("Meeting"))
         sortformer_ok = _sortformer_available()
         self.item_diarize_gtk.set_sensitive(sortformer_ok)
         if sortformer_ok:
             self.item_diarize_gtk.set_tooltip_text(
-                _("Speaker identification. Recommended for short recordings (< 5 min)."))
+                _("Meeting mode with speaker identification. "
+                  "Recommended for short recordings (< 5 min)."))
         else:
             self.item_diarize_gtk.set_tooltip_text(
                 _("Sortformer model not installed. Configure in dictee-setup."))
@@ -504,14 +505,23 @@ class DicteeTrayAppIndicator:
         self.item_diarize_gtk.connect("toggled", self._on_diarize_toggled_gtk)
         self.menu.append(self.item_diarize_gtk)
 
-        self.item_diarize_lock_gtk = Gtk.CheckMenuItem(label=_("Keep diarization active"))
+        self.item_diarize_lock_gtk = Gtk.CheckMenuItem(label=_("Keep meeting active"))
         self.item_diarize_lock_gtk.set_sensitive(
             sortformer_ok and self.item_diarize_gtk.get_active())
         self.item_diarize_lock_gtk.set_active(False)
         self.item_diarize_lock_gtk.set_tooltip_text(
-            _("When unchecked, diarization is disabled after each recording."))
+            _("When unchecked, meeting mode is disabled after each recording."))
         self.item_diarize_lock_gtk.connect("toggled", self._on_diarize_lock_toggled_gtk)
         self.menu.append(self.item_diarize_lock_gtk)
+
+        # LLM post-processing toggle (above Audio context)
+        self.item_llm_gtk = Gtk.CheckMenuItem(label=_("LLM post-processing"))
+        self.item_llm_gtk.set_active(
+            read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true")
+        self.item_llm_gtk.set_tooltip_text(
+            _("Enable LLM post-processing (grammar and spell correction via local Ollama model)."))
+        self.item_llm_gtk.connect("toggled", self._on_llm_toggled_gtk)
+        self.menu.append(self.item_llm_gtk)
 
         self.item_context_gtk = Gtk.CheckMenuItem(label=_("Audio context"))
         self.item_context_gtk.set_active(
@@ -521,15 +531,21 @@ class DicteeTrayAppIndicator:
         self.item_context_gtk.connect("toggled", self._on_context_toggled_gtk)
         self.menu.append(self.item_context_gtk)
 
+        # Short-text fix toggle (below Audio context; OR pp_normal + pp_translate)
+        self.item_short_gtk = Gtk.CheckMenuItem(label=_("Short text fix"))
+        _pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+        _trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+        self.item_short_gtk.set_active(_pp_st or _trpp_st)
+        self.item_short_gtk.set_tooltip_text(
+            _("Enable short-text fix on both normal and translation pipelines."))
+        self.item_short_gtk.connect("toggled", self._on_short_toggled_gtk)
+        self.menu.append(self.item_short_gtk)
+
         self.menu.append(Gtk.SeparatorMenuItem())
 
         item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
         item_setup.connect("activate", lambda _: subprocess.Popen(["dictee-setup"]))
         self.menu.append(item_setup)
-
-        item_postprocess = Gtk.MenuItem(label=_("Post-processing..."))
-        item_postprocess.connect("activate", lambda _: subprocess.Popen(["dictee-setup", "--postprocess"]))
-        self.menu.append(item_postprocess)
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
@@ -542,6 +558,34 @@ class DicteeTrayAppIndicator:
         self.menu.append(item_quit)
 
         self.menu.show_all()
+        # Refresh toggles from dictee.conf every time the menu pops up.
+        self.menu.connect("show", self._refresh_menu_toggles_gtk)
+
+    def _refresh_menu_toggles_gtk(self, _menu):
+        """GTK counterpart of _refresh_menu_toggles_qt — sync on popup."""
+        def _set(item, checked, handler):
+            # handler_block_by_func prevents re-triggering the toggled callback
+            # when we just reconcile UI state from the config file.
+            try:
+                item.handler_block_by_func(handler)
+                item.set_active(checked)
+                item.handler_unblock_by_func(handler)
+            except TypeError:
+                # Fallback: best effort without block (may re-emit once)
+                item.set_active(checked)
+
+        if hasattr(self, "item_context_gtk"):
+            _set(self.item_context_gtk,
+                 read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true",
+                 self._on_context_toggled_gtk)
+        if hasattr(self, "item_llm_gtk"):
+            _set(self.item_llm_gtk,
+                 read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true",
+                 self._on_llm_toggled_gtk)
+        if hasattr(self, "item_short_gtk"):
+            pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+            trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+            _set(self.item_short_gtk, pp_st or trpp_st, self._on_short_toggled_gtk)
 
     def _on_daemon_toggle(self, _item):
         if self.state == "offline":
@@ -712,6 +756,14 @@ class DicteeTrayAppIndicator:
         val = "true" if item.get_active() else "false"
         subprocess.Popen(["dictee-switch-backend", "context", val])
 
+    def _on_llm_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "llm", val])
+
+    def _on_short_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "short_text", val])
+
     def _delayed_daemon_refresh(self):
         self._check_daemon()
         self._check_state()
@@ -850,13 +902,14 @@ class DicteeTrayQt:
 
         self.action_transcribe = self.menu.addAction(_("Transcribe a file..."))
 
-        self.action_diarize_qt = self.menu.addAction(_("Live diarization"))
+        self.action_diarize_qt = self.menu.addAction(_("Meeting"))
         self.action_diarize_qt.setCheckable(True)
         sortformer_ok = _sortformer_available()
         self.action_diarize_qt.setEnabled(sortformer_ok)
         if sortformer_ok:
             self.action_diarize_qt.setToolTip(
-                _("Speaker identification. Recommended for short recordings (< 5 min)."))
+                _("Meeting mode with speaker identification. "
+                  "Recommended for short recordings (< 5 min)."))
         else:
             self.action_diarize_qt.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
@@ -864,14 +917,23 @@ class DicteeTrayQt:
             read_state() in ("preparing", "diarize-ready"))
         self.action_diarize_qt.toggled.connect(self._on_diarize_toggled_qt)
 
-        self.action_diarize_lock_qt = self.menu.addAction(_("Keep diarization active"))
+        self.action_diarize_lock_qt = self.menu.addAction(_("Keep meeting active"))
         self.action_diarize_lock_qt.setCheckable(True)
         self.action_diarize_lock_qt.setEnabled(
             sortformer_ok and self.action_diarize_qt.isChecked())
         self.action_diarize_lock_qt.setChecked(False)
         self.action_diarize_lock_qt.setToolTip(
-            _("When unchecked, diarization is disabled after each recording."))
+            _("When unchecked, meeting mode is disabled after each recording."))
         self.action_diarize_lock_qt.toggled.connect(self._on_diarize_lock_toggled_qt)
+
+        # LLM post-processing toggle (above Audio context)
+        self.action_llm_qt = self.menu.addAction(_("LLM post-processing"))
+        self.action_llm_qt.setCheckable(True)
+        self.action_llm_qt.setChecked(
+            read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true")
+        self.action_llm_qt.setToolTip(
+            _("Enable LLM post-processing (grammar and spell correction via local Ollama model)."))
+        self.action_llm_qt.toggled.connect(self._on_llm_toggled_qt)
 
         # Audio context buffer toggle
         self.action_context_qt = self.menu.addAction(_("Audio context"))
@@ -882,13 +944,25 @@ class DicteeTrayQt:
             _("Accumulate audio from previous dictations to improve recognition."))
         self.action_context_qt.toggled.connect(self._on_context_toggled_qt)
 
+        # Short-text fix toggle (below Audio context; OR of pp_normal + pp_translate)
+        self.action_short_qt = self.menu.addAction(_("Short text fix"))
+        self.action_short_qt.setCheckable(True)
+        _pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+        _trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+        self.action_short_qt.setChecked(_pp_st or _trpp_st)
+        self.action_short_qt.setToolTip(
+            _("Enable short-text fix on both normal and translation pipelines."))
+        self.action_short_qt.toggled.connect(self._on_short_toggled_qt)
+
         self.menu.addSeparator()
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
-        self.action_postprocess = self.menu.addAction(_("Post-processing..."))
         self.menu.addSeparator()
         self.action_reset = self.menu.addAction(_("! Reset"))
         self.action_quit = self.menu.addAction(_("Quit icon"))
         self.menu.triggered.connect(self._on_menu_triggered)
+        # Refresh toggles from dictee.conf each time the menu is about to show,
+        # so changes made by plasmoid / dictee-setup / CLI are reflected here.
+        self.menu.aboutToShow.connect(self._refresh_menu_toggles_qt)
 
     def _dot_icon(self, color):
         from PyQt6.QtGui import QPixmap, QPainter, QColor
@@ -923,8 +997,6 @@ class DicteeTrayQt:
             subprocess.Popen(["dictee-transcribe"])
         elif action == self.action_setup:
             subprocess.Popen(["dictee-setup"])
-        elif action == self.action_postprocess:
-            subprocess.Popen(["dictee-setup", "--postprocess"])
         elif action == self.action_reset:
             self._reset()
         elif action == self.action_quit:
@@ -965,6 +1037,38 @@ class DicteeTrayQt:
     def _on_context_toggled_qt(self, checked):
         val = "true" if checked else "false"
         subprocess.Popen(["dictee-switch-backend", "context", val])
+
+    def _on_llm_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "llm", val])
+
+    def _on_short_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "short_text", val])
+
+    def _refresh_menu_toggles_qt(self):
+        """Re-read dictee.conf and sync the 3 toggles (context, LLM, short-text).
+
+        Called on menu.aboutToShow so that changes made elsewhere (plasmoid,
+        dictee-setup, CLI) are visible the next time the user opens the menu.
+        blockSignals avoids re-triggering the external `dictee-switch-backend`
+        calls when we just reconcile the UI state.
+        """
+        def _set(action, checked):
+            action.blockSignals(True)
+            action.setChecked(checked)
+            action.blockSignals(False)
+
+        if hasattr(self, "action_context_qt"):
+            _set(self.action_context_qt,
+                 read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true")
+        if hasattr(self, "action_llm_qt"):
+            _set(self.action_llm_qt,
+                 read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true")
+        if hasattr(self, "action_short_qt"):
+            pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+            trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+            _set(self.action_short_qt, pp_st or trpp_st)
 
     def _delayed_daemon_refresh(self):
         self._check_daemon()

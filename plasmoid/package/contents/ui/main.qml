@@ -148,6 +148,15 @@ PlasmoidItem {
                 if (parts.length >= 7) {
                     root.audioContextEnabled = (parts[6] === "true")
                 }
+                if (parts.length >= 9) {
+                    // OR between pp_normal and pp_translate (defaults: true)
+                    var pp_st  = (parts[7] === "" ? "true" : parts[7])
+                    var trpp_st = (parts[8] === "" ? "true" : parts[8])
+                    root.shortTextEnabled = (pp_st === "true" || trpp_st === "true")
+                }
+                if (parts.length >= 10) {
+                    root.llmPostprocessEnabled = (parts[9] === "true")
+                }
             } else if (source.indexOf("dictee-translate-langs") !== -1) {
                 var langs = stdout.trim()
                 var newList = langs.length > 0 ? langs.split(",") : []
@@ -292,9 +301,11 @@ PlasmoidItem {
     property string currentLangTarget: "en"
     property var availableLangTarget: []
     property real backendUserChangeTime: 0  // timestamp of last user-initiated backend change
-    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT\"'"
+    property string readConfCmd: "bash -c 'source \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"$DICTEE_ASR_BACKEND|$DICTEE_TRANSLATE_BACKEND|$DICTEE_TRANS_ENGINE|$DICTEE_AUDIO_SOURCE|$DICTEE_LANG_TARGET|$DICTEE_LANG_SOURCE|$DICTEE_AUDIO_CONTEXT|$DICTEE_PP_SHORT_TEXT|$DICTEE_TRPP_SHORT_TEXT|$DICTEE_LLM_POSTPROCESS\"'"
     property string translateLangsCmd: "dictee-translate-langs"
     property bool audioContextEnabled: false
+    property bool shortTextEnabled: true
+    property bool llmPostprocessEnabled: false
     property string currentAudioSource: ""
     property var audioSourceList: []
     property string listAudioSourcesCmd: "dictee-audio-sources"
@@ -584,9 +595,6 @@ PlasmoidItem {
             } else {
                 executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup --wizard")
             }
-            break
-        case "postprocess":
-            executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup --postprocess")
             break
         }
     }

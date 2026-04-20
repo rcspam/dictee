@@ -33,8 +33,8 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 try:
     from PyQt6.QtCore import (
         Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QUrl, QPropertyAnimation, QEasingCurve, pyqtSignal as Signal,
-        pyqtProperty as Property,
+        QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+        pyqtSignal as Signal, pyqtProperty as Property,
     )
     from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PyQt6.QtWidgets import (
@@ -50,7 +50,8 @@ try:
 except ImportError:
     from PySide6.QtCore import (
         Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QUrl, QPropertyAnimation, QEasingCurve, Signal, Property,
+        QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+        Signal, Property,
     )
     from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
@@ -3742,6 +3743,20 @@ class DicteeSetupDialog(QDialog):
             w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             w.installEventFilter(self._scroll_guard)
 
+        # Watch ~/.config/dictee.conf for external edits (plasmoid / tray /
+        # dictee-switch-backend CLI) and resync the 4 toggles those surfaces
+        # can flip: audio context, LLM post-process, short-text (normal + TR).
+        # Debounced via a single-shot QTimer because editors often rewrite
+        # the file in several steps, triggering multiple fileChanged signals.
+        self._conf_watcher = QFileSystemWatcher(self)
+        if os.path.isfile(CONF_PATH):
+            self._conf_watcher.addPath(CONF_PATH)
+        self._conf_watcher.fileChanged.connect(self._on_conf_file_changed)
+        self._conf_resync_timer = QTimer(self)
+        self._conf_resync_timer.setSingleShot(True)
+        self._conf_resync_timer.setInterval(200)
+        self._conf_resync_timer.timeout.connect(self._resync_external_toggles)
+
     def showEvent(self, event):
         super().showEvent(event)
         _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
@@ -3802,6 +3817,56 @@ class DicteeSetupDialog(QDialog):
             tree.setCurrentItem(target)
             return True
         return False
+
+    def _on_conf_file_changed(self, path):
+        """Debounce: multiple fileChanged signals are coalesced into one resync."""
+        # Some editors replace the file (ENOENT briefly), re-add if needed.
+        if os.path.isfile(CONF_PATH) and CONF_PATH not in self._conf_watcher.files():
+            self._conf_watcher.addPath(CONF_PATH)
+        self._conf_resync_timer.start()
+
+    def _resync_external_toggles(self):
+        """Re-read dictee.conf and update toggles that plasmoid/tray can flip:
+        audio context, LLM post-process, and short-text (normal + translate).
+
+        blockSignals avoids spurious writes or pipeline re-runs when we are
+        only reconciling the UI state from the source of truth on disk.
+        """
+        try:
+            fresh = load_config()
+        except Exception as e:
+            _dbg_setup(f"_resync_external_toggles: load_config failed: {e}")
+            return
+
+        def _set_chk(attr, value):
+            if not hasattr(self, attr):
+                return
+            chk = getattr(self, attr)
+            if chk.isChecked() == bool(value):
+                return
+            chk.blockSignals(True)
+            chk.setChecked(bool(value))
+            chk.blockSignals(False)
+
+        ctx = fresh.get("DICTEE_AUDIO_CONTEXT", "false").lower() == "true"
+        llm = fresh.get("DICTEE_LLM_POSTPROCESS", "false").lower() == "true"
+        pp_st = fresh.get("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+        trpp_st = fresh.get("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+
+        _set_chk("chk_audio_context", ctx)
+        _set_chk("chk_llm", llm)
+        _set_chk("chk_pp_short_text", pp_st)
+        _set_chk("chk_trpp_short_text", trpp_st)
+
+        # Mirror into the state dicts + refresh SVG pipelines so the diagrams
+        # reflect the external change, not just the checkboxes.
+        if hasattr(self, "_pp_state"):
+            self._pp_state["short_text"] = pp_st
+            self._pp_state["llm"] = llm
+        if hasattr(self, "_trpp_state"):
+            self._trpp_state["short_text"] = trpp_st
+        if hasattr(self, "_refresh_pp_diagrams"):
+            self._refresh_pp_diagrams()
 
     @property
     def _pp_parent(self):
