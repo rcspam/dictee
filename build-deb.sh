@@ -145,7 +145,7 @@ Version: 1.3.0~rc1
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, libcudart12 | cuda-cudart-12-8 | cuda-cudart-12-6, libcublas12 | libcublas-12-8 | libcublas-12-6, libcufft11 | libcufft-12-8 | libcufft-12-6, libcudnn9-cuda-12 | libcudnn9-cuda-11, libnvrtc12 | libnvrtc-12-8 | libnvrtc-12-6
+Depends: python3, python3-venv, python3-pip, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
 Recommends: python3-evdev, wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme
 Conflicts: dictee-cpu
 Provides: dictee
@@ -214,21 +214,11 @@ EOF
         exit 1
     fi
 
-    # CUDA runtime libs (chercher dans : CUDA toolkit, système, pip/uv)
-    for lib in libcufft.so.11 libcudart.so.12; do
-        sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/dictee \
-                       "$HOME"/.cache/uv/archive-v0/*/nvidia/*/lib \
-                       "$HOME"/.local/share/dictee/*/lib/python*/site-packages/nvidia/*/lib \
-                  -name "$lib" -type f 2>/dev/null | head -1)
-        if [ -n "$sys_lib" ]; then
-            cp -L "$sys_lib" "$PKG_DIR/usr/lib/dictee/$lib"
-            echo "  $lib ← $sys_lib"
-        else
-            echo "ERREUR: $lib non trouvé — le paquet CUDA ne fonctionnera pas !"
-            echo "  Installer avec : pip download nvidia-cufft-cu12 nvidia-cuda-runtime-cu12"
-            exit 1
-        fi
-    done
+    # CUDA runtime libs (cudart, cublas, cudnn, cufft, curand, nvrtc) are
+    # NOT bundled here. They are pip-installed at postinst time into
+    # /opt/dictee/cuda-venv and symlinked into /usr/lib/dictee/ so this
+    # package stays portable on any distro without requiring the NVIDIA
+    # repo. See pkg/dictee/DEBIAN/postinst.
 
     # ld.so.conf.d entry so the dynamic linker finds them
     mkdir -p "$PKG_DIR/etc/ld.so.conf.d"

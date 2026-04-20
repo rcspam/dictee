@@ -264,6 +264,55 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
 done
 
 echo ""
+echo "=== Venv CUDA (libs NVIDIA en pip, portable sur toute distro) ==="
+# Only for the dictee-cuda package (CPU package doesn't ship the CUDA
+# provider .so). Creates /opt/dictee/cuda-venv and pip installs
+# nvidia-*-cu12 wheels, then symlinks their .so files into
+# /usr/lib/dictee/ so ldconfig + ORT_DYLIB_PATH pick them up.
+if [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] \
+        && command -v python3 >/dev/null 2>&1; then
+    CUDA_VENV="/opt/dictee/cuda-venv"
+    mkdir -p /opt/dictee
+    if [ ! -x "$CUDA_VENV/bin/pip" ]; then
+        if python3 -m venv "$CUDA_VENV" 2>/dev/null; then
+            "$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        else
+            echo "⚠ python3 -m venv a échoué — python3-venv installé ?"
+        fi
+    fi
+    if [ -x "$CUDA_VENV/bin/pip" ]; then
+        echo "→ Téléchargement des libs NVIDIA CUDA (≈ 1,5 Go, peut prendre plusieurs minutes)..."
+        if "$CUDA_VENV/bin/pip" install --quiet --upgrade \
+                nvidia-cuda-runtime-cu12 \
+                nvidia-cublas-cu12 \
+                nvidia-cudnn-cu12 \
+                nvidia-cufft-cu12 \
+                nvidia-curand-cu12 \
+                nvidia-cuda-nvrtc-cu12 2>/dev/null; then
+            # Symlinks .so venv → /usr/lib/dictee/ (ldconfig picks them up)
+            _py_ver=$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
+            if [ -n "$_py_ver" ]; then
+                _nvidia_root="$CUDA_VENV/lib/$_py_ver/site-packages/nvidia"
+                _count=0
+                for _sub in "$_nvidia_root"/*/lib; do
+                    [ -d "$_sub" ] || continue
+                    for _so in "$_sub"/lib*.so*; do
+                        [ -f "$_so" ] || continue
+                        ln -sf "$_so" "/usr/lib/dictee/$(basename "$_so")"
+                        _count=$((_count + 1))
+                    done
+                done
+                echo "✓ $_count libs NVIDIA liées dans /usr/lib/dictee/"
+            fi
+        else
+            echo "⚠ pip install des libs NVIDIA a échoué (pas d'internet ? disque plein ?)"
+            echo "  Relancer manuellement : sudo $CUDA_VENV/bin/pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12"
+            echo "  Puis : sudo ldconfig"
+        fi
+    fi
+fi
+
+echo ""
 echo "=== Venv Python système (text2num — conversion des nombres) ==="
 PP_VENV="/usr/share/dictee/postprocess-env"
 if command -v python3 >/dev/null 2>&1; then

@@ -24,6 +24,15 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
 
     # Remove venv Python (text2num) — créé au postinst, pas tracké par dpkg
     rm -rf /usr/share/dictee/postprocess-env
+
+    # Remove venv CUDA (nvidia-*-cu12 wheels) — créé au postinst de dictee-cuda
+    rm -rf /opt/dictee/cuda-venv
+    # Clean up dangling symlinks in /usr/lib/dictee/ (pointing to the removed venv)
+    if [ -d /usr/lib/dictee ]; then
+        find /usr/lib/dictee -maxdepth 1 -type l ! -exec test -e '{}' \; -delete 2>/dev/null || true
+    fi
+    # Remove empty /opt/dictee if we created it
+    rmdir /opt/dictee 2>/dev/null || true
 fi
 
 exit 0

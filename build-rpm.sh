@@ -232,21 +232,10 @@ build_rpm_cuda() {
         exit 1
     fi
 
-    # CUDA runtime libs (chercher dans : CUDA toolkit, système, pip/uv)
-    for lib in libcufft.so.11 libcudart.so.12; do
-        sys_lib=$(find /usr/local/cuda/lib64 /usr/lib/x86_64-linux-gnu /usr/lib/dictee \
-                       "$HOME"/.cache/uv/archive-v0/*/nvidia/*/lib \
-                       "$HOME"/.local/share/dictee/*/lib/python*/site-packages/nvidia/*/lib \
-                  -name "$lib" -type f 2>/dev/null | head -1)
-        if [ -n "$sys_lib" ]; then
-            cp -L "$sys_lib" "$buildroot/usr/lib/dictee/$lib"
-            echo "  $lib ← $sys_lib"
-        else
-            echo "ERREUR: $lib non trouvé — le paquet CUDA ne fonctionnera pas !"
-            echo "  Installer avec : pip download nvidia-cufft-cu12 nvidia-cuda-runtime-cu12"
-            exit 1
-        fi
-    done
+    # CUDA runtime libs (cudart, cublas, cudnn, cufft, curand, nvrtc) are
+    # NOT bundled — they come from nvidia-*-cu12 pip wheels installed at
+    # %post time into /opt/dictee/cuda-venv and symlinked into
+    # /usr/lib/dictee/. Keeps the RPM portable on any distro.
 
     mkdir -p "$buildroot/etc/ld.so.conf.d"
     echo "/usr/lib/dictee" > "$buildroot/etc/ld.so.conf.d/dictee.conf"
@@ -261,16 +250,18 @@ URL:            https://github.com/rcspam/dictee
 Group:          Applications/Multimedia
 
 Requires:       python3
+Requires:       python3-pip
 Requires:       pulseaudio-utils
 Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
-Requires:       (libcudart12 or cuda-cudart-12-8 or cuda-cudart-12-6)
-Requires:       (libcublas-12-8 or libcublas-12-6)
-Requires:       (libcufft11 or libcufft-12-8 or libcufft-12-6)
-Requires:       (libcudnn9-cuda-12 or libcudnn9-cuda-11)
-Requires:       (libnvrtc12 or libnvrtc-12-8 or libnvrtc-12-6)
+
+# Do NOT auto-generate Requires for bundled libs (onnxruntime + providers)
+# or the CUDA runtime libs they depend on — those come from pip wheels
+# installed into /opt/dictee/cuda-venv at %post time, not from system
+# packages. Keeping Provides enabled so other packages can depend on us.
+%global __requires_exclude ^lib(onnxruntime|cublas|cublasLt|cudart|cudnn|cufft|curand|nvrtc|nvJitLink|nvblas|cufftw)\\.so.*$
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Recommends:     nvidia-gpu-firmware
@@ -402,11 +393,51 @@ if command -v python3 >/dev/null 2>&1; then
     fi
 fi
 
+# CUDA venv — pip-install nvidia-*-cu12 wheels + symlink into /usr/lib/dictee/.
+# Only triggers if the provider .so is present (i.e. dictee-cuda, not cpu).
+if [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] \\
+        && command -v python3 >/dev/null 2>&1; then
+    CUDA_VENV="/opt/dictee/cuda-venv"
+    mkdir -p /opt/dictee
+    if [ ! -x "\$CUDA_VENV/bin/pip" ]; then
+        python3 -m venv "\$CUDA_VENV" 2>/dev/null || true
+        "\$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    fi
+    if [ -x "\$CUDA_VENV/bin/pip" ]; then
+        echo "→ Téléchargement des libs NVIDIA CUDA (≈ 1,5 Go)..."
+        if "\$CUDA_VENV/bin/pip" install --quiet --upgrade \\
+                nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 \\
+                nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 2>/dev/null; then
+            _py_ver=\$(ls "\$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
+            if [ -n "\$_py_ver" ]; then
+                _nv="\$CUDA_VENV/lib/\$_py_ver/site-packages/nvidia"
+                for _sub in "\$_nv"/*/lib; do
+                    [ -d "\$_sub" ] || continue
+                    for _so in "\$_sub"/lib*.so*; do
+                        [ -f "\$_so" ] && ln -sf "\$_so" "/usr/lib/dictee/\$(basename "\$_so")"
+                    done
+                done
+                ldconfig 2>/dev/null || true
+                echo "✓ Libs NVIDIA CUDA liées dans /usr/lib/dictee/"
+            fi
+        else
+            echo "⚠ pip install nvidia-*-cu12 a échoué (pas d'internet ?)"
+            echo "  Relancer : sudo \$CUDA_VENV/bin/pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 && sudo ldconfig"
+        fi
+    fi
+fi
+
 %postun
 ldconfig 2>/dev/null || true
 if [ "\$1" -eq 0 ]; then
     # Full uninstall (not upgrade)
     rm -rf /usr/share/dictee/postprocess-env
+    rm -rf /opt/dictee/cuda-venv
+    # Clean dangling symlinks in /usr/lib/dictee/ pointing to the removed venv
+    if [ -d /usr/lib/dictee ]; then
+        find /usr/lib/dictee -maxdepth 1 -type l ! -exec test -e '{}' \\; -delete 2>/dev/null || true
+    fi
+    rmdir /opt/dictee 2>/dev/null || true
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
     # Stop and disable user services
