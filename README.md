@@ -65,6 +65,10 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 
 The first-run wizard walks you through backend selection, model download and keyboard shortcut binding. Re-run anytime with `dictee --setup`.
 
+<p align="center">
+  <img src="assets/screenshots-vm/wizard_1.3.png" alt="First-run setup wizard" width="720">
+</p>
+
 **3. Speak**
 
 Press your shortcut (default **F9**), speak, release. The transcription appears at your cursor.
