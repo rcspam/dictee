@@ -323,6 +323,14 @@ dictee runs a **configurable 12-step pipeline** after transcription and before p
 
 Configure via `dictee --setup` → **Post-processing** tab, or test rules live with `dictee-test-rules`.
 
+<p align="center">
+  <img src="assets/screenshots-vm/post-process-regex.png" alt="Regex rules editor" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/post-process-regex-test.png" alt="Regex rules with integrated test panel" width="900">
+</p>
+
 → Deep dives: [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) · [Rules-and-Dictionary](https://github.com/rcspam/dictee/wiki/Rules-and-Dictionary) · [LLM-Correction](https://github.com/rcspam/dictee/wiki/LLM-Correction) · [Numbers-Dates-Continuation](https://github.com/rcspam/dictee/wiki/Numbers-Dates-Continuation)
 
 ---

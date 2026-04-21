@@ -323,6 +323,14 @@ dictée exécute un **pipeline configurable de 12 étapes** après transcription
 
 Configurez via `dictee --setup` → onglet **Post-traitement**, ou testez les règles en direct avec `dictee-test-rules`.
 
+<p align="center">
+  <img src="assets/screenshots-vm/post-process-regex.png" alt="Éditeur de règles regex" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/post-process-regex-test.png" alt="Règles regex avec panneau de test intégré" width="900">
+</p>
+
 → Approfondissements : [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) · [Rules-and-Dictionary](https://github.com/rcspam/dictee/wiki/Rules-and-Dictionary) · [LLM-Correction](https://github.com/rcspam/dictee/wiki/LLM-Correction) · [Numbers-Dates-Continuation](https://github.com/rcspam/dictee/wiki/Numbers-Dates-Continuation)
 
 ---
