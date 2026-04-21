@@ -337,7 +337,7 @@ Configurez via `dictee --setup` → onglet **Post-traitement**, ou testez les r�
 
 ## Limitations connues
 
-- **Diarisation + Parakeet sur GPU 8 Go** plafonne à environ **10–15 min d'audio**. Parakeet-TDT charge le mel-spectrogramme complet en une passe (~185 Mo de VRAM par minute d'audio), ce qui déborde les GPU grand public au-delà d'environ 15 min. Contournements : découper le fichier, désactiver la diarisation, ou utiliser le backend CPU. L'auto-chunking est prévu en v1.4. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
+- **Diarisation + Parakeet sur GPU 8 Go** plafonne à environ **10–15 min d'audio**. Parakeet-TDT charge le mel-spectrogramme complet en une passe (~185 Mo de VRAM par minute d'audio), ce qui déborde les GPU grand public au-delà d'environ 15 min. Contournements : découper le fichier, désactiver la diarisation, ou utiliser le backend CPU. L'auto-chunking est prévu pour la release v1.3 finale. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
 - **GPU AMD / Intel** non pris en charge actuellement — dictée bascule sur CPU.
 - **Pas de streaming temps réel** — Parakeet-TDT et Canary nécessitent l'utterance complète ; seul Nemotron (EN uniquement, via binaire Rust) streame nativement.
 
