@@ -135,6 +135,10 @@ Répond à la question *« qui a parlé et quand ? »* dans les enregistrements 
 Les trois interfaces partagent leur état via un surveillant de fichier — toute modification est reflétée instantanément (sûr en multi-utilisateur via suffixe UID).
 
 <p align="center">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid KDE Plasma" width="720">
+</p>
+
+<p align="center">
   <img src="assets/screenshots-vm/tray_1.3.png" alt="Menu de l'icône systray" width="360">
 </p>
 

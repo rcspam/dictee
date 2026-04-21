@@ -135,6 +135,10 @@ Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer
 All three share state via a filesystem watcher — any change is reflected instantly across interfaces (multi-user safe with UID suffix).
 
 <p align="center">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="KDE Plasma plasmoid" width="720">
+</p>
+
+<p align="center">
   <img src="assets/screenshots-vm/tray_1.3.png" alt="System tray menu" width="360">
 </p>
 
