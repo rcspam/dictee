@@ -146,10 +146,13 @@ All three share state via a filesystem watcher — any change is reflected insta
 </p>
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget" width="400">
-  &nbsp;
-  <img src="assets/screenshots-vm/tray_1.3.png" alt="Tray icon menu" width="400"><br>
-  <em>KDE Plasma widget (left) · System tray menu (right)</em>
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget" width="500"><br>
+  <em>KDE Plasma widget</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/tray_1.3.png" alt="Tray icon menu" width="500"><br>
+  <em>System tray menu</em>
 </p>
 
 <p align="center">

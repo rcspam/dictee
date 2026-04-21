@@ -146,10 +146,13 @@ Les trois interfaces partagent leur état via un surveillant de fichier — tout
 </p>
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid" width="400">
-  &nbsp;
-  <img src="assets/screenshots-vm/tray_1.3.png" alt="Menu de l'icône systray" width="400"><br>
-  <em>Widget KDE Plasma (gauche) · Menu systray (droite)</em>
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid" width="500"><br>
+  <em>Widget KDE Plasma</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/tray_1.3.png" alt="Menu de l'icône systray" width="500"><br>
+  <em>Menu systray</em>
 </p>
 
 <p align="center">
