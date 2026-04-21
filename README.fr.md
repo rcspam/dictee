@@ -27,7 +27,6 @@
   <a href="#quest-ce-que-dictée-">Qu'est-ce que dictée ?</a> &bull;
   <a href="#démarrage-rapide">Démarrage rapide</a> &bull;
   <a href="#fonctionnalités">Fonctionnalités</a> &bull;
-  <a href="#captures-décran">Captures d'écran</a> &bull;
   <a href="#installation">Installation</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
   <a href="#utilisation">Utilisation</a> &bull;
@@ -66,16 +65,12 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 
 L'assistant de premier lancement vous guide pour la sélection du backend, le téléchargement du modèle et l'association du raccourci clavier. Relancez à tout moment via `dictee --setup`.
 
-<p align="center">
-  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Assistant de premier lancement" width="640">
-</p>
-
 **3. Parler**
 
-Appuyez sur votre raccourci (par défaut `Super+Espace`), parlez, relâchez. La transcription apparaît au curseur.
+Appuyez sur votre raccourci (par défaut **F9**), parlez, relâchez. La transcription apparaît au curseur.
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid en enregistrement" width="520">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid en enregistrement" width="720">
 </p>
 
 Pour les chemins d'installation détaillés (`.deb`/`.rpm` manuels, prérequis GPU, AUR, depuis les sources), voir la section [Installation](#installation) ci-dessous ou les pages wiki [Installation](https://github.com/rcspam/dictee/wiki/Installation) et [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup).
@@ -123,6 +118,10 @@ Un pipeline configurable en 12 étapes transforme la sortie ASR brute avant qu'e
 
 Répond à la question *« qui a parlé et quand ? »* dans les enregistrements multi-locuteurs via le modèle **Sortformer** de NVIDIA. Jusqu'à 4 locuteurs, idéal pour les comptes rendus de réunion et les interviews. Déclenché via le **mode Meeting** ou `dictee --meeting`. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
 
+<p align="center">
+  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Sortie de diarisation" width="800">
+</p>
+
 ### 3 interfaces visuelles
 
 - **Widget KDE Plasma 6** — plasmoid QML natif, 5 styles d'animation, état en direct → [Plasmoid-Widget](https://github.com/rcspam/dictee/wiki/Plasmoid-Widget)
@@ -131,36 +130,27 @@ Répond à la question *« qui a parlé et quand ? »* dans les enregistrements 
 
 Les trois interfaces partagent leur état via un surveillant de fichier — toute modification est reflétée instantanément (sûr en multi-utilisateur via suffixe UID).
 
----
-
-## Captures d'écran
-
 <p align="center">
-  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Assistant de configuration" width="720"><br>
-  <em>Assistant de premier lancement — sélection du backend, téléchargement du modèle, association du raccourci</em>
+  <img src="assets/screenshots-vm/tray_1.3.png" alt="Menu de l'icône systray" width="360">
 </p>
 
-<p align="center">
-  <img src="assets/screenshots-vm/dictee-setup_1.3.png" alt="Panneau de configuration" width="720"><br>
-  <em>Configuration complète — ASR, traduction, post-traitement, règles, raccourcis</em>
-</p>
+#### animation-speech (overlay plein écran)
+
+[animation-speech](https://github.com/rcspam/animation-speech) est un projet autonome qui fournit une animation visuelle plein écran pendant l'enregistrement, annulable via la touche Échap. Il fonctionne sur tout compositeur Wayland qui supporte `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…).
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid" width="500"><br>
-  <em>Widget KDE Plasma</em>
+  <a href="https://youtu.be/-fWZZEO7mCA">
+    <img src="assets/demo.gif" alt="démo animation-speech — cliquez pour voir sur YouTube" width="640">
+  </a>
 </p>
 
-<p align="center">
-  <img src="assets/screenshots-vm/tray_1.3.png" alt="Menu de l'icône systray" width="500"><br>
-  <em>Menu systray</em>
-</p>
+```bash
+sudo dpkg -i animation-speech_1.2.0_all.deb
+```
 
-<p align="center">
-  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Sortie de diarisation" width="720"><br>
-  <em>Diarisation — jusqu'à 4 locuteurs via Sortformer</em>
-</p>
+> Téléchargement : [releases animation-speech](https://github.com/rcspam/animation-speech/releases)
 
-> Les GIF du pipeline de post-traitement arrivent — voir [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) pour la référence actuelle.
+> **Note :** animation-speech n'est pas compatible avec GNOME (pas de support `wlr-layer-shell`). Les utilisateurs GNOME peuvent s'appuyer sur `dictee-tray` pour le retour visuel. Les contributions pour une extension GNOME Shell sont bienvenues — voir la [source du plasmoid](plasmoid/) comme architecture de référence.
 
 ---
 
@@ -234,11 +224,21 @@ sudo ./install.sh
 
 ## Configuration
 
-Au premier lancement, un **assistant de configuration** vous guide (backend, modèle, raccourcis). Reconfigurez à tout moment depuis le menu de l'application, l'icône systray, le widget Plasma, ou en lançant :
+Au premier lancement, un **assistant de configuration** vous guide (backend, modèle, raccourcis).
+
+<p align="center">
+  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Assistant de premier lancement" width="800">
+</p>
+
+Reconfigurez à tout moment depuis le menu de l'application, l'icône systray, le widget Plasma, ou en lançant :
 
 ```bash
 dictee --setup
 ```
+
+<p align="center">
+  <img src="assets/screenshots-vm/dictee-setup_1.3.png" alt="Panneau de configuration complet" width="800">
+</p>
 
 ### Changement de backend (une ligne)
 
@@ -347,7 +347,7 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 
 ## Crédits
 
-Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes) — bibliothèque Rust pour l'inférence NVIDIA Parakeet via ONNX Runtime. Le backend Canary est adapté de [onnx-asr](https://github.com/istupakov/onnx-asr) par [Ivan Stupakov](https://github.com/istupakov). Les modèles ONNX Parakeet et Canary sont fournis par NVIDIA (téléchargés séparément depuis HuggingFace, non redistribués par ce projet).
+Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes) — bibliothèque Rust pour l'inférence NVIDIA Parakeet via ONNX Runtime. L'implémentation Rust du backend Canary a initialement été portée depuis [onnx-asr](https://github.com/istupakov/onnx-asr) par [Ivan Stupakov](https://github.com/istupakov) et est désormais entièrement autonome. Les modèles ONNX Parakeet et Canary sont fournis par NVIDIA (téléchargés séparément depuis HuggingFace, non redistribués par ce projet).
 
 La simulation de saisie clavier utilise [dotool](https://sr.ht/~geb/dotool/) par geb (GPL-3.0).
 

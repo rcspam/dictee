@@ -27,7 +27,6 @@
   <a href="#what-is-dictee">What is dictee?</a> &bull;
   <a href="#quick-start">Quick start</a> &bull;
   <a href="#features">Features</a> &bull;
-  <a href="#screenshots">Screenshots</a> &bull;
   <a href="#installation">Installation</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
   <a href="#usage">Usage</a> &bull;
@@ -66,16 +65,12 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 
 The first-run wizard walks you through backend selection, model download and keyboard shortcut binding. Re-run anytime with `dictee --setup`.
 
-<p align="center">
-  <img src="assets/screenshots-vm/wizard_1.3.png" alt="First-run setup wizard" width="640">
-</p>
-
 **3. Speak**
 
-Press your shortcut (default `Super+Space`), speak, release. The transcription appears at your cursor.
+Press your shortcut (default **F9**), speak, release. The transcription appears at your cursor.
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget recording" width="520">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget recording" width="720">
 </p>
 
 For detailed install paths (manual `.deb`/`.rpm`, GPU prerequisites, AUR, from source), see [Installation](#installation) below or the wiki's [Installation](https://github.com/rcspam/dictee/wiki/Installation) and [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pages.
@@ -123,6 +118,10 @@ A 12-step configurable pipeline transforms raw ASR output before it hits your cu
 
 Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer** model. Up to 4 speakers, ideal for meeting notes and interviews. Triggered via **Meeting mode** or `dictee --meeting`. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
 
+<p align="center">
+  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Speaker diarization output" width="800">
+</p>
+
 ### 3 visual interfaces
 
 - **KDE Plasma 6 widget** — native QML plasmoid, 5 animation styles, live state → [Plasmoid-Widget](https://github.com/rcspam/dictee/wiki/Plasmoid-Widget)
@@ -131,36 +130,27 @@ Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer
 
 All three share state via a filesystem watcher — any change is reflected instantly across interfaces (multi-user safe with UID suffix).
 
----
-
-## Screenshots
-
 <p align="center">
-  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Setup wizard" width="720"><br>
-  <em>First-run wizard — backend selection, model download, shortcut binding</em>
+  <img src="assets/screenshots-vm/tray_1.3.png" alt="System tray menu" width="360">
 </p>
 
-<p align="center">
-  <img src="assets/screenshots-vm/dictee-setup_1.3.png" alt="Setup panel" width="720"><br>
-  <em>Full configuration — ASR, translation, post-processing, rules, shortcuts</em>
-</p>
+#### animation-speech (fullscreen overlay)
+
+[animation-speech](https://github.com/rcspam/animation-speech) is a standalone project that provides a fullscreen visual animation during recording, with cancellation via the Escape key. It works on any Wayland compositor supporting `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…).
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget" width="500"><br>
-  <em>KDE Plasma widget</em>
+  <a href="https://youtu.be/-fWZZEO7mCA">
+    <img src="assets/demo.gif" alt="animation-speech demo — click to watch on YouTube" width="640">
+  </a>
 </p>
 
-<p align="center">
-  <img src="assets/screenshots-vm/tray_1.3.png" alt="Tray icon menu" width="500"><br>
-  <em>System tray menu</em>
-</p>
+```bash
+sudo dpkg -i animation-speech_1.2.0_all.deb
+```
 
-<p align="center">
-  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Diarization output" width="720"><br>
-  <em>Speaker diarization — up to 4 speakers via Sortformer</em>
-</p>
+> Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases)
 
-> Post-processing pipeline GIFs are coming soon — see [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) for the current reference.
+> **Note:** animation-speech is not compatible with GNOME (no `wlr-layer-shell` support). GNOME users can rely on `dictee-tray` for visual feedback. Contributions for a GNOME Shell extension are welcome — see the [plasmoid source](plasmoid/) for reference architecture.
 
 ---
 
@@ -234,11 +224,21 @@ sudo ./install.sh
 
 ## Configuration
 
-First launch triggers a **setup wizard** (backend, model, shortcuts). Reconfigure anytime from the application menu, tray icon, Plasma widget, or by running:
+First launch triggers a **setup wizard** (backend, model, shortcuts).
+
+<p align="center">
+  <img src="assets/screenshots-vm/wizard_1.3.png" alt="First-run setup wizard" width="800">
+</p>
+
+Reconfigure anytime from the application menu, tray icon, Plasma widget, or by running:
 
 ```bash
 dictee --setup
 ```
+
+<p align="center">
+  <img src="assets/screenshots-vm/dictee-setup_1.3.png" alt="Full configuration panel" width="800">
+</p>
 
 ### Backend switching (one-liner)
 
@@ -347,7 +347,7 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 
 ## Credits
 
-The transcription engine builds on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes) — Rust library for NVIDIA Parakeet inference via ONNX Runtime. The Canary backend is adapted from [onnx-asr](https://github.com/istupakov/onnx-asr) by [Ivan Stupakov](https://github.com/istupakov). Parakeet and Canary ONNX models are provided by NVIDIA (downloaded separately from HuggingFace, not redistributed by this project).
+The transcription engine builds on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes) — Rust library for NVIDIA Parakeet inference via ONNX Runtime. The Rust Canary implementation was originally ported from [onnx-asr](https://github.com/istupakov/onnx-asr) by [Ivan Stupakov](https://github.com/istupakov) and is now fully self-contained. Parakeet and Canary ONNX models are provided by NVIDIA (downloaded separately from HuggingFace, not redistributed by this project).
 
 Keyboard input simulation uses [dotool](https://sr.ht/~geb/dotool/) by geb (GPL-3.0).
 
