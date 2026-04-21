@@ -123,7 +123,9 @@ Un pipeline configurable en 12 étapes transforme la sortie ASR brute avant qu'e
 Répond à la question *« qui a parlé et quand ? »* dans les enregistrements multi-locuteurs via le modèle **Sortformer** de NVIDIA. Jusqu'à 4 locuteurs, idéal pour les comptes rendus de réunion et les interviews. Déclenché via le **mode Meeting** ou `dictee --meeting`. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
 
 <p align="center">
-  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Sortie de diarisation" width="800">
+  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Sortie de diarisation" width="480">
+  &nbsp;
+  <img src="assets/screenshots-vm/diarisation-2_1.3.png" alt="Diarisation — étiquettes des locuteurs" width="480">
 </p>
 
 ### 3 interfaces visuelles
