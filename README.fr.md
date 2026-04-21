@@ -66,6 +66,10 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 
 L'assistant de premier lancement vous guide pour la sélection du backend, le téléchargement du modèle et l'association du raccourci clavier. Relancez à tout moment via `dictee --setup`.
 
+<p align="center">
+  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Assistant de premier lancement" width="640">
+</p>
+
 **3. Parler**
 
 Appuyez sur votre raccourci (par défaut `Super+Espace`), parlez, relâchez. La transcription apparaît au curseur.
