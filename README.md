@@ -118,7 +118,7 @@ A 12-step configurable pipeline transforms raw ASR output before it hits your cu
 
 → [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview)
 
-### Speaker diarization
+### Speaker diarization (Meetings)
 
 Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer** model. Up to 4 speakers, ideal for meeting notes and interviews. Triggered via **Meeting mode** or `dictee --meeting`. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
 

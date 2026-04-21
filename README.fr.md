@@ -118,7 +118,7 @@ Un pipeline configurable en 12 étapes transforme la sortie ASR brute avant qu'e
 
 → [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview)
 
-### Diarisation des locuteurs
+### Diarisation des locuteurs (Meetings)
 
 Répond à la question *« qui a parlé et quand ? »* dans les enregistrements multi-locuteurs via le modèle **Sortformer** de NVIDIA. Jusqu'à 4 locuteurs, idéal pour les comptes rendus de réunion et les interviews. Déclenché via le **mode Meeting** ou `dictee --meeting`. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
 
