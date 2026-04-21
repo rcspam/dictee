@@ -11,40 +11,149 @@
 </p>
 
 <p align="center">
-  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, translation, speaker diarization, and real-time visual feedback. Text appears right where your cursor is.
+  <b>Speak freely, type instantly</b> — 100% local voice dictation for Linux with 25+ languages, 5 translation backends, speaker diarization, and real-time visual feedback. Text appears right where your cursor is.
 </p>
 
 <p align="center">
-  <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue" alt="Latest Release"></a>
+  <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue&include_prereleases" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-green" alt="License GPL-3.0"></a>
   <img src="https://img.shields.io/badge/backend-Rust-orange?logo=rust" alt="Rust">
   <img src="https://img.shields.io/badge/frontend-PyQt6%20%2F%20Bash-yellow" alt="PyQt6 / Bash">
   <img src="https://img.shields.io/badge/platform-Linux-lightgrey?logo=linux" alt="Linux">
+  <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
 <p align="center">
+  <a href="#what-is-dictee">What is dictee?</a> &bull;
+  <a href="#quick-start">Quick start</a> &bull;
+  <a href="#features">Features</a> &bull;
+  <a href="#screenshots">Screenshots</a> &bull;
   <a href="#installation">Installation</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
-  <a href="#visual-interfaces">Visual interfaces</a> &bull;
   <a href="#usage">Usage</a> &bull;
-  <a href="#going-further">Going further</a> &bull;
-  <a href="#roadmap">Roadmap</a>
+  <a href="#post-processing">Post-processing</a> &bull;
+  <a href="#known-limitations">Limitations</a> &bull;
+  <a href="#roadmap">Roadmap</a> &bull;
+  <a href="https://github.com/rcspam/dictee/wiki">Wiki</a>
 </p>
 
 ---
 
-**dictee** is a complete voice dictation system for Linux. Transcription is performed **100% locally** — no audio data ever leaves your machine. Press a shortcut, speak, and the text is typed directly into the active application.
+## What is dictee?
 
-- **4 ASR backends**: [Parakeet-TDT](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (25 languages, native punctuation), [Canary-1B](https://huggingface.co/nvidia/canary-1b) (built-in translation, GPU), [Vosk](https://alphacephei.com/vosk/) (lightweight, ~50 MB), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (99 languages)
-- **Daemon mode**: model loaded once, near-instant transcriptions (~0.8s on CPU)
-- **Translation**: 4 backends — Google, Bing, LibreTranslate (local), ollama (local)
-- **Speaker diarization**: who said what, up to 4 speakers via Sortformer (CLI only, not yet in voice dictation)
-- **3 visual interfaces**: KDE Plasma widget, notification area icon, fullscreen animation
+**dictee** is a complete voice dictation system for Linux. Press a shortcut, speak, and the text is typed directly into the active application — any application, any window, any text field.
+
+Transcription is performed **100% locally** by default: no audio ever leaves your machine unless you explicitly choose a cloud translation backend.
+
+- 🔒 **100% local by default** — Parakeet, Canary, faster-whisper and Vosk all run offline on your hardware
+- 🌍 **25+ languages** — with native punctuation and capitalization (Parakeet-TDT)
+- 🔀 **4 ASR backends** — switch instantly depending on language, latency and hardware
+- 🎨 **Visual feedback** — KDE Plasma widget, system tray, or fullscreen animation
+
+---
+
+## Quick start
+
+Three steps to go from zero to dictation in under two minutes:
+
+**1. Install**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
+```
+
+**2. Configure**
+
+The first-run wizard walks you through backend selection, model download and keyboard shortcut binding. Re-run anytime with `dictee --setup`.
+
+**3. Speak**
+
+Press your shortcut (default `Super+Space`), speak, release. The transcription appears at your cursor.
 
 <p align="center">
-  <img src="plasmoid_gh.png" alt="Plasmoid popup (recording)" width="520"><br>
-  <img src="assets/wizard-en.png" alt="dictee --setup" width="720">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget recording" width="520">
 </p>
+
+For detailed install paths (manual `.deb`/`.rpm`, GPU prerequisites, AUR, from source), see [Installation](#installation) below or the wiki's [Installation](https://github.com/rcspam/dictee/wiki/Installation) and [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pages.
+
+---
+
+## Features
+
+### 4 ASR backends
+
+| Backend | Languages | Model size | Warm latency | Notes |
+|---------|-----------|------------|--------------|-------|
+| **Parakeet-TDT 0.6B v3** | 25 | ~2.5 GB | ~0.8s CPU · ~0.16s GPU | Default, native punctuation |
+| **Canary-1B v2** | 4 (EN/ES/FR/DE) | ~5 GB | ~0.7s GPU | Built-in translation |
+| **faster-whisper** | 99 | ~500 MB–3 GB | ~0.3s | Wide language coverage |
+| **Vosk** | 20+ | ~50 MB | ~1.5s | Lightweight, strict offline |
+
+Each backend runs as a systemd user service with the same Unix socket protocol — switching is transparent. → [ASR-Backends wiki](https://github.com/rcspam/dictee/wiki/ASR-Backends)
+
+### 5 translation backends
+
+| Backend | Privacy | Speed | Quality | Languages |
+|---------|---------|-------|---------|-----------|
+| **Canary-1B** | 🔒 Local | Built-in | Excellent | 4 |
+| **LibreTranslate** | 🔒 Local | 0.1–0.3s | Good | 30+ |
+| **Ollama** | 🔒 Local | 2–3s | Excellent | Any (LLM) |
+| **Google Translate** | 🌐 Cloud | 0.2–0.7s | Excellent | 130+ |
+| **Bing Translator** | 🌐 Cloud | 1.7–2.2s | Very good | 100+ |
+
+→ [Translation wiki](https://github.com/rcspam/dictee/wiki/Translation) · [Ollama-Setup](https://github.com/rcspam/dictee/wiki/Ollama-Setup)
+
+### Post-processing pipeline
+
+A 12-step configurable pipeline transforms raw ASR output before it hits your cursor:
+
+- **Regex rules + dictionary** — 7 languages, ASR variants, voice commands → [Rules-and-Dictionary](https://github.com/rcspam/dictee/wiki/Rules-and-Dictionary)
+- **LLM correction** — optional fluency polish via local Ollama (first / last / hybrid position) → [LLM-Correction](https://github.com/rcspam/dictee/wiki/LLM-Correction)
+- **Numbers & dates** — cardinal, ordinal, versions, decimals, French times → [Numbers-Dates-Continuation](https://github.com/rcspam/dictee/wiki/Numbers-Dates-Continuation)
+- **Continuation buffer** — continue a sentence across dictations with last-word memory
+- **Short-text keepcaps** — per-language exceptions for acronyms and names (new in v1.3)
+
+→ [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview)
+
+### Speaker diarization
+
+Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer** model. Up to 4 speakers, ideal for meeting notes and interviews. Triggered via **Meeting mode** or `dictee --meeting`. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
+
+### 3 visual interfaces
+
+- **KDE Plasma 6 widget** — native QML plasmoid, 5 animation styles, live state → [Plasmoid-Widget](https://github.com/rcspam/dictee/wiki/Plasmoid-Widget)
+- **System tray icon** — PyQt6, works on GNOME/XFCE/Sway (AppIndicator fallback) → [Tray-Icon](https://github.com/rcspam/dictee/wiki/Tray-Icon)
+- **animation-speech** (external) — fullscreen overlay on `wlr-layer-shell` compositors
+
+All three share state via a filesystem watcher — any change is reflected instantly across interfaces (multi-user safe with UID suffix).
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Setup wizard" width="720"><br>
+  <em>First-run wizard — backend selection, model download, shortcut binding</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/dictee-setup_1.3.png" alt="Setup panel" width="720"><br>
+  <em>Full configuration — ASR, translation, post-processing, rules, shortcuts</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget" width="400">
+  &nbsp;
+  <img src="assets/screenshots-vm/tray_1.3.png" alt="Tray icon menu" width="400"><br>
+  <em>KDE Plasma widget (left) · System tray menu (right)</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Diarization output" width="720"><br>
+  <em>Speaker diarization — up to 4 speakers via Sortformer</em>
+</p>
+
+> Post-processing pipeline GIFs are coming soon — see [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) for the current reference.
 
 ---
 
@@ -52,76 +161,59 @@
 
 ### One-liner (recommended)
 
-The online installer auto-detects your distro and GPU, adds the NVIDIA CUDA repository if needed, and installs the right package:
+Auto-detects distro and GPU, adds the NVIDIA CUDA repo if needed, installs the right package:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
 ```
 
-Works on **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Falls back to the tarball installer on other distros.
+Supported: **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Other distros fall back to the tarball path.
 
-**Options** (pass after `--`):
+**Options** (after `--`):
 
 ```bash
-# Force CPU (no GPU detection)
+# Force CPU (skip GPU detection)
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --cpu
 
 # Force GPU (CUDA)
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
-# Install a specific version
+# Pin a specific version
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.0
 
-# Non-interactive (auto-detect GPU, no prompts)
+# Non-interactive
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
 ```
 
----
+### Manual install
 
-### Manual installation
+Download from [Releases](../../releases).
 
-Download the package from the [Releases](../../releases).
-
-**Ubuntu / Debian — GPU (NVIDIA):**
-
-> ⚠ The GPU package depends on `libcudnn9-cuda-12`, which is only available in the NVIDIA CUDA APT repository. **Add it first**, otherwise the install will fail.
-
-```bash
-# 1) Add the NVIDIA CUDA repository (one-time setup)
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
-sudo apt update
-
-# 2) Install dictee (all dependencies resolved automatically)
-sudo apt install ./dictee-cuda_1.3.0_amd64.deb
-```
-
-> Replace `ubuntu2404` with your distro version (`ubuntu2204`, `ubuntu2504`, …) — see [NVIDIA CUDA repos](https://developer.download.nvidia.com/compute/cuda/repos/).
-
-**Ubuntu / Debian — CPU:**
+**Ubuntu / Debian (CPU):**
 
 ```bash
 sudo apt install ./dictee-cpu_1.3.0_amd64.deb
 ```
 
-**Fedora / openSUSE — GPU:**
+**Ubuntu / Debian (GPU):** requires the NVIDIA CUDA APT repo — see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) for the one-time setup, then:
 
 ```bash
-sudo dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora41/x86_64/cuda-fedora41.repo
-sudo dnf install ./dictee-cuda-1.3.0-1.x86_64.rpm
+sudo apt install ./dictee-cuda_1.3.0_amd64.deb
 ```
 
-**Fedora / openSUSE — CPU:**
+**Fedora / openSUSE (CPU):**
 
 ```bash
 sudo dnf install ./dictee-cpu-1.3.0-1.x86_64.rpm
 ```
 
+**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.0-1.x86_64.rpm`.
+
 **Arch Linux (AUR):** `PKGBUILD` in the repo root (x86_64 + aarch64). Clone + `makepkg -si`.
 
-**aarch64 (ARM64):** no pre-built package — build from source. CUDA limited to NVIDIA Jetson.
+**aarch64 / Jetson:** no pre-built package — build from source. CUDA limited to NVIDIA Jetson boards.
 
-**Other distributions (.tar.gz):**
+**Other distros (tarball):**
 
 ```bash
 tar xzf dictee-1.3.0_amd64.tar.gz
@@ -129,155 +221,38 @@ cd dictee-1.3.0
 sudo ./install.sh
 ```
 
-**From source:**
-
-```bash
-tar xzf dictee-1.3.0-source.tar.gz
-cd dictee-1.3.0-source
-cargo build --release --features sortformer
-sudo ./install.sh
-```
-
-> Detailed build instructions: [docs/building.md](docs/building.md).
+**From source:** `cargo build --release --features sortformer` then `sudo ./install.sh`. See [Developer-Guide](https://github.com/rcspam/dictee/wiki/Developer-Guide) for full Cargo features and package build scripts.
 
 ---
 
 ## Configuration
 
-On first launch, a setup wizard guides you through backend selection, model download, and keyboard shortcuts. You can reconfigure anytime from the application menu, tray icon, Plasma widget, or by running `dictee --setup` from the terminal:
-
-<p align="center">
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">
-  <img src="assets/postprocess.png" alt="Post-processing dictionary" width="720">
-</p>
-
-### ASR backend
-
-Four mutually exclusive transcription backends, switchable from `dictee --setup`:
-
-| Backend | Languages | Model size | Warm latency | Type |
-|---------|-----------|------------|--------------|------|
-| **Parakeet-TDT** | 25 | ~2.5 GB | ~0.8s CPU · ~0.16s GPU | ONNX Runtime (Rust) |
-| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 GB | ~0.7s GPU | ONNX Runtime (Python, GPU recommended) |
-| **faster-whisper** | 99 | ~500 MB–3 GB | ~0.3s | CTranslate2 (Python) |
-| **Vosk** | 9+ | ~50 MB | ~1.5s | Python (lightweight) |
-
-Each backend runs as a systemd user service — same Unix socket protocol, fully transparent to the user.
-
-### Keyboard shortcuts
-
-`dictee --setup` captures and registers shortcuts automatically (KDE Plasma / GNOME). Two separate shortcuts: one for dictation, one for dictation + translation.
-
-> For tiling WMs (Sway, i3, Hyprland…), the tool shows the command to add manually to your config.
-
-### Translation
-
-| Backend | Privacy | Speed | Quality | Setup |
-|---------|---------|-------|---------|-------|
-| **Canary-1B** | 100% local | Built-in | Best | Included with ASR backend |
-| **LibreTranslate** | 100% local | 0.1–0.3s | Good | Guided from setup |
-| **ollama** | 100% local | 2.3–3.4s | Best | Guided from setup |
-| **translate-shell** (Google) | Online | 0.2–0.7s | Good | Included |
-| **translate-shell** (Bing) | Online | 1.7–2.2s | Good | Included |
-
-### Quick backend switching
-
-Switch ASR or translation backend instantly from the command line, the tray icon menu, or the Plasma widget:
+First launch triggers a **setup wizard** (backend, model, shortcuts). Reconfigure anytime from the application menu, tray icon, Plasma widget, or by running:
 
 ```bash
-# Switch ASR backend
-dictee-switch-backend asr canary
+dictee --setup
+```
 
-# Switch translation backend
-dictee-switch-backend translate ollama
+### Backend switching (one-liner)
 
+```bash
 # Show current backends
 dictee-switch-backend status
-# → ASR: parakeet (dictee.service, active)
-# → Translate: google (trans)
+
+# Switch ASR (parakeet · canary · whisper · vosk)
+dictee-switch-backend asr canary
+
+# Switch translation (canary · libretranslate · ollama · google · bing)
+dictee-switch-backend translate ollama
 ```
 
-The tray icon and Plasma widget include sub-menus for switching backends without opening the configuration.
+The tray and plasmoid include backend sub-menus — no terminal required.
 
----
+For detailed configuration (all ASR backends, translation matrix, plasmoid settings, keyboard shortcuts on tiling WMs), see the wiki:
 
-## Visual interfaces
-
-### KDE Plasma widget
-
-A native KDE Plasma 6 widget with real-time audio visualization during recording, daemon status, and quick controls (dictate, translate, cancel).
-
-<p align="center">
-  <img src="plasmoid_gh.png" alt="Plasmoid popup (recording)" width="500">
-</p>
-
-<p align="center">
-  <img src="plasmoid_config.png" alt="Plasmoid configuration" width="600">
-</p>
-
-Five animation styles with Hanning envelope, per-style sensitivity, and optional color gradients:
-
-| Bars | Wave | Pulse | Dots | Waveform |
-|:----:|:----:|:-----:|:----:|:--------:|
-| ![Bars](plasmoid/assets/anim-bars.svg?v=2) | ![Wave](plasmoid/assets/anim-wave.svg) | ![Pulse](plasmoid/assets/anim-pulse.svg) | ![Dots](plasmoid/assets/anim-dots.svg) | ![Waveform](plasmoid/assets/anim-waveform.svg) |
-
-All styles support color gradients, adjustable Hanning envelope (shape and center frequency), per-style sensitivity curve, and fine-tuning options (bar count, spacing, radius, speed…).
-
-```bash
-# Install (included in .deb, or manually)
-kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid
-```
-
-Right-click on the panel → "Add Widgets…" → search for "Dictée".
-
-> For full widget settings documentation, see [docs/plasmoid.md](docs/plasmoid.md).
-
-### Notification area icon (dictee-tray)
-
-`dictee-tray` is the alternative to the KDE Plasma widget for non-KDE desktops (GNOME, Xfce, Sway, Hyprland…). It displays a notification area icon reflecting the real-time state: idle, recording (green), transcribing (blue), daemon stopped (red).
-
-<p align="center">
-  <img src="tray_gh.png" alt="dictee-tray context menu" width="400">
-</p>
-
-- Left click → start dictation
-- Middle click → cancel
-- Context menu → all actions (dictation, translation, daemon, configuration)
-
-```bash
-# Launch manually
-dictee-tray
-
-# Enable at session startup
-systemctl --user enable --now dictee-tray
-```
-
-The icon automatically adapts to light/dark themes.
-
-Both the Plasma widget and the tray icon include:
-- **Backend selectors** — switch ASR and translation backends without opening `dictee-setup`
-- **First-run detection** — prompts to run the setup wizard if not yet configured
-- **Install detection** (Plasma widget) — shows a clear message if dictee is not installed
-
-### animation-speech
-
-[animation-speech](https://github.com/rcspam/animation-speech) is a standalone project that provides a fullscreen visual animation during recording, with cancellation via Escape key. It works on any Wayland compositor supporting `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…).
-
-<p align="center">
-  <a href="https://youtu.be/-fWZZEO7mCA">
-    <img src="assets/demo.gif" alt="animation-speech demo — click to watch on YouTube" width="512">
-  </a>
-</p>
-
-```bash
-sudo dpkg -i animation-speech_1.2.0_all.deb
-```
-
-> Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases)
-
-> **Note:** animation-speech is not compatible with GNOME (no `wlr-layer-shell` support). GNOME users can use `dictee-tray` for visual feedback. Contributions for a GNOME Shell extension are welcome — see the [plasmoid source](plasmoid/) for reference architecture.
-
-Without any visual interface, `dictee` works normally but without visual feedback during recording.
+- [ASR-Backends](https://github.com/rcspam/dictee/wiki/ASR-Backends) · [Translation](https://github.com/rcspam/dictee/wiki/Translation)
+- [Plasmoid-Widget](https://github.com/rcspam/dictee/wiki/Plasmoid-Widget) · [Tray-Icon](https://github.com/rcspam/dictee/wiki/Tray-Icon)
+- [Keyboard-Shortcuts](https://github.com/rcspam/dictee/wiki/Keyboard-Shortcuts) (KDE/GNOME/Sway/i3/Hyprland)
 
 ---
 
@@ -287,89 +262,90 @@ Without any visual interface, `dictee` works normally but without visual feedbac
 # Simple dictation — transcribe and type
 dictee
 
-# With translation (default: system language → English)
+# Dictate + translate (default: system language → English)
 dictee --translate
-dictee --translate --ollama    # 100% local translation via ollama
+dictee --translate --ollama            # 100% local via Ollama
 
-# Change translation languages
-DICTEE_LANG_TARGET=es dictee --translate    # → Spanish
+# Change target language
+DICTEE_LANG_TARGET=es dictee --translate   # → Spanish
 
-# Cancel an ongoing recording (via shortcut or Escape key)
+# Meeting mode (diarization, up to 4 speakers)
+dictee --meeting
+
+# Cancel ongoing dictation
 dictee --cancel
 
-# Test post-processing rules
-dictee-test-rules                    # interactive mode
-dictee-test-rules --loop             # continuous test loop
-dictee-test-rules --wav file.wav     # test from audio file
-
-# Switch backend from command line
-dictee-switch-backend status         # show current backends
-dictee-switch-backend asr canary     # switch to Canary
-dictee-switch-backend translate bing # switch translation to Bing
+# Test post-processing rules live
+dictee-test-rules                       # interactive
+dictee-test-rules --loop                # continuous loop
+dictee-test-rules --wav file.wav        # from audio file
 ```
+
+→ Full command reference: [CLI-Reference wiki](https://github.com/rcspam/dictee/wiki/CLI-Reference)
 
 ---
 
-## Going further
+## Post-processing
 
-### Post-processing
+dictee runs a **configurable 12-step pipeline** after transcription and before paste:
 
-dictee includes a configurable text transformation pipeline that runs after transcription:
+1. ASR variants normalization
+2. Dictionary substitution
+3. Numbers & dates conversion
+4. Continuation buffer merge
+5. Regex rules (pre-LLM)
+6. LLM correction *(optional, first position)*
+7. Regex rules (post-LLM)
+8. Short-text exceptions (keepcaps)
+9. Extended match mode
+10. Final capitalization
+11. Translation *(optional)*
+12. Paste / inject
 
-- **Custom rules** — regex-based text replacements (e.g., voice commands like "new line", "comma")
-- **Dictionary** — replace common ASR mistakes with correct words
-- **Continuation** — detect incomplete sentences across multiple dictations
-- **Elisions** — French grammar rules (e.g., "le arbre" → "l'arbre")
-- **Number conversion** — spoken numbers to digits (e.g., "vingt-trois" → "23")
-- **Auto-capitalization** — capitalize after sentence-ending punctuation
-- **LLM correction** — optional grammar/spelling fix via Ollama before rules
+Configure via `dictee --setup` → **Post-processing** tab, or test rules live with `dictee-test-rules`.
 
-Configure from `dictee --setup` → Post-processing tab, or test rules with `dictee-test-rules`.
-
-<p align="center">
-  <img src="assets/postprocess.gif" alt="Post-processing: dictionary, regex rules, continuation" width="900">
-</p>
-
-| Documentation | Description |
-|---------------|-------------|
-| [docs/cli-programs.md](docs/cli-programs.md) | CLI binaries, direct usage, ONNX models |
-| [docs/building.md](docs/building.md) | Building from source, Cargo features, audio pipeline |
-| [docs/plasmoid.md](docs/plasmoid.md) | Widget settings, animation styles, configuration details |
-| [Post-processing](docs/postprocessing.md) | Text transformation pipeline: rules, dictionary, elisions, text2num, capitalization, LLM correction |
+→ Deep dives: [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) · [Rules-and-Dictionary](https://github.com/rcspam/dictee/wiki/Rules-and-Dictionary) · [LLM-Correction](https://github.com/rcspam/dictee/wiki/LLM-Correction) · [Numbers-Dates-Continuation](https://github.com/rcspam/dictee/wiki/Numbers-Dates-Continuation)
 
 ---
 
 ## Known limitations
 
-- **Diarization + transcription on an 8 GB GPU** is capped around **10-15 min of audio**. `transcribe-diarize` loads the full Parakeet-TDT mel-spectrogram in one pass (~185 MB of VRAM per minute of audio), which overflows a typical consumer GPU past ~15 min and causes an ONNX OOM (`Failed to allocate memory for requested buffer of size ...` on `/pre_encode/conv/conv.0/Conv`).
-  Sortformer itself is a streaming model (10 s chunks internally) and has no duration limit.
-  **Workarounds**: split the file into ≤ 10-min parts and process them in several passes, disable diarization, or use the CPU backend. Auto-chunking is planned for v1.4.
+- **Diarization + Parakeet on 8 GB GPU** is capped around **10–15 min of audio**. Parakeet-TDT loads the full mel-spectrogram in one pass (~185 MB VRAM per minute), which overflows consumer GPUs past ~15 min. Workarounds: split the file, disable diarization, or use the CPU backend. Auto-chunking is planned for v1.4. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
+- **AMD / Intel GPUs** are not currently supported — dictee falls back to CPU.
+- **No real-time streaming** — Parakeet-TDT and Canary require the full utterance; only Nemotron (EN-only, via Rust binary) streams natively.
+
+For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam/dictee/wiki/Troubleshooting).
+
+---
 
 ## Roadmap
 
-**v1.3.0 (current):** Sidebar UI with dual pipeline diagrams (normal + translation), LLM post-processing (Ollama), continuation buffer, number conversion, 682 automated tests, CI integration
+**v1.3.0 (current)** — Short-text keepcaps exceptions (7 languages), extended match mode, LibreTranslate purge models, continuation + translate fixes, version-number dictation, multi-user safe (UID suffix on state files), plasmoid cross-process toggles (LLM / Short / Meeting), 682 postprocess tests + 148 pipeline tests, theme-aware banner.
 
-- v1.2.0: 4 ASR backends (+ Canary), post-processing pipeline, quick backend switching, first-run wizard, `dictee-test-rules`
-- (v1.4) **Hotword boosting** — bias ASR decoding toward custom names and terms without retraining (beam search + Aho-Corasick in Rust)
-- Diarization from tray/plasmoid — select audio file, get speaker-labeled transcription
-- CLI for speech-to-text (pipe audio, get text)
-- `dictee-ctl` coordinator — single entry point, eliminates race conditions
-- VAD (Voice Activity Detection) — hands-free dictation without push-to-talk
-- Real-time streaming transcription with live text display
-- Built-in visual overlay (replace external `animation-speech`)
-- AppImage / Flatpak packaging
-- COSMIC / GNOME applet (contributions welcome!)
+**v1.4+ (planned)**
+- **Chunked diarization** — process files > 15 min via `transcribe-diarize-batch` (prototype validated: 54 min in 122 s)
+- **Hotword boosting** — bias ASR decoding toward custom names (shallow fusion on TDT logits, Parakeet only)
+- **Whisper translate** — multi-target translation via `task="translate"` (EN-only, offline)
+- **Moonshine** CPU backend
+- **CLI speech-to-text** — pipe audio, get text
+- **VAD** — hands-free dictation without push-to-talk
+- **Streaming transcription** with live text display
+- **Built-in overlay** — replace external `animation-speech`
+- **AppImage / Flatpak** packaging
+- **COSMIC / GNOME Shell** applets (contributions welcome!)
+
+→ Full history: [Changelog wiki](https://github.com/rcspam/dictee/wiki/Changelog)
+
+---
 
 ## Credits
 
-The transcription engine is built on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes), which provides the Rust library for NVIDIA Parakeet model inference via ONNX Runtime. The Canary-1B backend uses [onnx-asr](https://github.com/istupakov/onnx-asr) by [Ivan Stupakov](https://github.com/istupakov) for ONNX-based ASR inference.
+The transcription engine builds on [parakeet-rs](https://github.com/altunenes/parakeet-rs) by [Enes Altun](https://github.com/altunenes) — Rust library for NVIDIA Parakeet inference via ONNX Runtime. The Canary backend is adapted from [onnx-asr](https://github.com/istupakov/onnx-asr) by [Ivan Stupakov](https://github.com/istupakov). Parakeet and Canary ONNX models are provided by NVIDIA (downloaded separately from HuggingFace, not redistributed by this project).
+
+Keyboard input simulation uses [dotool](https://sr.ht/~geb/dotool/) by geb (GPL-3.0).
 
 ## License
 
 This project is distributed under the **GPL-3.0-or-later** license (see [LICENSE](LICENSE)).
 
-The original [parakeet-rs](https://github.com/altunenes/parakeet-rs) code by Enes Altun is under the MIT license (see [LICENSE-MIT](LICENSE-MIT)).
-
-[dotool](https://sr.ht/~geb/dotool/) by geb is bundled for keyboard input simulation and is under the GPL-3.0 license.
-
-The Parakeet ONNX models (downloaded separately from HuggingFace) are provided by NVIDIA. This project does not distribute the models.
+The original [parakeet-rs](https://github.com/altunenes/parakeet-rs) code by Enes Altun is under the MIT license (see [LICENSE-MIT](LICENSE-MIT)). [dotool](https://sr.ht/~geb/dotool/) is bundled under GPL-3.0.
