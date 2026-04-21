@@ -1,127 +1,219 @@
 <p align="center">
   <picture>
-        <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
-        <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.svg">
     <img src="assets/banner-light.svg" alt="dictée" width="512">
   </picture>
 </p>
 
 <p align="center">
-  <b><i>Parler, c'est plus simple.</i></b>
+  <b><i>Parler, c'est juste plus simple.</i></b>
 </p>
 
 <p align="center">
-  <b>Parlez librement, tapez instantanément</b> — dictée vocale 100% locale pour Linux avec 25+ langues, traduction, diarisation et retour visuel en temps réel. Le texte apparaît directement sous votre curseur.
+  <b>Parlez librement, le texte apparaît instantanément</b> — dictée vocale 100 % locale pour Linux avec 25+ langues, 5 backends de traduction, diarisation des locuteurs et retour visuel en temps réel. Le texte s'écrit directement à l'endroit de votre curseur.
 </p>
 
 <p align="center">
-  <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue" alt="Dernière release"></a>
+  <a href="https://github.com/rcspam/dictee/releases"><img src="https://img.shields.io/github/v/release/rcspam/dictee?label=release&color=blue&include_prereleases" alt="Dernière version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-GPL--3.0-green" alt="Licence GPL-3.0"></a>
-  <img src="https://img.shields.io/badge/backend-Rust-orange?logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/frontend-PyQt6%20%2F%20Bash-yellow" alt="PyQt6 / Bash">
+  <img src="https://img.shields.io/badge/moteur-Rust-orange?logo=rust" alt="Rust">
+  <img src="https://img.shields.io/badge/interface-PyQt6%20%2F%20Bash-yellow" alt="PyQt6 / Bash">
   <img src="https://img.shields.io/badge/plateforme-Linux-lightgrey?logo=linux" alt="Linux">
+  <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
 <p align="center">
+  <a href="#quest-ce-que-dictée-">Qu'est-ce que dictée ?</a> &bull;
+  <a href="#démarrage-rapide">Démarrage rapide</a> &bull;
+  <a href="#fonctionnalités">Fonctionnalités</a> &bull;
+  <a href="#captures-décran">Captures d'écran</a> &bull;
   <a href="#installation">Installation</a> &bull;
   <a href="#configuration">Configuration</a> &bull;
-  <a href="#interfaces-visuelles">Interfaces visuelles</a> &bull;
   <a href="#utilisation">Utilisation</a> &bull;
-  <a href="#pour-aller-plus-loin">Pour aller plus loin</a> &bull;
-  <a href="#feuille-de-route">Feuille de route</a>
+  <a href="#post-traitement">Post-traitement</a> &bull;
+  <a href="#limitations-connues">Limitations</a> &bull;
+  <a href="#feuille-de-route">Feuille de route</a> &bull;
+  <a href="https://github.com/rcspam/dictee/wiki">Wiki</a>
 </p>
 
 ---
 
-**dictee** est un système complet de dictée vocale pour Linux. La transcription est réalisée **100% en local** — aucune donnée audio ne quitte votre machine. Appuyez sur un raccourci, parlez, et le texte est tapé directement dans l'application active.
+## Qu'est-ce que dictée ?
 
-- **4 backends ASR** : [Parakeet-TDT](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (25 langues, ponctuation native), [Canary-1B](https://huggingface.co/nvidia/canary-1b) (traduction intégrée, GPU), [Vosk](https://alphacephei.com/vosk/) (léger, ~50 Mo), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (99 langues)
-- **Mode daemon** : modèle chargé une seule fois, transcriptions quasi-instantanées (~0,8s sur CPU)
-- **Traduction** : 4 backends — Google, Bing, LibreTranslate (local), ollama (local)
-- **Diarisation** : identification des locuteurs, jusqu'à 4 via Sortformer (CLI uniquement, pas encore dans la dictée vocale)
-- **3 interfaces visuelles** : widget KDE Plasma, icône de notification, animation plein écran
+**dictée** est un système complet de dictée vocale pour Linux. Appuyez sur un raccourci, parlez, et le texte est tapé directement dans l'application active — n'importe quelle application, n'importe quelle fenêtre, n'importe quel champ de saisie.
 
-<p align="center">
-  <img src="plasmoid_gh.png" alt="Popup du plasmoid (enregistrement)" width="520"><br>
-  <img src="assets/wizard-en.png" alt="dictee --setup" width="720">
-</p>
+La transcription est effectuée **100 % localement** par défaut : aucun audio ne quitte votre machine à moins que vous ne choisissiez explicitement un backend de traduction en ligne.
+
+- 🔒 **100 % local par défaut** — Parakeet, Canary, faster-whisper et Vosk tournent tous hors ligne sur votre matériel
+- 🌍 **25+ langues** — avec ponctuation et capitalisation natives (Parakeet-TDT)
+- 🔀 **4 backends ASR** — changez instantanément selon la langue, la latence et le matériel
+- 🎨 **Retour visuel** — widget KDE Plasma, icône systray, ou animation plein écran
 
 ---
 
-## Installation
+## Démarrage rapide
 
-### Installation en une commande (recommandée)
+Trois étapes pour passer de zéro à la dictée en moins de deux minutes :
 
-L'installateur en ligne détecte automatiquement votre distribution et votre GPU, ajoute le dépôt NVIDIA CUDA si nécessaire, et installe le bon paquet :
+**1. Installer**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
 ```
 
-Fonctionne sur **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Bascule sur l'installateur tarball pour les autres distributions.
+**2. Configurer**
 
-**Options** (à passer après `--`) :
+L'assistant de premier lancement vous guide pour la sélection du backend, le téléchargement du modèle et l'association du raccourci clavier. Relancez à tout moment via `dictee --setup`.
+
+**3. Parler**
+
+Appuyez sur votre raccourci (par défaut `Super+Espace`), parlez, relâchez. La transcription apparaît au curseur.
+
+<p align="center">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid en enregistrement" width="520">
+</p>
+
+Pour les chemins d'installation détaillés (`.deb`/`.rpm` manuels, prérequis GPU, AUR, depuis les sources), voir la section [Installation](#installation) ci-dessous ou les pages wiki [Installation](https://github.com/rcspam/dictee/wiki/Installation) et [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup).
+
+---
+
+## Fonctionnalités
+
+### 4 backends ASR
+
+| Backend | Langues | Taille modèle | Latence chaude | Notes |
+|---------|---------|---------------|----------------|-------|
+| **Parakeet-TDT 0.6B v3** | 25 | ~2,5 Go | ~0,8s CPU · ~0,16s GPU | Par défaut, ponctuation native |
+| **Canary-1B v2** | 4 (EN/ES/FR/DE) | ~5 Go | ~0,7s GPU | Traduction intégrée |
+| **faster-whisper** | 99 | ~500 Mo–3 Go | ~0,3s | Large couverture linguistique |
+| **Vosk** | 20+ | ~50 Mo | ~1,5s | Léger, strictement hors ligne |
+
+Chaque backend tourne comme service systemd utilisateur avec le même protocole socket Unix — le changement est transparent. → [Wiki ASR-Backends](https://github.com/rcspam/dictee/wiki/ASR-Backends)
+
+### 5 backends de traduction
+
+| Backend | Confidentialité | Vitesse | Qualité | Langues |
+|---------|-----------------|---------|---------|---------|
+| **Canary-1B** | 🔒 Local | Intégré | Excellente | 4 |
+| **LibreTranslate** | 🔒 Local | 0,1–0,3s | Bonne | 30+ |
+| **Ollama** | 🔒 Local | 2–3s | Excellente | Toutes (LLM) |
+| **Google Translate** | 🌐 Cloud | 0,2–0,7s | Excellente | 130+ |
+| **Bing Translator** | 🌐 Cloud | 1,7–2,2s | Très bonne | 100+ |
+
+→ [Wiki Translation](https://github.com/rcspam/dictee/wiki/Translation) · [Ollama-Setup](https://github.com/rcspam/dictee/wiki/Ollama-Setup)
+
+### Pipeline de post-traitement
+
+Un pipeline configurable en 12 étapes transforme la sortie ASR brute avant qu'elle n'atteigne votre curseur :
+
+- **Règles regex + dictionnaire** — 7 langues, variantes ASR, commandes vocales → [Rules-and-Dictionary](https://github.com/rcspam/dictee/wiki/Rules-and-Dictionary)
+- **Correction LLM** — polissage optionnel de la fluidité via Ollama local (position first / last / hybrid) → [LLM-Correction](https://github.com/rcspam/dictee/wiki/LLM-Correction)
+- **Nombres & dates** — cardinaux, ordinaux, versions, décimales, heures en français → [Numbers-Dates-Continuation](https://github.com/rcspam/dictee/wiki/Numbers-Dates-Continuation)
+- **Tampon de continuation** — continuer une phrase entre deux dictées avec mémoire du dernier mot
+- **Short-text keepcaps** — exceptions par langue pour sigles et noms propres (nouveauté v1.3)
+
+→ [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview)
+
+### Diarisation des locuteurs
+
+Répond à la question *« qui a parlé et quand ? »* dans les enregistrements multi-locuteurs via le modèle **Sortformer** de NVIDIA. Jusqu'à 4 locuteurs, idéal pour les comptes rendus de réunion et les interviews. Déclenché via le **mode Meeting** ou `dictee --meeting`. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
+
+### 3 interfaces visuelles
+
+- **Widget KDE Plasma 6** — plasmoid QML natif, 5 styles d'animation, état en direct → [Plasmoid-Widget](https://github.com/rcspam/dictee/wiki/Plasmoid-Widget)
+- **Icône systray** — PyQt6, fonctionne sur GNOME/XFCE/Sway (repli AppIndicator) → [Tray-Icon](https://github.com/rcspam/dictee/wiki/Tray-Icon)
+- **animation-speech** (externe) — overlay plein écran sur compositeurs `wlr-layer-shell`
+
+Les trois interfaces partagent leur état via un surveillant de fichier — toute modification est reflétée instantanément (sûr en multi-utilisateur via suffixe UID).
+
+---
+
+## Captures d'écran
+
+<p align="center">
+  <img src="assets/screenshots-vm/wizard_1.3.png" alt="Assistant de configuration" width="720"><br>
+  <em>Assistant de premier lancement — sélection du backend, téléchargement du modèle, association du raccourci</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/dictee-setup_1.3.png" alt="Panneau de configuration" width="720"><br>
+  <em>Configuration complète — ASR, traduction, post-traitement, règles, raccourcis</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid" width="400">
+  &nbsp;
+  <img src="assets/screenshots-vm/tray_1.3.png" alt="Menu de l'icône systray" width="400"><br>
+  <em>Widget KDE Plasma (gauche) · Menu systray (droite)</em>
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Sortie de diarisation" width="720"><br>
+  <em>Diarisation — jusqu'à 4 locuteurs via Sortformer</em>
+</p>
+
+> Les GIF du pipeline de post-traitement arrivent — voir [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) pour la référence actuelle.
+
+---
+
+## Installation
+
+### Une ligne (recommandé)
+
+Détecte automatiquement votre distribution et votre GPU, ajoute le dépôt CUDA NVIDIA si nécessaire, installe le bon paquet :
 
 ```bash
-# Forcer CPU (pas de détection GPU)
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
+```
+
+Pris en charge : **Ubuntu, Debian, Fedora, openSUSE, Arch Linux**. Les autres distributions basculent sur le tarball.
+
+**Options** (après `--`) :
+
+```bash
+# Forcer CPU (ignorer la détection GPU)
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --cpu
 
 # Forcer GPU (CUDA)
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
-# Installer une version spécifique
+# Épingler une version précise
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.0
 
-# Mode non-interactif (auto-détection GPU, pas de prompts)
+# Non interactif
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
 ```
 
----
-
 ### Installation manuelle
 
-Télécharger le paquet depuis les [Releases](../../releases).
+Téléchargez depuis [Releases](../../releases).
 
-**Ubuntu / Debian — GPU (NVIDIA) :**
-
-> ⚠ Le paquet GPU dépend de `libcudnn9-cuda-12`, disponible uniquement dans le dépôt APT NVIDIA CUDA. **Ajoutez-le d'abord**, sinon l'installation échouera.
-
-```bash
-# 1) Ajouter le dépôt NVIDIA CUDA (une fois pour toutes)
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
-sudo apt update
-
-# 2) Installer dictee (toutes les dépendances se résolvent automatiquement)
-sudo apt install ./dictee-cuda_1.3.0_amd64.deb
-```
-
-> Remplacer `ubuntu2404` par votre version (`ubuntu2204`, `ubuntu2504`, …) — voir [dépôts NVIDIA CUDA](https://developer.download.nvidia.com/compute/cuda/repos/).
-
-**Ubuntu / Debian — CPU :**
+**Ubuntu / Debian (CPU) :**
 
 ```bash
 sudo apt install ./dictee-cpu_1.3.0_amd64.deb
 ```
 
-**Fedora / openSUSE — GPU :**
+**Ubuntu / Debian (GPU) :** nécessite le dépôt APT CUDA NVIDIA — voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pour la configuration unique, puis :
 
 ```bash
-sudo dnf config-manager addrepo --from-repofile=https://developer.download.nvidia.com/compute/cuda/repos/fedora41/x86_64/cuda-fedora41.repo
-sudo dnf install ./dictee-cuda-1.3.0-1.x86_64.rpm
+sudo apt install ./dictee-cuda_1.3.0_amd64.deb
 ```
 
-**Fedora / openSUSE — CPU :**
+**Fedora / openSUSE (CPU) :**
 
 ```bash
 sudo dnf install ./dictee-cpu-1.3.0-1.x86_64.rpm
 ```
 
-**Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clone + `makepkg -si`.
+**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.0-1.x86_64.rpm`.
 
-**aarch64 (ARM64) :** pas de paquet pré-compilé — compilation depuis les sources. CUDA limité aux NVIDIA Jetson.
+**Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clonez + `makepkg -si`.
 
-**Autres distributions (.tar.gz) :**
+**aarch64 / Jetson :** pas de paquet pré-construit — compilez depuis les sources. CUDA limité aux cartes NVIDIA Jetson.
+
+**Autres distros (tarball) :**
 
 ```bash
 tar xzf dictee-1.3.0_amd64.tar.gz
@@ -129,247 +221,131 @@ cd dictee-1.3.0
 sudo ./install.sh
 ```
 
-**Depuis les sources :**
-
-```bash
-tar xzf dictee-1.3.0-source.tar.gz
-cd dictee-1.3.0-source
-cargo build --release --features sortformer
-sudo ./install.sh
-```
-
-> Instructions de compilation détaillées : [docs/building.md](docs/building.md).
+**Depuis les sources :** `cargo build --release --features sortformer` puis `sudo ./install.sh`. Voir [Developer-Guide](https://github.com/rcspam/dictee/wiki/Developer-Guide) pour la liste complète des features Cargo et les scripts de build.
 
 ---
 
 ## Configuration
 
-Au premier lancement, un assistant vous guide pour choisir le backend, télécharger le modèle et configurer les raccourcis clavier. Vous pouvez reconfigurer à tout moment depuis le menu application, le tray, le widget Plasma ou en lançant `dictee --setup` depuis le terminal :
-
-<p align="center">
-  <img src="assets/dictee-setup.png" alt="dictee --setup" width="720">
-  <img src="assets/postprocess.png" alt="Post-traitement dictionnaire" width="720">
-</p>
-
-### Backend ASR
-
-Quatre backends de transcription mutuellement exclusifs, commutables depuis `dictee --setup` :
-
-| Backend | Langues | Taille modèle | Latence (chaud) | Type |
-|---------|---------|----------------|-----------------|------|
-| **Parakeet-TDT** | 25 | ~2,5 Go | ~0,8s CPU · ~0,16s GPU | ONNX Runtime (Rust) |
-| **Canary-1B** | 4 (EN,ES,FR,DE) | ~5 Go | ~0,7s GPU | ONNX Runtime (Python, GPU recommandé) |
-| **faster-whisper** | 99 | ~500 Mo–3 Go | ~0,3s | CTranslate2 (Python) |
-| **Vosk** | 9+ | ~50 Mo | ~1,5s | Python (léger) |
-
-Chaque backend tourne en service systemd utilisateur — même protocole socket Unix, totalement transparent pour l'utilisateur.
-
-### Raccourcis clavier
-
-`dictee --setup` capture et enregistre les raccourcis automatiquement (KDE Plasma / GNOME). Deux raccourcis séparés : un pour la dictée, un pour la dictée + traduction.
-
-> Pour les WM tiling (Sway, i3, Hyprland…), l'outil indique la commande à ajouter manuellement à votre config.
-
-### Traduction
-
-| Backend | Confidentialité | Vitesse | Qualité | Installation |
-|---------|-----------------|---------|---------|--------------|
-| **Canary-1B** | 100% local | Intégrée | Meilleure | Inclus avec le backend ASR |
-| **LibreTranslate** | 100% local | 0,1–0,3s | Bonne | Guidé depuis le setup |
-| **ollama** | 100% local | 2,3–3,4s | Meilleure | Guidé depuis le setup |
-| **translate-shell** (Google) | En ligne | 0,2–0,7s | Bonne | Inclus |
-| **translate-shell** (Bing) | En ligne | 1,7–2,2s | Bonne | Inclus |
-
-### Changement rapide de backend
-
-Changez de backend ASR ou traduction instantanément depuis la ligne de commande, le menu du tray ou le widget Plasma :
+Au premier lancement, un **assistant de configuration** vous guide (backend, modèle, raccourcis). Reconfigurez à tout moment depuis le menu de l'application, l'icône systray, le widget Plasma, ou en lançant :
 
 ```bash
-# Changer de backend ASR
+dictee --setup
+```
+
+### Changement de backend (une ligne)
+
+```bash
+# Afficher les backends actuels
+dictee-switch-backend status
+
+# Changer l'ASR (parakeet · canary · whisper · vosk)
 dictee-switch-backend asr canary
 
-# Changer de backend traduction
+# Changer la traduction (canary · libretranslate · ollama · google · bing)
 dictee-switch-backend translate ollama
-
-# Voir les backends actifs
-dictee-switch-backend status
-# → ASR: parakeet (dictee.service, active)
-# → Translate: google (trans)
 ```
 
-Le tray et le widget Plasma incluent des sous-menus pour changer de backend sans ouvrir la configuration.
+Le systray et le plasmoid incluent des sous-menus de backend — pas besoin de terminal.
 
----
+Pour la configuration détaillée (tous les backends ASR, matrice de traduction, réglages plasmoid, raccourcis sur WM en mosaïque), voir le wiki :
 
-## Interfaces visuelles
-
-### Widget KDE Plasma
-
-Un widget natif KDE Plasma 6 avec visualisation audio en temps réel pendant l'enregistrement, état du daemon et contrôles rapides (dictée, traduction, annulation).
-
-<p align="center">
-  <img src="plasmoid_gh.png" alt="Popup du widget (enregistrement)" width="500">
-</p>
-
-<p align="center">
-  <img src="plasmoid_config.png" alt="Configuration du plasmoid" width="600">
-</p>
-
-Cinq styles d'animation avec enveloppe Hanning, sensibilité par style et dégradés de couleurs optionnels :
-
-| Barres | Onde | Pulsation | Points | Forme d'onde |
-|:------:|:----:|:---------:|:------:|:------------:|
-| ![Barres](plasmoid/assets/anim-bars.svg?v=2) | ![Onde](plasmoid/assets/anim-wave.svg) | ![Pulsation](plasmoid/assets/anim-pulse.svg) | ![Points](plasmoid/assets/anim-dots.svg) | ![Forme d'onde](plasmoid/assets/anim-waveform.svg) |
-
-Tous les styles supportent les dégradés de couleurs, une enveloppe Hanning ajustable (forme et fréquence centrale), une courbe de sensibilité par style, et des options de réglage fin (nombre de barres, espacement, rayon, vitesse…).
-
-```bash
-# Installer (inclus dans le .deb, ou manuellement)
-kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid
-```
-
-Clic droit sur le panneau → « Ajouter des composants graphiques… » → chercher « Dictée ».
-
-> Pour la documentation complète des réglages du widget, voir [docs/plasmoid.md](docs/plasmoid.md).
-
-### Icône de zone de notification (dictee-tray)
-
-`dictee-tray` est l'alternative au widget KDE Plasma pour les bureaux non-KDE (GNOME, Xfce, Sway, Hyprland…). Il affiche une icône dans la zone de notification qui reflète l'état en temps réel : idle, enregistrement (vert), transcription (bleu), daemon arrêté (rouge).
-
-<p align="center">
-  <img src="tray_gh.png" alt="Menu contextuel dictee-tray" width="400">
-</p>
-
-- Clic gauche → lancer une dictée
-- Clic molette → annuler
-- Menu contextuel → toutes les actions (dictée, traduction, daemon, configuration)
-
-```bash
-# Lancer manuellement
-dictee-tray
-
-# Activer au démarrage de la session
-systemctl --user enable --now dictee-tray
-```
-
-L'icône s'adapte automatiquement au thème clair/sombre.
-
-Le widget Plasma et le tray incluent tous deux :
-- **Sélecteurs de backend** — changer de backend ASR et traduction sans ouvrir `dictee-setup`
-- **Détection premier lancement** — propose de lancer l'assistant de configuration si pas encore configuré
-- **Détection d'installation** (widget Plasma) — affiche un message clair si dictee n'est pas installé
-
-### animation-speech
-
-[animation-speech](https://github.com/rcspam/animation-speech) est un projet autonome qui fournit une animation visuelle plein écran pendant l'enregistrement, avec annulation via la touche Echap. Il fonctionne sur tout compositeur Wayland supportant `wlr-layer-shell` (KDE Plasma, Sway, Hyprland…).
-
-<p align="center">
-  <a href="https://youtu.be/-fWZZEO7mCA">
-    <img src="assets/demo.gif" alt="démo animation-speech — cliquez pour voir sur YouTube" width="512">
-  </a>
-</p>
-
-```bash
-sudo dpkg -i animation-speech_1.2.0_all.deb
-```
-
-> Télécharger : [releases animation-speech](https://github.com/rcspam/animation-speech/releases)
-
-> **Note :** animation-speech n'est pas compatible GNOME (pas de support `wlr-layer-shell`). Les utilisateurs GNOME peuvent utiliser `dictee-tray` pour le retour visuel. Les contributions pour une extension GNOME Shell sont les bienvenues — voir le [code source du plasmoid](plasmoid/) comme architecture de référence.
-
-Sans aucune interface visuelle, `dictee` fonctionne normalement mais sans retour visuel pendant l'enregistrement.
+- [ASR-Backends](https://github.com/rcspam/dictee/wiki/ASR-Backends) · [Translation](https://github.com/rcspam/dictee/wiki/Translation)
+- [Plasmoid-Widget](https://github.com/rcspam/dictee/wiki/Plasmoid-Widget) · [Tray-Icon](https://github.com/rcspam/dictee/wiki/Tray-Icon)
+- [Keyboard-Shortcuts](https://github.com/rcspam/dictee/wiki/Keyboard-Shortcuts) (KDE/GNOME/Sway/i3/Hyprland)
 
 ---
 
 ## Utilisation
 
 ```bash
-# Dictée simple — transcrit et tape
+# Dictée simple — transcrire et taper
 dictee
 
-# Avec traduction (défaut : langue système → anglais)
+# Dictée + traduction (par défaut : langue système → anglais)
 dictee --translate
-dictee --translate --ollama    # traduction 100% locale via ollama
+dictee --translate --ollama            # 100 % local via Ollama
 
-# Changer les langues de traduction
-DICTEE_LANG_TARGET=es dictee --translate    # → espagnol
+# Changer la langue cible
+DICTEE_LANG_TARGET=es dictee --translate   # → espagnol
 
-# Annuler l'enregistrement en cours (via raccourci ou touche Echap)
+# Mode réunion (diarisation, jusqu'à 4 locuteurs)
+dictee --meeting
+
+# Annuler une dictée en cours
 dictee --cancel
 
-# Tester les règles de post-traitement
-dictee-test-rules                    # mode interactif
-dictee-test-rules --loop             # boucle de test continue
-dictee-test-rules --wav fichier.wav  # tester depuis un fichier audio
-
-# Changer de backend en ligne de commande
-dictee-switch-backend status         # voir les backends actifs
-dictee-switch-backend asr canary     # passer à Canary
-dictee-switch-backend translate bing # traduction vers Bing
+# Tester les règles de post-traitement en direct
+dictee-test-rules                       # interactif
+dictee-test-rules --loop                # boucle continue
+dictee-test-rules --wav fichier.wav     # depuis un fichier audio
 ```
+
+→ Référence complète des commandes : [Wiki CLI-Reference](https://github.com/rcspam/dictee/wiki/CLI-Reference)
 
 ---
 
-## Pour aller plus loin
+## Post-traitement
 
-### Post-traitement
+dictée exécute un **pipeline configurable de 12 étapes** après transcription et avant collage :
 
-dictee inclut un pipeline configurable de transformation du texte qui s'exécute après la transcription :
+1. Normalisation des variantes ASR
+2. Substitution du dictionnaire
+3. Conversion nombres & dates
+4. Fusion avec le tampon de continuation
+5. Règles regex (pré-LLM)
+6. Correction LLM *(optionnelle, position first)*
+7. Règles regex (post-LLM)
+8. Exceptions short-text (keepcaps)
+9. Mode de correspondance étendu
+10. Capitalisation finale
+11. Traduction *(optionnelle)*
+12. Collage / injection
 
-- **Règles personnalisées** — remplacement par regex (ex : commandes vocales « à la ligne », « virgule »)
-- **Dictionnaire** — corriger les erreurs récurrentes de l'ASR
-- **Continuation** — détecter les phrases incomplètes entre plusieurs dictées
-- **Élisions** — règles de grammaire française (ex : « le arbre » → « l'arbre »)
-- **Conversion des nombres** — nombres dictés en chiffres (ex : « vingt-trois » → « 23 »)
-- **Capitalisation automatique** — majuscule après ponctuation finale
-- **Correction LLM** — correction optionnelle grammaire/orthographe via Ollama avant les règles
+Configurez via `dictee --setup` → onglet **Post-traitement**, ou testez les règles en direct avec `dictee-test-rules`.
 
-Configuration depuis `dictee --setup` → onglet Post-traitement, ou testez les règles avec `dictee-test-rules`.
-
-<p align="center">
-  <img src="assets/postprocess.gif" alt="Post-traitement : dictionnaire, règles regex, continuation" width="900">
-</p>
-
-| Documentation | Description |
-|---------------|-------------|
-| [docs/cli-programs.md](docs/cli-programs.md) | Binaires CLI, utilisation directe, modèles ONNX |
-| [docs/building.md](docs/building.md) | Compilation depuis les sources, features Cargo, pipeline audio |
-| [docs/plasmoid.md](docs/plasmoid.md) | Réglages du widget, styles d'animation, configuration détaillée |
-| [Post-traitement](docs/postprocessing.md) | Pipeline de transformation du texte : règles, dictionnaire, élisions, text2num, capitalisation, correction LLM |
+→ Approfondissements : [Post-Processing-Overview](https://github.com/rcspam/dictee/wiki/Post-Processing-Overview) · [Rules-and-Dictionary](https://github.com/rcspam/dictee/wiki/Rules-and-Dictionary) · [LLM-Correction](https://github.com/rcspam/dictee/wiki/LLM-Correction) · [Numbers-Dates-Continuation](https://github.com/rcspam/dictee/wiki/Numbers-Dates-Continuation)
 
 ---
 
 ## Limitations connues
 
-- **Diarisation + transcription sur un GPU 8 Go** sont limitées à environ **10-15 min d'audio**. `transcribe-diarize` charge en une passe tout le mel-spectrogramme Parakeet-TDT (~185 Mo de VRAM par minute d'audio), ce qui sature un GPU grand public au-delà de ~15 min et provoque une erreur ONNX OOM (`Failed to allocate memory for requested buffer of size ...` sur `/pre_encode/conv/conv.0/Conv`).
-  Sortformer est un modèle streaming (chunks internes de 10 s) et n'a pas de limite de durée.
-  **Contournements** : découpez le fichier en parties ≤ 10 min et traitez-les en plusieurs passes, désactivez la diarisation, ou utilisez le backend CPU. Le découpage automatique est prévu pour la v1.4.
+- **Diarisation + Parakeet sur GPU 8 Go** plafonne à environ **10–15 min d'audio**. Parakeet-TDT charge le mel-spectrogramme complet en une passe (~185 Mo de VRAM par minute d'audio), ce qui déborde les GPU grand public au-delà d'environ 15 min. Contournements : découper le fichier, désactiver la diarisation, ou utiliser le backend CPU. L'auto-chunking est prévu en v1.4. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
+- **GPU AMD / Intel** non pris en charge actuellement — dictée bascule sur CPU.
+- **Pas de streaming temps réel** — Parakeet-TDT et Canary nécessitent l'utterance complète ; seul Nemotron (EN uniquement, via binaire Rust) streame nativement.
+
+Pour les rapports de bugs et contournements, voir [Troubleshooting](https://github.com/rcspam/dictee/wiki/Troubleshooting).
+
+---
 
 ## Feuille de route
 
-**v1.3.0 (actuelle) :** UI sidebar avec double diagramme pipeline (normal + traduction), post-traitement LLM (Ollama), buffer de continuation, conversion nombres, 682 tests automatisés, intégration CI
+**v1.3.0 (actuelle)** — Exceptions keepcaps short-text (7 langues), mode de correspondance étendu, purge des modèles LibreTranslate, corrections continuation + traduction, dictée des numéros de version, sûreté multi-utilisateur (suffixe UID sur les fichiers d'état), toggles cross-process du plasmoid (LLM / Short / Meeting), 682 tests postprocess + 148 tests pipeline, bannière theme-aware.
 
-- v1.2.0 : 4 backends ASR (+ Canary), pipeline de post-traitement, changement rapide de backend, assistant premier lancement, `dictee-test-rules`
-- (v1.4) **Hotword boosting** — biaiser le décodage ASR vers des noms et termes personnalisés sans ré-entraîner (beam search + Aho-Corasick en Rust)
-- Diarisation depuis le tray/plasmoid — sélection de fichier audio, transcription avec identification des locuteurs
-- CLI speech-to-text (pipe audio, récupérer le texte)
-- Coordinateur `dictee-ctl` — point d'entrée unique, élimine les race conditions
-- VAD (Voice Activity Detection) — dictée mains libres sans push-to-talk
-- Transcription streaming temps réel avec affichage en direct
-- Overlay visuel intégré (remplacer `animation-speech` externe)
-- Packaging AppImage / Flatpak
-- Applet COSMIC / GNOME (contributions bienvenues !)
+**v1.4+ (prévu)**
+- **Diarisation chunked** — traiter les fichiers > 15 min via `transcribe-diarize-batch` (prototype validé : 54 min en 122 s)
+- **Hotword boosting** — biaiser le décodage ASR vers des noms personnalisés (shallow fusion sur les logits TDT, Parakeet uniquement)
+- **Whisper translate** — traduction multi-cible via `task="translate"` (EN uniquement, hors ligne)
+- **Backend Moonshine** CPU
+- **CLI speech-to-text** — piper de l'audio, récupérer du texte
+- **VAD** — dictée mains libres sans push-to-talk
+- **Transcription streaming** avec affichage en direct
+- **Overlay intégré** — remplacer `animation-speech` externe
+- Packaging **AppImage / Flatpak**
+- Applets **COSMIC / GNOME Shell** (contributions bienvenues !)
+
+→ Historique complet : [Wiki Changelog](https://github.com/rcspam/dictee/wiki/Changelog)
+
+---
 
 ## Crédits
 
-Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes), qui fournit la bibliothèque Rust pour l'inférence des modèles NVIDIA Parakeet via ONNX Runtime. Le backend Canary-1B utilise [onnx-asr](https://github.com/istupakov/onnx-asr) par [Ivan Stupakov](https://github.com/istupakov) pour l'inférence ASR via ONNX.
+Le moteur de transcription s'appuie sur [parakeet-rs](https://github.com/altunenes/parakeet-rs) par [Enes Altun](https://github.com/altunenes) — bibliothèque Rust pour l'inférence NVIDIA Parakeet via ONNX Runtime. Le backend Canary est adapté de [onnx-asr](https://github.com/istupakov/onnx-asr) par [Ivan Stupakov](https://github.com/istupakov). Les modèles ONNX Parakeet et Canary sont fournis par NVIDIA (téléchargés séparément depuis HuggingFace, non redistribués par ce projet).
+
+La simulation de saisie clavier utilise [dotool](https://sr.ht/~geb/dotool/) par geb (GPL-3.0).
 
 ## Licence
 
 Ce projet est distribué sous licence **GPL-3.0-or-later** (voir [LICENSE](LICENSE)).
 
-Le code original de [parakeet-rs](https://github.com/altunenes/parakeet-rs) par Enes Altun est sous licence MIT (voir [LICENSE-MIT](LICENSE-MIT)).
-
-[dotool](https://sr.ht/~geb/dotool/) par geb est intégré pour la simulation de saisie clavier et est sous licence GPL-3.0.
-
-Les modèles ONNX Parakeet (téléchargés séparément depuis HuggingFace) sont fournis par NVIDIA. Ce projet ne distribue pas les modèles.
+Le code original [parakeet-rs](https://github.com/altunenes/parakeet-rs) par Enes Altun est sous licence MIT (voir [LICENSE-MIT](LICENSE-MIT)). [dotool](https://sr.ht/~geb/dotool/) est inclus sous GPL-3.0.
