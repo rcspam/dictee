@@ -123,9 +123,11 @@ A 12-step configurable pipeline transforms raw ASR output before it hits your cu
 Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer** model. Up to 4 speakers, ideal for meeting notes and interviews. Triggered via **Meeting mode** or `dictee --meeting`. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
 
 <p align="center">
-  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Speaker diarization output" width="480">
-  &nbsp;
-  <img src="assets/screenshots-vm/diarisation-2_1.3.png" alt="Speaker diarization — speaker labels" width="480">
+  <img src="assets/screenshots-vm/diarization-1_1.3.png" alt="Speaker diarization output" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/diarisation-2_1.3.png" alt="Speaker diarization — speaker labels" width="900">
 </p>
 
 ### 3 visual interfaces
