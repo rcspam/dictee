@@ -88,7 +88,7 @@ For detailed install paths (manual `.deb`/`.rpm`, GPU prerequisites, AUR, from s
 | Backend | Languages | Model size | Warm latency | Notes |
 |---------|-----------|------------|--------------|-------|
 | **Parakeet-TDT 0.6B v3** | 25 | ~2.5 GB | ~0.8s CPU · ~0.16s GPU | Default, native punctuation |
-| **Canary-1B v2** | 4 (EN/ES/FR/DE) | ~5 GB | ~0.7s GPU | Built-in translation |
+| **Canary-1B v2** | 25 | ~5 GB | ~0.7s GPU | Built-in translation (25 ↔ EN, 48 pairs) |
 | **faster-whisper** | 99 | ~500 MB–3 GB | ~0.3s | Wide language coverage |
 | **Vosk** | 20+ | ~50 MB | ~1.5s | Lightweight, strict offline |
 
