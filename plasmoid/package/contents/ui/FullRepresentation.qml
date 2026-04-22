@@ -15,6 +15,10 @@ RowLayout {
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
+    // Singleton flag from main.qml — when false, this widget is a duplicate
+    // instance; we overlay a passive banner and disable all actions to avoid
+    // racing with the active master instance.
+    property bool isActive: true
     // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
@@ -30,6 +34,79 @@ RowLayout {
         z: -1
         color: Kirigami.Theme.backgroundColor
         radius: Kirigami.Units.largeSpacing * 1.5
+    }
+
+    // Passive-instance overlay — covers the popup when this widget is not
+    // the active master. Swallows clicks, displays explanation + "Take over"
+    // escape hatch.
+    Rectangle {
+        parent: fullRep
+        anchors.fill: fullRep
+        anchors.margins: -Kirigami.Units.largeSpacing
+        z: 10000
+        visible: !fullRep.isActive
+        color: Kirigami.Theme.backgroundColor
+        opacity: 0.98
+        radius: Kirigami.Units.largeSpacing * 1.5
+
+        // Swallow any click/scroll — prevents interaction with the disabled
+        // widgets behind and keeps focus where the user can read the banner.
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {}
+            onWheel: function(wheel) { wheel.accepted = true }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Kirigami.Units.largeSpacing * 2
+            spacing: Kirigami.Units.largeSpacing
+
+            Kirigami.Icon {
+                source: "dialog-warning"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Kirigami.Units.iconSizes.huge
+                Layout.preferredHeight: Kirigami.Units.iconSizes.huge
+                color: Kirigami.Theme.neutralTextColor
+            }
+
+            PlasmaComponents.Label {
+                text: i18n("Another Dictée widget is active")
+                Layout.alignment: Qt.AlignHCenter
+                font.bold: true
+                font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
+                color: Kirigami.Theme.neutralTextColor
+            }
+
+            PlasmaComponents.Label {
+                text: i18n("Two instances on the same panel or desktop cause conflicts — duplicated daemon start/stop calls and races on the backend config. This widget is passive until the other is removed.")
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                color: Kirigami.Theme.textColor
+            }
+
+            PlasmaComponents.Label {
+                text: i18n("Right-click this widget in the panel, then choose \"Remove\" to clean up.")
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                color: Kirigami.Theme.disabledTextColor
+                font.italic: true
+            }
+
+            Item { Layout.fillHeight: true }
+
+            ThemedButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: i18n("Take over anyway")
+                icon.name: "edit-copy"
+                onClicked: fullRep.actionRequested("take-over")
+                PlasmaComponents.ToolTip {
+                    text: i18n("Force this widget to become active. The other instance will become passive at the next refresh (3 s).")
+                }
+            }
+        }
     }
 
     // Close any open ComboBox dropdown when the plasmoid window becomes

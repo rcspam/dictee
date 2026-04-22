@@ -207,6 +207,21 @@ PlasmoidItem {
                 if (stdout.length > 0) {
                     root.lastTranscription = stdout
                 }
+            } else if (source.indexOf("dictee-plasmoid.owner") !== -1) {
+                // Claim response: "active" if we own the lockfile, "passive:<nonce>"
+                // if another instance is currently master.
+                var trimmed = stdout.trim()
+                if (trimmed === "active") {
+                    if (!root.isActive) {
+                        _dbg("singleton: now ACTIVE (claimed ownership)")
+                        root.isActive = true
+                    }
+                } else if (trimmed.indexOf("passive:") === 0) {
+                    if (root.isActive) {
+                        _dbg("singleton: now PASSIVE (owner=" + trimmed.substr(8, 12) + "...)")
+                        root.isActive = false
+                    }
+                }
             }
             disconnectSource(source)
         }
@@ -365,6 +380,50 @@ PlasmoidItem {
     property bool debugEnabled: false
     function _dbg(msg) {
         if (debugEnabled) console.log("[dictee-plasmoid] " + msg)
+    }
+
+    // Multi-instance guard — several dictee widgets on the same panel/desktop
+    // race on dictee.conf writes and trigger duplicate daemon start/stop calls.
+    // A lockfile with a freshness heartbeat elects one instance as "active";
+    // others display a passive banner and disable their actions.
+    property string instanceNonce: Date.now().toString(36) + "-" + Math.random().toString(36).substr(2, 10)
+    property bool isActive: true
+    property int ownerSlot: 0
+
+    // Build a claim command. `force=true` is used by the "Take over anyway"
+    // button to override a running master. The #A/#B tag forces a fresh
+    // DataSource source name (engine caches by source string).
+    function _ownerClaimCmd(force) {
+        var tag = root.ownerSlot === 0 ? "#A" : "#B"
+        var forceFlag = force ? "1" : "0"
+        return "bash -c '" +
+            "f=${XDG_RUNTIME_DIR:-/tmp}/dictee-plasmoid.owner; " +
+            "nonce=\"" + root.instanceNonce + "\"; " +
+            "force=" + forceFlag + "; " +
+            "now=$(date +%s); " +
+            "existing=\"\"; existing_ts=0; " +
+            "if [ -f \"$f\" ]; then " +
+            "  IFS=\"|\" read -r existing existing_ts < \"$f\" 2>/dev/null || true; " +
+            "fi; " +
+            "age=$((now - ${existing_ts:-0})); " +
+            "if [ \"$force\" = \"1\" ] || [ -z \"$existing\" ] || [ \"$existing\" = \"$nonce\" ] || [ \"$age\" -gt 6 ]; then " +
+            "  printf \"%s|%s\" \"$nonce\" \"$now\" > \"${f}.tmp\" && mv -f \"${f}.tmp\" \"$f\"; " +
+            "  echo active; " +
+            "else " +
+            "  echo passive:\"$existing\"; " +
+            "fi' " + tag
+    }
+
+    Timer {
+        id: ownerTimer
+        interval: 3000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            root.ownerSlot = 1 - root.ownerSlot
+            executable.run(root._ownerClaimCmd(false))
+        }
     }
 
     function parseState(output) {
@@ -533,6 +592,7 @@ PlasmoidItem {
         audioLevel: root.audioLevel
         audioBands: root.audioBands
         sensitivity: root.activeSensitivity
+        isActive: root.isActive
     }
 
     fullRepresentation: FullRepresentation {
@@ -541,6 +601,7 @@ PlasmoidItem {
         dicteeConfigured: root.dicteeConfigured
         barColor: root.barColor
         lastTranscription: root.lastTranscription
+        isActive: root.isActive
         onActionRequested: function(action) {
             handleAction(action)
         }
@@ -595,6 +656,10 @@ PlasmoidItem {
             } else {
                 executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-setup --wizard")
             }
+            break
+        case "take-over":
+            root.ownerSlot = 1 - root.ownerSlot
+            executable.run(root._ownerClaimCmd(true))
             break
         }
     }
