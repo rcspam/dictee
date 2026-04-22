@@ -63,6 +63,31 @@ def _dbg(msg):
     with open(_DBG_LOG, "a") as f:
         f.write(f"{ts} [dictee-tray] {msg}\n")
 
+# === Single-instance guard ===
+# Two tray instances watching the same state file + writing the same conf
+# create races (auto-uncheck diarize toggles colliding, etc.). A lockfile
+# ensures only one process owns the tray per user session. The fd is kept
+# alive for the lifetime of the process — releasing it would drop the lock.
+_SINGLETON_FD = None
+
+def _acquire_singleton_lock():
+    import fcntl
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    lock_path = os.path.join(runtime_dir, f"dictee-tray-{os.getuid()}.lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        return fd
+    except (BlockingIOError, OSError):
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        return None
+
+
 # === Configuration ===
 
 STATE_FILE = "/dev/shm/.dictee_state"
@@ -1231,6 +1256,14 @@ class DicteeTrayQt:
 
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    global _SINGLETON_FD
+    _SINGLETON_FD = _acquire_singleton_lock()
+    if _SINGLETON_FD is None:
+        _dbg("another dictee-tray instance is already running — exiting")
+        print("dictee-tray: another instance is already running — exiting",
+              file=sys.stderr)
+        sys.exit(0)
 
     # First-run guard: prompt user to run setup wizard if not configured yet
     if not os.path.exists(CONF_PATH):
