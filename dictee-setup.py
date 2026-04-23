@@ -8648,8 +8648,9 @@ class DicteeSetupDialog(QDialog):
         if not ollama_is_installed():
             self.lbl_llm_ollama_status.setText(
                 '<span style="color: #c0392b;">⚠ ' +
-                _("Ollama is not installed") +
-                ' — <a href="https://ollama.com">ollama.com</a></span>')
+                _("Ollama is not installed") + '</span><br>'
+                '<code>curl -fsSL https://ollama.com/install.sh | sh</code><br>'
+                '<small><a href="https://ollama.com">ollama.com</a></small>')
             self.lbl_llm_ollama_status.setOpenExternalLinks(True)
             return
         if not ollama_is_running():
@@ -13063,6 +13064,7 @@ class DicteeSetupDialog(QDialog):
             self.lbl_ollama_status.setText(
                 '<span style="color: red;">⚠ ' +
                 _("ollama is not installed") + '</span><br>'
+                '<code>curl -fsSL https://ollama.com/install.sh | sh</code><br>'
                 '<small><a href="https://ollama.com">https://ollama.com</a></small>'
             )
             self.lbl_ollama_status.setOpenExternalLinks(True)
