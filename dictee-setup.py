@@ -4132,6 +4132,13 @@ class DicteeSetupDialog(QDialog):
             # + pipeline header remain visible).
             on_pp_page = (idx is not None and int(idx) == 8)
             has_sub = pp_tab is not None
+            # Auto-reveal the pipeline SVG accordion when landing on the PP
+            # page from any other section. Don't re-open if the user
+            # collapsed it while navigating between PP sub-menus.
+            was_on_pp = getattr(self, "_prev_on_pp", False)
+            if on_pp_page and not was_on_pp and hasattr(self, "_pipeline_toggle"):
+                self._pipeline_toggle.setChecked(True)
+            self._prev_on_pp = on_pp_page
             # Track overview state so the test panel can disable solo
             # mode whenever we are on the PP root page.
             self._pp_overview_mode = bool(on_pp_page and not has_sub)
@@ -7355,6 +7362,8 @@ class DicteeSetupDialog(QDialog):
             toggle_btn.setArrowType(
                 Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
         toggle_btn.toggled.connect(_toggle_accordion)
+        # Exposed so sidebar navigation can auto-open on entry to the PP page.
+        self._pipeline_toggle = toggle_btn
 
         return container
 
@@ -8495,6 +8504,23 @@ class DicteeSetupDialog(QDialog):
         self.lbl_llm_ollama_status.setWordWrap(True)
         llm_flay.addRow("", self.lbl_llm_ollama_status)
 
+        # Download button + progress (hidden by default, shown when the
+        # selected model is not yet pulled — mirrors the translation page).
+        self.btn_llm_pull = QPushButton(_("Download"))
+        self.btn_llm_pull.setVisible(False)
+        self.btn_llm_pull.clicked.connect(self._on_llm_ollama_pull)
+        self.progress_llm_pull = QProgressBar()
+        self.progress_llm_pull.setRange(0, 0)
+        self.progress_llm_pull.setVisible(False)
+        _llm_pull_row = QHBoxLayout()
+        _llm_pull_row.setContentsMargins(0, 0, 0, 0)
+        _llm_pull_row.addWidget(self.btn_llm_pull)
+        _llm_pull_row.addWidget(self.progress_llm_pull, 1)
+        _llm_pull_row_w = QWidget()
+        _llm_pull_row_w.setLayout(_llm_pull_row)
+        llm_flay.addRow("", _llm_pull_row_w)
+        self._llm_pull_thread = None
+
         # Populate from installed Ollama + recommended (not-installed suffix)
         saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
         self._populate_llm_model_combo(preferred_text=saved_model)
@@ -8641,6 +8667,9 @@ class DicteeSetupDialog(QDialog):
         """Update the status label below the LLM model combo."""
         if not hasattr(self, 'lbl_llm_ollama_status'):
             return
+        # Button is shown only when the selected model is pullable.
+        if hasattr(self, 'btn_llm_pull'):
+            self.btn_llm_pull.setVisible(False)
         model = self._current_llm_model()
         if not model:
             self.lbl_llm_ollama_status.setText("")
@@ -8668,6 +8697,36 @@ class DicteeSetupDialog(QDialog):
                 '<span style="color: #d68910;">⚠ ' +
                 _("Model {model} not installed — run").format(model=model) +
                 f' <code>ollama pull {model}</code></span>')
+            if hasattr(self, 'btn_llm_pull'):
+                self.btn_llm_pull.setText(_("Download"))
+                self.btn_llm_pull.setEnabled(True)
+                self.btn_llm_pull.setVisible(True)
+
+    def _on_llm_ollama_pull(self):
+        model = self._current_llm_model()
+        if not model:
+            return
+        _dbg_setup(f"_on_llm_ollama_pull: model={model}")
+        self.btn_llm_pull.setEnabled(False)
+        self.progress_llm_pull.setVisible(True)
+
+        self._llm_pull_thread = OllamaPullThread(model)
+        self._llm_pull_thread.progress.connect(
+            lambda text: self.btn_llm_pull.setText(text))
+        self._llm_pull_thread.done.connect(self._on_llm_ollama_pull_finished)
+        self._llm_pull_thread.start()
+
+    def _on_llm_ollama_pull_finished(self, success, message):
+        _dbg_setup(f"_on_llm_ollama_pull_finished: success={success}, msg={message!r}")
+        self.progress_llm_pull.setVisible(False)
+        if success:
+            self._populate_llm_model_combo(
+                preferred_text=self._current_llm_model())
+            self._check_llm_ollama_status()
+        else:
+            self.btn_llm_pull.setText(_("Download"))
+            self.btn_llm_pull.setEnabled(True)
+            QMessageBox.critical(self, _("Download error"), message)
 
     def _on_llm_preset_changed(self, preset_data):
         """Update system prompt QTextEdit when preset combo changes."""
