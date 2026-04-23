@@ -474,16 +474,16 @@ msgid "Voice dictation"
 msgstr "Sprachdiktat"
 
 #: dictee-setup.py:800
-msgid "translategemma 4B (3.3 GB, 55 languages, 8 GB RAM)"
-msgstr "translategemma 4B (3,3 GB, 55 Sprachen, 8 GB RAM)"
+msgid "translategemma 4B (3.3 GB, 55 languages)"
+msgstr "translategemma 4B (3,3 GB, 55 Sprachen)"
 
 #: dictee-setup.py:801
-msgid "translategemma 12B (8 GB, best quality, 16 GB RAM)"
-msgstr "translategemma 12B (8 GB, beste Qualitaet, 16 GB RAM)"
+msgid "translategemma 12B (8 GB, best quality)"
+msgstr "translategemma 12B (8 GB, beste Qualitaet)"
 
 #: dictee-setup.py:802
-msgid "aya 8B (5 GB, Cohere, 23 languages, 16 GB RAM)"
-msgstr "aya 8B (5 GB, Cohere, 23 Sprachen, 16 GB RAM)"
+msgid "aya 8B (5 GB, Cohere, 23 languages)"
+msgstr "aya 8B (5 GB, Cohere, 23 Sprachen)"
 
 #: dictee-setup.py:890
 msgid ""

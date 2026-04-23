@@ -467,16 +467,16 @@ msgid "Voice dictation"
 msgstr "Голосовий диктант"
 
 #: dictee-setup.py:800
-msgid "translategemma 4B (3.3 GB, 55 languages, 8 GB RAM)"
-msgstr "translategemma 4B (3,3 ГБ, 55 мов, 8 ГБ RAM)"
+msgid "translategemma 4B (3.3 GB, 55 languages)"
+msgstr "translategemma 4B (3,3 ГБ, 55 мов)"
 
 #: dictee-setup.py:801
-msgid "translategemma 12B (8 GB, best quality, 16 GB RAM)"
-msgstr "translategemma 12B (8 ГБ, найкраща якість, 16 ГБ RAM)"
+msgid "translategemma 12B (8 GB, best quality)"
+msgstr "translategemma 12B (8 ГБ, найкраща якість)"
 
 #: dictee-setup.py:802
-msgid "aya 8B (5 GB, Cohere, 23 languages, 16 GB RAM)"
-msgstr "aya 8B (5 ГБ, Cohere, 23 мови, 16 ГБ RAM)"
+msgid "aya 8B (5 GB, Cohere, 23 languages)"
+msgstr "aya 8B (5 ГБ, Cohere, 23 мови)"
 
 #: dictee-setup.py:890
 msgid ""

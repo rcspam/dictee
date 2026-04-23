@@ -839,9 +839,9 @@ def apply_gnome_shortcut(accel_gnome):
 
 # (model_id, label, min_ram_gb, min_vram_gb)
 OLLAMA_MODELS = [
-    ("translategemma", _("translategemma 4B (3.3 GB, 55 languages, 8 GB RAM)"), 8, 4),
-    ("translategemma:12b", _("translategemma 12B (8 GB, best quality, 16 GB RAM)"), 16, 8),
-    ("aya:8b", _("aya 8B (5 GB, Cohere, 23 languages, 16 GB RAM)"), 16, 8),
+    ("translategemma", _("translategemma 4B (3.3 GB, 55 languages)"), 8, 4),
+    ("translategemma:12b", _("translategemma 12B (8 GB, best quality)"), 16, 8),
+    ("aya:8b", _("aya 8B (5 GB, Cohere, 23 languages)"), 16, 8),
 ]
 
 
