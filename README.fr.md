@@ -23,6 +23,8 @@
   <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
+> 📚 **Nouveau** : le [**wiki dictée**](https://github.com/rcspam/dictee/wiki/fr-Home) complet est désormais en ligne — 24 pages couvrant l'installation, la configuration, les 4 backends ASR (avec deep-dives Parakeet-TDT et Canary-1B), le post-traitement, la diarisation, le dépannage et le guide développeur. Disponible en 🇫🇷 français et 🇬🇧 anglais.
+
 <p align="center">
   <a href="#quest-ce-que-dictée-">Qu'est-ce que dictée ?</a> &bull;
   <a href="#démarrage-rapide">Démarrage rapide</a> &bull;

@@ -23,6 +23,8 @@
   <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
+> 📚 **New**: the full [**dictee wiki**](https://github.com/rcspam/dictee/wiki) is now online — 24 pages covering installation, configuration, all 4 ASR backends (with Parakeet-TDT and Canary-1B deep-dives), post-processing, diarization, troubleshooting, and developer guide. Available in 🇬🇧 English and 🇫🇷 French.
+
 <p align="center">
   <a href="#what-is-dictee">What is dictee?</a> &bull;
   <a href="#quick-start">Quick start</a> &bull;
