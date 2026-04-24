@@ -1,48 +1,71 @@
+# ──────────────────────────────────────────────────────────────────
+# Dev workspace (all personal/scratch files go here — single ignore)
+# ──────────────────────────────────────────────────────────────────
+.dev/
+
+# ──────────────────────────────────────────────────────────────────
+# Claude Code config (must stay at root for Claude Code to read)
+# ──────────────────────────────────────────────────────────────────
+CLAUDE.md
+docs/CLAUDE.md
+.claude/
+.superpowers/
+
+# ──────────────────────────────────────────────────────────────────
+# Build artefacts
+# ──────────────────────────────────────────────────────────────────
 /target
 __pycache__/
-DS_Store
-*.DS_Store
-.idea
-.vscode
-*.log
-*.onnx
-*.json
-*.onnx_data
-*.wav
-*.txt
-*.onnx.data
-*.model
 *.deb
-tdt
+*.rpm
+*.tar.gz
+*.plasmoid
 pkg/dictee/usr/bin/transcribe
 pkg/dictee/usr/bin/transcribe-daemon
 pkg/dictee/usr/bin/transcribe-client
 pkg/dictee/usr/bin/transcribe-diarize
 pkg/dictee/usr/bin/transcribe-stream-diarize
-CLAUDE.md
-DOC.md
-ETAT_PROJET.md
-PROMOTION.md
-*.tar.gz
+
+# ──────────────────────────────────────────────────────────────────
+# Models & datasets (bundled at install time, not tracked)
+# ──────────────────────────────────────────────────────────────────
+tdt
+tdt/
+models/
+LibriSpeech/
+librivox/
+onnxruntime-linux-x64-gpu-*/
+onnxruntime-linux-x64-gpu-*.tgz
+*.onnx
+*.onnx_data
+*.onnx.data
+*.model
+
+# ──────────────────────────────────────────────────────────────────
+# Editor & OS
+# ──────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+*.DS_Store
+*.log
+*.po~
 .worktrees/
 .superpowers/
-*.po~
+__pycache__
 
-# Artefacts de build
-*.rpm
-*.plasmoid
-
-# Fichiers internes
-docs/superpowers/
-docs/plan-*.md
-assets/dictee.png
-gh-stats.sh
+# ──────────────────────────────────────────────────────────────────
+# Test scratch (WER / benchmark scripts — not shipped)
+# ──────────────────────────────────────────────────────────────────
 test-wer*.py
-discord-*.md
-reddit-*.md
-dictee-showcase.mp4
-reco-gpt-oss.md
+tests/test-wer*.py
 
-research-*.md
-docs/analyse-*.md
-librivox/
+# ──────────────────────────────────────────────────────────────────
+# Random scratch (Screenshots from Spectacle, etc.)
+# ──────────────────────────────────────────────────────────────────
+Screenshot*.png
+plasmoid_icon.svg
+messages.mo
+firebase-debug.log
+graphify-out/
+"https:*"
