@@ -303,6 +303,63 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 }
 
+# Build standalone dictee-plasmoid .deb (Architecture: all, depends on dictee).
+# Rebuild guarantees pkg/dictee-plasmoid/ is refreshed from source on every run
+# so the .deb content always matches the just-built dictee.plasmoid.
+build_plasmoid_deb() {
+    echo ""
+    echo "=== [PLASMOID] Building standalone dictee-plasmoid .deb ==="
+    local PP="pkg/dictee-plasmoid"
+
+    if [ ! -f "dictee.plasmoid" ]; then
+        echo "ERROR: dictee.plasmoid not built (build_plasmoid must run first)." >&2
+        exit 1
+    fi
+
+    # Refresh the raw .plasmoid file shipped under /usr/share/dictee/
+    mkdir -p "$PP/usr/share/dictee"
+    cp dictee.plasmoid "$PP/usr/share/dictee/dictee.plasmoid"
+
+    # Refresh the extracted plasmoid tree under /usr/share/plasma/plasmoids/
+    local PLASMA_DIR="$PP/usr/share/plasma/plasmoids/com.github.rcspam.dictee"
+    rm -rf "$PLASMA_DIR"
+    mkdir -p "$PLASMA_DIR"
+    unzip -q -o dictee.plasmoid -d "$PLASMA_DIR"
+
+    # Refresh locale .mo files from plasmoid source (system-wide install path)
+    for _lang in fr de es it pt uk; do
+        local _mo="plasmoid/package/contents/locale/$_lang/LC_MESSAGES/plasma_applet_com.github.rcspam.dictee.mo"
+        if [ -f "$_mo" ]; then
+            mkdir -p "$PP/usr/share/locale/$_lang/LC_MESSAGES"
+            cp "$_mo" "$PP/usr/share/locale/$_lang/LC_MESSAGES/"
+        fi
+    done
+
+    # Regenerate control file with current $VERSION
+    cat > "$PP/DEBIAN/control" << EOF
+Package: dictee-plasmoid
+Version: ${VERSION}
+Section: kde
+Priority: optional
+Architecture: all
+Depends: dictee
+Recommends: python3-numpy, pulseaudio-utils
+Maintainer: rcspam <rcspams@gmail.com>
+Description: KDE Plasma 6 widget for dictee voice dictation
+ A native KDE Plasma 6 widget for dictee voice dictation.
+ Displays real-time audio visualization during recording, daemon status,
+ and provides quick controls (dictate, translate, meeting).
+ .
+ Five animation styles with configurable sensitivity and color gradients.
+EOF
+
+    chmod 755 "$PP/DEBIAN/postinst" "$PP/DEBIAN/postrm" 2>/dev/null || true
+
+    dpkg-deb --build "$PP" "dictee-plasmoid_${VERSION}_all.deb"
+    echo "Built: dictee-plasmoid_${VERSION}_all.deb"
+    echo ""
+}
+
 # Build tar.gz (non-Debian)
 build_tarball() {
     echo ""
@@ -410,10 +467,30 @@ build_tarball() {
     echo "Built: dictee-${VERSION}_amd64.tar.gz"
 }
 
-# Build both versions + tarball
+# Build all Debian variants + tarball
 build_cuda
 build_cpu
+build_plasmoid_deb
 build_tarball
+
+# Safeguard: the build MUST produce cuda + cpu + plasmoid .deb. If any is
+# missing, someone removed or broke a build step — fail loud instead of
+# shipping an incomplete release. Do not remove this check.
+_expected_debs=(
+    "dictee-cuda_${VERSION}_amd64.deb"
+    "dictee-cpu_${VERSION}_amd64.deb"
+    "dictee-plasmoid_${VERSION}_all.deb"
+)
+_missing=""
+for _d in "${_expected_debs[@]}"; do
+    [ -f "$_d" ] || _missing="$_missing $_d"
+done
+if [ -n "$_missing" ]; then
+    echo "" >&2
+    echo "ERROR: expected .deb packages missing:$_missing" >&2
+    echo "Every build must produce cuda + cpu + plasmoid .deb." >&2
+    exit 1
+fi
 
 echo ""
 echo "========================================"
@@ -421,12 +498,14 @@ echo "  Build complete!"
 echo "========================================"
 echo ""
 echo "Packages created:"
-echo "  - dictee-cuda_${VERSION}_amd64.deb  (Debian/Ubuntu, NVIDIA GPU)"
-echo "  - dictee-cpu_${VERSION}_amd64.deb   (Debian/Ubuntu, CPU)"
-echo "  - dictee-${VERSION}_amd64.tar.gz    (Autres distributions)"
+echo "  - dictee-cuda_${VERSION}_amd64.deb     (Debian/Ubuntu, NVIDIA GPU)"
+echo "  - dictee-cpu_${VERSION}_amd64.deb      (Debian/Ubuntu, CPU)"
+echo "  - dictee-plasmoid_${VERSION}_all.deb   (Debian/Ubuntu, plasmoid only)"
+echo "  - dictee-${VERSION}_amd64.tar.gz       (Autres distributions)"
 echo ""
 echo "Install (.deb):"
 echo "  sudo dpkg -i dictee-{cuda,cpu}_${VERSION}_amd64.deb"
+echo "  sudo dpkg -i dictee-plasmoid_${VERSION}_all.deb  # plasmoid only"
 echo "  sudo apt-get install -f  # if dependencies missing"
 echo ""
 echo "Install (.tar.gz):"
@@ -435,5 +514,5 @@ echo "  cd dictee-${VERSION}"
 echo "  sudo ./install.sh"
 echo ""
 echo "Uninstall:"
-echo "  sudo dpkg -r dictee-{cuda,cpu}"
+echo "  sudo dpkg -r dictee-{cuda,cpu,plasmoid}"
 echo "  sudo ./uninstall.sh  # tar.gz"
