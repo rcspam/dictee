@@ -7,6 +7,10 @@ VERSION="1.3.0~rc2"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
+# Final artefacts go in .dev/dist/ (gitignored), keeping the repo root clean.
+DIST_DIR=".dev/dist"
+mkdir -p "$DIST_DIR"
+
 echo "========================================"
 echo "  Building dictee RPM $VERSION"
 echo "========================================"
@@ -461,8 +465,8 @@ EOF
              --buildroot "$buildroot" \
              -bb "$RPMBUILD_DIR/SPECS/dictee-cuda.spec"
 
-    cp "$RPMBUILD_DIR/RPMS/x86_64/dictee-cuda-$VERSION-1.x86_64.rpm" .
-    echo "Built: dictee-cuda-$VERSION-1.x86_64.rpm"
+    cp "$RPMBUILD_DIR/RPMS/x86_64/dictee-cuda-$VERSION-1.x86_64.rpm" "$DIST_DIR/"
+    echo "Built: $DIST_DIR/dictee-cuda-$VERSION-1.x86_64.rpm"
 }
 
 # ============================================================
@@ -650,8 +654,8 @@ EOF
              --buildroot "$buildroot" \
              -bb "$RPMBUILD_DIR/SPECS/dictee-cpu.spec"
 
-    cp "$RPMBUILD_DIR/RPMS/x86_64/dictee-cpu-$VERSION-1.x86_64.rpm" .
-    echo "Built: dictee-cpu-$VERSION-1.x86_64.rpm"
+    cp "$RPMBUILD_DIR/RPMS/x86_64/dictee-cpu-$VERSION-1.x86_64.rpm" "$DIST_DIR/"
+    echo "Built: $DIST_DIR/dictee-cpu-$VERSION-1.x86_64.rpm"
 }
 
 # ============================================================
@@ -715,8 +719,8 @@ EOF
              --buildroot "$buildroot" \
              -bb "$RPMBUILD_DIR/SPECS/dictee-plasmoid.spec"
 
-    cp "$RPMBUILD_DIR/RPMS/noarch/dictee-plasmoid-$VERSION-1.noarch.rpm" .
-    echo "Built: dictee-plasmoid-$VERSION-1.noarch.rpm"
+    cp "$RPMBUILD_DIR/RPMS/noarch/dictee-plasmoid-$VERSION-1.noarch.rpm" "$DIST_DIR/"
+    echo "Built: $DIST_DIR/dictee-plasmoid-$VERSION-1.noarch.rpm"
 }
 
 # ============================================================
@@ -733,9 +737,9 @@ build_source_tarball() {
     # Exporter depuis git
     git archive --format=tar --prefix="$SRC_DIR/" HEAD | tar xf -
 
-    tar czf "dictee-$VERSION-source.tar.gz" "$SRC_DIR"
+    tar czf "$DIST_DIR/dictee-$VERSION-source.tar.gz" "$SRC_DIR"
     rm -rf "$SRC_DIR"
-    echo "Built: dictee-$VERSION-source.tar.gz"
+    echo "Built: $DIST_DIR/dictee-$VERSION-source.tar.gz"
 }
 
 # ============================================================
@@ -752,16 +756,16 @@ echo "========================================"
 echo "  RPM Build complete!"
 echo "========================================"
 echo ""
-echo "Packages created:"
+echo "Packages created in $DIST_DIR/ :"
 echo "  - dictee-cuda-$VERSION-1.x86_64.rpm     (Fedora/openSUSE, NVIDIA GPU)"
 echo "  - dictee-cpu-$VERSION-1.x86_64.rpm      (Fedora/openSUSE, CPU)"
 echo "  - dictee-plasmoid-$VERSION-1.noarch.rpm  (KDE Plasma widget)"
 echo "  - dictee-$VERSION-source.tar.gz          (Source archive)"
 echo ""
 echo "Install (Fedora):"
-echo "  sudo dnf install ./dictee-{cuda,cpu}-$VERSION-1.x86_64.rpm"
-echo "  sudo dnf install ./dictee-plasmoid-$VERSION-1.noarch.rpm"
+echo "  sudo dnf install $DIST_DIR/dictee-{cuda,cpu}-$VERSION-1.x86_64.rpm"
+echo "  sudo dnf install $DIST_DIR/dictee-plasmoid-$VERSION-1.noarch.rpm"
 echo ""
 echo "Install (openSUSE):"
-echo "  sudo zypper install ./dictee-{cuda,cpu}-$VERSION-1.x86_64.rpm"
-echo "  sudo zypper install ./dictee-plasmoid-$VERSION-1.noarch.rpm"
+echo "  sudo zypper install $DIST_DIR/dictee-{cuda,cpu}-$VERSION-1.x86_64.rpm"
+echo "  sudo zypper install $DIST_DIR/dictee-plasmoid-$VERSION-1.noarch.rpm"

@@ -6,6 +6,10 @@ cd "$(dirname "$0")"
 VERSION="1.3.0~rc2"
 PKG_DIR="pkg/dictee"
 
+# Final artefacts go in .dev/dist/ (gitignored), keeping the repo root clean.
+DIST_DIR=".dev/dist"
+mkdir -p "$DIST_DIR"
+
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
 DOTOOL_DIR="/tmp/dotool-build"
 
@@ -117,9 +121,9 @@ build_plasmoid() {
     if [ -x plasmoid/gen-defaults.py ]; then
         python3 plasmoid/gen-defaults.py
     fi
-    (cd "$PLASMOID_SRC" && zip -r "../../dictee.plasmoid" metadata.json contents/)
+    (cd "$PLASMOID_SRC" && zip -r "../../$DIST_DIR/dictee.plasmoid" metadata.json contents/)
     mkdir -p "$PKG_DIR/usr/share/dictee"
-    cp dictee.plasmoid "$PKG_DIR/usr/share/dictee/"
+    cp "$DIST_DIR/dictee.plasmoid" "$PKG_DIR/usr/share/dictee/"
     echo "Plasmoid built and staged"
     echo ""
 }
@@ -232,7 +236,7 @@ EOF
     gzip -9 -f "$PKG_DIR/usr/share/man/man1/"*.1 2>/dev/null || true
     gzip -9 -f "$PKG_DIR/usr/share/man/fr/man1/"*.1 2>/dev/null || true
 
-    dpkg-deb --build "$PKG_DIR" "dictee-cuda_${VERSION}_amd64.deb"
+    dpkg-deb --build "$PKG_DIR" "$DIST_DIR/dictee-cuda_${VERSION}_amd64.deb"
 
     # Decompress for next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
@@ -245,7 +249,7 @@ EOF
     rm -f "$PKG_DIR/usr/lib/dictee/"*.so \
           "$PKG_DIR/usr/lib/dictee/"*.so.* \
           "$PKG_DIR/etc/ld.so.conf.d/dictee.conf"
-    echo "Built: dictee-cuda_${VERSION}_amd64.deb"
+    echo "Built: $DIST_DIR/dictee-cuda_${VERSION}_amd64.deb"
 }
 
 # Build CPU version
@@ -295,8 +299,8 @@ EOF
     gzip -9 -f "$PKG_DIR/usr/share/man/man1/"*.1 2>/dev/null || true
     gzip -9 -f "$PKG_DIR/usr/share/man/fr/man1/"*.1 2>/dev/null || true
 
-    dpkg-deb --build "$PKG_DIR" "dictee-cpu_${VERSION}_amd64.deb"
-    echo "Built: dictee-cpu_${VERSION}_amd64.deb"
+    dpkg-deb --build "$PKG_DIR" "$DIST_DIR/dictee-cpu_${VERSION}_amd64.deb"
+    echo "Built: $DIST_DIR/dictee-cpu_${VERSION}_amd64.deb"
 
     # Decompress for potential next build
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
@@ -311,20 +315,20 @@ build_plasmoid_deb() {
     echo "=== [PLASMOID] Building standalone dictee-plasmoid .deb ==="
     local PP="pkg/dictee-plasmoid"
 
-    if [ ! -f "dictee.plasmoid" ]; then
-        echo "ERROR: dictee.plasmoid not built (build_plasmoid must run first)." >&2
+    if [ ! -f "$DIST_DIR/dictee.plasmoid" ]; then
+        echo "ERROR: $DIST_DIR/dictee.plasmoid not built (build_plasmoid must run first)." >&2
         exit 1
     fi
 
     # Refresh the raw .plasmoid file shipped under /usr/share/dictee/
     mkdir -p "$PP/usr/share/dictee"
-    cp dictee.plasmoid "$PP/usr/share/dictee/dictee.plasmoid"
+    cp "$DIST_DIR/dictee.plasmoid" "$PP/usr/share/dictee/dictee.plasmoid"
 
     # Refresh the extracted plasmoid tree under /usr/share/plasma/plasmoids/
     local PLASMA_DIR="$PP/usr/share/plasma/plasmoids/com.github.rcspam.dictee"
     rm -rf "$PLASMA_DIR"
     mkdir -p "$PLASMA_DIR"
-    unzip -q -o dictee.plasmoid -d "$PLASMA_DIR"
+    unzip -q -o "$DIST_DIR/dictee.plasmoid" -d "$PLASMA_DIR"
 
     # Refresh locale .mo files from plasmoid source (system-wide install path)
     for _lang in fr de es it pt uk; do
@@ -355,8 +359,8 @@ EOF
 
     chmod 755 "$PP/DEBIAN/postinst" "$PP/DEBIAN/postrm" 2>/dev/null || true
 
-    dpkg-deb --build "$PP" "dictee-plasmoid_${VERSION}_all.deb"
-    echo "Built: dictee-plasmoid_${VERSION}_all.deb"
+    dpkg-deb --build "$PP" "$DIST_DIR/dictee-plasmoid_${VERSION}_all.deb"
+    echo "Built: $DIST_DIR/dictee-plasmoid_${VERSION}_all.deb"
     echo ""
 }
 
@@ -462,9 +466,9 @@ build_tarball() {
     cp uninstall.sh "$TARBALL_DIR/"
     chmod 755 "$TARBALL_DIR/install.sh" "$TARBALL_DIR/uninstall.sh"
 
-    tar czf "dictee-${VERSION}_amd64.tar.gz" "$TARBALL_DIR"
+    tar czf "$DIST_DIR/dictee-${VERSION}_amd64.tar.gz" "$TARBALL_DIR"
     rm -rf "$TARBALL_DIR"
-    echo "Built: dictee-${VERSION}_amd64.tar.gz"
+    echo "Built: $DIST_DIR/dictee-${VERSION}_amd64.tar.gz"
 }
 
 # Build all Debian variants + tarball
@@ -477,9 +481,9 @@ build_tarball
 # missing, someone removed or broke a build step — fail loud instead of
 # shipping an incomplete release. Do not remove this check.
 _expected_debs=(
-    "dictee-cuda_${VERSION}_amd64.deb"
-    "dictee-cpu_${VERSION}_amd64.deb"
-    "dictee-plasmoid_${VERSION}_all.deb"
+    "$DIST_DIR/dictee-cuda_${VERSION}_amd64.deb"
+    "$DIST_DIR/dictee-cpu_${VERSION}_amd64.deb"
+    "$DIST_DIR/dictee-plasmoid_${VERSION}_all.deb"
 )
 _missing=""
 for _d in "${_expected_debs[@]}"; do
@@ -497,19 +501,19 @@ echo "========================================"
 echo "  Build complete!"
 echo "========================================"
 echo ""
-echo "Packages created:"
+echo "Packages created in $DIST_DIR/ :"
 echo "  - dictee-cuda_${VERSION}_amd64.deb     (Debian/Ubuntu, NVIDIA GPU)"
 echo "  - dictee-cpu_${VERSION}_amd64.deb      (Debian/Ubuntu, CPU)"
 echo "  - dictee-plasmoid_${VERSION}_all.deb   (Debian/Ubuntu, plasmoid only)"
 echo "  - dictee-${VERSION}_amd64.tar.gz       (Autres distributions)"
 echo ""
 echo "Install (.deb):"
-echo "  sudo dpkg -i dictee-{cuda,cpu}_${VERSION}_amd64.deb"
-echo "  sudo dpkg -i dictee-plasmoid_${VERSION}_all.deb  # plasmoid only"
+echo "  sudo dpkg -i $DIST_DIR/dictee-{cuda,cpu}_${VERSION}_amd64.deb"
+echo "  sudo dpkg -i $DIST_DIR/dictee-plasmoid_${VERSION}_all.deb  # plasmoid only"
 echo "  sudo apt-get install -f  # if dependencies missing"
 echo ""
 echo "Install (.tar.gz):"
-echo "  tar xzf dictee-${VERSION}_amd64.tar.gz"
+echo "  tar xzf $DIST_DIR/dictee-${VERSION}_amd64.tar.gz"
 echo "  cd dictee-${VERSION}"
 echo "  sudo ./install.sh"
 echo ""

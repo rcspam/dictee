@@ -13,13 +13,10 @@ docs/CLAUDE.md
 
 # ──────────────────────────────────────────────────────────────────
 # Build artefacts
+# (.deb / .rpm / .tar.gz / .plasmoid land in .dev/dist/ — see above)
 # ──────────────────────────────────────────────────────────────────
 /target
 __pycache__/
-*.deb
-*.rpm
-*.tar.gz
-*.plasmoid
 pkg/dictee/usr/bin/transcribe
 pkg/dictee/usr/bin/transcribe-daemon
 pkg/dictee/usr/bin/transcribe-client
