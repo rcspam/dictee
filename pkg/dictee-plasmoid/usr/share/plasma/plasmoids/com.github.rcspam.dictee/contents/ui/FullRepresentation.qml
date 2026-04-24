@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import QtQuick.Controls as QQC2
@@ -14,6 +15,10 @@ RowLayout {
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
+    // Singleton flag from main.qml — when false, this widget is a duplicate
+    // instance; we overlay a passive banner and disable all actions to avoid
+    // racing with the active master instance.
+    property bool isActive: true
     // activeButton is stored in root (main.qml) to survive popup close/reopen
     signal actionRequested(string action)
 
@@ -29,6 +34,100 @@ RowLayout {
         z: -1
         color: Kirigami.Theme.backgroundColor
         radius: Kirigami.Units.largeSpacing * 1.5
+    }
+
+    // Passive-instance overlay — covers the popup when this widget is not
+    // the active master. Swallows clicks, displays explanation + "Take over"
+    // escape hatch.
+    Rectangle {
+        parent: fullRep
+        anchors.fill: fullRep
+        anchors.margins: -Kirigami.Units.largeSpacing
+        z: 10000
+        visible: !fullRep.isActive
+        color: Kirigami.Theme.backgroundColor
+        opacity: 0.98
+        radius: Kirigami.Units.largeSpacing * 1.5
+
+        // Swallow any click/scroll — prevents interaction with the disabled
+        // widgets behind and keeps focus where the user can read the banner.
+        MouseArea {
+            anchors.fill: parent
+            onClicked: {}
+            onWheel: function(wheel) { wheel.accepted = true }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Kirigami.Units.largeSpacing * 2
+            spacing: Kirigami.Units.largeSpacing
+
+            Kirigami.Icon {
+                source: "dialog-warning"
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: Kirigami.Units.iconSizes.huge
+                Layout.preferredHeight: Kirigami.Units.iconSizes.huge
+                color: Kirigami.Theme.neutralTextColor
+            }
+
+            PlasmaComponents.Label {
+                text: i18n("Another Dictée widget is active")
+                Layout.alignment: Qt.AlignHCenter
+                font.bold: true
+                font.pointSize: Kirigami.Theme.defaultFont.pointSize + 2
+                color: Kirigami.Theme.neutralTextColor
+            }
+
+            PlasmaComponents.Label {
+                text: i18n("Two instances on the same panel or desktop cause conflicts — duplicated daemon start/stop calls and races on the backend config. This widget is passive until the other is removed.")
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                color: Kirigami.Theme.textColor
+            }
+
+            PlasmaComponents.Label {
+                text: i18n("Right-click this widget in the panel, then choose \"Remove\" to clean up.")
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                color: Kirigami.Theme.disabledTextColor
+                font.italic: true
+            }
+
+            Item { Layout.fillHeight: true }
+
+            ThemedButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: i18n("Take over anyway")
+                icon.name: "edit-copy"
+                onClicked: fullRep.actionRequested("take-over")
+                PlasmaComponents.ToolTip {
+                    text: i18n("Force this widget to become active. The other instance will become passive at the next refresh (3 s).")
+                }
+            }
+        }
+    }
+
+    // Close any open ComboBox dropdown when the plasmoid window becomes
+    // inactive (panel icon clicked, focus lost…). Otherwise the dropdown
+    // is a separate Popup that outlives a plasmoid collapse and reappears
+    // when the user reopens the plasmoid. Watching fullRep.visible is not
+    // enough — the Item stays visible when the window is hidden; Window.active
+    // is the signal that actually fires on panel collapse.
+    function _closeAllDropdowns() {
+        if (audioSourceCombo.popup.visible) audioSourceCombo.popup.close()
+        if (asrCombo.popup.visible) asrCombo.popup.close()
+        if (transCombo.popup.visible) transCombo.popup.close()
+        if (langCombo.popup.visible) langCombo.popup.close()
+    }
+    property bool windowActive: Window.active
+    onWindowActiveChanged: if (!windowActive) _closeAllDropdowns()
+    Connections {
+        target: Plasmoid
+        function onExpandedChanged() {
+            if (!Plasmoid.expanded) fullRep._closeAllDropdowns()
+        }
     }
 
     ColumnLayout {
@@ -371,12 +470,12 @@ RowLayout {
                     text: {
                         switch (fullRep.state) {
                             case "preparing":     return i18n("Preparing… (click to cancel)")
-                            case "diarize-ready":  return i18n("Start diarization")
-                            case "diarizing":     return i18n("Diarization in progress...")
+                            case "diarize-ready":  return i18n("Start meeting")
+                            case "diarizing":     return i18n("Meeting in progress…")
                             default:
                                 if (fullRep.state === "recording" && root.activeButton === "diarize")
-                                    return i18n("Stop diarization")
-                                return i18n("Diarization")
+                                    return i18n("Stop meeting")
+                                return i18n("Meeting")
                         }
                     }
                     color: {
@@ -523,14 +622,59 @@ RowLayout {
         }
 
         QQC2.CheckBox {
+            id: chkLlm
+            text: i18n("LLM")
+            checked: root.llmPostprocessEnabled
+            onToggled: executable.run("dictee-switch-backend llm " + (checked ? "true" : "false"))
+            PlasmaComponents.ToolTip {
+                text: i18n("Enable LLM post-processing (grammar and spell correction via local Ollama model).")
+            }
+            // Restore the binding after a user click may have broken it, so
+            // changes from the tray / CLI / dictee-setup keep propagating.
+            Connections {
+                target: root
+                function onLlmPostprocessEnabledChanged() {
+                    if (chkLlm.checked !== root.llmPostprocessEnabled) {
+                        chkLlm.checked = root.llmPostprocessEnabled
+                    }
+                }
+            }
+        }
+
+        QQC2.CheckBox {
             id: chkAudioContext
             text: i18n("Context")
             checked: root.audioContextEnabled
             onToggled: executable.run("dictee-switch-backend context " + (checked ? "true" : "false"))
-            QQC2.ToolTip.text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+            PlasmaComponents.ToolTip {
+                text: i18n("Accumulate audio from previous dictations to improve recognition of short or technical words.")
+            }
+            Connections {
+                target: root
+                function onAudioContextEnabledChanged() {
+                    if (chkAudioContext.checked !== root.audioContextEnabled) {
+                        chkAudioContext.checked = root.audioContextEnabled
+                    }
+                }
+            }
+        }
 
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
+        QQC2.CheckBox {
+            id: chkShortText
+            text: i18n("Short")
+            checked: root.shortTextEnabled
+            onToggled: executable.run("dictee-switch-backend short_text " + (checked ? "true" : "false"))
+            PlasmaComponents.ToolTip {
+                text: i18n("Enable short-text fix on both normal and translation pipelines.")
+            }
+            Connections {
+                target: root
+                function onShortTextEnabledChanged() {
+                    if (chkShortText.checked !== root.shortTextEnabled) {
+                        chkShortText.checked = root.shortTextEnabled
+                    }
+                }
+            }
         }
 
         Item { Layout.fillWidth: true }
@@ -614,7 +758,10 @@ RowLayout {
             Kirigami.Theme.inherit: true
             model: ListModel { id: langModel }
             textRole: "text"
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 4
+            // Keep combo compact; force dropdown popup wider than the combo
+            // so long codes (pt-BR, zh-CN…) fit without eliding.
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 3.5
+            Component.onCompleted: popup.width = Kirigami.Units.gridUnit * 6
             onPressedChanged: {
                 if (pressed) {
                     root.lastTranslateBackendForLangs = ""
@@ -679,14 +826,6 @@ RowLayout {
             flat: true
             onClicked: fullRep.actionRequested("transcribe-file")
             tooltipText: i18n("Open an audio file for transcription")
-        }
-
-        ThemedButton {
-            text: i18n("Post-processing...")
-            icon.name: "document-edit"
-            flat: true
-            onClicked: fullRep.actionRequested("postprocess")
-            tooltipText: i18n("Configure post-processing rules (regex, dictionary, continuation)")
         }
 
         ThemedButton {

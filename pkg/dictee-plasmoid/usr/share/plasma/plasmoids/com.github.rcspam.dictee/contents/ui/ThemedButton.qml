@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 
 // Button that follows Kirigami.Theme (adapts to Breeze Light/Dark) with
 // visible hover/pressed feedback in both themes. Replaces PlasmaComponents.Button
@@ -10,12 +11,12 @@ import org.kde.kirigami as Kirigami
 QQC2.Button {
     id: control
 
-    // Tooltip text: use this instead of `QQC2.ToolTip.text` + `visible: hovered`,
-    // which causes a known Qt blink loop (the tooltip overlay steals hover from
-    // the button → button.hovered drops → tooltip hides → re-hover → loop, and
-    // clicks become impossible during the blink). HoverHandler doesn't suffer
-    // from this because it tracks the actual cursor position, not the
-    // hierarchical hover state of the button.
+    // Tooltip text: uses PlasmaComponents.ToolTip (KDE-native) rather than
+    // QQC2.ToolTip attached properties. The Qt generic tooltip mispositions
+    // on plasmoids and covers the button hitbox — see
+    // skills/kde-plasmoid/SKILL.md "Tooltips: PlasmaComponents.ToolTip, not
+    // QQC2.ToolTip.*". HoverHandler + a dedicated PlasmaComponents.ToolTip
+    // child yields correct placement and no blink loop.
     property string tooltipText: ""
 
     leftPadding: Kirigami.Units.smallSpacing * 2
@@ -24,9 +25,10 @@ QQC2.Button {
     bottomPadding: Kirigami.Units.smallSpacing
 
     HoverHandler { id: _tooltipHover }
-    QQC2.ToolTip.text: control.tooltipText
-    QQC2.ToolTip.visible: control.tooltipText !== "" && _tooltipHover.hovered
-    QQC2.ToolTip.delay: 500
+    PlasmaComponents.ToolTip {
+        text: control.tooltipText
+        visible: control.tooltipText !== "" && _tooltipHover.hovered
+    }
 
     background: Rectangle {
         radius: 3

@@ -1093,6 +1093,16 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_opts)
 
+        # -- Long-audio warning (shown when diarization + long file + CUDA build) --
+        self._lbl_long_audio_warning = QLabel("")
+        self._lbl_long_audio_warning.setWordWrap(True)
+        self._lbl_long_audio_warning.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl_long_audio_warning.setStyleSheet(
+            "QLabel { color: #d68910; background: #fef5e7; "
+            "border: 1px solid #f39c12; border-radius: 4px; padding: 6px; }")
+        self._lbl_long_audio_warning.setVisible(False)
+        layout.addWidget(self._lbl_long_audio_warning)
+
         # -- Options: row 2 — auto-translate --
         lay_opts2 = QHBoxLayout()
         self._chk_auto_translate = ToggleSwitch(_("Auto-translate the transcription"))
@@ -1297,6 +1307,7 @@ class TranscribeWindow(QDialog):
 
     def _connect_signals(self):
         self._file_input.textChanged.connect(self._update_transcribe_btn)
+        self._file_input.textChanged.connect(self._update_long_audio_warning)
         self._cmb_format.currentIndexChanged.connect(self._on_format_changed)
         self._cmb_lang_src.currentIndexChanged.connect(self._on_lang_changed)
         self._cmb_lang_tgt.currentIndexChanged.connect(self._on_lang_changed)
@@ -1536,6 +1547,41 @@ class TranscribeWindow(QDialog):
         self._lbl_sensitivity.setVisible(checked)
         self._sld_sensitivity.setVisible(checked)
         self._lbl_sensitivity_val.setVisible(checked)
+        self._update_long_audio_warning()
+
+    # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
+    # Parakeet-TDT loads the full mel-spectrogram → ~185 MB VRAM per minute peak.
+    # On an 8 GB GPU shared with OS/compositor, ~10-15 min is the practical limit.
+    LONG_AUDIO_WARN_MINUTES = 10
+
+    def _has_cuda_build(self):
+        """Heuristic: dictee-cuda package ships libonnxruntime.so in /usr/lib/dictee."""
+        return os.path.isfile("/usr/lib/dictee/libonnxruntime.so")
+
+    def _update_long_audio_warning(self):
+        """Show a warning when file duration + diarization + CUDA may cause OOM."""
+        try:
+            path = self._file_input.text().strip()
+        except AttributeError:
+            return
+        if not path or not os.path.isfile(path):
+            self._lbl_long_audio_warning.setVisible(False)
+            return
+        if not self._chk_diarize.isChecked() or not self._has_cuda_build():
+            self._lbl_long_audio_warning.setVisible(False)
+            return
+        dur_s = self._get_audio_duration(path)
+        if dur_s < self.LONG_AUDIO_WARN_MINUTES * 60:
+            self._lbl_long_audio_warning.setVisible(False)
+            return
+        minutes = int(dur_s // 60)
+        self._lbl_long_audio_warning.setText(
+            _("⚠ Long file detected ({min} min). Diarization + transcription "
+              "may fail on a GPU with less than 10 GB of VRAM (out of memory). "
+              "Consider splitting your file and processing it in several passes, "
+              "or disable diarization. Automatic splitting will be available "
+              "in v1.4.").format(min=minutes))
+        self._lbl_long_audio_warning.setVisible(True)
 
     def _on_transcribe(self):
         if not self.isVisible():

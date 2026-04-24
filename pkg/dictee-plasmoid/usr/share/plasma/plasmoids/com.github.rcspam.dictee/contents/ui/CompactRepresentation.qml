@@ -25,6 +25,9 @@ Item {
     property real audioLevel: 0.0
     property var audioBands: []
     property real sensitivity: 2.0
+    // Singleton flag — when false, the widget overlays a passive marker and
+    // clicking opens the popup explaining why it's inactive.
+    property bool isActive: true
 
     readonly property bool animActive: state === "recording" || state === "transcribing"
 
@@ -166,9 +169,43 @@ Item {
         onClicked: function(mouse) {
             if (mouse.button === Qt.LeftButton) {
                 root.expanded = !root.expanded
-            } else if (mouse.button === Qt.MiddleButton) {
+            } else if (mouse.button === Qt.MiddleButton && compact.isActive) {
+                // Middle-click dictate disabled on passive instances to avoid
+                // bypassing the banner check.
                 root.handleAction("dictate")
             }
         }
+    }
+
+    // Passive-instance marker: red ⊘ badge in the corner. Kept small so it
+    // doesn't eclipse the audio animation on the active instance.
+    Rectangle {
+        visible: !compact.isActive
+        z: 100
+        width: Math.max(8, Math.min(parent.width, parent.height) * 0.35)
+        height: width
+        radius: width / 2
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        color: Kirigami.Theme.negativeBackgroundColor
+        border.color: Kirigami.Theme.negativeTextColor
+        border.width: 1
+        Text {
+            anchors.centerIn: parent
+            text: "⊘"
+            font.pixelSize: parent.width * 0.7
+            font.bold: true
+            color: Kirigami.Theme.negativeTextColor
+        }
+    }
+
+    // Global dim when passive so the active instance stays the visually
+    // dominant one on the panel.
+    Rectangle {
+        visible: !compact.isActive
+        anchors.fill: parent
+        color: Kirigami.Theme.backgroundColor
+        opacity: 0.5
+        z: 50
     }
 }

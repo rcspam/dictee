@@ -33,8 +33,8 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 try:
     from PyQt6.QtCore import (
         Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QUrl, QPropertyAnimation, QEasingCurve, pyqtSignal as Signal,
-        pyqtProperty as Property,
+        QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+        pyqtSignal as Signal, pyqtProperty as Property,
     )
     from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PyQt6.QtWidgets import (
@@ -50,7 +50,8 @@ try:
 except ImportError:
     from PySide6.QtCore import (
         Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QUrl, QPropertyAnimation, QEasingCurve, Signal, Property,
+        QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+        Signal, Property,
     )
     from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
     from PySide6.QtWidgets import (
@@ -121,6 +122,48 @@ LANGUAGES = [
     ("ko", "한국어"),
     ("ar", "العربية"),
 ]
+
+# Extended English names for codes returned by dictee-translate-langs for
+# cloud backends (google/bing ~130, ollama ~90). Used when a code isn't
+# present in LANGUAGES (native names).
+TARGET_LANG_NAMES_EN = {
+    "af": "Afrikaans", "am": "Amharic", "ar": "Arabic", "as": "Assamese",
+    "ay": "Aymara", "az": "Azerbaijani", "ba": "Bashkir", "be": "Belarusian",
+    "bg": "Bulgarian", "bm": "Bambara", "bn": "Bengali", "bo": "Tibetan",
+    "bs": "Bosnian", "ca": "Catalan", "co": "Corsican", "cs": "Czech",
+    "cv": "Chuvash", "cy": "Welsh", "da": "Danish", "de": "German",
+    "dv": "Dhivehi", "ee": "Ewe", "el": "Greek", "en": "English",
+    "eo": "Esperanto", "es": "Spanish", "et": "Estonian", "eu": "Basque",
+    "fa": "Persian", "fi": "Finnish", "fj": "Fijian", "fo": "Faroese",
+    "fr": "French", "fr-CA": "French (Canada)", "fy": "Western Frisian",
+    "ga": "Irish", "gd": "Scottish Gaelic", "gl": "Galician",
+    "gn": "Guarani", "gu": "Gujarati", "ha": "Hausa", "he": "Hebrew",
+    "hi": "Hindi", "hr": "Croatian", "ht": "Haitian Creole",
+    "hu": "Hungarian", "hy": "Armenian", "id": "Indonesian",
+    "ig": "Igbo", "is": "Icelandic", "it": "Italian", "iu": "Inuktitut",
+    "ja": "Japanese", "jv": "Javanese", "ka": "Georgian", "kk": "Kazakh",
+    "km": "Khmer", "kn": "Kannada", "ko": "Korean", "ku": "Kurdish",
+    "ky": "Kyrgyz", "la": "Latin", "lb": "Luxembourgish", "lg": "Ganda",
+    "ln": "Lingala", "lo": "Lao", "lt": "Lithuanian", "lv": "Latvian",
+    "mg": "Malagasy", "mi": "Maori", "mk": "Macedonian", "ml": "Malayalam",
+    "mn": "Mongolian", "mr": "Marathi", "ms": "Malay", "mt": "Maltese",
+    "my": "Burmese", "ne": "Nepali", "nl": "Dutch", "no": "Norwegian",
+    "ny": "Chichewa", "om": "Oromo", "or": "Odia", "pa": "Punjabi",
+    "pl": "Polish", "ps": "Pashto", "pt": "Portuguese",
+    "pt-BR": "Portuguese (Brazil)", "pt-PT": "Portuguese (Portugal)",
+    "qu": "Quechua", "ro": "Romanian", "ru": "Russian", "rw": "Kinyarwanda",
+    "sa": "Sanskrit", "sd": "Sindhi", "si": "Sinhala", "sk": "Slovak",
+    "sl": "Slovenian", "sm": "Samoan", "sn": "Shona", "so": "Somali",
+    "sq": "Albanian", "sr": "Serbian", "st": "Sesotho", "su": "Sundanese",
+    "sv": "Swedish", "sw": "Swahili", "ta": "Tamil", "te": "Telugu",
+    "tg": "Tajik", "th": "Thai", "ti": "Tigrinya", "tk": "Turkmen",
+    "tl": "Tagalog", "to": "Tongan", "tr": "Turkish", "ts": "Tsonga",
+    "tt": "Tatar", "tw": "Twi", "ty": "Tahitian", "ug": "Uyghur",
+    "uk": "Ukrainian", "ur": "Urdu", "uz": "Uzbek", "vi": "Vietnamese",
+    "xh": "Xhosa", "yi": "Yiddish", "yo": "Yoruba", "zh": "Chinese",
+    "zh-CN": "Chinese (Simplified)", "zh-TW": "Chinese (Traditional)",
+    "zu": "Zulu",
+}
 
 # Languages supported by each ASR backend (pour filtrer la langue source)
 # Parakeet TDT 0.6B v3: 25 European languages (source: NVIDIA HuggingFace)
@@ -796,9 +839,9 @@ def apply_gnome_shortcut(accel_gnome):
 
 # (model_id, label, min_ram_gb, min_vram_gb)
 OLLAMA_MODELS = [
-    ("translategemma", _("translategemma 4B (3.3 GB, 55 languages, 8 GB RAM)"), 8, 4),
-    ("translategemma:12b", _("translategemma 12B (8 GB, best quality, 16 GB RAM)"), 16, 8),
-    ("aya:8b", _("aya 8B (5 GB, Cohere, 23 languages, 16 GB RAM)"), 16, 8),
+    ("translategemma", _("translategemma 4B (3.3 GB, 55 languages)"), 8, 4),
+    ("translategemma:12b", _("translategemma 12B (8 GB, best quality)"), 16, 8),
+    ("aya:8b", _("aya 8B (5 GB, Cohere, 23 languages)"), 16, 8),
 ]
 
 
@@ -1431,17 +1474,29 @@ class VenvInstallThread(QThread):
             if result.returncode != 0:
                 self.done.emit(False, result.stderr.strip())
                 return
-            pip = os.path.join(self.venv_path, "bin", "pip")
+            # Use `python -m pip` instead of the pip script — avoids issues
+            # where the ensurepip pip binary has shebang quirks on some
+            # Fedora/Python versions. Also forces use of the venv's own Python.
+            python = os.path.join(self.venv_path, "bin", "python3")
+            pip_cmd = [python, "-m", "pip"]
             # Upgrade pip first — ensurepip often ships an outdated version
-            # and the update notice is confusing for users.
+            # (e.g. pip 25.3) that can hit install bugs on Python 3.14+.
+            # Hard requirement, not best-effort: if pip upgrade fails,
+            # the subsequent package install may fail too (observed on
+            # Fedora 44 KDE: Errno 2 / No such file or directory).
             self.progress.emit(_("Upgrading pip…"))
-            subprocess.run(
-                [pip, "install", "--upgrade", "pip"],
-                capture_output=True, text=True, timeout=120,
+            r_pip = subprocess.run(
+                pip_cmd + ["install", "--upgrade", "pip"],
+                capture_output=True, text=True, timeout=300,
             )
+            if r_pip.returncode != 0:
+                self.done.emit(False,
+                    _("Failed to upgrade pip in the venv:") + "\n\n"
+                    + (r_pip.stderr.strip() or r_pip.stdout.strip())[-500:])
+                return
             self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
             result = subprocess.run(
-                [pip, "install", "--upgrade", self.pip_package],
+                pip_cmd + ["install", "--upgrade", self.pip_package],
                 capture_output=True, text=True, timeout=600,
             )
             if result.returncode != 0:
@@ -3730,6 +3785,20 @@ class DicteeSetupDialog(QDialog):
             w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             w.installEventFilter(self._scroll_guard)
 
+        # Watch ~/.config/dictee.conf for external edits (plasmoid / tray /
+        # dictee-switch-backend CLI) and resync the 4 toggles those surfaces
+        # can flip: audio context, LLM post-process, short-text (normal + TR).
+        # Debounced via a single-shot QTimer because editors often rewrite
+        # the file in several steps, triggering multiple fileChanged signals.
+        self._conf_watcher = QFileSystemWatcher(self)
+        if os.path.isfile(CONF_PATH):
+            self._conf_watcher.addPath(CONF_PATH)
+        self._conf_watcher.fileChanged.connect(self._on_conf_file_changed)
+        self._conf_resync_timer = QTimer(self)
+        self._conf_resync_timer.setSingleShot(True)
+        self._conf_resync_timer.setInterval(200)
+        self._conf_resync_timer.timeout.connect(self._resync_external_toggles)
+
     def showEvent(self, event):
         super().showEvent(event)
         _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
@@ -3738,14 +3807,101 @@ class DicteeSetupDialog(QDialog):
             if self.wizard_mode and self._conf_existed_before_wizard and hasattr(self, 'stack'):
                 # Jump to translation page (page 3) only if config already exists
                 self.stack.setCurrentIndex(3)
-            elif hasattr(self, '_main_scroll') and hasattr(self, '_grp_translate'):
-                # Classic mode: scroll to translation section
-                def _scroll_to_translation():
-                    target = self._grp_translate
-                    # Map widget position to scroll area coordinates
-                    pos = target.mapTo(self._main_scroll.widget(), target.rect().topLeft())
-                    self._main_scroll.verticalScrollBar().setValue(pos.y())
-                QTimer.singleShot(100, _scroll_to_translation)
+            elif hasattr(self, '_sidebar_tree'):
+                # Sidebar mode: select the Translation entry (stack index 2)
+                QTimer.singleShot(0, lambda: self._select_sidebar_item(2))
+        if getattr(self, '_open_postprocess', False):
+            self._open_postprocess = False
+            if hasattr(self, '_sidebar_tree'):
+                # Sidebar mode: select the Post-processing entry (stack index 8)
+                QTimer.singleShot(0, lambda: self._select_sidebar_item(8))
+
+    def _select_sidebar_item(self, stack_idx, pp_tab=None):
+        """Select a sidebar tree item by its stack index (and optional PP sub-tab).
+
+        Walks the tree, matches UserRole == stack_idx (and UserRole+1 == pp_tab
+        when provided) and sets it current, triggering _on_item_changed which
+        handles the page switch + PP tab switching.
+        """
+        tree = getattr(self, '_sidebar_tree', None)
+        if tree is None:
+            return False
+
+        def _find(parent):
+            count = parent.childCount() if hasattr(parent, 'childCount') else parent.topLevelItemCount()
+            for i in range(count):
+                item = parent.child(i) if hasattr(parent, 'child') else parent.topLevelItem(i)
+                idx = item.data(0, Qt.ItemDataRole.UserRole)
+                tab = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                if idx is not None and int(idx) == int(stack_idx):
+                    if pp_tab is None:
+                        if tab is None:
+                            return item
+                    elif tab is not None and int(tab) == int(pp_tab):
+                        return item
+                found = _find(item)
+                if found is not None:
+                    return found
+            return None
+
+        target = _find(tree)
+        if target is None and pp_tab is not None:
+            # Fallback: select the parent page without a specific sub-tab
+            target = _find(tree)
+        if target is not None:
+            tree.setCurrentItem(target)
+            return True
+        return False
+
+    def _on_conf_file_changed(self, path):
+        """Debounce: multiple fileChanged signals are coalesced into one resync."""
+        # Some editors replace the file (ENOENT briefly), re-add if needed.
+        if os.path.isfile(CONF_PATH) and CONF_PATH not in self._conf_watcher.files():
+            self._conf_watcher.addPath(CONF_PATH)
+        self._conf_resync_timer.start()
+
+    def _resync_external_toggles(self):
+        """Re-read dictee.conf and update toggles that plasmoid/tray can flip:
+        audio context, LLM post-process, and short-text (normal + translate).
+
+        blockSignals avoids spurious writes or pipeline re-runs when we are
+        only reconciling the UI state from the source of truth on disk.
+        """
+        try:
+            fresh = load_config()
+        except Exception as e:
+            _dbg_setup(f"_resync_external_toggles: load_config failed: {e}")
+            return
+
+        def _set_chk(attr, value):
+            if not hasattr(self, attr):
+                return
+            chk = getattr(self, attr)
+            if chk.isChecked() == bool(value):
+                return
+            chk.blockSignals(True)
+            chk.setChecked(bool(value))
+            chk.blockSignals(False)
+
+        ctx = fresh.get("DICTEE_AUDIO_CONTEXT", "false").lower() == "true"
+        llm = fresh.get("DICTEE_LLM_POSTPROCESS", "false").lower() == "true"
+        pp_st = fresh.get("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+        trpp_st = fresh.get("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+
+        _set_chk("chk_audio_context", ctx)
+        _set_chk("chk_llm", llm)
+        _set_chk("chk_pp_short_text", pp_st)
+        _set_chk("chk_trpp_short_text", trpp_st)
+
+        # Mirror into the state dicts + refresh SVG pipelines so the diagrams
+        # reflect the external change, not just the checkboxes.
+        if hasattr(self, "_pp_state"):
+            self._pp_state["short_text"] = pp_st
+            self._pp_state["llm"] = llm
+        if hasattr(self, "_trpp_state"):
+            self._trpp_state["short_text"] = trpp_st
+        if hasattr(self, "_refresh_pp_diagrams"):
+            self._refresh_pp_diagrams()
 
     @property
     def _pp_parent(self):
@@ -3811,214 +3967,6 @@ class DicteeSetupDialog(QDialog):
             dlg.finished.connect(self.close)
         dlg.show()
 
-    # ── Classic mode ──────────────────────────────────────────────
-
-    def _build_classic_ui(self):
-        conf = self.conf
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._main_scroll = scroll
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 16)
-
-        # -- Section backend ASR --
-        grp_asr = QGroupBox(_("ASR backend"))
-        lay_asr = QVBoxLayout(grp_asr)
-        lay_asr.setSpacing(8)
-        lay_asr.setContentsMargins(16, 16, 16, 12)
-
-        current_asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
-        self.cmb_asr_backend = QComboBox()
-        self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
-        self.cmb_asr_backend.addItem("Vosk", "vosk")
-        self.cmb_asr_backend.addItem("faster-whisper", "whisper")
-        gpu_total, _free = get_gpu_vram_gb()
-        if gpu_total > 0:
-            self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
-        self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
-        lay_asr.addWidget(self.cmb_asr_backend)
-
-        # cuDNN warning
-        gpu_detected, cudnn_ok, cudnn_msg = check_cuda_gpu_ready()
-        if gpu_detected and not cudnn_ok:
-            warn_lbl = QLabel("⚠ " + cudnn_msg.replace("\n", "<br>"))
-            warn_lbl.setWordWrap(True)
-            warn_lbl.setStyleSheet(
-                "background: #442200; border: 1px solid #885500;"
-                " border-radius: 6px; padding: 8px;")
-            warn_lbl.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextSelectableByMouse)
-            lay_asr.addWidget(warn_lbl)
-
-
-        self._build_parakeet_options(lay_asr)
-
-        self._build_vosk_options(lay_asr)
-        self._build_whisper_options(lay_asr)
-        self._build_canary_options(lay_asr)
-
-        def _on_asr_changed():
-            backend = self.cmb_asr_backend.currentData()
-            _dbg_setup(f"_on_asr_changed: {backend}")
-            self.w_parakeet_options.setVisible(backend == "parakeet")
-            self.w_vosk_options.setVisible(backend == "vosk")
-            self.w_whisper_options.setVisible(backend == "whisper")
-            self.w_canary_options.setVisible(backend == "canary")
-            self._update_canary_translation_visibility()
-            if hasattr(self, 'combo_src'):
-                self._update_src_languages()
-        self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
-        _on_asr_changed()
-
-        layout.addWidget(grp_asr)
-
-        # -- Section raccourci --
-        grp_shortcut = QGroupBox(_("Keyboard shortcut"))
-        lay_sc = QVBoxLayout(grp_shortcut)
-        lay_sc.setSpacing(8)
-        lay_sc.setContentsMargins(16, 16, 16, 12)
-        self._build_shortcut_section(lay_sc)
-        layout.addWidget(grp_shortcut)
-
-        # -- Section retour visuel --
-        grp_visual = QGroupBox(_("Visual feedback"))
-        lay_vis = QVBoxLayout(grp_visual)
-        lay_vis.setSpacing(6)
-        lay_vis.setContentsMargins(16, 16, 16, 12)
-        self._build_visual_section(lay_vis, conf)
-        layout.addWidget(grp_visual)
-
-        # -- Section traduction --
-        self._grp_translate = grp_translate = QGroupBox()
-        lay_tr = QVBoxLayout(grp_translate)
-        lay_tr.setSpacing(6)
-        lay_tr.setContentsMargins(16, 16, 16, 12)
-        self._build_translation_section(lay_tr, conf)
-        layout.addWidget(grp_translate)
-
-        # Apply canary state after translation section is built
-        self._update_canary_translation_visibility()
-
-        # -- Microphone section --
-        grp_mic = QGroupBox(_("Microphone"))
-        lay_mic = QVBoxLayout(grp_mic)
-        lay_mic.setSpacing(6)
-        lay_mic.setContentsMargins(16, 16, 16, 12)
-        self._build_mic_section(lay_mic, conf)
-        layout.addWidget(grp_mic)
-
-        # -- Options section --
-        grp_options = QGroupBox(_("Options"))
-        lay_opt = QVBoxLayout(grp_options)
-        lay_opt.setSpacing(6)
-        lay_opt.setContentsMargins(16, 16, 16, 12)
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
-        lay_opt.addWidget(self.chk_clipboard)
-
-        # Audio context buffer
-        self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
-        self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
-        self.chk_audio_context.setToolTip(
-            _("Accumulate audio from previous dictations to improve recognition\n"
-              "of short or technical words at the start of sentences."))
-        lay_opt.addWidget(self.chk_audio_context)
-
-        lay_ctx = QHBoxLayout()
-        lay_ctx.setSpacing(8)
-        lbl_ctx = QLabel(_("Context duration (seconds):"))
-        lbl_ctx.setToolTip(
-            _("Maximum duration of accumulated audio context.\n"
-              "Also the inactivity timeout: the buffer expires\n"
-              "after this many seconds without a non-empty dictation."))
-        self.spin_audio_context_timeout = QSpinBox()
-        self.spin_audio_context_timeout.setRange(5, 120)
-        self.spin_audio_context_timeout.setValue(
-            int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
-        self.spin_audio_context_timeout.setSuffix(" s")
-        lay_ctx.addWidget(lbl_ctx)
-        lay_ctx.addWidget(self.spin_audio_context_timeout)
-        lay_ctx.addStretch()
-        lay_opt.addLayout(lay_ctx)
-
-        self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
-        self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
-        self.chk_debug.setToolTip(
-            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
-              "for troubleshooting dictation and continuation issues."))
-        lay_opt.addWidget(self.chk_debug)
-
-        layout.addWidget(grp_options)
-
-        # -- Notifications section --
-        grp_notif = QGroupBox(_("Notifications"))
-        lay_notif = QVBoxLayout(grp_notif)
-        lay_notif.setSpacing(6)
-        lay_notif.setContentsMargins(16, 16, 16, 12)
-        self.chk_notifications = ToggleSwitch(_("Show notifications"))
-        self.chk_notifications.setChecked(conf.get("DICTEE_NOTIFICATIONS", "true") != "false")
-        self.chk_notifications_text = ToggleSwitch(_("Show transcribed text in notifications"))
-        self.chk_notifications_text.setChecked(conf.get("DICTEE_NOTIFICATIONS_TEXT", "true") != "false")
-        self.chk_notifications_text.setEnabled(self.chk_notifications.isChecked())
-        self.chk_notifications.toggled.connect(self.chk_notifications_text.setEnabled)
-        lay_notif.addWidget(self.chk_notifications)
-        lay_notif.addWidget(self.chk_notifications_text)
-        layout.addWidget(grp_notif)
-
-        # -- Post-processing button --
-        btn_postprocess = QPushButton(_("Post-processing..."))
-        accent = self.palette().color(self.palette().ColorRole.Highlight).name()
-        btn_postprocess.setStyleSheet(
-            f"font-weight: bold; padding: 8px 16px; font-size: 13px;")
-        btn_postprocess.clicked.connect(self._open_postprocess_dialog)
-        layout.addWidget(btn_postprocess)
-
-        layout.addStretch()
-        scroll.setWidget(content)
-        outer_layout.addWidget(scroll, 1)
-
-        # -- Boutons --
-        lay_buttons = QHBoxLayout()
-        lay_buttons.setContentsMargins(20, 8, 20, 16)
-
-        btn_wizard = QPushButton(_("Setup wizard"))
-        btn_wizard.clicked.connect(self._on_launch_wizard)
-        lay_buttons.addWidget(btn_wizard)
-
-        lay_buttons.addStretch()
-
-        btn_cancel = QPushButton(_("Cancel"))
-        btn_cancel.clicked.connect(self.reject)
-        lay_buttons.addWidget(btn_cancel)
-        lay_buttons.addSpacing(8)
-        btn_apply = QPushButton(_("Apply"))
-        btn_apply.clicked.connect(self._on_apply_clicked)
-        lay_buttons.addWidget(btn_apply)
-        lay_buttons.addSpacing(8)
-        btn_ok = QPushButton(_("OK"))
-        btn_ok.setDefault(True)
-        btn_ok.clicked.connect(self._on_ok)
-        lay_buttons.addWidget(btn_ok)
-
-        outer_layout.addLayout(lay_buttons)
-
-        # Mark _dirty when any config widget changes
-        for w in content.findChildren(QComboBox):
-            w.currentIndexChanged.connect(self._mark_dirty)
-        for w in content.findChildren(QCheckBox):
-            w.toggled.connect(self._mark_dirty)
-
-        content_h = content.sizeHint().height()
-        buttons_h = lay_buttons.sizeHint().height() if hasattr(lay_buttons, 'sizeHint') else 50
-        self.setMaximumHeight(content_h + buttons_h + 10)
     def _on_launch_wizard(self):
         _dbg_setup("_on_launch_wizard")
         """Ferme le dialog et relance en mode wizard."""
@@ -4184,6 +4132,13 @@ class DicteeSetupDialog(QDialog):
             # + pipeline header remain visible).
             on_pp_page = (idx is not None and int(idx) == 8)
             has_sub = pp_tab is not None
+            # Auto-reveal the pipeline SVG accordion when landing on the PP
+            # page from any other section. Don't re-open if the user
+            # collapsed it while navigating between PP sub-menus.
+            was_on_pp = getattr(self, "_prev_on_pp", False)
+            if on_pp_page and not was_on_pp and hasattr(self, "_pipeline_toggle"):
+                self._pipeline_toggle.setChecked(True)
+            self._prev_on_pp = on_pp_page
             # Track overview state so the test panel can disable solo
             # mode whenever we are on the PP root page.
             self._pp_overview_mode = bool(on_pp_page and not has_sub)
@@ -4201,6 +4156,9 @@ class DicteeSetupDialog(QDialog):
                 # Master checkboxes row: visible ONLY in overview mode.
                 if hasattr(self, "_pp_masters_row"):
                     self._pp_masters_row.setVisible(not show_sub)
+                # Overview-only extras (Exceptions + diarize note): same logic.
+                if hasattr(self, "_pp_overview_extras"):
+                    self._pp_overview_extras.setVisible(not show_sub)
                 if show_sub:
                     self._pp_tabs.setCurrentIndex(int(pp_tab))
             # Always refresh the test header/solo on navigation so
@@ -4695,42 +4653,75 @@ class DicteeSetupDialog(QDialog):
 
     @staticmethod
     def _is_dark_theme():
-        """Detects dark theme via desktop settings (GNOME/KDE) with Qt fallback.
+        """Detects dark theme via the current DE's config, Qt palette fallback.
 
-        Qt's palette is unreliable when no platform-theme integration is
-        installed (e.g. Fedora GNOME without qgnomeplatform-qt6) — it falls
-        back to Fusion, which reads as dark even under a light desktop.
+        Picks the probe matching XDG_CURRENT_DESKTOP and does NOT cross-probe:
+        on a fresh Fedora KDE session, gsettings returns 'prefer-dark' by
+        default, which would misreport a light Plasma session as dark.
+
+        Qt's palette is used as a last-resort fallback; it's unreliable
+        without platform-theme integration (Fusion reads as dark even in
+        a light desktop).
+
+        TODO(rc2): extract to dictee_theme_detect.py + add unit tests
+        covering: KDE-dark, KDE-light, KDE-empty-ColorScheme, GNOME-*,
+        headless (XDG empty), unknown DE.
         """
         import subprocess
-        # 1. KDE Plasma — kreadconfig6 on kdeglobals
-        try:
-            r = subprocess.run(
-                ["kreadconfig6", "--file", "kdeglobals", "--group", "General",
-                 "--key", "ColorScheme"],
-                capture_output=True, text=True, timeout=1)
-            if r.returncode == 0 and r.stdout.strip():
-                return "Dark" in r.stdout
-        except Exception:
-            pass
-        # 2. GNOME — gsettings color-scheme
-        try:
-            r = subprocess.run(
-                ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
-                capture_output=True, text=True, timeout=1)
-            if r.returncode == 0:
-                val = r.stdout.strip().strip("'\"")
-                if val == "prefer-dark":
-                    return True
-                if val in ("prefer-light", "default"):
-                    return False
-        except Exception:
-            pass
-        # 3. Qt palette fallback
-        app = QApplication.instance()
-        if app:
-            bg = app.palette().color(app.palette().ColorRole.Window)
-            return bg.lightness() < 128
-        return True
+        desktop = (os.environ.get("XDG_CURRENT_DESKTOP") or "").upper()
+        is_kde = "KDE" in desktop or "PLASMA" in desktop
+        is_gnome = any(x in desktop for x in ("GNOME", "UNITY", "CINNAMON", "MATE", "XFCE"))
+
+        def _kde_probe():
+            try:
+                r = subprocess.run(
+                    ["kreadconfig6", "--file", "kdeglobals", "--group", "General",
+                     "--key", "ColorScheme"],
+                    capture_output=True, text=True, timeout=1)
+                if r.returncode == 0 and r.stdout.strip():
+                    return "Dark" in r.stdout
+            except Exception:
+                pass
+            return None
+
+        def _gnome_probe():
+            try:
+                r = subprocess.run(
+                    ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+                    capture_output=True, text=True, timeout=1)
+                if r.returncode == 0:
+                    val = r.stdout.strip().strip("'\"")
+                    if val == "prefer-dark":
+                        return True
+                    if val in ("prefer-light", "default"):
+                        return False
+            except Exception:
+                pass
+            return None
+
+        def _qt_fallback():
+            app = QApplication.instance()
+            if app:
+                bg = app.palette().color(app.palette().ColorRole.Window)
+                return bg.lightness() < 128
+            return True
+
+        # Preferred DE first; if inconclusive, skip cross-probing and use Qt
+        if is_kde:
+            v = _kde_probe()
+            return v if v is not None else _qt_fallback()
+        if is_gnome:
+            v = _gnome_probe()
+            return v if v is not None else _qt_fallback()
+
+        # No DE hint (headless/SSH/other): try both, then Qt fallback
+        v = _kde_probe()
+        if v is not None:
+            return v
+        v = _gnome_probe()
+        if v is not None:
+            return v
+        return _qt_fallback()
 
     @staticmethod
     def _render_svg(svg_path, width):
@@ -4856,7 +4847,11 @@ class DicteeSetupDialog(QDialog):
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
                 if self.ollama_widget.parent() is None:
-                    self._tr_layout.addWidget(self.ollama_widget)
+                    # Insert just before the trailing stretch added by the
+                    # wizard page so the widget sits right below the other
+                    # form controls instead of being pushed to the bottom.
+                    _insert_at = max(0, self._tr_layout.count() - 1)
+                    self._tr_layout.insertWidget(_insert_at, self.ollama_widget)
                 self.ollama_widget.show()
             else:
                 self.ollama_widget.hide()
@@ -6827,6 +6822,13 @@ class DicteeSetupDialog(QDialog):
 
         self.combo_src = QComboBox()
         self.combo_tgt = QComboBox()
+        # Keep both combos at the same visual width, independent of item
+        # text length (target can hold long names like "pt-BR — Portuguese
+        # (Brazil)" once cloud backends are selected).
+        for _c in (self.combo_src, self.combo_tgt):
+            _c.setMinimumContentsLength(28)
+            _c.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         for code, name in LANGUAGES:
             self.combo_src.addItem(f"{code} — {name}", code)
             self.combo_tgt.addItem(f"{code} — {name}", code)
@@ -6898,24 +6900,28 @@ class DicteeSetupDialog(QDialog):
         lay_tr.addLayout(_lang_grid)
         lay_tr.addSpacing(4)
 
-        # Backend ComboBox
+        # Backend ComboBox — in wizard mode, the backend was already chosen
+        # on page 4 via the cards; the combo stays in the object model (many
+        # signal handlers depend on it) but is hidden from the UI. To change
+        # the backend, the user goes back to the cards page.
         lbl_backend = QLabel(_("Backend:"))
         lbl_backend.setStyleSheet("font-size: 11pt;")
         lay_tr.addWidget(lbl_backend)
 
         self.cmb_trans_backend = QComboBox()
-        # Local-first order in wizard
+        self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
+        self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
+        self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
+        self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
         if self.wizard_mode:
-            self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
-            self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
-            self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
-            self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
+            # Wizard: backend already chosen via cards on page 4 → this combo
+            # must NOT appear on page 5. Don't add it to the layout at all
+            # (keeps the attribute accessible for handlers via hasattr).
+            lbl_backend.setParent(None)
+            lbl_backend.deleteLater()
+            self.cmb_trans_backend.setParent(None)
         else:
-            self.cmb_trans_backend.addItem(_("Google Translate (cloud)"), "trans:google")
-            self.cmb_trans_backend.addItem(_("Bing (cloud)"), "trans:bing")
-            self.cmb_trans_backend.addItem(_("LibreTranslate (local)"), "libretranslate")
-            self.cmb_trans_backend.addItem(_("ollama (local)"), "ollama")
-        lay_tr.addWidget(self.cmb_trans_backend)
+            lay_tr.addWidget(self.cmb_trans_backend)
 
         # LibreTranslate widget
         self.lt_widget = QFrame()
@@ -7072,21 +7078,29 @@ class DicteeSetupDialog(QDialog):
         self.combo_ollama_model.currentIndexChanged.connect(self._on_ollama_model_changed)
         self._ollama_pull_thread = None
 
-        # Restore saved backend
-        saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "")
-        saved_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
-        if saved_backend == "ollama":
-            self._set_combo_by_data(self.cmb_trans_backend, "ollama", 0)
-        elif saved_backend == "libretranslate":
-            self._set_combo_by_data(self.cmb_trans_backend, "libretranslate", 0)
-        elif saved_backend == "trans" and saved_engine == "bing":
-            self._set_combo_by_data(self.cmb_trans_backend, "trans:bing", 0)
-        elif saved_backend == "trans":
-            self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
+        # Restore saved backend. In wizard mode, mirror the card selected on
+        # page 4 (_wizard_trans) so lt_widget/ollama_widget/tgt-lang filter
+        # match the visible card — otherwise the combo defaulted to
+        # libretranslate and the user saw LT options after picking Google.
+        if self.wizard_mode and getattr(self, '_wizard_trans', None):
+            data_map = {"google": "trans:google", "bing": "trans:bing",
+                        "libretranslate": "libretranslate", "ollama": "ollama"}
+            self._set_combo_by_data(
+                self.cmb_trans_backend,
+                data_map.get(self._wizard_trans, self._wizard_trans), 0)
         else:
-            # Pas de config → wizard: libretranslate, classique: google
-            default = "libretranslate" if self.wizard_mode else "trans:google"
-            self._set_combo_by_data(self.cmb_trans_backend, default, 0)
+            saved_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "")
+            saved_engine = conf.get("DICTEE_TRANS_ENGINE", "google")
+            if saved_backend == "ollama":
+                self._set_combo_by_data(self.cmb_trans_backend, "ollama", 0)
+            elif saved_backend == "libretranslate":
+                self._set_combo_by_data(self.cmb_trans_backend, "libretranslate", 0)
+            elif saved_backend == "trans" and saved_engine == "bing":
+                self._set_combo_by_data(self.cmb_trans_backend, "trans:bing", 0)
+            elif saved_backend == "trans":
+                self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
+            else:
+                self._set_combo_by_data(self.cmb_trans_backend, "trans:google", 0)
 
         def _on_trans_backend_changed():
             data = self.cmb_trans_backend.currentData()
@@ -7094,7 +7108,11 @@ class DicteeSetupDialog(QDialog):
             self.lt_widget.setVisible(data == "libretranslate")
             if data == "ollama":
                 if self.ollama_widget.parent() is None:
-                    self._tr_layout.addWidget(self.ollama_widget)
+                    # Insert before the trailing stretch added by the wizard
+                    # page so Model + Force CPU sit right under the language
+                    # combos instead of being pushed to the bottom.
+                    _insert_at = max(0, self._tr_layout.count() - 1)
+                    self._tr_layout.insertWidget(_insert_at, self.ollama_widget)
                 self.ollama_widget.show()
             else:
                 self.ollama_widget.hide()
@@ -7344,6 +7362,8 @@ class DicteeSetupDialog(QDialog):
             toggle_btn.setArrowType(
                 Qt.ArrowType.DownArrow if open_ else Qt.ArrowType.RightArrow)
         toggle_btn.toggled.connect(_toggle_accordion)
+        # Exposed so sidebar navigation can auto-open on entry to the PP page.
+        self._pipeline_toggle = toggle_btn
 
         return container
 
@@ -7558,12 +7578,21 @@ class DicteeSetupDialog(QDialog):
 
         lay.addWidget(self._pp_masters_row)
 
+        # Overview-only extras (Exceptions block + diarize warning) —
+        # wrapped so they can be hidden when a sub-page is active,
+        # like _pp_masters_row. These belong to the PP OVERVIEW, not
+        # the Rules/Continuation/Language/Dict/LLM sub-tabs.
+        self._pp_overview_extras = QWidget()
+        _extras_lay = QVBoxLayout(self._pp_overview_extras)
+        _extras_lay.setContentsMargins(0, 0, 0, 0)
+        _extras_lay.setSpacing(6)
+
         # Separator: visually detach the shared Exceptions row from the
         # two PP masters above.
         _keepcaps_sep = QFrame()
         _keepcaps_sep.setFrameShape(QFrame.Shape.HLine)
         _keepcaps_sep.setFrameShadow(QFrame.Shadow.Sunken)
-        lay.addWidget(_keepcaps_sep)
+        _extras_lay.addWidget(_keepcaps_sep)
 
         # Shared Exceptions block — between the two PP masters and the
         # diarization warning. Two rows stacked:
@@ -7592,7 +7621,7 @@ class DicteeSetupDialog(QDialog):
         _keepcaps_row2.addStretch(1)
         _keepcaps_block.addLayout(_keepcaps_row2)
 
-        lay.addLayout(_keepcaps_block)
+        _extras_lay.addLayout(_keepcaps_block)
         self._update_keepcaps_enabled()
 
         # Diarization note: explicit, visible once on the PP page.
@@ -7617,7 +7646,9 @@ class DicteeSetupDialog(QDialog):
             "QLabel { font-size: 13px; padding: 10px 14px;"
             " border: 1px solid #e67e22; border-left: 4px solid #e67e22;"
             " border-radius: 4px; background: rgba(230,126,34,0.08); }")
-        lay.addWidget(_lbl_diarize_note)
+        _extras_lay.addWidget(_lbl_diarize_note)
+
+        lay.addWidget(self._pp_overview_extras)
 
         # Container for all PP content (grayed out if disabled)
         self._pp_content = QWidget()
@@ -7724,12 +7755,20 @@ class DicteeSetupDialog(QDialog):
             self._pp_tabs.tabBar().hide()
             # Header row wrapped in a QWidget so it can be hidden as a
             # whole when the user selects the Post-processing root node
-            # (overview mode). Only holds the dynamic title — no enable
-            # checkbox: activation is done EXCLUSIVELY via the SVG.
+            # (overview mode). Holds an enable toggle (writes the normal
+            # pipeline only) + the dynamic title. The toggle is ON when
+            # EITHER the normal OR the translate pipeline has this step
+            # enabled — so the user sees the step is "live" somewhere
+            # even with the interactive SVG accordion collapsed.
             self._pp_title_row_w = QWidget()
             _title_row = QHBoxLayout(self._pp_title_row_w)
             _title_row.setContentsMargins(0, 0, 0, 0)
             _title_row.setSpacing(12)
+            self._pp_tab_enable_chk = ToggleSwitch("")
+            self._pp_tab_enable_chk.setToolTip(
+                _("Enable this step in the normal pipeline. "
+                  "Stays ON while the translation pipeline has it active."))
+            _title_row.addWidget(self._pp_tab_enable_chk)
             self._pp_tab_title = QLabel()
             self._pp_tab_title.setStyleSheet(
                 f"color: {accent_hex}; font-size: 24px; font-weight: bold; "
@@ -7738,10 +7777,46 @@ class DicteeSetupDialog(QDialog):
             _title_row.addStretch(1)
             pp_lay.addWidget(self._pp_title_row_w)
 
+            def _on_tab_enable_toggled(checked):
+                idx = self._pp_tabs.currentIndex() if hasattr(self, '_pp_tabs') else -1
+                key = self._PP_TAB_KEY_BY_IDX.get(idx)
+                if key is None:
+                    return
+                # Memo of translate state cut by the toggle — used to
+                # restore it on the next re-activation. Cleared on restore.
+                if not hasattr(self, '_pp_translate_before_off'):
+                    self._pp_translate_before_off = {}
+                if checked:
+                    # Activating: force normal ON.
+                    self._pp_state[key] = True
+                    # Restore translate if we cut it previously.
+                    if key in self._pp_translate_before_off:
+                        self._trpp_state[key] = self._pp_translate_before_off.pop(key)
+                else:
+                    # Deactivating: cut BOTH pipelines; remember translate.
+                    if self._trpp_state.get(key):
+                        self._pp_translate_before_off[key] = True
+                    self._pp_state[key] = False
+                    self._trpp_state[key] = False
+                # Keep the normal master checkbox in sync (blockSignals to
+                # avoid re-entering _refresh_pp_diagrams via its toggled).
+                master_attr = self._PP_MASTER_CHK_BY_KEY.get(key)
+                if master_attr and hasattr(self, master_attr):
+                    chk = getattr(self, master_attr)
+                    chk.blockSignals(True)
+                    chk.setChecked(bool(checked))
+                    chk.blockSignals(False)
+                # LLM in translate pipeline is always forced OFF at runtime.
+                if key == "llm":
+                    self._trpp_state["llm"] = False
+                self._refresh_pp_diagrams()
+            self._pp_tab_enable_chk.toggled.connect(_on_tab_enable_toggled)
+
             def _sync_pp_title(idx):
                 if idx < 0:
                     return
                 self._pp_tab_title.setText(self._pp_tabs.tabText(idx))
+                self._sync_pp_tab_enable_chk()
 
             self._pp_tabs.currentChanged.connect(_sync_pp_title)
             # Initial sync deferred to after addTab calls below
@@ -7870,6 +7945,12 @@ class DicteeSetupDialog(QDialog):
             _test_body.setVisible(on)
             self._refresh_test_accordion_label()
             self._unfreeze_pp(20)
+            # Auto-scroll to reveal the test panel when opened
+            if on:
+                scroll = getattr(self, "_pp_scroll", None)
+                if scroll:
+                    QTimer.singleShot(
+                        40, lambda: scroll.ensureWidgetVisible(_test_body, 0, 40))
         _test_toggle.toggled.connect(_on_test_toggled)
         # Initial label reflects current PP sub-tab (if any)
         self._refresh_test_accordion_label()
@@ -8240,6 +8321,39 @@ class DicteeSetupDialog(QDialog):
             self._run_test_pipeline()
             self._unfreeze_pp(10)
 
+    # Mapping used by the sub-page title enable toggle (above each tab).
+    _PP_TAB_KEY_BY_IDX = {
+        0: "rules",
+        1: "continuation",
+        2: "language_rules",
+        3: "dict",
+        4: "llm",
+    }
+    _PP_MASTER_CHK_BY_KEY = {
+        "rules":          "chk_pp_rules",
+        "continuation":   "chk_pp_continuation",
+        "language_rules": "chk_pp_language_rules",
+        "dict":           "chk_pp_dict",
+        "llm":            "chk_llm",
+    }
+
+    def _sync_pp_tab_enable_chk(self):
+        """Mirror the title-row enable toggle on combined normal OR translate state."""
+        if not hasattr(self, '_pp_tab_enable_chk'):
+            return
+        if not hasattr(self, '_pp_tabs'):
+            return
+        idx = self._pp_tabs.currentIndex()
+        key = self._PP_TAB_KEY_BY_IDX.get(idx)
+        if key is None:
+            return
+        combined = bool(
+            self._pp_state.get(key, False)
+            or self._trpp_state.get(key, False))
+        self._pp_tab_enable_chk.blockSignals(True)
+        self._pp_tab_enable_chk.setChecked(combined)
+        self._pp_tab_enable_chk.blockSignals(False)
+
     def _refresh_pp_diagrams(self):
         """Refresh both pipeline diagrams (blue/Normal and orange/Translation)
         from their INDEPENDENT state dicts + two masters."""
@@ -8298,6 +8412,10 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, "_apply_any_master_active"):
             self._apply_any_master_active()
 
+        # Keep the sub-page title toggle in sync with the combined state
+        # (clicking a node in either SVG must flip the title toggle too).
+        self._sync_pp_tab_enable_chk()
+
         # Re-run the test panel so toggling a step (e.g. Dictionary OFF)
         # is reflected immediately in the test output.
         if hasattr(self, "_schedule_test_run"):
@@ -8310,12 +8428,18 @@ class DicteeSetupDialog(QDialog):
     def _build_llm_tab(self, lay, conf):
         """Build LLM post-processing tab content."""
         llm_vbox = lay
-        llm_vbox.setSpacing(6)
+        llm_vbox.setSpacing(2)
+        # Keep the parent's horizontal margins but drop vertical padding
+        _m = llm_vbox.contentsMargins()
+        llm_vbox.setContentsMargins(_m.left(), 0, _m.right(), 0)
 
         # Top row: combos in a QFormLayout
         _llm_form = QWidget()
+        _llm_form.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         llm_flay = QFormLayout(_llm_form)
         llm_flay.setContentsMargins(0, 0, 0, 0)
+        llm_flay.setVerticalSpacing(4)
 
         # LLM pipeline position — displayed FIRST (above the model combo)
         # Radio buttons grouped in a QButtonGroup; data stored on each button.
@@ -8356,29 +8480,53 @@ class DicteeSetupDialog(QDialog):
                     break
         llm_flay.addRow(_("Position in chain:"), _pos_row)
 
+        # Model combo + refresh button on one row
         self.cmb_llm_model = QComboBox()
-        saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
         self.cmb_llm_model.setEditable(True)
-        self.cmb_llm_model.addItem("gemma3:4b")
-        self.cmb_llm_model.addItem("gemma3:1b")
-        self.cmb_llm_model.addItem("ministral-3:3b")
-        # Detect installed models
-        try:
-            import subprocess as _sp
-            out = _sp.run(["ollama", "list"], capture_output=True, text=True, timeout=5)
-            if out.returncode == 0:
-                for line in out.stdout.strip().splitlines()[1:]:
-                    name = line.split()[0] if line.split() else ""
-                    if name and self.cmb_llm_model.findText(name) < 0:
-                        self.cmb_llm_model.addItem(name)
-        except (FileNotFoundError, _sp.TimeoutExpired):
-            pass
-        idx = self.cmb_llm_model.findText(saved_model)
-        if idx >= 0:
-            self.cmb_llm_model.setCurrentIndex(idx)
-        else:
-            self.cmb_llm_model.setEditText(saved_model)
-        llm_flay.addRow(_("Model:"), self.cmb_llm_model)
+        self.cmb_llm_model.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.btn_refresh_llm_models = QPushButton("🔄")
+        self.btn_refresh_llm_models.setToolTip(
+            _("Rescan installed Ollama models"))
+        self.btn_refresh_llm_models.setFixedWidth(36)
+        self.btn_refresh_llm_models.clicked.connect(self._on_refresh_llm_models)
+        _llm_model_row = QHBoxLayout()
+        _llm_model_row.setContentsMargins(0, 0, 0, 0)
+        _llm_model_row.addWidget(self.cmb_llm_model, 1)
+        _llm_model_row.addWidget(self.btn_refresh_llm_models)
+        _llm_model_row_w = QWidget()
+        _llm_model_row_w.setLayout(_llm_model_row)
+        llm_flay.addRow(_("Model:"), _llm_model_row_w)
+
+        # Status label below the combo (live check of Ollama state + model)
+        self.lbl_llm_ollama_status = QLabel("")
+        self.lbl_llm_ollama_status.setTextFormat(Qt.TextFormat.RichText)
+        self.lbl_llm_ollama_status.setWordWrap(True)
+        llm_flay.addRow("", self.lbl_llm_ollama_status)
+
+        # Download button + progress (hidden by default, shown when the
+        # selected model is not yet pulled — mirrors the translation page).
+        self.btn_llm_pull = QPushButton(_("Download"))
+        self.btn_llm_pull.setVisible(False)
+        self.btn_llm_pull.clicked.connect(self._on_llm_ollama_pull)
+        self.progress_llm_pull = QProgressBar()
+        self.progress_llm_pull.setRange(0, 0)
+        self.progress_llm_pull.setVisible(False)
+        _llm_pull_row = QHBoxLayout()
+        _llm_pull_row.setContentsMargins(0, 0, 0, 0)
+        _llm_pull_row.addWidget(self.btn_llm_pull)
+        _llm_pull_row.addWidget(self.progress_llm_pull, 1)
+        _llm_pull_row_w = QWidget()
+        _llm_pull_row_w.setLayout(_llm_pull_row)
+        llm_flay.addRow("", _llm_pull_row_w)
+        self._llm_pull_thread = None
+
+        # Populate from installed Ollama + recommended (not-installed suffix)
+        saved_model = conf.get("DICTEE_LLM_MODEL", "gemma3:4b")
+        self._populate_llm_model_combo(preferred_text=saved_model)
+        self._check_llm_ollama_status()
+        self.cmb_llm_model.currentTextChanged.connect(
+            lambda _t: self._check_llm_ollama_status())
 
         # System prompt presets
         self.cmb_llm_preset = QComboBox()
@@ -8393,15 +8541,24 @@ class DicteeSetupDialog(QDialog):
 
         llm_vbox.addWidget(_llm_form)
 
-        # System prompt editor — expands to fill the available space.
+        # System prompt editor — default 25 lines, user-resizable down to
+        # 5 lines or up to 800 px via a grip on the bottom edge.
         self.txt_llm_prompt = QTextEdit()
         self.txt_llm_prompt.setFont(self._monospace_font())
-        self.txt_llm_prompt.setMinimumHeight(200)
+        _fm = self.txt_llm_prompt.fontMetrics()
+        _margin = self.txt_llm_prompt.document().documentMargin()
+        _line_h = _fm.lineSpacing()
+        _min_h = max(80, int(_line_h * 5 + _margin * 2 + 4))
+        _default_h = max(_min_h, int(_line_h * 25 + _margin * 2 + 4))
+        _max_h = 900
         self.txt_llm_prompt.setMinimumWidth(400)
         self.txt_llm_prompt.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.txt_llm_prompt.setFixedHeight(_default_h)
         self._add_zoom_overlay(self.txt_llm_prompt)
-        llm_vbox.addWidget(self.txt_llm_prompt, 1)
+        self._add_vertical_resize_grip(
+            self.txt_llm_prompt, min_h=_min_h, max_h=_max_h)
+        llm_vbox.addWidget(self.txt_llm_prompt, 0)
 
         # Populate prompt text and connect preset changes
         self._on_llm_preset_changed(self.cmb_llm_preset.currentData())
@@ -8440,6 +8597,136 @@ class DicteeSetupDialog(QDialog):
     _LLM_CUSTOM_PROMPT_PATH = os.path.join(
         os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
         "dictee", "llm-system-prompt.txt")
+
+    # ── LLM model combo — live Ollama sync ─────────────────────
+
+    # Recommended models shown even when not installed (suffixed).
+    _LLM_RECOMMENDED = ("gemma3:4b", "gemma3:1b", "ministral-3:3b")
+
+    def _llm_not_installed_suffix(self):
+        return " — " + _("not installed")
+
+    def _strip_llm_suffix(self, text):
+        """Strip the ' — not installed' suffix from a display name."""
+        if not text:
+            return text
+        suf = self._llm_not_installed_suffix()
+        return text[:-len(suf)] if text.endswith(suf) else text
+
+    def _current_llm_model(self):
+        """Return the real model name from the combo (data first, then stripped
+        text). Returns "" when the combo does not exist (e.g. wizard mode —
+        the LLM page is built only in sidebar mode)."""
+        if not hasattr(self, 'cmb_llm_model'):
+            return ""
+        data = self.cmb_llm_model.currentData()
+        if data:
+            return data
+        return self._strip_llm_suffix(self.cmb_llm_model.currentText()).strip()
+
+    def _populate_llm_model_combo(self, preferred_text=None):
+        """Rebuild the LLM model combo from installed Ollama models + recommended."""
+        current = preferred_text if preferred_text is not None else self._current_llm_model()
+        current = self._strip_llm_suffix(current or "").strip()
+
+        self.cmb_llm_model.blockSignals(True)
+        self.cmb_llm_model.clear()
+
+        installed = ollama_list_models() if ollama_is_installed() else []
+        seen_bases = set()
+        for name in installed:
+            self.cmb_llm_model.addItem(name, name)
+            # track base name without tag to avoid duplicates with recommended
+            seen_bases.add(name.split(":")[0])
+        suf = self._llm_not_installed_suffix()
+        for rec in self._LLM_RECOMMENDED:
+            if ollama_has_model(rec):
+                continue  # already present via installed loop
+            # If base name (e.g. "gemma3") matches any installed tag, skip the recommended entry
+            if rec.split(":")[0] in seen_bases and not any(
+                    inst.split(":")[0] == rec.split(":")[0] and inst == rec
+                    for inst in installed):
+                # User has a different tag for this family — still show the recommended for clarity
+                pass
+            self.cmb_llm_model.addItem(rec + suf, rec)
+
+        # Restore selection
+        idx = self.cmb_llm_model.findData(current)
+        if idx >= 0:
+            self.cmb_llm_model.setCurrentIndex(idx)
+        elif current:
+            self.cmb_llm_model.setEditText(current)
+        self.cmb_llm_model.blockSignals(False)
+
+    def _on_refresh_llm_models(self):
+        _dbg_setup("_on_refresh_llm_models")
+        self._populate_llm_model_combo()
+        self._check_llm_ollama_status()
+
+    def _check_llm_ollama_status(self):
+        """Update the status label below the LLM model combo."""
+        if not hasattr(self, 'lbl_llm_ollama_status'):
+            return
+        # Button is shown only when the selected model is pullable.
+        if hasattr(self, 'btn_llm_pull'):
+            self.btn_llm_pull.setVisible(False)
+        model = self._current_llm_model()
+        if not model:
+            self.lbl_llm_ollama_status.setText("")
+            return
+        if not ollama_is_installed():
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #c0392b;">⚠ ' +
+                _("Ollama is not installed") + '</span><br>'
+                '<code>curl -fsSL https://ollama.com/install.sh | sh</code><br>'
+                '<small><a href="https://ollama.com">ollama.com</a></small>')
+            self.lbl_llm_ollama_status.setOpenExternalLinks(True)
+            return
+        if not ollama_is_running():
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #c0392b;">⚠ ' +
+                _("Ollama service is not running") +
+                ' — <code>sudo systemctl start ollama</code></span>')
+            return
+        if ollama_has_model(model):
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #27ae60;">✓ ' +
+                _("Model {model} ready").format(model=model) + '</span>')
+        else:
+            self.lbl_llm_ollama_status.setText(
+                '<span style="color: #d68910;">⚠ ' +
+                _("Model {model} not installed — run").format(model=model) +
+                f' <code>ollama pull {model}</code></span>')
+            if hasattr(self, 'btn_llm_pull'):
+                self.btn_llm_pull.setText(_("Download"))
+                self.btn_llm_pull.setEnabled(True)
+                self.btn_llm_pull.setVisible(True)
+
+    def _on_llm_ollama_pull(self):
+        model = self._current_llm_model()
+        if not model:
+            return
+        _dbg_setup(f"_on_llm_ollama_pull: model={model}")
+        self.btn_llm_pull.setEnabled(False)
+        self.progress_llm_pull.setVisible(True)
+
+        self._llm_pull_thread = OllamaPullThread(model)
+        self._llm_pull_thread.progress.connect(
+            lambda text: self.btn_llm_pull.setText(text))
+        self._llm_pull_thread.done.connect(self._on_llm_ollama_pull_finished)
+        self._llm_pull_thread.start()
+
+    def _on_llm_ollama_pull_finished(self, success, message):
+        _dbg_setup(f"_on_llm_ollama_pull_finished: success={success}, msg={message!r}")
+        self.progress_llm_pull.setVisible(False)
+        if success:
+            self._populate_llm_model_combo(
+                preferred_text=self._current_llm_model())
+            self._check_llm_ollama_status()
+        else:
+            self.btn_llm_pull.setText(_("Download"))
+            self.btn_llm_pull.setEnabled(True)
+            QMessageBox.critical(self, _("Download error"), message)
 
     def _on_llm_preset_changed(self, preset_data):
         """Update system prompt QTextEdit when preset combo changes."""
@@ -8495,6 +8782,61 @@ class DicteeSetupDialog(QDialog):
         QShortcut(QKeySequence("Ctrl++"), editor).activated.connect(lambda: editor.zoomIn(2))
         QShortcut(QKeySequence("Ctrl+="), editor).activated.connect(lambda: editor.zoomIn(2))
         QShortcut(QKeySequence("Ctrl+-"), editor).activated.connect(lambda: editor.zoomOut(2))
+
+    @staticmethod
+    def _add_vertical_resize_grip(widget, min_h=80, max_h=600):
+        """Add a bottom-edge vertical resize grip to a QWidget (QTextEdit, etc.).
+
+        Same UX as the PP test input: 3-line stripe handle at the bottom,
+        drag to resize between min_h and max_h. The widget keeps a fixed
+        height (updated on release) so it does not fight the parent layout.
+        """
+        grip = QLabel(widget)
+        grip.setFixedHeight(8)
+        grip.setCursor(Qt.CursorShape.SizeVerCursor)
+        grip.setStyleSheet("background: transparent; border: none;")
+        grip._drag_y = None
+        grip._base_h = 0
+
+        def _paint(_event):
+            p = QPainter(grip)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            pen = QPen(QColor(128, 128, 128))
+            pen.setWidth(1)
+            p.setPen(pen)
+            cx = grip.width() // 2
+            for y in (1, 4, 7):
+                p.drawLine(cx - 10, y, cx + 10, y)
+            p.end()
+        grip.paintEvent = _paint
+
+        def _press(event):
+            grip._drag_y = event.position().y()
+            grip._base_h = widget.height()
+            event.accept()
+        grip.mousePressEvent = _press
+
+        def _move(event):
+            if grip._drag_y is not None:
+                dy = int(event.position().y() - grip._drag_y)
+                new_h = max(min_h, min(max_h, grip._base_h + dy))
+                widget.setFixedHeight(new_h)
+                grip._base_h = new_h
+                grip._drag_y = event.position().y()
+                event.accept()
+        grip.mouseMoveEvent = _move
+
+        def _release(_event):
+            grip._drag_y = None
+        grip.mouseReleaseEvent = _release
+
+        _orig_resize = widget.resizeEvent
+
+        def _reposition(event):
+            grip.setGeometry(0, widget.height() - 8, widget.width(), 8)
+            if _orig_resize:
+                _orig_resize(event)
+        widget.resizeEvent = _reposition
 
     @staticmethod
     def _monospace_font():
@@ -8871,11 +9213,14 @@ class DicteeSetupDialog(QDialog):
         # Warning popup is shown on tab entry (see _maybe_show_rules_warning),
         # not as a permanent label — the user can dismiss it permanently.
 
-        # --- Rule creator (single line) ---
+        # --- Rule creator (two lines) ---
+        # Row 1: lang / pattern / replacement / flags   (wide inputs)
+        # Row 2: Insert [combo] [at end] [Add] [Record]  (compact actions)
         add_grp = QGroupBox(_("Add a rule"))
         add_grp_lay = QVBoxLayout(add_grp)
-        add_lay = QHBoxLayout()
-        add_lay.setSpacing(6)
+
+        add_row1 = QHBoxLayout()
+        add_row1.setSpacing(6)
 
         self._rule_lang = QComboBox()
         self._rule_lang.setFixedWidth(60)
@@ -8886,60 +9231,65 @@ class DicteeSetupDialog(QDialog):
         idx = self._rule_lang.findText(lang_src)
         if idx >= 0:
             self._rule_lang.setCurrentIndex(idx)
-        add_lay.addWidget(self._rule_lang)
+        add_row1.addWidget(self._rule_lang)
 
-        add_lay.addWidget(QLabel("/"))
+        add_row1.addWidget(QLabel("/"))
         self._rule_pattern = QLineEdit()
         self._rule_pattern.setPlaceholderText(_("Pattern (what the ASR says)"))
         self._rule_pattern.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_pattern, 3)
+        add_row1.addWidget(self._rule_pattern, 3)
 
-        add_lay.addWidget(QLabel("/"))
+        add_row1.addWidget(QLabel("/"))
         self._rule_replacement = QLineEdit()
         self._rule_replacement.setPlaceholderText(_("Replacement (\\n = newline)"))
         self._rule_replacement.setFont(self._monospace_font())
-        add_lay.addWidget(self._rule_replacement, 3)
+        add_row1.addWidget(self._rule_replacement, 3)
 
-        add_lay.addWidget(QLabel("/"))
+        add_row1.addWidget(QLabel("/"))
         self._rule_flags = QLineEdit("ig")
         self._rule_flags.setFixedWidth(40)
         self._rule_flags.setFont(self._monospace_font())
         self._rule_flags.setToolTip(_("i = case-insensitive, g = global, m = multiline"))
-        add_lay.addWidget(self._rule_flags)
+        add_row1.addWidget(self._rule_flags)
 
-        add_lay.addSpacing(8)
-        add_lay.addWidget(QLabel(_("Insert:")))
+        add_row2 = QHBoxLayout()
+        add_row2.setSpacing(6)
+        add_row2.addWidget(QLabel(_("Insert:")))
         self._rule_section = QComboBox()
-        self._rule_section.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._rule_section.setMinimumWidth(140)
-        add_lay.addWidget(self._rule_section, 2)
+        self._rule_section.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._rule_section.setMinimumWidth(100)
+        self._rule_section.setMaximumWidth(200)
+        add_row2.addWidget(self._rule_section)
 
         self._rule_position = QComboBox()
         self._rule_position.addItem(_("at end"), "end")
         self._rule_position.addItem(_("at beginning"), "begin")
-        self._rule_position.setFixedWidth(110)
+        self._rule_position.setFixedWidth(85)
         self._rule_position.setEnabled(False)
-        add_lay.addWidget(self._rule_position)
+        add_row2.addWidget(self._rule_position)
 
         self._rule_section.currentIndexChanged.connect(
             lambda: self._rule_position.setEnabled(
                 self._rule_section.currentData() == "section"))
 
+        add_row2.addStretch(1)
+
         btn_add_rule = QPushButton("+ " + _("Add"))
         btn_add_rule.clicked.connect(self._add_rule_to_editor)
-        add_lay.addWidget(btn_add_rule)
+        add_row2.addWidget(btn_add_rule)
 
         self._btn_record_rule = QPushButton(QIcon.fromTheme("audio-input-microphone"), _("Record"))
         self._btn_record_rule.setToolTip(_("Record audio, transcribe, and fill the pattern field"))
         self._btn_record_rule.clicked.connect(self._record_for_rule)
-        add_lay.addWidget(self._btn_record_rule)
+        add_row2.addWidget(self._btn_record_rule)
 
         # Label to show RAW/PROCESSED after recording
         self._rule_preview = QLabel()
         self._rule_preview.setWordWrap(True)
         self._rule_preview.setVisible(False)
 
-        add_grp_lay.addLayout(add_lay)
+        add_grp_lay.addLayout(add_row1)
+        add_grp_lay.addLayout(add_row2)
         add_grp_lay.addWidget(self._rule_preview)
 
         lay.addWidget(add_grp)
@@ -10844,22 +11194,14 @@ class DicteeSetupDialog(QDialog):
         ind_lay.addStretch()
         form_top_lay.addLayout(ind_lay)
 
-        # Variants label (indented under the kw combo+field on the row above)
-        _variants_lay = QHBoxLayout()
-        _variants_spacer = QLabel()
-        _variants_spacer.setFixedWidth(
-            ind_label.sizeHint().width() + 6
-            + self.cmb_continuation_indicator.width() + 6
-            + 20
-            + kw_label.sizeHint().width() + 6
-            + self._cont_kw_lang.sizeHint().width() + 6
-        )
+        # Variants label — own line, wraps if too long. Small left indent
+        # instead of a fixed spacer so the label can shrink with the window.
         self._cont_kw_variants = QLabel()
-        self._cont_kw_variants.setStyleSheet("color: gray; font-size: 11px;")
-        _variants_lay.addWidget(_variants_spacer)
-        _variants_lay.addWidget(self._cont_kw_variants)
-        _variants_lay.addStretch()
-        form_top_lay.addLayout(_variants_lay)
+        self._cont_kw_variants.setStyleSheet(
+            "color: gray; font-size: 11px; padding-left: 20px;")
+        self._cont_kw_variants.setWordWrap(True)
+        self._cont_kw_variants.setMinimumWidth(1)
+        form_top_lay.addWidget(self._cont_kw_variants)
         self._update_kw_variants(self._cont_keywords.get(_lang, ""))
 
         # --- Separator ---
@@ -11507,7 +11849,15 @@ class DicteeSetupDialog(QDialog):
             variants.add(with_hyphen)
             variants.add(with_hyphen.capitalize())
         sorted_v = sorted(variants, key=lambda s: (s.lower(), s))
-        self._cont_kw_variants.setText(_("Accepted: ") + ", ".join(sorted_v))
+        full = ", ".join(sorted_v)
+        max_shown = 4
+        if len(sorted_v) > max_shown:
+            shown = ", ".join(sorted_v[:max_shown]) + _(", … (+{n} more)").format(
+                n=len(sorted_v) - max_shown)
+        else:
+            shown = full
+        self._cont_kw_variants.setText(_("Accepted: ") + shown)
+        self._cont_kw_variants.setToolTip(_("Accepted: ") + full)
 
     def _on_cont_kw_lang_changed(self, lang):
         """Switch continuation keyword when language combo changes."""
@@ -12477,22 +12827,55 @@ class DicteeSetupDialog(QDialog):
     # -- Filtrage langues selon backend --
 
     def _filter_lang_combo(self, combo, allowed_codes):
-        """Repeuple un combo avec uniquement les langues autorisées.
-        allowed_codes=None signifie toutes les langues."""
+        """Repeuple un combo avec les langues spécifiées.
+
+        allowed_codes peut être :
+          - None            → toutes les entrées de LANGUAGES (29 langues)
+          - set / frozenset → filtre LANGUAGES, garde l'ordre LANGUAGES
+          - list            → utilise la liste dans l'ordre donné
+                              (pour les cibles issues de dictee-translate-langs)
+        Les noms affichés : natifs via LANGUAGES si présent, sinon anglais
+        via TARGET_LANG_NAMES_EN, sinon juste le code.
+        """
         current = combo.currentData()
         was_blocked = combo.signalsBlocked()
         combo.blockSignals(True)
         combo.clear()
-        for code, name in LANGUAGES:
-            if allowed_codes is None or code in allowed_codes:
-                combo.addItem(f"{code} — {name}", code)
-        # Restore selection précédente si toujours disponible
+        native = dict(LANGUAGES)
+        if allowed_codes is None:
+            codes = [c for c, _ in LANGUAGES]
+        elif isinstance(allowed_codes, (set, frozenset)):
+            codes = [c for c, _ in LANGUAGES if c in allowed_codes]
+        else:
+            codes = list(allowed_codes)
+        for code in codes:
+            name = native.get(code) or TARGET_LANG_NAMES_EN.get(code, code)
+            combo.addItem(f"{code} — {name}", code)
         idx = combo.findData(current)
         if idx >= 0:
             combo.setCurrentIndex(idx)
         else:
             combo.setCurrentIndex(0)
         combo.blockSignals(was_blocked)
+
+    def _fetch_target_langs_from_script(self, backend_short):
+        """Run dictee-translate-langs to get target languages for a backend.
+
+        Returns a list of codes (preferred order) or None on failure.
+        Separator '---' from the script is stripped.
+        """
+        import subprocess
+        try:
+            r = subprocess.run(
+                ["dictee-translate-langs", backend_short],
+                capture_output=True, text=True, timeout=3)
+            if r.returncode == 0:
+                raw = r.stdout.strip()
+                if raw:
+                    return [c for c in raw.split(",") if c and c != "---"]
+        except Exception:
+            pass
+        return None
 
     def _update_src_languages(self):
         """Filtre la langue source selon le backend ASR sélectionné."""
@@ -12511,10 +12894,28 @@ class DicteeSetupDialog(QDialog):
         self._filter_lang_combo(self.combo_src, allowed)
 
     def _update_tgt_languages(self):
-        """Filtre la langue cible selon le backend de traduction sélectionné."""
+        """Filtre la langue cible selon le backend de traduction sélectionné.
+
+        For cloud (google/bing), ollama and libretranslate, ask
+        dictee-translate-langs for the full list (~130 for google/bing,
+        ~90 for ollama, dynamic for LT). Fallback to the static
+        TRANSLATE_LANGUAGES map (29 LANGUAGES) if the script fails.
+        """
         if not hasattr(self, 'cmb_trans_backend'):
             return
         backend = self.cmb_trans_backend.currentData()
+        short_map = {
+            "trans:google": "google",
+            "trans:bing": "bing",
+            "ollama": "ollama",
+            "libretranslate": "libretranslate",
+        }
+        short = short_map.get(backend)
+        if short:
+            codes = self._fetch_target_langs_from_script(short)
+            if codes:
+                self._filter_lang_combo(self.combo_tgt, codes)
+                return
         allowed = TRANSLATE_LANGUAGES.get(backend)
         self._filter_lang_combo(self.combo_tgt, allowed)
 
@@ -12533,13 +12934,17 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_canary_translation_notice'):
             self._canary_translation_notice.setVisible(is_canary)
 
-        # Masquer la ComboBox backend traduction si Canary
+        # Masquer la ComboBox backend traduction si Canary.
+        # En wizard, cmb_trans_backend est détaché (setParent(None) dans
+        # _build_translation_section) pour ne pas apparaître sur la page 5.
+        # Ne jamais setVisible sur un widget détaché, sinon Qt l'affiche
+        # comme une top-level window flottante.
         w = getattr(self, 'cmb_trans_backend', None)
-        if w:
+        if w and w.parent() is not None:
             w.setVisible(not is_canary)
         # lt_widget: visible seulement si pas Canary ET backend == libretranslate
         w = getattr(self, 'lt_widget', None)
-        if w:
+        if w and w.parent() is not None:
             if is_canary:
                 w.setVisible(False)
             else:
@@ -12718,6 +13123,7 @@ class DicteeSetupDialog(QDialog):
             self.lbl_ollama_status.setText(
                 '<span style="color: red;">⚠ ' +
                 _("ollama is not installed") + '</span><br>'
+                '<code>curl -fsSL https://ollama.com/install.sh | sh</code><br>'
                 '<small><a href="https://ollama.com">https://ollama.com</a></small>'
             )
             self.lbl_ollama_status.setOpenExternalLinks(True)
@@ -13827,6 +14233,13 @@ class DicteeSetupDialog(QDialog):
             self._freeze_pp()
             self._test_details_scroll.setVisible(on)
             self._unfreeze_pp(20)
+            # Auto-scroll to reveal the details panel when opened
+            if on:
+                scroll = getattr(self, "_pp_scroll", None)
+                if scroll:
+                    QTimer.singleShot(
+                        40, lambda: scroll.ensureWidgetVisible(
+                            self._test_details_scroll, 0, 40))
         btn_details.toggled.connect(_on_details_toggled)
 
         # Connect
@@ -14497,13 +14910,21 @@ class DicteeSetupDialog(QDialog):
                 highlight=True))
         if not steps and (not pp_master or (pp_master and proc.returncode == 0)):
             html_lines.append(_line(_("No pipeline steps ran.")))
+        # Resolve LLM model label once for trace enrichment
+        _llm_label = ""
+        if hasattr(self, '_current_llm_model'):
+            _lm = self._current_llm_model()
+            if _lm:
+                _llm_label = f" [{_lm}]"
         for i, (name, before, after) in enumerate(steps, 1):
             changed = before != after
             marker = " \u2190 " + _("changed") if changed else ""
             display = after.replace("\n", "\\n").replace("\t", "\\t")
             if len(display) > 100:
                 display = display[:100] + "\u2026"
-            raw = f"{i}. {name} \u2192 {display}{marker}"
+            # Append model tag to LLM steps: "LLM" → "LLM [gemma3:4b]"
+            display_name = f"{name}{_llm_label}" if name.startswith("LLM") else name
+            raw = f"{i}. {display_name} \u2192 {display}{marker}"
             is_current = _step_matches(name, _current_step)
             html_lines.append(_line(raw, highlight=is_current))
 
@@ -14534,7 +14955,8 @@ class DicteeSetupDialog(QDialog):
                 display_text = after.replace("\n", "\\n").replace("\t", "\\t")
                 if len(display_text) > 100:
                     display_text = display_text[:100] + "\u2026"
-                raw = f"{i}. {name} \u2192 {display_text}{marker}"
+                display_name = f"{name}{_llm_label}" if name.startswith("LLM") else name
+                raw = f"{i}. {display_name} \u2192 {display_text}{marker}"
                 html_lines.append(_line(raw))
         if trpp_error:
             html_lines.append(_line(
@@ -14876,7 +15298,26 @@ class DicteeSetupDialog(QDialog):
         pp_keepcaps = self.chk_pp_keepcaps.isChecked() if hasattr(self, 'chk_pp_keepcaps') else True
         pp_keepcaps_ext = self.chk_pp_keepcaps_ext.isChecked() if hasattr(self, 'chk_pp_keepcaps_ext') else True
         llm_postprocess = self.chk_llm.isChecked() if hasattr(self, 'chk_llm') else False
-        llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
+        # Use the real model name (strip "— not installed" suffix if present)
+        if hasattr(self, '_current_llm_model'):
+            llm_model = self._current_llm_model() or "gemma3:4b"
+        else:
+            llm_model = self.cmb_llm_model.currentText() if hasattr(self, 'cmb_llm_model') else "gemma3:4b"
+        # If LLM post-processing is enabled, warn when the selected model is missing
+        if llm_postprocess and hasattr(self, 'cmb_llm_model') and llm_model:
+            if not ollama_has_model(llm_model):
+                reply = QMessageBox.warning(
+                    self,
+                    _("LLM model not installed"),
+                    _("The LLM model '{model}' is not installed in Ollama.\n\n"
+                      "Run in a terminal:\n  ollama pull {model}\n\n"
+                      "Save the configuration anyway?").format(model=llm_model),
+                    QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    _dbg_setup(f"_on_apply: cancelled — llm_model '{llm_model}' not installed")
+                    return
         llm_cpu = self.chk_llm_cpu.isChecked() if hasattr(self, 'chk_llm_cpu') else False
         llm_system_prompt = self.cmb_llm_preset.currentData() if hasattr(self, 'cmb_llm_preset') else "correction-fr"
         llm_position = self._get_llm_position() if hasattr(self, '_get_llm_position') else "hybrid"
@@ -15251,22 +15692,16 @@ def main():
     _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
     dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
                                open_translation=args.translation)
-    if args.postprocess:
-        # Mode --postprocess : ne JAMAIS afficher la main window (DicteeSetupDialog
-        # est un QDialog qui, montré puis caché, laisse KWin dans un état bancal
-        # où le dodge du panel ne se déclenche plus pour la dialog post-process).
-        # Ouvrir directement la post-process window — équivalent au chemin
-        # "clic bouton depuis le setup visible" qui fonctionne.
-        QTimer.singleShot(0, dialog._open_postprocess_dialog)
-    else:
-        # Center the window at its final geometry before show() so the WM
-        # does not briefly map it at its default placeholder position.
-        _screen = app.primaryScreen()
-        if _screen is not None:
-            _geo = _screen.availableGeometry()
-            dialog.move(_geo.center().x() - dialog.width() // 2,
-                        _geo.center().y() - dialog.height() // 2)
-        dialog.show()
+    # All CLI flags (--postprocess, --translation) open the main sidebar
+    # window; navigation to the matching entry is handled in showEvent via
+    # _select_sidebar_item. The legacy standalone PP dialog stays accessible
+    # from the wizard button only.
+    _screen = app.primaryScreen()
+    if _screen is not None:
+        _geo = _screen.availableGeometry()
+        dialog.move(_geo.center().x() - dialog.width() // 2,
+                    _geo.center().y() - dialog.height() // 2)
+    dialog.show()
     app.exec()
 
 

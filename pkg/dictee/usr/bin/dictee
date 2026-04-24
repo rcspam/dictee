@@ -1255,7 +1255,16 @@ if [ -f "$PIDFILE" ]; then
                 --method org.freedesktop.Notifications.CloseNotification "$_close_id" >/dev/null 2>&1) &
         fi
         cleanup_session
-        write_state "idle"
+        # If we were in meeting mode, restore the daemon that was stopped
+        # by `diarize true` — otherwise daemon stays disabled and
+        # DICTEE_PRE_DIARIZE_BACKEND remains orphaned in the conf,
+        # leaving the system in an inconsistent state until the next reset.
+        if [ "$DIARIZE" = "true" ]; then
+            _dbg "silence in diarize mode — restoring daemon via diarize false"
+            dictee-switch-backend diarize false 2>/dev/null || true
+        else
+            write_state "idle"
+        fi
         exit 0
     fi
 

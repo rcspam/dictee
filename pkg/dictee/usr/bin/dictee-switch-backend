@@ -20,6 +20,8 @@ usage() {
     echo "  translate <backend>       Switch translation backend"
     echo "  diarize [true|false|toggle]  Toggle speaker diarization"
     echo "  context [true|false]      Toggle audio context buffer"
+    echo "  llm [true|false|toggle]   Toggle LLM post-processing"
+    echo "  short_text [true|false|toggle]  Toggle short-text fix (both pp_normal + pp_translate)"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -225,6 +227,52 @@ context)
     fi
     (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     echo "Audio context: $val"
+    ;;
+
+llm)
+    val="${2:-toggle}"
+    case "$val" in
+        true|false) ;;
+        toggle)
+            set +eu; source "$CONF"; set -eu
+            if [ "${DICTEE_LLM_POSTPROCESS:-false}" = "true" ]; then val="false"; else val="true"; fi
+            ;;
+        *) echo "Error: llm expects true, false, or toggle" >&2; usage ;;
+    esac
+    set_conf "DICTEE_LLM_POSTPROCESS" "$val"
+    _dbg "llm: $val"
+    if [ "$val" = "true" ]; then
+        notify_dictee 0 document-edit-symbolic "LLM post-processing: ON"
+    else
+        notify_dictee 0 document-edit-symbolic "LLM post-processing: OFF"
+    fi
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    echo "LLM post-processing: $val"
+    ;;
+
+short_text)
+    val="${2:-toggle}"
+    case "$val" in
+        true|false) ;;
+        toggle)
+            set +eu; source "$CONF"; set -eu
+            # OR between pp_normal and pp_translate: if any is ON, toggle turns both OFF.
+            cur_pp="${DICTEE_PP_SHORT_TEXT:-true}"
+            cur_trpp="${DICTEE_TRPP_SHORT_TEXT:-true}"
+            if [ "$cur_pp" = "true" ] || [ "$cur_trpp" = "true" ]; then val="false"; else val="true"; fi
+            ;;
+        *) echo "Error: short_text expects true, false, or toggle" >&2; usage ;;
+    esac
+    set_conf "DICTEE_PP_SHORT_TEXT" "$val"
+    set_conf "DICTEE_TRPP_SHORT_TEXT" "$val"
+    _dbg "short_text: $val (both pipelines)"
+    if [ "$val" = "true" ]; then
+        notify_dictee 0 document-edit-symbolic "Short-text fix: ON (normal + translate)"
+    else
+        notify_dictee 0 document-edit-symbolic "Short-text fix: OFF (normal + translate)"
+    fi
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    echo "Short-text: $val"
     ;;
 
 *) usage ;;
