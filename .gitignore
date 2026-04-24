@@ -29,10 +29,9 @@ pkg/dictee/usr/bin/transcribe-stream-diarize
 tdt
 tdt/
 models/
-LibriSpeech/
-librivox/
 onnxruntime-linux-x64-gpu-*/
 onnxruntime-linux-x64-gpu-*.tgz
+# LibriSpeech, librivox → .dev/datasets/ (covered by .dev/ above)
 *.onnx
 *.onnx_data
 *.onnx.data
