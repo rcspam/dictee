@@ -64,7 +64,6 @@ tests/test-wer*.py
 # Random scratch (Screenshots from Spectacle, etc.)
 # ──────────────────────────────────────────────────────────────────
 Screenshot*.png
-plasmoid_icon.svg
 messages.mo
 firebase-debug.log
 graphify-out/
