@@ -37,6 +37,10 @@ VALID_COMMANDS = ("open", "toggle", "close", "first-run")
 DICTEE_CONF = Path.home() / ".config" / "dictee.conf"
 CONTINUATION_CONF = Path.home() / ".config" / "dictee" / "continuation.conf"
 
+# First-run marker — created on first close after --first-run was used,
+# so the tray auto-show logic (Task 14) does not re-trigger the banner.
+FIRSTRUN_MARKER = Path.home() / ".local" / "state" / "dictee" / "cheatsheet-firstrun.done"
+
 # Languages supported by the cheatsheet (must match COMMAND_TABLE / CATEGORY_LABELS).
 SUPPORTED_LANGS = ("fr", "en", "de", "es", "it", "pt", "uk")
 
@@ -549,6 +553,9 @@ class CheatsheetCard(QWidget):
         # Per-category expand/collapse state.
         self._cat_state = {cat: (cat in DEFAULT_EXPANDED) for cat in CATEGORY_ORDER}
 
+        # First-run onboarding banner (created on demand by show_firstrun_banner).
+        self._firstrun_banner = None
+
         # Restore persisted zoom + cat_state early (before first render).
         # Geometry is restored via QTimer.singleShot to ensure the window
         # is fully constructed and screen() is reliable.
@@ -690,6 +697,16 @@ class CheatsheetCard(QWidget):
                 color: rgba(224, 224, 224, 128);
                 font-size: {body_pt}pt;
                 font-family: "JetBrains Mono", "Fira Code", monospace;
+            }}
+            QFrame#CheatsheetFirstRunBanner {{
+                background-color: rgba(94, 140, 240, 38);
+                border: 1px solid rgba(94, 140, 240, 76);
+                border-radius: 6px;
+                margin: 4px 8px 0 8px;
+            }}
+            QLabel#CheatsheetFirstRunText {{
+                color: #d8e3ff;
+                font-size: {body_pt}pt;
             }}
         """
 
@@ -835,6 +852,30 @@ class CheatsheetCard(QWidget):
             return
         super().mouseReleaseEvent(event)
 
+    def show_firstrun_banner(self):
+        """Insert a one-time onboarding banner above the body.
+
+        Idempotent: a second call while the banner is already present is a no-op.
+        The banner sits at index 1 of the outer layout (between header and body),
+        so re-renders of the body via _render_body() do not wipe it.
+        """
+        if self._firstrun_banner is not None:
+            return
+        banner = QFrame(self)
+        banner.setObjectName("CheatsheetFirstRunBanner")
+        bl = QVBoxLayout(banner)
+        bl.setContentsMargins(12, 10, 12, 10)
+        label = QLabel(
+            "Bienvenue. Cette aide reste accessible via Ctrl+Alt+H "
+            "ou le menu tray. Glisser pour déplacer."
+        )
+        label.setObjectName("CheatsheetFirstRunText")
+        label.setWordWrap(True)
+        bl.addWidget(label)
+        # Insert between header (0) and body (1 -> becomes 2).
+        self.layout().insertWidget(1, banner)
+        self._firstrun_banner = banner
+
     def _save_state(self):
         """Persist geometry, zoom, and expanded categories to QSettings."""
         qs = QSettings("dictee", "cheatsheet")
@@ -847,6 +888,15 @@ class CheatsheetCard(QWidget):
         expanded = [cat for cat, is_open in self._cat_state.items() if is_open]
         qs.setValue("expanded_categories", expanded)
         qs.sync()
+
+        # If the first-run banner was shown this session, drop the marker so
+        # the tray auto-show logic does not re-trigger it on subsequent boots.
+        if self._firstrun_banner is not None:
+            try:
+                FIRSTRUN_MARKER.parent.mkdir(parents=True, exist_ok=True)
+                FIRSTRUN_MARKER.touch()
+            except OSError:
+                pass
 
     def _restore_state(self):
         """Restore zoom + cat_state from QSettings. Called from __init__
@@ -935,7 +985,12 @@ class CheatsheetCard(QWidget):
                 self.activateWindow()
         elif command == "close":
             self.hide()
-        elif command in ("open", "first-run"):
+        elif command == "first-run":
+            self.show_firstrun_banner()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        elif command == "open":
             self.show()
             self.raise_()
             self.activateWindow()
