@@ -862,11 +862,13 @@ class CheatsheetCard(QWidget):
             z = DEFAULT_ZOOM_PT
         self._zoom_pt = max(MIN_ZOOM_PT, min(z, MAX_ZOOM_PT))
 
-        # Categories — fall back to DEFAULT_EXPANDED if missing/empty/invalid.
-        saved = qs.value("expanded_categories")
-        if isinstance(saved, list) and saved:
-            expanded = {c for c in saved if c in CATEGORY_ORDER}
-            self._cat_state = {cat: (cat in expanded) for cat in CATEGORY_ORDER}
+        # Categories — fall back to DEFAULT_EXPANDED only if the key is missing
+        # or invalid. An empty list is a legitimate "all collapsed" state.
+        if qs.contains("expanded_categories"):
+            saved = qs.value("expanded_categories") or []
+            if isinstance(saved, list):
+                expanded = {c for c in saved if c in CATEGORY_ORDER}
+                self._cat_state = {cat: (cat in expanded) for cat in CATEGORY_ORDER}
         # else: keep the DEFAULT_EXPANDED set already in __init__.
 
         # Geometry deferred until after the window is fully constructed.
