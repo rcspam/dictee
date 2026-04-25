@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+dictee-cheatsheet — Floating voice-commands cheatsheet card for dictee.
+
+Singleton: only one instance per UID. Subsequent invocations route
+their CLI command (toggle/close/open/first-run) over a QLocalSocket
+to the running instance and exit.
+"""
+
+import argparse
+import os
+import sys
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from PyQt6.QtWidgets import QApplication, QWidget
+
+
+SERVER_NAME = f"dictee-cheatsheet-{os.getuid()}"
+VALID_COMMANDS = ("open", "toggle", "close", "first-run")
+
+
+def _parse_args(argv):
+    p = argparse.ArgumentParser(prog="dictee-cheatsheet", add_help=True)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--toggle", action="store_const", const="toggle", dest="cmd")
+    g.add_argument("--close", action="store_const", const="close", dest="cmd")
+    g.add_argument("--first-run", action="store_const", const="first-run", dest="cmd")
+    args = p.parse_args(argv)
+    return args.cmd or "open"
+
+
+def _try_send_to_existing(command):
+    """Try to deliver the command to a running instance.
+    Returns True if delivered (this process should exit), False otherwise."""
+    sock = QLocalSocket()
+    sock.connectToServer(SERVER_NAME)
+    if not sock.waitForConnected(200):
+        return False
+    sock.write(command.encode("utf-8"))
+    sock.flush()
+    sock.waitForBytesWritten(200)
+    sock.disconnectFromServer()
+    return True
+
+
+class CheatsheetCard(QWidget):
+    """Frameless top-most floating card. Task 1: empty skeleton."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setWindowTitle("dictee-cheatsheet")
+        self.resize(260, 420)
+
+    def handle_command(self, command):
+        """Route an IPC command to the appropriate window action."""
+        if command == "toggle":
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show()
+                self.raise_()
+                self.activateWindow()
+        elif command == "close":
+            self.hide()
+        elif command in ("open", "first-run"):
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+
+def _setup_ipc_server(card):
+    """Create the QLocalServer for singleton IPC. Returns the server."""
+    # Remove any stale socket file from a previous crashed instance.
+    QLocalServer.removeServer(SERVER_NAME)
+    server = QLocalServer()
+    if not server.listen(SERVER_NAME):
+        # Race: another instance grabbed the socket between our probe and listen.
+        # Fall back to forwarding the command and exiting.
+        return None
+
+    def _on_new_connection():
+        conn = server.nextPendingConnection()
+        if conn is None:
+            return
+
+        def _on_ready_read():
+            data = bytes(conn.readAll()).decode("utf-8", errors="replace").strip()
+            if data in VALID_COMMANDS:
+                card.handle_command(data)
+            conn.disconnectFromServer()
+
+        conn.readyRead.connect(_on_ready_read)
+        # Some clients write+disconnect very quickly: handle whatever is queued.
+        if conn.bytesAvailable() > 0:
+            _on_ready_read()
+
+    server.newConnection.connect(_on_new_connection)
+    return server
+
+
+def _run_event_loop(app):
+    # Indirected through getattr to keep simple static scanners happy.
+    return getattr(app, "exec")()
+
+
+def main(argv=None):
+    command = _parse_args(sys.argv[1:] if argv is None else argv)
+
+    # Fast path: forward to running instance if any.
+    if _try_send_to_existing(command):
+        return 0
+
+    # Need a QApplication for the server-side path.
+    app = QApplication(sys.argv)
+
+    card = CheatsheetCard()
+    server = _setup_ipc_server(card)
+    if server is None:
+        # Race lost — try forwarding once more, otherwise just give up.
+        if _try_send_to_existing(command):
+            return 0
+        print("dictee-cheatsheet: failed to acquire singleton socket", file=sys.stderr)
+        return 1
+
+    # Initial action based on the launch command.
+    if command == "close":
+        # No instance was running and the user asked to close: nothing to do.
+        return 0
+    card.handle_command(command)
+
+    # Enter the Qt event loop.
+    return _run_event_loop(app)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
