@@ -1299,6 +1299,17 @@ def main():
             dialog.destroy()
         sys.exit(0)
 
+    # Auto-show the cheatsheet card once after first install. The card itself
+    # creates the marker file when the user closes it.
+    _cheat_marker = os.path.expanduser(
+        "~/.local/state/dictee/cheatsheet-firstrun.done")
+    if not os.path.exists(_cheat_marker):
+        try:
+            subprocess.Popen(["dictee-cheatsheet", "--first-run"])
+        except FileNotFoundError:
+            # dictee-cheatsheet binary not installed (dev environment) — skip.
+            pass
+
     backend = _detect_backend()
 
     if backend == "appindicator":
