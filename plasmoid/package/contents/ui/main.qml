@@ -647,6 +647,9 @@ PlasmoidItem {
             root.activeButton = ""
             break
         }
+        case "cheatsheet":
+            executable.run("dictee-cheatsheet --toggle")
+            break
         case "transcribe-file":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")
             break

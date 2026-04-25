@@ -848,6 +848,13 @@ RowLayout {
         Item { Layout.fillWidth: true }
 
         PlasmaComponents.ToolButton {
+            icon.name: "view-list-text"
+            display: PlasmaComponents.AbstractButton.IconOnly
+            onClicked: fullRep.actionRequested("cheatsheet")
+            PlasmaComponents.ToolTip { text: i18n("Toggle voice commands cheatsheet") }
+        }
+
+        PlasmaComponents.ToolButton {
             icon.name: "edit-reset"
             display: PlasmaComponents.AbstractButton.IconOnly
             Kirigami.Theme.inherit: false
