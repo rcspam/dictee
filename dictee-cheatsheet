@@ -16,6 +16,7 @@ from functools import partial
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QFileSystemWatcher
+from PyQt6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication,
@@ -38,6 +39,12 @@ CONTINUATION_CONF = Path.home() / ".config" / "dictee" / "continuation.conf"
 
 # Languages supported by the cheatsheet (must match COMMAND_TABLE / CATEGORY_LABELS).
 SUPPORTED_LANGS = ("fr", "en", "de", "es", "it", "pt", "uk")
+
+# Zoom settings — body text point size, clamped to [MIN, MAX].
+DEFAULT_ZOOM_PT = 12.0
+MIN_ZOOM_PT = 9.0
+MAX_ZOOM_PT = 22.0
+ZOOM_STEP = 0.5
 
 # Fallback values when the user has not customized their config.
 # DICTEE_COMMAND_SUFFIX_<LANG> in dictee.conf — kept verbatim (regex form).
@@ -529,11 +536,15 @@ class CheatsheetCard(QWidget):
         self.setWindowTitle("dictee-cheatsheet")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(260, 420)
 
         # Drag state.
         self._drag_start = None
         self._win_start = None
+
+        # Current zoom (body text point size).
+        self._zoom_pt = DEFAULT_ZOOM_PT
 
         # Per-category expand/collapse state.
         self._cat_state = {cat: (cat in DEFAULT_EXPANDED) for cat in CATEGORY_ORDER}
@@ -565,6 +576,9 @@ class CheatsheetCard(QWidget):
             if path.exists():
                 self._watcher.addPath(str(path))
         self._watcher.fileChanged.connect(self._on_config_changed)
+
+        self._connect_zoom_buttons()
+        self._register_shortcuts()
 
         self._render_body()
 
@@ -608,63 +622,115 @@ class CheatsheetCard(QWidget):
 
         return header
 
-    def _apply_stylesheet(self):
-        self.setStyleSheet("""
-            QWidget#CheatsheetCard {
+    def _build_stylesheet(self, zoom_pt: float) -> str:
+        # All font sizes scale with zoom_pt (body size). Title was 11pt at the
+        # 12pt default; keep that ratio. Header buttons scale roughly with body.
+        body_pt = zoom_pt
+        title_pt = zoom_pt * 11.0 / 12.0
+        btn_min_size = max(int(zoom_pt * 28 / 12), 24)
+        return f"""
+            QWidget#CheatsheetCard {{
                 background-color: rgba(28, 30, 35, 235);
                 border: 1px solid rgba(255, 255, 255, 26);
                 border-radius: 8px;
-            }
-            QFrame#CheatsheetHeader {
+            }}
+            QFrame#CheatsheetHeader {{
                 background-color: rgba(255, 255, 255, 10);
                 border-top-left-radius: 8px;
                 border-top-right-radius: 8px;
-            }
-            QFrame#CheatsheetBody {
+            }}
+            QFrame#CheatsheetBody {{
                 background: transparent;
-            }
-            QFrame#CheatsheetFooter {
+            }}
+            QFrame#CheatsheetFooter {{
                 background: transparent;
-            }
-            QLabel#CheatsheetTitle {
+            }}
+            QLabel#CheatsheetTitle {{
                 color: #e0e0e0;
-                font-size: 11pt;
+                font-size: {title_pt}pt;
                 font-weight: 600;
                 padding: 8px 12px;
-            }
-            QPushButton#CheatsheetHeaderBtn {
+            }}
+            QPushButton#CheatsheetHeaderBtn {{
                 background: transparent;
                 color: #b0b0b0;
                 border: none;
-                font-size: 12pt;
-                min-width: 28px;
-                min-height: 28px;
-            }
-            QPushButton#CheatsheetHeaderBtn:hover {
+                font-size: {body_pt}pt;
+                min-width: {btn_min_size}px;
+                min-height: {btn_min_size}px;
+            }}
+            QPushButton#CheatsheetHeaderBtn:hover {{
                 background-color: rgba(255, 255, 255, 26);
                 border-radius: 4px;
                 color: #ffffff;
-            }
-            QPushButton#CheatsheetCategoryTitle {
+            }}
+            QPushButton#CheatsheetCategoryTitle {{
                 background: transparent;
                 color: #8ec5ff;
                 border: none;
+                font-size: {title_pt}pt;
                 font-weight: 600;
                 text-align: left;
                 padding: 6px 8px;
-            }
-            QPushButton#CheatsheetCategoryTitle:hover {
+            }}
+            QPushButton#CheatsheetCategoryTitle:hover {{
                 background-color: rgba(255, 255, 255, 13);
                 border-radius: 4px;
-            }
-            QLabel#CheatsheetCmd {
+            }}
+            QLabel#CheatsheetCmd {{
                 color: rgba(224, 224, 224, 217);
-            }
-            QLabel#CheatsheetResult {
+                font-size: {body_pt}pt;
+            }}
+            QLabel#CheatsheetResult {{
                 color: rgba(224, 224, 224, 128);
+                font-size: {body_pt}pt;
                 font-family: "JetBrains Mono", "Fira Code", monospace;
-            }
-        """)
+            }}
+        """
+
+    def _apply_stylesheet(self):
+        self.setStyleSheet(self._build_stylesheet(self._zoom_pt))
+
+    def _connect_zoom_buttons(self):
+        self._btn_zoom_out.clicked.connect(self.zoom_out)
+        self._btn_zoom_in.clicked.connect(self.zoom_in)
+
+    def _register_shortcuts(self):
+        # Ctrl++ and Ctrl+= both zoom in (Ctrl+= avoids needing Shift on US layouts).
+        QShortcut(QKeySequence("Ctrl++"), self, activated=self.zoom_in)
+        QShortcut(QKeySequence("Ctrl+="), self, activated=self.zoom_in)
+        QShortcut(QKeySequence("Ctrl+-"), self, activated=self.zoom_out)
+        QShortcut(QKeySequence("Ctrl+0"), self, activated=self.zoom_reset)
+        QShortcut(QKeySequence("Ctrl+W"), self, activated=self.hide)
+        QShortcut(QKeySequence("Escape"), self, activated=self.hide)
+
+    def zoom_in(self):
+        self._zoom_pt = min(self._zoom_pt + ZOOM_STEP, MAX_ZOOM_PT)
+        self._apply_zoom()
+
+    def zoom_out(self):
+        self._zoom_pt = max(self._zoom_pt - ZOOM_STEP, MIN_ZOOM_PT)
+        self._apply_zoom()
+
+    def zoom_reset(self):
+        self._zoom_pt = DEFAULT_ZOOM_PT
+        self._apply_zoom()
+
+    def _apply_zoom(self):
+        self.setStyleSheet(self._build_stylesheet(self._zoom_pt))
+        # Re-render the body so child widgets pick up the new font sizing.
+        self._render_body()
+        self.layout().invalidate()
+        self.layout().activate()
+        new_size = self.layout().sizeHint()
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is not None:
+            geom = screen.availableGeometry()
+            capped_w = min(new_size.width(), geom.width() - 32)
+            capped_h = min(new_size.height(), geom.height() - 32)
+            self.resize(capped_w, capped_h)
+        else:
+            self.resize(new_size)
 
     def _render_body(self):
         """Clear and re-build the body content based on current expand state."""
