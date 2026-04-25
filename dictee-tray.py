@@ -568,6 +568,10 @@ class DicteeTrayAppIndicator:
 
         self.menu.append(Gtk.SeparatorMenuItem())
 
+        item_cheatsheet = Gtk.MenuItem(label=_("Toggle voice commands cheatsheet"))
+        item_cheatsheet.connect("activate", lambda _: subprocess.Popen(["dictee-cheatsheet", "--toggle"]))
+        self.menu.append(item_cheatsheet)
+
         item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
         item_setup.connect("activate", lambda _: subprocess.Popen(["dictee-setup"]))
         self.menu.append(item_setup)
@@ -980,6 +984,7 @@ class DicteeTrayQt:
         self.action_short_qt.toggled.connect(self._on_short_toggled_qt)
 
         self.menu.addSeparator()
+        self.action_cheatsheet = self.menu.addAction(_("Toggle voice commands cheatsheet"))
         self.action_setup = self.menu.addAction(_("Configure Dictée"))
         self.menu.addSeparator()
         self.action_reset = self.menu.addAction(_("! Reset"))
@@ -1020,6 +1025,8 @@ class DicteeTrayQt:
                 self.QTimer.singleShot(1000, self._delayed_refresh)
         elif action == self.action_transcribe:
             subprocess.Popen(["dictee-transcribe"])
+        elif action == self.action_cheatsheet:
+            subprocess.Popen(["dictee-cheatsheet", "--toggle"])
         elif action == self.action_setup:
             subprocess.Popen(["dictee-setup"])
         elif action == self.action_reset:
