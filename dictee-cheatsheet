@@ -15,7 +15,7 @@ import sys
 from functools import partial
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QFileSystemWatcher
+from PyQt6.QtCore import Qt, QFileSystemWatcher, QRect, QSettings, QTimer
 from PyQt6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
@@ -549,6 +549,11 @@ class CheatsheetCard(QWidget):
         # Per-category expand/collapse state.
         self._cat_state = {cat: (cat in DEFAULT_EXPANDED) for cat in CATEGORY_ORDER}
 
+        # Restore persisted zoom + cat_state early (before first render).
+        # Geometry is restored via QTimer.singleShot to ensure the window
+        # is fully constructed and screen() is reliable.
+        self._restore_state()
+
         # Root layout: header / body / footer.
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -829,6 +834,93 @@ class CheatsheetCard(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def _save_state(self):
+        """Persist geometry, zoom, and expanded categories to QSettings."""
+        qs = QSettings("dictee", "cheatsheet")
+        geom = self.geometry()
+        qs.setValue("geometry/x", geom.x())
+        qs.setValue("geometry/y", geom.y())
+        qs.setValue("geometry/w", geom.width())
+        qs.setValue("geometry/h", geom.height())
+        qs.setValue("zoom_pt", self._zoom_pt)
+        expanded = [cat for cat, is_open in self._cat_state.items() if is_open]
+        qs.setValue("expanded_categories", expanded)
+        qs.sync()
+
+    def _restore_state(self):
+        """Restore zoom + cat_state from QSettings. Called from __init__
+        before the first render. Geometry is restored separately via
+        QTimer.singleShot so screen() is reliable."""
+        qs = QSettings("dictee", "cheatsheet")
+
+        # Zoom (clamped to [MIN, MAX]).
+        z = qs.value("zoom_pt", DEFAULT_ZOOM_PT)
+        try:
+            z = float(z)
+        except (TypeError, ValueError):
+            z = DEFAULT_ZOOM_PT
+        self._zoom_pt = max(MIN_ZOOM_PT, min(z, MAX_ZOOM_PT))
+
+        # Categories — fall back to DEFAULT_EXPANDED if missing/empty/invalid.
+        saved = qs.value("expanded_categories")
+        if isinstance(saved, list) and saved:
+            expanded = {c for c in saved if c in CATEGORY_ORDER}
+            self._cat_state = {cat: (cat in expanded) for cat in CATEGORY_ORDER}
+        # else: keep the DEFAULT_EXPANDED set already in __init__.
+
+        # Geometry deferred until after the window is fully constructed.
+        QTimer.singleShot(0, self._restore_geometry)
+
+    def _restore_geometry(self):
+        """Restore window position/size from QSettings. Recenter top-right
+        if values are missing, corrupt, or off-screen."""
+        qs = QSettings("dictee", "cheatsheet")
+        x = qs.value("geometry/x", None)
+        y = qs.value("geometry/y", None)
+        w = qs.value("geometry/w", None)
+        h = qs.value("geometry/h", None)
+        if None in (x, y, w, h):
+            self._center_top_right()
+            return
+        try:
+            x, y, w, h = int(x), int(y), int(w), int(h)
+        except (TypeError, ValueError):
+            self._center_top_right()
+            return
+
+        rect = QRect(x, y, w, h)
+        if not self._rect_visible_on_any_screen(rect):
+            self._center_top_right()
+            return
+        self.setGeometry(x, y, w, h)
+
+    def _center_top_right(self, margin: int = 16):
+        """Position window in the top-right corner of the primary screen."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        geom = screen.availableGeometry()
+        w = self.width() or 260
+        h = self.height() or 420
+        x = geom.right() - w - margin
+        y = geom.top() + margin
+        self.setGeometry(x, y, w, h)
+
+    def _rect_visible_on_any_screen(self, rect: QRect) -> bool:
+        """True if rect intersects any connected screen."""
+        for screen in QGuiApplication.screens():
+            if screen.geometry().intersects(rect):
+                return True
+        return False
+
+    def closeEvent(self, event):
+        self._save_state()
+        super().closeEvent(event)
+
+    def hideEvent(self, event):
+        self._save_state()
+        super().hideEvent(event)
 
     def handle_command(self, command):
         """Route an IPC command to the appropriate window action."""
