@@ -14,7 +14,15 @@ import sys
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 SERVER_NAME = f"dictee-cheatsheet-{os.getuid()}"
@@ -408,17 +416,149 @@ def _try_send_to_existing(command):
 
 
 class CheatsheetCard(QWidget):
-    """Frameless top-most floating card. Task 1: empty skeleton."""
+    """Frameless top-most floating card with draggable header."""
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("CheatsheetCard")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool
         )
         self.setWindowTitle("dictee-cheatsheet")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.resize(260, 420)
+
+        # Drag state.
+        self._drag_start = None
+        self._win_start = None
+
+        # Root layout: header / body / footer.
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._build_header())
+
+        self._body = QFrame()
+        self._body.setObjectName("CheatsheetBody")
+        root.addWidget(self._body, 1)
+
+        self._footer = QFrame()
+        self._footer.setObjectName("CheatsheetFooter")
+        self._footer.setFixedHeight(0)
+        root.addWidget(self._footer)
+
+        self._apply_stylesheet()
+
+    def _build_header(self):
+        header = QFrame()
+        header.setObjectName("CheatsheetHeader")
+        header.setFixedHeight(40)
+
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setSpacing(2)
+
+        self._title_label = QLabel("\U0001F3A4 Commandes vocales (FR)")
+        self._title_label.setObjectName("CheatsheetTitle")
+        layout.addWidget(self._title_label)
+        layout.addStretch(1)
+
+        self._btn_zoom_out = QPushButton("−")
+        self._btn_zoom_out.setObjectName("CheatsheetHeaderBtn")
+        self._btn_zoom_out.setToolTip("Zoom out")
+        layout.addWidget(self._btn_zoom_out)
+
+        self._btn_zoom_in = QPushButton("+")
+        self._btn_zoom_in.setObjectName("CheatsheetHeaderBtn")
+        self._btn_zoom_in.setToolTip("Zoom in")
+        layout.addWidget(self._btn_zoom_in)
+
+        self._btn_close = QPushButton("×")
+        self._btn_close.setObjectName("CheatsheetHeaderBtn")
+        self._btn_close.setToolTip("Close")
+        self._btn_close.clicked.connect(self.hide)
+        layout.addWidget(self._btn_close)
+
+        return header
+
+    def _apply_stylesheet(self):
+        self.setStyleSheet("""
+            QWidget#CheatsheetCard {
+                background-color: rgba(28, 30, 35, 235);
+                border: 1px solid rgba(255, 255, 255, 26);
+                border-radius: 8px;
+            }
+            QFrame#CheatsheetHeader {
+                background-color: rgba(255, 255, 255, 10);
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+            QFrame#CheatsheetBody {
+                background: transparent;
+            }
+            QFrame#CheatsheetFooter {
+                background: transparent;
+            }
+            QLabel#CheatsheetTitle {
+                color: #e0e0e0;
+                font-size: 11pt;
+                font-weight: 600;
+                padding: 8px 12px;
+            }
+            QPushButton#CheatsheetHeaderBtn {
+                background: transparent;
+                color: #b0b0b0;
+                border: none;
+                font-size: 12pt;
+                min-width: 28px;
+                min-height: 28px;
+            }
+            QPushButton#CheatsheetHeaderBtn:hover {
+                background-color: rgba(255, 255, 255, 26);
+                border-radius: 4px;
+                color: #ffffff;
+            }
+        """)
+
+    def _on_interactive(self, pos):
+        """True if the position lands on an interactive child (e.g. a button)."""
+        child = self.childAt(pos)
+        while child is not None and child is not self:
+            if isinstance(child, QPushButton):
+                return True
+            child = child.parentWidget()
+        return False
+
+    def mousePressEvent(self, event):
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and not self._on_interactive(event.pos())
+        ):
+            self._drag_start = event.globalPosition().toPoint()
+            self._win_start = self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_start is not None:
+            delta = event.globalPosition().toPoint() - self._drag_start
+            self.move(self._win_start + delta)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_start is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = None
+            self._win_start = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def handle_command(self, command):
         """Route an IPC command to the appropriate window action."""
