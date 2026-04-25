@@ -717,7 +717,7 @@ class CheatsheetCard(QWidget):
         self._apply_zoom()
 
     def _apply_zoom(self):
-        self.setStyleSheet(self._build_stylesheet(self._zoom_pt))
+        self._apply_stylesheet()
         # Re-render the body so child widgets pick up the new font sizing.
         self._render_body()
         self.layout().invalidate()
