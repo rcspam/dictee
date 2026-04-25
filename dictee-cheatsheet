@@ -41,6 +41,10 @@ CONTINUATION_CONF = Path.home() / ".config" / "dictee" / "continuation.conf"
 # so the tray auto-show logic (Task 14) does not re-trigger the banner.
 FIRSTRUN_MARKER = Path.home() / ".local" / "state" / "dictee" / "cheatsheet-firstrun.done"
 
+# Visibility state file — read by the tray/plasmoid to know if the card
+# is currently shown. Written on every showEvent/hideEvent.
+STATE_FILE = Path(f"/dev/shm/.dictee_cheatsheet-{os.getuid()}")
+
 # Languages supported by the cheatsheet (must match COMMAND_TABLE / CATEGORY_LABELS).
 SUPPORTED_LANGS = ("fr", "en", "de", "es", "it", "pt", "uk")
 
@@ -498,6 +502,14 @@ def _read_continuation_word(lang):
     except OSError:
         pass
     return _DEFAULT_CONT.get(lang, lang)
+
+
+def _write_state_file(value: str) -> None:
+    """Write '0' or '1' to STATE_FILE so the tray/plasmoid can poll visibility."""
+    try:
+        STATE_FILE.write_text(value + "\n")
+    except OSError:
+        pass
 
 
 def _parse_args(argv):
@@ -968,11 +980,17 @@ class CheatsheetCard(QWidget):
 
     def closeEvent(self, event):
         self._save_state()
+        _write_state_file("0")
         super().closeEvent(event)
 
     def hideEvent(self, event):
         self._save_state()
+        _write_state_file("0")
         super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        _write_state_file("1")
 
     def handle_command(self, command):
         """Route an IPC command to the appropriate window action."""
@@ -1057,7 +1075,13 @@ def main(argv=None):
     card.handle_command(command)
 
     # Enter the Qt event loop.
-    return _run_event_loop(app)
+    rc = _run_event_loop(app)
+    # Clean up state file on graceful exit.
+    try:
+        STATE_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return rc
 
 
 if __name__ == "__main__":
