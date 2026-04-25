@@ -9,9 +9,11 @@ to the running instance and exit.
 """
 
 import argparse
+import locale
 import os
 import sys
 from functools import partial
+from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
@@ -29,6 +31,36 @@ from PyQt6.QtWidgets import (
 
 SERVER_NAME = f"dictee-cheatsheet-{os.getuid()}"
 VALID_COMMANDS = ("open", "toggle", "close", "first-run")
+
+# Config files read at render time.
+DICTEE_CONF = Path.home() / ".config" / "dictee.conf"
+CONTINUATION_CONF = Path.home() / ".config" / "dictee" / "continuation.conf"
+
+# Languages supported by the cheatsheet (must match COMMAND_TABLE / CATEGORY_LABELS).
+SUPPORTED_LANGS = ("fr", "en", "de", "es", "it", "pt", "uk")
+
+# Fallback values when the user has not customized their config.
+# DICTEE_COMMAND_SUFFIX_<LANG> in dictee.conf — kept verbatim (regex form).
+_DEFAULT_SUFFIX = {
+    "fr": "finale?s?",
+    "en": "done",
+    "de": "weiter",
+    "es": "listo",
+    "it": "seguito",
+    "pt": "pronto",
+    "uk": "далі",
+}
+
+# First alias of CONTINUATION_WORDS_<LANG> from continuation.conf.
+_DEFAULT_CONT = {
+    "fr": "minuscule",
+    "en": "lowercase",
+    "de": "kleinschreibung",
+    "es": "minúscula",
+    "it": "minuscola",
+    "pt": "minúscula",
+    "uk": "рядкова",
+}
 
 # Categories rendered in this order. First 4 are expanded by default.
 CATEGORY_ORDER = (
@@ -391,6 +423,72 @@ COMMAND_TABLE = {
 }
 
 
+def _read_kv_file(path):
+    """Parse a simple KEY=VALUE file. Skip blanks and comments. Return dict."""
+    if not path.exists():
+        return {}
+    out = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            if "=" not in s:
+                continue
+            k, v = s.split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def _detect_lang():
+    """Resolve the current source language: dictee.conf -> system locale -> 'en'."""
+    cfg = _read_kv_file(DICTEE_CONF)
+    val = cfg.get("DICTEE_LANG_SOURCE", "").strip().lower()
+    if val in SUPPORTED_LANGS:
+        return val
+    try:
+        loc = locale.getlocale()[0]
+        if loc:
+            short = loc.split("_")[0].lower()
+            if short in SUPPORTED_LANGS:
+                return short
+    except (ValueError, TypeError):
+        pass
+    return "en"
+
+
+def _read_suffix(lang):
+    """Read DICTEE_COMMAND_SUFFIX_<LANG> from dictee.conf, fallback to default.
+    Value is kept verbatim (may be a regex like 'finale?s?')."""
+    cfg = _read_kv_file(DICTEE_CONF)
+    key = f"DICTEE_COMMAND_SUFFIX_{lang.upper()}"
+    val = cfg.get(key, "").strip()
+    if val:
+        return val
+    return _DEFAULT_SUFFIX.get(lang, "")
+
+
+def _read_continuation_word(lang):
+    """Read first alias from `[keyword:<lang>] word1, word2, ...` in continuation.conf."""
+    if not CONTINUATION_CONF.exists():
+        return _DEFAULT_CONT.get(lang, lang)
+    prefix = f"[keyword:{lang}]"
+    try:
+        for line in CONTINUATION_CONF.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.startswith(prefix):
+                rest = s[len(prefix):].strip()
+                if not rest:
+                    return _DEFAULT_CONT.get(lang, lang)
+                first = rest.split(",")[0].strip()
+                return first or _DEFAULT_CONT.get(lang, lang)
+    except OSError:
+        pass
+    return _DEFAULT_CONT.get(lang, lang)
+
+
 def _parse_args(argv):
     p = argparse.ArgumentParser(prog="dictee-cheatsheet", add_help=True)
     g = p.add_mutually_exclusive_group()
@@ -562,10 +660,16 @@ class CheatsheetCard(QWidget):
                 w.setParent(None)
                 w.deleteLater()
 
-        # Hardcoded for Task 4 — Task 5 reads from configs.
-        lang = "fr"
-        cont_word = "minuscule"
-        suffix = "final"
+        # Resolve current lang + dynamic template values from user config.
+        lang = _detect_lang()
+        if lang not in COMMAND_TABLE:
+            lang = "en"
+        cont_word = _read_continuation_word(lang)
+        suffix = _read_suffix(lang)
+
+        # Update window title to match current lang.
+        if hasattr(self, "_title_label"):
+            self._title_label.setText(f"\U0001F3A4 {TITLE_BY_LANG[lang]}")
 
         labels = CATEGORY_LABELS[lang]
         table = COMMAND_TABLE[lang]
