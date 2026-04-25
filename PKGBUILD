@@ -81,6 +81,7 @@ package() {
     install -Dm755 dictee-transcribe.py "$pkgdir/usr/bin/dictee-transcribe"
     install -Dm755 dictee-reset "$pkgdir/usr/bin/dictee-reset"
     install -Dm755 dictee-translate-langs "$pkgdir/usr/bin/dictee-translate-langs"
+    install -Dm755 dictee-cheatsheet "$pkgdir/usr/bin/dictee-cheatsheet"
     install -Dm755 pkg/dictee/usr/bin/dictee-audio-sources "$pkgdir/usr/bin/dictee-audio-sources"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"

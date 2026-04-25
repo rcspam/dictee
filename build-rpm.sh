@@ -25,7 +25,8 @@ cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
 cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe"
+cp ./dictee-cheatsheet "$PKG_DIR/usr/bin/dictee-cheatsheet"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-cheatsheet"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -76,6 +77,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-transcribe" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-cheatsheet" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-reset" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$buildroot/usr/bin/"
@@ -102,7 +104,8 @@ prepare_buildroot() {
         "$buildroot/usr/bin/dictee-audio-sources" \
         "$buildroot/usr/bin/dictee-plasmoid-level" \
         "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \
-        "$buildroot/usr/bin/dictee-plasmoid-level-fft"
+        "$buildroot/usr/bin/dictee-plasmoid-level-fft" \
+        "$buildroot/usr/bin/dictee-cheatsheet"
 
     # Udev
     mkdir -p "$buildroot/etc/udev/rules.d"
