@@ -9701,7 +9701,7 @@ class DicteeSetupDialog(QDialog):
         else:
             # First launch: copy defaults if available
             for candidate in [
-                _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules.conf.default"),
+                _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "rules.conf.default"),
                 "/usr/share/dictee/rules.conf.default",
             ]:
                 if _os.path.isfile(candidate):
@@ -9822,7 +9822,7 @@ class DicteeSetupDialog(QDialog):
     def _restore_rules_defaults(self):
         import os as _os
         for candidate in [
-            _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "rules.conf.default"),
+            _os.path.join(_os.path.dirname(_os.path.realpath(__file__)), "rules.conf.default"),
             "/usr/share/dictee/rules.conf.default",
         ]:
             if _os.path.isfile(candidate):

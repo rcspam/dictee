@@ -923,6 +923,15 @@ for arg in "$@"; do
     esac
 done
 
+# Session marker (/dev/shm is tmpfs, cleared on reboot). First invocation
+# since boot finds no marker → wipe stale continuation state so the first
+# push starts clean (no leading space inherited from a previous boot).
+SESSION_MARKER_FILE="/dev/shm/.dictee_session${_UID_SUFFIX}"
+if [ ! -f "$SESSION_MARKER_FILE" ]; then
+    rm -f "$LAST_WORD_FILE"
+    : > "$SESSION_MARKER_FILE"
+fi
+
 # === FUNCTIONS ===
 
 # === CLIPBOARD ===
@@ -1407,6 +1416,18 @@ if [ -f "$PIDFILE" ]; then
     # Strip trailing spaces (never significant, avoids double spaces
     # when continuation adds a space on next push)
     transcribed="${transcribed%"${transcribed##*[! ]}"}"
+
+    # Reset-context marker (\x04, from rules.conf voice command "nouvelle
+    # phrase"): wipe the continuation state so the next push starts fresh
+    # (no leading space prepend), strip the marker plus any leading
+    # whitespace it leaves behind, and capitalise the first letter — the
+    # text that follows is a fresh sentence.
+    if [[ "$transcribed" == *$'\x04'* ]]; then
+        rm -f "$LAST_WORD_FILE"
+        transcribed="${transcribed//$'\x04'/}"
+        transcribed="${transcribed#"${transcribed%%[! ]*}"}"
+        transcribed="${transcribed^}"
+    fi
 
     # Short-text keepcaps marker: \x03 at start means the PP matched a
     # keepcaps exception (e.g. "Mesdames" dictated alone). apply_continuation
