@@ -15,8 +15,8 @@ import sys
 from functools import partial
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QFileSystemWatcher, QRect, QSettings, QTimer
-from PyQt6.QtGui import QGuiApplication, QKeySequence, QShortcut
+from PyQt6.QtCore import Qt, QEvent, QFileSystemWatcher, QRect, QSettings, QTimer
+from PyQt6.QtGui import QColor, QGuiApplication, QKeySequence, QPainter, QShortcut
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication,
@@ -53,6 +53,17 @@ DEFAULT_ZOOM_PT = 12.0
 MIN_ZOOM_PT = 9.0
 MAX_ZOOM_PT = 22.0
 ZOOM_STEP = 0.5
+
+# Window opacity — adjusted via mouse wheel on the header.
+DEFAULT_OPACITY = 1.0
+MIN_OPACITY = 0.05
+MAX_OPACITY = 1.0
+# Mouse wheel: continuous, scaled by angleDelta so a full notch on a regular
+# mouse (~120 units) = OPACITY_STEP, while a touchpad swipe (smaller deltas)
+# produces proportionally smaller changes — feels smooth.
+OPACITY_STEP = 0.05
+# Header button click: jump 10% per click for fast manual cycling.
+OPACITY_BUTTON_STEP = 0.10
 
 # Fallback values when the user has not customized their config.
 # DICTEE_COMMAND_SUFFIX_<LANG> in dictee.conf — kept verbatim (regex form).
@@ -551,6 +562,9 @@ class CheatsheetCard(QWidget):
         )
         self.setWindowTitle("dictee-cheatsheet")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Translucent backing surface so the QSS rgba(...) alpha is honored
+        # by the compositor (KWin Wayland ignores setWindowOpacity for
+        # frameless Qt.Tool windows, so we drive opacity via QSS instead).
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.resize(260, 420)
@@ -561,6 +575,9 @@ class CheatsheetCard(QWidget):
 
         # Current zoom (body text point size).
         self._zoom_pt = DEFAULT_ZOOM_PT
+
+        # Window opacity (0.40 - 1.00). Adjusted by wheel on header.
+        self._opacity = DEFAULT_OPACITY
 
         # Per-category expand/collapse state.
         self._cat_state = {cat: (cat in DEFAULT_EXPANDED) for cat in CATEGORY_ORDER}
@@ -578,7 +595,8 @@ class CheatsheetCard(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_header())
+        self._header = self._build_header()
+        root.addWidget(self._header)
 
         self._body = QFrame()
         self._body.setObjectName("CheatsheetBody")
@@ -593,6 +611,10 @@ class CheatsheetCard(QWidget):
         root.addWidget(self._footer)
 
         self._apply_stylesheet()
+
+        # Forward wheel events from child widgets to the card so opacity
+        # adjustment works regardless of where the cursor is.
+        self._install_wheel_filter()
 
         # Live update: re-render body whenever a watched config file changes.
         self._watcher = QFileSystemWatcher(self)
@@ -628,6 +650,12 @@ class CheatsheetCard(QWidget):
         layout.addWidget(self._title_label)
         layout.addStretch(1)
 
+        self._btn_opacity = QPushButton("◐")
+        self._btn_opacity.setObjectName("CheatsheetHeaderBtn")
+        self._btn_opacity.setToolTip("Cycle window opacity")
+        self._btn_opacity.clicked.connect(self.cycle_opacity)
+        layout.addWidget(self._btn_opacity)
+
         self._btn_zoom_out = QPushButton("−")
         self._btn_zoom_out.setObjectName("CheatsheetHeaderBtn")
         self._btn_zoom_out.setToolTip("Zoom out")
@@ -652,14 +680,15 @@ class CheatsheetCard(QWidget):
         body_pt = zoom_pt
         title_pt = zoom_pt * 11.0 / 12.0
         btn_min_size = max(int(zoom_pt * 28 / 12), 24)
+        # NOTE: the card background and rounded border are painted in
+        # paintEvent() rather than via QSS; Qt aggressively caches stylesheet
+        # rules and rgba alpha changes were not always re-applied on Wayland.
         return f"""
             QWidget#CheatsheetCard {{
-                background-color: rgba(28, 30, 35, 235);
-                border: 1px solid rgba(255, 255, 255, 26);
-                border-radius: 8px;
+                background: transparent;
             }}
             QFrame#CheatsheetHeader {{
-                background-color: rgba(255, 255, 255, 10);
+                background-color: rgba(255, 255, 255, 18);
                 border-top-left-radius: 8px;
                 border-top-right-radius: 8px;
             }}
@@ -724,6 +753,25 @@ class CheatsheetCard(QWidget):
 
     def _apply_stylesheet(self):
         self.setStyleSheet(self._build_stylesheet(self._zoom_pt))
+        # The card background is painted in paintEvent based on self._opacity,
+        # so trigger a repaint when stylesheet or opacity changes.
+        self.update()
+
+    def paintEvent(self, event):
+        # Draw the card background ourselves — Qt's stylesheet rgba caching
+        # was unreliable on Wayland, so the alpha lives in self._opacity and
+        # is re-rendered every paint.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        alpha = max(0, min(255, int(round(self._opacity * 255))))
+        bg = QColor(28, 30, 35, alpha)
+        border = QColor(255, 255, 255, min(60, alpha))
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.setPen(border)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(rect, 8, 8)
+        painter.end()
+        super().paintEvent(event)
 
     def _connect_zoom_buttons(self):
         self._btn_zoom_out.clicked.connect(self.zoom_out)
@@ -751,20 +799,23 @@ class CheatsheetCard(QWidget):
         self._apply_zoom()
 
     def _apply_zoom(self):
+        # Update the stylesheet — font-sizes propagate to existing widgets,
+        # so we don't need to rebuild the body (which under Wayland causes
+        # a visible flicker / window restart).
         self._apply_stylesheet()
-        # Re-render the body so child widgets pick up the new font sizing.
-        self._render_body()
+        # Force the layout to recompute sizes with the new fonts, then resize
+        # the window to fit, capped to the screen.
         self.layout().invalidate()
         self.layout().activate()
-        new_size = self.layout().sizeHint()
+        self.adjustSize()
         screen = self.screen() or QGuiApplication.primaryScreen()
         if screen is not None:
             geom = screen.availableGeometry()
+            new_size = self.size()
             capped_w = min(new_size.width(), geom.width() - 32)
             capped_h = min(new_size.height(), geom.height() - 32)
-            self.resize(capped_w, capped_h)
-        else:
-            self.resize(new_size)
+            if (capped_w, capped_h) != (new_size.width(), new_size.height()):
+                self.resize(capped_w, capped_h)
 
     def _render_body(self):
         """Clear and re-build the body content based on current expand state."""
@@ -823,6 +874,9 @@ class CheatsheetCard(QWidget):
 
         self._body_layout.addStretch(1)
 
+        # New widgets need the wheel-forwarding filter installed too.
+        self._install_wheel_filter()
+
     def _toggle_category(self, cat):
         """Flip a category's expand/collapse state and re-render."""
         self._cat_state[cat] = not self._cat_state[cat]
@@ -842,6 +896,15 @@ class CheatsheetCard(QWidget):
             event.button() == Qt.MouseButton.LeftButton
             and not self._on_interactive(event.pos())
         ):
+            # Prefer the compositor-managed system move: this is the only
+            # reliable way to drag a frameless window under Wayland, and it
+            # works fine on X11 too. Fall back to manual move() if no
+            # window handle is available yet.
+            handle = self.windowHandle()
+            if handle is not None and hasattr(handle, "startSystemMove"):
+                if handle.startSystemMove():
+                    event.accept()
+                    return
             self._drag_start = event.globalPosition().toPoint()
             self._win_start = self.pos()
             event.accept()
@@ -863,6 +926,64 @@ class CheatsheetCard(QWidget):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def _install_wheel_filter(self):
+        """Install self as eventFilter on all current child widgets and on
+        QApplication so wheel events get forwarded regardless of which widget
+        receives them first (children consume wheel events under Qt by default
+        even when not scrollable, breaking propagation to the parent window).
+        """
+        for w in self.findChildren(QWidget):
+            w.installEventFilter(self)
+        # Application-wide filter: catches wheel before any widget consumes it.
+        app = QApplication.instance()
+        if app is not None and not getattr(self, "_app_filter_installed", False):
+            app.installEventFilter(self)
+            self._app_filter_installed = True
+
+    # Coarse opacity levels cycled by the header button (100% -> 10%, by 10%).
+    _OPACITY_LEVELS = tuple(
+        round(1.00 - i * OPACITY_BUTTON_STEP, 2) for i in range(10)
+    )
+
+    def cycle_opacity(self):
+        """Step through the discrete opacity levels."""
+        # Find the closest level then advance to the next.
+        idx = min(
+            range(len(self._OPACITY_LEVELS)),
+            key=lambda i: abs(self._OPACITY_LEVELS[i] - self._opacity),
+        )
+        next_idx = (idx + 1) % len(self._OPACITY_LEVELS)
+        self._opacity = self._OPACITY_LEVELS[next_idx]
+        self._apply_stylesheet()
+
+    def _adjust_opacity(self, delta: int) -> None:
+        """Tweak window opacity proportionally to wheel angleDelta. A full
+        mouse notch (delta=120) shifts by OPACITY_STEP; a touchpad swipe
+        (smaller deltas) shifts proportionally less so it feels smooth."""
+        if delta == 0:
+            return
+        factor = delta / 120.0
+        new = self._opacity + factor * OPACITY_STEP
+        self._opacity = max(MIN_OPACITY, min(MAX_OPACITY, new))
+        self._apply_stylesheet()
+
+    def wheelEvent(self, event):
+        # Wheel anywhere on the card adjusts opacity. Cheap and bulletproof
+        # under Wayland where event propagation from children to the parent
+        # window is unreliable.
+        self._adjust_opacity(event.angleDelta().y())
+        event.accept()
+
+    def eventFilter(self, obj, event):
+        # Forward wheel events from any descendant widget to the card so the
+        # opacity tweak works no matter where the cursor sits. Scope to our
+        # own widget tree since the filter is application-wide.
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, QWidget):
+            if obj is self or self.isAncestorOf(obj):
+                self._adjust_opacity(event.angleDelta().y())
+                return True
+        return super().eventFilter(obj, event)
 
     def show_firstrun_banner(self):
         """Insert a one-time onboarding banner above the body.
@@ -897,6 +1018,7 @@ class CheatsheetCard(QWidget):
         qs.setValue("geometry/w", geom.width())
         qs.setValue("geometry/h", geom.height())
         qs.setValue("zoom_pt", self._zoom_pt)
+        qs.setValue("opacity", self._opacity)
         expanded = [cat for cat, is_open in self._cat_state.items() if is_open]
         qs.setValue("expanded_categories", expanded)
         qs.sync()
@@ -923,6 +1045,15 @@ class CheatsheetCard(QWidget):
         except (TypeError, ValueError):
             z = DEFAULT_ZOOM_PT
         self._zoom_pt = max(MIN_ZOOM_PT, min(z, MAX_ZOOM_PT))
+
+        # Opacity (clamped to [MIN, MAX]). Driven via QSS rgba alpha at
+        # _build_stylesheet() time, applied on the next _apply_stylesheet call.
+        op = qs.value("opacity", DEFAULT_OPACITY)
+        try:
+            op = float(op)
+        except (TypeError, ValueError):
+            op = DEFAULT_OPACITY
+        self._opacity = max(MIN_OPACITY, min(op, MAX_OPACITY))
 
         # Categories — fall back to DEFAULT_EXPANDED only if the key is missing
         # or invalid. An empty list is a legitimate "all collapsed" state.
