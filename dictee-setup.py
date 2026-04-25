@@ -44,7 +44,7 @@ try:
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
         QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
-        QListWidget, QListWidgetItem, QDialogButtonBox,
+        QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
 except ImportError:
@@ -61,7 +61,7 @@ except ImportError:
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
         QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
         QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
-        QListWidget, QListWidgetItem, QDialogButtonBox,
+        QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
 
@@ -6056,6 +6056,18 @@ class DicteeSetupDialog(QDialog):
             row_input.addWidget(btn_fix_input)
             row_input.addStretch()
             lay_sc.addLayout(row_input)
+
+        # Voice commands cheatsheet — KDE global shortcut.
+        # Default Ctrl+Alt+H. Persisted via apply_kde_shortcut on Apply.
+        lay_sc.addSpacing(8)
+        lbl_cheat = QLabel(_("Voice commands cheatsheet") + " :")
+        lay_sc.addWidget(lbl_cheat)
+        existing_cheat, _existing_desktop = find_kde_shortcut_for_command(
+            "/usr/bin/dictee-cheatsheet --toggle")
+        initial_seq = QKeySequence(existing_cheat) if existing_cheat else QKeySequence("Ctrl+Alt+H")
+        self.kse_cheatsheet = QKeySequenceEdit(initial_seq)
+        self.kse_cheatsheet.setToolTip(_("Toggle the floating voice commands cheatsheet"))
+        lay_sc.addWidget(self.kse_cheatsheet)
 
     def _build_parakeet_options(self, parent_layout):
         """Build Parakeet model download widgets."""
@@ -15373,6 +15385,22 @@ class DicteeSetupDialog(QDialog):
                     trpp_short_text_max=(
                         self.cmb_trpp_short_text_max.currentData()
                         if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3)
+
+        # Register the cheatsheet KDE global shortcut (Ctrl+Alt+H by default).
+        if hasattr(self, 'kse_cheatsheet') and self.kse_cheatsheet.keySequence().count() > 0:
+            try:
+                seq = self.kse_cheatsheet.keySequence()
+                kde_format = qt_key_to_kde(seq)
+                if kde_format:
+                    apply_kde_shortcut(
+                        kde_format,
+                        "dictee-cheatsheet-toggle.desktop",
+                        "/usr/bin/dictee-cheatsheet --toggle",
+                        _("Toggle voice commands cheatsheet"),
+                        key_sequence=seq,
+                    )
+            except Exception as _e:
+                _dbg_setup(f"_on_apply: cheatsheet shortcut registration failed: {_e}")
 
         # Calibration playground: wipe temp recordings now that the
         # threshold value has been validated and persisted.
