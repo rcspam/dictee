@@ -11,12 +11,14 @@ to the running instance and exit.
 import argparse
 import os
 import sys
+from functools import partial
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -435,6 +437,9 @@ class CheatsheetCard(QWidget):
         self._drag_start = None
         self._win_start = None
 
+        # Per-category expand/collapse state.
+        self._cat_state = {cat: (cat in DEFAULT_EXPANDED) for cat in CATEGORY_ORDER}
+
         # Root layout: header / body / footer.
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -444,6 +449,9 @@ class CheatsheetCard(QWidget):
 
         self._body = QFrame()
         self._body.setObjectName("CheatsheetBody")
+        self._body_layout = QVBoxLayout(self._body)
+        self._body_layout.setContentsMargins(8, 8, 8, 8)
+        self._body_layout.setSpacing(2)
         root.addWidget(self._body, 1)
 
         self._footer = QFrame()
@@ -452,6 +460,7 @@ class CheatsheetCard(QWidget):
         root.addWidget(self._footer)
 
         self._apply_stylesheet()
+        self._render_body()
 
     def _build_header(self):
         header = QFrame()
@@ -522,7 +531,82 @@ class CheatsheetCard(QWidget):
                 border-radius: 4px;
                 color: #ffffff;
             }
+            QPushButton#CheatsheetCategoryTitle {
+                background: transparent;
+                color: #8ec5ff;
+                border: none;
+                font-weight: 600;
+                text-align: left;
+                padding: 6px 8px;
+            }
+            QPushButton#CheatsheetCategoryTitle:hover {
+                background-color: rgba(255, 255, 255, 13);
+                border-radius: 4px;
+            }
+            QLabel#CheatsheetCmd {
+                color: rgba(224, 224, 224, 217);
+            }
+            QLabel#CheatsheetResult {
+                color: rgba(224, 224, 224, 128);
+                font-family: "JetBrains Mono", "Fira Code", monospace;
+            }
         """)
+
+    def _render_body(self):
+        """Clear and re-build the body content based on current expand state."""
+        # Clear existing children of the body layout.
+        while self._body_layout.count():
+            item = self._body_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+        # Hardcoded for Task 4 — Task 5 reads from configs.
+        lang = "fr"
+        cont_word = "minuscule"
+        suffix = "final"
+
+        labels = CATEGORY_LABELS[lang]
+        table = COMMAND_TABLE[lang]
+
+        for cat in CATEGORY_ORDER:
+            items = table.get(cat, [])
+            if not items:
+                # Skip empty categories (e.g. markdown for non-fr/en).
+                continue
+
+            is_open = self._cat_state[cat]
+            arrow = "▾" if is_open else "▸"
+            title_btn = QPushButton(f"{arrow} {labels[cat]}")
+            title_btn.setObjectName("CheatsheetCategoryTitle")
+            title_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            title_btn.clicked.connect(partial(self._toggle_category, cat))
+            self._body_layout.addWidget(title_btn)
+
+            if is_open:
+                grid = QGridLayout()
+                grid.setHorizontalSpacing(8)
+                grid.setVerticalSpacing(4)
+                grid.setContentsMargins(20, 0, 0, 4)
+                for row, (tpl, result) in enumerate(items):
+                    cmd = tpl.replace("{cont}", cont_word).replace("{suffix}", suffix)
+                    cmd_lbl = QLabel(cmd)
+                    cmd_lbl.setObjectName("CheatsheetCmd")
+                    res_lbl = QLabel(result)
+                    res_lbl.setObjectName("CheatsheetResult")
+                    grid.addWidget(cmd_lbl, row, 0)
+                    grid.addWidget(res_lbl, row, 1)
+                container = QWidget()
+                container.setLayout(grid)
+                self._body_layout.addWidget(container)
+
+        self._body_layout.addStretch(1)
+
+    def _toggle_category(self, cat):
+        """Flip a category's expand/collapse state and re-render."""
+        self._cat_state[cat] = not self._cat_state[cat]
+        self._render_body()
 
     def _on_interactive(self, pos):
         """True if the position lands on an interactive child (e.g. a button)."""
