@@ -15,7 +15,7 @@ import sys
 from functools import partial
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QFileSystemWatcher
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication,
@@ -558,6 +558,22 @@ class CheatsheetCard(QWidget):
         root.addWidget(self._footer)
 
         self._apply_stylesheet()
+
+        # Live update: re-render body whenever a watched config file changes.
+        self._watcher = QFileSystemWatcher(self)
+        for path in (DICTEE_CONF, CONTINUATION_CONF):
+            if path.exists():
+                self._watcher.addPath(str(path))
+        self._watcher.fileChanged.connect(self._on_config_changed)
+
+        self._render_body()
+
+    def _on_config_changed(self, path: str):
+        """Re-render when watched config files change. Re-add the path
+        if QFileSystemWatcher dropped it after an atomic rename
+        (vim, dictee-setup save, etc.)."""
+        if path not in self._watcher.files():
+            self._watcher.addPath(path)
         self._render_body()
 
     def _build_header(self):
