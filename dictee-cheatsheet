@@ -20,6 +20,366 @@ from PyQt6.QtWidgets import QApplication, QWidget
 SERVER_NAME = f"dictee-cheatsheet-{os.getuid()}"
 VALID_COMMANDS = ("open", "toggle", "close", "first-run")
 
+# Categories rendered in this order. First 4 are expanded by default.
+CATEGORY_ORDER = (
+    "continuation_reset",
+    "sauts_de_ligne",
+    "ponctuation",
+    "brackets",
+    "markdown",
+    "caracteres_speciaux",
+    "hotkeys",
+)
+
+DEFAULT_EXPANDED = frozenset({
+    "continuation_reset",
+    "sauts_de_ligne",
+    "ponctuation",
+    "brackets",
+})
+
+# Localized section labels per language.
+CATEGORY_LABELS = {
+    "fr": {
+        "continuation_reset": "Continuation et reset",
+        "sauts_de_ligne": "Sauts de ligne",
+        "ponctuation": "Ponctuation",
+        "brackets": "Guillemets et parenthèses",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caractères spéciaux",
+        "hotkeys": "Raccourcis vocaux",
+    },
+    "en": {
+        "continuation_reset": "Continuation and reset",
+        "sauts_de_ligne": "Line breaks",
+        "ponctuation": "Punctuation",
+        "brackets": "Quotes and brackets",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Special characters",
+        "hotkeys": "Voice hotkeys",
+    },
+    "de": {
+        "continuation_reset": "Fortsetzung und Reset",
+        "sauts_de_ligne": "Zeilenumbrüche",
+        "ponctuation": "Interpunktion",
+        "brackets": "Klammern",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Sonderzeichen",
+        "hotkeys": "Sprachbefehle",
+    },
+    "es": {
+        "continuation_reset": "Continuación y reinicio",
+        "sauts_de_ligne": "Saltos de línea",
+        "ponctuation": "Puntuación",
+        "brackets": "Comillas y paréntesis",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caracteres especiales",
+        "hotkeys": "Atajos de voz",
+    },
+    "it": {
+        "continuation_reset": "Continuazione e reset",
+        "sauts_de_ligne": "A capo",
+        "ponctuation": "Punteggiatura",
+        "brackets": "Virgolette e parentesi",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caratteri speciali",
+        "hotkeys": "Comandi vocali",
+    },
+    "pt": {
+        "continuation_reset": "Continuação e reset",
+        "sauts_de_ligne": "Quebras de linha",
+        "ponctuation": "Pontuação",
+        "brackets": "Aspas e parênteses",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caracteres especiais",
+        "hotkeys": "Atalhos de voz",
+    },
+    "uk": {
+        "continuation_reset": "Продовження та скидання",
+        "sauts_de_ligne": "Розриви рядків",
+        "ponctuation": "Пунктуація",
+        "brackets": "Лапки та дужки",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Спеціальні символи",
+        "hotkeys": "Голосові скорочення",
+    },
+}
+
+# Window title per language.
+TITLE_BY_LANG = {
+    "fr": "Commandes vocales (FR)",
+    "en": "Voice commands (EN)",
+    "de": "Sprachbefehle (DE)",
+    "es": "Comandos de voz (ES)",
+    "it": "Comandi vocali (IT)",
+    "pt": "Comandos de voz (PT)",
+    "uk": "Голосові команди (UK)",
+}
+
+# Curated voice commands per language × category.
+# Templates: {cont} = continuation keyword, {suffix} = SUFFIX_<LANG>.
+# One canonical form per command — variants live in the wiki.
+COMMAND_TABLE = {
+    "fr": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nouvelle phrase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("à la ligne", "↵"),
+            ("retour à la ligne", "↵"),
+            ("nouveau paragraphe", "↵↵"),
+            ("point à la ligne", ".↵"),
+            ("virgule à la ligne", ",↵"),
+            ("deux points à la ligne", ":↵"),
+        ],
+        "ponctuation": [
+            ("virgule", ","),
+            ("point {suffix}", "."),
+            ("deux points {suffix}", ": "),
+            ("point virgule", "; "),
+            ("point d'interrogation", "?"),
+            ("point d'exclamation", "!"),
+            ("points de suspension", "…"),
+            ("apostrophe", "'"),
+        ],
+        "brackets": [
+            ("ouvrir guillemets", "« "),
+            ("fermer guillemets", " »"),
+            ("ouvrir parenthèse", " ("),
+            ("fermer parenthèse", ") "),
+        ],
+        "markdown": [
+            ("dièse espace", "# "),
+            ("double dièse", "## "),
+            ("triple dièse", "### "),
+        ],
+        "caracteres_speciaux": [
+            ("tabulation", "\\t"),
+            ("tiret", "- "),
+            ("tiret bas", "_"),
+            ("tiret du six", "-"),
+        ],
+        "hotkeys": [
+            ("contrôle j", "Ctrl+J"),
+        ],
+    },
+    "en": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("new sentence", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("new line", "↵"),
+            ("new paragraph", "↵↵"),
+            ("period new line", ".↵"),
+            ("comma new line", ",↵"),
+            ("colon new line", ":↵"),
+            ("question mark new line", "?↵"),
+        ],
+        "ponctuation": [
+            ("comma", ", "),
+            ("period {suffix}", "."),
+            ("colon {suffix}", ": "),
+            ("semicolon", "; "),
+            ("question mark", "? "),
+            ("exclamation mark", "! "),
+            ("ellipsis", "… "),
+        ],
+        "brackets": [
+            ("open quote", "\""),
+            ("close quote", "\""),
+            ("open paren", " ("),
+            ("close paren", ") "),
+        ],
+        "markdown": [
+            ("hash space", "# "),
+            ("hash hash space", "## "),
+            ("hash hash hash space", "### "),
+        ],
+        "caracteres_speciaux": [
+            ("tab", "\\t"),
+            ("hyphen", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "de": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("neuer Satz", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("neue Zeile", "↵"),
+            ("neuer Absatz", "↵↵"),
+            ("Punkt neue Zeile", ".↵"),
+            ("Komma neue Zeile", ",↵"),
+            ("Doppelpunkt neue Zeile", ":↵"),
+            ("Fragezeichen neue Zeile", "?↵"),
+        ],
+        "ponctuation": [
+            ("Komma", ", "),
+            ("Punkt {suffix}", "."),
+            ("Doppelpunkt", ": "),
+            ("Semikolon", "; "),
+            ("Fragezeichen", "?"),
+            ("Ausrufezeichen", "!"),
+            ("Auslassungspunkte", "…"),
+        ],
+        "brackets": [
+            ("Anführungszeichen auf", "\""),
+            ("Anführungszeichen zu", "\""),
+            ("Klammer auf", "("),
+            ("Klammer zu", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("Tabulator", "\\t"),
+            ("Bindestrich", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "es": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nueva frase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("nueva línea", "↵"),
+            ("nuevo párrafo", "↵↵"),
+            ("coma nueva línea", ",↵"),
+            ("dos puntos nueva línea", ":↵"),
+            ("signo de interrogación nueva línea", "?↵"),
+            ("signo de exclamación nueva línea", "!↵"),
+        ],
+        "ponctuation": [
+            ("coma {suffix}", ", "),
+            ("punto {suffix}", "."),
+            ("dos puntos", ": "),
+            ("punto y coma", "; "),
+            ("signo de interrogación", "?"),
+            ("signo de exclamación", "!"),
+            ("puntos suspensivos", "…"),
+        ],
+        "brackets": [
+            ("abrir comillas", "\""),
+            ("cerrar comillas", "\""),
+            ("abrir paréntesis", "("),
+            ("cerrar paréntesis", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("tabulación", "\\t"),
+            ("guión", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "it": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nuova frase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("a capo", "↵"),
+            ("nuovo paragrafo", "↵↵"),
+            ("virgola a capo", ",↵"),
+            ("due punti a capo", ":↵"),
+            ("punto interrogativo a capo", "?↵"),
+            ("punto esclamativo a capo", "!↵"),
+        ],
+        "ponctuation": [
+            ("virgola", ", "),
+            ("punto {suffix}", "."),
+            ("due punti", ": "),
+            ("punto e virgola", "; "),
+            ("punto interrogativo", "?"),
+            ("punto esclamativo", "!"),
+            ("puntini di sospensione", "…"),
+        ],
+        "brackets": [
+            ("apri virgolette", "\""),
+            ("chiudi virgolette", "\""),
+            ("apri parentesi", "("),
+            ("chiudi parentesi", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("tabulazione", "\\t"),
+            ("trattino", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "pt": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nova frase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("nova linha", "↵"),
+            ("novo parágrafo", "↵↵"),
+            ("vírgula nova linha", ",↵"),
+            ("dois pontos nova linha", ":↵"),
+            ("ponto de interrogação nova linha", "?↵"),
+            ("ponto de exclamação nova linha", "!↵"),
+        ],
+        "ponctuation": [
+            ("vírgula", ", "),
+            ("ponto {suffix}", "."),
+            ("dois pontos", ": "),
+            ("ponto e vírgula", "; "),
+            ("ponto de interrogação", "?"),
+            ("ponto de exclamação", "!"),
+            ("reticências", "…"),
+        ],
+        "brackets": [
+            ("abrir aspas", "\""),
+            ("fechar aspas", "\""),
+            ("abrir parênteses", "("),
+            ("fechar parênteses", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("tabulação", "\\t"),
+            ("hífen", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "uk": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("нове речення", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("новий рядок", "↵"),
+            ("новий абзац", "↵↵"),
+            ("кома новий рядок", ",↵"),
+            ("двокрапка новий рядок", ":↵"),
+            ("знак питання новий рядок", "?↵"),
+            ("знак оклику новий рядок", "!↵"),
+        ],
+        "ponctuation": [
+            ("кома {suffix}", ", "),
+            ("крапка {suffix}", "."),
+            ("двокрапка", ": "),
+            ("крапка з комою", "; "),
+            ("знак питання", "?"),
+            ("знак оклику", "!"),
+            ("три крапки", "…"),
+        ],
+        "brackets": [
+            ("відкрити лапки", "\""),
+            ("закрити лапки", "\""),
+            ("відкрити дужки", "("),
+            ("закрити дужки", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("табуляція", "\\t"),
+            ("дефіс", "- "),
+        ],
+        "hotkeys": [],
+    },
+}
+
 
 def _parse_args(argv):
     p = argparse.ArgumentParser(prog="dictee-cheatsheet", add_help=True)
