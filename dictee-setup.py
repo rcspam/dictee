@@ -15821,6 +15821,83 @@ def main():
                         help="Enable debug logging to stderr and /tmp/dictee-setup.log")
     args = parser.parse_args()
 
+    # Optional startup profiling: DICTEE_SETUP_PROFILE=1 dumps a cProfile
+    # snapshot to /tmp/dictee-setup.prof and a per-method timing table to
+    # /tmp/dictee-setup-timings.log when the window closes. Zero impact
+    # in normal use (only enabled when the env var is set).
+    if os.environ.get("DICTEE_SETUP_PROFILE"):
+        import cProfile, atexit, time as _t, sys as _sys, signal as _sig
+        from collections import defaultdict as _dd
+        _profile = cProfile.Profile()
+        _profile.enable()
+        _timings = []
+
+        # Default SIGTERM behavior is to kill the process without running
+        # atexit, so the profile would never be dumped. Convert SIGTERM
+        # into a clean sys.exit(0) so atexit fires.
+        def _on_term(signum, frame):
+            _sys.exit(0)
+        _sig.signal(_sig.SIGTERM, _on_term)
+        _sig.signal(_sig.SIGINT, _on_term)
+
+        def _wrap_for_timing(method, qualname):
+            def wrapped(*a, **kw):
+                t0 = _t.perf_counter()
+                try:
+                    return method(*a, **kw)
+                finally:
+                    _timings.append((qualname, (_t.perf_counter() - t0) * 1000.0))
+            wrapped.__name__ = method.__name__
+            return wrapped
+
+        # NOTE: do NOT wrap "_render_*" or "_paint_*" — those are typically
+        # Qt event overrides / slots whose signature is set by Qt and any
+        # *args wrapper trips signature checks (e.g. _render_svg).
+        _PROF_PREFIXES = (
+            "_build_", "_check_", "_init_",
+            "_load_", "_setup_", "_detect_",
+        )
+        for _cname, _cls in list(globals().items()):
+            if not isinstance(_cls, type) or _cname.startswith("_"):
+                continue
+            for _attr in list(vars(_cls).keys()):
+                if not _attr.startswith(_PROF_PREFIXES):
+                    continue
+                _raw = vars(_cls).get(_attr)
+                # Skip staticmethod/classmethod: wrapping them with a plain
+                # function would silently turn them into bound methods and
+                # corrupt the call signature.
+                if isinstance(_raw, (staticmethod, classmethod)):
+                    continue
+                _orig = getattr(_cls, _attr, None)
+                if callable(_orig) and not isinstance(_orig, type):
+                    setattr(_cls, _attr, _wrap_for_timing(_orig, f"{_cname}.{_attr}"))
+
+        @atexit.register
+        def _dump_profile_outputs():
+            _profile.disable()
+            try:
+                _profile.dump_stats("/tmp/dictee-setup.prof")
+            except Exception as _e:
+                print(f"[profile] cProfile dump failed: {_e}", file=_sys.stderr)
+            # Aggregate per-method timings
+            _agg = _dd(lambda: [0.0, 0])
+            for _n, _ms in _timings:
+                _agg[_n][0] += _ms
+                _agg[_n][1] += 1
+            try:
+                with open("/tmp/dictee-setup-timings.log", "w") as _f:
+                    _f.write(f"Total instrumented methods called: {len(_agg)}\n")
+                    _f.write(f"Total method calls timed: {len(_timings)}\n")
+                    _f.write("\nTop 40 by cumulative ms (calls in parens):\n")
+                    for _n, (_tot, _cnt) in sorted(
+                            _agg.items(), key=lambda kv: -kv[1][0])[:40]:
+                        _f.write(f"  {_tot:8.1f} ms  ({_cnt:3d}x)  {_n}\n")
+                print("[profile] cProfile -> /tmp/dictee-setup.prof", file=_sys.stderr)
+                print("[profile] timings  -> /tmp/dictee-setup-timings.log", file=_sys.stderr)
+            except Exception as _e:
+                print(f"[profile] timings dump failed: {_e}", file=_sys.stderr)
+
     if args.models:
         from dictee_models import find_all_models, print_table
         import json as json_mod
