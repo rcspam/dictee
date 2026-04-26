@@ -4107,11 +4107,21 @@ class DicteeSetupDialog(QDialog):
         self._pipeline_header_external = True
         pipeline_header = self._build_pipeline_header_widget()
 
+        # The post-processing section is by far the most expensive page
+        # (~1.3 s on a fast machine, more on slower ones). Defer its build
+        # to after show() so the window paints immediately. The tree
+        # navigation handler (_on_item_changed) is already defensive
+        # (hasattr() guards on _pp_tabs / _pp_masters_row / ...), so PP
+        # navigation gracefully degrades during the brief window between
+        # show() and the deferred build firing. _ensure_pp_built() is also
+        # called eagerly if the user clicks the PP entry before the timer
+        # tick, so they never see an empty page.
         page_pp_inner = QWidget()
-        _lay = QVBoxLayout(page_pp_inner)
-        _lay.setContentsMargins(20, 8, 20, 16)
-        _lay.setSpacing(6)
-        self._build_postprocess_section(_lay, conf)
+        self._pp_inner_layout = QVBoxLayout(page_pp_inner)
+        self._pp_inner_layout.setContentsMargins(20, 8, 20, 16)
+        self._pp_inner_layout.setSpacing(6)
+        self._pp_inner_conf = conf
+        self._pp_built = False
 
         # Wrap in a QScrollArea like other pages, so the splitter
         # resize is a simple viewport resize (no relayout storm).
@@ -4123,6 +4133,10 @@ class DicteeSetupDialog(QDialog):
         page_pp.setWidget(page_pp_inner)
         self._pp_scroll = page_pp  # for ensureWidgetVisible calls
         self._sidebar_stack.addWidget(page_pp)
+
+        # Fire the deferred PP build as soon as the event loop is reachable,
+        # i.e. right after the window has painted.
+        QTimer.singleShot(0, self._ensure_pp_built)
 
         # Section 9 : About (last)
         page_about = self._build_section_about()
@@ -4170,7 +4184,13 @@ class DicteeSetupDialog(QDialog):
                 return
             idx = current.data(0, Qt.ItemDataRole.UserRole)
             if idx is not None:
-                self._sidebar_stack.setCurrentIndex(int(idx))
+                idx_int = int(idx)
+                # If the user navigates to PP before the deferred build
+                # fired, build it eagerly so they don't see an empty page.
+                if (idx_int == self._sidebar_stack.indexOf(self._pp_scroll)
+                        and not getattr(self, '_pp_built', False)):
+                    self._ensure_pp_built()
+                self._sidebar_stack.setCurrentIndex(idx_int)
             pp_tab = current.data(0, Qt.ItemDataRole.UserRole + 1)
             # Post-processing page: show the tabs + title only when a
             # specific sub-section is selected. When the PP root is
@@ -4259,6 +4279,51 @@ class DicteeSetupDialog(QDialog):
             w.currentIndexChanged.connect(self._mark_dirty)
         for w in self.findChildren(QCheckBox):
             w.toggled.connect(self._mark_dirty)
+
+    def _ensure_pp_built(self):
+        """Lazy-build the post-processing section the first time it is needed.
+
+        Called from QTimer.singleShot in _build_sidebar_ui (after show()),
+        and also synchronously from the tree handler if the user clicks
+        the PP entry before the timer fires.  Idempotent: subsequent calls
+        return immediately."""
+        if getattr(self, '_pp_built', False):
+            return
+        self._pp_built = True
+        self._build_postprocess_section(
+            self._pp_inner_layout, self._pp_inner_conf)
+        # The PP build creates many checkboxes/combos (master toggles,
+        # rule editors, dictionary form, LLM form...). Wire the dirty
+        # tracking that _build_sidebar_ui set up — disconnect-then-connect
+        # is safe even for pre-existing widgets (no double-fire).
+        for w in self.findChildren(QComboBox):
+            try:
+                w.currentIndexChanged.disconnect(self._mark_dirty)
+            except (TypeError, RuntimeError):
+                pass
+            w.currentIndexChanged.connect(self._mark_dirty)
+        for w in self.findChildren(QCheckBox):
+            try:
+                w.toggled.disconnect(self._mark_dirty)
+            except (TypeError, RuntimeError):
+                pass
+            w.toggled.connect(self._mark_dirty)
+        # PP tree sub-items now have a real backing widget — refresh their
+        # greyout state if the master-aware helper is available.
+        if hasattr(self, "_apply_any_master_active"):
+            self._apply_any_master_active()
+        # If the PP page is the current one when the deferred build fires,
+        # re-emit the tree selection so the visibility hooks for
+        # _pp_tabs/_pp_masters_row/etc. fire now that those widgets exist.
+        try:
+            if (self._sidebar_stack.indexOf(self._pp_scroll)
+                    == self._sidebar_stack.currentIndex()
+                    and hasattr(self, '_sidebar_tree')):
+                cur = self._sidebar_tree.currentItem()
+                if cur is not None:
+                    self._sidebar_tree.currentItemChanged.emit(cur, None)
+        except Exception as _e:
+            _dbg_setup(f"_ensure_pp_built: re-emit failed: {_e}")
 
     @staticmethod
     def _detect_install_type():
