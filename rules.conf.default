@@ -41,8 +41,8 @@
 [fr] /[,.\s]*point d'exclamation (?:[à|a] )?la ligne[,.\s]*/!\n/ig
 [fr] /[,.\s]*points? de suspension (?:[à|a] )?la ligne[,.\s]*/…\n/ig
 [fr] /[,.\s]*deux points (?:[à|a] )?la ligne[,.\s]*/:\n/ig
-[fr] /[,.\s]*point virgule (?:[à|a] )?la ligne[,.\s]*/;\n/ig
-[fr] /[,.\s]*virgule (?:[à|a] )?la ligne[,.\s]*/,\n/ig
+[fr] /[,.\s]*point virgules? (?:[à|a] )?la ligne[,.\s]*/;\n/ig
+[fr] /[,.\s]*virgules? (?:[à|a] )?la ligne[,.\s]*/,\n/ig
 [fr] /[,.\s]*point (?:[à|a] )?la ligne[,.\s]*/.\n/ig
 # Symbol form (Parakeet converts punctuation natively)
 [fr] /\s*:\s*(?:[à|a] )?la ligne[,.\s]*/:\n/ig
@@ -84,13 +84,13 @@
 [fr] /[,.\s]*point d'exclamation[,.\s]*/!/ig
 # Non-ambiguous compound commands (no suffix needed)
 [fr] /[,.\s]*deux points %SUFFIX_FR%[,.\s]*/: /ig
-[fr] /[,.\s]*point virgule[,.\s]*/; /ig
+[fr] /[,.\s]*point virgules?[,.\s]*/; /ig
 # "point" alone is ambiguous — requires suffix (%SUFFIX_FR%) + \x02 end-of-sentence marker
 [fr] /[,.\s]*point %SUFFIX_FR%[,.\s]*/.\x02 /ig
 # Non-ambiguous (no suffix needed)
-[fr] /[,.\s]*virgule[,.\s]*/, /ig
-[fr] /[,.\s]*[Vv]erg[üu]lle[,.\s]*/, /ig
-[fr] /[,.\s]*[Vv]irgule[,.\s]*/, /ig
+[fr] /[,.\s]*virgules?[,.\s]*/, /ig
+[fr] /[,.\s]*[Vv]erg[üu]lles?[,.\s]*/, /ig
+[fr] /[,.\s]*[Vv]irgules?[,.\s]*/, /ig
 [fr] /^[,.\s]*[Вв]ер[гд][юу]л[яь][,.\s]*/, /igm
 [fr] /^[,.\s]*[Вв]ергуля[,.\s]*/, /igm
 [fr] /^[,.\s]*[Вв]ердюль[,.\s]*/, /igm

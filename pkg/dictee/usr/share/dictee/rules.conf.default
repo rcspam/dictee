@@ -71,6 +71,12 @@
 [fr] /^[,.\s]*[àÀaA] la vigne[,.\s]*/\n/igm
 [fr] /^[,.\s]*[Ll]a ligne[,.\s]*/\n/igm
 [fr] /^[,.\s]*[Aa]llez[,\s]*ligne[,.\s]*/\n/igm
+# 3a-bis. Reset-context voice command ("nouvelle phrase")
+# Wipes LAST_WORD_FILE on the dictee shell side (no leading space prepend
+# on the next push). Anchored at start so "Une nouvelle phrase apparaît"
+# in normal speech is not consumed. The \x04 marker is intercepted by the
+# shell and stripped before typing — nothing visible is inserted.
+[fr] /^[,.\s]*nouvelles?[\s-]+(?:phrases?|frases?)[,.\s]*/\x04/igm
 # 3b. Inline punctuation
 [fr] /[,.\s]*(trois|3) petits points[,.\s]*/…/ig
 [fr] /[,.\s]*points? de suspension[,.\s]*/…/ig
@@ -152,6 +158,8 @@
 # 3c. Line breaks
 [en] /[,.\s]*\b(?:new|next) paragraph\b[,.\s]*/\n\n/ig
 [en] /[,.\s]*\b(?:new|next|line) (?:line|break)\b[,.\s]*/\n/ig
+# 3a-bis. Reset-context voice command ("new sentence")
+[en] /^[,.\s]*new\s+sentences?[,.\s]*/\x04/igm
 # 3d. Markdown
 [en] /[,.\s]*hash hash hash space[,.\s]*/### /ig
 [en] /[,.\s]*hash hash space[,.\s]*/## /ig
@@ -186,6 +194,8 @@
 # 3c. Line breaks
 [de] /[,.\s]*neuer Absatz[,.\s]*/\n\n/ig
 [de] /[,.\s]*(?:neue Zeile|Zeilenumbruch)[,.\s]*/\n/ig
+# 3a-bis. Reset-context voice command ("neuer Satz")
+[de] /^[,.\s]*neue[r]?\s+s(?:atz|ätze)[,.\s]*/\x04/igm
 
 # ── Spanish ──────────────────────────────────────────────────────────
 # 3a. Combined punctuation+newline
@@ -215,6 +225,8 @@
 [es] /[,.\s]*nuevo párrafo[,.\s]*/\n\n/ig
 [es] /[,.\s]*punto y aparte[,.\s]*/\n/ig
 [es] /[,.\s]*nueva línea[,.\s]*/\n/ig
+# 3a-bis. Reset-context voice command ("nueva frase")
+[es] /^[,.\s]*nuevas?\s+frases?[,.\s]*/\x04/igm
 # "punto" — ambiguous, requires suffix
 [es] /[,.\s]*punto(?: final)? %SUFFIX_ES%[,.\s]*/./ig
 
@@ -247,6 +259,8 @@
 [it] /[,.\s]*nuovo paragrafo[,.\s]*/\n\n/ig
 [it] /[,.\s]*nuova riga[,.\s]*/\n/ig
 [it] /[,.\s]*a capo[,.\s]*/\n/ig
+# 3a-bis. Reset-context voice command ("nuova frase")
+[it] /^[,.\s]*(?:nuova\s+frase|nuove\s+frasi)[,.\s]*/\x04/igm
 
 # ── Portuguese ───────────────────────────────────────────────────────
 # 3a. Combined punctuation+newline
@@ -276,6 +290,8 @@
 # 3c. Line breaks
 [pt] /[,.\s]*novo parágrafo[,.\s]*/\n\n/ig
 [pt] /[,.\s]*nova linha[,.\s]*/\n/ig
+# 3a-bis. Reset-context voice command ("nova frase")
+[pt] /^[,.\s]*novas?\s+frases?[,.\s]*/\x04/igm
 
 # ── Ukrainian ────────────────────────────────────────────────────────
 # 3a. Combined punctuation+newline
@@ -305,6 +321,8 @@
 # 3c. Line breaks
 [uk] /[,.\s]*новий абзац[,.\s]*/\n\n/ig
 [uk] /[,.\s]*новий рядок[,.\s]*/\n/ig
+# 3a-bis. Reset-context voice command ("нове речення")
+[uk] /^[,.\s]*нов[еі]\s+речення[,.\s]*/\x04/igm
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 4 — Word deduplication (Parakeet bug: "je je" → "je")
