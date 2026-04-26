@@ -181,7 +181,8 @@ def _parse_rules(path):
                            .replace("\\u00bb", "\u00bb")
                            .replace("\\u002f", "/")
                            .replace("\\x01", "\x01")
-                           .replace("\\x02", "\x02"))
+                           .replace("\\x02", "\x02")
+                           .replace("\\x04", "\x04"))
             rules.append((compiled, replacement))
     return rules
 
@@ -1272,11 +1273,12 @@ def main():
     # Defense in depth: strip control chars that could be interpreted
     # as a key sequence downstream.
     # Keep: \x01 (ctrl+j marker), \x02 (force end-of-sentence marker),
+    #       \x04 (reset-context marker, "nouvelle phrase" voice command),
     #       \t (0x09), \n (0x0a) — dictee strips them after save_last_word.
     # \x03 (short_text keepcaps hit) is only kept when it appears as the
     # leading character — other \x03 occurrences are stripped.
     _leading_keepcaps = text.startswith("\x03")
-    text = "".join(c for c in text if c in ("\x01", "\x02", "\t", "\n") or ord(c) >= 0x20)
+    text = "".join(c for c in text if c in ("\x01", "\x02", "\x04", "\t", "\n") or ord(c) >= 0x20)
     if _leading_keepcaps:
         text = "\x03" + text
 
