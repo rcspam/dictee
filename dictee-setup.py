@@ -1966,6 +1966,40 @@ def docker_cmd(args, **kwargs):
     return subprocess.run(cmd, **kwargs)
 
 
+def _ttl_cache(ttl=2.0):
+    """Decorator: memoize a pure-ish function for `ttl` seconds.
+
+    Used on the docker_* lookup helpers below: at startup, the
+    translation/microphone/etc. tabs probe Docker state several times
+    in a sub-second window. Without caching this fans out into 18
+    `docker inspect` subprocess calls (~700 ms total). With a 2 s TTL,
+    the redundant probes hit the cache while still picking up real
+    state changes a couple of seconds later.
+
+    Each decorated function exposes `.cache_clear()` so callers that
+    perform a Docker action (start/stop a container, pull an image) can
+    invalidate the cache immediately and bypass the staleness window."""
+    def deco(fn):
+        _cache = {}
+
+        def wrapped(*args, **kwargs):
+            import time as _t
+            key = (args, tuple(sorted(kwargs.items())))
+            now = _t.monotonic()
+            entry = _cache.get(key)
+            if entry is not None and entry[1] > now:
+                return entry[0]
+            value = fn(*args, **kwargs)
+            _cache[key] = (value, now + ttl)
+            return value
+        wrapped.cache_clear = _cache.clear
+        wrapped.__wrapped__ = fn
+        wrapped.__name__ = fn.__name__
+        return wrapped
+    return deco
+
+
+@_ttl_cache(ttl=2.0)
 def docker_is_accessible():
     """Vérifie si l'utilisateur peut exécuter docker (permissions)."""
     try:
@@ -1977,6 +2011,7 @@ def docker_is_accessible():
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_daemon_running():
     """Vérifie si le daemon Docker est en cours d'exécution."""
     try:
@@ -1988,6 +2023,7 @@ def docker_daemon_running():
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_has_image(image=LIBRETRANSLATE_IMAGE):
     """Vérifie si l'image Docker est téléchargée."""
     try:
@@ -2000,6 +2036,7 @@ def docker_has_image(image=LIBRETRANSLATE_IMAGE):
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_container_running(name=LIBRETRANSLATE_CONTAINER):
     """Vérifie si le container est en cours d'exécution."""
     try:
@@ -2012,6 +2049,7 @@ def docker_container_running(name=LIBRETRANSLATE_CONTAINER):
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_container_exists(name=LIBRETRANSLATE_CONTAINER):
     """Vérifie si le container existe (arrêté ou en cours)."""
     try:
