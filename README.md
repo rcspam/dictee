@@ -76,7 +76,7 @@ The first-run wizard walks you through backend selection, model download and key
 Press your shortcut (default **F9**), speak, release. The transcription appears at your cursor.
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid widget recording" width="720">
+  <img src="assets/screenshots-vm/plasmoid-cheat.png" alt="Plasmoid widget recording" width="720">
 </p>
 
 For detailed install paths (manual `.deb`/`.rpm`, GPU prerequisites, AUR, from source), see [Installation](#installation) below or the wiki's [Installation](https://github.com/rcspam/dictee/wiki/Installation) and [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pages.
@@ -141,7 +141,7 @@ Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer
 All three share state via a filesystem watcher — any change is reflected instantly across interfaces (multi-user safe with UID suffix).
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="KDE Plasma plasmoid" width="720">
+  <img src="assets/screenshots-vm/plasmoid-cheat.png" alt="KDE Plasma plasmoid" width="720">
 </p>
 
 <p align="center">

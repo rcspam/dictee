@@ -76,7 +76,7 @@ L'assistant de premier lancement vous guide pour la sélection du backend, le t�
 Appuyez sur votre raccourci (par défaut **F9**), parlez, relâchez. La transcription apparaît au curseur.
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Widget plasmoid en enregistrement" width="720">
+  <img src="assets/screenshots-vm/plasmoid-cheat.png" alt="Widget plasmoid en enregistrement" width="720">
 </p>
 
 Pour les chemins d'installation détaillés (`.deb`/`.rpm` manuels, prérequis GPU, AUR, depuis les sources), voir la section [Installation](#installation) ci-dessous ou les pages wiki [Installation](https://github.com/rcspam/dictee/wiki/Installation) et [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup).
@@ -141,7 +141,7 @@ Répond à la question *« qui a parlé et quand ? »* dans les enregistrements 
 Les trois interfaces partagent leur état via un surveillant de fichier — toute modification est reflétée instantanément (sûr en multi-utilisateur via suffixe UID).
 
 <p align="center">
-  <img src="assets/screenshots-vm/plasmoid_1.3.png" alt="Plasmoid KDE Plasma" width="720">
+  <img src="assets/screenshots-vm/plasmoid-cheat.png" alt="Plasmoid KDE Plasma" width="720">
 </p>
 
 <p align="center">
