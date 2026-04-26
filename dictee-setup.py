@@ -12161,15 +12161,18 @@ class DicteeSetupDialog(QDialog):
         """Build microphone source selection, volume slider, level meter."""
         saved_src = conf.get("DICTEE_AUDIO_SOURCE", "")
 
-        self._audio_devices = QMediaDevices.audioInputs()
+        # Defer QMediaDevices.audioInputs() (typically 340 ms; up to a few
+        # seconds on machines with a busy PipeWire) to the next event-loop
+        # tick. The combo shows just "System default" until the deferred
+        # _ensure_audio_populated() fills it in — imperceptible to the user
+        # but lets the window paint immediately.
+        self._audio_devices = []
+        self._audio_saved_src = saved_src
+        self._audio_populated = False
         self.cmb_audio_source = QComboBox()
         self.cmb_audio_source.addItem(_("System default"), "")
-        self._populate_audio_sources()
-        if saved_src:
-            idx = self.cmb_audio_source.findData(saved_src)
-            if idx >= 0:
-                self.cmb_audio_source.setCurrentIndex(idx)
         self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
+        QTimer.singleShot(0, self._ensure_audio_populated)
 
         # Refresh button to update application list
         lay_src = QHBoxLayout()
@@ -12605,6 +12608,28 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_calib_lay'):
             self._refresh_calib_cards()
 
+    def _ensure_audio_populated(self):
+        """Lazily fill the audio source combo with QMediaDevices.audioInputs()
+        + PipeWire monitors/apps. Called from a QTimer.singleShot scheduled
+        in _build_mic_section, so the window paints before this runs.
+        Idempotent: subsequent calls are no-ops."""
+        if getattr(self, '_audio_populated', False):
+            return
+        self._audio_populated = True
+        try:
+            self._audio_devices = QMediaDevices.audioInputs()
+        except Exception as _e:
+            _dbg_setup(f"_ensure_audio_populated: audioInputs() failed: {_e}")
+            self._audio_devices = []
+        self._populate_audio_sources()
+        saved = getattr(self, '_audio_saved_src', '')
+        if saved:
+            idx = self.cmb_audio_source.findData(saved)
+            if idx >= 0:
+                self.cmb_audio_source.blockSignals(True)
+                self.cmb_audio_source.setCurrentIndex(idx)
+                self.cmb_audio_source.blockSignals(False)
+
     def _populate_audio_sources(self):
         """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
         # ── Devices (microphones) ──
@@ -12657,6 +12682,9 @@ class DicteeSetupDialog(QDialog):
             if idx >= 0:
                 self.cmb_audio_source.setCurrentIndex(idx)
         self.cmb_audio_source.blockSignals(False)
+        # User-driven refresh counts as a populated state — prevents the
+        # deferred _ensure_audio_populated() from re-adding entries.
+        self._audio_populated = True
 
     # ── Wizard checks (page 5) ───────────────────────────────────
 
