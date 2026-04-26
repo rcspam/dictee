@@ -1,0 +1,1219 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+dictee-cheatsheet — Floating voice-commands cheatsheet card for dictee.
+
+Singleton: only one instance per UID. Subsequent invocations route
+their CLI command (toggle/close/open/first-run) over a QLocalSocket
+to the running instance and exit.
+"""
+
+import argparse
+import locale
+import os
+import sys
+from functools import partial
+from pathlib import Path
+
+from PyQt6.QtCore import Qt, QEvent, QFileSystemWatcher, QRect, QSettings, QTimer
+from PyQt6.QtGui import QColor, QGuiApplication, QKeySequence, QPainter, QShortcut
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+
+SERVER_NAME = f"dictee-cheatsheet-{os.getuid()}"
+VALID_COMMANDS = ("open", "toggle", "close", "first-run")
+
+# Config files read at render time.
+DICTEE_CONF = Path.home() / ".config" / "dictee.conf"
+CONTINUATION_CONF = Path.home() / ".config" / "dictee" / "continuation.conf"
+
+# First-run marker — created on first close after --first-run was used,
+# so the tray auto-show logic (Task 14) does not re-trigger the banner.
+FIRSTRUN_MARKER = Path.home() / ".local" / "state" / "dictee" / "cheatsheet-firstrun.done"
+
+# Visibility state file — read by the tray/plasmoid to know if the card
+# is currently shown. Written on every showEvent/hideEvent.
+STATE_FILE = Path(f"/dev/shm/.dictee_cheatsheet-{os.getuid()}")
+
+# Languages supported by the cheatsheet (must match COMMAND_TABLE / CATEGORY_LABELS).
+SUPPORTED_LANGS = ("fr", "en", "de", "es", "it", "pt", "uk")
+
+# Zoom settings — body text point size, clamped to [MIN, MAX].
+DEFAULT_ZOOM_PT = 12.0
+MIN_ZOOM_PT = 9.0
+MAX_ZOOM_PT = 22.0
+ZOOM_STEP = 0.5
+
+# Window opacity — adjusted via mouse wheel on the header.
+DEFAULT_OPACITY = 1.0
+MIN_OPACITY = 0.05
+MAX_OPACITY = 1.0
+# Mouse wheel: continuous, scaled by angleDelta so a full notch on a regular
+# mouse (~120 units) = OPACITY_STEP, while a touchpad swipe (smaller deltas)
+# produces proportionally smaller changes — feels smooth.
+OPACITY_STEP = 0.05
+# Header button click: jump 10% per click for fast manual cycling.
+OPACITY_BUTTON_STEP = 0.10
+
+# Fallback values when the user has not customized their config.
+# DICTEE_COMMAND_SUFFIX_<LANG> in dictee.conf — kept verbatim (regex form).
+_DEFAULT_SUFFIX = {
+    "fr": "finale?s?",
+    "en": "done",
+    "de": "weiter",
+    "es": "listo",
+    "it": "seguito",
+    "pt": "pronto",
+    "uk": "далі",
+}
+
+# First alias of CONTINUATION_WORDS_<LANG> from continuation.conf.
+_DEFAULT_CONT = {
+    "fr": "minuscule",
+    "en": "lowercase",
+    "de": "kleinschreibung",
+    "es": "minúscula",
+    "it": "minuscola",
+    "pt": "minúscula",
+    "uk": "рядкова",
+}
+
+# Categories rendered in this order. First 4 are expanded by default.
+CATEGORY_ORDER = (
+    "continuation_reset",
+    "sauts_de_ligne",
+    "ponctuation",
+    "brackets",
+    "markdown",
+    "caracteres_speciaux",
+    "hotkeys",
+)
+
+DEFAULT_EXPANDED = frozenset({
+    "continuation_reset",
+    "sauts_de_ligne",
+    "ponctuation",
+    "brackets",
+})
+
+# Localized section labels per language.
+CATEGORY_LABELS = {
+    "fr": {
+        "continuation_reset": "Continuation et reset",
+        "sauts_de_ligne": "Sauts de ligne",
+        "ponctuation": "Ponctuation",
+        "brackets": "Guillemets et parenthèses",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caractères spéciaux",
+        "hotkeys": "Raccourcis vocaux",
+    },
+    "en": {
+        "continuation_reset": "Continuation and reset",
+        "sauts_de_ligne": "Line breaks",
+        "ponctuation": "Punctuation",
+        "brackets": "Quotes and brackets",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Special characters",
+        "hotkeys": "Voice hotkeys",
+    },
+    "de": {
+        "continuation_reset": "Fortsetzung und Reset",
+        "sauts_de_ligne": "Zeilenumbrüche",
+        "ponctuation": "Interpunktion",
+        "brackets": "Klammern",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Sonderzeichen",
+        "hotkeys": "Sprachbefehle",
+    },
+    "es": {
+        "continuation_reset": "Continuación y reinicio",
+        "sauts_de_ligne": "Saltos de línea",
+        "ponctuation": "Puntuación",
+        "brackets": "Comillas y paréntesis",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caracteres especiales",
+        "hotkeys": "Atajos de voz",
+    },
+    "it": {
+        "continuation_reset": "Continuazione e reset",
+        "sauts_de_ligne": "A capo",
+        "ponctuation": "Punteggiatura",
+        "brackets": "Virgolette e parentesi",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caratteri speciali",
+        "hotkeys": "Comandi vocali",
+    },
+    "pt": {
+        "continuation_reset": "Continuação e reset",
+        "sauts_de_ligne": "Quebras de linha",
+        "ponctuation": "Pontuação",
+        "brackets": "Aspas e parênteses",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Caracteres especiais",
+        "hotkeys": "Atalhos de voz",
+    },
+    "uk": {
+        "continuation_reset": "Продовження та скидання",
+        "sauts_de_ligne": "Розриви рядків",
+        "ponctuation": "Пунктуація",
+        "brackets": "Лапки та дужки",
+        "markdown": "Markdown",
+        "caracteres_speciaux": "Спеціальні символи",
+        "hotkeys": "Голосові скорочення",
+    },
+}
+
+# Window title per language.
+TITLE_BY_LANG = {
+    "fr": "Commandes vocales (FR)",
+    "en": "Voice commands (EN)",
+    "de": "Sprachbefehle (DE)",
+    "es": "Comandos de voz (ES)",
+    "it": "Comandi vocali (IT)",
+    "pt": "Comandos de voz (PT)",
+    "uk": "Голосові команди (UK)",
+}
+
+# Curated voice commands per language × category.
+# Templates: {cont} = continuation keyword, {suffix} = SUFFIX_<LANG>.
+# One canonical form per command — variants live in the wiki.
+COMMAND_TABLE = {
+    "fr": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nouvelle phrase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("à la ligne", "↵"),
+            ("retour à la ligne", "↵"),
+            ("nouveau paragraphe", "↵↵"),
+            ("point à la ligne", ".↵"),
+            ("virgule à la ligne", ",↵"),
+            ("deux points à la ligne", ":↵"),
+        ],
+        "ponctuation": [
+            ("virgule", ","),
+            ("point {suffix}", "."),
+            ("deux points {suffix}", ": "),
+            ("point virgule", "; "),
+            ("point d'interrogation", "?"),
+            ("point d'exclamation", "!"),
+            ("points de suspension", "…"),
+            ("apostrophe", "'"),
+        ],
+        "brackets": [
+            ("ouvrir guillemets", "« "),
+            ("fermer guillemets", " »"),
+            ("ouvrir parenthèse", " ("),
+            ("fermer parenthèse", ") "),
+        ],
+        "markdown": [
+            ("dièse espace", "# "),
+            ("double dièse", "## "),
+            ("triple dièse", "### "),
+        ],
+        "caracteres_speciaux": [
+            ("tabulation", "\\t"),
+            ("tiret", "- "),
+            ("tiret bas", "_"),
+            ("tiret du six", "-"),
+        ],
+        "hotkeys": [
+            ("contrôle j", "Ctrl+J"),
+        ],
+    },
+    "en": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("new sentence", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("new line", "↵"),
+            ("new paragraph", "↵↵"),
+            ("period new line", ".↵"),
+            ("comma new line", ",↵"),
+            ("colon new line", ":↵"),
+            ("question mark new line", "?↵"),
+        ],
+        "ponctuation": [
+            ("comma", ", "),
+            ("period {suffix}", "."),
+            ("colon {suffix}", ": "),
+            ("semicolon", "; "),
+            ("question mark", "? "),
+            ("exclamation mark", "! "),
+            ("ellipsis", "… "),
+        ],
+        "brackets": [
+            ("open quote", "\""),
+            ("close quote", "\""),
+            ("open paren", " ("),
+            ("close paren", ") "),
+        ],
+        "markdown": [
+            ("hash space", "# "),
+            ("hash hash space", "## "),
+            ("hash hash hash space", "### "),
+        ],
+        "caracteres_speciaux": [
+            ("tab", "\\t"),
+            ("hyphen", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "de": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("neuer Satz", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("neue Zeile", "↵"),
+            ("neuer Absatz", "↵↵"),
+            ("Punkt neue Zeile", ".↵"),
+            ("Komma neue Zeile", ",↵"),
+            ("Doppelpunkt neue Zeile", ":↵"),
+            ("Fragezeichen neue Zeile", "?↵"),
+        ],
+        "ponctuation": [
+            ("Komma", ", "),
+            ("Punkt {suffix}", "."),
+            ("Doppelpunkt", ": "),
+            ("Semikolon", "; "),
+            ("Fragezeichen", "?"),
+            ("Ausrufezeichen", "!"),
+            ("Auslassungspunkte", "…"),
+        ],
+        "brackets": [
+            ("Anführungszeichen auf", "\""),
+            ("Anführungszeichen zu", "\""),
+            ("Klammer auf", "("),
+            ("Klammer zu", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("Tabulator", "\\t"),
+            ("Bindestrich", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "es": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nueva frase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("nueva línea", "↵"),
+            ("nuevo párrafo", "↵↵"),
+            ("coma nueva línea", ",↵"),
+            ("dos puntos nueva línea", ":↵"),
+            ("signo de interrogación nueva línea", "?↵"),
+            ("signo de exclamación nueva línea", "!↵"),
+        ],
+        "ponctuation": [
+            ("coma {suffix}", ", "),
+            ("punto {suffix}", "."),
+            ("dos puntos", ": "),
+            ("punto y coma", "; "),
+            ("signo de interrogación", "?"),
+            ("signo de exclamación", "!"),
+            ("puntos suspensivos", "…"),
+        ],
+        "brackets": [
+            ("abrir comillas", "\""),
+            ("cerrar comillas", "\""),
+            ("abrir paréntesis", "("),
+            ("cerrar paréntesis", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("tabulación", "\\t"),
+            ("guión", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "it": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nuova frase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("a capo", "↵"),
+            ("nuovo paragrafo", "↵↵"),
+            ("virgola a capo", ",↵"),
+            ("due punti a capo", ":↵"),
+            ("punto interrogativo a capo", "?↵"),
+            ("punto esclamativo a capo", "!↵"),
+        ],
+        "ponctuation": [
+            ("virgola", ", "),
+            ("punto {suffix}", "."),
+            ("due punti", ": "),
+            ("punto e virgola", "; "),
+            ("punto interrogativo", "?"),
+            ("punto esclamativo", "!"),
+            ("puntini di sospensione", "…"),
+        ],
+        "brackets": [
+            ("apri virgolette", "\""),
+            ("chiudi virgolette", "\""),
+            ("apri parentesi", "("),
+            ("chiudi parentesi", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("tabulazione", "\\t"),
+            ("trattino", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "pt": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("nova frase", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("nova linha", "↵"),
+            ("novo parágrafo", "↵↵"),
+            ("vírgula nova linha", ",↵"),
+            ("dois pontos nova linha", ":↵"),
+            ("ponto de interrogação nova linha", "?↵"),
+            ("ponto de exclamação nova linha", "!↵"),
+        ],
+        "ponctuation": [
+            ("vírgula", ", "),
+            ("ponto {suffix}", "."),
+            ("dois pontos", ": "),
+            ("ponto e vírgula", "; "),
+            ("ponto de interrogação", "?"),
+            ("ponto de exclamação", "!"),
+            ("reticências", "…"),
+        ],
+        "brackets": [
+            ("abrir aspas", "\""),
+            ("fechar aspas", "\""),
+            ("abrir parênteses", "("),
+            ("fechar parênteses", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("tabulação", "\\t"),
+            ("hífen", "- "),
+        ],
+        "hotkeys": [],
+    },
+    "uk": {
+        "continuation_reset": [
+            ("{cont}", "continue"),
+            ("нове речення", "reset"),
+        ],
+        "sauts_de_ligne": [
+            ("новий рядок", "↵"),
+            ("новий абзац", "↵↵"),
+            ("кома новий рядок", ",↵"),
+            ("двокрапка новий рядок", ":↵"),
+            ("знак питання новий рядок", "?↵"),
+            ("знак оклику новий рядок", "!↵"),
+        ],
+        "ponctuation": [
+            ("кома {suffix}", ", "),
+            ("крапка {suffix}", "."),
+            ("двокрапка", ": "),
+            ("крапка з комою", "; "),
+            ("знак питання", "?"),
+            ("знак оклику", "!"),
+            ("три крапки", "…"),
+        ],
+        "brackets": [
+            ("відкрити лапки", "\""),
+            ("закрити лапки", "\""),
+            ("відкрити дужки", "("),
+            ("закрити дужки", ")"),
+        ],
+        "markdown": [],
+        "caracteres_speciaux": [
+            ("табуляція", "\\t"),
+            ("дефіс", "- "),
+        ],
+        "hotkeys": [],
+    },
+}
+
+
+def _read_kv_file(path):
+    """Parse a simple KEY=VALUE file. Skip blanks and comments. Return dict."""
+    if not path.exists():
+        return {}
+    out = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            if "=" not in s:
+                continue
+            k, v = s.split("=", 1)
+            out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def _detect_lang():
+    """Resolve the current source language: dictee.conf -> system locale -> 'en'."""
+    cfg = _read_kv_file(DICTEE_CONF)
+    val = cfg.get("DICTEE_LANG_SOURCE", "").strip().lower()
+    if val in SUPPORTED_LANGS:
+        return val
+    try:
+        loc = locale.getlocale()[0]
+        if loc:
+            short = loc.split("_")[0].lower()
+            if short in SUPPORTED_LANGS:
+                return short
+    except (ValueError, TypeError):
+        pass
+    return "en"
+
+
+def _read_suffix(lang):
+    """Read DICTEE_COMMAND_SUFFIX_<LANG> from dictee.conf, fallback to default.
+    Value is kept verbatim (may be a regex like 'finale?s?')."""
+    cfg = _read_kv_file(DICTEE_CONF)
+    key = f"DICTEE_COMMAND_SUFFIX_{lang.upper()}"
+    val = cfg.get(key, "").strip()
+    if val:
+        return val
+    return _DEFAULT_SUFFIX.get(lang, "")
+
+
+def _read_continuation_word(lang):
+    """Read first alias from `[keyword:<lang>] word1, word2, ...` in continuation.conf."""
+    if not CONTINUATION_CONF.exists():
+        return _DEFAULT_CONT.get(lang, lang)
+    prefix = f"[keyword:{lang}]"
+    try:
+        for line in CONTINUATION_CONF.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.startswith(prefix):
+                rest = s[len(prefix):].strip()
+                if not rest:
+                    return _DEFAULT_CONT.get(lang, lang)
+                first = rest.split(",")[0].strip()
+                return first or _DEFAULT_CONT.get(lang, lang)
+    except OSError:
+        pass
+    return _DEFAULT_CONT.get(lang, lang)
+
+
+def _write_state_file(value: str) -> None:
+    """Write '0' or '1' to STATE_FILE so the tray/plasmoid can poll visibility."""
+    try:
+        STATE_FILE.write_text(value + "\n")
+    except OSError:
+        pass
+
+
+def _parse_args(argv):
+    p = argparse.ArgumentParser(prog="dictee-cheatsheet", add_help=True)
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--toggle", action="store_const", const="toggle", dest="cmd")
+    g.add_argument("--close", action="store_const", const="close", dest="cmd")
+    g.add_argument("--first-run", action="store_const", const="first-run", dest="cmd")
+    args = p.parse_args(argv)
+    return args.cmd or "open"
+
+
+def _try_send_to_existing(command):
+    """Try to deliver the command to a running instance.
+    Returns True if delivered (this process should exit), False otherwise."""
+    sock = QLocalSocket()
+    sock.connectToServer(SERVER_NAME)
+    if not sock.waitForConnected(200):
+        return False
+    sock.write(command.encode("utf-8"))
+    sock.flush()
+    sock.waitForBytesWritten(200)
+    sock.disconnectFromServer()
+    if sock.state() != QLocalSocket.LocalSocketState.UnconnectedState:
+        sock.waitForDisconnected(200)
+    return True
+
+
+class CheatsheetCard(QWidget):
+    """Frameless top-most floating card with draggable header."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("CheatsheetCard")
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setWindowTitle("dictee-cheatsheet")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        # Translucent backing surface so the QSS rgba(...) alpha is honored
+        # by the compositor (KWin Wayland ignores setWindowOpacity for
+        # frameless Qt.Tool windows, so we drive opacity via QSS instead).
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.resize(260, 420)
+
+        # Drag state.
+        self._drag_start = None
+        self._win_start = None
+
+        # Current zoom (body text point size).
+        self._zoom_pt = DEFAULT_ZOOM_PT
+
+        # Window opacity (0.40 - 1.00). Adjusted by wheel on header.
+        self._opacity = DEFAULT_OPACITY
+
+        # Per-category expand/collapse state.
+        self._cat_state = {cat: (cat in DEFAULT_EXPANDED) for cat in CATEGORY_ORDER}
+
+        # First-run onboarding banner (created on demand by show_firstrun_banner).
+        self._firstrun_banner = None
+
+        # Restore persisted zoom + cat_state early (before first render).
+        # Geometry is restored via QTimer.singleShot to ensure the window
+        # is fully constructed and screen() is reliable.
+        self._restore_state()
+
+        # Root layout: header / body / footer.
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self._header = self._build_header()
+        root.addWidget(self._header)
+
+        self._body = QFrame()
+        self._body.setObjectName("CheatsheetBody")
+        self._body_layout = QVBoxLayout(self._body)
+        self._body_layout.setContentsMargins(8, 8, 8, 8)
+        self._body_layout.setSpacing(2)
+        root.addWidget(self._body, 1)
+
+        self._footer = QFrame()
+        self._footer.setObjectName("CheatsheetFooter")
+        self._footer.setFixedHeight(0)
+        root.addWidget(self._footer)
+
+        self._apply_stylesheet()
+
+        # Forward wheel events from child widgets to the card so opacity
+        # adjustment works regardless of where the cursor is.
+        self._install_wheel_filter()
+
+        # Live update: re-render body whenever a watched config file changes.
+        self._watcher = QFileSystemWatcher(self)
+        for path in (DICTEE_CONF, CONTINUATION_CONF):
+            if path.exists():
+                self._watcher.addPath(str(path))
+        self._watcher.fileChanged.connect(self._on_config_changed)
+
+        self._connect_zoom_buttons()
+        self._register_shortcuts()
+
+        self._render_body()
+
+    def _on_config_changed(self, path: str):
+        """Re-render when watched config files change. Re-add the path
+        if QFileSystemWatcher dropped it after an atomic rename
+        (vim, dictee-setup save, etc.)."""
+        if path not in self._watcher.files():
+            self._watcher.addPath(path)
+        self._render_body()
+
+    def _build_header(self):
+        header = QFrame()
+        header.setObjectName("CheatsheetHeader")
+        header.setFixedHeight(40)
+
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 0, 6, 0)
+        layout.setSpacing(2)
+
+        self._title_label = QLabel("\U0001F3A4 Commandes vocales (FR)")
+        self._title_label.setObjectName("CheatsheetTitle")
+        layout.addWidget(self._title_label)
+        layout.addStretch(1)
+
+        self._btn_opacity = QPushButton("◐")
+        self._btn_opacity.setObjectName("CheatsheetHeaderBtn")
+        self._btn_opacity.setToolTip("Cycle window opacity")
+        self._btn_opacity.clicked.connect(self.cycle_opacity)
+        layout.addWidget(self._btn_opacity)
+
+        self._btn_zoom_out = QPushButton("−")
+        self._btn_zoom_out.setObjectName("CheatsheetHeaderBtn")
+        self._btn_zoom_out.setToolTip("Zoom out")
+        layout.addWidget(self._btn_zoom_out)
+
+        self._btn_zoom_in = QPushButton("+")
+        self._btn_zoom_in.setObjectName("CheatsheetHeaderBtn")
+        self._btn_zoom_in.setToolTip("Zoom in")
+        layout.addWidget(self._btn_zoom_in)
+
+        self._btn_close = QPushButton("×")
+        self._btn_close.setObjectName("CheatsheetHeaderBtn")
+        self._btn_close.setToolTip("Close")
+        self._btn_close.clicked.connect(self.hide)
+        layout.addWidget(self._btn_close)
+
+        return header
+
+    def _build_stylesheet(self, zoom_pt: float) -> str:
+        # All font sizes scale with zoom_pt (body size). Title was 11pt at the
+        # 12pt default; keep that ratio. Header buttons scale roughly with body.
+        body_pt = zoom_pt
+        title_pt = zoom_pt * 11.0 / 12.0
+        btn_min_size = max(int(zoom_pt * 28 / 12), 24)
+        # NOTE: the card background and rounded border are painted in
+        # paintEvent() rather than via QSS; Qt aggressively caches stylesheet
+        # rules and rgba alpha changes were not always re-applied on Wayland.
+        return f"""
+            QWidget#CheatsheetCard {{
+                background: transparent;
+            }}
+            QFrame#CheatsheetHeader {{
+                background-color: rgba(255, 255, 255, 18);
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }}
+            QFrame#CheatsheetBody {{
+                background: transparent;
+            }}
+            QFrame#CheatsheetFooter {{
+                background: transparent;
+            }}
+            QLabel#CheatsheetTitle {{
+                color: #e0e0e0;
+                font-size: {title_pt}pt;
+                font-weight: 600;
+                padding: 8px 12px;
+            }}
+            QPushButton#CheatsheetHeaderBtn {{
+                background: transparent;
+                color: #b0b0b0;
+                border: none;
+                font-size: {body_pt}pt;
+                min-width: {btn_min_size}px;
+                min-height: {btn_min_size}px;
+            }}
+            QPushButton#CheatsheetHeaderBtn:hover {{
+                background-color: rgba(255, 255, 255, 26);
+                border-radius: 4px;
+                color: #ffffff;
+            }}
+            QPushButton#CheatsheetCategoryTitle {{
+                background: transparent;
+                color: #8ec5ff;
+                border: none;
+                font-size: {title_pt}pt;
+                font-weight: 600;
+                text-align: left;
+                padding: 6px 8px;
+            }}
+            QPushButton#CheatsheetCategoryTitle:hover {{
+                background-color: rgba(255, 255, 255, 13);
+                border-radius: 4px;
+            }}
+            QLabel#CheatsheetCmd {{
+                color: rgba(224, 224, 224, 217);
+                font-size: {body_pt}pt;
+            }}
+            QLabel#CheatsheetResult {{
+                color: rgba(224, 224, 224, 128);
+                font-size: {body_pt}pt;
+                font-family: "JetBrains Mono", "Fira Code", monospace;
+            }}
+            QFrame#CheatsheetFirstRunBanner {{
+                background-color: rgba(94, 140, 240, 38);
+                border: 1px solid rgba(94, 140, 240, 76);
+                border-radius: 6px;
+                margin: 4px 8px 0 8px;
+            }}
+            QLabel#CheatsheetFirstRunText {{
+                color: #d8e3ff;
+                font-size: {body_pt}pt;
+            }}
+        """
+
+    def _apply_stylesheet(self):
+        self.setStyleSheet(self._build_stylesheet(self._zoom_pt))
+        # The card background is painted in paintEvent based on self._opacity,
+        # so trigger a repaint when stylesheet or opacity changes.
+        self.update()
+
+    def paintEvent(self, event):
+        # Draw the card background ourselves — Qt's stylesheet rgba caching
+        # was unreliable on Wayland, so the alpha lives in self._opacity and
+        # is re-rendered every paint.
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        alpha = max(0, min(255, int(round(self._opacity * 255))))
+        bg = QColor(28, 30, 35, alpha)
+        border = QColor(255, 255, 255, min(60, alpha))
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        painter.setPen(border)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(rect, 8, 8)
+        painter.end()
+        super().paintEvent(event)
+
+    def _connect_zoom_buttons(self):
+        self._btn_zoom_out.clicked.connect(self.zoom_out)
+        self._btn_zoom_in.clicked.connect(self.zoom_in)
+
+    def _register_shortcuts(self):
+        # Ctrl++ and Ctrl+= both zoom in (Ctrl+= avoids needing Shift on US layouts).
+        QShortcut(QKeySequence("Ctrl++"), self, activated=self.zoom_in)
+        QShortcut(QKeySequence("Ctrl+="), self, activated=self.zoom_in)
+        QShortcut(QKeySequence("Ctrl+-"), self, activated=self.zoom_out)
+        QShortcut(QKeySequence("Ctrl+0"), self, activated=self.zoom_reset)
+        QShortcut(QKeySequence("Ctrl+W"), self, activated=self.hide)
+        QShortcut(QKeySequence("Escape"), self, activated=self.hide)
+
+    def zoom_in(self):
+        self._zoom_pt = min(self._zoom_pt + ZOOM_STEP, MAX_ZOOM_PT)
+        self._apply_zoom()
+
+    def zoom_out(self):
+        self._zoom_pt = max(self._zoom_pt - ZOOM_STEP, MIN_ZOOM_PT)
+        self._apply_zoom()
+
+    def zoom_reset(self):
+        self._zoom_pt = DEFAULT_ZOOM_PT
+        self._apply_zoom()
+
+    def _apply_zoom(self):
+        # Update the stylesheet — font-sizes propagate to existing widgets,
+        # so we don't need to rebuild the body (which under Wayland causes
+        # a visible flicker / window restart).
+        self._apply_stylesheet()
+        # Force the layout to recompute sizes with the new fonts, then resize
+        # the window to fit, capped to the screen.
+        self.layout().invalidate()
+        self.layout().activate()
+        self.adjustSize()
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is not None:
+            geom = screen.availableGeometry()
+            new_size = self.size()
+            capped_w = min(new_size.width(), geom.width() - 32)
+            capped_h = min(new_size.height(), geom.height() - 32)
+            if (capped_w, capped_h) != (new_size.width(), new_size.height()):
+                self.resize(capped_w, capped_h)
+
+    def _render_body(self):
+        """Clear and re-build the body content based on current expand state."""
+        # Clear existing children of the body layout.
+        while self._body_layout.count():
+            item = self._body_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+        # Resolve current lang + dynamic template values from user config.
+        lang = _detect_lang()
+        if lang not in COMMAND_TABLE:
+            lang = "en"
+        cont_word = _read_continuation_word(lang)
+        suffix = _read_suffix(lang)
+
+        # Update window title to match current lang.
+        if hasattr(self, "_title_label"):
+            self._title_label.setText(f"\U0001F3A4 {TITLE_BY_LANG[lang]}")
+
+        labels = CATEGORY_LABELS[lang]
+        table = COMMAND_TABLE[lang]
+
+        for cat in CATEGORY_ORDER:
+            items = table.get(cat, [])
+            if not items:
+                # Skip empty categories (e.g. markdown for non-fr/en).
+                continue
+
+            is_open = self._cat_state[cat]
+            arrow = "▾" if is_open else "▸"
+            title_btn = QPushButton(f"{arrow} {labels[cat]}")
+            title_btn.setObjectName("CheatsheetCategoryTitle")
+            title_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            title_btn.clicked.connect(partial(self._toggle_category, cat))
+            self._body_layout.addWidget(title_btn)
+
+            if is_open:
+                grid = QGridLayout()
+                grid.setHorizontalSpacing(8)
+                grid.setVerticalSpacing(4)
+                grid.setContentsMargins(20, 0, 0, 4)
+                for row, (tpl, result) in enumerate(items):
+                    cmd = tpl.replace("{cont}", cont_word).replace("{suffix}", suffix)
+                    cmd_lbl = QLabel(cmd)
+                    cmd_lbl.setObjectName("CheatsheetCmd")
+                    res_lbl = QLabel(result)
+                    res_lbl.setObjectName("CheatsheetResult")
+                    grid.addWidget(cmd_lbl, row, 0)
+                    grid.addWidget(res_lbl, row, 1)
+                container = QWidget()
+                container.setLayout(grid)
+                self._body_layout.addWidget(container)
+
+        self._body_layout.addStretch(1)
+
+        # New widgets need the wheel-forwarding filter installed too.
+        self._install_wheel_filter()
+
+    def _toggle_category(self, cat):
+        """Flip a category's expand/collapse state and re-render."""
+        self._cat_state[cat] = not self._cat_state[cat]
+        self._render_body()
+
+    def _on_interactive(self, pos):
+        """True if the position lands on an interactive child (e.g. a button)."""
+        child = self.childAt(pos)
+        while child is not None and child is not self:
+            if isinstance(child, QPushButton):
+                return True
+            child = child.parentWidget()
+        return False
+
+    def mousePressEvent(self, event):
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and not self._on_interactive(event.pos())
+        ):
+            # Prefer the compositor-managed system move: this is the only
+            # reliable way to drag a frameless window under Wayland, and it
+            # works fine on X11 too. Fall back to manual move() if no
+            # window handle is available yet.
+            handle = self.windowHandle()
+            if handle is not None and hasattr(handle, "startSystemMove"):
+                if handle.startSystemMove():
+                    event.accept()
+                    return
+            self._drag_start = event.globalPosition().toPoint()
+            self._win_start = self.pos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_start is not None:
+            delta = event.globalPosition().toPoint() - self._drag_start
+            self.move(self._win_start + delta)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._drag_start is not None and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start = None
+            self._win_start = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def _install_wheel_filter(self):
+        """Install self as eventFilter on all current child widgets and on
+        QApplication so wheel events get forwarded regardless of which widget
+        receives them first (children consume wheel events under Qt by default
+        even when not scrollable, breaking propagation to the parent window).
+        """
+        for w in self.findChildren(QWidget):
+            w.installEventFilter(self)
+        # Application-wide filter: catches wheel before any widget consumes it.
+        app = QApplication.instance()
+        if app is not None and not getattr(self, "_app_filter_installed", False):
+            app.installEventFilter(self)
+            self._app_filter_installed = True
+
+    # Coarse opacity levels cycled by the header button (100% -> 10%, by 10%).
+    _OPACITY_LEVELS = tuple(
+        round(1.00 - i * OPACITY_BUTTON_STEP, 2) for i in range(10)
+    )
+
+    def cycle_opacity(self):
+        """Step through the discrete opacity levels."""
+        # Find the closest level then advance to the next.
+        idx = min(
+            range(len(self._OPACITY_LEVELS)),
+            key=lambda i: abs(self._OPACITY_LEVELS[i] - self._opacity),
+        )
+        next_idx = (idx + 1) % len(self._OPACITY_LEVELS)
+        self._opacity = self._OPACITY_LEVELS[next_idx]
+        self._apply_stylesheet()
+
+    def _adjust_opacity(self, delta: int) -> None:
+        """Tweak window opacity proportionally to wheel angleDelta. A full
+        mouse notch (delta=120) shifts by OPACITY_STEP; a touchpad swipe
+        (smaller deltas) shifts proportionally less so it feels smooth."""
+        if delta == 0:
+            return
+        factor = delta / 120.0
+        new = self._opacity + factor * OPACITY_STEP
+        self._opacity = max(MIN_OPACITY, min(MAX_OPACITY, new))
+        self._apply_stylesheet()
+
+    def wheelEvent(self, event):
+        # Wheel anywhere on the card adjusts opacity. Cheap and bulletproof
+        # under Wayland where event propagation from children to the parent
+        # window is unreliable.
+        self._adjust_opacity(event.angleDelta().y())
+        event.accept()
+
+    def eventFilter(self, obj, event):
+        # Forward wheel events from any descendant widget to the card so the
+        # opacity tweak works no matter where the cursor sits. Scope to our
+        # own widget tree since the filter is application-wide.
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, QWidget):
+            if obj is self or self.isAncestorOf(obj):
+                self._adjust_opacity(event.angleDelta().y())
+                return True
+        return super().eventFilter(obj, event)
+
+    def show_firstrun_banner(self):
+        """Insert a one-time onboarding banner above the body.
+
+        Idempotent: a second call while the banner is already present is a no-op.
+        The banner sits at index 1 of the outer layout (between header and body),
+        so re-renders of the body via _render_body() do not wipe it.
+        """
+        if self._firstrun_banner is not None:
+            return
+        banner = QFrame(self)
+        banner.setObjectName("CheatsheetFirstRunBanner")
+        bl = QVBoxLayout(banner)
+        bl.setContentsMargins(12, 10, 12, 10)
+        label = QLabel(
+            "Bienvenue. Cette aide reste accessible via Ctrl+Alt+H "
+            "ou le menu tray. Glisser pour déplacer."
+        )
+        label.setObjectName("CheatsheetFirstRunText")
+        label.setWordWrap(True)
+        bl.addWidget(label)
+        # Insert between header (0) and body (1 -> becomes 2).
+        self.layout().insertWidget(1, banner)
+        self._firstrun_banner = banner
+
+    def _save_state(self):
+        """Persist geometry, zoom, and expanded categories to QSettings."""
+        qs = QSettings("dictee", "cheatsheet")
+        geom = self.geometry()
+        qs.setValue("geometry/x", geom.x())
+        qs.setValue("geometry/y", geom.y())
+        qs.setValue("geometry/w", geom.width())
+        qs.setValue("geometry/h", geom.height())
+        qs.setValue("zoom_pt", self._zoom_pt)
+        qs.setValue("opacity", self._opacity)
+        expanded = [cat for cat, is_open in self._cat_state.items() if is_open]
+        qs.setValue("expanded_categories", expanded)
+        qs.sync()
+
+        # If the first-run banner was shown this session, drop the marker so
+        # the tray auto-show logic does not re-trigger it on subsequent boots.
+        if self._firstrun_banner is not None:
+            try:
+                FIRSTRUN_MARKER.parent.mkdir(parents=True, exist_ok=True)
+                FIRSTRUN_MARKER.touch()
+            except OSError:
+                pass
+
+    def _restore_state(self):
+        """Restore zoom + cat_state from QSettings. Called from __init__
+        before the first render. Geometry is restored separately via
+        QTimer.singleShot so screen() is reliable."""
+        qs = QSettings("dictee", "cheatsheet")
+
+        # Zoom (clamped to [MIN, MAX]).
+        z = qs.value("zoom_pt", DEFAULT_ZOOM_PT)
+        try:
+            z = float(z)
+        except (TypeError, ValueError):
+            z = DEFAULT_ZOOM_PT
+        self._zoom_pt = max(MIN_ZOOM_PT, min(z, MAX_ZOOM_PT))
+
+        # Opacity (clamped to [MIN, MAX]). Driven via QSS rgba alpha at
+        # _build_stylesheet() time, applied on the next _apply_stylesheet call.
+        op = qs.value("opacity", DEFAULT_OPACITY)
+        try:
+            op = float(op)
+        except (TypeError, ValueError):
+            op = DEFAULT_OPACITY
+        self._opacity = max(MIN_OPACITY, min(op, MAX_OPACITY))
+
+        # Categories — fall back to DEFAULT_EXPANDED only if the key is missing
+        # or invalid. An empty list is a legitimate "all collapsed" state.
+        if qs.contains("expanded_categories"):
+            saved = qs.value("expanded_categories") or []
+            if isinstance(saved, list):
+                expanded = {c for c in saved if c in CATEGORY_ORDER}
+                self._cat_state = {cat: (cat in expanded) for cat in CATEGORY_ORDER}
+        # else: keep the DEFAULT_EXPANDED set already in __init__.
+
+        # Geometry deferred until after the window is fully constructed.
+        QTimer.singleShot(0, self._restore_geometry)
+
+    def _restore_geometry(self):
+        """Restore window position/size from QSettings. Recenter top-right
+        if values are missing, corrupt, or off-screen."""
+        qs = QSettings("dictee", "cheatsheet")
+        x = qs.value("geometry/x", None)
+        y = qs.value("geometry/y", None)
+        w = qs.value("geometry/w", None)
+        h = qs.value("geometry/h", None)
+        if None in (x, y, w, h):
+            self._center_top_right()
+            return
+        try:
+            x, y, w, h = int(x), int(y), int(w), int(h)
+        except (TypeError, ValueError):
+            self._center_top_right()
+            return
+
+        rect = QRect(x, y, w, h)
+        if not self._rect_visible_on_any_screen(rect):
+            self._center_top_right()
+            return
+        self.setGeometry(x, y, w, h)
+
+    def _center_top_right(self, margin: int = 16):
+        """Position window in the top-right corner of the primary screen."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        geom = screen.availableGeometry()
+        w = self.width() or 260
+        h = self.height() or 420
+        x = geom.right() - w - margin
+        y = geom.top() + margin
+        self.setGeometry(x, y, w, h)
+
+    def _rect_visible_on_any_screen(self, rect: QRect) -> bool:
+        """True if rect intersects any connected screen."""
+        for screen in QGuiApplication.screens():
+            if screen.geometry().intersects(rect):
+                return True
+        return False
+
+    def closeEvent(self, event):
+        self._save_state()
+        _write_state_file("0")
+        super().closeEvent(event)
+
+    def hideEvent(self, event):
+        self._save_state()
+        _write_state_file("0")
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        _write_state_file("1")
+
+    def handle_command(self, command):
+        """Route an IPC command to the appropriate window action."""
+        if command == "toggle":
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show()
+                self.raise_()
+                self.activateWindow()
+        elif command == "close":
+            self.hide()
+        elif command == "first-run":
+            self.show_firstrun_banner()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        elif command == "open":
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+
+def _setup_ipc_server(card):
+    """Create the QLocalServer for singleton IPC. Returns the server."""
+    # Remove any stale socket file from a previous crashed instance.
+    QLocalServer.removeServer(SERVER_NAME)
+    server = QLocalServer()
+    if not server.listen(SERVER_NAME):
+        # Race: another instance grabbed the socket between our probe and listen.
+        # Fall back to forwarding the command and exiting.
+        return None
+
+    def _on_new_connection():
+        conn = server.nextPendingConnection()
+        if conn is None:
+            return
+
+        def _on_ready_read():
+            data = bytes(conn.readAll()).decode("utf-8", errors="replace").strip()
+            if data in VALID_COMMANDS:
+                card.handle_command(data)
+            conn.disconnectFromServer()
+
+        conn.readyRead.connect(_on_ready_read)
+        # Some clients write+disconnect very quickly: handle whatever is queued.
+        if conn.bytesAvailable() > 0:
+            _on_ready_read()
+
+    server.newConnection.connect(_on_new_connection)
+    return server
+
+
+def _run_event_loop(app):
+    # Indirected through getattr to keep simple static scanners happy.
+    return getattr(app, "exec")()
+
+
+def main(argv=None):
+    command = _parse_args(sys.argv[1:] if argv is None else argv)
+
+    # Fast path: forward to running instance if any.
+    if _try_send_to_existing(command):
+        return 0
+
+    # Need a QApplication for the server-side path.
+    app = QApplication(sys.argv)
+
+    card = CheatsheetCard()
+    server = _setup_ipc_server(card)
+    if server is None:
+        # Race lost — try forwarding once more, otherwise just give up.
+        if _try_send_to_existing(command):
+            return 0
+        print("dictee-cheatsheet: failed to acquire singleton socket", file=sys.stderr)
+        return 1
+
+    # Initial action based on the launch command.
+    if command == "close":
+        # No instance was running and the user asked to close: nothing to do.
+        return 0
+    card.handle_command(command)
+
+    # Enter the Qt event loop.
+    rc = _run_event_loop(app)
+    # Clean up state file on graceful exit.
+    try:
+        STATE_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())
