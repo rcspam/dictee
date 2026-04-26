@@ -322,7 +322,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 silence_rms=0.03,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False,
-                trpp_states=None, trpp_short_text_max=3):
+                trpp_states=None, trpp_short_text_max=3,
+                cheatsheet_mod="", cheatsheet_key_seq=""):
     """Update dictee.conf preserving comments and structure.
 
     Reads the existing file (or the template on first run), then patches
@@ -444,6 +445,12 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 values[f"DICTEE_COMMAND_SUFFIX_{code.upper()}"] = _s(suffix)
     if debug:
         values["DICTEE_DEBUG"] = "true"
+    # Cheatsheet shortcut mode (mirrors the translation pattern):
+    # alt | ctrl | ctrl_alt | shift | separate | disabled.
+    if cheatsheet_mod:
+        values["DICTEE_CHEATSHEET_MOD"] = _s(cheatsheet_mod)
+    if cheatsheet_key_seq:
+        values["DICTEE_CHEATSHEET_KEY_SEQ"] = _s(cheatsheet_key_seq)
 
     # Keys that must be re-commented when absent from values.
     # Without this, a previously active key stays active forever.
@@ -452,6 +459,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
     _all_managed_keys = set(values.keys()) | {
         "DICTEE_WHISPER_LANG", "DICTEE_AUDIO_SOURCE",
         "DICTEE_PTT_KEY_TRANSLATE", "DICTEE_PTT_MOD_TRANSLATE",
+        "DICTEE_CHEATSHEET_MOD", "DICTEE_CHEATSHEET_KEY_SEQ",
         "DICTEE_TRANS_ENGINE", "DICTEE_LIBRETRANSLATE_PORT",
         "DICTEE_LIBRETRANSLATE_LANGS", "DICTEE_OLLAMA_MODEL",
         "OLLAMA_NUM_GPU", "DICTEE_LLM_POSTPROCESS",
@@ -6058,16 +6066,58 @@ class DicteeSetupDialog(QDialog):
             lay_sc.addLayout(row_input)
 
         # Voice commands cheatsheet — KDE global shortcut.
-        # Default Ctrl+Alt+H. Persisted via apply_kde_shortcut on Apply.
+        # Same UX as the translation shortcut: combo "Same key + modifier"
+        # reuses the dictation PTT key (e.g. F9) with the chosen modifier;
+        # "Separate key" lets the user pick any QKeySequence; "Disabled"
+        # turns it off. Default: Same key + Ctrl + Alt.
         lay_sc.addSpacing(8)
         lbl_cheat = QLabel(_("Voice commands cheatsheet") + " :")
         lay_sc.addWidget(lbl_cheat)
-        existing_cheat, _existing_desktop = find_kde_shortcut_for_command(
-            "/usr/bin/dictee-cheatsheet --toggle")
-        initial_seq = QKeySequence(existing_cheat) if existing_cheat else QKeySequence("Ctrl+Alt+H")
-        self.kse_cheatsheet = QKeySequenceEdit(initial_seq)
-        self.kse_cheatsheet.setToolTip(_("Toggle the floating voice commands cheatsheet"))
-        lay_sc.addWidget(self.kse_cheatsheet)
+
+        self.cmb_cheatsheet_mode = QComboBox()
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Alt"), "same_alt")
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Ctrl"), "same_ctrl")
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Ctrl + Alt"), "same_ctrl_alt")
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Shift"), "same_shift")
+        self.cmb_cheatsheet_mode.addItem(_("Separate key"), "separate")
+        self.cmb_cheatsheet_mode.addItem(_("Disabled"), "disabled")
+
+        existing_cheat_mode = self.conf.get("DICTEE_CHEATSHEET_MOD", "")
+        existing_cheat_seq = self.conf.get("DICTEE_CHEATSHEET_KEY_SEQ", "")
+        mode_to_idx = {
+            "same_alt": 0, "alt": 0,
+            "same_ctrl": 1, "ctrl": 1,
+            "same_ctrl_alt": 2, "ctrl_alt": 2,
+            "same_shift": 3, "shift": 3,
+            "separate": 4,
+            "disabled": 5,
+        }
+        self.cmb_cheatsheet_mode.setCurrentIndex(
+            mode_to_idx.get(existing_cheat_mode, 2))  # default Same key + Ctrl+Alt
+        lay_sc.addWidget(self.cmb_cheatsheet_mode)
+
+        # Capture editor visible only when "Separate key" is selected.
+        self.kse_cheatsheet_separate = QKeySequenceEdit()
+        if existing_cheat_seq:
+            self.kse_cheatsheet_separate.setKeySequence(QKeySequence(existing_cheat_seq))
+        elif existing_cheat_mode != "separate":
+            # Fall back to whatever the kglobalaccel side currently holds, so
+            # users upgrading from the QKeySequenceEdit-only build see their
+            # previous shortcut on first open.
+            existing_cheat, _existing_desktop = find_kde_shortcut_for_command(
+                "/usr/bin/dictee-cheatsheet --toggle")
+            if existing_cheat:
+                self.kse_cheatsheet_separate.setKeySequence(QKeySequence(existing_cheat))
+        self.kse_cheatsheet_separate.setVisible(
+            self.cmb_cheatsheet_mode.currentData() == "separate")
+        lay_sc.addWidget(self.kse_cheatsheet_separate)
+
+        self.cmb_cheatsheet_mode.currentIndexChanged.connect(
+            self._on_cheatsheet_mode_changed)
+
+        # Resolve "Same key + ..." labels to "<mod>+<dictation key>" now
+        # that both combos exist and the dictation key has been read.
+        self._refresh_shortcut_combos_labels()
 
     def _build_parakeet_options(self, parent_layout):
         """Build Parakeet model download widgets."""
@@ -13005,6 +13055,9 @@ class DicteeSetupDialog(QDialog):
             self.btn_capture._changed = True
             self._dirty = True
             self._check_ptt_warning(code, self.lbl_ptt_warning)
+            # Refresh combo item texts so "Same key + ..." labels reflect
+            # the new dictation key ("Ctrl+Alt+F9", etc.).
+            self._refresh_shortcut_combos_labels()
         else:
             key_str = seq.toString() if seq else "?"
             self.lbl_ptt_warning.setText(
@@ -13055,6 +13108,70 @@ class DicteeSetupDialog(QDialog):
     def _on_translate_mode_changed(self, _idx):
         mode = self.cmb_translate_mode.currentData()
         self.btn_capture_translate.setVisible(mode == "separate")
+
+    def _on_cheatsheet_mode_changed(self, _idx):
+        mode = self.cmb_cheatsheet_mode.currentData()
+        self.kse_cheatsheet_separate.setVisible(mode == "separate")
+
+    def _refresh_shortcut_combos_labels(self):
+        """Update the cheatsheet and translate combo item texts so that
+        every "Same key + <mod>" entry shows its resolved value (e.g.
+        "Ctrl+Alt+F9") whenever the dictation PTT key is known. Falls back
+        to the localized "Same key + <mod>" when the key is unknown."""
+        ptt = getattr(self, '_ptt_key', 0)
+        name = linux_keycode_name(ptt) if ptt else ""
+        has_name = bool(name) and not name.startswith("Key ")
+        # Mode-data → (resolved label when key is known, fallback)
+        labels_cheat = {
+            "same_alt": (f"Alt+{name}", _("Same key + Alt")),
+            "same_ctrl": (f"Ctrl+{name}", _("Same key + Ctrl")),
+            "same_ctrl_alt": (f"Ctrl+Alt+{name}", _("Same key + Ctrl + Alt")),
+            "same_shift": (f"Shift+{name}", _("Same key + Shift")),
+            "separate": (_("Separate key"), _("Separate key")),
+            "disabled": (_("Disabled"), _("Disabled")),
+        }
+        # Translate combo has the same data values minus "same_ctrl_alt".
+        for combo_name in ("cmb_cheatsheet_mode", "cmb_translate_mode"):
+            combo = getattr(self, combo_name, None)
+            if combo is None:
+                continue
+            for i in range(combo.count()):
+                data = combo.itemData(i)
+                if data in labels_cheat:
+                    resolved, fallback = labels_cheat[data]
+                    combo.setItemText(i, resolved if has_name else fallback)
+
+    def _compute_cheatsheet_keysequence(self):
+        """Resolve the cheatsheet shortcut from the combo selection.
+
+        Returns a QKeySequence if a shortcut should be registered, or None
+        if the user picked "Disabled" or "Separate key" with no capture.
+        For "Same key + X" modes, combines the chosen modifier with the
+        dictation PTT key name (e.g. "Ctrl+Alt+F9")."""
+        if not hasattr(self, 'cmb_cheatsheet_mode'):
+            return None
+        mode = self.cmb_cheatsheet_mode.currentData()
+        if mode == "disabled":
+            return None
+        if mode == "separate":
+            seq = self.kse_cheatsheet_separate.keySequence()
+            return seq if seq.count() > 0 else None
+        mod_map = {
+            "same_alt": "Alt",
+            "same_ctrl": "Ctrl",
+            "same_ctrl_alt": "Ctrl+Alt",
+            "same_shift": "Shift",
+        }
+        mod = mod_map.get(mode)
+        if mod is None:
+            return None
+        ptt_key = getattr(self, '_ptt_key', 0)
+        if not ptt_key:
+            return None
+        key_name = linux_keycode_name(ptt_key)
+        if not key_name or key_name.startswith("Key "):
+            return None
+        return QKeySequence(f"{mod}+{key_name}")
 
     def _on_shortcut_captured(self, seq):
         """Legacy — redirige vers PTT."""
@@ -15346,6 +15463,17 @@ class DicteeSetupDialog(QDialog):
         silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
+        # Cheatsheet shortcut: persist the combo selection (and the captured
+        # sequence when "Separate key" is chosen) so the next session restores
+        # the user's intent. The actual KDE shortcut registration happens
+        # below via apply_kde_shortcut.
+        cheatsheet_mode = (self.cmb_cheatsheet_mode.currentData()
+                           if hasattr(self, 'cmb_cheatsheet_mode') else "")
+        cheatsheet_seq_obj = self._compute_cheatsheet_keysequence()
+        cheatsheet_seq_str = (cheatsheet_seq_obj.toString()
+                              if cheatsheet_seq_obj is not None
+                              and cheatsheet_mode == "separate" else "")
+
         save_config(backend, lang_src, lang_tgt, clipboard,
                     anim_speech, anim_plasmoid,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
@@ -15354,6 +15482,8 @@ class DicteeSetupDialog(QDialog):
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
+                    cheatsheet_mod=cheatsheet_mode,
+                    cheatsheet_key_seq=cheatsheet_seq_str,
                     postprocess=postprocess,
                     pp_translate=pp_translate,
                     pp_elisions=pp_elisions, pp_elisions_it=pp_elisions_it,
@@ -15386,18 +15516,20 @@ class DicteeSetupDialog(QDialog):
                         self.cmb_trpp_short_text_max.currentData()
                         if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3)
 
-        # Register the cheatsheet KDE global shortcut (Ctrl+Alt+H by default).
-        if hasattr(self, 'kse_cheatsheet') and self.kse_cheatsheet.keySequence().count() > 0:
+        # Register the cheatsheet KDE global shortcut. The QKeySequence is
+        # resolved from the combo: "Same key + <mod>" combines with the
+        # dictation PTT key, "Separate key" uses the captured sequence,
+        # "Disabled" registers nothing.
+        if cheatsheet_seq_obj is not None and cheatsheet_seq_obj.count() > 0:
             try:
-                seq = self.kse_cheatsheet.keySequence()
-                kde_format = qt_key_to_kde(seq)
+                kde_format = qt_key_to_kde(cheatsheet_seq_obj)
                 if kde_format:
                     apply_kde_shortcut(
                         kde_format,
                         "dictee-cheatsheet-toggle.desktop",
                         "/usr/bin/dictee-cheatsheet --toggle",
                         _("Toggle voice commands cheatsheet"),
-                        key_sequence=seq,
+                        key_sequence=cheatsheet_seq_obj,
                     )
             except Exception as _e:
                 _dbg_setup(f"_on_apply: cheatsheet shortcut registration failed: {_e}")
