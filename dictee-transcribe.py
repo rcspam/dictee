@@ -493,6 +493,37 @@ class _DiarizeTranscribeWorker(QThread):
         self._diarize_output = diarize_output
         self._sock_path = sock_path
 
+    def _maybe_convert_to_wav(self, path):
+        """transcribe-daemon opens the file as raw WAV without running
+        ffmpeg internally, so mp3/m4a/webm/ogg inputs crash with
+        'Ill-formed WAVE file: no RIFF tag found' before any token is
+        produced. Detect non-compatible inputs via ffprobe and convert
+        to WAV 16k mono via ffmpeg into /tmp/. The temp file is left
+        behind on purpose (small, /tmp/ is cleaned at boot)."""
+        try:
+            info = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_streams", "-of", "json", path],
+                stderr=subprocess.DEVNULL, timeout=10).decode()
+            for st in json.loads(info).get("streams", []):
+                if (st.get("codec_type") == "audio"
+                        and st.get("codec_name") == "pcm_s16le"
+                        and int(st.get("sample_rate", 0)) == 16000
+                        and st.get("channels") == 1):
+                    return path  # already daemon-compatible
+        except Exception:
+            pass
+
+        out_path = f"/tmp/dictee_daemon_input_{os.getpid()}.wav"
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", path, "-ar", "16000", "-ac", "1",
+                 "-f", "wav", out_path],
+                check=True, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=120)
+            return out_path
+        except Exception:
+            return path  # caller will surface the daemon error
+
     def run(self):
         import socket as sock_mod, time as _time, re
 
@@ -531,14 +562,18 @@ class _DiarizeTranscribeWorker(QThread):
 
         self.progress.emit(1, 3)  # phase 2 started
 
+        # Pre-convert non-WAV inputs (mp3/m4a/webm/...) so the daemon does
+        # not crash with "Ill-formed WAVE file" on its raw WAV reader.
+        daemon_path = self._maybe_convert_to_wav(self._audio_path)
+
         # Transcribe full audio via daemon with timestamps (diarize mode)
-        _dbg(f"DiarizeWorker: sending full audio to daemon: {self._audio_path}")
+        _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}")
         full_text = ""
         try:
             s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
             s.settimeout(120)
             s.connect(self._sock_path)
-            s.sendall((self._audio_path + "\tdiarize\n").encode())
+            s.sendall((daemon_path + "\tdiarize\n").encode())
             data = b""
             while True:
                 chunk = s.recv(4096)
