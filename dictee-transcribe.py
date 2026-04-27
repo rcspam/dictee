@@ -1531,6 +1531,7 @@ class TranscribeWindow(QDialog):
         self._text_edit.setReadOnly(False)
         self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
         self._text_edit.setToolTip(_("Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."))
+        self._text_edit.viewport().installEventFilter(self)
         self._tabs.addTab(self._text_edit, _("Original"))
         # Original tab is not closable
         self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
@@ -1843,6 +1844,33 @@ class TranscribeWindow(QDialog):
 
         editor._current_highlight_range = (pos_start, pos_end)
 
+    def eventFilter(self, obj, event):
+        """Capture mouse release on QTextEdit viewports to drive text->slider
+        sync. We watch viewport() (not the QTextEdit itself) because that's
+        where mouse events are dispatched by Qt's scroll-area machinery."""
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            parent = obj.parent() if hasattr(obj, 'parent') else None
+            if isinstance(parent, QTextEdit):
+                self._on_text_clicked(parent)
+        return super().eventFilter(obj, event)
+
+    def _on_text_clicked(self, editor):
+        """User clicked inside the text. Read the segment at the caret line,
+        seek the player there, and optionally start playback. Silently no-op
+        if there are no segments or the line has no [Xs - Ys] anchor."""
+        segs = getattr(editor, '_diarize_segments', None) or self._segments
+        if not segs:
+            return
+        cursor = editor.textCursor()
+        line = cursor.block().text()
+        m = re.match(r'^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]', line)
+        if not m:
+            return
+        start_s = float(m.group(1))
+        self._player.setPosition(int(start_s * 1000))
+        if self._chk_play_on_click.isChecked():
+            self._player.play()
+
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment line and scroll
         it into view. Looks for '[XX.XXs - ' anchor produced by the diarize
@@ -2037,6 +2065,7 @@ class TranscribeWindow(QDialog):
         self._text_edit.setReadOnly(False)
         self._text_edit.setPlaceholderText(
             _("Transcription results will appear here..."))
+        self._text_edit.viewport().installEventFilter(self)
         self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
         self._segments = []
@@ -2621,6 +2650,7 @@ class TranscribeWindow(QDialog):
         editor = QTextEdit()
         editor.setReadOnly(False)
         editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
+        editor.viewport().installEventFilter(self)
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
