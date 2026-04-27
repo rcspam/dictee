@@ -3014,18 +3014,21 @@ class TranscribeWindow(QDialog):
         gv.setContentsMargins(0, 0, 0, 0)
         gv.setSpacing(0)
 
+        # Use unicode triangles ▼/▶ in the text (same style as
+        # dictee-setup.py accordions) rather than the Qt native arrow.
         self._btn_rename_toggle = QToolButton()
-        self._btn_rename_toggle.setText(_("Renommer les locuteurs"))
-        self._btn_rename_toggle.setArrowType(Qt.ArrowType.DownArrow)
-        self._btn_rename_toggle.setToolButtonStyle(
-            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._btn_rename_toggle.setText("▼  " + _("Renommer les locuteurs"))
         self._btn_rename_toggle.setCheckable(True)
         self._btn_rename_toggle.setChecked(True)
+        self._btn_rename_toggle.setAutoRaise(True)
+        self._btn_rename_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_rename_toggle.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_rename_toggle.setStyleSheet(
             "QToolButton { border: none; padding: 4px 6px; "
-            "font-weight: bold; text-align: left; }")
+            "font-weight: bold; text-align: left; }"
+            "QToolButton:hover { background: rgba(127,127,127,40); "
+            "border-radius: 3px; }")
         self._btn_rename_toggle.toggled.connect(
             self._on_rename_group_toggled)
         gv.addWidget(self._btn_rename_toggle)
@@ -3062,10 +3065,10 @@ class TranscribeWindow(QDialog):
 
     def _on_rename_group_toggled(self, checked):
         """Collapse / expand the rename accordion. Toggle the inner
-        content frame and flip the arrow direction on the header."""
+        content frame and flip the unicode triangle on the header."""
         self._rename_content.setVisible(checked)
-        self._btn_rename_toggle.setArrowType(
-            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+        prefix = "▼  " if checked else "▶  "
+        self._btn_rename_toggle.setText(prefix + _("Renommer les locuteurs"))
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.
