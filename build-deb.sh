@@ -141,7 +141,9 @@ build_cuda() {
         --bin transcribe-daemon \
         --bin transcribe-client \
         --bin transcribe-diarize \
-        --bin transcribe-stream-diarize
+        --bin transcribe-stream-diarize \
+        --bin transcribe-diarize-batch \
+        --bin diarize-only
 
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -173,6 +175,8 @@ EOF
     cp target/release/transcribe-client "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
+    cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
+    cp target/release/diarize-only "$PKG_DIR/usr/bin/"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "=== Copie des libs CUDA ONNX Runtime ==="
@@ -262,7 +266,9 @@ build_cpu() {
         --bin transcribe-daemon \
         --bin transcribe-client \
         --bin transcribe-diarize \
-        --bin transcribe-stream-diarize
+        --bin transcribe-stream-diarize \
+        --bin transcribe-diarize-batch \
+        --bin diarize-only
 
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -293,6 +299,8 @@ EOF
     cp target/release/transcribe-client "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
+    cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
+    cp target/release/diarize-only "$PKG_DIR/usr/bin/"
 
     chmod 755 "$PKG_DIR/usr/bin/"*
 
@@ -384,7 +392,7 @@ build_tarball() {
     mkdir -p "$TARBALL_DIR/etc/udev/rules.d"
 
     # Binaires (derniers compilés = CPU)
-    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize; do
+    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only; do
         cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
     done
     cp "$PKG_DIR/usr/bin/dictee" "$TARBALL_DIR/usr/bin/"
