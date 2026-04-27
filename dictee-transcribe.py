@@ -31,7 +31,7 @@ try:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox,
+        QMessageBox, QToolButton, QSizePolicy, QFrame,
     )
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 except ImportError:
@@ -47,7 +47,7 @@ except ImportError:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox,
+        QMessageBox, QToolButton, QSizePolicy, QFrame,
     )
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
@@ -3000,23 +3000,46 @@ class TranscribeWindow(QDialog):
         produces segments. Each row shows a color swatch matching the
         canonical speaker id + a QLineEdit to set a custom display name.
         """
-        self._grp_rename = QGroupBox(_("Renommer les locuteurs"))
+        # True accordion (arrow toggle, no checkbox). Outer container is
+        # a QFrame with a thin border so it still reads as a grouped
+        # section; header is a QToolButton with a ▼/▶ arrow that
+        # collapses self._rename_content underneath.
+        self._grp_rename = QFrame()
+        self._grp_rename.setObjectName("renameAccordion")
+        self._grp_rename.setStyleSheet(
+            "#renameAccordion { border: 1px solid palette(mid); "
+            "border-radius: 4px; }")
         self._grp_rename.setVisible(False)
-        # Make the group collapsible (accordion-style): unchecking the
-        # title hides the rename rows + buttons, leaving only the title
-        # bar — saves vertical space once the user has named everyone.
-        self._grp_rename.setCheckable(True)
-        self._grp_rename.setChecked(True)
-        self._grp_rename.toggled.connect(self._on_rename_group_toggled)
         gv = QVBoxLayout(self._grp_rename)
-        gv.setSpacing(4)
-        gv.setContentsMargins(8, 6, 8, 6)
+        gv.setContentsMargins(0, 0, 0, 0)
+        gv.setSpacing(0)
+
+        self._btn_rename_toggle = QToolButton()
+        self._btn_rename_toggle.setText(_("Renommer les locuteurs"))
+        self._btn_rename_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self._btn_rename_toggle.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._btn_rename_toggle.setCheckable(True)
+        self._btn_rename_toggle.setChecked(True)
+        self._btn_rename_toggle.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._btn_rename_toggle.setStyleSheet(
+            "QToolButton { border: none; padding: 4px 6px; "
+            "font-weight: bold; text-align: left; }")
+        self._btn_rename_toggle.toggled.connect(
+            self._on_rename_group_toggled)
+        gv.addWidget(self._btn_rename_toggle)
+
+        self._rename_content = QFrame()
+        content = QVBoxLayout(self._rename_content)
+        content.setContentsMargins(8, 4, 8, 6)
+        content.setSpacing(4)
 
         # Two-column grid: up to 4 speakers fit on 2 rows × 2 cols.
         self._rename_rows_layout = QGridLayout()
         self._rename_rows_layout.setHorizontalSpacing(16)
         self._rename_rows_layout.setVerticalSpacing(3)
-        gv.addLayout(self._rename_rows_layout)
+        content.addLayout(self._rename_rows_layout)
 
         lay_btns = QHBoxLayout()
         self._btn_rename_apply = QPushButton(_("Appliquer"))
@@ -3032,29 +3055,17 @@ class TranscribeWindow(QDialog):
         lay_btns.addWidget(self._btn_rename_apply)
         lay_btns.addWidget(self._btn_rename_reset)
         lay_btns.addStretch()
-        gv.addLayout(lay_btns)
+        content.addLayout(lay_btns)
 
+        gv.addWidget(self._rename_content)
         parent_layout.addWidget(self._grp_rename)
 
     def _on_rename_group_toggled(self, checked):
-        """Collapse / expand the rename section. QGroupBox.setCheckable
-        gives us the title-bar checkbox but does not hide children on
-        its own — we toggle each child widget in the group's layout."""
-        layout = self._grp_rename.layout()
-        if layout is None:
-            return
-        for i in range(layout.count()):
-            item = layout.itemAt(i)
-            w = item.widget()
-            if w is not None:
-                w.setVisible(checked)
-            else:
-                sub = item.layout()
-                if sub is not None:
-                    for j in range(sub.count()):
-                        sw = sub.itemAt(j).widget()
-                        if sw is not None:
-                            sw.setVisible(checked)
+        """Collapse / expand the rename accordion. Toggle the inner
+        content frame and flip the arrow direction on the header."""
+        self._rename_content.setVisible(checked)
+        self._btn_rename_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.
