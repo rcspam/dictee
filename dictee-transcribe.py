@@ -1824,7 +1824,10 @@ class TranscribeWindow(QDialog):
         if pos_start is None:
             return
 
-        # Clear previous highlight (stored per-editor for tab safety)
+        # Clear previous highlight: remove underline AND restore the
+        # default foreground colour (else the previously highlighted
+        # segment stays speaker-coloured forever).
+        default_brush = QBrush(editor.palette().text().color())
         prev = getattr(editor, '_current_highlight_range', None)
         if prev is not None and prev != (pos_start, pos_end):
             old_start, old_end = prev
@@ -1833,16 +1836,20 @@ class TranscribeWindow(QDialog):
             cursor.setPosition(old_end, QTextCursor.MoveMode.KeepAnchor)
             clear_fmt = QTextCharFormat()
             clear_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.NoUnderline)
+            clear_fmt.setForeground(default_brush)
             cursor.mergeCharFormat(clear_fmt)
 
-        # Apply the new highlight
+        # Apply the new highlight: underline + text colour both in the
+        # speaker palette colour, so the segment really stands out.
         cursor = editor.textCursor()
         cursor.setPosition(pos_start)
         cursor.setPosition(pos_end, QTextCursor.MoveMode.KeepAnchor)
         fmt = QTextCharFormat()
         fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
         idx = self._speaker_index(seg.get("speaker", ""))
-        fmt.setUnderlineColor(QColor(SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]))
+        spk_color = QColor(SPEAKER_COLORS[idx % len(SPEAKER_COLORS)])
+        fmt.setUnderlineColor(spk_color)
+        fmt.setForeground(QBrush(spk_color))
         cursor.mergeCharFormat(fmt)
 
         editor._current_highlight_range = (pos_start, pos_end)
@@ -1850,40 +1857,47 @@ class TranscribeWindow(QDialog):
     def eventFilter(self, obj, event):
         """Capture mouse release on QTextEdit viewports to drive text->slider
         sync. We watch viewport() (not the QTextEdit itself) because that's
-        where mouse events are dispatched by Qt's scroll-area machinery."""
+        where mouse events land in QAbstractScrollArea. Pass the actual
+        click point — editor.textCursor() lags by one event and would map
+        the click to the previously-active segment."""
         if event.type() == QEvent.Type.MouseButtonRelease:
             parent = obj.parent() if hasattr(obj, 'parent') else None
             if isinstance(parent, QTextEdit):
-                self._on_text_clicked(parent)
+                # Qt6 uses event.position() (QPointF); fall back to pos()
+                # for older bindings.
+                point = (event.position().toPoint()
+                         if hasattr(event, 'position')
+                         else event.pos())
+                cursor_at_click = parent.cursorForPosition(point)
+                self._on_text_clicked(parent, cursor_at_click.position())
         return super().eventFilter(obj, event)
 
-    def _on_text_clicked(self, editor):
-        """User clicked inside the text. Find the segment whose rendered
-        range contains the caret and seek the player there. Falls back to
-        the closest segment if the click landed in a gap (e.g. between
-        speaker headers). Silently no-op if no segment positions are built."""
+    def _on_text_clicked(self, editor, click_pos=None):
+        """User clicked at click_pos (or editor.textCursor() fallback).
+        Find the segment whose rendered range contains it and seek the
+        player there. Closest-segment fallback when the click landed in
+        a gap (speaker header line, blank space)."""
         positions = getattr(editor, '_segment_positions', None)
         if not positions:
             return
-        cursor = editor.textCursor()
-        pos = cursor.position()
+        if click_pos is None:
+            click_pos = editor.textCursor().position()
         matched = None
         for p in positions:
-            if p["start"] <= pos <= p["end"]:
+            if p["start"] <= click_pos <= p["end"]:
                 matched = p
                 break
         if matched is None:
-            # Closest by distance to either edge
             matched = min(positions, key=lambda p: min(
-                abs(pos - p["start"]), abs(pos - p["end"])))
+                abs(click_pos - p["start"]), abs(click_pos - p["end"])))
         self._player.setPosition(int(matched["seg"]["start"] * 1000))
         if self._chk_play_on_click.isChecked():
             self._player.play()
 
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment's rendered text
-        and scroll into view. Uses editor._segment_positions populated by
-        _apply_format_to (works on plain colored, SRT and JSON formats)."""
+        and centre it vertically in the viewport. Uses _segment_positions
+        populated by _apply_format_to (plain colored, SRT and JSON)."""
         positions = getattr(editor, '_segment_positions', None)
         if not positions:
             return
@@ -1892,7 +1906,11 @@ class TranscribeWindow(QDialog):
                 cursor = editor.textCursor()
                 cursor.setPosition(p["start"])
                 editor.setTextCursor(cursor)
-                editor.ensureCursorVisible()
+                # centerCursor() centres the cursor line vertically; falls
+                # back to a no-op if the document is shorter than the
+                # viewport. ensureCursorVisible() merely scrolled the
+                # minimum amount, leaving the segment at the top or bottom.
+                editor.centerCursor()
                 return
 
     def _on_player_duration(self, dur_ms):
