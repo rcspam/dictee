@@ -1754,8 +1754,27 @@ class TranscribeWindow(QDialog):
     def _on_player_stop(self):
         self._player.stop()
 
+    def _find_segment_for_time(self, t, segs):
+        """Return the segment containing t, or the closest one if t falls
+        in a silence/gap. Returns None if segs is empty."""
+        if not segs:
+            return None
+        for s in segs:
+            if s["start"] <= t < s["end"]:
+                return s
+        # Fallback: argmin distance to either edge
+        return min(segs, key=lambda s: min(abs(t - s["start"]), abs(t - s["end"])))
+
+    def _speaker_index(self, spk):
+        """Extract integer index from 'Speaker N' label.
+        Returns 0 for UNKNOWN or any non-numeric speaker."""
+        m = re.search(r'\d+', spk or '')
+        return int(m.group(0)) if m else 0
+
     def _on_seek(self, position):
+        """User clicked the slider: seek + always sync text cursor (regardless of toggle)."""
         self._player.setPosition(position)
+        self._sync_text_to_position(position / 1000.0, force_cursor=True)
 
     def _on_player_position(self, pos_ms):
         if not self._sld_position.isSliderDown():
@@ -1763,6 +1782,40 @@ class TranscribeWindow(QDialog):
         dur_ms = self._player.duration()
         self._lbl_time.setText(
             f"{self._ms_to_str(pos_ms)} / {self._ms_to_str(dur_ms)}")
+        # Continuous playback sync: respect the user toggles
+        if (self._chk_follow_text.isChecked()
+                or self._chk_highlight_current.isChecked()):
+            self._sync_text_to_position(pos_ms / 1000.0)
+
+    def _sync_text_to_position(self, t, force_cursor=False):
+        """Move the text cursor (and optionally highlight) to the segment at
+        time t. force_cursor=True moves the cursor unconditionally (slider
+        click); otherwise the move respects the _chk_follow_text toggle.
+        Highlight is independent and respects _chk_highlight_current.
+        Silently no-op if there are no segments in the active tab."""
+        editor = self._active_editor()
+        segs = getattr(editor, '_diarize_segments', None) or self._segments
+        if not segs:
+            return
+        seg = self._find_segment_for_time(t, segs)
+        if seg is None:
+            return
+        if force_cursor or self._chk_follow_text.isChecked():
+            self._move_text_cursor_to_segment(editor, seg)
+
+    def _move_text_cursor_to_segment(self, editor, seg):
+        """Position the cursor at the start of the segment line and scroll
+        it into view. Looks for '[XX.XXs - ' anchor produced by the diarize
+        formatter — silently no-op for SRT/JSON formats (no anchor)."""
+        anchor = f"[{seg['start']:.2f}s - "
+        text = editor.toPlainText()
+        pos = text.find(anchor)
+        if pos < 0:
+            return
+        cursor = editor.textCursor()
+        cursor.setPosition(pos)
+        editor.setTextCursor(cursor)
+        editor.ensureCursorVisible()
 
     def _on_player_duration(self, dur_ms):
         self._sld_position.setRange(0, dur_ms)
