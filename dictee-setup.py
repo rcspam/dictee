@@ -4029,6 +4029,13 @@ class DicteeSetupDialog(QDialog):
         subsequent openings (first launch still uses the wizard)."""
         from PyQt6.QtWidgets import QSplitter, QTreeWidget, QTreeWidgetItem
 
+        # Mark the dialog as currently being built so heavy probes invoked
+        # via signal/slot during widget construction (e.g. _check_lt_status
+        # from cmb_trans_backend's index handler, _check_animation_speech
+        # from _build_visual_section) can defer their actual work until the
+        # window is painted. Cleared at the end of this function.
+        self._build_phase = True
+
         conf = self.conf
         self.setWindowTitle(_("Voice dictation configuration"))
         self.resize(1270, 1050)
@@ -4289,6 +4296,10 @@ class DicteeSetupDialog(QDialog):
             w.currentIndexChanged.connect(self._mark_dirty)
         for w in self.findChildren(QCheckBox):
             w.toggled.connect(self._mark_dirty)
+
+        # Build phase done — any QTimer.singleShot(0)-deferred probe will
+        # now run its real body when the event loop ticks (after show()).
+        self._build_phase = False
 
     def _ensure_pp_built(self):
         """Lazy-build the post-processing section the first time it is needed.
@@ -13328,6 +13339,15 @@ class DicteeSetupDialog(QDialog):
     # -- Animation-speech --
 
     def _check_animation_speech(self):
+        # _build_visual_section fires this synchronously during build path
+        # (~50 ms: shutil.which + dpkg-query subprocess). Defer to first
+        # event-loop tick post-show; coalesced with a pending flag.
+        if getattr(self, '_build_phase', False):
+            if not getattr(self, '_anim_speech_deferred', False):
+                self._anim_speech_deferred = True
+                QTimer.singleShot(0, self._check_animation_speech)
+            return
+        self._anim_speech_deferred = False
         parts = []
         has_anim = shutil.which(ANIMATION_SPEECH_BIN)
         if has_anim:
@@ -13498,6 +13518,16 @@ class DicteeSetupDialog(QDialog):
             self._check_lt_status()
 
     def _check_lt_status(self):
+        # During the initial dialog build, _build_translation_section's
+        # combo signal handlers fire this twice (~256 ms total for the
+        # Docker probes + LT HTTP). Coalesce them into a single deferred
+        # check that runs after the window is painted.
+        if getattr(self, '_build_phase', False):
+            if not getattr(self, '_lt_status_deferred', False):
+                self._lt_status_deferred = True
+                QTimer.singleShot(0, self._check_lt_status)
+            return
+        self._lt_status_deferred = False
         _dbg_setup("_check_lt_status")
         if not docker_is_installed():
             self.lbl_lt_status.setText(
