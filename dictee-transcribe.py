@@ -1935,7 +1935,12 @@ class TranscribeWindow(QDialog):
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment's rendered text
         and centre it vertically in the viewport. Uses _segment_positions
-        populated by _apply_format_to (plain colored, SRT and JSON)."""
+        populated by _apply_format_to (plain colored, SRT and JSON).
+
+        QTextEdit has no centerCursor() (only QPlainTextEdit does), so we
+        centre manually: compute the cursor's Y in the viewport and shift
+        the vertical scrollbar to bring it to the middle. The scrollbar
+        clamps automatically near top/bottom of the document."""
         positions = getattr(editor, '_segment_positions', None)
         if not positions:
             return
@@ -1944,11 +1949,13 @@ class TranscribeWindow(QDialog):
                 cursor = editor.textCursor()
                 cursor.setPosition(p["start"])
                 editor.setTextCursor(cursor)
-                # centerCursor() centres the cursor line vertically; falls
-                # back to a no-op if the document is shorter than the
-                # viewport. ensureCursorVisible() merely scrolled the
-                # minimum amount, leaving the segment at the top or bottom.
-                editor.centerCursor()
+                rect = editor.cursorRect()
+                viewport_h = editor.viewport().height()
+                sb = editor.verticalScrollBar()
+                sb.setValue(sb.value()
+                            + rect.top()
+                            - viewport_h // 2
+                            + rect.height() // 2)
                 return
 
     def _on_player_duration(self, dur_ms):
