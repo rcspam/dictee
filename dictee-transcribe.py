@@ -1960,7 +1960,9 @@ class TranscribeWindow(QDialog):
         toggle. checked=True (✏️ on) makes editors read-only and also
         re-computes the segment<->position mapping in case the user
         added/removed characters while the toggle was off (otherwise the
-        highlight would land on stale offsets)."""
+        highlight would land on stale offsets). Surface a brief status
+        line so the user knows the sync was refreshed."""
+        n_recomputed = 0
         for i in range(self._tabs.count()):
             w = self._tabs.widget(i)
             if isinstance(w, QTextEdit):
@@ -1969,6 +1971,11 @@ class TranscribeWindow(QDialog):
                     segs = getattr(w, '_diarize_segments', None) or []
                     if segs:
                         self._compute_segment_positions(w, segs)
+                        n_recomputed += 1
+        if checked and n_recomputed > 0:
+            self._lbl_status.setText(_("Sync positions refreshed after edits."))
+            self._lbl_status.setVisible(True)
+            QTimer.singleShot(2500, lambda: self._lbl_status.setVisible(False))
 
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment's rendered text
