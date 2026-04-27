@@ -625,6 +625,13 @@ class _ChunkedPipelineWorker(QThread):
         self._cancel = False
         self._tmp_dir = None
         self._current_proc = None
+        # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
+        # without it, ORT cannot find libonnxruntime.so and falls back to CPU
+        # silently. Mirrors the QProcess env setup in _on_transcribe.
+        self._subprocess_env = os.environ.copy()
+        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort_lib):
+            self._subprocess_env["ORT_DYLIB_PATH"] = ort_lib
 
     def request_cancel(self):
         self._cancel = True
@@ -712,6 +719,7 @@ class _ChunkedPipelineWorker(QThread):
             ]
             self._current_proc = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=self._subprocess_env,
             )
             rc = self._current_proc.wait()
             self._current_proc = None
@@ -728,6 +736,7 @@ class _ChunkedPipelineWorker(QThread):
                self._audio_path]
         self._current_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=self._subprocess_env,
         )
         try:
             stdout_data, _err = self._current_proc.communicate(timeout=600)
@@ -774,6 +783,7 @@ class _ChunkedPipelineWorker(QThread):
         self._current_proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            env=self._subprocess_env,
         )
         stdin_data = ("\n".join(chunks_paths) + "\n").encode()
         try:
