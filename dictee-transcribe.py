@@ -1992,8 +1992,12 @@ class TranscribeWindow(QDialog):
 
     def _on_editor_text_changed(self, editor):
         """Show the Modified badge only when the change was made by the
-        user (document().isModified() is True). Programmatic re-renders
-        clear that flag right after, so they don't trigger the badge."""
+        user. textChanged is emitted *during* setHtml/setPlainText so
+        clearing isModified() afterwards is too late — instead we wrap
+        programmatic renders with editor._suppress_overlay = True and
+        bail out here when the flag is set."""
+        if getattr(editor, '_suppress_overlay', False):
+            return
         if not editor.document().isModified():
             return
         overlay = getattr(editor, '_modified_overlay', None)
@@ -2878,37 +2882,44 @@ class TranscribeWindow(QDialog):
         name_map = getattr(editor, "_speaker_name_map", None) \
             or getattr(self, "_speaker_name_map", None)
 
-        if self._was_diarized and segments:
-            if fmt == "srt":
-                editor.setPlainText(_format_srt(segments, name_map))
-            elif fmt == "json":
-                editor.setPlainText(_format_json(segments, name_map))
+        # Suppress the Modified-overlay slot for the duration of the
+        # render — textChanged fires synchronously during setHtml /
+        # setPlainText, so clearing isModified() afterwards is too late
+        # (the slot would already have flashed the badge). The flag is
+        # checked in _on_editor_text_changed.
+        editor._suppress_overlay = True
+        try:
+            if self._was_diarized and segments:
+                if fmt == "srt":
+                    editor.setPlainText(_format_srt(segments, name_map))
+                elif fmt == "json":
+                    editor.setPlainText(_format_json(segments, name_map))
+                else:
+                    self._set_colored_diarize_to(editor, segments, name_map)
+                # Build segment <-> rendered text position mapping so the
+                # text-slider sync helpers can move the cursor / highlight /
+                # detect clicks without relying on a textual anchor (the
+                # colored-diarize format hides timestamps from the view).
+                self._compute_segment_positions(editor, segments)
             else:
-                self._set_colored_diarize_to(editor, segments, name_map)
-            # Build segment <-> rendered text position mapping so the
-            # text-slider sync helpers can move the cursor / highlight /
-            # detect clicks without relying on a textual anchor (the
-            # colored-diarize format hides timestamps from the view).
-            self._compute_segment_positions(editor, segments)
-        else:
-            editor._segment_positions = []
-            text = raw_text or ""
-            if fmt == "json":
-                editor.setPlainText(json.dumps(
-                    [{"text": text}], ensure_ascii=False, indent=2))
-            elif fmt == "srt":
-                editor.setPlainText(
-                    f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
-            else:
-                editor.setPlainText(text)
-
-        # Re-renders are programmatic, not user edits — clear the modified
-        # flag so the "● Modified" overlay does not flash on every format
-        # switch / re-translation / speaker rename.
-        editor.document().setModified(False)
-        overlay = getattr(editor, '_modified_overlay', None)
-        if overlay is not None:
-            overlay.setVisible(False)
+                editor._segment_positions = []
+                text = raw_text or ""
+                if fmt == "json":
+                    editor.setPlainText(json.dumps(
+                        [{"text": text}], ensure_ascii=False, indent=2))
+                elif fmt == "srt":
+                    editor.setPlainText(
+                        f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
+                else:
+                    editor.setPlainText(text)
+        finally:
+            # Re-renders are programmatic — keep the modified flag clean
+            # and the badge hidden, regardless of failure during render.
+            editor.document().setModified(False)
+            overlay = getattr(editor, '_modified_overlay', None)
+            if overlay is not None:
+                overlay.setVisible(False)
+            editor._suppress_overlay = False
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
