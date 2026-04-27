@@ -43,6 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut sortformer_dir_arg: Option<String> = None;
         let mut files_from_stdin = false;
         let mut apply_postprocess = true;
+        let mut no_diarize = false;
         let mut positional: Vec<String> = Vec::new();
         let mut i = 1;
         while i < args.len() {
@@ -66,6 +67,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 "--no-postprocess" => {
                     apply_postprocess = false;
+                    i += 1;
+                }
+                "--no-diarize" => {
+                    no_diarize = true;
                     i += 1;
                 }
                 _ => {
@@ -139,19 +144,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(not(feature = "cuda"))]
         let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
 
-        // Load Sortformer ONCE
-        let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
-        let diar_config = if (sensitivity - 0.5).abs() < 0.01 {
-            DiarizationConfig::callhome()
+        // Load Sortformer ONCE (skip if --no-diarize)
+        let mut sortformer_opt: Option<Sortformer> = if !no_diarize {
+            let sortformer_path =
+                format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
+            let diar_config = if (sensitivity - 0.5).abs() < 0.01 {
+                DiarizationConfig::callhome()
+            } else {
+                let onset = 0.4 + sensitivity * 0.3;
+                let offset = 0.3 + sensitivity * 0.3;
+                DiarizationConfig::custom(onset, offset)
+            };
+            eprintln!("Loading Sortformer...");
+            Some(Sortformer::with_config(
+                &sortformer_path,
+                Some(config.clone()),
+                diar_config,
+            )?)
         } else {
-            let onset = 0.4 + sensitivity * 0.3;
-            let offset = 0.3 + sensitivity * 0.3;
-            DiarizationConfig::custom(onset, offset)
+            dbg_print!("sortformer SKIPPED (--no-diarize)");
+            None
         };
-        eprintln!("Loading Sortformer...");
-        let mut sortformer =
-            Sortformer::with_config(&sortformer_path, Some(config.clone()), diar_config)?;
-        dbg_print!("sortformer loaded");
+        dbg_print!("sortformer loaded={}", sortformer_opt.is_some());
 
         // Load Parakeet-TDT ONCE
         eprintln!("Loading Parakeet-TDT...");
@@ -178,7 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             match process_one(
                 path,
-                &mut sortformer,
+                sortformer_opt.as_mut(),
                 &mut parakeet,
                 has_postprocess,
                 &lang_source,
@@ -202,7 +216,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Cleanup
         drop(parakeet);
-        drop(sortformer);
+        drop(sortformer_opt);
 
         #[cfg(feature = "cuda")]
         if daemon_was_active {
@@ -239,17 +253,19 @@ fn print_help() {
     eprintln!("  --sortformer-dir <path>  Sortformer model dir");
     eprintln!("  --stdin                  Read file list from stdin (one path per line)");
     eprintln!("  --no-postprocess         Skip dictee-postprocess");
+    eprintln!("  --no-diarize             Skip Sortformer (transcription only, no speaker labels)");
     eprintln!();
     eprintln!("Output: lines grouped by chunk with header:");
     eprintln!("  ===CHUNK <idx> <path>===");
-    eprintln!("  [<start>s - <end>s] Speaker N: text");
+    eprintln!("  [<start>s - <end>s] Speaker N: text   (default)");
+    eprintln!("  [<start>s - <end>s] text              (with --no-diarize)");
     eprintln!("  ...");
 }
 
 #[cfg(feature = "sortformer")]
 fn process_one<W: Write>(
     path: &str,
-    sortformer: &mut Sortformer,
+    sortformer: Option<&mut Sortformer>,
     parakeet: &mut ParakeetTDT,
     has_postprocess: bool,
     lang_source: &str,
@@ -270,7 +286,12 @@ fn process_one<W: Write>(
         let _ = fs::remove_file(&wav_path);
     }
 
-    let speaker_segments = sortformer.diarize(audio.clone(), spec.sample_rate, spec.channels)?;
+    // Diarize only if Sortformer is available; otherwise emit tokens without speaker label.
+    let speaker_segments = if let Some(sf) = sortformer {
+        sf.diarize(audio.clone(), spec.sample_rate, spec.channels)?
+    } else {
+        Vec::new()
+    };
 
     let result = parakeet.transcribe_samples(
         audio,
@@ -281,33 +302,42 @@ fn process_one<W: Write>(
 
     let mut n_written = 0;
     for segment in &result.tokens {
-        let speaker = speaker_segments
-            .iter()
-            .filter_map(|s| {
-                let overlap_start = segment.start.max(s.start);
-                let overlap_end = segment.end.min(s.end);
-                let overlap = (overlap_end - overlap_start).max(0.0);
-                if overlap > 0.0 {
-                    Some((s.speaker_id, overlap))
-                } else {
-                    None
-                }
-            })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .map(|(id, _)| format!("Speaker {}", id))
-            .unwrap_or_else(|| "UNKNOWN".to_string());
-
         let text = if has_postprocess {
             postprocess(&segment.text, lang_source)
         } else {
             segment.text.clone()
         };
 
-        writeln!(
-            out,
-            "[{:.2}s - {:.2}s] {}: {}",
-            segment.start, segment.end, speaker, text
-        )?;
+        if speaker_segments.is_empty() {
+            // --no-diarize mode: emit token with timestamps but no speaker label.
+            writeln!(
+                out,
+                "[{:.2}s - {:.2}s] {}",
+                segment.start, segment.end, text
+            )?;
+        } else {
+            let speaker = speaker_segments
+                .iter()
+                .filter_map(|s| {
+                    let overlap_start = segment.start.max(s.start);
+                    let overlap_end = segment.end.min(s.end);
+                    let overlap = (overlap_end - overlap_start).max(0.0);
+                    if overlap > 0.0 {
+                        Some((s.speaker_id, overlap))
+                    } else {
+                        None
+                    }
+                })
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|(id, _)| format!("Speaker {}", id))
+                .unwrap_or_else(|| "UNKNOWN".to_string());
+
+            writeln!(
+                out,
+                "[{:.2}s - {:.2}s] {}: {}",
+                segment.start, segment.end, speaker, text
+            )?;
+        }
         n_written += 1;
     }
     Ok(n_written)
