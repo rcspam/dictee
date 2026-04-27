@@ -1932,6 +1932,22 @@ class TranscribeWindow(QDialog):
                          else event.pos())
                 cursor_at_click = parent.cursorForPosition(point)
                 self._on_text_clicked(parent, cursor_at_click.position())
+        elif event.type() == QEvent.Type.KeyPress:
+            # Light the Modified badge ONLY when the user actually types
+            # in an editable editor — guarantees per-tab isolation
+            # (textChanged fires for any document mutation including
+            # programmatic re-renders on background tabs).
+            parent = obj.parent() if hasattr(obj, 'parent') else None
+            if isinstance(parent, QTextEdit) and not parent.isReadOnly():
+                text = event.text()
+                edit_keys = {Qt.Key.Key_Backspace, Qt.Key.Key_Delete,
+                             Qt.Key.Key_Return, Qt.Key.Key_Enter}
+                if text or event.key() in edit_keys:
+                    overlay = getattr(parent, '_modified_overlay', None)
+                    if overlay is not None:
+                        self._reposition_modified_overlay(parent)
+                        overlay.setVisible(True)
+                        overlay.raise_()
         return super().eventFilter(obj, event)
 
     def _on_text_clicked(self, editor, click_pos=None):
@@ -1958,10 +1974,11 @@ class TranscribeWindow(QDialog):
 
     def _install_modified_overlay(self, editor):
         """Attach a red 'Modified' badge in the top-right of the editor.
-        Becomes visible as soon as the user types in the editor (only
-        manual edits — programmatic re-renders clear the modified flag).
-        Hidden again when the pencil toggle goes back ON (sync positions
-        recomputed)."""
+        Visibility is driven by KeyPress events caught in eventFilter
+        (per-tab isolation — textChanged is too noisy because it also
+        fires for programmatic renders on background tabs). Hidden by
+        _apply_format_to (after a render) and by _on_edit_mode_toggled
+        (after the sync recompute)."""
         overlay = QLabel(_("● Modified"), editor)
         overlay.setStyleSheet(
             "QLabel { color: white; background: rgba(220, 50, 50, 220); "
@@ -1979,9 +1996,6 @@ class TranscribeWindow(QDialog):
         editor.resizeEvent = _resize
         self._reposition_modified_overlay(editor)
 
-        editor.textChanged.connect(
-            lambda e=editor: self._on_editor_text_changed(e))
-
     def _reposition_modified_overlay(self, editor):
         overlay = getattr(editor, '_modified_overlay', None)
         if overlay is None:
@@ -1989,22 +2003,6 @@ class TranscribeWindow(QDialog):
         margin = 8
         x = editor.viewport().width() - overlay.width() - margin
         overlay.move(x, margin)
-
-    def _on_editor_text_changed(self, editor):
-        """Show the Modified badge only when the change was made by the
-        user. textChanged is emitted *during* setHtml/setPlainText so
-        clearing isModified() afterwards is too late — instead we wrap
-        programmatic renders with editor._suppress_overlay = True and
-        bail out here when the flag is set."""
-        if getattr(editor, '_suppress_overlay', False):
-            return
-        if not editor.document().isModified():
-            return
-        overlay = getattr(editor, '_modified_overlay', None)
-        if overlay is not None:
-            self._reposition_modified_overlay(editor)
-            overlay.setVisible(True)
-            overlay.raise_()
 
     def _on_edit_mode_toggled(self, checked):
         """Sync read-only state of every QTextEdit with the click-to-seek
@@ -2023,8 +2021,7 @@ class TranscribeWindow(QDialog):
                     if segs:
                         self._compute_segment_positions(w, segs)
                         n_recomputed += 1
-                    # Sync caught up — clear modified flag and badge.
-                    w.document().setModified(False)
+                    # Sync caught up — hide the per-tab Modified badge.
                     overlay = getattr(w, '_modified_overlay', None)
                     if overlay is not None:
                         overlay.setVisible(False)
@@ -2882,44 +2879,36 @@ class TranscribeWindow(QDialog):
         name_map = getattr(editor, "_speaker_name_map", None) \
             or getattr(self, "_speaker_name_map", None)
 
-        # Suppress the Modified-overlay slot for the duration of the
-        # render — textChanged fires synchronously during setHtml /
-        # setPlainText, so clearing isModified() afterwards is too late
-        # (the slot would already have flashed the badge). The flag is
-        # checked in _on_editor_text_changed.
-        editor._suppress_overlay = True
-        try:
-            if self._was_diarized and segments:
-                if fmt == "srt":
-                    editor.setPlainText(_format_srt(segments, name_map))
-                elif fmt == "json":
-                    editor.setPlainText(_format_json(segments, name_map))
-                else:
-                    self._set_colored_diarize_to(editor, segments, name_map)
-                # Build segment <-> rendered text position mapping so the
-                # text-slider sync helpers can move the cursor / highlight /
-                # detect clicks without relying on a textual anchor (the
-                # colored-diarize format hides timestamps from the view).
-                self._compute_segment_positions(editor, segments)
+        if self._was_diarized and segments:
+            if fmt == "srt":
+                editor.setPlainText(_format_srt(segments, name_map))
+            elif fmt == "json":
+                editor.setPlainText(_format_json(segments, name_map))
             else:
-                editor._segment_positions = []
-                text = raw_text or ""
-                if fmt == "json":
-                    editor.setPlainText(json.dumps(
-                        [{"text": text}], ensure_ascii=False, indent=2))
-                elif fmt == "srt":
-                    editor.setPlainText(
-                        f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
-                else:
-                    editor.setPlainText(text)
-        finally:
-            # Re-renders are programmatic — keep the modified flag clean
-            # and the badge hidden, regardless of failure during render.
-            editor.document().setModified(False)
-            overlay = getattr(editor, '_modified_overlay', None)
-            if overlay is not None:
-                overlay.setVisible(False)
-            editor._suppress_overlay = False
+                self._set_colored_diarize_to(editor, segments, name_map)
+            # Build segment <-> rendered text position mapping so the
+            # text-slider sync helpers can move the cursor / highlight /
+            # detect clicks without relying on a textual anchor (the
+            # colored-diarize format hides timestamps from the view).
+            self._compute_segment_positions(editor, segments)
+        else:
+            editor._segment_positions = []
+            text = raw_text or ""
+            if fmt == "json":
+                editor.setPlainText(json.dumps(
+                    [{"text": text}], ensure_ascii=False, indent=2))
+            elif fmt == "srt":
+                editor.setPlainText(
+                    f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
+            else:
+                editor.setPlainText(text)
+
+        # Programmatic render -> hide any stale Modified badge on this
+        # editor. The badge is only ever lit by KeyPress events caught
+        # in eventFilter, so other tabs are not affected by this call.
+        overlay = getattr(editor, '_modified_overlay', None)
+        if overlay is not None:
+            overlay.setVisible(False)
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
