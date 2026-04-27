@@ -1933,19 +1933,18 @@ class TranscribeWindow(QDialog):
                 cursor_at_click = parent.cursorForPosition(point)
                 self._on_text_clicked(parent, cursor_at_click.position())
         elif event.type() == QEvent.Type.KeyPress:
-            # Light the Modified badge ONLY when the user actually types
-            # in an editable editor — guarantees per-tab isolation
-            # (textChanged fires for any document mutation including
-            # programmatic re-renders on background tabs).
-            parent = obj.parent() if hasattr(obj, 'parent') else None
-            if isinstance(parent, QTextEdit) and not parent.isReadOnly():
+            # Light the Modified badge ONLY when the user actually types.
+            # KeyPress is dispatched to the focused QTextEdit itself
+            # (eventFilter installed in _install_modified_overlay), so
+            # obj is the QTextEdit directly.
+            if isinstance(obj, QTextEdit) and not obj.isReadOnly():
                 text = event.text()
                 edit_keys = {Qt.Key.Key_Backspace, Qt.Key.Key_Delete,
                              Qt.Key.Key_Return, Qt.Key.Key_Enter}
                 if text or event.key() in edit_keys:
-                    overlay = getattr(parent, '_modified_overlay', None)
+                    overlay = getattr(obj, '_modified_overlay', None)
                     if overlay is not None:
-                        self._reposition_modified_overlay(parent)
+                        self._reposition_modified_overlay(obj)
                         overlay.setVisible(True)
                         overlay.raise_()
         return super().eventFilter(obj, event)
@@ -1974,11 +1973,11 @@ class TranscribeWindow(QDialog):
 
     def _install_modified_overlay(self, editor):
         """Attach a red 'Modified' badge in the top-right of the editor.
-        Visibility is driven by KeyPress events caught in eventFilter
-        (per-tab isolation — textChanged is too noisy because it also
-        fires for programmatic renders on background tabs). Hidden by
-        _apply_format_to (after a render) and by _on_edit_mode_toggled
-        (after the sync recompute)."""
+        Visibility is driven by KeyPress events caught in eventFilter:
+        we install the filter on the editor itself (KeyPress is dispatched
+        to the focused widget, not its viewport — viewport only sees
+        mouse events). Hidden by _apply_format_to (after a render) and
+        by _on_edit_mode_toggled (after the sync recompute)."""
         overlay = QLabel(_("● Modified"), editor)
         overlay.setStyleSheet(
             "QLabel { color: white; background: rgba(220, 50, 50, 220); "
@@ -1987,6 +1986,10 @@ class TranscribeWindow(QDialog):
         overlay.adjustSize()
         overlay.raise_()
         editor._modified_overlay = overlay
+
+        # KeyPress goes to the QTextEdit (focused widget), not the
+        # viewport which only handles mouse events.
+        editor.installEventFilter(self)
 
         # Wrap resizeEvent (subclassing avoided) to reposition on resize.
         base_resize = editor.resizeEvent
