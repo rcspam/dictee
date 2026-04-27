@@ -1809,19 +1809,22 @@ class TranscribeWindow(QDialog):
             self._highlight_segment(editor, seg)
 
     def _highlight_segment(self, editor, seg):
-        """Apply a coloured underline on the current segment line and clear
-        the previous one. Underline color matches the speaker palette so it
-        stays consistent with the slider markers."""
-        anchor = f"[{seg['start']:.2f}s - "
-        text = editor.toPlainText()
-        pos_start = text.find(anchor)
-        if pos_start < 0:
+        """Underline the current segment's rendered text in its speaker
+        colour and clear the previously underlined range. Lookup uses
+        editor._segment_positions, mergeCharFormat preserves the existing
+        text colour applied by the formatter."""
+        positions = getattr(editor, '_segment_positions', None)
+        if not positions:
             return
-        pos_end = text.find('\n', pos_start)
-        if pos_end < 0:
-            pos_end = len(text)
+        pos_start = pos_end = None
+        for p in positions:
+            if abs(p["seg"]["start"] - seg["start"]) < 0.01:
+                pos_start, pos_end = p["start"], p["end"]
+                break
+        if pos_start is None:
+            return
 
-        # Clear previous highlight (stored on the editor itself for tab safety)
+        # Clear previous highlight (stored per-editor for tab safety)
         prev = getattr(editor, '_current_highlight_range', None)
         if prev is not None and prev != (pos_start, pos_end):
             old_start, old_end = prev
@@ -1832,7 +1835,7 @@ class TranscribeWindow(QDialog):
             clear_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.NoUnderline)
             cursor.mergeCharFormat(clear_fmt)
 
-        # Apply the new highlight (mergeCharFormat preserves existing colours)
+        # Apply the new highlight
         cursor = editor.textCursor()
         cursor.setPosition(pos_start)
         cursor.setPosition(pos_end, QTextCursor.MoveMode.KeepAnchor)
@@ -1855,35 +1858,42 @@ class TranscribeWindow(QDialog):
         return super().eventFilter(obj, event)
 
     def _on_text_clicked(self, editor):
-        """User clicked inside the text. Read the segment at the caret line,
-        seek the player there, and optionally start playback. Silently no-op
-        if there are no segments or the line has no [Xs - Ys] anchor."""
-        segs = getattr(editor, '_diarize_segments', None) or self._segments
-        if not segs:
+        """User clicked inside the text. Find the segment whose rendered
+        range contains the caret and seek the player there. Falls back to
+        the closest segment if the click landed in a gap (e.g. between
+        speaker headers). Silently no-op if no segment positions are built."""
+        positions = getattr(editor, '_segment_positions', None)
+        if not positions:
             return
         cursor = editor.textCursor()
-        line = cursor.block().text()
-        m = re.match(r'^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]', line)
-        if not m:
-            return
-        start_s = float(m.group(1))
-        self._player.setPosition(int(start_s * 1000))
+        pos = cursor.position()
+        matched = None
+        for p in positions:
+            if p["start"] <= pos <= p["end"]:
+                matched = p
+                break
+        if matched is None:
+            # Closest by distance to either edge
+            matched = min(positions, key=lambda p: min(
+                abs(pos - p["start"]), abs(pos - p["end"])))
+        self._player.setPosition(int(matched["seg"]["start"] * 1000))
         if self._chk_play_on_click.isChecked():
             self._player.play()
 
     def _move_text_cursor_to_segment(self, editor, seg):
-        """Position the cursor at the start of the segment line and scroll
-        it into view. Looks for '[XX.XXs - ' anchor produced by the diarize
-        formatter — silently no-op for SRT/JSON formats (no anchor)."""
-        anchor = f"[{seg['start']:.2f}s - "
-        text = editor.toPlainText()
-        pos = text.find(anchor)
-        if pos < 0:
+        """Position the cursor at the start of the segment's rendered text
+        and scroll into view. Uses editor._segment_positions populated by
+        _apply_format_to (works on plain colored, SRT and JSON formats)."""
+        positions = getattr(editor, '_segment_positions', None)
+        if not positions:
             return
-        cursor = editor.textCursor()
-        cursor.setPosition(pos)
-        editor.setTextCursor(cursor)
-        editor.ensureCursorVisible()
+        for p in positions:
+            if abs(p["seg"]["start"] - seg["start"]) < 0.01:
+                cursor = editor.textCursor()
+                cursor.setPosition(p["start"])
+                editor.setTextCursor(cursor)
+                editor.ensureCursorVisible()
+                return
 
     def _on_player_duration(self, dur_ms):
         self._sld_position.setRange(0, dur_ms)
