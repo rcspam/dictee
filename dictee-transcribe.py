@@ -599,6 +599,265 @@ class _DiarizeTranscribeWorker(QThread):
         self.finished.emit("\n".join(results))
 
 
+class _ChunkedPipelineWorker(QThread):
+    """Long-file chunked pipeline (audio > LONG_AUDIO threshold + diarize ON).
+
+    Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
+    Phase 2: diarize-only on the full file -> global speaker segments.
+    Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
+    Phase 4: merge global speakers onto tokens via argmax_overlap.
+
+    Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
+    """
+    phase_changed = Signal(int, str)    # (phase_num 1..4, label)
+    chunk_progress = Signal(int, int)   # (done, total) for Phase 3
+    finished = Signal(str)              # final formatted output
+    error = Signal(str)
+
+    CHUNK_SECONDS = 120
+    OVERLAP_SECONDS = 15
+    STEP_SECONDS = 105    # CHUNK - OVERLAP
+
+    def __init__(self, audio_path, sensitivity, parent=None):
+        super().__init__(parent)
+        self._audio_path = audio_path
+        self._sensitivity = sensitivity
+        self._cancel = False
+        self._tmp_dir = None
+        self._current_proc = None
+
+    def request_cancel(self):
+        self._cancel = True
+        if self._current_proc is not None:
+            try:
+                self._current_proc.terminate()
+            except Exception:
+                pass
+
+    def run(self):
+        try:
+            duration = self._get_duration()
+            if duration <= 0:
+                self.error.emit(_("Could not determine audio duration"))
+                return
+
+            self.phase_changed.emit(1, _("Phase 1/4: pre-cut audio"))
+            self._tmp_dir = self._make_tmp_dir()
+            chunks = self._ffmpeg_split(duration)
+            if self._cancel:
+                return
+            if not chunks:
+                self.error.emit(_("No chunks produced from audio split"))
+                return
+
+            self.phase_changed.emit(2, _("Phase 2/4: global diarization"))
+            speaker_segments = self._run_diarize_only()
+            if self._cancel:
+                return
+            if not speaker_segments:
+                self.error.emit(_("No speaker segments detected"))
+                return
+
+            self.phase_changed.emit(3, _("Phase 3/4: chunked transcription"))
+            tokens_absolute = self._run_transcribe_batch(chunks)
+            if self._cancel:
+                return
+            if not tokens_absolute:
+                self.error.emit(_("No transcription tokens produced"))
+                return
+
+            self.phase_changed.emit(4, _("Phase 4/4: merging speakers"))
+            output = self._merge(tokens_absolute, speaker_segments)
+            if not output:
+                self.error.emit(_("Merge produced empty output"))
+                return
+
+            self.finished.emit(output)
+        except Exception as e:
+            self.error.emit(f"Chunked pipeline failed: {e}")
+        finally:
+            self._cleanup_tmp()
+
+    def _make_tmp_dir(self):
+        d = f"/tmp/dictee_chunks_{os.getpid()}_{int(time.time())}"
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _get_duration(self):
+        try:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", self._audio_path],
+                stderr=subprocess.DEVNULL, timeout=30,
+            ).decode().strip()
+            return float(out)
+        except Exception:
+            return 0.0
+
+    def _ffmpeg_split(self, duration):
+        """Split audio into chunks (idx, abs_start_seconds, chunk_path)."""
+        chunks = []
+        idx = 0
+        start = 0.0
+        while start < duration:
+            if self._cancel:
+                return []
+            chunk_path = os.path.join(self._tmp_dir, f"chunk_{idx:04d}.wav")
+            cmd = [
+                "ffmpeg", "-y", "-ss", f"{start:.3f}",
+                "-t", str(self.CHUNK_SECONDS),
+                "-i", self._audio_path,
+                "-ar", "16000", "-ac", "1", "-f", "wav",
+                chunk_path,
+            ]
+            self._current_proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            rc = self._current_proc.wait()
+            self._current_proc = None
+            if rc == 0 and os.path.exists(chunk_path) \
+                    and os.path.getsize(chunk_path) > 1024:
+                chunks.append((idx, start, chunk_path))
+            idx += 1
+            start += self.STEP_SECONDS
+        return chunks
+
+    def _run_diarize_only(self):
+        """Run diarize-only. Stdout format: 'start end speaker_id' per line."""
+        cmd = ["diarize-only", "--sensitivity", f"{self._sensitivity:.2f}",
+               self._audio_path]
+        self._current_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        try:
+            stdout_data, _err = self._current_proc.communicate(timeout=600)
+        except subprocess.TimeoutExpired:
+            self._current_proc.kill()
+            return []
+        finally:
+            self._current_proc = None
+
+        segments = []
+        for line in stdout_data.decode("utf-8", errors="replace").splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 3:
+                try:
+                    segments.append({
+                        "start": float(parts[0]),
+                        "end": float(parts[1]),
+                        "speaker": int(parts[2]),
+                    })
+                except ValueError:
+                    continue
+        return segments
+
+    def _run_transcribe_batch(self, chunks):
+        """Run transcribe-diarize-batch --no-diarize on chunks via stdin.
+
+        Stdout format per chunk:
+            ===CHUNK <idx> <path>===
+            [X.XXs - Y.YYs] text
+            ...
+
+        Tokens whose midpoint falls outside the chunk's useful zone are
+        dropped (deduplication of overlap zones).
+        """
+        chunks_paths = [c[2] for c in chunks]
+        n = len(chunks)
+        last_idx = n - 1
+
+        cmd = ["transcribe-diarize-batch", "--no-diarize", "--stdin"]
+        self._current_proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        stdin_data = ("\n".join(chunks_paths) + "\n").encode()
+        try:
+            stdout_data, _err = self._current_proc.communicate(
+                input=stdin_data, timeout=3600,
+            )
+        except subprocess.TimeoutExpired:
+            self._current_proc.kill()
+            return []
+        finally:
+            self._current_proc = None
+
+        chunk_re = re.compile(r"^===CHUNK\s+(\d+)\s+(.+?)===$")
+        token_re = re.compile(r"^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*(.+)$")
+        tokens_abs = []
+        cur_idx = -1
+        cur_offset = 0.0
+        half_overlap = self.OVERLAP_SECONDS / 2.0
+
+        for line in stdout_data.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = chunk_re.match(line)
+            if m:
+                cur_idx = int(m.group(1))
+                cur_offset = chunks[cur_idx][1] if 0 <= cur_idx < n else 0.0
+                self.chunk_progress.emit(cur_idx + 1, n)
+                continue
+            tm = token_re.match(line)
+            if tm and cur_idx >= 0:
+                local_start = float(tm.group(1))
+                local_end = float(tm.group(2))
+                text = tm.group(3).strip()
+                if not text:
+                    continue
+                # Useful zone (relative to chunk start)
+                if cur_idx == 0:
+                    z_start = 0.0
+                    z_end = self.CHUNK_SECONDS - half_overlap
+                elif cur_idx == last_idx:
+                    z_start = half_overlap
+                    z_end = float(self.CHUNK_SECONDS)
+                else:
+                    z_start = half_overlap
+                    z_end = self.CHUNK_SECONDS - half_overlap
+                mid = (local_start + local_end) / 2.0
+                if z_start <= mid < z_end:
+                    tokens_abs.append({
+                        "start": cur_offset + local_start,
+                        "end": cur_offset + local_end,
+                        "text": text,
+                    })
+
+        tokens_abs.sort(key=lambda t: t["start"])
+        return tokens_abs
+
+    def _merge(self, tokens, speaker_segments):
+        """Merge speakers onto tokens via argmax_overlap.
+
+        Output: '[X.XXs - Y.YYs] Speaker N: text' per line.
+        Speaker label is hardcoded English to stay DIARIZE_RE-compatible.
+        """
+        results = []
+        for tok in tokens:
+            best_speaker = -1
+            best_overlap = 0.0
+            for seg in speaker_segments:
+                ov_start = max(tok["start"], seg["start"])
+                ov_end = min(tok["end"], seg["end"])
+                ov = max(0.0, ov_end - ov_start)
+                if ov > best_overlap:
+                    best_overlap = ov
+                    best_speaker = seg["speaker"]
+            spk = f"Speaker {best_speaker}" if best_speaker >= 0 else "UNKNOWN"
+            results.append(
+                f"[{tok['start']:.2f}s - {tok['end']:.2f}s] {spk}: {tok['text']}"
+            )
+        return "\n".join(results)
+
+    def _cleanup_tmp(self):
+        if self._tmp_dir and os.path.exists(self._tmp_dir):
+            try:
+                shutil.rmtree(self._tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+
 def _parse_diarize_output(text):
     """Parse transcribe-diarize output into segments."""
     segments = []
