@@ -21,6 +21,7 @@ try:
                                QProcessEnvironment, QFileSystemWatcher,
                                QUrl, QSize, QRect, QRectF,
                                QPropertyAnimation, QEasingCurve,
+                               QSettings, QEvent,
                                pyqtSignal as Signal,
                                pyqtProperty as Property)
     from PyQt6.QtGui import (QShortcut, QKeySequence, QTextDocument,
@@ -36,7 +37,8 @@ except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                 QProcessEnvironment, QFileSystemWatcher,
                                 Signal, QUrl, QSize, QRect, QRectF,
-                                QPropertyAnimation, QEasingCurve, Property)
+                                QPropertyAnimation, QEasingCurve, Property,
+                                QSettings, QEvent)
     from PySide6.QtGui import (QShortcut, QKeySequence, QTextDocument,
                                 QPainter, QColor, QBrush, QPen)
     from PySide6.QtWidgets import (
@@ -1384,6 +1386,39 @@ class TranscribeWindow(QDialog):
         lay_opts2.addWidget(self._chk_auto_translate)
         lay_opts2.addStretch()
         layout.addLayout(lay_opts2)
+
+        # -- Options: row 3 — sync slider/text bidirectional --
+        lay_opts3 = QHBoxLayout()
+        qs_sync = QSettings("dictee", "transcribe")
+        self._chk_follow_text = ToggleSwitch(_("Follow playback in text"))
+        self._chk_follow_text.setToolTip(
+            _("Move text cursor in real time during audio playback"))
+        self._chk_follow_text.setChecked(
+            qs_sync.value("sync/follow_text", False, type=bool))
+        self._chk_follow_text.toggled.connect(
+            lambda v: QSettings("dictee", "transcribe").setValue("sync/follow_text", v))
+        lay_opts3.addWidget(self._chk_follow_text)
+
+        self._chk_play_on_click = ToggleSwitch(_("Auto-play on text click"))
+        self._chk_play_on_click.setToolTip(
+            _("Start playback when clicking on a segment in the text"))
+        self._chk_play_on_click.setChecked(
+            qs_sync.value("sync/play_on_click", False, type=bool))
+        self._chk_play_on_click.toggled.connect(
+            lambda v: QSettings("dictee", "transcribe").setValue("sync/play_on_click", v))
+        lay_opts3.addWidget(self._chk_play_on_click)
+
+        self._chk_highlight_current = ToggleSwitch(_("Highlight current segment"))
+        self._chk_highlight_current.setToolTip(
+            _("Underline the segment matching the audio position"))
+        self._chk_highlight_current.setChecked(
+            qs_sync.value("sync/highlight_current", False, type=bool))
+        self._chk_highlight_current.toggled.connect(
+            lambda v: QSettings("dictee", "transcribe").setValue("sync/highlight_current", v))
+        lay_opts3.addWidget(self._chk_highlight_current)
+
+        lay_opts3.addStretch()
+        layout.addLayout(lay_opts3)
 
         # -- Translation row --
         lay_trans = QHBoxLayout()
