@@ -2713,7 +2713,13 @@ class TranscribeWindow(QDialog):
                 editor.setPlainText(_format_json(segments, name_map))
             else:
                 self._set_colored_diarize_to(editor, segments, name_map)
+            # Build segment <-> rendered text position mapping so the
+            # text-slider sync helpers can move the cursor / highlight /
+            # detect clicks without relying on a textual anchor (the
+            # colored-diarize format hides timestamps from the view).
+            self._compute_segment_positions(editor, segments)
         else:
+            editor._segment_positions = []
             text = raw_text or ""
             if fmt == "json":
                 editor.setPlainText(json.dumps(
@@ -2723,6 +2729,30 @@ class TranscribeWindow(QDialog):
                     f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
             else:
                 editor.setPlainText(text)
+
+    def _compute_segment_positions(self, editor, segments):
+        """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
+        Searches each segment's text in order, advancing the cursor so that
+        repeated phrases match the right occurrence. Stored on the editor
+        for tab safety (one mapping per tab)."""
+        text = editor.toPlainText()
+        positions = []
+        cursor_pos = 0
+        for seg in segments:
+            snippet = (seg.get("text") or "").strip()
+            if not snippet:
+                continue
+            idx = text.find(snippet, cursor_pos)
+            if idx < 0:
+                # Defensive: the formatter may have reordered or escaped;
+                # try a global search from the start.
+                idx = text.find(snippet)
+                if idx < 0:
+                    continue
+            end_idx = idx + len(snippet)
+            positions.append({"start": idx, "end": end_idx, "seg": seg})
+            cursor_pos = end_idx
+        editor._segment_positions = positions
 
     def _set_colored_diarize_to(self, editor, segments, name_map=None):
         """Display diarized text with colored speaker headers in given editor.
