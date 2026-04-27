@@ -1421,9 +1421,11 @@ class TranscribeWindow(QDialog):
         self._lbl_long_audio_warning = QLabel("")
         self._lbl_long_audio_warning.setWordWrap(True)
         self._lbl_long_audio_warning.setTextFormat(Qt.TextFormat.RichText)
+        # Minimal styling: just colour the text (orange info-tone). No
+        # background or border — the previous boxed look fought with
+        # the rest of the form on long-file transcripts.
         self._lbl_long_audio_warning.setStyleSheet(
-            "QLabel { color: #d68910; background: #fef5e7; "
-            "border: 1px solid #f39c12; border-radius: 4px; padding: 6px; }")
+            "QLabel { color: #d68910; padding: 2px 0; }")
         self._lbl_long_audio_warning.setVisible(False)
         layout.addWidget(self._lbl_long_audio_warning)
 
@@ -2207,11 +2209,7 @@ class TranscribeWindow(QDialog):
             return
         minutes = int(dur_s // 60)
         self._lbl_long_audio_warning.setText(
-            _("ℹ Long file detected ({min} min). The chunked pipeline will be "
-              "used automatically: ffmpeg pre-cut into 2-min chunks with 15-s "
-              "overlap, global diarization on the full file, then chunked "
-              "transcription. This avoids out-of-memory errors on GPUs with "
-              "less than 10 GB of VRAM.").format(min=minutes))
+            _("ℹ Fichier long ({min} min) — pipeline chunké automatique.").format(min=minutes))
         self._lbl_long_audio_warning.setVisible(True)
 
     def _on_transcribe(self):
@@ -3004,6 +3002,12 @@ class TranscribeWindow(QDialog):
         """
         self._grp_rename = QGroupBox(_("Renommer les locuteurs"))
         self._grp_rename.setVisible(False)
+        # Make the group collapsible (accordion-style): unchecking the
+        # title hides the rename rows + buttons, leaving only the title
+        # bar — saves vertical space once the user has named everyone.
+        self._grp_rename.setCheckable(True)
+        self._grp_rename.setChecked(True)
+        self._grp_rename.toggled.connect(self._on_rename_group_toggled)
         gv = QVBoxLayout(self._grp_rename)
         gv.setSpacing(4)
         gv.setContentsMargins(8, 6, 8, 6)
@@ -3031,6 +3035,26 @@ class TranscribeWindow(QDialog):
         gv.addLayout(lay_btns)
 
         parent_layout.addWidget(self._grp_rename)
+
+    def _on_rename_group_toggled(self, checked):
+        """Collapse / expand the rename section. QGroupBox.setCheckable
+        gives us the title-bar checkbox but does not hide children on
+        its own — we toggle each child widget in the group's layout."""
+        layout = self._grp_rename.layout()
+        if layout is None:
+            return
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            w = item.widget()
+            if w is not None:
+                w.setVisible(checked)
+            else:
+                sub = item.layout()
+                if sub is not None:
+                    for j in range(sub.count()):
+                        sw = sub.itemAt(j).widget()
+                        if sw is not None:
+                            sw.setVisible(checked)
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.
