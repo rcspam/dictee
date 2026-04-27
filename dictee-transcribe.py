@@ -247,9 +247,11 @@ class _ClickSlider(QSlider):
         try:
             from PyQt6.QtGui import QPainter, QPen, QPolygonF, QColor
             from PyQt6.QtCore import QPointF
+            from PyQt6.QtWidgets import QStyle, QStyleOptionSlider
         except ImportError:
             from PySide6.QtGui import QPainter, QPen, QPolygonF, QColor
             from PySide6.QtCore import QPointF
+            from PySide6.QtWidgets import QStyle, QStyleOptionSlider
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rng = self.maximum() - self.minimum()
@@ -269,6 +271,13 @@ class _ClickSlider(QSlider):
             x = int((start_ms - self.minimum()) / rng * self.width())
             p.setPen(QPen(color, 1))
             p.drawLine(x, 0, x, h - 1)
+        # Redraw only the handle on top so the playback indicator stays
+        # visible above the speaker bars and ticks.
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        opt.subControls = QStyle.SubControl.SC_SliderHandle
+        self.style().drawComplexControl(
+            QStyle.ComplexControl.CC_Slider, opt, p, self)
         p.end()
 
     def mousePressEvent(self, event):
