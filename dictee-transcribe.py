@@ -1587,6 +1587,7 @@ class TranscribeWindow(QDialog):
         self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
         self._text_edit.setToolTip(_("Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."))
         self._text_edit.viewport().installEventFilter(self)
+        self._install_modified_overlay(self._text_edit)
         self._tabs.addTab(self._text_edit, _("Original"))
         # Original tab is not closable
         self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
@@ -1955,6 +1956,52 @@ class TranscribeWindow(QDialog):
         if self._chk_play_on_click.isChecked():
             self._player.play()
 
+    def _install_modified_overlay(self, editor):
+        """Attach a red 'Modified' badge in the top-right of the editor.
+        Becomes visible as soon as the user types in the editor (only
+        manual edits — programmatic re-renders clear the modified flag).
+        Hidden again when the pencil toggle goes back ON (sync positions
+        recomputed)."""
+        overlay = QLabel(_("● Modified"), editor)
+        overlay.setStyleSheet(
+            "QLabel { color: white; background: rgba(220, 50, 50, 220); "
+            "padding: 2px 8px; border-radius: 4px; font-weight: bold; }")
+        overlay.setVisible(False)
+        overlay.adjustSize()
+        overlay.raise_()
+        editor._modified_overlay = overlay
+
+        # Wrap resizeEvent (subclassing avoided) to reposition on resize.
+        base_resize = editor.resizeEvent
+        def _resize(ev):
+            base_resize(ev)
+            self._reposition_modified_overlay(editor)
+        editor.resizeEvent = _resize
+        self._reposition_modified_overlay(editor)
+
+        editor.textChanged.connect(
+            lambda e=editor: self._on_editor_text_changed(e))
+
+    def _reposition_modified_overlay(self, editor):
+        overlay = getattr(editor, '_modified_overlay', None)
+        if overlay is None:
+            return
+        margin = 8
+        x = editor.viewport().width() - overlay.width() - margin
+        overlay.move(x, margin)
+
+    def _on_editor_text_changed(self, editor):
+        """Show the Modified badge only when the change was made by the
+        user (document().isModified() is True). Programmatic re-renders
+        clear that flag right after, so they don't trigger the badge."""
+        if not editor.document().isModified():
+            return
+        overlay = getattr(editor, '_modified_overlay', None)
+        if overlay is not None:
+            self._reposition_modified_overlay(editor)
+            overlay.setVisible(True)
+            overlay.raise_()
+
     def _on_edit_mode_toggled(self, checked):
         """Sync read-only state of every QTextEdit with the click-to-seek
         toggle. checked=True (✏️ on) makes editors read-only and also
@@ -1972,6 +2019,11 @@ class TranscribeWindow(QDialog):
                     if segs:
                         self._compute_segment_positions(w, segs)
                         n_recomputed += 1
+                    # Sync caught up — clear modified flag and badge.
+                    w.document().setModified(False)
+                    overlay = getattr(w, '_modified_overlay', None)
+                    if overlay is not None:
+                        overlay.setVisible(False)
         if checked and n_recomputed > 0:
             self._lbl_status.setText(_("Sync positions refreshed after edits."))
             self._lbl_status.setVisible(True)
@@ -2184,6 +2236,7 @@ class TranscribeWindow(QDialog):
         self._text_edit.setPlaceholderText(
             _("Transcription results will appear here..."))
         self._text_edit.viewport().installEventFilter(self)
+        self._install_modified_overlay(self._text_edit)
         self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
         self._segments = []
@@ -2769,6 +2822,7 @@ class TranscribeWindow(QDialog):
         editor.setReadOnly(self._btn_edit_mode.isChecked())
         editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
         editor.viewport().installEventFilter(self)
+        self._install_modified_overlay(editor)
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
@@ -2847,6 +2901,14 @@ class TranscribeWindow(QDialog):
                     f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
             else:
                 editor.setPlainText(text)
+
+        # Re-renders are programmatic, not user edits — clear the modified
+        # flag so the "● Modified" overlay does not flash on every format
+        # switch / re-translation / speaker rename.
+        editor.document().setModified(False)
+        overlay = getattr(editor, '_modified_overlay', None)
+        if overlay is not None:
+            overlay.setVisible(False)
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
