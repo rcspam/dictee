@@ -766,7 +766,11 @@ class _ChunkedPipelineWorker(QThread):
         n = len(chunks)
         last_idx = n - 1
 
-        cmd = ["transcribe-diarize-batch", "--no-diarize", "--stdin"]
+        # --no-postprocess: postprocess is applied per-segment in
+        # _finish_transcription, matching the existing _DiarizeTranscribeWorker
+        # pattern. Avoids double processing.
+        cmd = ["transcribe-diarize-batch", "--no-diarize",
+               "--no-postprocess", "--stdin"]
         self._current_proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -1953,6 +1957,26 @@ class TranscribeWindow(QDialog):
         self._btn_transcribe.setEnabled(False)
         self._btn_translate.setEnabled(False)
 
+        # Long-file chunked pipeline: diarize ON + duration > threshold + CUDA build
+        # → ffmpeg pre-cut + diarize-only global + transcribe-diarize-batch --no-diarize
+        # → merge speakers via argmax_overlap. Avoids OOM on 8 GB VRAM beyond ~10-15 min.
+        if (diarize
+                and self._audio_duration >= self.LONG_AUDIO_WARN_MINUTES * 60
+                and self._has_cuda_build()):
+            sensitivity = self._sld_sensitivity.value() / 100.0
+            _dbg(f"_on_transcribe: routing to chunked pipeline "
+                 f"(dur={self._audio_duration:.1f}s, sens={sensitivity:.2f})")
+            self._was_diarized = True
+            self._diarize_two_phase = False  # chunked replaces two-phase
+            self._chunked_worker = _ChunkedPipelineWorker(
+                audio_path, sensitivity, self)
+            self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
+            self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
+            self._chunked_worker.finished.connect(self._on_chunked_done)
+            self._chunked_worker.error.connect(self._on_chunked_error)
+            self._chunked_worker.start()
+            return
+
         self._process = QProcess(self)
         if getattr(self, '_diarize_two_phase', False):
             # Phase 1 : séparer stdout (timestamps) de stderr (warnings ONNX)
@@ -2076,6 +2100,31 @@ class TranscribeWindow(QDialog):
 
     def _on_diarize_error(self, msg):
         self._diarize_worker = None
+        self._progress.setVisible(False)
+        self._lbl_status.setText(msg)
+        self._update_transcribe_btn()
+
+    # === Chunked long-file pipeline slots ===
+
+    def _on_chunked_phase(self, phase_num, label):
+        """Phase 1..4 status update from _ChunkedPipelineWorker."""
+        self._lbl_status.setText(label)
+
+    def _on_chunked_progress(self, done, total):
+        """Phase 3 chunk-by-chunk progress."""
+        self._lbl_status.setText(
+            _("Phase 3/4: chunk {done}/{total}").format(done=done, total=total))
+
+    def _on_chunked_done(self, raw_output):
+        """Final output ready: forward to the common _finish_transcription path."""
+        _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
+        self._chunked_worker = None
+        self._finish_transcription(raw_output)
+
+    def _on_chunked_error(self, msg):
+        """Pipeline failed at some phase: surface message, restore UI."""
+        _dbg(f"_on_chunked_error: {msg}")
+        self._chunked_worker = None
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
         self._update_transcribe_btn()
