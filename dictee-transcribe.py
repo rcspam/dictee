@@ -1451,6 +1451,13 @@ class TranscribeWindow(QDialog):
         self._btn_translate.clicked.connect(self._on_translate)
         lay_action.addWidget(self._btn_translate)
 
+        # Cancel button — only visible during the chunked long-file pipeline
+        self._btn_cancel = QPushButton(_("Cancel"))
+        self._btn_cancel.setVisible(False)
+        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
+        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
+        lay_action.addWidget(self._btn_cancel)
+
         lay_action.addStretch()
         layout.addLayout(lay_action)
 
@@ -1530,6 +1537,10 @@ class TranscribeWindow(QDialog):
         if hasattr(self, '_diarize_worker') and self._diarize_worker and self._diarize_worker.isRunning():
             _dbg("closeEvent: waiting for diarize worker")
             self._diarize_worker.wait(5000)
+        if hasattr(self, '_chunked_worker') and self._chunked_worker and self._chunked_worker.isRunning():
+            _dbg("closeEvent: cancelling chunked worker")
+            self._chunked_worker.request_cancel()
+            self._chunked_worker.wait(5000)
         # Restore backend if we were in diarization mode
         conf = _read_conf()
         if conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
@@ -1974,6 +1985,8 @@ class TranscribeWindow(QDialog):
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
             self._chunked_worker.error.connect(self._on_chunked_error)
+            self._btn_cancel.setVisible(True)
+            self._btn_cancel.setEnabled(True)
             self._chunked_worker.start()
             return
 
@@ -2119,15 +2132,26 @@ class TranscribeWindow(QDialog):
         """Final output ready: forward to the common _finish_transcription path."""
         _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
         self._chunked_worker = None
+        self._btn_cancel.setVisible(False)
         self._finish_transcription(raw_output)
 
     def _on_chunked_error(self, msg):
         """Pipeline failed at some phase: surface message, restore UI."""
         _dbg(f"_on_chunked_error: {msg}")
         self._chunked_worker = None
+        self._btn_cancel.setVisible(False)
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
         self._update_transcribe_btn()
+
+    def _on_cancel_chunked(self):
+        """User clicked Cancel during the chunked pipeline."""
+        if not (hasattr(self, '_chunked_worker') and self._chunked_worker):
+            return
+        _dbg("_on_cancel_chunked: requesting worker cancel")
+        self._btn_cancel.setEnabled(False)  # avoid double clicks
+        self._lbl_status.setText(_("Cancelling..."))
+        self._chunked_worker.request_cancel()
 
     def _finish_transcription(self, raw_output):
         """Common finish logic for both single-phase and two-phase diarization."""
