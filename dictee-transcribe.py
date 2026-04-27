@@ -1577,12 +1577,13 @@ class TranscribeWindow(QDialog):
             "QPushButton { padding: 0 2px; margin: 0; }")
         self._btn_edit_mode.setToolTip(_(
             "Click-to-seek: when enabled, clicking in the text seeks the "
-            "audio to the segment. Toggle off to edit the text without "
-            "the slider jumping."))
+            "audio and the text is read-only. Toggle off to edit the "
+            "text freely (no audio seek)."))
+        self._btn_edit_mode.toggled.connect(self._on_edit_mode_toggled)
         self._tabs.setCornerWidget(self._btn_edit_mode, Qt.Corner.TopLeftCorner)
 
         self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(False)
+        self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
         self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
         self._text_edit.setToolTip(_("Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."))
         self._text_edit.viewport().installEventFilter(self)
@@ -1954,6 +1955,16 @@ class TranscribeWindow(QDialog):
         if self._chk_play_on_click.isChecked():
             self._player.play()
 
+    def _on_edit_mode_toggled(self, checked):
+        """Sync read-only state of every QTextEdit in the tab widget with
+        the click-to-seek toggle. checked=True (✏️ on) makes editors
+        read-only so accidental keystrokes don't mangle the transcript;
+        checked=False unlocks them for free editing."""
+        for i in range(self._tabs.count()):
+            w = self._tabs.widget(i)
+            if isinstance(w, QTextEdit):
+                w.setReadOnly(checked)
+
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment's rendered text
         and centre it vertically in the viewport. Uses _segment_positions
@@ -2157,7 +2168,7 @@ class TranscribeWindow(QDialog):
             self._text_edit.setReadOnly(True)
         # Create new tab at the right
         self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(False)
+        self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
         self._text_edit.setPlaceholderText(
             _("Transcription results will appear here..."))
         self._text_edit.viewport().installEventFilter(self)
@@ -2743,7 +2754,7 @@ class TranscribeWindow(QDialog):
 
         # Create new translation tab inserted right after source
         editor = QTextEdit()
-        editor.setReadOnly(False)
+        editor.setReadOnly(self._btn_edit_mode.isChecked())
         editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
         editor.viewport().installEventFilter(self)
         self._tabs.insertTab(insert_at, editor, tab_title)
