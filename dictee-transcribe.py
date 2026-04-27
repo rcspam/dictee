@@ -25,7 +25,8 @@ try:
                                pyqtSignal as Signal,
                                pyqtProperty as Property)
     from PyQt6.QtGui import (QShortcut, QKeySequence, QTextDocument,
-                              QPainter, QColor, QBrush, QPen)
+                              QPainter, QColor, QBrush, QPen,
+                              QTextCharFormat, QTextCursor)
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
@@ -40,7 +41,8 @@ except ImportError:
                                 QPropertyAnimation, QEasingCurve, Property,
                                 QSettings, QEvent)
     from PySide6.QtGui import (QShortcut, QKeySequence, QTextDocument,
-                                QPainter, QColor, QBrush, QPen)
+                                QPainter, QColor, QBrush, QPen,
+                                QTextCharFormat, QTextCursor)
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
@@ -1802,6 +1804,44 @@ class TranscribeWindow(QDialog):
             return
         if force_cursor or self._chk_follow_text.isChecked():
             self._move_text_cursor_to_segment(editor, seg)
+        if self._chk_highlight_current.isChecked():
+            self._highlight_segment(editor, seg)
+
+    def _highlight_segment(self, editor, seg):
+        """Apply a coloured underline on the current segment line and clear
+        the previous one. Underline color matches the speaker palette so it
+        stays consistent with the slider markers."""
+        anchor = f"[{seg['start']:.2f}s - "
+        text = editor.toPlainText()
+        pos_start = text.find(anchor)
+        if pos_start < 0:
+            return
+        pos_end = text.find('\n', pos_start)
+        if pos_end < 0:
+            pos_end = len(text)
+
+        # Clear previous highlight (stored on the editor itself for tab safety)
+        prev = getattr(editor, '_current_highlight_range', None)
+        if prev is not None and prev != (pos_start, pos_end):
+            old_start, old_end = prev
+            cursor = editor.textCursor()
+            cursor.setPosition(old_start)
+            cursor.setPosition(old_end, QTextCursor.MoveMode.KeepAnchor)
+            clear_fmt = QTextCharFormat()
+            clear_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.NoUnderline)
+            cursor.mergeCharFormat(clear_fmt)
+
+        # Apply the new highlight (mergeCharFormat preserves existing colours)
+        cursor = editor.textCursor()
+        cursor.setPosition(pos_start)
+        cursor.setPosition(pos_end, QTextCursor.MoveMode.KeepAnchor)
+        fmt = QTextCharFormat()
+        fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+        idx = self._speaker_index(seg.get("speaker", ""))
+        fmt.setUnderlineColor(QColor(SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]))
+        cursor.mergeCharFormat(fmt)
+
+        editor._current_highlight_range = (pos_start, pos_end)
 
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment line and scroll
