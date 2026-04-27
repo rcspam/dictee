@@ -3015,19 +3015,20 @@ class TranscribeWindow(QDialog):
         gv.setSpacing(0)
 
         # Use unicode triangles ▼/▶ in the text (same style as
-        # dictee-setup.py accordions) rather than the Qt native arrow.
-        self._btn_rename_toggle = QToolButton()
-        self._btn_rename_toggle.setText("▼  " + _("Renommer les locuteurs"))
+        # dictee-setup.py accordions). QPushButton (not QToolButton)
+        # because text-align:left is reliably honoured here.
+        self._btn_rename_toggle = QPushButton(
+            "▼  " + _("Renommer les locuteurs"))
         self._btn_rename_toggle.setCheckable(True)
         self._btn_rename_toggle.setChecked(True)
-        self._btn_rename_toggle.setAutoRaise(True)
+        self._btn_rename_toggle.setFlat(True)
         self._btn_rename_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_rename_toggle.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._btn_rename_toggle.setStyleSheet(
-            "QToolButton { border: none; padding: 4px 6px; "
+            "QPushButton { border: none; padding: 4px 6px; "
             "font-weight: bold; text-align: left; }"
-            "QToolButton:hover { background: rgba(127,127,127,40); "
+            "QPushButton:hover { background: rgba(127,127,127,40); "
             "border-radius: 3px; }")
         self._btn_rename_toggle.toggled.connect(
             self._on_rename_group_toggled)
