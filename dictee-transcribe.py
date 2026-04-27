@@ -527,8 +527,11 @@ class _DiarizeTranscribeWorker(QThread):
     def run(self):
         import socket as sock_mod, time as _time, re
 
-        # Wait for socket (max 15s)
-        for _ in range(60):
+        # Wait for socket (max 15s).
+        # NB: never use `_` as the loop variable — it shadows the gettext
+        # function `_(...)` for the rest of run(), and every translated
+        # string downstream blows up with "'int' object is not callable".
+        for _attempt in range(60):
             if os.path.exists(self._sock_path):
                 try:
                     s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
