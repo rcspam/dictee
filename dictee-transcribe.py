@@ -1565,6 +1565,17 @@ class TranscribeWindow(QDialog):
         self._tabs.setTabsClosable(True)
         self._tabs.tabCloseRequested.connect(self._on_tab_close)
 
+        # Edit mode toggle in the tab-bar's left corner. When enabled,
+        # mouse clicks in the text only move the caret (no audio seek)
+        # so the user can fix typos without the slider jumping around.
+        self._btn_edit_mode = QPushButton("✏️")  # pencil emoji
+        self._btn_edit_mode.setCheckable(True)
+        self._btn_edit_mode.setFixedWidth(32)
+        self._btn_edit_mode.setToolTip(_(
+            "Edit mode: clicking in the text only moves the cursor (no "
+            "audio seek). Toggle off to re-enable click-to-seek."))
+        self._tabs.setCornerWidget(self._btn_edit_mode, Qt.Corner.TopLeftCorner)
+
         self._text_edit = QTextEdit()
         self._text_edit.setReadOnly(False)
         self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
@@ -1897,10 +1908,16 @@ class TranscribeWindow(QDialog):
         sync. We watch viewport() (not the QTextEdit itself) because that's
         where mouse events land in QAbstractScrollArea. Pass the actual
         click point — editor.textCursor() lags by one event and would map
-        the click to the previously-active segment."""
+        the click to the previously-active segment.
+
+        When the edit-mode corner button is on, the click-to-seek is
+        bypassed so the user can move the caret to fix typos without the
+        audio slider jumping around."""
         if event.type() == QEvent.Type.MouseButtonRelease:
+            edit_on = (hasattr(self, '_btn_edit_mode')
+                       and self._btn_edit_mode.isChecked())
             parent = obj.parent() if hasattr(obj, 'parent') else None
-            if isinstance(parent, QTextEdit):
+            if isinstance(parent, QTextEdit) and not edit_on:
                 # Qt6 uses event.position() (QPointF); fall back to pos()
                 # for older bindings.
                 point = (event.position().toPoint()
