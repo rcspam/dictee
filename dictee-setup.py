@@ -4145,9 +4145,18 @@ class DicteeSetupDialog(QDialog):
         # i.e. right after the window has painted.
         QTimer.singleShot(0, self._ensure_pp_built)
 
-        # Section 9 : About (last)
-        page_about = self._build_section_about()
-        self._sidebar_stack.addWidget(page_about)
+        # Section 9 : About (last) — lazy build (~120 ms for the logo
+        # pixmap + version probes). Never the initial page, so deferring
+        # to a QTimer.singleShot keeps the window paint off the critical
+        # path. Eager build is invoked from _on_item_changed if the user
+        # clicks About before the timer ticks.
+        self._about_page = QWidget()
+        self._about_inner_layout = QVBoxLayout(self._about_page)
+        self._about_inner_layout.setContentsMargins(0, 0, 0, 0)
+        self._about_inner_layout.setSpacing(0)
+        self._about_built = False
+        self._sidebar_stack.addWidget(self._about_page)
+        QTimer.singleShot(0, self._ensure_about_built)
 
         # --- Top: pipeline header (persistent across all sections) ---
         outer.addWidget(pipeline_header)
@@ -4197,6 +4206,10 @@ class DicteeSetupDialog(QDialog):
                 if (idx_int == self._sidebar_stack.indexOf(self._pp_scroll)
                         and not getattr(self, '_pp_built', False)):
                     self._ensure_pp_built()
+                if (hasattr(self, '_about_page')
+                        and idx_int == self._sidebar_stack.indexOf(self._about_page)
+                        and not getattr(self, '_about_built', False)):
+                    self._ensure_about_built()
                 self._sidebar_stack.setCurrentIndex(idx_int)
                 # Lazy audio level monitor: open the mic stream only when
                 # the Microphone page (stack index 4) is visible. On busy
@@ -4345,6 +4358,17 @@ class DicteeSetupDialog(QDialog):
                     self._sidebar_tree.currentItemChanged.emit(cur, None)
         except Exception as _e:
             _dbg_setup(f"_ensure_pp_built: re-emit failed: {_e}")
+
+    def _ensure_about_built(self):
+        """Lazy-build the About page on first need. Called from
+        QTimer.singleShot in _build_sidebar_ui (after show()) and also
+        synchronously from _on_item_changed if the user clicks About
+        before the timer ticks."""
+        if self._about_built:
+            return
+        self._about_built = True
+        inner = self._build_section_about()
+        self._about_inner_layout.addWidget(inner)
 
     @staticmethod
     def _detect_install_type():
