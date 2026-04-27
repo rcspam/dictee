@@ -4191,6 +4191,16 @@ class DicteeSetupDialog(QDialog):
                         and not getattr(self, '_pp_built', False)):
                     self._ensure_pp_built()
                 self._sidebar_stack.setCurrentIndex(idx_int)
+                # Lazy audio level monitor: open the mic stream only when
+                # the Microphone page (stack index 4) is visible. On busy
+                # PipeWire systems QMediaDevices.defaultAudioInput() +
+                # AudioLevelMonitor.start() takes 400-500 ms — keeping it
+                # off the build path saves that on every cold launch.
+                if not self.wizard_mode:
+                    if idx_int == 4:
+                        self._start_audio_level()
+                    else:
+                        self._stop_audio_level()
             pp_tab = current.data(0, Qt.ItemDataRole.UserRole + 1)
             # Post-processing page: show the tabs + title only when a
             # specific sub-section is selected. When the PP root is
@@ -12277,9 +12287,12 @@ class DicteeSetupDialog(QDialog):
         if not self.wizard_mode:
             self._build_silence_threshold_section(lay_mic, conf)
 
-        # In wizard mode, start audio level only when page 4 becomes visible
-        if not self.wizard_mode:
-            self._start_audio_level()
+        # Audio level monitor is started lazily by the sidebar nav handler
+        # (_on_item_changed) when the Microphone page becomes visible — and
+        # by _wizard_next when reaching wizard page 6. No eager start here:
+        # opening the mic stream costs 400-500 ms on busy PipeWire systems
+        # and would otherwise block window paint for users who never visit
+        # this page in the current session.
 
     def _build_silence_threshold_section(self, lay_mic, conf):
         """Silence threshold slider + calibration playground.
