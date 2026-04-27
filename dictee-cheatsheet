@@ -487,15 +487,36 @@ def _detect_lang():
     return "en"
 
 
+def _humanize_suffix(regex_form):
+    """Turn a regex-form suffix (e.g. 'finale?s?') into a readable canonical
+    word for display in the cheatsheet (e.g. 'finale').
+
+    Strategy: drop optional-marker '?' chars together with the single ASCII
+    letter that precedes them. So 'finale?s?' → 'final', 'final?' → 'fina'.
+    For better UX we keep the bare-letter form before the last '?' (the most
+    common Latin-language pattern is `<root>e?s?` to match singular/plural):
+    after stripping the trailing '?' tokens, restore the canonical 'e' if
+    the original had 'e?' so users see 'finale' not 'final'."""
+    import re
+    # Special-case the common 'e?s?' Latin pattern → keep the 'e'
+    if regex_form.endswith("e?s?"):
+        return regex_form[:-len("e?s?")] + "e"
+    if regex_form.endswith("s?"):
+        return regex_form[:-len("s?")]
+    # Fallback: strip every '<letter>?' token
+    return re.sub(r"[A-Za-zÀ-ÿ]\?", "", regex_form)
+
+
 def _read_suffix(lang):
     """Read DICTEE_COMMAND_SUFFIX_<LANG> from dictee.conf, fallback to default.
-    Value is kept verbatim (may be a regex like 'finale?s?')."""
+    The on-disk value may be a regex (e.g. 'finale?s?'); humanize it for
+    display so the user sees 'finale' rather than the raw regex."""
     cfg = _read_kv_file(DICTEE_CONF)
     key = f"DICTEE_COMMAND_SUFFIX_{lang.upper()}"
     val = cfg.get(key, "").strip()
-    if val:
-        return val
-    return _DEFAULT_SUFFIX.get(lang, "")
+    if not val:
+        val = _DEFAULT_SUFFIX.get(lang, "")
+    return _humanize_suffix(val)
 
 
 def _read_continuation_word(lang):
