@@ -1571,7 +1571,10 @@ class TranscribeWindow(QDialog):
         self._btn_edit_mode = QPushButton("✏️")  # pencil emoji
         self._btn_edit_mode.setCheckable(True)
         self._btn_edit_mode.setChecked(True)  # click-to-seek on by default
-        self._btn_edit_mode.setFixedWidth(32)
+        self._btn_edit_mode.setFixedWidth(26)
+        # Tighten padding/margin so the button hugs the first tab tightly
+        self._btn_edit_mode.setStyleSheet(
+            "QPushButton { padding: 0 2px; margin: 0; }")
         self._btn_edit_mode.setToolTip(_(
             "Click-to-seek: when enabled, clicking in the text seeks the "
             "audio to the segment. Toggle off to edit the text without "
