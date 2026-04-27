@@ -1850,11 +1850,11 @@ class TranscribeWindow(QDialog):
             return
         minutes = int(dur_s // 60)
         self._lbl_long_audio_warning.setText(
-            _("⚠ Long file detected ({min} min). Diarization + transcription "
-              "may fail on a GPU with less than 10 GB of VRAM (out of memory). "
-              "Consider splitting your file and processing it in several passes, "
-              "or disable diarization. Automatic splitting will be available "
-              "in v1.4.").format(min=minutes))
+            _("ℹ Long file detected ({min} min). The chunked pipeline will be "
+              "used automatically: ffmpeg pre-cut into 2-min chunks with 15-s "
+              "overlap, global diarization on the full file, then chunked "
+              "transcription. This avoids out-of-memory errors on GPUs with "
+              "less than 10 GB of VRAM.").format(min=minutes))
         self._lbl_long_audio_warning.setVisible(True)
 
     def _on_transcribe(self):
