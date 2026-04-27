@@ -2573,6 +2573,15 @@ class TranscribeWindow(QDialog):
                         break
 
         self._apply_format()
+        # Make sure the player is on this tab's audio file. The user may
+        # have browsed to a different file while the transcription was
+        # running, so QMediaPlayer.source could point elsewhere — without
+        # this check the timeline would inherit the unrelated file's
+        # duration after the transcription lands.
+        tab_audio = getattr(self._text_edit, '_audio_path', None)
+        if tab_audio and os.path.isfile(tab_audio):
+            if self._player.source().toLocalFile() != tab_audio:
+                self._load_audio(tab_audio)
         self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
