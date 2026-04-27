@@ -2142,6 +2142,14 @@ class TranscribeWindow(QDialog):
             if hasattr(self, '_grp_rename'):
                 self._grp_rename.setVisible(False)
             return
+        # Reload the audio file associated with this tab so the
+        # timeline length matches the current tab (different tabs may
+        # have different durations).
+        audio_path = getattr(widget, '_audio_path', None)
+        if audio_path and os.path.isfile(audio_path):
+            current_src = self._player.source().toLocalFile()
+            if current_src != audio_path:
+                self._load_audio(audio_path)
         segs = getattr(widget, '_diarize_segments', [])
         # Build markers only from this tab's segments
         markers = []
@@ -2250,6 +2258,9 @@ class TranscribeWindow(QDialog):
             _("Transcription results will appear here..."))
         self._text_edit.viewport().installEventFilter(self)
         self._install_modified_overlay(self._text_edit)
+        # Remember which audio file this tab transcribed, so switching
+        # tabs reloads the right file (and hence the right duration).
+        self._text_edit._audio_path = audio_path
         self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
         self._segments = []
@@ -2836,6 +2847,9 @@ class TranscribeWindow(QDialog):
         editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
         editor.viewport().installEventFilter(self)
         self._install_modified_overlay(editor)
+        # Inherit audio path from the source tab so switching to this
+        # translation reloads the right audio file in the player.
+        editor._audio_path = getattr(self._text_edit, '_audio_path', None)
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
