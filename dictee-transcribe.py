@@ -261,14 +261,14 @@ class _ClickSlider(QSlider):
             bar_color = QColor(color)
             bar_color.setAlpha(60)
             p.fillRect(x1, 0, max(x2 - x1, 2), h, bar_color)
-        # Draw triangle markers at segment starts
+        # Draw a thin vertical tick at each segment start. Triangles
+        # used to clutter long-file timelines (one triangle per
+        # segment), single-pixel ticks stay readable even with
+        # hundreds of segments.
         for start_ms, _end_ms, color in self._markers:
             x = int((start_ms - self.minimum()) / rng * self.width())
-            tri = QPolygonF([
-                QPointF(x - 4, 0), QPointF(x + 4, 0), QPointF(x, 7)])
             p.setPen(QPen(color, 1))
-            p.setBrush(color)
-            p.drawPolygon(tri)
+            p.drawLine(x, 0, x, h - 1)
         p.end()
 
     def mousePressEvent(self, event):
