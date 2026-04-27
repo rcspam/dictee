@@ -1956,14 +1956,19 @@ class TranscribeWindow(QDialog):
             self._player.play()
 
     def _on_edit_mode_toggled(self, checked):
-        """Sync read-only state of every QTextEdit in the tab widget with
-        the click-to-seek toggle. checked=True (✏️ on) makes editors
-        read-only so accidental keystrokes don't mangle the transcript;
-        checked=False unlocks them for free editing."""
+        """Sync read-only state of every QTextEdit with the click-to-seek
+        toggle. checked=True (✏️ on) makes editors read-only and also
+        re-computes the segment<->position mapping in case the user
+        added/removed characters while the toggle was off (otherwise the
+        highlight would land on stale offsets)."""
         for i in range(self._tabs.count()):
             w = self._tabs.widget(i)
             if isinstance(w, QTextEdit):
                 w.setReadOnly(checked)
+                if checked:
+                    segs = getattr(w, '_diarize_segments', None) or []
+                    if segs:
+                        self._compute_segment_positions(w, segs)
 
     def _move_text_cursor_to_segment(self, editor, seg):
         """Position the cursor at the start of the segment's rendered text
