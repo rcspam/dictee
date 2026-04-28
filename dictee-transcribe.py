@@ -2637,7 +2637,7 @@ class TranscribeWindow(QDialog):
 
         # Post-process each segment's text through dictee-postprocess
         for seg in self._segments:
-            seg["text"] = _postprocess(seg["text"])
+            seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
         # Rebuild raw_output with post-processed text
         raw_output = "\n".join(
             f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
@@ -2786,7 +2786,7 @@ class TranscribeWindow(QDialog):
             self._segments = _parse_diarize_output(raw_output)
             # Post-process each segment's text
             for seg in self._segments:
-                seg["text"] = _postprocess(seg["text"])
+                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
             raw_output = "\n".join(
                 f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
                 for seg in self._segments) if self._segments else raw_output
