@@ -969,11 +969,17 @@ def _seconds_to_srt_time(seconds):
 
 
 def _format_elapsed(s):
-    """Format an elapsed-seconds float as 'MM:SS' when >= 60 s, else
-    '12.3s'. Compact clock style — easier to scan than '4 mn 56 s'."""
+    """Format an elapsed-seconds float as 'HH:MM:SS' when >= 1 h,
+    'MM:SS' when >= 1 min, else '12.3s'. Compact clock style — easier
+    to scan than '1 h 4 mn 56 s'."""
     if s < 60:
         return f"{s:.1f}s"
-    return f"{int(s // 60):02d}:{int(s % 60):02d}"
+    total = int(s)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def _format_text(segments, name_map=None):
