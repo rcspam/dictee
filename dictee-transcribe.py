@@ -691,6 +691,14 @@ class _ChunkedPipelineWorker(QThread):
         if self._current_proc is not None:
             try:
                 self._current_proc.terminate()
+                # Give the child 200 ms to exit on SIGTERM, then SIGKILL.
+                # Without this kill(), communicate() in run() may hang
+                # several seconds and trip closeEvent's wait timeout,
+                # leaking /tmp/dictee_chunks_<pid>/.
+                try:
+                    self._current_proc.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    self._current_proc.kill()
             except Exception:
                 pass
 
@@ -1700,6 +1708,14 @@ class TranscribeWindow(QDialog):
             _dbg("closeEvent: cancelling chunked worker")
             self._chunked_worker.request_cancel()
             self._chunked_worker.wait(5000)
+            # Safety net: if the worker timed out before the finally:
+            # block in run() could fire, the tmp dir is still around.
+            # /tmp/dictee_chunks_<pid>_<ts>/ can hold hundreds of MB
+            # of WAV chunks for a long file — clean it up by hand.
+            try:
+                self._chunked_worker._cleanup_tmp()
+            except Exception:
+                pass
         # Restore backend if we were in diarization mode
         conf = _read_conf()
         if conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
@@ -1735,7 +1751,33 @@ class TranscribeWindow(QDialog):
         return widget if isinstance(widget, QTextEdit) else self._text_edit
 
     def _on_tab_close(self, index):
-        """Close a tab (all tabs are closable)."""
+        """Close a tab. Refuse if a worker is still writing into the tab
+        we're about to remove — Qt would delete the QTextEdit's C++
+        object while _finish_transcription is about to set its content,
+        which crashes or corrupts state."""
+        widget = self._tabs.widget(index)
+        if widget is self._text_edit:
+            chunked_running = (
+                hasattr(self, '_chunked_worker') and self._chunked_worker
+                and self._chunked_worker.isRunning())
+            diarize_running = (
+                hasattr(self, '_diarize_worker') and self._diarize_worker
+                and self._diarize_worker.isRunning())
+            qprocess_running = (
+                self._process is not None
+                and self._process.state() != QProcess.ProcessState.NotRunning)
+            translate_running = (
+                self._translate_thread is not None
+                and self._translate_thread.isRunning())
+            if (chunked_running or diarize_running or qprocess_running
+                    or translate_running):
+                self._lbl_status.setText(_(
+                    "Cannot close this tab while a transcription/translation "
+                    "is running. Cancel it first."))
+                self._lbl_status.setVisible(True)
+                QTimer.singleShot(
+                    3000, lambda: self._lbl_status.setVisible(False))
+                return
         self._tabs.removeTab(index)
 
     def _connect_signals(self):
@@ -2156,23 +2198,30 @@ class TranscribeWindow(QDialog):
         self._sld_position.set_markers(markers)
 
     def _on_prev_segment(self):
-        """Jump to previous speaker segment start."""
-        if not self._segments:
+        """Jump to previous speaker segment start. Reads segments from
+        the active tab so navigation works even when the window-level
+        self._segments has been zeroed by a tab switch."""
+        segs = (getattr(self._active_editor(), '_diarize_segments', None)
+                or self._segments)
+        if not segs:
             return
         pos_s = self._player.position() / 1000.0 - 0.1
-        for seg in reversed(self._segments):
+        for seg in reversed(segs):
             if seg["start"] < pos_s:
                 self._player.setPosition(int(seg["start"] * 1000))
                 return
         # Wrap to last
-        self._player.setPosition(int(self._segments[-1]["start"] * 1000))
+        self._player.setPosition(int(segs[-1]["start"] * 1000))
 
     def _on_next_segment(self):
-        """Jump to next speaker segment start."""
-        if not self._segments:
+        """Jump to next speaker segment start. Reads segments from the
+        active tab — see _on_prev_segment."""
+        segs = (getattr(self._active_editor(), '_diarize_segments', None)
+                or self._segments)
+        if not segs:
             return
         pos_s = self._player.position() / 1000.0 + 0.1
-        for seg in self._segments:
+        for seg in segs:
             if seg["start"] > pos_s:
                 self._player.setPosition(int(seg["start"] * 1000))
                 return
@@ -2991,7 +3040,20 @@ class TranscribeWindow(QDialog):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
         Searches each segment's text in order, advancing the cursor so that
         repeated phrases match the right occurrence. Stored on the editor
-        for tab safety (one mapping per tab)."""
+        for tab safety (one mapping per tab).
+
+        Notes:
+        - We do NOT fall back to a global text.find when the per-cursor
+          search misses. A global hit would land on an earlier segment
+          and shift every subsequent position by a chunk, breaking
+          highlight + click-to-seek silently. Skipping a missing
+          segment is far less surprising than misaligning all the
+          following ones.
+        - The `_set_colored_diarize_to` formatter inserts &nbsp;-based
+          indentation; toPlainText() preserves those as U+00A0 chars.
+          Searching by seg["text"] (no leading whitespace) still hits
+          the correct position because find() walks past the prefix
+          characters automatically — no offset shift needed."""
         text = editor.toPlainText()
         positions = []
         cursor_pos = 0
@@ -3001,11 +3063,8 @@ class TranscribeWindow(QDialog):
                 continue
             idx = text.find(snippet, cursor_pos)
             if idx < 0:
-                # Defensive: the formatter may have reordered or escaped;
-                # try a global search from the start.
-                idx = text.find(snippet)
-                if idx < 0:
-                    continue
+                # Skip silently — see docstring above.
+                continue
             end_idx = idx + len(snippet)
             positions.append({"start": idx, "end": end_idx, "seg": seg})
             cursor_pos = end_idx

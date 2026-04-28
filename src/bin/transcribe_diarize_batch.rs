@@ -12,7 +12,15 @@ use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
 
 #[cfg(feature = "sortformer")]
-const TEMP_CONVERTED: &str = "/tmp/transcribe_diarize_batch_converted.wav";
+fn temp_converted_path() -> String {
+    // PID-scoped path so two concurrent transcribe-diarize-batch
+    // invocations (e.g. two open dictee-transcribe windows) cannot
+    // race-write the same /tmp file.
+    format!(
+        "/tmp/transcribe_diarize_batch_converted_{}.wav",
+        std::process::id()
+    )
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "sortformer"))]
@@ -369,8 +377,9 @@ fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Er
     if is_wav_16k_mono(audio_path) {
         return Ok((audio_path.to_string(), false));
     }
+    let temp_path = temp_converted_path();
     let status = Command::new("ffmpeg")
-        .args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", TEMP_CONVERTED])
+        .args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", &temp_path])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -379,7 +388,7 @@ fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Er
     if !status.success() {
         return Err(format!("ffmpeg failed to convert '{}'", audio_path).into());
     }
-    Ok((TEMP_CONVERTED.to_string(), true))
+    Ok((temp_path, true))
 }
 
 #[cfg(feature = "sortformer")]
