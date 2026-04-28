@@ -969,13 +969,11 @@ def _seconds_to_srt_time(seconds):
 
 
 def _format_elapsed(s):
-    """Format an elapsed-seconds float as 'X mn YY s' when >= 60 s, else
-    '12.3s'. Used by the status line so 'transcribed in 296s' becomes
-    'transcribed in 4 mn 56 s', which is what the user actually thinks
-    in for files longer than a minute."""
+    """Format an elapsed-seconds float as 'MM:SS' when >= 60 s, else
+    '12.3s'. Compact clock style — easier to scan than '4 mn 56 s'."""
     if s < 60:
         return f"{s:.1f}s"
-    return f"{int(s // 60)} mn {int(s % 60):02d} s"
+    return f"{int(s // 60):02d}:{int(s % 60):02d}"
 
 
 def _format_text(segments, name_map=None):
