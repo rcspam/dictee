@@ -1240,7 +1240,7 @@ class TranscribeWindow(QDialog):
         self.resize(980, 800)
         # Smaller tooltip font (default Qt tooltip font is too big for the
         # tight player-toolbar buttons).
-        self.setStyleSheet("QToolTip { font-size: 9pt; padding: 3px 6px; }")
+        self.setStyleSheet("QToolTip { font-size: 8pt; padding: 2px 5px; }")
 
         self._process = None
         self._stdout_buf = QByteArray()
@@ -1363,10 +1363,14 @@ class TranscribeWindow(QDialog):
 
         # Uniform large font (24px) on every player-toolbar button — the
         # default Qt font is too small for the 36-px wide pictogram buttons.
-        for _btn in (self._btn_seek_start, self._btn_play, self._btn_stop,
+        # Play is downsized to 20px because ▶ (U+25B6 Black Right-Pointing
+        # Triangle) renders visually much larger than the surrounding
+        # Media-Control glyphs at the same font size.
+        for _btn in (self._btn_seek_start, self._btn_stop,
                      self._btn_prev_seg, self._btn_next_seg,
                      self._btn_seek_end):
             _btn.setStyleSheet("font-size: 24px;")
+        self._btn_play.setStyleSheet("font-size: 20px;")
 
         self._sld_position = _ClickSlider(Qt.Orientation.Horizontal)
         self._sld_position.setRange(0, 0)
