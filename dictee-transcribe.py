@@ -1367,11 +1367,17 @@ class TranscribeWindow(QDialog):
                 max(0, self._player.duration() - 100)))
         lay_player.addWidget(self._btn_seek_end)
 
-        # Uniform large font (24px) on every player-toolbar button — the
-        # default Qt font is too small for the 36-px wide pictogram buttons.
-        # Play is downsized to 20px because ▶ (U+25B6 Black Right-Pointing
-        # Triangle) renders visually much larger than the surrounding
-        # Media-Control glyphs at the same font size.
+        # Uniform 36×36 size + matching font for every player-toolbar
+        # button. Play is downsized to 18px because ▶ (U+25B6 Black
+        # Right-Pointing Triangle) renders visually much larger than
+        # the surrounding Media-Control glyphs at the same font size,
+        # and we add setFixedHeight(36) so the smaller font does not
+        # also shrink the button bounding box (which made play look
+        # shorter than the others).
+        for _btn in (self._btn_seek_start, self._btn_play, self._btn_stop,
+                     self._btn_prev_seg, self._btn_next_seg,
+                     self._btn_seek_end):
+            _btn.setFixedHeight(36)
         for _btn in (self._btn_seek_start, self._btn_stop,
                      self._btn_prev_seg, self._btn_next_seg,
                      self._btn_seek_end):
