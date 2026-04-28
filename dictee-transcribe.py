@@ -1316,6 +1316,14 @@ class TranscribeWindow(QDialog):
 
         _big = "font-size: 24px;"
 
+        self._btn_seek_start = QPushButton("⏪")
+        self._btn_seek_start.setFixedWidth(36)
+        self._btn_seek_start.setStyleSheet(_big)
+        self._btn_seek_start.setToolTip(_("Go to the start"))
+        self._btn_seek_start.clicked.connect(
+            lambda: self._player.setPosition(0))
+        lay_player.addWidget(self._btn_seek_start)
+
         self._btn_play = QPushButton("▶")
         self._btn_play.setFixedWidth(36)
         self._btn_play.setToolTip(_("Play / Pause"))
@@ -1342,6 +1350,17 @@ class TranscribeWindow(QDialog):
         self._btn_next_seg.setToolTip(_("Next speaker segment"))
         self._btn_next_seg.clicked.connect(self._on_next_segment)
         lay_player.addWidget(self._btn_next_seg)
+
+        self._btn_seek_end = QPushButton("⏩")
+        self._btn_seek_end.setFixedWidth(36)
+        self._btn_seek_end.setStyleSheet(_big)
+        self._btn_seek_end.setToolTip(_("Go to the end"))
+        # Land 100 ms before the very end so QMediaPlayer doesn't auto-stop
+        # before the user can see the position update.
+        self._btn_seek_end.clicked.connect(
+            lambda: self._player.setPosition(
+                max(0, self._player.duration() - 100)))
+        lay_player.addWidget(self._btn_seek_end)
 
         self._sld_position = _ClickSlider(Qt.Orientation.Horizontal)
         self._sld_position.setRange(0, 0)
