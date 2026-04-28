@@ -1316,7 +1316,7 @@ class TranscribeWindow(QDialog):
 
         _big = "font-size: 24px;"
 
-        self._btn_seek_start = QPushButton("⏪")
+        self._btn_seek_start = QPushButton("|<")
         self._btn_seek_start.setFixedWidth(36)
         self._btn_seek_start.setStyleSheet(_big)
         self._btn_seek_start.setToolTip(_("Go to the start"))
@@ -1351,7 +1351,7 @@ class TranscribeWindow(QDialog):
         self._btn_next_seg.clicked.connect(self._on_next_segment)
         lay_player.addWidget(self._btn_next_seg)
 
-        self._btn_seek_end = QPushButton("⏩")
+        self._btn_seek_end = QPushButton(">|")
         self._btn_seek_end.setFixedWidth(36)
         self._btn_seek_end.setStyleSheet(_big)
         self._btn_seek_end.setToolTip(_("Go to the end"))
