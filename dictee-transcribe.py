@@ -1246,7 +1246,7 @@ class TranscribeWindow(QDialog):
         # every tooltip text in a rich-text <span> with an explicit
         # font-size, which QToolTip honours per-widget. This helper is
         # used by the player toolbar setToolTip() calls below.
-        self._tip = lambda txt: f"<span style='font-size:8pt'>{txt}</span>"
+        self._tip = lambda txt: f"<span style='font-size:9pt'>{txt}</span>"
 
         self._process = None
         self._stdout_buf = QByteArray()
