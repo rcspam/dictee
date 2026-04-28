@@ -933,6 +933,17 @@ class _ChunkedPipelineWorker(QThread):
                 pass
 
 
+# Strip ASCII control characters (except \t \n \r) from segment text.
+# Parakeet-TDT occasionally emits SentencePiece special tokens (e.g.
+#  ETX) that leak through the decoder and pollute the start of
+# some segments — visible in exports as "Good morning".
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _clean_segment_text(text):
+    return _CONTROL_CHAR_RE.sub("", text).strip()
+
+
 def _parse_diarize_output(text):
     """Parse transcribe-diarize output into segments."""
     segments = []
@@ -943,7 +954,7 @@ def _parse_diarize_output(text):
                 "start": float(m.group(1)),
                 "end": float(m.group(2)),
                 "speaker": m.group(3),
-                "text": m.group(4).strip(),
+                "text": _clean_segment_text(m.group(4)),
             })
     return segments
 
