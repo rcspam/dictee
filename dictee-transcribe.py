@@ -31,8 +31,9 @@ try:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
     )
+    from PyQt6.QtGui import QFont as _QFontTip
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
@@ -47,8 +48,9 @@ except ImportError:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
     )
+    from PySide6.QtGui import QFont as _QFontTip
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 
@@ -1238,9 +1240,11 @@ class TranscribeWindow(QDialog):
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
-        # Smaller tooltip font (default Qt tooltip font is too big for the
-        # tight player-toolbar buttons).
-        self.setStyleSheet("QToolTip { font-size: 8pt; padding: 2px 5px; }")
+        # Smaller tooltip font. The dialog-level QToolTip stylesheet was
+        # ignored on this system because the application stylesheet has
+        # higher precedence; use the static QToolTip.setFont() which
+        # always wins.
+        QToolTip.setFont(_QFontTip("", 8))
 
         self._process = None
         self._stdout_buf = QByteArray()
@@ -1370,7 +1374,7 @@ class TranscribeWindow(QDialog):
                      self._btn_prev_seg, self._btn_next_seg,
                      self._btn_seek_end):
             _btn.setStyleSheet("font-size: 24px;")
-        self._btn_play.setStyleSheet("font-size: 20px;")
+        self._btn_play.setStyleSheet("font-size: 18px;")
 
         self._sld_position = _ClickSlider(Qt.Orientation.Horizontal)
         self._sld_position.setRange(0, 0)
