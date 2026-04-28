@@ -1361,6 +1361,13 @@ class TranscribeWindow(QDialog):
                 max(0, self._player.duration() - 100)))
         lay_player.addWidget(self._btn_seek_end)
 
+        # Uniform large font (24px) on every player-toolbar button — the
+        # default Qt font is too small for the 36-px wide pictogram buttons.
+        for _btn in (self._btn_seek_start, self._btn_play, self._btn_stop,
+                     self._btn_prev_seg, self._btn_next_seg,
+                     self._btn_seek_end):
+            _btn.setStyleSheet("font-size: 24px;")
+
         self._sld_position = _ClickSlider(Qt.Orientation.Horizontal)
         self._sld_position.setRange(0, 0)
         self._sld_position.sliderMoved.connect(self._on_seek)
