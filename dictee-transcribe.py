@@ -1240,17 +1240,13 @@ class TranscribeWindow(QDialog):
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
-        # Smaller tooltip font. The dialog-level QToolTip stylesheet was
-        # ignored, and QToolTip.setFont() also did not stick on this Qt
-        # build. Apply QToolTip styling at the QApplication level (which
-        # is where Qt actually looks up the tooltip stylesheet).
-        _app = QApplication.instance()
-        if _app is not None:
-            _existing = _app.styleSheet() or ""
-            if "QToolTip" not in _existing:
-                _app.setStyleSheet(
-                    (_existing + "\n" if _existing else "")
-                    + "QToolTip { font-size: 8pt; padding: 2px 5px; }")
+        # All earlier attempts to shrink tooltips (dialog stylesheet,
+        # QToolTip.setFont(), QApplication stylesheet) were ignored by
+        # Qt on this build. The only reliable lever left is to wrap
+        # every tooltip text in a rich-text <span> with an explicit
+        # font-size, which QToolTip honours per-widget. This helper is
+        # used by the player toolbar setToolTip() calls below.
+        self._tip = lambda txt: f"<span style='font-size:8pt'>{txt}</span>"
 
         self._process = None
         self._stdout_buf = QByteArray()
@@ -1331,39 +1327,39 @@ class TranscribeWindow(QDialog):
         # monochrome text glyph instead of the colourful emoji glyph.
         self._btn_seek_start = QPushButton("⏪︎")
         self._btn_seek_start.setFixedWidth(36)
-        self._btn_seek_start.setToolTip(_("Go to the start"))
+        self._btn_seek_start.setToolTip(self._tip(_("Go to the start")))
         self._btn_seek_start.clicked.connect(
             lambda: self._player.setPosition(0))
         lay_player.addWidget(self._btn_seek_start)
 
         self._btn_play = QPushButton("▶")
         self._btn_play.setFixedWidth(36)
-        self._btn_play.setToolTip(_("Play / Pause"))
+        self._btn_play.setToolTip(self._tip(_("Play / Pause")))
         self._btn_play.clicked.connect(self._on_play_pause)
         lay_player.addWidget(self._btn_play)
 
         self._btn_stop = QPushButton("⏹")
         self._btn_stop.setFixedWidth(36)
-        self._btn_stop.setToolTip(_("Stop"))
+        self._btn_stop.setToolTip(self._tip(_("Stop")))
         self._btn_stop.clicked.connect(self._on_player_stop)
         lay_player.addWidget(self._btn_stop)
 
         self._btn_prev_seg = QPushButton("⏮")
         self._btn_prev_seg.setFixedWidth(36)
-        self._btn_prev_seg.setToolTip(_("Previous speaker segment"))
+        self._btn_prev_seg.setToolTip(self._tip(_("Previous speaker segment")))
         self._btn_prev_seg.clicked.connect(self._on_prev_segment)
         lay_player.addWidget(self._btn_prev_seg)
 
         self._btn_next_seg = QPushButton("⏭")
         self._btn_next_seg.setFixedWidth(36)
-        self._btn_next_seg.setToolTip(_("Next speaker segment"))
+        self._btn_next_seg.setToolTip(self._tip(_("Next speaker segment")))
         self._btn_next_seg.clicked.connect(self._on_next_segment)
         lay_player.addWidget(self._btn_next_seg)
 
         # U+23E9 Fast Forward + U+FE0E VS-15 to force the monochrome glyph.
         self._btn_seek_end = QPushButton("⏩︎")
         self._btn_seek_end.setFixedWidth(36)
-        self._btn_seek_end.setToolTip(_("Go to the end"))
+        self._btn_seek_end.setToolTip(self._tip(_("Go to the end")))
         # Land 100 ms before the very end so QMediaPlayer doesn't auto-stop
         # before the user can see the position update.
         self._btn_seek_end.clicked.connect(
