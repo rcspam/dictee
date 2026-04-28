@@ -667,7 +667,9 @@ class _ChunkedPipelineWorker(QThread):
     finished = Signal(str)              # final formatted output
     error = Signal(str)
 
-    OVERLAP_SECONDS = 15  # constant; chunk size is computed from VRAM
+    CHUNK_SECONDS = 120
+    OVERLAP_SECONDS = 15
+    STEP_SECONDS = 105    # CHUNK - OVERLAP
 
     def __init__(self, audio_path, sensitivity, parent=None):
         super().__init__(parent)
@@ -683,65 +685,6 @@ class _ChunkedPipelineWorker(QThread):
         ort_lib = "/usr/lib/dictee/libonnxruntime.so"
         if os.path.isfile(ort_lib):
             self._subprocess_env["ORT_DYLIB_PATH"] = ort_lib
-        # Chunk size adapts to the GPU available at launch time, so
-        # dictee runs sensibly across 4 GB / 8 GB / 12 GB / 24 GB cards
-        # and on CPU-only machines without recompiling.
-        self.CHUNK_SECONDS = self._estimate_chunk_seconds()
-        self.STEP_SECONDS = self.CHUNK_SECONDS - self.OVERLAP_SECONDS
-        _dbg(f"_ChunkedPipelineWorker: chunk={self.CHUNK_SECONDS}s "
-             f"overlap={self.OVERLAP_SECONDS}s")
-
-    @staticmethod
-    def _estimate_chunk_seconds():
-        """Estimate optimal chunk size based on the GPU VRAM that will
-        be available once `transcribe-diarize-batch` stops the dictee
-        ASR daemon. The calculation:
-
-          free_now (nvidia-smi memory.free)
-          + dictee daemon VRAM (will be freed by the binary)
-          - 3500 MB (Parakeet model)
-          - 500 MB (safety / system overhead)
-          = available for the mel-spectrogram
-
-        Mel uses ~185 MB per minute of audio. Result is clamped to
-        [120, 600] s (2 to 10 min — 10 min is the diminishing-returns
-        ceiling for accuracy). Falls back to 600 s on CPU-only systems
-        (RAM is plentiful) and 120 s when nvidia-smi misbehaves.
-
-        Note: only Parakeet (Phase 3) is sized here. Sortformer in
-        Phase 2 has its own GPU/CPU fallback inside `diarize-only` and
-        is independent of this calculation."""
-        try:
-            free_mb = int(subprocess.check_output(
-                ["nvidia-smi", "--query-gpu=memory.free",
-                 "--format=csv,noheader,nounits"],
-                stderr=subprocess.DEVNULL, timeout=3
-            ).decode().strip().split("\n")[0])
-        except Exception:
-            return 600  # CPU / no nvidia-smi -> RAM is plentiful, long chunks
-        daemon_mb = 0
-        try:
-            apps = subprocess.check_output(
-                ["nvidia-smi", "--query-compute-apps=name,used_memory",
-                 "--format=csv,noheader,nounits"],
-                stderr=subprocess.DEVNULL, timeout=3
-            ).decode().strip()
-            for line in apps.splitlines():
-                parts = [p.strip() for p in line.split(",")]
-                if len(parts) >= 2 and "transcribe-daemon" in parts[0]:
-                    try:
-                        daemon_mb += int(parts[1])
-                    except ValueError:
-                        pass
-        except Exception:
-            pass
-        free_post_stop = free_mb + daemon_mb
-        available_for_mel = max(0, free_post_stop - 3500 - 500)
-        if available_for_mel < 185:
-            return 120  # not enough VRAM for even 1 min of mel; defensive
-        max_min = available_for_mel / 185
-        chunk_min = min(10, max(2, int(max_min)))
-        return chunk_min * 60
 
     def request_cancel(self):
         self._cancel = True
