@@ -1316,7 +1316,9 @@ class TranscribeWindow(QDialog):
 
         _big = "font-size: 24px;"
 
-        self._btn_seek_start = QPushButton("|<")
+        # U+23EA Fast Reverse + U+FE0E Variation Selector-15 forces the
+        # monochrome text glyph instead of the colourful emoji glyph.
+        self._btn_seek_start = QPushButton("⏪︎")
         self._btn_seek_start.setFixedWidth(36)
         self._btn_seek_start.setStyleSheet(_big)
         self._btn_seek_start.setToolTip(_("Go to the start"))
@@ -1351,7 +1353,8 @@ class TranscribeWindow(QDialog):
         self._btn_next_seg.clicked.connect(self._on_next_segment)
         lay_player.addWidget(self._btn_next_seg)
 
-        self._btn_seek_end = QPushButton(">|")
+        # U+23E9 Fast Forward + U+FE0E VS-15 to force the monochrome glyph.
+        self._btn_seek_end = QPushButton("⏩︎")
         self._btn_seek_end.setFixedWidth(36)
         self._btn_seek_end.setStyleSheet(_big)
         self._btn_seek_end.setToolTip(_("Go to the end"))
