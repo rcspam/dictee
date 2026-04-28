@@ -1241,10 +1241,16 @@ class TranscribeWindow(QDialog):
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
         # Smaller tooltip font. The dialog-level QToolTip stylesheet was
-        # ignored on this system because the application stylesheet has
-        # higher precedence; use the static QToolTip.setFont() which
-        # always wins.
-        QToolTip.setFont(_QFontTip("", 8))
+        # ignored, and QToolTip.setFont() also did not stick on this Qt
+        # build. Apply QToolTip styling at the QApplication level (which
+        # is where Qt actually looks up the tooltip stylesheet).
+        _app = QApplication.instance()
+        if _app is not None:
+            _existing = _app.styleSheet() or ""
+            if "QToolTip" not in _existing:
+                _app.setStyleSheet(
+                    (_existing + "\n" if _existing else "")
+                    + "QToolTip { font-size: 8pt; padding: 2px 5px; }")
 
         self._process = None
         self._stdout_buf = QByteArray()
