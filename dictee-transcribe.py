@@ -1238,6 +1238,9 @@ class TranscribeWindow(QDialog):
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
+        # Smaller tooltip font (default Qt tooltip font is too big for the
+        # tight player-toolbar buttons).
+        self.setStyleSheet("QToolTip { font-size: 9pt; padding: 3px 6px; }")
 
         self._process = None
         self._stdout_buf = QByteArray()
@@ -1314,13 +1317,10 @@ class TranscribeWindow(QDialog):
         # -- Audio player --
         lay_player = QHBoxLayout()
 
-        _big = "font-size: 24px;"
-
         # U+23EA Fast Reverse + U+FE0E Variation Selector-15 forces the
         # monochrome text glyph instead of the colourful emoji glyph.
         self._btn_seek_start = QPushButton("⏪︎")
         self._btn_seek_start.setFixedWidth(36)
-        self._btn_seek_start.setStyleSheet(_big)
         self._btn_seek_start.setToolTip(_("Go to the start"))
         self._btn_seek_start.clicked.connect(
             lambda: self._player.setPosition(0))
@@ -1334,21 +1334,18 @@ class TranscribeWindow(QDialog):
 
         self._btn_stop = QPushButton("⏹")
         self._btn_stop.setFixedWidth(36)
-        self._btn_stop.setStyleSheet(_big)
         self._btn_stop.setToolTip(_("Stop"))
         self._btn_stop.clicked.connect(self._on_player_stop)
         lay_player.addWidget(self._btn_stop)
 
         self._btn_prev_seg = QPushButton("⏮")
         self._btn_prev_seg.setFixedWidth(36)
-        self._btn_prev_seg.setStyleSheet(_big)
         self._btn_prev_seg.setToolTip(_("Previous speaker segment"))
         self._btn_prev_seg.clicked.connect(self._on_prev_segment)
         lay_player.addWidget(self._btn_prev_seg)
 
         self._btn_next_seg = QPushButton("⏭")
         self._btn_next_seg.setFixedWidth(36)
-        self._btn_next_seg.setStyleSheet(_big)
         self._btn_next_seg.setToolTip(_("Next speaker segment"))
         self._btn_next_seg.clicked.connect(self._on_next_segment)
         lay_player.addWidget(self._btn_next_seg)
@@ -1356,7 +1353,6 @@ class TranscribeWindow(QDialog):
         # U+23E9 Fast Forward + U+FE0E VS-15 to force the monochrome glyph.
         self._btn_seek_end = QPushButton("⏩︎")
         self._btn_seek_end.setFixedWidth(36)
-        self._btn_seek_end.setStyleSheet(_big)
         self._btn_seek_end.setToolTip(_("Go to the end"))
         # Land 100 ms before the very end so QMediaPlayer doesn't auto-stop
         # before the user can see the position update.
