@@ -968,6 +968,16 @@ def _seconds_to_srt_time(seconds):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+def _format_elapsed(s):
+    """Format an elapsed-seconds float as 'X mn YY s' when >= 60 s, else
+    '12.3s'. Used by the status line so 'transcribed in 296s' becomes
+    'transcribed in 4 mn 56 s', which is what the user actually thinks
+    in for files longer than a minute."""
+    if s < 60:
+        return f"{s:.1f}s"
+    return f"{int(s // 60)} mn {int(s % 60):02d} s"
+
+
 def _format_text(segments, name_map=None):
     """Format diarized segments as plain text with speaker headers.
 
@@ -2853,9 +2863,11 @@ class TranscribeWindow(QDialog):
         if self._was_diarized and self._segments:
             parts.append(_("{n} speaker(s)").format(n=n_speakers))
         parts.append(_("audio {dur}").format(dur=dur_str))
-        parts.append(_("transcribed in {t:.1f}s").format(t=self._transcribe_elapsed))
+        parts.append(_("transcribed in {t}").format(
+            t=_format_elapsed(self._transcribe_elapsed)))
         if self._translate_elapsed > 0:
-            parts.append(_("translated in {t:.1f}s").format(t=self._translate_elapsed))
+            parts.append(_("translated in {t}").format(
+                t=_format_elapsed(self._translate_elapsed)))
         self._lbl_status.setText(" — ".join(parts))
 
     def _on_translate(self):
