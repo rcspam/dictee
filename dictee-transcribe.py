@@ -1246,7 +1246,10 @@ class TranscribeWindow(QDialog):
         # every tooltip text in a rich-text <span> with an explicit
         # font-size, which QToolTip honours per-widget. This helper is
         # used by the player toolbar setToolTip() calls below.
-        self._tip = lambda txt: f"<span style='font-size:9pt'>{txt}</span>"
+        # 11pt matches the rich-text tooltips used throughout dictee-setup.py
+        # (see e.g. lines 5410, 5516 of that file). Stay consistent across
+        # the project rather than picking sizes at random.
+        self._tip = lambda txt: f"<span style='font-size:11pt'>{txt}</span>"
 
         self._process = None
         self._stdout_buf = QByteArray()
