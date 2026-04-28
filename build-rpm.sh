@@ -59,7 +59,7 @@ prepare_buildroot() {
 
     # Binaires
     mkdir -p "$buildroot/usr/bin"
-    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize; do
+    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only; do
         cp "target/release/$bin" "$buildroot/usr/bin/"
     done
     cp "$PKG_DIR/usr/bin/dictee" "$buildroot/usr/bin/"
@@ -188,7 +188,9 @@ build_rpm_cuda() {
             --bin transcribe-daemon \
             --bin transcribe-client \
             --bin transcribe-diarize \
-            --bin transcribe-stream-diarize
+            --bin transcribe-stream-diarize \
+            --bin transcribe-diarize-batch \
+            --bin diarize-only
     fi
 
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"
@@ -486,7 +488,9 @@ build_rpm_cpu() {
         --bin transcribe-daemon \
         --bin transcribe-client \
         --bin transcribe-diarize \
-        --bin transcribe-stream-diarize
+        --bin transcribe-stream-diarize \
+        --bin transcribe-diarize-batch \
+        --bin diarize-only
 
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cpu-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
