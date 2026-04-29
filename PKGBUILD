@@ -81,6 +81,7 @@ package() {
     install -Dm755 dictee-ptt.py "$pkgdir/usr/bin/dictee-ptt"
     install -Dm755 dictee-switch-backend "$pkgdir/usr/bin/dictee-switch-backend"
     install -Dm755 dictee-postprocess.py "$pkgdir/usr/bin/dictee-postprocess"
+    install -Dm755 dictee-diarize-llm.py "$pkgdir/usr/bin/dictee-diarize-llm"
     install -Dm755 dictee-test-rules "$pkgdir/usr/bin/dictee-test-rules"
     install -Dm755 dictee-transcribe.py "$pkgdir/usr/bin/dictee-transcribe"
     install -Dm755 dictee-reset "$pkgdir/usr/bin/dictee-reset"

@@ -22,11 +22,12 @@ cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
 cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
 cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
 cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
+cp ./dictee-diarize-llm.py "$PKG_DIR/usr/bin/dictee-diarize-llm"
 cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
 cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
 cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
 cp ./dictee-cheatsheet "$PKG_DIR/usr/bin/dictee-cheatsheet"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-cheatsheet"
+chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-diarize-llm" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-cheatsheet"
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -67,6 +68,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/dictee-tray" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-ptt" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-postprocess" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-diarize-llm" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-switch-backend" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$buildroot/usr/bin/"
@@ -98,6 +100,7 @@ prepare_buildroot() {
         "$buildroot/usr/bin/dictee-tray" \
         "$buildroot/usr/bin/dictee-ptt" \
         "$buildroot/usr/bin/dictee-postprocess" \
+        "$buildroot/usr/bin/dictee-diarize-llm" \
         "$buildroot/usr/bin/transcribe-daemon-vosk" \
         "$buildroot/usr/bin/transcribe-daemon-whisper" \
         "$buildroot/usr/bin/dictee-transcribe" \

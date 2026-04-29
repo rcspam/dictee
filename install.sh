@@ -425,7 +425,7 @@ mode_tarball() {
     local bins=(
         transcribe transcribe-daemon transcribe-client transcribe-diarize
         transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt
-        dictee-postprocess dictee-switch-backend dictee-test-rules
+        dictee-postprocess dictee-diarize-llm dictee-switch-backend dictee-test-rules
         dictee-transcribe transcribe-daemon-vosk transcribe-daemon-whisper
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
