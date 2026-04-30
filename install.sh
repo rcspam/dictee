@@ -459,6 +459,55 @@ mode_tarball() {
         fi
     fi
 
+    # --- NVIDIA CUDA runtime libs via pip (mirrors postinst .deb) ---
+    # Only when the CUDA provider .so is actually present. Creates
+    # /opt/dictee/cuda-venv, pip installs nvidia-*-cu12 wheels, then
+    # symlinks their .so files into /usr/lib/dictee/ so ldconfig picks
+    # them up. Keeps the tarball portable on any distro without
+    # depending on the NVIDIA repo.
+    if [[ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ]] \
+            && command -v python3 >/dev/null 2>&1; then
+        local CUDA_VENV="/opt/dictee/cuda-venv"
+        info "Setting up NVIDIA CUDA libs via pip into $CUDA_VENV (≈ 1.5 GB)"
+        mkdir -p /opt/dictee
+        if [[ ! -x "$CUDA_VENV/bin/pip" ]]; then
+            if ! python3 -m venv "$CUDA_VENV" 2>/dev/null; then
+                warn "python3 -m venv failed — is python3-venv installed?"
+            else
+                "$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+            fi
+        fi
+        if [[ -x "$CUDA_VENV/bin/pip" ]]; then
+            if "$CUDA_VENV/bin/pip" install --quiet --upgrade \
+                    nvidia-cuda-runtime-cu12 \
+                    nvidia-cublas-cu12 \
+                    nvidia-cudnn-cu12 \
+                    nvidia-cufft-cu12 \
+                    nvidia-curand-cu12 \
+                    nvidia-cuda-nvrtc-cu12 2>/dev/null; then
+                local _py_ver
+                _py_ver=$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
+                if [[ -n "$_py_ver" ]]; then
+                    local _nvidia_root="$CUDA_VENV/lib/$_py_ver/site-packages/nvidia"
+                    local _count=0
+                    for _sub in "$_nvidia_root"/*/lib; do
+                        [[ -d "$_sub" ]] || continue
+                        for _so in "$_sub"/lib*.so*; do
+                            [[ -f "$_so" ]] || continue
+                            ln -sf "$_so" "/usr/lib/dictee/$(basename "$_so")"
+                            _count=$((_count + 1))
+                        done
+                    done
+                    ok "Linked $_count NVIDIA libs into /usr/lib/dictee/"
+                    ldconfig 2>/dev/null || true
+                fi
+            else
+                warn "pip install of nvidia-*-cu12 failed (offline? disk full?)"
+                warn "Re-run later: sudo $CUDA_VENV/bin/pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 && sudo ldconfig"
+            fi
+        fi
+    fi
+
     # --- udev rule for dotool ---
     info "Installing udev rules"
     install -Dm644 "$SCRIPT_DIR/etc/udev/rules.d/80-dotool.rules" /etc/udev/rules.d/80-dotool.rules

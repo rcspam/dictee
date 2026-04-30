@@ -1,23 +1,27 @@
 # Maintainer: rcspam <rcspams@gmail.com>
 #
-# CPU build of dictee for Arch. ONNX Runtime is statically linked, the
-# binary works on any machine without GPU dependencies.
+# CUDA variant of the Arch package for dictee. Builds the Rust binaries
+# with `cuda,sortformer,load-dynamic` features and bundles libonnxruntime.so
+# + the CUDA providers in /usr/lib/dictee/. The post_install hook pip-installs
+# the nvidia-*-cu12 wheels into /opt/dictee/cuda-venv (mirrors the .deb /
+# .rpm postinst behaviour) so the package stays portable on any Arch system.
 #
-# For NVIDIA CUDA acceleration, use the sibling PKGBUILD-cuda which
-# bundles libonnxruntime.so + the CUDA providers and pip-installs the
-# nvidia-*-cu12 wheels at post_install. The two packages declare each
-# other in `conflicts=()` — pacman refuses to install both.
+# This sibling PKGBUILD intentionally lives next to the CPU PKGBUILD so the
+# AUR can host both `dictee` and `dictee-cuda` from the same source tree.
+# Use one or the other — the `provides=()/conflicts=()` declarations below
+# make pacman refuse to install both at once.
 
-pkgname=dictee
+pkgname=dictee-cuda
 pkgver=1.3.0.rc3
 pkgrel=1
 _tag=1.3.0-rc3
-pkgdesc="Fast push-to-talk voice dictation for Linux (CPU build)"
-arch=('x86_64' 'aarch64')
+pkgdesc="Fast push-to-talk voice dictation for Linux (NVIDIA CUDA build)"
+arch=('x86_64')
 url="https://github.com/rcspam/dictee"
 license=('GPL-3.0-or-later')
 depends=(
     'python'
+    'python-pip'
     'pipewire'
     'dotool'
     'libnotify'
@@ -37,19 +41,28 @@ optdepends=(
     'ollama: 100% local translation'
     'docker: LibreTranslate local translation'
     'libayatana-appindicator: GNOME tray icon support'
-    'dictee-cuda: NVIDIA GPU acceleration (mutually exclusive)'
 )
-conflicts=('dictee-cuda')
+provides=('dictee')
+conflicts=('dictee' 'dictee-cpu')
 makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang')
-# Disable LTO — see PKGBUILD-cuda for the rationale (libonig.a + LTO
-# break the link with `undefined reference to onig_*` errors).
+# Disable LTO. /etc/makepkg.conf enables it globally on Arch, but linking
+# a Rust binary against the non-LTO libonig.a static archive (built by
+# the onig_sys crate) under LTO triggers `undefined reference to onig_*`
+# errors at the final link step. LTO would discard sections from the .a
+# that the linker hasn't yet observed referenced.
 options=('!lto')
-install=dictee.install
-source=("$pkgname-$_tag.tar.gz::https://github.com/rcspam/dictee/archive/v$_tag.tar.gz")
-sha256sums=('SKIP')
+install=dictee-cuda.install
+# ONNX Runtime version must match the version expected by the `ort`
+# crate used in dictee. Bumping `ort` requires bumping this URL too.
+_ort_ver=1.23.0
+source=(
+    "$pkgname-$_tag.tar.gz::https://github.com/rcspam/dictee/archive/v$_tag.tar.gz"
+    "https://github.com/microsoft/onnxruntime/releases/download/v$_ort_ver/onnxruntime-linux-x64-gpu-$_ort_ver.tgz"
+)
+sha256sums=('SKIP' 'SKIP')
 
 build() {
-    cd "$pkgname-$_tag"
+    cd "dictee-$_tag"
 
     # Sanitize the linker environment. Two known traps on Arch/distrobox:
     #
@@ -72,8 +85,12 @@ build() {
     # already, kept explicit for safety).
     export RUSTONIG_STATIC_LIBONIG=1
 
-    # Build Rust binaries
-    cargo build --release --features sortformer \
+    # CUDA build: --no-default-features is MANDATORY — otherwise the
+    # `ort-defaults` feature stays active, ORT is statically linked, and
+    # the CUDA provider .so files are NEVER loaded at runtime, leading to
+    # a silent CPU fallback.
+    cargo build --release --no-default-features \
+        --features "cuda,sortformer,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -96,7 +113,7 @@ build() {
 }
 
 package() {
-    cd "$pkgname-$_tag"
+    cd "dictee-$_tag"
 
     # Rust binaries
     install -Dm755 target/release/transcribe "$pkgdir/usr/bin/transcribe"
@@ -106,6 +123,52 @@ package() {
     install -Dm755 target/release/transcribe-stream-diarize "$pkgdir/usr/bin/transcribe-stream-diarize"
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
+
+    # ONNX Runtime libs (load-dynamic: libonnxruntime.so not in target/release)
+    install -d "$pkgdir/usr/lib/dictee"
+
+    # Search paths for libonnxruntime.so — same logic as build-deb.sh /
+    # build-rpm.sh, plus the makepkg srcdir (where the second source=()
+    # tarball is extracted by makepkg).
+    ORT_LIB=""
+    for candidate in \
+        "target/release/libonnxruntime.so" \
+        "onnxruntime-linux-x64-gpu-*/lib/libonnxruntime.so" \
+        "$srcdir/onnxruntime-linux-x64-gpu-$_ort_ver/lib/libonnxruntime.so" \
+        "$HOME/.cache/ort.pyke.io/dfbin/"*"/libonnxruntime.so"; do
+        for f in $candidate; do
+            if [ -f "$f" ]; then
+                ORT_LIB="$f"
+                break 2
+            fi
+        done
+    done
+    if [ -z "$ORT_LIB" ]; then
+        echo "ERROR: libonnxruntime.so not found after build."
+        echo "Expected from cargo's load-dynamic in \$HOME/.cache/ort.pyke.io/"
+        echo "or in onnxruntime-linux-x64-gpu-*/lib/. Aborting."
+        return 1
+    fi
+    cp -L "$ORT_LIB" "$pkgdir/usr/lib/dictee/"
+
+    ORT_LIB_DIR="$(dirname "$ORT_LIB")"
+    _missing=""
+    for lib in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
+        if [ -f "$ORT_LIB_DIR/$lib" ]; then
+            cp -L "$ORT_LIB_DIR/$lib" "$pkgdir/usr/lib/dictee/"
+        else
+            _missing="$_missing $lib"
+        fi
+    done
+    if [ -n "$_missing" ]; then
+        echo "ERROR: CUDA providers missing in $ORT_LIB_DIR:$_missing"
+        echo "The package would silently fall back to CPU at runtime. Aborting."
+        return 1
+    fi
+
+    # ld.so.conf.d entry so the dynamic linker finds /usr/lib/dictee
+    install -d "$pkgdir/etc/ld.so.conf.d"
+    echo "/usr/lib/dictee" > "$pkgdir/etc/ld.so.conf.d/dictee.conf"
 
     # Scripts
     install -Dm755 dictee "$pkgdir/usr/bin/dictee"

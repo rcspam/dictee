@@ -222,6 +222,12 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
         sudo ldconfig 2>/dev/null || true
     fi
 
+    # CUDA pip venv (mirrors postrm .deb cleanup)
+    if [[ -d /opt/dictee/cuda-venv ]]; then
+        sudo rm -rf /opt/dictee/cuda-venv
+        sudo rmdir /opt/dictee 2>/dev/null || true
+    fi
+
     # Locales
     for lang in fr de es it uk pt; do
         sudo rm -f "/usr/share/locale/$lang/LC_MESSAGES/dictee.mo" \

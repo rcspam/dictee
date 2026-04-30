@@ -248,6 +248,17 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 
+    # Save CUDA libs for the universal tarball BEFORE wiping them for the
+    # CPU build. Without this, build_tarball() would find an empty dir
+    # and ship a CPU-only tarball — silent regression.
+    TARBALL_CUDA_LIBS_DIR="$DIST_DIR/_tarball-cuda-libs"
+    mkdir -p "$TARBALL_CUDA_LIBS_DIR"
+    for f in "$PKG_DIR/usr/lib/dictee/"*.so "$PKG_DIR/usr/lib/dictee/"*.so.*; do
+        [ -f "$f" ] && cp -L "$f" "$TARBALL_CUDA_LIBS_DIR/"
+    done
+    cp -L "$PKG_DIR/etc/ld.so.conf.d/dictee.conf" \
+          "$TARBALL_CUDA_LIBS_DIR/" 2>/dev/null || true
+
     # Cleanup CUDA libs for CPU build (keep shared scripts/modules).
     # Glob *.so* catches libcudart.so.12 / libcufft.so.11 too (the plain
     # *.so only matches libonnxruntime.so, leaving 278 MB of CUDA libs
@@ -463,14 +474,23 @@ build_tarball() {
     fi
 
 
-    # ONNX Runtime CUDA libs (copy from deb pkg if available)
-    if [ -d "$PKG_DIR/usr/lib/dictee" ]; then
+    # ONNX Runtime CUDA libs — saved by build_cuda() into _tarball-cuda-libs/
+    # before its end-of-build wipe. Without this stash the libs would be
+    # gone by the time we get here (build_cpu / build_plasmoid_deb run in
+    # between) and the tarball would silently ship CPU-only.
+    TARBALL_CUDA_LIBS_DIR="$DIST_DIR/_tarball-cuda-libs"
+    if [ -d "$TARBALL_CUDA_LIBS_DIR" ]; then
         mkdir -p "$TARBALL_DIR/usr/lib/dictee"
         for lib in libonnxruntime.so libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-            if [ -f "$PKG_DIR/usr/lib/dictee/$lib" ]; then
-                cp "$PKG_DIR/usr/lib/dictee/$lib" "$TARBALL_DIR/usr/lib/dictee/"
+            if [ -f "$TARBALL_CUDA_LIBS_DIR/$lib" ]; then
+                cp -L "$TARBALL_CUDA_LIBS_DIR/$lib" "$TARBALL_DIR/usr/lib/dictee/"
             fi
         done
+        if [ -f "$TARBALL_CUDA_LIBS_DIR/dictee.conf" ]; then
+            mkdir -p "$TARBALL_DIR/etc/ld.so.conf.d"
+            cp -L "$TARBALL_CUDA_LIBS_DIR/dictee.conf" \
+                  "$TARBALL_DIR/etc/ld.so.conf.d/dictee.conf"
+        fi
     fi
 
     # Scripts d'installation
@@ -488,6 +508,9 @@ build_cuda
 build_cpu
 build_plasmoid_deb
 build_tarball
+
+# Cleanup the temporary CUDA-libs stash used by build_tarball
+rm -rf "$DIST_DIR/_tarball-cuda-libs"
 
 # Safeguard: the build MUST produce cuda + cpu + plasmoid .deb. If any is
 # missing, someone removed or broke a build step — fail loud instead of
