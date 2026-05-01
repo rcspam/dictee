@@ -3732,10 +3732,16 @@ class KeepcapsDialog(QDialog):
 # === LLM Diarization helpers & dialogs ===
 
 def _dll_module():
-    """Lazy import of the dictee-diarize-llm module (file with hyphens —
-    not directly importable as a normal package)."""
+    """Lazy import of the dictee-diarize-llm module.
+
+    The installed file is /usr/bin/dictee-diarize-llm (no .py extension),
+    which means importlib.util.spec_from_file_location() returns None by
+    default — it can't infer a loader from the empty extension. Pass a
+    SourceFileLoader explicitly so any path resolves to a Python module.
+    """
     if not hasattr(_dll_module, "_cached"):
         import importlib.util
+        import importlib.machinery
         candidates = [
             os.path.join(os.path.dirname(os.path.realpath(__file__)),
                          "dictee-diarize-llm.py"),
@@ -3746,11 +3752,13 @@ def _dll_module():
         if path is None:
             raise ImportError(
                 "dictee-diarize-llm not found in: " + ", ".join(candidates))
-        spec = importlib.util.spec_from_file_location("dictee_diarize_llm", path)
+        loader = importlib.machinery.SourceFileLoader(
+            "dictee_diarize_llm", path)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
         mod = importlib.util.module_from_spec(spec)
         # Indirect call: a security hook flags '.exec(' literal even on
-        # importlib's exec_module(), unrelated to its actual purpose.
-        loader_run = getattr(spec.loader, "exec_module")
+        # SourceFileLoader's exec_module(), unrelated to its purpose.
+        loader_run = getattr(loader, "exec_module")
         loader_run(mod)
         _dll_module._cached = mod
     return _dll_module._cached
@@ -3780,10 +3788,25 @@ class LLMProviderEditDialog(QDialog):
     ]
 
     PLACEHOLDERS = {
-        "ollama": ("http://localhost:11434", _("(not used for Ollama)")),
+        "ollama": ("http://localhost:11434", _("(optional, for Ollama Cloud)")),
         "openai": ("https://api.openai.com/v1", "sk-..."),
         "anthropic": ("https://api.anthropic.com", "sk-ant-..."),
     }
+
+    # Presets shown in the Add provider dialog (key = label,
+    # value = dict with name/type/url, never api_key — that's user-supplied).
+    PRESETS = [
+        ("custom",        _("Custom..."),           "",       "openai",    ""),
+        ("ollama-local",  "Ollama (local)",         "Ollama (local)", "ollama",    "http://localhost:11434"),
+        ("ollama-cloud",  "Ollama Cloud",           "Ollama Cloud",   "ollama",    "https://ollama.com"),
+        ("lmstudio",      "LM Studio",              "LM Studio",      "openai",    "http://localhost:1234/v1"),
+        ("jan",           "Jan",                    "Jan",            "openai",    "http://localhost:1337/v1"),
+        ("vllm",          "vLLM",                   "vLLM",           "openai",    "http://localhost:8000/v1"),
+        ("openai",        "OpenAI",                 "OpenAI",         "openai",    "https://api.openai.com/v1"),
+        ("groq",          "Groq",                   "Groq",           "openai",    "https://api.groq.com/openai/v1"),
+        ("gemini",        "Google Gemini",          "Google Gemini",  "openai",    "https://generativelanguage.googleapis.com/v1beta/openai"),
+        ("anthropic",     "Anthropic",              "Anthropic",      "anthropic", "https://api.anthropic.com"),
+    ]
 
     def __init__(self, provider=None, parent=None):
         super().__init__(parent)
@@ -3795,6 +3818,17 @@ class LLMProviderEditDialog(QDialog):
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
+
+        # Preset combo — only shown on Add (no preset to apply when editing
+        # an existing provider). Selecting a preset prefills name/type/url
+        # so the user only has to add their API key (when relevant).
+        self._preset_combo = None
+        if provider is None:
+            self._preset_combo = QComboBox()
+            for key, label, _name, _type, _url in self.PRESETS:
+                self._preset_combo.addItem(label, key)
+            self._preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+            form.addRow(_("Preset:"), self._preset_combo)
 
         self._name_edit = QLineEdit(provider.get("name", "") if provider else "")
         form.addRow(_("Name:"), self._name_edit)
@@ -3869,10 +3903,30 @@ class LLMProviderEditDialog(QDialog):
         url_ph, key_ph = self.PLACEHOLDERS.get(ptype, ("", ""))
         self._url_edit.setPlaceholderText(url_ph)
         self._key_edit.setPlaceholderText(key_ph)
-        is_ollama = (ptype == "ollama")
+        # API key always editable now: required for OpenAI/Anthropic and
+        # for Ollama Cloud (api.ollama.com), optional for Ollama local.
         if not self._is_builtin:
-            self._key_edit.setEnabled(not is_ollama)
-            self._btn_show.setEnabled(not is_ollama)
+            self._key_edit.setEnabled(True)
+            self._btn_show.setEnabled(True)
+
+    def _on_preset_changed(self):
+        """Apply the selected preset by prefilling name/type/url. Custom
+        keeps whatever the user already typed."""
+        if self._preset_combo is None:
+            return
+        key = self._preset_combo.currentData()
+        if not key or key == "custom":
+            return
+        for k, _label, name, ptype, url in self.PRESETS:
+            if k != key:
+                continue
+            self._name_edit.setText(name)
+            for i in range(self._type_combo.count()):
+                if self._type_combo.itemData(i) == ptype:
+                    self._type_combo.setCurrentIndex(i)
+                    break
+            self._url_edit.setText(url)
+            break
 
     def _toggle_key_visibility(self, checked):
         if checked:
@@ -3893,10 +3947,6 @@ class LLMProviderEditDialog(QDialog):
         try:
             mod = _dll_module()
             models = mod.list_provider_models(cfg, timeout=10)
-            self._test_status.setText(
-                "<span style='color:#2a7'>" +
-                _("OK — {n} model(s) available").format(n=len(models)) +
-                "</span>")
         except Exception as e:
             msg = str(e)
             if len(msg) > 200:
@@ -3904,6 +3954,21 @@ class LLMProviderEditDialog(QDialog):
             self._test_status.setText(
                 "<span style='color:#c44'>" +
                 _("Failed: {err}").format(err=msg) + "</span>")
+            return
+        self._test_status.setText(
+            "<span style='color:#2a7'>" +
+            _("OK — {n} model(s) available").format(n=len(models)) +
+            "</span>")
+        # Show the actual model list in a popup so the user can see
+        # what's available without having to click around.
+        listing = "\n".join(models[:30])
+        if len(models) > 30:
+            listing += "\n..."
+        QMessageBox.information(
+            self, _("Models available"),
+            _("{n} model(s) on {name}:").format(
+                n=len(models), name=cfg.get("name") or cfg.get("url"))
+            + "\n\n" + listing)
 
     def _on_accept(self):
         if self._is_builtin:
@@ -4235,16 +4300,18 @@ class LLMProfileEditDialog(QDialog):
 
         if self._is_builtin:
             warn = QLabel(
-                "<i>" + _("Built-in profile — read-only. Use "
-                          "<b>Duplicate</b> to create an editable copy.") + "</i>")
+                "<i>" + _("Built-in profile — name, mode and prompt are "
+                          "frozen. Provider and default model can still be "
+                          "customized; the changes are saved as overrides "
+                          "in your config and survive reinstalls.") + "</i>")
             warn.setTextFormat(Qt.TextFormat.RichText)
+            warn.setWordWrap(True)
             layout.addWidget(warn)
             self._name_edit.setReadOnly(True)
             self._mode_combo.setEnabled(False)
-            self._provider_combo.setEnabled(False)
-            self._model_combo.setEnabled(False)
-            self._btn_refresh_models.setEnabled(False)
             self._prompt_edit.setReadOnly(True)
+            # Provider, model and Refresh stay editable — they're stored
+            # as `builtin_overrides` in llm-profiles.json.
 
         # OK / Cancel
         btn_h = QHBoxLayout()
@@ -4450,7 +4517,10 @@ class LLMProfilesDialog(QDialog):
             return
         p = self._profiles[idx]
         dlg = LLMProfileEditDialog(profile=p, parent=self)
-        if _llm_modal(dlg) == QDialog.DialogCode.Accepted and not p.get("builtin"):
+        if _llm_modal(dlg) == QDialog.DialogCode.Accepted:
+            # Built-in profiles can be edited too — only their
+            # provider/model overrides are persisted (see
+            # save_profiles in dictee-diarize-llm).
             self._profiles[idx] = dlg.profile_dict()
             self._refresh_list()
             self._list.setCurrentRow(idx)

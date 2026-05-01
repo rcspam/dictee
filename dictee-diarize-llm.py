@@ -163,16 +163,11 @@ BUILTIN_PROFILES = [
     },
 ]
 
-BUILTIN_PROVIDERS = [
-    {
-        "id": "ollama-local",
-        "name": "Ollama (local)",
-        "type": "ollama",
-        "url": "http://localhost:11434",
-        "api_key": None,
-        "builtin": True,
-    },
-]
+# No built-in providers anymore — the previous "Ollama (local)" entry was
+# read-only and prevented users from setting an API key (needed for Ollama
+# Cloud). Users now create their own providers from presets in the UI
+# (Ollama local/cloud, LM Studio, Jan, vLLM, OpenAI, Anthropic, Groq…).
+BUILTIN_PROVIDERS = []
 
 
 # ── Diarize parsing & formatting ──────────────────────────────────────
@@ -224,9 +219,14 @@ class ProviderError(Exception):
     """Raised on provider call failures (network, API, parsing)."""
 
 
+_DEFAULT_USER_AGENT = "dictee/1.3 (+https://github.com/rcspam/dictee)"
+
+
 def _http_post_json(url, payload, headers, timeout):
     """POST JSON payload, return parsed JSON response."""
     data = json.dumps(payload).encode("utf-8")
+    headers = dict(headers)
+    headers.setdefault("User-Agent", _DEFAULT_USER_AGENT)
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         resp = urllib.request.urlopen(req, timeout=timeout)
@@ -244,6 +244,8 @@ def _http_post_json(url, payload, headers, timeout):
 
 def _http_get_json(url, headers, timeout):
     """GET request, return parsed JSON response."""
+    headers = dict(headers)
+    headers.setdefault("User-Agent", _DEFAULT_USER_AGENT)
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         resp = urllib.request.urlopen(req, timeout=timeout)
@@ -410,24 +412,69 @@ def save_providers(providers):
 
 
 def load_profiles():
-    """Return list of profiles: built-ins + user-defined."""
+    """Return list of profiles: built-ins (with user overrides applied)
+    + user-defined.
+
+    Built-in profiles can have their default_provider_id / default_model
+    overridden in `~/.config/dictee/llm-profiles.json` under the
+    `builtin_overrides` key. The prompt / mode / name stay frozen.
+    """
     user_profiles = []
+    builtin_overrides = {}
     if os.path.isfile(PROFILES_PATH):
         try:
             with open(PROFILES_PATH, encoding="utf-8") as f:
                 data = json.load(f)
             user_profiles = [p for p in data.get("profiles", [])
                              if not p.get("builtin")]
+            builtin_overrides = data.get("builtin_overrides", {}) or {}
         except (OSError, ValueError) as e:
             print(f"[dictee-diarize-llm] Warning: failed to read "
                   f"{PROFILES_PATH}: {e}", file=sys.stderr)
-    return list(BUILTIN_PROFILES) + user_profiles
+    builtins = []
+    for b in BUILTIN_PROFILES:
+        b_copy = dict(b)
+        ov = builtin_overrides.get(b["id"])
+        if isinstance(ov, dict):
+            if ov.get("default_provider_id"):
+                b_copy["default_provider_id"] = ov["default_provider_id"]
+            if ov.get("default_model"):
+                b_copy["default_model"] = ov["default_model"]
+        builtins.append(b_copy)
+    return builtins + user_profiles
 
 
 def save_profiles(profiles):
-    """Persist user-defined profiles (built-ins are not stored)."""
-    user = [p for p in profiles if not p.get("builtin")]
-    _atomic_write_json(PROFILES_PATH, {"profiles": user})
+    """Persist user-defined profiles + builtin overrides.
+
+    For built-in profiles, only the deltas in default_provider_id and
+    default_model vs. the original BUILTIN_PROFILES are stored, in the
+    `builtin_overrides` field. The frozen fields (name/mode/prompt)
+    are never persisted because they cannot diverge from the source.
+    """
+    user = []
+    builtin_overrides = {}
+    for p in profiles:
+        if p.get("builtin"):
+            orig = next((b for b in BUILTIN_PROFILES if b["id"] == p["id"]),
+                        None)
+            if orig is None:
+                continue
+            ov = {}
+            if (p.get("default_provider_id")
+                    and p["default_provider_id"] != orig.get("default_provider_id")):
+                ov["default_provider_id"] = p["default_provider_id"]
+            if (p.get("default_model")
+                    and p["default_model"] != orig.get("default_model")):
+                ov["default_model"] = p["default_model"]
+            if ov:
+                builtin_overrides[p["id"]] = ov
+        else:
+            user.append(p)
+    payload = {"profiles": user}
+    if builtin_overrides:
+        payload["builtin_overrides"] = builtin_overrides
+    _atomic_write_json(PROFILES_PATH, payload)
 
 
 def find_profile(profile_id):
