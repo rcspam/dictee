@@ -3772,9 +3772,9 @@ class TranscribeWindow(QDialog):
         # dictee-setup.py accordions). QPushButton (not QToolButton)
         # because text-align:left is reliably honoured here.
         self._btn_rename_toggle = QPushButton(
-            "▼  " + _("Renommer les locuteurs"))
+            "▶  " + _("Renommer les locuteurs"))
         self._btn_rename_toggle.setCheckable(True)
-        self._btn_rename_toggle.setChecked(True)
+        self._btn_rename_toggle.setChecked(False)
         self._btn_rename_toggle.setFlat(True)
         self._btn_rename_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         # Maximum (not Expanding) so the clickable area is just the text
@@ -3802,15 +3802,15 @@ class TranscribeWindow(QDialog):
         # tight to the text, so clicks on empty space to its right do
         # NOT collapse the accordion.
         header_h.addWidget(self._btn_rename_toggle)
-        header_h.addStretch(1)
         self._lbl_rename_status = QLabel("")
         # Use palette text colour (always readable on the current theme)
         # — palette(mid) was invisible on some Plasma themes.
         self._lbl_rename_status.setStyleSheet(
             "QLabel { padding: 0 8px; font-style: italic; }")
         self._lbl_rename_status.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         header_h.addWidget(self._lbl_rename_status)
+        header_h.addStretch(1)
         gv.addLayout(header_h)
 
         self._rename_content = QFrame()
@@ -3912,6 +3912,11 @@ class TranscribeWindow(QDialog):
         self._rename_rows_layout.setColumnStretch(1, 1)
 
         self._grp_rename.setVisible(True)
+        # Keep the rename pane collapsed by default after a diarization.
+        # The status next to the toggle ("2 speakers — audio 5:23 — …")
+        # already gives enough feedback; the user expands the pane only
+        # when they actually want to rename speakers.
+        self._btn_rename_toggle.setChecked(False)
 
     def _apply_speaker_rename(self):
         """Collect QLineEdit values, update the display map, re-render.
