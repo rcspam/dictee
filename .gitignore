@@ -2,6 +2,7 @@
 # Dev workspace (all personal/scratch files go here — single ignore)
 # ──────────────────────────────────────────────────────────────────
 .dev/
+.graphifyignore
 
 # ──────────────────────────────────────────────────────────────────
 # Claude Code config (must stay at root for Claude Code to read)

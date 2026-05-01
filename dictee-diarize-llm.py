@@ -52,29 +52,33 @@ DEFAULT_TIMEOUT = 120  # seconds — LLM calls on long transcripts can take time
 
 PROMPT_SYNTHESE = """\
 <role>
-Tu synthétises une transcription de réunion ou interview diarisée. Tu n'es pas un assistant conversationnel.
+You summarise a diarized meeting or interview transcript. You are not a conversational assistant.
 </role>
 <instructions>
-À partir de la transcription ci-dessous (labels [Speaker N] = locuteurs), produis un compte-rendu en Markdown structuré :
+From the transcript below (labels like [Speaker N] mark speakers), produce a structured Markdown report.
 
-## Résumé
-3-5 phrases qui résument l'échange.
+CRITICAL — Output language: write the entire report in the **same language as the transcript** (English transcript → English report; French → French; German → German; etc.). This applies to the section headings and to any literal placeholder like "_None_" / "_Aucun_" / "_Keine_".
 
-## Décisions
-Liste des décisions explicites prises pendant l'échange.
+Sections (translate each heading into the transcript's language):
 
-## Actions à faire
-Format : « - [Locuteur] : action (échéance si mentionnée) »
+## Summary
+3-5 sentences summarising the exchange.
 
-## Questions ouvertes
-Points soulevés sans résolution.
+## Decisions
+Explicit decisions made during the exchange.
 
-Règles strictes :
-- Fidélité absolue : n'invente rien, ne déduis rien d'absent.
-- Si une section est vide, écris « _Aucun_ ».
-- Cite les locuteurs par leur label exact ([Speaker N]).
-- Ne reproduis PAS la transcription, seulement la synthèse.
-- Aucun préambule, aucune conclusion ajoutée.
+## Action items
+Format: "- [Speaker]: action (deadline if mentioned)".
+
+## Open questions
+Issues raised without resolution.
+
+Strict rules:
+- Absolute fidelity: do not invent, do not infer what is not said.
+- If a section is empty, write "_None_" (in the transcript's language).
+- Cite speakers by their exact label ([Speaker N], or the renamed label if any).
+- Do NOT reproduce the transcript, only the synthesis.
+- No preamble, no added conclusion.
 </instructions>
 <input>
 {TRANSCRIPT}
@@ -83,19 +87,21 @@ Règles strictes :
 
 PROMPT_CHAPITRAGE = """\
 <role>
-Tu identifies les changements de sujet dans une transcription diarisée pour produire un sommaire navigable.
+You identify topic shifts in a diarized transcript and produce a navigable table of contents.
 </role>
 <instructions>
-Découpe la transcription ci-dessous en chapitres thématiques. Format de sortie strict :
+Split the transcript below into thematic chapters. Strict output format:
 
-[HH:MM:SS] Titre court (3-7 mots)
+[HH:MM:SS] Short title (3-7 words)
 
-Règles :
-- Nouveau chapitre uniquement quand le sujet change réellement (pas à chaque tour de parole).
-- Cible : 1 chapitre toutes les 2-5 minutes.
-- Titres descriptifs et neutres (ex. « Roadmap Q3 », pas « Discussion sur la roadmap »).
-- Utilise les timestamps présents dans la transcription.
-- Ne produis QUE la liste, aucune autre sortie.
+CRITICAL — Output language: write each chapter title in the **same language as the transcript** (English transcript → English titles; French → French; etc.). Never translate.
+
+Rules:
+- New chapter only when the topic actually changes (not at every speaker turn).
+- Target: 1 chapter every 2-5 minutes.
+- Descriptive, neutral titles (e.g., "Q3 Roadmap", not "Discussion about the roadmap").
+- Use the timestamps present in the transcript.
+- Output ONLY the list, nothing else.
 </instructions>
 <input>
 {TRANSCRIPT}
@@ -104,28 +110,30 @@ Règles :
 
 PROMPT_CORRECTION_ASR = """\
 <role>
-Correcteur d'erreurs de reconnaissance vocale (ASR). Tu n'es pas un assistant conversationnel.
+Speech-recognition (ASR) error corrector. You are not a conversational assistant.
 </role>
 <instructions>
-Corrige uniquement les erreurs PROBABLES de reconnaissance dans le segment ci-dessous (issu d'un ASR Parakeet).
+Fix ONLY the likely recognition errors in the segment below (output of a Parakeet ASR).
 
-À FAIRE :
-- Corriger homophones, mots mal reconnus, noms propres déformés.
-- Privilégier les termes du dictionnaire utilisateur (s'il y en a un) en cas de doute phonétique.
-- Préserver à l'identique : ponctuation correcte, casse, hésitations (« euh », « hum »).
+CRITICAL — Output language: reply in the **same language as the input segment**. Never translate.
 
-À NE PAS FAIRE :
-- Reformuler, résumer, compléter une phrase coupée.
-- Modifier la ponctuation correcte.
-- Ajouter du contenu non présent dans le segment.
-- Commenter, introduire, expliquer.
+DO:
+- Correct homophones, misrecognised words, mangled proper nouns.
+- Prefer terms from the user dictionary (when one is provided) in case of phonetic doubt.
+- Preserve verbatim: correct punctuation, casing, hesitations ("uh", "um", "euh", "hum"…).
 
-Si rien à corriger, renvoie le segment tel quel, sans commentaire.
+DO NOT:
+- Rephrase, summarise, or complete an interrupted sentence.
+- Modify correct punctuation.
+- Add content not present in the segment.
+- Comment, introduce, or explain.
 
-Contexte (segment précédent, pour cohérence — NE PAS le retourner) :
+If nothing needs correcting, return the segment unchanged, with no comment.
+
+Context (previous segment, for coherence — DO NOT return it):
 {PREVIOUS_SEGMENT}
 
-Dictionnaire utilisateur :
+User dictionary:
 {DICTIONARY}
 </instructions>
 <input>

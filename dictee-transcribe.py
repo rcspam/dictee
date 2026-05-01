@@ -1924,9 +1924,39 @@ class TranscribeWindow(QDialog):
         self._player.durationChanged.connect(self._on_player_duration)
         self._player.playbackStateChanged.connect(self._on_playback_state)
 
-        # -- Options: row 1 — diarization + sensitivity + format --
-        lay_opts = QHBoxLayout()
+        # === Transcribe pad: button + options ===
+        self._pad_transcribe = QFrame()
+        self._pad_transcribe.setObjectName("padSection")
+        self._pad_transcribe.setStyleSheet(
+            "QFrame#padSection { border: 1px solid palette(mid); "
+            "border-radius: 6px; background: palette(base); }")
+        pad_transcribe = QVBoxLayout(self._pad_transcribe)
+        pad_transcribe.setContentsMargins(10, 8, 10, 8)
+        pad_transcribe.setSpacing(4)
 
+        lay_btn_transcribe = QHBoxLayout()
+
+        self._btn_transcribe = QPushButton(_("Transcribe"))
+        self._btn_transcribe.setEnabled(False)
+        self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
+        self._btn_transcribe.clicked.connect(self._on_transcribe)
+        lay_btn_transcribe.addWidget(self._btn_transcribe)
+
+        # Cancel button — only visible during the chunked long-file pipeline
+        self._btn_cancel = QPushButton(_("Cancel"))
+        self._btn_cancel.setVisible(False)
+        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
+        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
+        lay_btn_transcribe.addWidget(self._btn_cancel)
+
+        lay_btn_transcribe.addStretch()
+        pad_transcribe.addLayout(lay_btn_transcribe)
+
+        lay_opts = QVBoxLayout()
+        lay_opts.setContentsMargins(20, 0, 0, 0)
+        lay_opts.setSpacing(4)
+
+        # Row 1: diarization toggle alone
         self._chk_diarize = ToggleSwitch(_("Speaker identification (diarization)"))
         sortformer_ok = _sortformer_available()
         self._chk_diarize.setEnabled(sortformer_ok)
@@ -1937,47 +1967,48 @@ class TranscribeWindow(QDialog):
         else:
             self._chk_diarize.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
-        lay_opts.addWidget(self._chk_diarize)
+        lay_opts.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # Sensitivity slider (visible only when diarization is checked)
+        # Row 2: threshold slider (in a wrapper widget, hidden when diarize off)
+        self._w_threshold = QWidget()
+        lay_thresh = QHBoxLayout(self._w_threshold)
+        lay_thresh.setContentsMargins(0, 0, 0, 0)
         self._lbl_sensitivity = QLabel(_("Threshold:"))
         self._sld_sensitivity = QSlider(Qt.Orientation.Horizontal)
         self._sld_sensitivity.setRange(0, 100)
         self._sld_sensitivity.setValue(50)
         self._sld_sensitivity.setFixedWidth(120)
-        self._sld_sensitivity.setToolTip(
-            _("Speaker detection threshold.\n"
-              "← Low: more sensitive, detects more speakers\n"
-              "     (may split one person into two speakers).\n"
-              "→ High: stricter, detects fewer speakers\n"
-              "     (may merge two people into one speaker).\n"
-              "Default (50%) works well for most recordings."))
+        self._sld_sensitivity.setToolTip(_("Speaker detection threshold. ← Low: more sensitive, detects more speakers (may split one person into two speakers). → High: stricter, detects fewer speakers (may merge two people into one speaker). Default (50%) works well for most recordings."))
         self._lbl_sensitivity_val = QLabel("50%")
         self._lbl_sensitivity_val.setFixedWidth(35)
         self._sld_sensitivity.valueChanged.connect(
             lambda v: self._lbl_sensitivity_val.setText(f"{v}%"))
-        lay_opts.addWidget(self._lbl_sensitivity)
-        lay_opts.addWidget(self._sld_sensitivity)
-        lay_opts.addWidget(self._lbl_sensitivity_val)
-        # Initially hidden
-        self._lbl_sensitivity.setVisible(False)
-        self._sld_sensitivity.setVisible(False)
-        self._lbl_sensitivity_val.setVisible(False)
+        lay_thresh.addWidget(self._lbl_sensitivity)
+        lay_thresh.addWidget(self._sld_sensitivity)
+        lay_thresh.addWidget(self._lbl_sensitivity_val)
+        lay_thresh.addStretch()
+        self._w_threshold.setVisible(False)
+        lay_opts.addWidget(self._w_threshold)
         self._chk_diarize.toggled.connect(self._on_diarize_toggled)
 
-        lay_opts.addStretch()
-
+        # Row 3: output format
+        lay_fmt = QHBoxLayout()
+        lay_fmt.setContentsMargins(0, 0, 0, 0)
         lbl_fmt = QLabel(_("Format:"))
-        lay_opts.addWidget(lbl_fmt)
+        lay_fmt.addWidget(lbl_fmt)
 
         self._cmb_format = QComboBox()
         self._cmb_format.addItem(_("Plain text"), "text")
         self._cmb_format.addItem("SRT", "srt")
         self._cmb_format.addItem("JSON", "json")
         self._cmb_format.setToolTip(_("Output format for transcription"))
-        lay_opts.addWidget(self._cmb_format)
+        lay_fmt.addWidget(self._cmb_format)
+        lay_fmt.addStretch()
+        lay_opts.addLayout(lay_fmt)
 
-        layout.addLayout(lay_opts)
+        pad_transcribe.addLayout(lay_opts)
+
+        layout.addWidget(self._pad_transcribe)
 
         # -- Long-audio warning (shown when diarization + long file + CUDA build) --
         self._lbl_long_audio_warning = QLabel("")
@@ -1991,14 +2022,35 @@ class TranscribeWindow(QDialog):
         self._lbl_long_audio_warning.setVisible(False)
         layout.addWidget(self._lbl_long_audio_warning)
 
-        # -- Options: row 2 — auto-translate --
+        # === Translate pad: button + options ===
+        self._pad_translate = QFrame()
+        self._pad_translate.setObjectName("padSection")
+        self._pad_translate.setStyleSheet(
+            "QFrame#padSection { border: 1px solid palette(mid); "
+            "border-radius: 6px; background: palette(base); }")
+        pad_translate = QVBoxLayout(self._pad_translate)
+        pad_translate.setContentsMargins(10, 8, 10, 8)
+        pad_translate.setSpacing(4)
+
+        lay_btn_translate = QHBoxLayout()
+
+        self._btn_translate = QPushButton(_("Translate"))
+        self._btn_translate.setEnabled(False)
+        self._btn_translate.setToolTip(_("Translate the current transcription"))
+        self._btn_translate.clicked.connect(self._on_translate)
+        lay_btn_translate.addWidget(self._btn_translate)
+
+        lay_btn_translate.addStretch()
+        pad_translate.addLayout(lay_btn_translate)
+
         lay_opts2 = QHBoxLayout()
+        lay_opts2.setContentsMargins(20, 0, 0, 0)
         self._chk_auto_translate = ToggleSwitch(_("Auto-translate the transcription"))
         self._chk_auto_translate.setToolTip(
             _("Automatically translate after transcription"))
         lay_opts2.addWidget(self._chk_auto_translate)
         lay_opts2.addStretch()
-        layout.addLayout(lay_opts2)
+        pad_translate.addLayout(lay_opts2)
 
         # -- Options: row 3 — sync slider/text bidirectional --
         # Toggles built here, layout assembled below the rename
@@ -2029,8 +2081,9 @@ class TranscribeWindow(QDialog):
         self._chk_highlight_current.toggled.connect(
             lambda v: QSettings("dictee", "transcribe").setValue("sync/highlight_current", v))
 
-        # -- Translation row --
+        # -- Translation row (indented under the Translate button) --
         lay_trans = QHBoxLayout()
+        lay_trans.setContentsMargins(20, 0, 0, 0)
 
         conf = _read_conf()
 
@@ -2087,33 +2140,9 @@ class TranscribeWindow(QDialog):
         lay_trans.addWidget(btn_setup_trans)
 
         lay_trans.addStretch()
-        layout.addLayout(lay_trans)
+        pad_translate.addLayout(lay_trans)
 
-        # -- Action buttons (Transcribe + Translate on same line) --
-        lay_action = QHBoxLayout()
-        lay_action.addStretch()
-
-        self._btn_transcribe = QPushButton(_("Transcribe"))
-        self._btn_transcribe.setEnabled(False)
-        self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
-        self._btn_transcribe.clicked.connect(self._on_transcribe)
-        lay_action.addWidget(self._btn_transcribe)
-
-        self._btn_translate = QPushButton(_("Translate"))
-        self._btn_translate.setEnabled(False)
-        self._btn_translate.setToolTip(_("Translate the current transcription"))
-        self._btn_translate.clicked.connect(self._on_translate)
-        lay_action.addWidget(self._btn_translate)
-
-        # Cancel button — only visible during the chunked long-file pipeline
-        self._btn_cancel = QPushButton(_("Cancel"))
-        self._btn_cancel.setVisible(False)
-        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
-        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
-        lay_action.addWidget(self._btn_cancel)
-
-        lay_action.addStretch()
-        layout.addLayout(lay_action)
+        layout.addWidget(self._pad_translate)
 
         # -- Progress bar (replaced by per-tab spinner on the active
         # tab title — see _start_tab_spinner). We use a stub object
@@ -2128,13 +2157,23 @@ class TranscribeWindow(QDialog):
             def isVisible(self): return False
         self._progress = _NullProgress()
 
+        # === Text pad: status, rename accordion, sync toggles, tabs, search, action buttons ===
+        self._pad_text = QFrame()
+        self._pad_text.setObjectName("padSection")
+        self._pad_text.setStyleSheet(
+            "QFrame#padSection { border: 1px solid palette(mid); "
+            "border-radius: 6px; background: palette(base); }")
+        pad_text = QVBoxLayout(self._pad_text)
+        pad_text.setContentsMargins(10, 8, 10, 8)
+        pad_text.setSpacing(6)
+
         # -- Status label --
         self._lbl_status = QLabel()
         self._lbl_status.setVisible(False)
-        layout.addWidget(self._lbl_status)
+        pad_text.addWidget(self._lbl_status)
 
         # -- Speaker rename panel (visible only after diarization) --
-        self._build_rename_section(layout)
+        self._build_rename_section(pad_text)
 
         # -- Sync toggles (follow / play-on-click / highlight) --
         # Placed below the rename accordion so they sit close to the
@@ -2157,7 +2196,7 @@ class TranscribeWindow(QDialog):
         lay_opts3.addWidget(self._chk_play_on_click)
         lay_opts3.addWidget(self._chk_highlight_current)
         lay_opts3.addStretch()
-        layout.addLayout(lay_opts3)
+        pad_text.addLayout(lay_opts3)
 
         # -- Tab widget: Original + dynamic translation tabs --
         self._tabs = QTabWidget()
@@ -2183,8 +2222,9 @@ class TranscribeWindow(QDialog):
 
         self._text_edit = QTextEdit()
         self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
-        self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
-        self._text_edit.setToolTip(_("Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."))
+        self._text_edit.setPlaceholderText(
+            _("Press the pencil to edit.") + "\n"
+            + _("Ctrl+F to search, Ctrl+Z to undo"))
         self._text_edit.viewport().installEventFilter(self)
         self._install_modified_overlay(self._text_edit)
         self._tabs.addTab(self._text_edit, _("Original"))
@@ -2194,30 +2234,16 @@ class TranscribeWindow(QDialog):
         # Dict of translation tabs: lang_code -> {editor, segments, text}
         self._translation_tabs = {}
 
-        layout.addWidget(self._tabs, 1)
+        pad_text.addWidget(self._tabs, 1)
 
         # -- Search bar (works on active tab) --
         self._search_bar = SearchBar(self._text_edit, self)
-        layout.addWidget(self._search_bar)
+        pad_text.addWidget(self._search_bar)
 
-        # -- Bottom buttons --
+        # -- Bottom buttons: text tools left, exports + close right --
         lay_btns = QHBoxLayout()
 
-        self._btn_copy = QPushButton(_("Copy all"))
-        self._btn_copy.setToolTip(_("Copy the entire text to the clipboard"))
-        self._btn_copy.clicked.connect(self._on_copy)
-        lay_btns.addWidget(self._btn_copy)
-
-        self._btn_export = QPushButton(_("Export all..."))
-        self._btn_export.setToolTip(_("Export all tabs to files"))
-        self._btn_export.clicked.connect(self._on_export)
-        lay_btns.addWidget(self._btn_export)
-
-        self._btn_export_tab = QPushButton(_("Export tab..."))
-        self._btn_export_tab.setToolTip(_("Export only the current tab"))
-        self._btn_export_tab.clicked.connect(self._on_export_current_tab)
-        lay_btns.addWidget(self._btn_export_tab)
-
+        # Left: text tools (LLM analysis, copy)
         self._btn_llm = QPushButton(_("LLM analysis..."))
         self._btn_llm.setToolTip(_(
             "Run an LLM analysis on the transcript "
@@ -2225,14 +2251,32 @@ class TranscribeWindow(QDialog):
         self._btn_llm.clicked.connect(self._on_llm_process)
         lay_btns.addWidget(self._btn_llm)
 
+        self._btn_copy = QPushButton(_("Copy all"))
+        self._btn_copy.setToolTip(_("Copy the entire text to the clipboard"))
+        self._btn_copy.clicked.connect(self._on_copy)
+        lay_btns.addWidget(self._btn_copy)
+
         lay_btns.addStretch()
+
+        # Right: exports + close
+        self._btn_export_tab = QPushButton(_("Export tab..."))
+        self._btn_export_tab.setToolTip(_("Export only the current tab"))
+        self._btn_export_tab.clicked.connect(self._on_export_current_tab)
+        lay_btns.addWidget(self._btn_export_tab)
+
+        self._btn_export = QPushButton(_("Export all..."))
+        self._btn_export.setToolTip(_("Export all tabs to files"))
+        self._btn_export.clicked.connect(self._on_export)
+        lay_btns.addWidget(self._btn_export)
 
         self._btn_close = QPushButton(_("Close"))
         self._btn_close.setToolTip(_("Close this window"))
         self._btn_close.clicked.connect(self.close)
         lay_btns.addWidget(self._btn_close)
 
-        layout.addLayout(lay_btns)
+        pad_text.addLayout(lay_btns)
+
+        layout.addWidget(self._pad_text, 1)
 
     def closeEvent(self, event):
         """Clean up processes on window close."""
@@ -2867,9 +2911,7 @@ class TranscribeWindow(QDialog):
         # for LLM tabs and to ExportDialog for regular tabs.
 
     def _on_diarize_toggled(self, checked):
-        self._lbl_sensitivity.setVisible(checked)
-        self._sld_sensitivity.setVisible(checked)
-        self._lbl_sensitivity_val.setVisible(checked)
+        self._w_threshold.setVisible(checked)
         self._update_long_audio_warning()
 
     # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
