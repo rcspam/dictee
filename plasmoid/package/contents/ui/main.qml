@@ -16,6 +16,16 @@ PlasmoidItem {
 
     // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
     property string state: "offline"
+
+    // Auto-pin: keep the popup open as long as activeButton is non-empty.
+    // activeButton is set synchronously on click (dictate / dictate-translate
+    // / diarize) and reset only when state returns to "idle" (or "cancelled"
+    // / "reset"). Anchoring on activeButton — rather than state === "recording"
+    // — avoids a race when animation-speech-ctl steals window activation
+    // BEFORE the 150ms /dev/shm/.dictee_state poll has updated `state`.
+    // Side effect: popup also stays pinned during the brief "transcribing"
+    // phase after stop. Acceptable — the popup is still relevant then.
+    hideOnWindowDeactivate: !Plasmoid.configuration.pinPopup && activeButton === ""
     property bool dicteeInstalled: true
     property bool dicteeConfigured: false
     property string lastTranscription: ""
@@ -612,13 +622,11 @@ PlasmoidItem {
 
         switch (action) {
         case "dictate":
-            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
-                root.expanded = false
+            // Popup stays open: hideOnWindowDeactivate is bound to
+            // pinDuringActivity, which is true while the red dot is shown.
             executable.run(root.activeButton === "diarize" ? "dictee --diarize" : "dictee")
             break
         case "dictate-translate":
-            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
-                root.expanded = false
             executable.run("dictee --translate")
             break
         case "diarize-prepare":

@@ -509,8 +509,45 @@ def _render_prompt(template, transcript, previous_segment="", dictionary=""):
             .replace("{DICTIONARY}", dictionary or "(none)"))
 
 
+def _lang_system_prompt(lang_name):
+    """Build a strict 'output language' system prompt.
+
+    The built-in prompts already ask the LLM to reply in the
+    transcript's language, but in practice many models drift to
+    English regardless. A system-level instruction is much more
+    reliable. Returns None when no language is requested so call
+    sites stay backward-compatible.
+    """
+    if not lang_name:
+        return None
+    return (
+        f"You MUST write the entire response in {lang_name}. "
+        f"Never reply in another language, even if the prompt is "
+        f"in English or contains English instructions. All headings, "
+        f"bullets, placeholders and content must be in {lang_name}."
+    )
+
+
+def _lang_user_suffix(lang_name):
+    """Trailing reinforcement for the user prompt.
+
+    Empirically, the system prompt alone is not enough on some models
+    (Groq gpt-oss, smaller open models) when the transcript itself is
+    in English — they follow the content's language and ignore the
+    system instruction. Repeating the directive at the very end of the
+    user prompt — the last thing the model reads before generating —
+    fixes it reliably.
+    """
+    if not lang_name:
+        return ""
+    return (f"\n\n---\nIMPORTANT: Write your entire response in "
+            f"{lang_name}, regardless of the language of the transcript "
+            f"above. Do not use English. Translate any heading, label or "
+            f"placeholder into {lang_name}.")
+
+
 def analyze_global(segments, profile, provider_cfg, model, dictionary="",
-                   timeout=DEFAULT_TIMEOUT):
+                   timeout=DEFAULT_TIMEOUT, lang_name=""):
     """Run a global-mode profile (Synthèse, Chapitrage, custom).
 
     Sends the full formatted transcript in one LLM call. Returns the
@@ -519,12 +556,15 @@ def analyze_global(segments, profile, provider_cfg, model, dictionary="",
     transcript = format_segments_for_prompt(segments)
     prompt = _render_prompt(profile["prompt"], transcript,
                             dictionary=dictionary)
-    return call_provider(provider_cfg, model, prompt, timeout=timeout)
+    prompt += _lang_user_suffix(lang_name)
+    return call_provider(provider_cfg, model, prompt,
+                         system=_lang_system_prompt(lang_name),
+                         timeout=timeout)
 
 
 def analyze_per_segment(segments, profile, provider_cfg, model,
                         dictionary="", timeout=DEFAULT_TIMEOUT,
-                        progress_cb=None):
+                        progress_cb=None, lang_name=""):
     """Run a per-segment-mode profile (Correction ASR).
 
     For each segment, send only the text (no speaker label) plus the
@@ -543,8 +583,10 @@ def analyze_per_segment(segments, profile, provider_cfg, model,
         prompt = _render_prompt(profile["prompt"], seg["text"],
                                 previous_segment=previous,
                                 dictionary=dictionary)
+        prompt += _lang_user_suffix(lang_name)
         try:
             corrected = call_provider(provider_cfg, model, prompt,
+                                      system=_lang_system_prompt(lang_name),
                                       timeout=timeout).strip()
             if not corrected:
                 corrected = seg["text"]
@@ -565,12 +607,15 @@ def analyze_per_segment(segments, profile, provider_cfg, model,
 
 
 def analyze(segments, profile, provider_cfg, model=None, dictionary="",
-            timeout=DEFAULT_TIMEOUT, progress_cb=None):
+            timeout=DEFAULT_TIMEOUT, progress_cb=None, lang_name=""):
     """Top-level entry point. Routes to global or per-segment based on
     the profile's mode.
 
     model: overrides profile's default_model if given. Lets the UI
     surface a model picker without mutating the saved profile.
+    lang_name: full language name (e.g. "French"). When provided,
+    forces the LLM output language via a system prompt — much more
+    reliable than the in-prompt hint.
     """
     effective_model = model or profile.get("default_model")
     if not effective_model:
@@ -580,9 +625,11 @@ def analyze(segments, profile, provider_cfg, model=None, dictionary="",
     if mode == "per-segment":
         return analyze_per_segment(segments, profile, provider_cfg,
                                    effective_model, dictionary=dictionary,
-                                   timeout=timeout, progress_cb=progress_cb)
+                                   timeout=timeout, progress_cb=progress_cb,
+                                   lang_name=lang_name)
     return analyze_global(segments, profile, provider_cfg, effective_model,
-                          dictionary=dictionary, timeout=timeout)
+                          dictionary=dictionary, timeout=timeout,
+                          lang_name=lang_name)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────

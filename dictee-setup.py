@@ -4325,6 +4325,12 @@ class LLMProfileEditDialog(QDialog):
         btn_h.addWidget(btn_cancel)
         layout.addLayout(btn_h)
 
+        # Pre-populate the model list from the default provider so the
+        # user doesn't have to click "Refresh" manually. Deferred via
+        # singleShot(0) so the dialog paints first; the silent variant
+        # is a no-op on network failure.
+        QTimer.singleShot(0, self._refresh_models_silently)
+
     def _on_provider_changed(self):
         # Best-effort: try to refresh models silently (no error on fail).
         try:

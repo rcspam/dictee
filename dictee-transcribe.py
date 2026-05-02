@@ -1458,7 +1458,7 @@ class LLMAnalysisThread(QThread):
     error = Signal(str)
 
     def __init__(self, segments, profile, provider_cfg, model,
-                 dictionary="", timeout=120, parent=None):
+                 dictionary="", timeout=120, lang_name="", parent=None):
         super().__init__(parent)
         self._segments = segments
         self._profile = profile
@@ -1466,6 +1466,7 @@ class LLMAnalysisThread(QThread):
         self._model = model
         self._dictionary = dictionary
         self._timeout = timeout
+        self._lang_name = lang_name
 
     def run(self):
         try:
@@ -1473,7 +1474,7 @@ class LLMAnalysisThread(QThread):
             text = mod.analyze(
                 self._segments, self._profile, self._provider_cfg,
                 model=self._model, dictionary=self._dictionary,
-                timeout=self._timeout,
+                timeout=self._timeout, lang_name=self._lang_name,
                 progress_cb=lambda i, n: self.progress.emit(i, n))
             self.result.emit(text)
         except Exception as e:
@@ -1575,12 +1576,21 @@ class LLMProcessDialog(QDialog):
         if not profile:
             return
         prov = profile.get("default_provider_id")
+        index_changed = False
         if prov:
+            before = self._provider_combo.currentIndex()
             for i in range(self._provider_combo.count()):
                 if self._provider_combo.itemData(i) == prov:
                     self._provider_combo.setCurrentIndex(i)
                     break
+            index_changed = self._provider_combo.currentIndex() != before
         self._model_combo.setEditText(profile.get("default_model", ""))
+        # If the provider index didn't actually change, the
+        # currentIndexChanged signal never fired and the model list
+        # stays stale. Trigger the silent refresh manually so the
+        # dropdown is populated as soon as the dialog opens.
+        if not index_changed:
+            QTimer.singleShot(0, self._on_provider_changed)
 
     def _on_provider_changed(self):
         """Best-effort silent model list refresh.
@@ -1705,9 +1715,24 @@ class LLMProcessDialog(QDialog):
             self._llm_tab_widget = self._parent_window._start_llm_result_tab(
                 profile_name)
 
+        # Force the LLM output language to the user's native language
+        # (DICTEE_LANG_SOURCE in dictee.conf), NOT the translation
+        # source/target combos — those are unrelated to the LLM output.
+        # The in-prompt hint alone is unreliable; many models drift to
+        # English regardless.
+        _LANG_NAMES = {
+            "en": "English", "fr": "French", "de": "German",
+            "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+            "uk": "Ukrainian", "nl": "Dutch", "pl": "Polish",
+            "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
+            "ko": "Korean", "ar": "Arabic",
+        }
+        code = _read_conf().get("DICTEE_LANG_SOURCE", "") or ""
+        lang_name = _LANG_NAMES.get(code, "")
+
         self._thread = LLMAnalysisThread(
             self._segments, profile, provider_cfg, model,
-            timeout=120, parent=self)
+            timeout=120, lang_name=lang_name, parent=self)
         self._thread.progress.connect(self._on_progress)
         self._thread.result.connect(self._on_result)
         self._thread.error.connect(self._on_error)
@@ -1956,8 +1981,11 @@ class TranscribeWindow(QDialog):
         lay_opts.setContentsMargins(20, 0, 0, 0)
         lay_opts.setSpacing(4)
 
-        # Row 1: diarization toggle alone
-        self._chk_diarize = ToggleSwitch(_("Speaker identification (diarization)"))
+        # Row 1: diarization toggle + threshold slider tucked to its right.
+        # The threshold widget is hidden until the toggle is checked, but
+        # always laid out next to the toggle (no separate row) so the
+        # vertical rhythm of the pad doesn't change when it appears.
+        self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
         sortformer_ok = _sortformer_available()
         self._chk_diarize.setEnabled(sortformer_ok)
         if sortformer_ok:
@@ -1967,9 +1995,7 @@ class TranscribeWindow(QDialog):
         else:
             self._chk_diarize.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
-        lay_opts.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # Row 2: threshold slider (in a wrapper widget, hidden when diarize off)
         self._w_threshold = QWidget()
         lay_thresh = QHBoxLayout(self._w_threshold)
         lay_thresh.setContentsMargins(0, 0, 0, 0)
@@ -1986,9 +2012,17 @@ class TranscribeWindow(QDialog):
         lay_thresh.addWidget(self._lbl_sensitivity)
         lay_thresh.addWidget(self._sld_sensitivity)
         lay_thresh.addWidget(self._lbl_sensitivity_val)
-        lay_thresh.addStretch()
+        # No internal stretch: keep _w_threshold tight so it stacks
+        # snug against the toggle in the parent row.
         self._w_threshold.setVisible(False)
-        lay_opts.addWidget(self._w_threshold)
+
+        lay_diarize_row = QHBoxLayout()
+        lay_diarize_row.setContentsMargins(0, 0, 0, 0)
+        lay_diarize_row.setSpacing(12)
+        lay_diarize_row.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
+        lay_diarize_row.addWidget(self._w_threshold, 0, Qt.AlignmentFlag.AlignLeft)
+        lay_diarize_row.addStretch(1)
+        lay_opts.addLayout(lay_diarize_row)
         self._chk_diarize.toggled.connect(self._on_diarize_toggled)
 
         # Row 3: output format
@@ -3814,6 +3848,10 @@ class TranscribeWindow(QDialog):
         gv.addLayout(header_h)
 
         self._rename_content = QFrame()
+        # Match the toggle's initial unchecked state. setChecked(False)
+        # on an already-False button does NOT emit `toggled`, so the
+        # slot would never run to hide the content frame.
+        self._rename_content.setVisible(False)
         content = QVBoxLayout(self._rename_content)
         content.setContentsMargins(8, 4, 8, 6)
         content.setSpacing(4)

@@ -1,14 +1,14 @@
 # SOME DESCRIPTIVE TITLE.
 # Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the dictee package.
+# This file is distributed under the same license as the PACKAGE package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: dictee 1.3.0\n"
+"Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-01 18:30+0200\n"
+"POT-Creation-Date: 2026-05-02 11:32+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,27 +17,27 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:256
+#: dictee-setup.py:256
 msgid "unknown"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:833
+#: dictee-setup.py:833
 msgid "Voice dictation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:850
+#: dictee-setup.py:850
 msgid "translategemma 4B (3.3 GB, 55 languages)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:851
+#: dictee-setup.py:851
 msgid "translategemma 12B (8 GB, best quality)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:852
+#: dictee-setup.py:852
 msgid "aya 8B (5 GB, Cohere, 23 languages)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:940
+#: dictee-setup.py:940
 msgid ""
 "NVIDIA GPU detected but cuDNN is not installed.\n"
 "GPU acceleration will not work without it.\n"
@@ -50,7 +50,7 @@ msgid ""
 "See the README for instructions."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:949
+#: dictee-setup.py:949
 msgid ""
 "NVIDIA GPU detected but cuDNN is not installed.\n"
 "GPU acceleration will not work without it.\n"
@@ -63,7 +63,7 @@ msgid ""
 "See the README for instructions."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:958
+#: dictee-setup.py:958
 msgid ""
 "NVIDIA GPU detected but cuDNN is not installed.\n"
 "GPU acceleration will not work without it.\n"
@@ -72,215 +72,187 @@ msgid ""
 "See the README for instructions."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1004
+#: dictee-setup.py:1004
 #, python-brace-format
 msgid "Downloading {model}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1012
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2247
+#: dictee-setup.py:1012 dictee-setup.py:2247
 msgid "Download failed."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1014
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2249
+#: dictee-setup.py:1014 dictee-setup.py:2249
 msgid "Download timed out (10 min)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1126
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5118
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8772
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8928
+#: dictee-setup.py:1126 dictee-setup.py:5118 dictee-setup.py:8772
+#: dictee-setup.py:8928
 msgid "Regex rules"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1127
+#: dictee-setup.py:1127
 msgid "Fix common ASR errors:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1128
+#: dictee-setup.py:1128
 msgid "voice commands, punctuation, formatting."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1129
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5119
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8776
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8935
+#: dictee-setup.py:1129 dictee-setup.py:5119 dictee-setup.py:8776
+#: dictee-setup.py:8935
 msgid "Continuation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1130
+#: dictee-setup.py:1130
 msgid "Remove erroneous periods after closed-class words"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1131
+#: dictee-setup.py:1131
 msgid "so sentences flow across push-to-talk segments."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1132
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5120
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8780
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8942
+#: dictee-setup.py:1132 dictee-setup.py:5120 dictee-setup.py:8780
+#: dictee-setup.py:8942
 msgid "Language rules"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1133
+#: dictee-setup.py:1133
 msgid "Per-language fixes:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1134
+#: dictee-setup.py:1134
 msgid "FR/IT elisions, DE/ES/PT/NL/RO corrections."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1135
+#: dictee-setup.py:1135
 msgid "Numbers"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1136
+#: dictee-setup.py:1136
 msgid "Convert spoken numbers to digits."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1137
+#: dictee-setup.py:1137
 msgid "Example: \"twenty-three\" → \"23\"."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1138
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5121
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8807
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8949
+#: dictee-setup.py:1138 dictee-setup.py:5121 dictee-setup.py:8807
+#: dictee-setup.py:8949
 msgid "Dictionary"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1139
+#: dictee-setup.py:1139
 msgid "Exact word replacements from the system"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1140
+#: dictee-setup.py:1140
 msgid "and personal dictionaries."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1141
+#: dictee-setup.py:1141
 msgid "Capitalization"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1142
+#: dictee-setup.py:1142
 msgid "Uppercase first letter after . ! ?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1143
+#: dictee-setup.py:1143
 msgid "Essential for Vosk/Whisper backends."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1144
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8543
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8631
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:560
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:977
+#: dictee-setup.py:1144 dictee-setup.py:8543 dictee-setup.py:8631
+#: dictee-tray.py:560 dictee-tray.py:977
 msgid "Short text fix"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1145
+#: dictee-setup.py:1145
 msgid "For transcriptions under N words:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1146
+#: dictee-setup.py:1146
 msgid "strip trailing punctuation and lowercase."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1147
+#: dictee-setup.py:1147
 msgid "LLM grammar correction"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1148
+#: dictee-setup.py:1148
 msgid "Local Ollama model fixes grammar,"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1149
+#: dictee-setup.py:1149
 msgid "spelling, accents and punctuation."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1150
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5109
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5666
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6779
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9262
+#: dictee-setup.py:1150 dictee-setup.py:5109 dictee-setup.py:5666
+#: dictee-setup.py:6779 dictee-setup.py:9262
 msgid "Microphone"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1150
+#: dictee-setup.py:1150
 msgid "Jump to the Microphone section."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1151
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5110
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5619
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9263
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:482
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:903
+#: dictee-setup.py:1151 dictee-setup.py:5110 dictee-setup.py:5619
+#: dictee-setup.py:9263 dictee-tray.py:482 dictee-tray.py:903
 msgid "ASR backend"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1151
+#: dictee-setup.py:1151
 msgid "Jump to the ASR backend section."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1152
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5111
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6571
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9264
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:498
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:917
+#: dictee-setup.py:1152 dictee-setup.py:5111 dictee-setup.py:6571
+#: dictee-setup.py:9264 dictee-tray.py:498 dictee-tray.py:917
 msgid "Translation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1152
+#: dictee-setup.py:1152
 msgid "Jump to the Translation section."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1476
+#: dictee-setup.py:1476
 msgid "Creating virtual environment…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1495
+#: dictee-setup.py:1495
 msgid "Upgrading pip…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1502
+#: dictee-setup.py:1502
 msgid "Failed to upgrade pip in the venv:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1505
+#: dictee-setup.py:1505
 #, python-brace-format
 msgid "Installing {pkg}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1515
+#: dictee-setup.py:1515
 msgid "Installation timed out."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1549
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1566
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1899
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1914
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1938
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7836
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14933
+#: dictee-setup.py:1549 dictee-setup.py:1566 dictee-setup.py:1899
+#: dictee-setup.py:1914 dictee-setup.py:1938 dictee-setup.py:7836
+#: dictee-setup.py:14933
 msgid "Cancelled"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1585
+#: dictee-setup.py:1585
 msgid "Generating tokenizer.json…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1620
+#: dictee-setup.py:1620
 msgid "Whisper venv not installed. Install Whisper engine first."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1632
+#: dictee-setup.py:1632
 msgid "Download timed out."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1667
+#: dictee-setup.py:1667
 #, python-brace-format
 msgid ""
 "⚠ Aucune voix détectée (RMS {rms:.3f} < seuil {thr:.3f}).\n"
@@ -288,11 +260,11 @@ msgid ""
 "Microphone → \"Tester le réglage du seuil\"."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1800
+#: dictee-setup.py:1800
 msgid "Multilingual transcription (25 languages, ~2.5 GB)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1802
+#: dictee-setup.py:1802
 msgid ""
 "<b>Parakeet-TDT 0.6B v3</b> — Main transcription model<br><br>FastConformer "
 "encoder + Token-and-Duration Transducer (TDT) decoder.<br>Supports <b>25 "
@@ -303,11 +275,11 @@ msgid ""
 "code>, <code>transcribe-diarize</code>, <code>dictee</code>"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1823
+#: dictee-setup.py:1823
 msgid "Speaker diarization (4 speakers max, ~50 MB)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1825
+#: dictee-setup.py:1825
 msgid ""
 "<b>Sortformer</b> — Speaker diarization model<br><br>Identifies and "
 "separates up to <b>4 different speakers</b> in an audio recording.<br>Labels "
@@ -316,11 +288,11 @@ msgid ""
 "<code>transcribe-diarize</code>, <code>transcribe-stream-diarize</code>"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1841
+#: dictee-setup.py:1841
 msgid "English streaming (~2.5 GB)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1843
+#: dictee-setup.py:1843
 msgid ""
 "<b>Nemotron 0.6B</b> — English streaming model<br><br>Optimized for <b>real-"
 "time English</b> transcription with low latency.<br>Processes audio in "
@@ -329,481 +301,421 @@ msgid ""
 "mode.<br>Used by: <code>transcribe-stream-diarize</code>"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1904
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2272
+#: dictee-setup.py:1904 dictee-setup.py:2272
 #, python-brace-format
 msgid "Downloading {name}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1930
+#: dictee-setup.py:1930
 #, python-brace-format
 msgid "Downloaded {done}/{total}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:1934
+#: dictee-setup.py:1934
 #, python-brace-format
 msgid "Permission denied on {dir}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2225
+#: dictee-setup.py:2225
 msgid "Docker setup failed."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2227
+#: dictee-setup.py:2227
 msgid "Timeout while setting up Docker."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2239
+#: dictee-setup.py:2239
 msgid "Downloading Docker image…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2283
+#: dictee-setup.py:2283
 msgid "Extracting…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2306
+#: dictee-setup.py:2306
 msgid "Starting container…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2310
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2341
+#: dictee-setup.py:2310 dictee-setup.py:2341
 msgid "Stopping container…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2314
+#: dictee-setup.py:2314
 msgid "Clearing downloaded models…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2325
+#: dictee-setup.py:2325
 #, python-brace-format
 msgid "Starting container with {langs}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2337
+#: dictee-setup.py:2337
 msgid "Docker run failed."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2384
+#: dictee-setup.py:2384
 #, python-brace-format
 msgid "Downloading models for: {langs}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2399
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2503
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2506
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2509
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2512
+#: dictee-setup.py:2399 dictee-setup.py:2503 dictee-setup.py:2506
+#: dictee-setup.py:2509 dictee-setup.py:2512
 msgid "Starting server…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2415
+#: dictee-setup.py:2415
 msgid "LibreTranslate container stopped unexpectedly."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2417
+#: dictee-setup.py:2417
 msgid ""
 "Check your network connection — language models require a download on first "
 "use."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2425
+#: dictee-setup.py:2425
 msgid "Ready!"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2450
+#: dictee-setup.py:2450
 msgid "Network error while downloading language models."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2452
+#: dictee-setup.py:2452
 msgid "Check your network connection and retry."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2458
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2462
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2514
+#: dictee-setup.py:2458 dictee-setup.py:2462 dictee-setup.py:2514
 #, python-brace-format
 msgid "Starting server… ({s}s)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2464
+#: dictee-setup.py:2464
 msgid "LibreTranslate did not start within 3 minutes."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2479
+#: dictee-setup.py:2479
 #, python-brace-format
 msgid "Downloading: {src} → {tgt}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2484
+#: dictee-setup.py:2484
 #, python-brace-format
 msgid "Downloading model: {lang}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2487
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2495
+#: dictee-setup.py:2487 dictee-setup.py:2495
 msgid "Downloading language model…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2490
+#: dictee-setup.py:2490
 msgid "Updating language models…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2493
+#: dictee-setup.py:2493
 #, python-brace-format
 msgid "Found {n} models, selecting…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2499
+#: dictee-setup.py:2499
 #, python-brace-format
 msgid "Loaded {n} languages ({m} models)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2544
+#: dictee-setup.py:2544
 msgid "Checking latest release…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2551
+#: dictee-setup.py:2551
 #, python-brace-format
 msgid "Cannot reach GitHub: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2556
+#: dictee-setup.py:2556
 msgid "No assets found in the release."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2570
+#: dictee-setup.py:2570
 #, python-brace-format
 msgid "No {pat} found in the release."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2573
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7467
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7695
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14292
+#: dictee-setup.py:2573 dictee-setup.py:7467 dictee-setup.py:7695
+#: dictee-setup.py:14292
 msgid "Downloading…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2577
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14988
+#: dictee-setup.py:2577 dictee-setup.py:14988
 msgid "Installing…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2605
+#: dictee-setup.py:2605
 msgid "Installation error."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2620
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7083
+#: dictee-setup.py:2620 dictee-setup.py:7083
 msgid "Click to capture a shortcut…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2642
+#: dictee-setup.py:2642
 msgid "Press a key combination…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2673
+#: dictee-setup.py:2673
 #, python-brace-format
 msgid "Shortcut: {label}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2948
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2953
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2966
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2985
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2989
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3026
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3067
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3092
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3099
+#: dictee-setup.py:2948 dictee-setup.py:2953 dictee-setup.py:2966
+#: dictee-setup.py:2985 dictee-setup.py:2989 dictee-setup.py:3026
+#: dictee-setup.py:3067 dictee-setup.py:3092 dictee-setup.py:3099
 msgid "Error: "
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2953
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3067
+#: dictee-setup.py:2953 dictee-setup.py:3067
 msgid "No audio recorded."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2970
+#: dictee-setup.py:2970
 msgid "No translation result."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2975
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3094
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3248
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3391
+#: dictee-setup.py:2975 dictee-setup.py:3094 dictee-transcribe.py:3257
+#: dictee-transcribe.py:3400
 msgid "No transcription result."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2981
+#: dictee-setup.py:2981
 msgid "Transcribed: "
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2982
+#: dictee-setup.py:2982
 msgid "Translation failed."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2985
+#: dictee-setup.py:2985
 msgid "Cannot connect to daemon. Is it running?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:2987
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3097
+#: dictee-setup.py:2987 dictee-setup.py:3097
 #, python-brace-format
 msgid "Timeout ({duration}s)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3560
+#: dictee-setup.py:3560
 msgid "Short-text exceptions"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3571
+#: dictee-setup.py:3571
 msgid ""
 "Words and expressions that keep their capitalization even in short "
 "transcriptions (< 3 words). System entries can be disabled by unchecking "
 "them."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3581
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7274
+#: dictee-setup.py:3581 dictee-setup.py:7274
 msgid "Language:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3596
+#: dictee-setup.py:3596
 msgid "Add a word or expression…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3599
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10372
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11258
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12587
+#: dictee-setup.py:3599 dictee-setup.py:10372 dictee-setup.py:11258
+#: dictee-setup.py:12587
 msgid "Add"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3602
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11521
+#: dictee-setup.py:3602 dictee-setup.py:11521
 msgid "Remove"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3608
+#: dictee-setup.py:3608
 msgid ""
 "Tip: only user-added entries can be removed. To disable a system entry, "
 "uncheck it."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3685
+#: dictee-setup.py:3685
 msgid ""
 "An expression cannot contain a comma.\n"
 "Commas are used as separators in the config file."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3727
+#: dictee-setup.py:3727
 #, python-brace-format
 msgid ""
 "Failed to save short-text exceptions:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3791
+#: dictee-setup.py:3791
 msgid "(optional, for Ollama Cloud)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3799
+#: dictee-setup.py:3799
 msgid "Custom..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3813
+#: dictee-setup.py:3813
 msgid "Edit provider"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3813
+#: dictee-setup.py:3813
 msgid "Add provider"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3831
+#: dictee-setup.py:3831
 msgid "Preset:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3834
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4233
+#: dictee-setup.py:3834 dictee-setup.py:4233
 msgid "Name:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3845
+#: dictee-setup.py:3845
 msgid "Type:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3848
+#: dictee-setup.py:3848
 msgid "URL:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3856
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3937
+#: dictee-setup.py:3856 dictee-setup.py:3937
 msgid "Show"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3862
+#: dictee-setup.py:3862
 msgid "API key:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3868
+#: dictee-setup.py:3868
 msgid "Built-in provider — fields are read-only."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3878
+#: dictee-setup.py:3878
 msgid "Test connection"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3890
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4319
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4899
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5229
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13705
+#: dictee-setup.py:3890 dictee-setup.py:4319 dictee-setup.py:4899
+#: dictee-setup.py:5229 dictee-setup.py:13705
 msgid "OK"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3894
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4043
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4323
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4449
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4893
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5221
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7238
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7327
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7638
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7783
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1233
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1329
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1946
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:470
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:892
+#: dictee-setup.py:3894 dictee-setup.py:4043 dictee-setup.py:4323
+#: dictee-setup.py:4449 dictee-setup.py:4893 dictee-setup.py:5221
+#: dictee-setup.py:7238 dictee-setup.py:7327 dictee-setup.py:7638
+#: dictee-setup.py:7783 dictee-tray.py:470 dictee-tray.py:892
+#: dictee-transcribe.py:1233 dictee-transcribe.py:1329
+#: dictee-transcribe.py:1946
 msgid "Cancel"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3934
+#: dictee-setup.py:3934
 msgid "Hide"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3943
+#: dictee-setup.py:3943
 msgid "URL required"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3945
+#: dictee-setup.py:3945
 msgid "Testing..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3956
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1644
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1740
+#: dictee-setup.py:3956 dictee-transcribe.py:1644 dictee-transcribe.py:1740
 #, python-brace-format
 msgid "Failed: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3960
+#: dictee-setup.py:3960
 #, python-brace-format
 msgid "OK — {n} model(s) available"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3968
+#: dictee-setup.py:3968
 msgid "Models available"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3969
+#: dictee-setup.py:3969
 #, python-brace-format
 msgid "{n} model(s) on {name}:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3978
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3981
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4387
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4390
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1344
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1349
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1358
+#: dictee-setup.py:3978 dictee-setup.py:3981 dictee-setup.py:4387
+#: dictee-setup.py:4390 dictee-transcribe.py:1344 dictee-transcribe.py:1349
+#: dictee-transcribe.py:1358
 msgid "Validation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3978
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4387
+#: dictee-setup.py:3978 dictee-setup.py:4387
 msgid "Name is required."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:3981
+#: dictee-setup.py:3981
 msgid "URL is required."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4005
+#: dictee-setup.py:4005
 msgid "Manage LLM providers"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4020
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4426
+#: dictee-setup.py:4020 dictee-setup.py:4426
 msgid "Add..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4021
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4428
+#: dictee-setup.py:4021 dictee-setup.py:4428
 msgid "Edit..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4022
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4429
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7428
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7683
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13496
+#: dictee-setup.py:4022 dictee-setup.py:4429 dictee-setup.py:7428
+#: dictee-setup.py:7683 dictee-setup.py:13496
 msgid "Delete"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4023
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6833
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9008
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10491
+#: dictee-setup.py:4023 dictee-setup.py:6833 dictee-setup.py:9008
+#: dictee-setup.py:10491
 msgid "Test"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4029
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4435
+#: dictee-setup.py:4029 dictee-setup.py:4435
 msgid "Import..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4030
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4436
+#: dictee-setup.py:4030 dictee-setup.py:4436
 msgid "Export..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4039
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4445
+#: dictee-setup.py:4039 dictee-setup.py:4445
 msgid "Save && Close"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4053
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4459
+#: dictee-setup.py:4053 dictee-setup.py:4459
 msgid "(built-in)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4095
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4535
+#: dictee-setup.py:4095 dictee-setup.py:4535
 msgid "Cannot delete"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4096
+#: dictee-setup.py:4096
 msgid "Built-in providers cannot be deleted."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4099
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4539
+#: dictee-setup.py:4099 dictee-setup.py:4539
 msgid "Confirm delete"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4100
+#: dictee-setup.py:4100
 #, python-brace-format
 msgid "Delete provider '{name}'?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4116
+#: dictee-setup.py:4116
 msgid "Test failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4117
+#: dictee-setup.py:4117
 #, python-brace-format
 msgid ""
 "Provider '{name}' could not be reached:\n"
@@ -811,64 +723,55 @@ msgid ""
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4124
+#: dictee-setup.py:4124
 msgid "Test successful"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4125
+#: dictee-setup.py:4125
 #, python-brace-format
 msgid "Provider '{name}' is reachable. {n} model(s) available:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4132
+#: dictee-setup.py:4132
 msgid "Import provider"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4133
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4183
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4551
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4601
+#: dictee-setup.py:4133 dictee-setup.py:4183 dictee-setup.py:4551
+#: dictee-setup.py:4601
 msgid "JSON files (*.json)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4140
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4150
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4558
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4568
+#: dictee-setup.py:4140 dictee-setup.py:4150 dictee-setup.py:4558
+#: dictee-setup.py:4568
 msgid "Import failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4150
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4568
+#: dictee-setup.py:4150 dictee-setup.py:4568
 msgid "Unrecognised JSON shape."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4169
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4587
+#: dictee-setup.py:4169 dictee-setup.py:4587
 msgid "Imported"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4170
+#: dictee-setup.py:4170
 #, python-brace-format
 msgid "{n} provider(s) imported."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4181
+#: dictee-setup.py:4181
 msgid "Export provider"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4191
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4609
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1377
+#: dictee-setup.py:4191 dictee-setup.py:4609 dictee-transcribe.py:1377
 msgid "Export failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4194
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4612
+#: dictee-setup.py:4194 dictee-setup.py:4612
 msgid "Exported"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4195
+#: dictee-setup.py:4195
 #, python-brace-format
 msgid ""
 "Provider exported to:\n"
@@ -877,57 +780,54 @@ msgid ""
 "Note: API key was NOT included."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4203
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4620
+#: dictee-setup.py:4203 dictee-setup.py:4620
 msgid "Save failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4204
+#: dictee-setup.py:4204
 #, python-brace-format
 msgid ""
 "Could not save providers:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4217
+#: dictee-setup.py:4217
 msgid "Global (single LLM call on full transcript)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4218
+#: dictee-setup.py:4218
 msgid "Per segment (one call per speaker turn)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4223
+#: dictee-setup.py:4223
 msgid "Edit profile"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4223
+#: dictee-setup.py:4223
 msgid "Add profile"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4243
+#: dictee-setup.py:4243
 msgid "Mode:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4258
+#: dictee-setup.py:4258
 msgid "Default provider:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4268
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1536
+#: dictee-setup.py:4268 dictee-transcribe.py:1536
 msgid "Refresh"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4270
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1538
+#: dictee-setup.py:4270 dictee-transcribe.py:1538
 msgid "Query the provider for its model list"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4275
+#: dictee-setup.py:4275
 msgid "Default model:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4281
+#: dictee-setup.py:4281
 #, python-brace-format
 msgid ""
 "<b>Available variables in the prompt:</b><br><code>{TRANSCRIPT}</code> — "
@@ -936,130 +836,123 @@ msgid ""
 "mode only)<br><code>{DICTIONARY}</code> — user dictionary, when supplied"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4303
+#: dictee-setup.py:4303
 msgid ""
 "Built-in profile — name, mode and prompt are frozen. Provider and default "
 "model can still be customized; the changes are saved as overrides in your "
 "config and survive reinstalls."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4356
+#: dictee-setup.py:4356
 msgid "No provider"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4357
+#: dictee-setup.py:4357
 msgid "Select a provider first."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4362
+#: dictee-setup.py:4362
 msgid "Provider not found"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4363
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1632
+#: dictee-setup.py:4363 dictee-transcribe.py:1632
 #, python-brace-format
 msgid "Provider '{id}' not found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4369
+#: dictee-setup.py:4369
 msgid "Query failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4370
+#: dictee-setup.py:4370
 #, python-brace-format
 msgid ""
 "Could not query provider:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4379
+#: dictee-setup.py:4379
 msgid "Models refreshed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4380
+#: dictee-setup.py:4380
 #, python-brace-format
 msgid "{n} model(s) found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4390
+#: dictee-setup.py:4390
 msgid "Prompt is required."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4411
+#: dictee-setup.py:4411
 msgid "Manage LLM profiles"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4427
+#: dictee-setup.py:4427
 msgid "Duplicate"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4499
+#: dictee-setup.py:4499
 msgid "(copy)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4536
+#: dictee-setup.py:4536
 msgid "Built-in profiles cannot be deleted."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4540
+#: dictee-setup.py:4540
 #, python-brace-format
 msgid "Delete profile '{name}'?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4550
+#: dictee-setup.py:4550
 msgid "Import profile"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4588
+#: dictee-setup.py:4588
 #, python-brace-format
 msgid "{n} profile(s) imported."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4599
+#: dictee-setup.py:4599
 msgid "Export profile"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4613
+#: dictee-setup.py:4613
 #, python-brace-format
 msgid ""
 "Profile exported to:\n"
 "{p}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4621
+#: dictee-setup.py:4621
 #, python-brace-format
 msgid ""
 "Could not save profiles:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4637
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4934
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5843
+#: dictee-setup.py:4637 dictee-setup.py:4934 dictee-setup.py:5843
 msgid "Voice dictation configuration"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4882
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5116
+#: dictee-setup.py:4882 dictee-setup.py:5116
 msgid "Post-processing"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4896
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5225
+#: dictee-setup.py:4896 dictee-setup.py:5225
 msgid "Apply"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:4978
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5112
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6847
+#: dictee-setup.py:4978 dictee-setup.py:5112 dictee-setup.py:6847
 msgid "Keyboard shortcut"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5049
+#: dictee-setup.py:5049
 msgid "LLM Diarization analysis"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5051
+#: dictee-setup.py:5051
 msgid ""
 "Configure providers (Ollama local, OpenAI-compatible, Anthropic) and "
 "analysis profiles (summary, chapters, ASR correction, custom) used to post-"
@@ -1067,127 +960,120 @@ msgid ""
 "via the <b>LLM analysis…</b> button — this page only manages configuration."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5062
+#: dictee-setup.py:5062
 msgid "Manage providers..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5064
+#: dictee-setup.py:5064
 msgid "Add, edit and test LLM providers (Ollama, OpenAI-compatible, Anthropic)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5068
+#: dictee-setup.py:5068
 msgid "Manage profiles..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5070
+#: dictee-setup.py:5070
 msgid "Add, edit, duplicate built-in or custom analysis profiles"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5108
+#: dictee-setup.py:5108
 msgid "Welcome"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5113
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5674
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6788
+#: dictee-setup.py:5113 dictee-setup.py:5674 dictee-setup.py:6788
 msgid "Visual feedback"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5114
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5682
+#: dictee-setup.py:5114 dictee-setup.py:5682
 msgid "Extra options"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5115
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5716
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6797
+#: dictee-setup.py:5115 dictee-setup.py:5716 dictee-setup.py:6797
 msgid "Notifications"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5122
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8956
+#: dictee-setup.py:5122 dictee-setup.py:8956
 msgid "LLM"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5124
+#: dictee-setup.py:5124
 msgid "LLM Diarization"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5125
+#: dictee-setup.py:5125
 msgid "About"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5215
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5843
+#: dictee-setup.py:5215 dictee-setup.py:5843
 msgid "Setup wizard"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5351
+#: dictee-setup.py:5351
 msgid "Source tree / git checkout"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5353
+#: dictee-setup.py:5353
 msgid "Unknown install type"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5388
+#: dictee-setup.py:5388
 #, python-brace-format
 msgid "Update check failed: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5407
+#: dictee-setup.py:5407
 msgid "No stable release found on GitHub."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5450
+#: dictee-setup.py:5450
 #, python-brace-format
 msgid "Update available: {latest} (installed: {cur})"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5454
+#: dictee-setup.py:5454
 msgid "Open release page"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5459
+#: dictee-setup.py:5459
 #, python-brace-format
 msgid "You are up to date ({ver})."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5463
+#: dictee-setup.py:5463
 #, python-brace-format
 msgid "Latest GitHub release: {latest} — installed: {cur}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5532
+#: dictee-setup.py:5532
 #, python-brace-format
 msgid "Installation: {label}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5550
+#: dictee-setup.py:5550
 msgid "Runtime: CUDA active (GPU acceleration)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5555
+#: dictee-setup.py:5555
 msgid "Runtime: CPU fallback (GPU detected but cuDNN missing)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5560
+#: dictee-setup.py:5560
 msgid "Runtime: CPU fallback (no NVIDIA GPU detected)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5563
+#: dictee-setup.py:5563
 msgid "Runtime: CPU only"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5572
+#: dictee-setup.py:5572
 msgid "Click \"Check for updates\" to query GitHub."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5581
+#: dictee-setup.py:5581
 msgid "Check for updates"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5604
+#: dictee-setup.py:5604
 msgid ""
 "<h3>Welcome to the dictee settings.</h3><p>Pick a section in the left pane "
 "to configure the ASR backend, keyboard shortcut, translation, audio/display "
@@ -1196,771 +1082,708 @@ msgid ""
 "p>"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5686
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6813
+#: dictee-setup.py:5686 dictee-setup.py:6813
 msgid "Copy transcription to clipboard"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5690
+#: dictee-setup.py:5690
 msgid "Audio context buffer"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5692
+#: dictee-setup.py:5692
 msgid ""
 "Accumulate audio from previous dictations to improve recognition of short or "
 "technical words at the start of sentences."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5697
+#: dictee-setup.py:5697
 msgid "Context duration (seconds):"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5698
+#: dictee-setup.py:5698
 msgid ""
 "Maximum duration of accumulated audio context. Also the inactivity timeout: "
 "the buffer expires after this many seconds without a non-empty dictation."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5709
+#: dictee-setup.py:5709
 msgid "Debug mode (log to /tmp)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5711
+#: dictee-setup.py:5711
 msgid ""
 "Write detailed logs to /tmp/dictee-debug-*.log for troubleshooting dictation "
 "and continuation issues."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5720
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6802
+#: dictee-setup.py:5720 dictee-setup.py:6802
 msgid "Show notifications"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5722
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6804
+#: dictee-setup.py:5722 dictee-setup.py:6804
 msgid "Show transcribed text in notifications"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5869
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10449
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11224
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1063
+#: dictee-setup.py:5869 dictee-setup.py:10449 dictee-setup.py:11224
+#: dictee-transcribe.py:1063
 msgid "Previous"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5873
+#: dictee-setup.py:5873
 msgid "Quit setup"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5882
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5904
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10454
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11229
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1059
+#: dictee-setup.py:5882 dictee-setup.py:5904 dictee-setup.py:10454
+#: dictee-setup.py:11229 dictee-transcribe.py:1059
 msgid "Next"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5896
+#: dictee-setup.py:5896
 #, python-brace-format
 msgid "Step {n} of {total}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5898
+#: dictee-setup.py:5898
 msgid "Finish"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5901
+#: dictee-setup.py:5901
 msgid "Start configuration"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5984
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5998
+#: dictee-setup.py:5984 dictee-setup.py:5998
 msgid "Model required"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5985
+#: dictee-setup.py:5985
 msgid "Please download the required model before continuing."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5989
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6003
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6008
+#: dictee-setup.py:5989 dictee-setup.py:6003 dictee-setup.py:6008
 msgid "Setup required"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5990
+#: dictee-setup.py:5990
 msgid "Vosk is not installed. Please click 'Install Vosk' above."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:5999
+#: dictee-setup.py:5999
 #, python-brace-format
 msgid "Please download the Vosk model for {lang} before continuing."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6004
+#: dictee-setup.py:6004
 msgid "faster-whisper is not installed. Please click 'Install Whisper' above."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6009
+#: dictee-setup.py:6009
 msgid ""
 "Canary model not downloaded. Please click 'Download Canary model' above."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6022
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6032
+#: dictee-setup.py:6022 dictee-setup.py:6032
 msgid "Group required"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6023
+#: dictee-setup.py:6023
 msgid ""
 "Your user must be in the 'input' group for keyboard shortcuts.\n"
 "Please click 'Fix' above."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6033
+#: dictee-setup.py:6033
 msgid ""
 "Docker permissions are required for LibreTranslate.\n"
 "Please click 'Fix permissions' above."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6137
+#: dictee-setup.py:6137
 msgid "Speak freely, type instantly"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6143
+#: dictee-setup.py:6143
 #, python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6184
+#: dictee-setup.py:6184
 msgid "GPU detected"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6226
+#: dictee-setup.py:6226
 msgid "Your configuration"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6240
+#: dictee-setup.py:6240
 msgid "free"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6242
+#: dictee-setup.py:6242
 msgid "No dedicated GPU"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6247
+#: dictee-setup.py:6247
 msgid "Recommended"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6256
+#: dictee-setup.py:6256
 msgid "Choose a speech recognition engine"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6265
+#: dictee-setup.py:6265
 msgid "25 languages (FR, EN, DE, ES, IT, PT...)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6266
+#: dictee-setup.py:6266
 msgid "Excellent transcription quality (WER ~8% FR, ~2% EN)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6267
+#: dictee-setup.py:6267
 msgid "Runs on CPU or GPU (GPU 5x faster)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6268
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6292
+#: dictee-setup.py:6268 dictee-setup.py:6292
 msgid "Speaker diarization with Sortformer add-on"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6269
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6283
+#: dictee-setup.py:6269 dictee-setup.py:6283
 #, python-format
 msgid "100% local, no internet needed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6272
+#: dictee-setup.py:6272
 msgid "9 languages available"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6273
+#: dictee-setup.py:6273
 msgid "Very lightweight (50 Mo per language)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6274
+#: dictee-setup.py:6274
 msgid "Minimal RAM usage (~200 Mo)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6275
+#: dictee-setup.py:6275
 msgid "Ideal for older or low-resource machines"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6276
+#: dictee-setup.py:6276
 #, python-format
 msgid "100% local, CPU only"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6279
+#: dictee-setup.py:6279
 msgid "99 languages (widest coverage)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6280
+#: dictee-setup.py:6280
 msgid "Multiple model sizes (tiny to large-v3)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6281
+#: dictee-setup.py:6281
 msgid "Good for rare languages"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6282
+#: dictee-setup.py:6282
 msgid "Runs on CPU or GPU"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6289
+#: dictee-setup.py:6289
 msgid "25 languages with built-in translation (25 langs to/from English)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6290
+#: dictee-setup.py:6290
 msgid "No external translation service needed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6291
+#: dictee-setup.py:6291
 msgid "Excellent accuracy, comparable to Parakeet"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6293
+#: dictee-setup.py:6293
 #, python-format
 msgid "100% local, requires NVIDIA GPU (6+ Go VRAM)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6333
+#: dictee-setup.py:6333
 msgid ""
 "All engines can be installed side by side if your system allows it. You can "
 "switch between them at any time."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6336
+#: dictee-setup.py:6336
 msgid ""
 "Translation services (Google, LibreTranslate, Ollama) can be configured at "
 "the next step for engines without built-in translation."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6497
+#: dictee-setup.py:6497
 msgid "Keyboard shortcuts"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6499
+#: dictee-setup.py:6499
 msgid "Configure the keyboard shortcuts for voice dictation."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6514
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6524
+#: dictee-setup.py:6514 dictee-setup.py:6524
 #, python-format
 msgid "100% local, no data sent to the internet"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6515
+#: dictee-setup.py:6515
 msgid "Runs in Docker, automatic setup"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6516
+#: dictee-setup.py:6516
 msgid "~20 languages available"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6517
+#: dictee-setup.py:6517
 msgid "Fast (~0.2s per sentence)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6519
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6529
+#: dictee-setup.py:6519 dictee-setup.py:6529
 msgid "Local"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6525
+#: dictee-setup.py:6525
 msgid "Uses LLM models (translategemma, etc.)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6526
+#: dictee-setup.py:6526
 msgid "Good quality for common language pairs"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6527
+#: dictee-setup.py:6527
 msgid "Slower than other backends (~2-3s)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6529
+#: dictee-setup.py:6529
 msgid "recommended"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6534
+#: dictee-setup.py:6534
 msgid "Best translation quality"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6535
+#: dictee-setup.py:6535
 msgid "100+ languages supported"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6536
+#: dictee-setup.py:6536
 msgid "Very fast (~0.3s)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6537
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6547
+#: dictee-setup.py:6537 dictee-setup.py:6547
 msgid "Free via translate-shell"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6539
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6549
+#: dictee-setup.py:6539 dictee-setup.py:6549
 msgid "Internet required"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6544
+#: dictee-setup.py:6544
 msgid "Good translation quality"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6545
+#: dictee-setup.py:6545
 msgid "Alternative to Google"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6546
+#: dictee-setup.py:6546
 msgid "Fast (~1-2s)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6573
+#: dictee-setup.py:6573
 msgid ""
 "Choose a translation backend (optional). Used when you press the translation "
 "shortcut."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6579
+#: dictee-setup.py:6579
 msgid "How to translate:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6580
+#: dictee-setup.py:6580
 msgid "Keyboard shortcut: configure in the shortcuts page"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6581
+#: dictee-setup.py:6581
 msgid "Plasmoid: long press or translation button"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6582
+#: dictee-setup.py:6582
 msgid "CLI: dictee --translate"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6583
+#: dictee-setup.py:6583
 msgid "Direct: transcribe-client | trans -b :en"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6594
+#: dictee-setup.py:6594
 msgid "Built-in translation (25 languages to/from English)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6595
+#: dictee-setup.py:6595
 msgid "No external service needed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6596
+#: dictee-setup.py:6596
 msgid "Active — translation is handled by the Canary engine"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6597
+#: dictee-setup.py:6597
 msgid "Integrated"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6597
+#: dictee-setup.py:6597
 msgid "No configuration needed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6603
+#: dictee-setup.py:6603
 msgid ""
 "Canary transcribes and translates in a single pass — both are handled by the "
 "same ASR model. To use a separate translation service instead, switch to a "
 "different ASR engine."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6608
+#: dictee-setup.py:6608
 msgid "Change ASR backend"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6737
+#: dictee-setup.py:6737
 msgid ""
 "Translation is integrated into the Canary engine. Configure source and "
 "target languages below."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6773
+#: dictee-setup.py:6773
 msgid "Microphone, display and services"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6834
+#: dictee-setup.py:6834
 msgid "Let's verify that everything works correctly."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6845
+#: dictee-setup.py:6845
 msgid "ASR service"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6846
+#: dictee-setup.py:6846
 msgid "ASR model"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6848
+#: dictee-setup.py:6848
 msgid "Audio (PipeWire/PulseAudio)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6849
+#: dictee-setup.py:6849
 msgid "dotool"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6864
+#: dictee-setup.py:6864
 msgid "Dictation test"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6868
+#: dictee-setup.py:6868
 msgid "Click the button below and speak for a few seconds."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6872
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13817
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13849
+#: dictee-setup.py:6872 dictee-setup.py:13817 dictee-setup.py:13849
 msgid "Test dictation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6878
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13858
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13913
+#: dictee-setup.py:6878 dictee-setup.py:13858 dictee-setup.py:13913
 msgid "Test translation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:6886
+#: dictee-setup.py:6886
 msgid "Result will appear here…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7003
+#: dictee-setup.py:7003
 msgid "Activation mode"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7007
+#: dictee-setup.py:7007
 msgid "Hold (push-to-talk)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7008
+#: dictee-setup.py:7008
 msgid "Toggle (press twice)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7009
+#: dictee-setup.py:7009
 msgid ""
 "Hold: hold key to record, release to transcribe Toggle: press to start, "
 "press again to stop"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7019
+#: dictee-setup.py:7019
 msgid "Voice dictation key"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7024
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7078
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14112
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14132
+#: dictee-setup.py:7024 dictee-setup.py:7078 dictee-setup.py:14112
+#: dictee-setup.py:14132
 #, python-brace-format
 msgid "Key: {name}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7041
+#: dictee-setup.py:7041
 msgid "Dictation + Translation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7046
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7147
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14184
+#: dictee-setup.py:7046 dictee-setup.py:7147 dictee-setup.py:14184
 msgid "Same key + Alt"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7047
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7148
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14185
+#: dictee-setup.py:7047 dictee-setup.py:7148 dictee-setup.py:14185
 msgid "Same key + Ctrl"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7048
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7150
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14187
+#: dictee-setup.py:7048 dictee-setup.py:7150 dictee-setup.py:14187
 msgid "Same key + Shift"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7049
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7151
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14188
+#: dictee-setup.py:7049 dictee-setup.py:7151 dictee-setup.py:14188
 msgid "Separate key"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7050
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7152
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14189
+#: dictee-setup.py:7050 dictee-setup.py:7152 dictee-setup.py:14189
 msgid "Disabled"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7105
+#: dictee-setup.py:7105
 msgid ""
 "Your user is not in the 'input' group (required for keyboard shortcuts)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7109
+#: dictee-setup.py:7109
 msgid "Fix (requires password)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7125
+#: dictee-setup.py:7125
 msgid "User added to 'input' group. Log out and back in to activate."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7128
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7130
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14706
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14760
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14872
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15123
+#: dictee-setup.py:7128 dictee-setup.py:7130 dictee-setup.py:14706
+#: dictee-setup.py:14760 dictee-setup.py:14872 dictee-setup.py:15123
 msgid "Error"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7143
+#: dictee-setup.py:7143
 msgid "Voice commands cheatsheet"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7149
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14186
+#: dictee-setup.py:7149 dictee-setup.py:14186
 msgid "Same key + Ctrl + Alt"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7199
+#: dictee-setup.py:7199
 msgid ""
 "Main transcription model. Required for all dictation modes. Supports 25 "
 "languages with native punctuation and capitalization."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7201
+#: dictee-setup.py:7201
 msgid ""
 "Speaker diarization add-on. Identifies up to 4 speakers in a recording. "
 "Optional — only needed for speaker identification."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7203
+#: dictee-setup.py:7203
 msgid ""
 "Real-time English streaming with speaker diarization. English only. "
 "Processes audio in live chunks for low-latency results. Optional — only "
 "needed for live English transcription with speaker identification."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7229
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14968
+#: dictee-setup.py:7229 dictee-setup.py:14968
 msgid "Requires Parakeet-TDT 0.6B v3 to be installed first"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7234
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7295
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7534
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7779
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7842
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14941
+#: dictee-setup.py:7234 dictee-setup.py:7295 dictee-setup.py:7534
+#: dictee-setup.py:7779 dictee-setup.py:7842 dictee-setup.py:14941
 msgid "Delete model"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7288
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7418
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7489
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7527
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7673
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8189
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9604
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9796
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9822
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14391
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14412
+#: dictee-setup.py:7288 dictee-setup.py:7418 dictee-setup.py:7489
+#: dictee-setup.py:7527 dictee-setup.py:7673 dictee-setup.py:8189
+#: dictee-setup.py:9604 dictee-setup.py:9796 dictee-setup.py:9822
+#: dictee-setup.py:14391 dictee-setup.py:14412
 msgid "Download"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7314
+#: dictee-setup.py:7314
 msgid "Uninstall Vosk engine"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7415
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7670
+#: dictee-setup.py:7415 dictee-setup.py:7670
 msgid "Model downloaded and ready"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7417
+#: dictee-setup.py:7417
 msgid "Select a language and click Download"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7429
+#: dictee-setup.py:7429
 msgid "Delete Vosk model '{}'?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7491
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9824
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14414
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14781
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14934
+#: dictee-setup.py:7491 dictee-setup.py:9824 dictee-setup.py:14414
+#: dictee-setup.py:14781 dictee-setup.py:14934
 msgid "Download error"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7491
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15027
+#: dictee-setup.py:7491 dictee-setup.py:15027
 msgid "Unknown error"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7516
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8169
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9594
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1543
+#: dictee-setup.py:7516 dictee-setup.py:8169 dictee-setup.py:9594
+#: dictee-transcribe.py:1543
 msgid "Model:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7538
+#: dictee-setup.py:7538
 msgid "Transcription language:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7592
+#: dictee-setup.py:7592
 msgid "(empty = uses source language)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7614
+#: dictee-setup.py:7614
 msgid "Uninstall Whisper engine"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7672
+#: dictee-setup.py:7672
 msgid "Select a model and click Download"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7684
+#: dictee-setup.py:7684
 msgid "Delete model '{}'?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7747
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7837
+#: dictee-setup.py:7747 dictee-setup.py:7837
 msgid "Download failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7820
+#: dictee-setup.py:7820
 msgid "Downloading..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7843
+#: dictee-setup.py:7843
 msgid "Delete Canary model and free disk space?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7864
+#: dictee-setup.py:7864
 msgid "Delete failed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7865
+#: dictee-setup.py:7865
 msgid "Could not delete model files (permission denied)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7870
+#: dictee-setup.py:7870
 msgid "animation-speech (overlay)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7871
+#: dictee-setup.py:7871
 msgid "KDE Plasma widget (panel)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7872
+#: dictee-setup.py:7872
 msgid "GNOME Shell extension (not yet available)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7893
+#: dictee-setup.py:7893
 msgid "Show notification area icon"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7905
+#: dictee-setup.py:7905
 msgid ""
 "animation-speech requires a Wayland compositor with layer-shell support "
 "(KDE, Sway, Hyprland…). It does not work on GNOME."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7920
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14306
+#: dictee-setup.py:7920 dictee-setup.py:14306
 msgid "Install animation-speech"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7938
+#: dictee-setup.py:7938
 msgid ""
 "Translation is built into the Canary engine — no external service needed.\n"
 "Supported: 25 languages ↔ English (48 pairs).\n"
 "For other pairs (e.g. FR→DE), switch to a different ASR backend."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7972
+#: dictee-setup.py:7972
 msgid "Source language:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7974
+#: dictee-setup.py:7974
 msgid "Target language:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:7980
+#: dictee-setup.py:7980
 msgid "Swap source and target languages"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8038
+#: dictee-setup.py:8038
 msgid "Backend:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8043
+#: dictee-setup.py:8043
 msgid "Google Translate (cloud)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8044
+#: dictee-setup.py:8044
 msgid "Bing (cloud)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8045
+#: dictee-setup.py:8045
 msgid "LibreTranslate (local)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8046
+#: dictee-setup.py:8046
 msgid "ollama (local)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8065
+#: dictee-setup.py:8065
 msgid "Port:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8083
+#: dictee-setup.py:8083
 msgid "Languages to load in LibreTranslate:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8086
+#: dictee-setup.py:8086
 msgid "Deselect all"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8114
+#: dictee-setup.py:8114
 msgid "Restart with new languages"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8131
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14779
+#: dictee-setup.py:8131 dictee-setup.py:14779
 msgid "Download image"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8135
+#: dictee-setup.py:8135
 msgid "Start"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8139
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10698
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1863
+#: dictee-setup.py:8139 dictee-setup.py:10698 dictee-transcribe.py:1863
 msgid "Stop"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8143
+#: dictee-setup.py:8143
 msgid "Purge models"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8145
+#: dictee-setup.py:8145
 msgid ""
 "LibreTranslate keeps every language model you have ever downloaded on disk, "
 "even after you remove a language from the selection. It filters at load "
@@ -1969,19 +1792,19 @@ msgid ""
 "reclaim disk space after many language changes."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8183
+#: dictee-setup.py:8183
 msgid "Force CPU (OLLAMA_NUM_GPU=0)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8186
+#: dictee-setup.py:8186
 msgid "Use CPU instead of GPU for ollama inference (slower but no VRAM needed)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8398
+#: dictee-setup.py:8398
 msgid "Visualisation interactive des pipelines de post-traitement"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8411
+#: dictee-setup.py:8411
 msgid ""
 "<b>Que voyez-vous ici ?</b><br>Deux chaînes de traitement appliquées au "
 "texte reconnu par l'ASR, dans l'ordre d'exécution de gauche à droite."
@@ -2004,59 +1827,56 @@ msgid ""
 "qu'ils soient dégradés par les règles typo / LLM."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8532
+#: dictee-setup.py:8532
 msgid "Enable PP"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8546
+#: dictee-setup.py:8546
 msgid ""
 "For transcriptions with fewer than N words, remove trailing punctuation and "
 "lowercase capitalized words."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8550
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8643
+#: dictee-setup.py:8550 dictee-setup.py:8643
 msgid "<"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8561
+#: dictee-setup.py:8561
 msgid ""
 "Maximum word count for a transcription to be considered \"short\" and "
 "receive the short-text treatment."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8565
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8659
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12480
+#: dictee-setup.py:8565 dictee-setup.py:8659 dictee-setup.py:12480
 msgid "words"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8575
+#: dictee-setup.py:8575
 msgid "Exceptions"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8578
+#: dictee-setup.py:8578
 msgid ""
 "Enable the short-text exceptions list. Words and expressions from the list "
 "keep their capitalization when dictated alone — greetings, formal openings/"
 "closings, courtesies…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8580
+#: dictee-setup.py:8580
 msgid "Exceptions…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8581
+#: dictee-setup.py:8581
 msgid ""
 "Edit the short-text capitalization exceptions. Shared for all languages "
 "(source and target) — greetings, courtesies, formal correspondence."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8586
+#: dictee-setup.py:8586
 msgid "Extended match"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8589
+#: dictee-setup.py:8589
 msgid ""
 "Apply the exception matching beyond short texts: • A full list expression "
 "(\"to whom it may concern\", \"je vous prie de croire\") triggers keepcaps "
@@ -2065,81 +1885,81 @@ msgid ""
 "period+continuation word. Disable if you find the behavior too aggressive."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8609
+#: dictee-setup.py:8609
 msgid "Enable PP for translation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8611
+#: dictee-setup.py:8611
 msgid ""
 "When enabled, the translated text is passed through the translation post-"
 "processing pipeline (orange), with the target language as reference."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8634
+#: dictee-setup.py:8634
 msgid ""
 "Apply the short-text fix to translated text. Useful when the translation "
 "backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8654
+#: dictee-setup.py:8654
 msgid ""
 "Maximum word count for a translated transcription to be considered \"short\" "
 "and receive the short-text treatment."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8706
+#: dictee-setup.py:8706
 msgid "Shared source + target. Words from the list keep their capital."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8727
+#: dictee-setup.py:8727
 msgid "Diarisation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8729
+#: dictee-setup.py:8729
 msgid ""
 "en mode multi-locuteurs, le texte brut est conservé tel quel (ni post-"
 "processing, ni traduction, ni LLM) pour préserver les labels "
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8785
+#: dictee-setup.py:8785
 msgid "Number conversion (text2num)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8799
+#: dictee-setup.py:8799
 msgid "text2num not installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8800
+#: dictee-setup.py:8800
 msgid "Reinstall dictee, or manually:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8811
+#: dictee-setup.py:8811
 msgid "Auto-capitalization"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8816
+#: dictee-setup.py:8816
 msgid "LLM grammar correction (ollama)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8864
+#: dictee-setup.py:8864
 msgid ""
 "Enable this step in the normal pipeline. Stays ON while the translation "
 "pipeline has it active."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:8976
+#: dictee-setup.py:8976
 msgid "Edit mode"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9227
+#: dictee-setup.py:9227
 msgid "Regex rules — caution"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9230
+#: dictee-setup.py:9230
 msgid "Advanced feature"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9232
+#: dictee-setup.py:9232
 msgid ""
 "Incorrect rules can break transcription output. Rules are applied in order: "
 "a misplaced or wrong pattern may silently delete or corrupt text.\n"
@@ -2147,106 +1967,103 @@ msgid ""
 "Use the test panel below to verify your changes before saving."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9236
+#: dictee-setup.py:9236
 msgid "Don't show this warning again"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9382
+#: dictee-setup.py:9382
 msgid "Number conversion unavailable"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9384
+#: dictee-setup.py:9384
 msgid ""
 "text2num is not installed on this system. It should have been installed "
 "automatically with dictee."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9387
+#: dictee-setup.py:9387
 msgid "To install it manually, run:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9392
+#: dictee-setup.py:9392
 msgid "Then restart dictee-setup."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9403
+#: dictee-setup.py:9403
 msgid "PP Normal"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9407
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15219
+#: dictee-setup.py:9407 dictee-setup.py:15219
 msgid "Traduction"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9409
+#: dictee-setup.py:9409
 msgid "PP Traduction"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9559
+#: dictee-setup.py:9559
 msgid "Hybrid (recommended)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9560
+#: dictee-setup.py:9560
 msgid "At start"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9561
+#: dictee-setup.py:9561
 msgid "At end"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9576
+#: dictee-setup.py:9576
 msgid "Position in chain:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9585
+#: dictee-setup.py:9585
 msgid "Rescan installed Ollama models"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9628
+#: dictee-setup.py:9628
 msgid "Default"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9630
+#: dictee-setup.py:9630
 msgid "Custom"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9635
+#: dictee-setup.py:9635
 msgid "System prompt:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9663
+#: dictee-setup.py:9663
 msgid "Force CPU (free GPU VRAM)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9702
+#: dictee-setup.py:9702
 msgid "not installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9775
+#: dictee-setup.py:9775
 msgid "Ollama is not installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9783
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14372
+#: dictee-setup.py:9783 dictee-setup.py:14372
 msgid "Ollama service is not running"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9789
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14380
+#: dictee-setup.py:9789 dictee-setup.py:14380
 #, python-brace-format
 msgid "Model {model} ready"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9793
+#: dictee-setup.py:9793
 #, python-brace-format
 msgid "Model {model} not installed — run"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:9830
+#: dictee-setup.py:9830
 msgid "Entrez votre prompt ici"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10109
+#: dictee-setup.py:10109
 #, python-brace-format
 msgid ""
 "Language-specific rules (elisions, contractions, typography) applied to the "
@@ -2254,39 +2071,39 @@ msgid ""
 "source language will be active."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10121
+#: dictee-setup.py:10121
 msgid "Elisions"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10124
+#: dictee-setup.py:10124
 msgid ""
 "Applies French elision rules.\n"
 "Example: \"le arbre\" → \"l'arbre\",\n"
 "\"de eau\" → \"d'eau\""
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10128
+#: dictee-setup.py:10128
 msgid "Typography (non-breaking spaces)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10131
+#: dictee-setup.py:10131
 msgid ""
 "Inserts non-breaking spaces before French\n"
 "punctuation marks (: ; ! ? « »)\n"
 "as required by French typography rules."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10141
+#: dictee-setup.py:10141
 msgid ""
 "No specific rules needed. Contractions (don't, I'm, can't) are handled "
 "natively by the ASR engine."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10152
+#: dictee-setup.py:10152
 msgid "Elisions & contractions"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10155
+#: dictee-setup.py:10155
 msgid ""
 "Italian elisions and prepositional contractions.\n"
 "Elisions: \"lo uomo\" → \"l'uomo\", \"di accordo\" → \"d'accordo\"\n"
@@ -2294,35 +2111,33 @@ msgid ""
 "\"in il\" → \"nel\", \"su la\" → \"sulla\""
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10167
+#: dictee-setup.py:10167
 msgid "Contractions & inverted punctuation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10170
+#: dictee-setup.py:10170
 msgid ""
 "Spanish contractions and inverted punctuation.\n"
 "Contractions: \"a el\" → \"al\", \"de el\" → \"del\"\n"
 "Punctuation: adds ¿ before questions and ¡ before exclamations."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10181
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10210
+#: dictee-setup.py:10181 dictee-setup.py:10210
 msgid "Contractions"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10184
+#: dictee-setup.py:10184
 msgid ""
 "Portuguese fused contractions.\n"
 "\"de o\" → \"do\", \"em a\" → \"na\", \"por os\" → \"pelos\",\n"
 "\"de este\" → \"deste\", \"em ele\" → \"nele\""
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10195
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10224
+#: dictee-setup.py:10195 dictee-setup.py:10224
 msgid "Contractions & typography"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10198
+#: dictee-setup.py:10198
 msgid ""
 "German contractions and typography.\n"
 "Contractions: \"an dem\" → \"am\", \"in dem\" → \"im\",\n"
@@ -2330,25 +2145,25 @@ msgid ""
 "Typography: \"text\" → \\u201etext\\u201c (German quotes)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10213
+#: dictee-setup.py:10213
 msgid ""
 "Dutch contractions and time expressions.\n"
 "\"het\" → \"'t\", \"een\" → \"'n\"\n"
 "\"in de morgens\" → \"'s morgens\""
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10227
+#: dictee-setup.py:10227
 msgid ""
 "Romanian contractions and typography.\n"
 "\"nu am\" → \"n-am\", \"într o\" → \"într-o\"\n"
 "Typography: \"text\" → \\u201etext\\u201c (Romanian quotes)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10246
+#: dictee-setup.py:10246
 msgid "Command suffix:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10248
+#: dictee-setup.py:10248
 msgid ""
 "<b>Command suffix</b><br><br>Some voice commands use words that also exist "
 "as normal words. The suffix is a word you say <b>after</b> the ambiguous "
@@ -2374,124 +2189,115 @@ msgid ""
 "<br><br>Leave empty to disable suffix-based commands for that language."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10314
+#: dictee-setup.py:10314
 msgid "Add a rule"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10333
+#: dictee-setup.py:10333
 msgid "Pattern (what the ASR says)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10339
+#: dictee-setup.py:10339
 msgid "Replacement (\\n = newline)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10347
+#: dictee-setup.py:10347
 msgid "i = case-insensitive, g = global, m = multiline"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10352
+#: dictee-setup.py:10352
 msgid "Insert:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10360
+#: dictee-setup.py:10360
 msgid "at end"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10361
+#: dictee-setup.py:10361
 msgid "at beginning"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10376
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10707
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10730
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10731
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15389
+#: dictee-setup.py:10376 dictee-setup.py:10707 dictee-setup.py:10730
+#: dictee-setup.py:10731 dictee-setup.py:15389
 msgid "Record"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10377
+#: dictee-setup.py:10377
 msgid "Record audio, transcribe, and fill the pattern field"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10474
+#: dictee-setup.py:10474
 msgid "Undo (Ctrl+Z)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10480
+#: dictee-setup.py:10480
 msgid "Redo (Ctrl+Shift+Z)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10488
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11254
+#: dictee-setup.py:10488 dictee-setup.py:11254
 msgid "Search (Ctrl+F)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10492
+#: dictee-setup.py:10492
 msgid "Send current line to the test panel"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10497
+#: dictee-setup.py:10497
 msgid "Restore defaults"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10498
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11276
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12354
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1325
+#: dictee-setup.py:10498 dictee-setup.py:11276 dictee-setup.py:12354
+#: dictee-transcribe.py:1325
 msgid "Save"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10519
+#: dictee-setup.py:10519
 msgid ""
 "Voice commands are language-specific.\n"
 "Please select a language instead of *."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10678
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3051
+#: dictee-setup.py:10678 dictee-transcribe.py:3060
 msgid "Transcribing..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10706
+#: dictee-setup.py:10706
 msgid "pw-record not found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10824
+#: dictee-setup.py:10824
 msgid "At cursor"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10825
+#: dictee-setup.py:10825
 msgid "End of file"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10850
+#: dictee-setup.py:10850
 msgid "all languages"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10852
+#: dictee-setup.py:10852
 #, python-brace-format
 msgid "Testing as: {lang}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10858
+#: dictee-setup.py:10858
 #, python-brace-format
 msgid "Testing as: {lang} (config)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10871
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11883
+#: dictee-setup.py:10871 dictee-setup.py:11883
 #, python-brace-format
 msgid "Line {n}: invalid syntax: {line}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10877
+#: dictee-setup.py:10877
 #, python-brace-format
 msgid "Line {n}: invalid regex: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10911
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11780
+#: dictee-setup.py:10911 dictee-setup.py:11780
 #, python-brace-format
 msgid ""
 "Cannot save — syntax error:\n"
@@ -2499,99 +2305,91 @@ msgid ""
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10913
+#: dictee-setup.py:10913
 msgid "Rules saved."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10926
+#: dictee-setup.py:10926
 msgid "Default rules restored."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:10928
+#: dictee-setup.py:10928
 msgid "Default rules file not found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11165
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11420
+#: dictee-setup.py:11165 dictee-setup.py:11420
 msgid "All languages"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11264
+#: dictee-setup.py:11264
 msgid "Undo last change"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11271
+#: dictee-setup.py:11271
 msgid "Redo last undone change"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11277
+#: dictee-setup.py:11277
 msgid "Save all changes to disk"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11283
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12361
+#: dictee-setup.py:11283 dictee-setup.py:12361
 msgid "Revert to saved"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11284
+#: dictee-setup.py:11284
 msgid "Discard all unsaved changes and reload the last saved version"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11288
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12366
+#: dictee-setup.py:11288 dictee-setup.py:12366
 msgid "Factory reset"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11289
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12367
+#: dictee-setup.py:11289 dictee-setup.py:12367
 msgid "Restore factory defaults"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11362
+#: dictee-setup.py:11362
 msgid "Add words that the ASR transcribes incorrectly."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11373
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11393
+#: dictee-setup.py:11373 dictee-setup.py:11393
 msgid "entries"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11373
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11393
+#: dictee-setup.py:11373 dictee-setup.py:11393
 msgid "entry"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11468
+#: dictee-setup.py:11468
 msgid "Word"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11477
+#: dictee-setup.py:11477
 msgid "Replacement"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11485
+#: dictee-setup.py:11485
 msgid "Confirm this entry"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11658
+#: dictee-setup.py:11658
 #, python-brace-format
 msgid "Word cannot contain '=': {word}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11784
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11794
+#: dictee-setup.py:11784 dictee-setup.py:11794
 msgid "Dictionary saved."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11889
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12890
+#: dictee-setup.py:11889 dictee-setup.py:12890
 msgid ""
 "Revert to the last saved version?\n"
 "\n"
 "All unsaved changes will be lost."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11935
+#: dictee-setup.py:11935
 msgid ""
 "Restore factory defaults?\n"
 "\n"
@@ -2599,16 +2397,15 @@ msgid ""
 "Click Save afterwards to make it permanent."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:11950
+#: dictee-setup.py:11950
 msgid "Default dictionary file not found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12050
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12065
+#: dictee-setup.py:12050 dictee-setup.py:12065
 msgid "Other"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12148
+#: dictee-setup.py:12148
 msgid ""
 "Continuation words are words that never end a sentence (articles, "
 "prepositions, conjunctions, pronouns, auxiliaries...).\n"
@@ -2624,12 +2421,11 @@ msgid ""
 "per language below."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12173
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12185
+#: dictee-setup.py:12173 dictee-setup.py:12185
 msgid "Explanation"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12194
+#: dictee-setup.py:12194
 msgid ""
 "Sometimes automatic continuation does not work as expected — the ASR may not "
 "place a period, or the last word may not be in the list above. In that case, "
@@ -2637,11 +2433,11 @@ msgid ""
 "manually."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12207
+#: dictee-setup.py:12207
 msgid "Continuation keyword:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12209
+#: dictee-setup.py:12209
 msgid ""
 "<b>Continuation keyword</b><br><br>The continuation system automatically "
 "joins sentences when the ASR incorrectly places a period after a closed-"
@@ -2660,11 +2456,11 @@ msgid ""
 "<br><br>Leave empty to disable for that language."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12251
+#: dictee-setup.py:12251
 msgid "Visual indicator:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12253
+#: dictee-setup.py:12253
 msgid ""
 "<b>Continuation visual indicator</b><br><br>Character(s) appended to the "
 "typed text when continuation is pending. The next push erases them "
@@ -2674,302 +2470,292 @@ msgid ""
 "clipboard intact."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12355
+#: dictee-setup.py:12355
 msgid "Save continuation words to disk"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12362
+#: dictee-setup.py:12362
 msgid "Discard all unsaved changes"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12480
+#: dictee-setup.py:12480
 msgid "word"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12576
+#: dictee-setup.py:12576
 msgid "(none)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12582
+#: dictee-setup.py:12582
 msgid "Add a word..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12699
+#: dictee-setup.py:12699
 #, python-brace-format
 msgid "'{word}' is already in the system list."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12766
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12781
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12787
+#: dictee-setup.py:12766 dictee-setup.py:12781 dictee-setup.py:12787
 msgid "System words"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12787
+#: dictee-setup.py:12787
 msgid "Your words"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12885
+#: dictee-setup.py:12885
 msgid "Continuation words saved."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12925
+#: dictee-setup.py:12925
 msgid "(disabled)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12950
+#: dictee-setup.py:12950
 #, python-brace-format
 msgid ", … (+{n} more)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12954
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12955
+#: dictee-setup.py:12954 dictee-setup.py:12955
 msgid "Accepted: "
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:12985
+#: dictee-setup.py:12985
 msgid ""
 "Remove all your custom continuation words?\n"
 "\n"
 "System words will remain unchanged."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13168
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13669
+#: dictee-setup.py:13168 dictee-setup.py:13669
 msgid "System default"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13178
+#: dictee-setup.py:13178
 msgid "Refresh audio sources"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13182
+#: dictee-setup.py:13182
 msgid "Audio source:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13188
+#: dictee-setup.py:13188
 msgid "Volume:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13232
+#: dictee-setup.py:13232
 msgid "Silence threshold:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13233
+#: dictee-setup.py:13233
 msgid ""
 "RMS level below which the recording is considered silent and transcription "
 "is skipped. Prevents ASR hallucinations (parasitic phrases invented on "
 "background noise)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13267
+#: dictee-setup.py:13267
 msgid ""
 "⚠ Trop bas → l'ASR peut halluciner sur le bruit de fond. Trop haut → risque "
 "de couper les voix douces."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13296
+#: dictee-setup.py:13296
 msgid "Tester le réglage du seuil :"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13307
+#: dictee-setup.py:13307
 msgid ""
 "Record a sample, measure its RMS, check whether the current silence "
 "threshold would skip or transcribe it. Press again to stop."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13426
+#: dictee-setup.py:13426
 msgid "(ASR daemon unreachable)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13483
+#: dictee-setup.py:13483
 msgid "Pause"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13483
+#: dictee-setup.py:13483
 msgid "Play"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13524
+#: dictee-setup.py:13524
 msgid "Silence détecté — skippé"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13708
+#: dictee-setup.py:13708
 msgid "Not found"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13723
+#: dictee-setup.py:13723
 msgid "Everything is ready!"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13725
+#: dictee-setup.py:13725
 #, python-brace-format
 msgid "Press {key} anytime to dictate."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13824
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13840
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13865
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13904
+#: dictee-setup.py:13824 dictee-setup.py:13840 dictee-setup.py:13865
+#: dictee-setup.py:13904
 #, python-brace-format
 msgid "Recording… {n}s"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13842
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:705
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1184
+#: dictee-setup.py:13842 dictee-tray.py:705 dictee-tray.py:1184
 msgid "Transcribing…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:13906
+#: dictee-setup.py:13906
 msgid "Translating…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14123
+#: dictee-setup.py:14123
 #, python-brace-format
 msgid "Key '{key}' is not supported. Use a function key (F1-F12)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14138
+#: dictee-setup.py:14138
 #, python-brace-format
 msgid "Key '{key}' not supported"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14151
+#: dictee-setup.py:14151
 msgid ""
 "This key is used for typing. Prefer a function key (F1-F12) or a special key "
 "(Home, End, Insert, etc.)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14159
+#: dictee-setup.py:14159
 msgid "Escape is used to cancel dictation. Choose another key."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14265
+#: dictee-setup.py:14265
 #, python-brace-format
 msgid "animation-speech {version} installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14269
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14272
+#: dictee-setup.py:14269 dictee-setup.py:14272
 msgid "animation-speech installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14284
+#: dictee-setup.py:14284
 msgid "Dictee plasmoid installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14308
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15027
+#: dictee-setup.py:14308 dictee-setup.py:15027
 msgid "Installation error"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14321
+#: dictee-setup.py:14321
 msgid "ollama is not installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14343
+#: dictee-setup.py:14343
 #, python-brace-format
 msgid "RAM: {actual} GB / {required} GB recommended"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14352
+#: dictee-setup.py:14352
 #, python-brace-format
 msgid "VRAM free: {free} GB / {required} GB required (total: {total} GB)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14359
+#: dictee-setup.py:14359
 msgid "No GPU detected — ollama will use CPU (slower)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14387
+#: dictee-setup.py:14387
 #, python-brace-format
 msgid "Model {model} not downloaded"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14438
+#: dictee-setup.py:14438
 msgid "Docker is not installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14451
+#: dictee-setup.py:14451
 msgid "Docker daemon is not running and permissions are missing"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14453
+#: dictee-setup.py:14453
 msgid "Docker daemon is not running"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14455
+#: dictee-setup.py:14455
 msgid "Docker permission denied"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14459
+#: dictee-setup.py:14459
 msgid "Setup Docker (requires password)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14475
+#: dictee-setup.py:14475
 msgid "Docker image not downloaded (~2 GB)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14499
+#: dictee-setup.py:14499
 #, python-brace-format
 msgid "LibreTranslate running on port {port}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14529
+#: dictee-setup.py:14529
 #, python-brace-format
 msgid "Language(s) not supported by LibreTranslate: {langs}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14536
+#: dictee-setup.py:14536
 #, python-brace-format
 msgid "Language(s) not loaded: {langs}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14539
+#: dictee-setup.py:14539
 msgid "Restart to add missing languages."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14544
+#: dictee-setup.py:14544
 #, python-brace-format
 msgid "Available: {langs}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14555
+#: dictee-setup.py:14555
 msgid "LibreTranslate stopped"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14636
+#: dictee-setup.py:14636
 #, python-brace-format
 msgid "Changes: {changes}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14659
+#: dictee-setup.py:14659
 #, python-brace-format
 msgid "Restarting with languages: {langs}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14737
+#: dictee-setup.py:14737
 msgid "Setting up Docker…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14754
+#: dictee-setup.py:14754
 msgid "Docker started and permissions configured."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14795
+#: dictee-setup.py:14795
 msgid "Starting LibreTranslate…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14810
+#: dictee-setup.py:14810
 msgid "Stopping LibreTranslate…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14822
+#: dictee-setup.py:14822
 msgid "Purge downloaded models"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14823
+#: dictee-setup.py:14823
 msgid ""
 "This deletes every language model cached in the LibreTranslate volume, then "
 "re-downloads only the currently selected languages.\n"
@@ -2980,75 +2766,75 @@ msgid ""
 "Continue?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14840
+#: dictee-setup.py:14840
 msgid "Purging cached models and restarting…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14942
+#: dictee-setup.py:14942
 #, python-brace-format
 msgid "Delete {name} and free disk space?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14975
+#: dictee-setup.py:14975
 msgid "installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:14979
+#: dictee-setup.py:14979
 #, python-brace-format
 msgid "Install {name} engine"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15011
+#: dictee-setup.py:15011
 msgid ""
 "Now select a language in the combo box and click Download to fetch at least "
 "one Vosk language model — without it, Vosk cannot transcribe anything."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15015
+#: dictee-setup.py:15015
 msgid ""
 "Now pick a Whisper model (small / turbo / large-v3…) and click Download — "
 "Whisper cannot transcribe until at least one model is downloaded."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15020
+#: dictee-setup.py:15020
 #, python-brace-format
 msgid "{name} installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15021
+#: dictee-setup.py:15021
 #, python-brace-format
 msgid "{engine} engine installed successfully."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15043
+#: dictee-setup.py:15043
 msgid ""
 "The Canary model is not installed.\n"
 "\n"
 "Download it from the ASR backend page before enabling Canary."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15047
+#: dictee-setup.py:15047
 msgid ""
 "Canary requires the CUDA build of dictee (dictee-cuda .deb / .rpm).\n"
 "\n"
 "On a CPU-only install, Canary is too slow to be usable."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15054
+#: dictee-setup.py:15054
 msgid ""
 "Vosk is not installed.\n"
 "\n"
 "Click « Install Vosk » on the ASR backend page before enabling it."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15058
+#: dictee-setup.py:15058
 msgid ""
 "Vosk is installed, but no language model has been downloaded.\n"
 "\n"
 "Select a language in the Vosk combo box and click Download."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15063
+#: dictee-setup.py:15063
 #, python-brace-format
 msgid ""
 "The Vosk model for « {lang} » is not downloaded yet.\n"
@@ -3057,21 +2843,21 @@ msgid ""
 "model is already installed."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15070
+#: dictee-setup.py:15070
 msgid ""
 "faster-whisper is not installed.\n"
 "\n"
 "Click « Install Whisper » on the ASR backend page before enabling it."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15074
+#: dictee-setup.py:15074
 msgid ""
 "Whisper is installed, but no model has been downloaded.\n"
 "\n"
 "Pick a Whisper model (small / turbo / large-v3…) and click Download."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15078
+#: dictee-setup.py:15078
 #, python-brace-format
 msgid ""
 "The Whisper model « {model} » is not downloaded yet.\n"
@@ -3079,12 +2865,12 @@ msgid ""
 "Click Download next to it, or choose a model that is already available."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15108
+#: dictee-setup.py:15108
 #, python-brace-format
 msgid "Uninstall {name} engine"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15109
+#: dictee-setup.py:15109
 #, python-brace-format
 msgid ""
 "Delete the {name} virtual environment?\n"
@@ -3094,11 +2880,11 @@ msgid ""
 "Downloaded models will be kept."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15213
+#: dictee-setup.py:15213
 msgid "Isoler"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15214
+#: dictee-setup.py:15214
 msgid ""
 "OFF : exécute le pipeline complet (tous les toggles actifs). ON : exécute "
 "uniquement l'étape de la page actuellement ouverte, en forçant "
@@ -3106,137 +2892,132 @@ msgid ""
 "— utile pour voir l'effet d'une seule étape en isolation."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15221
+#: dictee-setup.py:15221
 msgid ""
 "OFF : teste le pipeline PP normal seul. ON : ajoute la traduction (+ PP "
 "traduction si activé)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15238
+#: dictee-setup.py:15238
 msgid "Type text or record..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15314
+#: dictee-setup.py:15314
 msgid "Clear input"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15368
+#: dictee-setup.py:15368
 msgid "Non enregistré"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15377
+#: dictee-setup.py:15377
 msgid "Output"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15397
+#: dictee-setup.py:15397
 msgid "Pipeline details"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15589
+#: dictee-setup.py:15589
 msgid "Test : global"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15592
+#: dictee-setup.py:15592
 #, python-brace-format
 msgid "Test : {page}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15697
+#: dictee-setup.py:15697
 msgid "dictee-postprocess not found"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15806
+#: dictee-setup.py:15806
 #, python-brace-format
 msgid "PP Normal → Traduction {src}→{tgt}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15810
+#: dictee-setup.py:15810
 #, python-brace-format
 msgid "PP Normal → Trad → PP Trad ({tgt})"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:15845
+#: dictee-setup.py:15845
 msgid "Timeout running post-processing"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16013
+#: dictee-setup.py:16013
 msgid "Timeout PP traduction"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16017
+#: dictee-setup.py:16017
 msgid "Translation post-processing disabled (master switch off)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16108
+#: dictee-setup.py:16108
 msgid "🔬 Solo mode: only this step runs."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16111
+#: dictee-setup.py:16111
 msgid "No pipeline steps ran."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16120
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16153
+#: dictee-setup.py:16120 dictee-setup.py:16153
 msgid "changed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16140
+#: dictee-setup.py:16140
 #, python-brace-format
 msgid "\\U0001f310 Translate: \\u201c{src}\\u201d \\u2192 \\u201c{tgt}\\u201d"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16144
+#: dictee-setup.py:16144
 #, python-brace-format
 msgid "⚠ Translation failed: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16162
+#: dictee-setup.py:16162
 #, python-brace-format
 msgid "⚠ PP Traduction: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16212
+#: dictee-setup.py:16212
 msgid "No ASR service is running. Start the default service?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16257
+#: dictee-setup.py:16257
 #, python-brace-format
 msgid "Silence detected (RMS {rms:.3f} < threshold {thr:.3f})"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16288
+#: dictee-setup.py:16288
 #, python-brace-format
 msgid "Cannot connect to ASR daemon: {err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16308
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16319
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4016
+#: dictee-setup.py:16308 dictee-setup.py:16319 dictee-transcribe.py:4034
 msgid "Module missing"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16309
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16320
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4017
+#: dictee-setup.py:16309 dictee-setup.py:16320 dictee-transcribe.py:4035
 #, python-brace-format
 msgid ""
 "Could not load LLM module:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16350
+#: dictee-setup.py:16350
 msgid "Applying"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16466
+#: dictee-setup.py:16466
 msgid "ASR backend not ready"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16534
+#: dictee-setup.py:16534
 msgid "LLM model not installed"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16535
+#: dictee-setup.py:16535
 #, python-brace-format
 msgid ""
 "The LLM model '{model}' is not installed in Ollama.\n"
@@ -3247,51 +3028,46 @@ msgid ""
 "Save the configuration anyway?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16625
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:571
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:987
+#: dictee-setup.py:16625 dictee-tray.py:571 dictee-tray.py:987
 msgid "Toggle voice commands cheatsheet"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16703
+#: dictee-setup.py:16703
 #, python-brace-format
 msgid ""
 "Warning: could not enable {svc} at boot.\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16737
+#: dictee-setup.py:16737
 #, python-brace-format
 msgid ""
 "Warning: {svc} is taking too long to start.\n"
 "It may still be loading the model."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16741
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16744
+#: dictee-setup.py:16741 dictee-setup.py:16744
 #, python-brace-format
 msgid ""
 "Warning: {svc} failed to start.\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16761
+#: dictee-setup.py:16761
 #, python-brace-format
 msgid "PTT key: {key} ({mode})"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16775
+#: dictee-setup.py:16775
 #, python-brace-format
 msgid "File: {path}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16779
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16785
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16790
+#: dictee-setup.py:16779 dictee-setup.py:16785 dictee-setup.py:16790
 msgid "Configuration saved"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16797
+#: dictee-setup.py:16797
 #, python-brace-format
 msgid ""
 "Cannot save rules — syntax error:\n"
@@ -3299,284 +3075,422 @@ msgid ""
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16824
+#: dictee-setup.py:16824
 #, python-brace-format
 msgid "Add: {langs}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16826
+#: dictee-setup.py:16826
 #, python-brace-format
 msgid "Remove: {langs}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16828
+#: dictee-setup.py:16828
 msgid "The LibreTranslate languages have changed."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16830
+#: dictee-setup.py:16830
 msgid "Restart the server now to apply changes?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16831
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16848
+#: dictee-setup.py:16831 dictee-setup.py:16848
 msgid "(This will download missing models if needed)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16834
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16851
+#: dictee-setup.py:16834 dictee-setup.py:16851
 msgid "LibreTranslate"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16845
+#: dictee-setup.py:16845
 msgid "LibreTranslate is not running."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-setup.py:16846
+#: dictee-setup.py:16846
 #, python-brace-format
 msgid "Start the server with {n} languages ({langs})?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:217
+#: dictee-tray.py:462 dictee-tray.py:718 dictee-tray.py:890 dictee-tray.py:1201
+msgid "Start dictation"
+msgstr ""
+
+#: dictee-tray.py:466 dictee-tray.py:891 dictee-tray.py:1203
+msgid "Start translation"
+msgstr ""
+
+#: dictee-tray.py:514 dictee-tray.py:932
+msgid "Transcribe a file..."
+msgstr ""
+
+#: dictee-tray.py:518 dictee-tray.py:934
+msgid "Meeting"
+msgstr ""
+
+#: dictee-tray.py:523 dictee-tray.py:940
+msgid ""
+"Meeting mode with speaker identification. Recommended for short recordings "
+"(< 5 min)."
+msgstr ""
+
+#: dictee-tray.py:527 dictee-tray.py:730 dictee-tray.py:944 dictee-tray.py:1214
+#: dictee-transcribe.py:1972
+msgid "Sortformer model not installed. Configure in dictee-setup."
+msgstr ""
+
+#: dictee-tray.py:533 dictee-tray.py:949
+msgid "Keep meeting active"
+msgstr ""
+
+#: dictee-tray.py:538 dictee-tray.py:955
+msgid "When unchecked, meeting mode is disabled after each recording."
+msgstr ""
+
+#: dictee-tray.py:543 dictee-tray.py:959
+msgid "LLM post-processing"
+msgstr ""
+
+#: dictee-tray.py:547 dictee-tray.py:964
+msgid ""
+"Enable LLM post-processing (grammar and spell correction via local Ollama "
+"model)."
+msgstr ""
+
+#: dictee-tray.py:551 dictee-tray.py:968
+msgid "Audio context"
+msgstr ""
+
+#: dictee-tray.py:555 dictee-tray.py:973
+msgid "Accumulate audio from previous dictations to improve recognition."
+msgstr ""
+
+#: dictee-tray.py:565 dictee-tray.py:983
+msgid "Enable short-text fix on both normal and translation pipelines."
+msgstr ""
+
+#: dictee-tray.py:575 dictee-tray.py:988
+msgid "Configure Dictée"
+msgstr ""
+
+#: dictee-tray.py:581 dictee-tray.py:990
+msgid "! Reset"
+msgstr ""
+
+#: dictee-tray.py:585 dictee-tray.py:991
+msgid "Quit icon"
+msgstr ""
+
+#: dictee-tray.py:704 dictee-tray.py:1183
+msgid "Daemon active"
+msgstr ""
+
+#: dictee-tray.py:704 dictee-tray.py:1183
+msgid "Recording…"
+msgstr ""
+
+#: dictee-tray.py:706 dictee-tray.py:1165 dictee-tray.py:1185
+msgid "Diarization in progress…"
+msgstr ""
+
+#: dictee-tray.py:707 dictee-tray.py:1166 dictee-tray.py:1186
+msgid "Preparing diarization…"
+msgstr ""
+
+#: dictee-tray.py:708 dictee-tray.py:1167 dictee-tray.py:1187
+msgid "Ready for diarization"
+msgstr ""
+
+#: dictee-tray.py:715 dictee-tray.py:1198
+msgid "Stop translation"
+msgstr ""
+
+#: dictee-tray.py:716 dictee-tray.py:1199
+msgid "Stop dictation"
+msgstr ""
+
+#: dictee-tray.py:717 dictee-tray.py:1200
+msgid "Start diarization"
+msgstr ""
+
+#: dictee-tray.py:733 dictee-tray.py:1217
+msgid "Speaker identification (max 4). Switches to Parakeet automatically."
+msgstr ""
+
+#: dictee-tray.py:863 dictee-tray.py:1163
+msgid "Dictation — offline"
+msgstr ""
+
+#: dictee-tray.py:1162
+msgid "Dictation — ready"
+msgstr ""
+
+#: dictee-tray.py:1162
+msgid "Click = dictation, Ctrl+click = translation"
+msgstr ""
+
+#: dictee-tray.py:1164
+msgid "Diarization ready"
+msgstr ""
+
+#: dictee-tray.py:1164
+msgid "Use keyboard shortcut to record"
+msgstr ""
+
+#: dictee-tray.py:1168
+msgid "Dictation — recording"
+msgstr ""
+
+#: dictee-tray.py:1168
+msgid "Click = stop, Middle = cancel"
+msgstr ""
+
+#: dictee-tray.py:1169
+msgid "Dictation — transcribing"
+msgstr ""
+
+#: dictee-tray.py:1171
+msgid "Dictation"
+msgstr ""
+
+#: dictee-tray.py:1282 dictee-tray.py:1294
+msgid ""
+"Dictée is not configured yet.\n"
+"Do you want to run the setup wizard?"
+msgstr ""
+
+#: dictee-transcribe.py:217
 msgid "Audio files"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:557
+#: dictee-transcribe.py:557
 msgid "Daemon socket not available after 15s"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:574
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:726
+#: dictee-transcribe.py:574 dictee-transcribe.py:726
 msgid "No speaker segments detected"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:604
+#: dictee-transcribe.py:604
 msgid "Empty transcription from daemon"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:647
+#: dictee-transcribe.py:647
 msgid "UNKNOWN"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:709
+#: dictee-transcribe.py:709
 msgid "Could not determine audio duration"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:712
+#: dictee-transcribe.py:712
 msgid "Phase 1/4: pre-cut audio"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:718
+#: dictee-transcribe.py:718
 msgid "No chunks produced from audio split"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:721
+#: dictee-transcribe.py:721
 msgid "Phase 2/4: global diarization"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:729
+#: dictee-transcribe.py:729
 msgid "Phase 3/4: chunked transcription"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:734
+#: dictee-transcribe.py:734
 msgid "No transcription tokens produced"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:737
+#: dictee-transcribe.py:737
 msgid "Phase 4/4: merging speakers"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:740
+#: dictee-transcribe.py:740
 msgid "Merge produced empty output"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1055
+#: dictee-transcribe.py:1055
 msgid "Search..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1140
+#: dictee-transcribe.py:1140
 msgid "Translation partially failed — some segments untranslated."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1145
+#: dictee-transcribe.py:1145
 msgid "Translation failed — check backend configuration."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1168
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1230
+#: dictee-transcribe.py:1168 dictee-transcribe.py:1230
 msgid "Export"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1177
+#: dictee-transcribe.py:1177
 msgid "Tabs to export"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1191
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1313
+#: dictee-transcribe.py:1191 dictee-transcribe.py:1313
 msgid "Formats"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1193
+#: dictee-transcribe.py:1193
 msgid "Plain text (.txt)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1194
+#: dictee-transcribe.py:1194
 msgid "SRT (.srt)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1195
+#: dictee-transcribe.py:1195
 msgid "JSON (.json)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1210
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1308
+#: dictee-transcribe.py:1210 dictee-transcribe.py:1308
 msgid "Directory:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1222
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1303
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1836
+#: dictee-transcribe.py:1222 dictee-transcribe.py:1303
+#: dictee-transcribe.py:1836
 msgid "Browse..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1239
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1336
+#: dictee-transcribe.py:1239 dictee-transcribe.py:1336
 msgid "Select directory"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1279
+#: dictee-transcribe.py:1279
 msgid "Export LLM result"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1289
+#: dictee-transcribe.py:1289
 msgid "Filename:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1315
+#: dictee-transcribe.py:1315
 msgid "Markdown (.md)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1317
+#: dictee-transcribe.py:1317
 msgid "PDF (.pdf)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1345
+#: dictee-transcribe.py:1345
 msgid "Filename is required."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1350
+#: dictee-transcribe.py:1350
 #, python-brace-format
 msgid "Directory does not exist: {dir}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1359
+#: dictee-transcribe.py:1359
 msgid "Pick at least one format."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1378
+#: dictee-transcribe.py:1378
 #, python-brace-format
 msgid ""
 "Could not write {path}:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1383
+#: dictee-transcribe.py:1383
 msgid "Export OK"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1384
+#: dictee-transcribe.py:1384
 msgid "Wrote:\n"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1491
+#: dictee-transcribe.py:1491
 msgid "LLM analysis"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1510
+#: dictee-transcribe.py:1510
 msgid "LLM module error"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1511
+#: dictee-transcribe.py:1511
 #, python-brace-format
 msgid ""
 "Could not load profiles:\n"
 "{err}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1515
+#: dictee-transcribe.py:1515
 msgid "Profile:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1526
+#: dictee-transcribe.py:1526
 msgid "Provider:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1559
+#: dictee-transcribe.py:1559
 msgid "Generate"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1563
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2272
+#: dictee-transcribe.py:1563 dictee-transcribe.py:2281
 msgid "Close"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1606
+#: dictee-transcribe.py:1606
 #, python-brace-format
 msgid "Couldn't auto-load models ({err}). Click Refresh."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1617
+#: dictee-transcribe.py:1617
 #, python-brace-format
 msgid "{n} model(s) loaded from {name}."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1626
+#: dictee-transcribe.py:1626
 msgid "Pick a provider first."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1635
+#: dictee-transcribe.py:1635
 #, python-brace-format
 msgid "Loading models from {name}…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1654
+#: dictee-transcribe.py:1654
 #, python-brace-format
 msgid "{n} model(s) loaded."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1672
+#: dictee-transcribe.py:1672
 msgid "Profile, provider and model are required."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1685
+#: dictee-transcribe.py:1685
 msgid "Profile or provider not found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1691
+#: dictee-transcribe.py:1691
 msgid "No diarized segments available. Run a diarization first, then retry."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1695
+#: dictee-transcribe.py:1695
 msgid "Generating…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1721
+#: dictee-transcribe.py:1721
 #, python-brace-format
 msgid "Generating… {i}/{n}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1756
+#: dictee-transcribe.py:1756
 msgid "Dictee - Transcribe file"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1796
+#: dictee-transcribe.py:1796
 msgid "Dictee - First run"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1797
+#: dictee-transcribe.py:1797
 msgid "Dictee is not yet configured."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1799
+#: dictee-transcribe.py:1799
 msgid ""
 "Before transcribing audio files, you need to configure the speech "
 "recognition engine and other settings.\n"
@@ -3584,77 +3498,69 @@ msgid ""
 "Would you like to open the configuration wizard?"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1828
+#: dictee-transcribe.py:1828
 msgid "File:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1832
+#: dictee-transcribe.py:1832
 msgid "Select an audio file..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1833
+#: dictee-transcribe.py:1833
 msgid "Path to the audio file to transcribe"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1837
+#: dictee-transcribe.py:1837
 msgid "Open file selection dialog"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1850
+#: dictee-transcribe.py:1850
 msgid "Go to the start"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1857
+#: dictee-transcribe.py:1857
 msgid "Play / Pause"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1869
+#: dictee-transcribe.py:1869
 msgid "Previous speaker segment"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1875
+#: dictee-transcribe.py:1875
 msgid "Next speaker segment"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1882
+#: dictee-transcribe.py:1882
 msgid "Go to the end"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1939
+#: dictee-transcribe.py:1939
 msgid "Transcribe"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1941
+#: dictee-transcribe.py:1941
 msgid "Start transcription of the selected file"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1948
+#: dictee-transcribe.py:1948
 msgid "Cancel the long-file chunked pipeline"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1960
-msgid "Speaker identification (diarization)"
+#: dictee-transcribe.py:1963
+msgid "Diarization (speaker identification)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1965
+#: dictee-transcribe.py:1968
 msgid ""
 "Identify speakers (max 4). Works on any duration thanks to the auto-chunking "
 "pipeline."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1969
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:527
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:730
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:944
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1214
-msgid "Sortformer model not installed. Configure in dictee-setup."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1976
+#: dictee-transcribe.py:1977
 msgid "Threshold:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1981
+#: dictee-transcribe.py:1982
 msgid ""
 "Speaker detection threshold. ← Low: more sensitive, detects more speakers "
 "(may split one person into two speakers). → High: stricter, detects fewer "
@@ -3662,474 +3568,295 @@ msgid ""
 "for most recordings."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:1997
+#: dictee-transcribe.py:2006
 msgid "Format:"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2001
+#: dictee-transcribe.py:2010
 msgid "Plain text"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2004
+#: dictee-transcribe.py:2013
 msgid "Output format for transcription"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2037
+#: dictee-transcribe.py:2046
 msgid "Translate"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2039
+#: dictee-transcribe.py:2048
 msgid "Translate the current transcription"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2048
+#: dictee-transcribe.py:2057
 msgid "Auto-translate the transcription"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2050
+#: dictee-transcribe.py:2059
 msgid "Automatically translate after transcription"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2060
+#: dictee-transcribe.py:2069
 msgid "Follow playback in text"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2062
+#: dictee-transcribe.py:2071
 msgid "Move text cursor in real time during audio playback"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2068
+#: dictee-transcribe.py:2077
 msgid "Auto-play on text click"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2070
+#: dictee-transcribe.py:2079
 msgid "Start playback when clicking on a segment in the text"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2076
+#: dictee-transcribe.py:2085
 msgid "Highlight current segment"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2078
+#: dictee-transcribe.py:2087
 msgid "Underline the segment matching the audio position"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2106
+#: dictee-transcribe.py:2115
 msgid "Source language"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2119
+#: dictee-transcribe.py:2128
 msgid "Target language"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2130
+#: dictee-transcribe.py:2139
 msgid "Current translation backend"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2133
+#: dictee-transcribe.py:2142
 msgid "Configure..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2134
+#: dictee-transcribe.py:2143
 msgid "Open translation settings in dictee-setup"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2217
+#: dictee-transcribe.py:2226
 msgid ""
 "Click-to-seek: when enabled, clicking in the text seeks the audio and the "
 "text is read-only. Toggle off to edit the text freely (no audio seek)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2226
+#: dictee-transcribe.py:2235
 msgid "Press the pencil to edit."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2227
+#: dictee-transcribe.py:2236
 msgid "Ctrl+F to search, Ctrl+Z to undo"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2230
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2966
+#: dictee-transcribe.py:2239 dictee-transcribe.py:2975
 msgid "Original"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2247
+#: dictee-transcribe.py:2256
 msgid "LLM analysis..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2249
+#: dictee-transcribe.py:2258
 msgid ""
 "Run an LLM analysis on the transcript (summary, chapters, ASR correction, "
 "custom prompt)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2254
+#: dictee-transcribe.py:2263
 msgid "Copy all"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2255
+#: dictee-transcribe.py:2264
 msgid "Copy the entire text to the clipboard"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2262
+#: dictee-transcribe.py:2271
 msgid "Export tab..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2263
+#: dictee-transcribe.py:2272
 msgid "Export only the current tab"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2267
+#: dictee-transcribe.py:2276
 msgid "Export all..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2268
+#: dictee-transcribe.py:2277
 msgid "Export all tabs to files"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2273
+#: dictee-transcribe.py:2282
 msgid "Close this window"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2362
+#: dictee-transcribe.py:2371
 msgid ""
 "Cannot close this tab while a transcription/translation is running. Cancel "
 "it first."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2472
+#: dictee-transcribe.py:2481
 msgid "Select audio file"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2708
+#: dictee-transcribe.py:2717
 msgid "● Modified"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2759
+#: dictee-transcribe.py:2768
 msgid "Sync positions refreshed after edits."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2941
+#: dictee-transcribe.py:2950
 msgid "File not found."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:2977
+#: dictee-transcribe.py:2986
 msgid "Transcription results will appear here..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3108
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3122
+#: dictee-transcribe.py:3117 dictee-transcribe.py:3131
 #, python-brace-format
 msgid "Command '{cmd}' not found. Install dictee first."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3146
+#: dictee-transcribe.py:3155
 msgid "Transcription timed out (5 min)."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3169
+#: dictee-transcribe.py:3178
 msgid "Audio file not found for phase 2."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3179
+#: dictee-transcribe.py:3188
 msgid "Waiting for daemon..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3191
+#: dictee-transcribe.py:3200
 #, python-brace-format
 msgid "Transcribing {done}/{total}..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3214
+#: dictee-transcribe.py:3223
 #, python-brace-format
 msgid "Phase 3/4: chunk {done}/{total}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3238
+#: dictee-transcribe.py:3247
 msgid "Cancelling..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3335
+#: dictee-transcribe.py:3344
 msgid "Restarting daemon for transcription..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3356
+#: dictee-transcribe.py:3365
 msgid "GPU memory full — unloading translation model and retrying..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3379
+#: dictee-transcribe.py:3388
 #, python-brace-format
 msgid ""
 "Transcription failed (code {code}). Check memory, backend, or audio file."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3483
+#: dictee-transcribe.py:3492
 #, python-brace-format
 msgid "{n} speaker(s)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3484
+#: dictee-transcribe.py:3493
 #, python-brace-format
 msgid "audio {dur}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3485
+#: dictee-transcribe.py:3494
 #, python-brace-format
 msgid "transcribed in {t}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3488
+#: dictee-transcribe.py:3497
 #, python-brace-format
 msgid "translated in {t}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3525
+#: dictee-transcribe.py:3534
 msgid "Translating..."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3598
+#: dictee-transcribe.py:3607
 msgid "Editable translation text. Ctrl+F to search, Ctrl+Z to undo."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3775
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3851
+#: dictee-transcribe.py:3784 dictee-transcribe.py:3864
 msgid "Renommer les locuteurs"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3828
+#: dictee-transcribe.py:3841
 msgid "Appliquer"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3830
+#: dictee-transcribe.py:3843
 msgid ""
 "Remplace les libellés des locuteurs dans toutes les vues et exports (texte, "
 "SRT, JSON). Ne modifie pas les données brutes."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3833
+#: dictee-transcribe.py:3846
 msgid "Réinitialiser"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3835
+#: dictee-transcribe.py:3848
 msgid ""
 "Efface les noms personnalisés et revient aux libellés génériques Speaker 0, "
 "Speaker 1, etc."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3901
+#: dictee-transcribe.py:3914
 msgid "Nom (ex. Alice)"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3962
+#: dictee-transcribe.py:3980
 #, python-brace-format
 msgid "Copied {tab} to clipboard."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3965
+#: dictee-transcribe.py:3983
 msgid "Nothing to copy."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:3982
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4157
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4172
+#: dictee-transcribe.py:4000 dictee-transcribe.py:4175
+#: dictee-transcribe.py:4190
 msgid "Nothing to export."
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4084
+#: dictee-transcribe.py:4102
 msgid "Generating LLM analysis…"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4092
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4137
+#: dictee-transcribe.py:4110 dictee-transcribe.py:4155
 #, python-brace-format
 msgid "LLM: {profile}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4178
+#: dictee-transcribe.py:4196
 #, python-brace-format
 msgid "Export directory does not exist: {dir}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4227
+#: dictee-transcribe.py:4245
 #, python-brace-format
 msgid "Export failed: {error}"
 msgstr ""
 
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-transcribe.py:4232
+#: dictee-transcribe.py:4250
 #, python-brace-format
 msgid "Exported {n} file(s) to {dir}"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:462
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:718
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:890
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1201
-msgid "Start dictation"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:466
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:891
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1203
-msgid "Start translation"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:514
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:932
-msgid "Transcribe a file..."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:518
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:934
-msgid "Meeting"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:523
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:940
-msgid ""
-"Meeting mode with speaker identification. Recommended for short recordings "
-"(< 5 min)."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:533
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:949
-msgid "Keep meeting active"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:538
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:955
-msgid "When unchecked, meeting mode is disabled after each recording."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:543
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:959
-msgid "LLM post-processing"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:547
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:964
-msgid ""
-"Enable LLM post-processing (grammar and spell correction via local Ollama "
-"model)."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:551
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:968
-msgid "Audio context"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:555
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:973
-msgid "Accumulate audio from previous dictations to improve recognition."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:565
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:983
-msgid "Enable short-text fix on both normal and translation pipelines."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:575
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:988
-msgid "Configure Dictée"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:581
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:990
-msgid "! Reset"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:585
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:991
-msgid "Quit icon"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:704
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1183
-msgid "Daemon active"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:704
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1183
-msgid "Recording…"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:706
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1165
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1185
-msgid "Diarization in progress…"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:707
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1166
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1186
-msgid "Preparing diarization…"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:708
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1167
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1187
-msgid "Ready for diarization"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:715
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1198
-msgid "Stop translation"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:716
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1199
-msgid "Stop dictation"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:717
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1200
-msgid "Start diarization"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:733
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1217
-msgid "Speaker identification (max 4). Switches to Parakeet automatically."
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:863
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1163
-msgid "Dictation — offline"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1162
-msgid "Dictation — ready"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1162
-msgid "Click = dictation, Ctrl+click = translation"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1164
-msgid "Diarization ready"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1164
-msgid "Use keyboard shortcut to record"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1168
-msgid "Dictation — recording"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1168
-msgid "Click = stop, Middle = cancel"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1169
-msgid "Dictation — transcribing"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1171
-msgid "Dictation"
-msgstr ""
-
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1282
-#: /home/rapha/SOURCES/RAPHA_STT/dictee/dictee-tray.py:1294
-msgid ""
-"Dictée is not configured yet.\n"
-"Do you want to run the setup wizard?"
 msgstr ""

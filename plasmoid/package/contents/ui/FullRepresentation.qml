@@ -170,13 +170,9 @@ RowLayout {
             icon.name: "window-pin"
             display: PlasmaComponents.AbstractButton.IconOnly
             PlasmaComponents.ToolTip { text: pinButton.checked ? i18n("Unpin popup") : i18n("Pin popup") }
-            onToggled: {
-                Plasmoid.configuration.pinPopup = checked
-                root.hideOnWindowDeactivate = !checked
-            }
-            Component.onCompleted: {
-                root.hideOnWindowDeactivate = !Plasmoid.configuration.pinPopup
-            }
+            // hideOnWindowDeactivate is a binding in main.qml — only update
+            // the persisted setting; the binding picks up the change.
+            onToggled: Plasmoid.configuration.pinPopup = checked
         }
     }
 
@@ -828,6 +824,8 @@ RowLayout {
             tooltipText: i18n("Open an audio file for transcription")
         }
 
+        Item { Layout.fillWidth: true }
+
         ThemedButton {
             text: i18n("Configure Dictée")
             icon.name: "configure"
@@ -844,8 +842,6 @@ RowLayout {
                 visible: !root.dicteeConfigured
             }
         }
-
-        Item { Layout.fillWidth: true }
 
         PlasmaComponents.ToolButton {
             icon.name: "view-list-text"
