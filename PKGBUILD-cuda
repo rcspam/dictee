@@ -99,6 +99,15 @@ build() {
         --bin transcribe-diarize-batch \
         --bin diarize-only
 
+    # Hard guard: only the load-dynamic CUDA build emits this provider
+    # lib. If it's missing, the build silently fell back to a CPU-only
+    # configuration — abort rather than ship a CUDA package that runs
+    # on CPU (incident 2026-05-02 on the deb/rpm builders).
+    if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
+        echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing" >&2
+        return 1
+    fi
+
     # Compile locales from .po sources
     for lang in fr de es it pt uk; do
         if [ -f "po/$lang.po" ]; then

@@ -314,6 +314,37 @@ CONF_PATH = os.path.join(
 )
 
 
+def _update_conf_kv(updates):
+    """Patch specific keys in dictee.conf, preserving everything else.
+
+    Reads the whole file, replaces matching `key=value` lines (or
+    appends new ones), then atomically rewrites via tempfile +
+    os.replace. Per feedback-no-sed.md, this is the sanctioned way to
+    mutate dictee.conf programmatically — sed is forbidden.
+    """
+    lines = []
+    if os.path.isfile(CONF_PATH):
+        with open(CONF_PATH, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    seen = set()
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k = s.split("=", 1)[0].strip()
+        if k in updates:
+            lines[i] = f"{k}={updates[k]}\n"
+            seen.add(k)
+    for k, v in updates.items():
+        if k not in seen:
+            lines.append(f"{k}={v}\n")
+    tmp = CONF_PATH + ".tmp"
+    os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    os.replace(tmp, CONF_PATH)
+
+
 def _read_conf():
     """Read dictee.conf into a dict."""
     conf = {}
@@ -1416,29 +1447,41 @@ def _dll_module():
     default — it can't infer a loader from the empty extension. Pass a
     SourceFileLoader explicitly so any path resolves to a Python module.
     """
-    if not hasattr(_dll_module, "_cached"):
-        import importlib.util
-        import importlib.machinery
-        candidates = [
-            os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                         "dictee-diarize-llm.py"),
-            "/usr/bin/dictee-diarize-llm",
-            "/usr/local/bin/dictee-diarize-llm",
-        ]
-        path = next((p for p in candidates if os.path.isfile(p)), None)
-        if path is None:
-            raise ImportError(
-                "dictee-diarize-llm not found in: " + ", ".join(candidates))
-        loader = importlib.machinery.SourceFileLoader(
-            "dictee_diarize_llm", path)
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        mod = importlib.util.module_from_spec(spec)
-        # Indirect call: a security hook flags '.exec(' literal even on
-        # SourceFileLoader's exec_module(), unrelated to its purpose.
-        loader_run = getattr(loader, "exec_module")
-        loader_run(mod)
-        _dll_module._cached = mod
-    return _dll_module._cached
+    import importlib.util
+    import importlib.machinery
+    candidates = [
+        os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                     "dictee-diarize-llm.py"),
+        "/usr/bin/dictee-diarize-llm",
+        "/usr/local/bin/dictee-diarize-llm",
+    ]
+    path = next((p for p in candidates if os.path.isfile(p)), None)
+    if path is None:
+        raise ImportError(
+            "dictee-diarize-llm not found in: " + ", ".join(candidates))
+
+    # Cache, but invalidate on file mtime change so dev iterations on
+    # /usr/bin/dictee-diarize-llm don't require restarting the whole
+    # transcribe window (which would lose the open diarization).
+    mtime = os.path.getmtime(path)
+    cached_mod = getattr(_dll_module, "_cached", None)
+    cached_mt = getattr(_dll_module, "_cached_mtime", None)
+    cached_path = getattr(_dll_module, "_cached_path", None)
+    if cached_mod is not None and cached_mt == mtime and cached_path == path:
+        return cached_mod
+
+    loader = importlib.machinery.SourceFileLoader(
+        "dictee_diarize_llm", path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    # Indirect call: a security hook flags '.exec(' literal even on
+    # SourceFileLoader's exec_module(), unrelated to its purpose.
+    loader_run = getattr(loader, "exec_module")
+    loader_run(mod)
+    _dll_module._cached = mod
+    _dll_module._cached_mtime = mtime
+    _dll_module._cached_path = path
+    return mod
 
 
 def _llm_modal(dlg):
@@ -1467,6 +1510,17 @@ class LLMAnalysisThread(QThread):
         self._dictionary = dictionary
         self._timeout = timeout
         self._lang_name = lang_name
+        self._cancelled = False
+
+    def cancel(self):
+        """Mark the thread as cancelled.
+
+        urllib's blocking request can't be interrupted from outside, so
+        the HTTP call keeps running in the background until it returns
+        or times out — but result/error emission is suppressed so the
+        UI sees the cancel as instantaneous.
+        """
+        self._cancelled = True
 
     def run(self):
         try:
@@ -1476,8 +1530,12 @@ class LLMAnalysisThread(QThread):
                 model=self._model, dictionary=self._dictionary,
                 timeout=self._timeout, lang_name=self._lang_name,
                 progress_cb=lambda i, n: self.progress.emit(i, n))
+            if self._cancelled:
+                return
             self.result.emit(text)
         except Exception as e:
+            if self._cancelled:
+                return
             self.error.emit(str(e))
 
 
@@ -1620,8 +1678,15 @@ class LLMProcessDialog(QDialog):
         self._model_combo.clear()
         for m in models:
             self._model_combo.addItem(m)
-        if current:
+        # Keep the previous model only if it actually exists on the new
+        # provider. Otherwise show the first model of the new list —
+        # restoring a non-existent name visually masks the provider
+        # switch and confuses the user (same fix as LLMProfileEditDialog
+        # in dictee-setup.py).
+        if current and current in models:
             self._model_combo.setEditText(current)
+        elif models:
+            self._model_combo.setCurrentIndex(0)
         self._status.setText(
             "<span style='color:#2a7'>" +
             _("{n} model(s) loaded from {name}.").format(
@@ -1713,7 +1778,7 @@ class LLMProcessDialog(QDialog):
         self._llm_tab_widget = None
         if hasattr(self._parent_window, "_start_llm_result_tab"):
             self._llm_tab_widget = self._parent_window._start_llm_result_tab(
-                profile_name)
+                profile_name, model)
 
         # Force the LLM output language to the user's native language
         # (DICTEE_LANG_SOURCE in dictee.conf), NOT the translation
@@ -1730,12 +1795,20 @@ class LLMProcessDialog(QDialog):
         code = _read_conf().get("DICTEE_LANG_SOURCE", "") or ""
         lang_name = _LANG_NAMES.get(code, "")
 
+        # 600 s per HTTP call — local models (Ollama qwen3.5:4b on a
+        # 30 min transcript) genuinely need more than the previous 120 s
+        # ceiling and were timing out mid-generation. Cloud models
+        # finish in seconds anyway; raising the cap costs nothing.
         self._thread = LLMAnalysisThread(
             self._segments, profile, provider_cfg, model,
-            timeout=120, lang_name=lang_name, parent=self)
+            timeout=600, lang_name=lang_name, parent=self)
         self._thread.progress.connect(self._on_progress)
         self._thread.result.connect(self._on_result)
         self._thread.error.connect(self._on_error)
+        # Stash the thread on the result tab so closing it (X button)
+        # also cancels the underlying LLM call — see _on_tab_close.
+        if self._llm_tab_widget is not None:
+            self._llm_tab_widget._llm_thread = self._thread
         self._thread.start()
 
     def _on_progress(self, current, total):
@@ -2377,6 +2450,17 @@ class TranscribeWindow(QDialog):
         object while _finish_transcription is about to set its content,
         which crashes or corrupts state."""
         widget = self._tabs.widget(index)
+        # LLM result tab still spinning: cancel the thread, then drop
+        # the tab. The HTTP call keeps running in the background but
+        # its emit is suppressed (see LLMAnalysisThread.cancel).
+        if getattr(widget, "_is_llm_result", False):
+            thread = getattr(widget, "_llm_thread", None)
+            if thread is not None and thread.isRunning():
+                thread.cancel()
+            self._stop_tab_spinner(widget)
+            self._tabs.removeTab(index)
+            widget.deleteLater()
+            return
         if widget is self._text_edit:
             chunked_running = (
                 hasattr(self, '_chunked_worker') and self._chunked_worker
@@ -2424,13 +2508,37 @@ class TranscribeWindow(QDialog):
         esc.activated.connect(self._on_escape)
 
     def _on_conf_changed(self, path):
-        """Refresh UI when dictee.conf changes."""
+        """Refresh UI when dictee.conf changes (live sync with dictee-setup)."""
         _dbg(f"_on_conf_changed: {path}")
+        self._sync_lang_combos_from_conf()
         self._refresh_backend_label()
         self._update_translate_btn()
         # Re-add to watcher (some editors replace the file, removing the watch)
         if hasattr(self, '_conf_watcher') and path not in self._conf_watcher.files():
             self._conf_watcher.addPath(path)
+
+    def _sync_lang_combos_from_conf(self):
+        """Pull DICTEE_LANG_{SOURCE,TARGET} from disk and align the combos.
+
+        Signals are blocked during the setCurrentIndex calls so this
+        method does NOT trigger _on_lang_changed (which would write
+        back the same values we just read — harmless but wasteful and
+        potentially racy with another writer).
+        """
+        conf = _read_conf()
+        src = conf.get("DICTEE_LANG_SOURCE")
+        tgt = conf.get("DICTEE_LANG_TARGET")
+        for combo, code in ((self._cmb_lang_src, src),
+                            (self._cmb_lang_tgt, tgt)):
+            if not code:
+                continue
+            for i in range(combo.count()):
+                if combo.itemData(i) == code:
+                    if combo.currentIndex() != i:
+                        combo.blockSignals(True)
+                        combo.setCurrentIndex(i)
+                        combo.blockSignals(False)
+                    break
 
     def _refresh_backend_label(self):
         """Update the backend label from current config."""
@@ -2447,7 +2555,13 @@ class TranscribeWindow(QDialog):
         self._lbl_backend.setText(f'<small style="color: #98c379;"><b>{name}</b></small>')
 
     def _on_lang_changed(self):
-        """Disable same language in the other ComboBox."""
+        """Disable same language in the other ComboBox + persist to conf.
+
+        The two combos in the Translate pad are bound to dictee.conf
+        so they stay in sync with dictee-setup → Translation and with
+        the live dictation backend. The source language also drives
+        the LLM Diarization output language (DICTEE_LANG_SOURCE).
+        """
         src = self._cmb_lang_src.currentData()
         tgt = self._cmb_lang_tgt.currentData()
         # Grey out source lang in target ComboBox
@@ -2463,6 +2577,14 @@ class TranscribeWindow(QDialog):
             if item:
                 item.setEnabled(self._cmb_lang_src.itemData(i) != tgt)
         self._update_translate_btn()
+        if src and tgt and src != tgt:
+            try:
+                _update_conf_kv({
+                    "DICTEE_LANG_SOURCE": src,
+                    "DICTEE_LANG_TARGET": tgt,
+                })
+            except OSError:
+                pass
 
     def _update_translate_btn(self):
         src = self._cmb_lang_src.currentData()
@@ -4118,7 +4240,7 @@ class TranscribeWindow(QDialog):
                 continue
             self._tabs.setTabText(idx, f"{frame} {base}")
 
-    def _start_llm_result_tab(self, profile_name):
+    def _start_llm_result_tab(self, profile_name, model_name=""):
         """Create the LLM result tab immediately, empty, with a spinner.
         Returns the editor widget; caller passes it to
         _finish_llm_result_tab once the LLM call is done."""
@@ -4132,7 +4254,13 @@ class TranscribeWindow(QDialog):
         editor._audio_path = None
         editor._is_llm_result = True
         editor._llm_profile_name = profile_name
-        base_title = _("LLM: {profile}").format(profile=profile_name)
+        # Tab title shows both the profile (what kind of analysis) and
+        # the model used (so the user can tell two runs of the same
+        # profile with different models apart at a glance).
+        if model_name:
+            base_title = f"{profile_name} · {model_name}"
+        else:
+            base_title = profile_name
         editor._spinner_base_title = base_title
         idx = self._tabs.addTab(editor, base_title)
         self._tabs.setCurrentIndex(idx)

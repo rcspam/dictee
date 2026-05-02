@@ -269,23 +269,48 @@ def _http_get_json(url, headers, timeout):
         raise ProviderError(f"{type(e).__name__}: {e}") from e
 
 
+def _ollama_headers(cfg):
+    """Build headers for Ollama. Cloud needs `Authorization: Bearer
+    <api_key>` (same header Ollama's own CLI uses against ollama.com).
+    Local Ollama instances ignore it. Without this, Cloud returned
+    401/empty responses while curl-from-terminal worked because the
+    user had `~/.ollama/id_ed25519` configured."""
+    h = {"Content-Type": "application/json"}
+    if cfg.get("api_key"):
+        h["Authorization"] = f"Bearer {cfg['api_key']}"
+    return h
+
+
 def _provider_call_ollama(cfg, model, system, prompt, timeout):
     url = cfg["url"].rstrip("/") + "/api/generate"
+    # Ollama defaults `num_ctx` to 2048 tokens. A 30-min transcript is
+    # ~10-15 k tokens, so without raising the context window the model
+    # only sees the first ~3 minutes and hallucinates the rest.
+    # Default 16384 covers any reasonable transcript and adds ~1-2 GB
+    # VRAM on a 4B model. Per-provider override via cfg["num_ctx"]
+    # (top-level for UI simplicity) or cfg["options"]["num_ctx"].
+    options = {"num_ctx": int(cfg.get("num_ctx", 16384))}
+    if isinstance(cfg.get("options"), dict):
+        options.update(cfg["options"])
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
+        "options": options,
     }
+    # Reasoning models (qwen3.x, deepseek-r1) emit a long <think>...</think>
+    # preamble by default. For analysis profiles we want the answer
+    # directly. Disable unless explicitly opted in via cfg["think"].
+    payload["think"] = bool(cfg.get("think", False))
     if system:
         payload["system"] = system
-    headers = {"Content-Type": "application/json"}
-    data = _http_post_json(url, payload, headers, timeout)
+    data = _http_post_json(url, payload, _ollama_headers(cfg), timeout)
     return data.get("response", "").strip()
 
 
 def _provider_list_models_ollama(cfg, timeout=10):
     url = cfg["url"].rstrip("/") + "/api/tags"
-    data = _http_get_json(url, {}, timeout)
+    data = _http_get_json(url, _ollama_headers(cfg), timeout)
     return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
 
 
@@ -534,16 +559,19 @@ def _lang_user_suffix(lang_name):
     Empirically, the system prompt alone is not enough on some models
     (Groq gpt-oss, smaller open models) when the transcript itself is
     in English — they follow the content's language and ignore the
-    system instruction. Repeating the directive at the very end of the
-    user prompt — the last thing the model reads before generating —
-    fixes it reliably.
+    system instruction. A short directive at the very end of the user
+    prompt — the last thing the model reads before generating — fixes
+    it reliably.
+
+    Earlier versions used a longer, decorated form (with `---` and
+    `IMPORTANT:`); on Gemma 3 4B the decorations triggered a token
+    glitch (`<unused1630>`) and the model echoed the directive back
+    instead of following it. The terse bracket form is invisible to
+    the model's structure parser and behaves as a pure instruction.
     """
     if not lang_name:
         return ""
-    return (f"\n\n---\nIMPORTANT: Write your entire response in "
-            f"{lang_name}, regardless of the language of the transcript "
-            f"above. Do not use English. Translate any heading, label or "
-            f"placeholder into {lang_name}.")
+    return f"\n\n[Reply in {lang_name} only.]"
 
 
 def analyze_global(segments, profile, provider_cfg, model, dictionary="",

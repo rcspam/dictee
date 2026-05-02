@@ -16,18 +16,11 @@ echo "  Building dictee RPM $VERSION"
 echo "========================================"
 echo ""
 
-# Copier les scripts depuis les sources uniques (racine)
-cp ./dictee "$PKG_DIR/usr/bin/dictee"
-cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
-cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
-cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
-cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
-cp ./dictee-diarize-llm.py "$PKG_DIR/usr/bin/dictee-diarize-llm"
-cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
-cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
-cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
-cp ./dictee-cheatsheet "$PKG_DIR/usr/bin/dictee-cheatsheet"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-diarize-llm" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-cheatsheet"
+# shellcheck disable=SC1091
+source ./build-common.sh
+# Wrappers Python / shell, configs, locales, VERSION, assets.
+# Shared with build-deb.sh / build-tar.sh — single source of truth.
+dict_prepare_pkg_dir
 
 # Vérifier rpmbuild
 if ! command -v rpmbuild >/dev/null 2>&1; then
@@ -181,19 +174,29 @@ build_rpm_cuda() {
     echo ""
     echo "=== [RPM CUDA] Building dictee-cuda ==="
 
-    # Recompiler en CUDA si nécessaire
-    if ! nm target/release/transcribe 2>/dev/null | grep -q cuda; then
-        echo "Recompilation CUDA..."
-        # CRITICAL: --no-default-features disables ort-defaults (static linking)
-        # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
-        cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
-            --bin transcribe \
-            --bin transcribe-daemon \
-            --bin transcribe-client \
-            --bin transcribe-diarize \
-            --bin transcribe-stream-diarize \
-            --bin transcribe-diarize-batch \
-            --bin diarize-only
+    # Always invoke cargo: it's idempotent when nothing changed but
+    # WILL rebuild when target/release/ contains CPU binaries from a
+    # previous build (e.g. when build-rpm.sh runs after build-deb.sh,
+    # whose CPU step overwrites target/release/). The previous
+    # `nm | grep cuda` check was a false-positive — CPU builds also
+    # carry the string "cuda" in their symbol table — and silently
+    # shipped CPU binaries in the CUDA RPM (incident 2026-05-02).
+    echo "Recompilation CUDA (forcée)..."
+    # CRITICAL: --no-default-features disables ort-defaults (static linking)
+    # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
+    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
+        --bin transcribe \
+        --bin transcribe-daemon \
+        --bin transcribe-client \
+        --bin transcribe-diarize \
+        --bin transcribe-stream-diarize \
+        --bin transcribe-diarize-batch \
+        --bin diarize-only
+    # Hard guard: if the CUDA provider lib isn't there after the
+    # build, abort rather than silently shipping CPU binaries.
+    if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
+        echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing in target/release/" >&2
+        exit 1
     fi
 
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"

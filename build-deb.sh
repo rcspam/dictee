@@ -13,6 +13,9 @@ mkdir -p "$DIST_DIR"
 DOTOOL_REPO="https://git.sr.ht/~geb/dotool"
 DOTOOL_DIR="/tmp/dotool-build"
 
+# shellcheck disable=SC1091
+source ./build-common.sh
+
 echo "========================================"
 echo "  Building dictee $VERSION"
 echo "========================================"
@@ -21,60 +24,10 @@ echo "Build dependencies:"
 echo "  sudo apt install golang-go scdoc libxkbcommon-dev"
 echo ""
 
-# Copier les scripts depuis les sources uniques (racine)
-cp ./dictee "$PKG_DIR/usr/bin/dictee"
-cp ./dictee-setup.py "$PKG_DIR/usr/bin/dictee-setup"
-cp ./dictee-tray.py "$PKG_DIR/usr/bin/dictee-tray"
-cp ./dictee-ptt.py "$PKG_DIR/usr/bin/dictee-ptt"
-cp ./dictee-postprocess.py "$PKG_DIR/usr/bin/dictee-postprocess"
-cp ./dictee-diarize-llm.py "$PKG_DIR/usr/bin/dictee-diarize-llm"
-cp ./dictee-switch-backend "$PKG_DIR/usr/bin/dictee-switch-backend"
-cp ./dictee-test-rules "$PKG_DIR/usr/bin/dictee-test-rules"
-cp ./dictee-transcribe.py "$PKG_DIR/usr/bin/dictee-transcribe"
-cp ./dictee-reset "$PKG_DIR/usr/bin/dictee-reset"
-cp ./dictee-translate-langs "$PKG_DIR/usr/bin/dictee-translate-langs"
-cp ./dictee-audio-sources "$PKG_DIR/usr/bin/dictee-audio-sources"
-cp ./dictee-cheatsheet "$PKG_DIR/usr/bin/dictee-cheatsheet"
-mkdir -p "$PKG_DIR/usr/lib/dictee"
-cp ./dictee-common.sh "$PKG_DIR/usr/lib/dictee/dictee-common.sh"
-cp ./dictee_models.py "$PKG_DIR/usr/lib/dictee/dictee_models.py"
-cp ./dictee.conf.example "$PKG_DIR/usr/share/dictee/dictee.conf.example"
-chmod 755 "$PKG_DIR/usr/bin/dictee" "$PKG_DIR/usr/bin/dictee-setup" "$PKG_DIR/usr/bin/dictee-tray" "$PKG_DIR/usr/bin/dictee-ptt" "$PKG_DIR/usr/bin/dictee-postprocess" "$PKG_DIR/usr/bin/dictee-diarize-llm" "$PKG_DIR/usr/bin/dictee-switch-backend" "$PKG_DIR/usr/bin/dictee-test-rules" "$PKG_DIR/usr/bin/dictee-transcribe" "$PKG_DIR/usr/bin/dictee-reset" "$PKG_DIR/usr/bin/dictee-translate-langs" "$PKG_DIR/usr/bin/dictee-audio-sources" "$PKG_DIR/usr/bin/dictee-cheatsheet"
-
-# Copier les fichiers de post-traitement par défaut
-cp ./rules.conf.default "$PKG_DIR/usr/share/dictee/rules.conf.default"
-
-# Generate VERSION file
-BUILD_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-echo "$VERSION build $BUILD_HASH" > "$PKG_DIR/usr/share/dictee/VERSION"
-cp ./dictionary.conf.default "$PKG_DIR/usr/share/dictee/dictionary.conf.default"
-cp ./continuation.conf.default "$PKG_DIR/usr/share/dictee/continuation.conf.default"
-cp ./short_text_keepcaps.conf.default "$PKG_DIR/usr/share/dictee/short_text_keepcaps.conf.default"
-
-# Copier les assets (bannières SVG pour le wizard)
-echo "=== Copie des assets ==="
-mkdir -p "$PKG_DIR/usr/share/dictee/assets"
-cp ./assets/banner-dark.svg ./assets/banner-light.svg "$PKG_DIR/usr/share/dictee/assets/"
-if [ -d "./assets/logos" ]; then
-    mkdir -p "$PKG_DIR/usr/share/dictee/assets/logos"
-    cp ./assets/logos/*.svg "$PKG_DIR/usr/share/dictee/assets/logos/"
-fi
-if [ -d "./assets/icons" ]; then
-    mkdir -p "$PKG_DIR/usr/share/dictee/assets/icons"
-    cp ./assets/icons/*.svg "$PKG_DIR/usr/share/dictee/assets/icons/"
-fi
-
-
-# Compiler et copier les traductions
-echo "=== Compilation des traductions ==="
-for lang in fr de es it uk pt; do
-    msgfmt -o "po/$lang.mo" "po/$lang.po" 2>/dev/null || true
-    mkdir -p "$PKG_DIR/usr/share/locale/$lang/LC_MESSAGES"
-    cp "po/$lang.mo" "$PKG_DIR/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
-    # Copie interne (postinst les restaure si dpkg -r les a supprimées)
-    mkdir -p "$PKG_DIR/usr/share/dictee/locale/$lang/LC_MESSAGES"
-    cp "po/$lang.mo" "$PKG_DIR/usr/share/dictee/locale/$lang/LC_MESSAGES/dictee.mo"
-done
+# Wrappers Python / shell, configs, locales, VERSION, assets.
+# Shared with build-rpm.sh / build-tar.sh via build-common.sh — single
+# source of truth, no more drift between scripts.
+dict_prepare_pkg_dir
 
 # Build dotool (keyboard input tool)
 build_dotool() {
@@ -248,16 +201,9 @@ EOF
     gunzip "$PKG_DIR/usr/share/man/man1/"*.gz 2>/dev/null || true
     gunzip "$PKG_DIR/usr/share/man/fr/man1/"*.gz 2>/dev/null || true
 
-    # Save CUDA libs for the universal tarball BEFORE wiping them for the
-    # CPU build. Without this, build_tarball() would find an empty dir
-    # and ship a CPU-only tarball — silent regression.
-    TARBALL_CUDA_LIBS_DIR="$DIST_DIR/_tarball-cuda-libs"
-    mkdir -p "$TARBALL_CUDA_LIBS_DIR"
-    for f in "$PKG_DIR/usr/lib/dictee/"*.so "$PKG_DIR/usr/lib/dictee/"*.so.*; do
-        [ -f "$f" ] && cp -L "$f" "$TARBALL_CUDA_LIBS_DIR/"
-    done
-    cp -L "$PKG_DIR/etc/ld.so.conf.d/dictee.conf" \
-          "$TARBALL_CUDA_LIBS_DIR/" 2>/dev/null || true
+    # The universal CUDA tarball is now built by ./build-tar.sh, which
+    # runs its own CUDA build — no need to stash binaries or libs from
+    # this script anymore.
 
     # Cleanup CUDA libs for CPU build (keep shared scripts/modules).
     # Glob *.so* catches libcudart.so.12 / libcufft.so.11 too (the plain
@@ -386,131 +332,15 @@ EOF
 }
 
 # Build tar.gz (non-Debian)
-build_tarball() {
-    echo ""
-    echo "=== [TAR.GZ] Creating universal archive ==="
-    local TARBALL_DIR="dictee-${VERSION}"
-    rm -rf "$TARBALL_DIR"
-    mkdir -p "$TARBALL_DIR/usr/bin"
-    mkdir -p "$TARBALL_DIR/usr/lib/systemd/user"
-    mkdir -p "$TARBALL_DIR/usr/lib/systemd/user-preset"
-    mkdir -p "$TARBALL_DIR/usr/share/man/man1"
-    mkdir -p "$TARBALL_DIR/usr/share/man/fr/man1"
-    mkdir -p "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps"
-    for _lang in fr de es it pt uk; do
-        mkdir -p "$TARBALL_DIR/usr/share/locale/$_lang/LC_MESSAGES"
-    done
-    mkdir -p "$TARBALL_DIR/usr/share/applications"
-    mkdir -p "$TARBALL_DIR/etc/udev/rules.d"
+# The universal CUDA tarball is now built by ./build-tar.sh — that
+# script does its own forced CUDA build (with hard guards) so the
+# archive can never silently end up with CPU binaries again.
+# Run `./build-tar.sh` separately when you need the tarball.
 
-    # Binaires (derniers compilés = CPU)
-    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only; do
-        cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
-    done
-    cp "$PKG_DIR/usr/bin/dictee" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-setup" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-tray" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-ptt" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-switch-backend" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-postprocess" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-diarize-llm" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-test-rules" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-transcribe" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-cheatsheet" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/transcribe-daemon-vosk" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-plasmoid-level" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-daemon" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-plasmoid-level-fft" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dotool" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dotoold" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-reset" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$TARBALL_DIR/usr/bin/"
-    cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$TARBALL_DIR/usr/bin/"
-
-    # Shared libraries
-    mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-    cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$TARBALL_DIR/usr/lib/dictee/"
-    cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$TARBALL_DIR/usr/lib/dictee/"
-
-    # Udev rules (dotool)
-    cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$TARBALL_DIR/etc/udev/rules.d/"
-
-    # Services systemd + preset
-    cp "$PKG_DIR/usr/lib/systemd/user/"*.service "$TARBALL_DIR/usr/lib/systemd/user/"
-    cp "$PKG_DIR/usr/lib/systemd/user-preset/"*.preset "$TARBALL_DIR/usr/lib/systemd/user-preset/"
-
-    # Man pages
-    cp "$PKG_DIR/usr/share/man/man1/"*.1 "$TARBALL_DIR/usr/share/man/man1/" 2>/dev/null || true
-    cp "$PKG_DIR/usr/share/man/fr/man1/"*.1 "$TARBALL_DIR/usr/share/man/fr/man1/" 2>/dev/null || true
-
-    # Icônes
-    cp "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"*.svg "$TARBALL_DIR/usr/share/icons/hicolor/scalable/apps/"
-
-    # Locales
-    for _lang in fr de es it pt uk; do
-        cp "$PKG_DIR/usr/share/locale/$_lang/LC_MESSAGES/"*.mo "$TARBALL_DIR/usr/share/locale/$_lang/LC_MESSAGES/" 2>/dev/null || true
-    done
-
-    # Desktop entry
-    cp "$PKG_DIR/usr/share/applications/"*.desktop "$TARBALL_DIR/usr/share/applications/"
-
-    # Plasmoid + assets
-    mkdir -p "$TARBALL_DIR/usr/share/dictee/assets"
-    cp "$PKG_DIR/usr/share/dictee/dictee.plasmoid" "$TARBALL_DIR/usr/share/dictee/" 2>/dev/null || true
-    cp "$PKG_DIR/usr/share/dictee/rules.conf.default" "$TARBALL_DIR/usr/share/dictee/"
-    cp "$PKG_DIR/usr/share/dictee/dictionary.conf.default" "$TARBALL_DIR/usr/share/dictee/"
-    cp "$PKG_DIR/usr/share/dictee/continuation.conf.default" "$TARBALL_DIR/usr/share/dictee/"
-    cp "$PKG_DIR/usr/share/dictee/short_text_keepcaps.conf.default" "$TARBALL_DIR/usr/share/dictee/"
-    cp "$PKG_DIR/usr/share/dictee/dictee.conf.example" "$TARBALL_DIR/usr/share/dictee/"
-    cp "$PKG_DIR/usr/share/dictee/assets/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/"
-    if [ -d "$PKG_DIR/usr/share/dictee/assets/logos" ]; then
-        mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/logos"
-        cp "$PKG_DIR/usr/share/dictee/assets/logos/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/logos/"
-    fi
-    if [ -d "$PKG_DIR/usr/share/dictee/assets/icons" ]; then
-        mkdir -p "$TARBALL_DIR/usr/share/dictee/assets/icons"
-        cp "$PKG_DIR/usr/share/dictee/assets/icons/"*.svg "$TARBALL_DIR/usr/share/dictee/assets/icons/"
-    fi
-
-
-    # ONNX Runtime CUDA libs — saved by build_cuda() into _tarball-cuda-libs/
-    # before its end-of-build wipe. Without this stash the libs would be
-    # gone by the time we get here (build_cpu / build_plasmoid_deb run in
-    # between) and the tarball would silently ship CPU-only.
-    TARBALL_CUDA_LIBS_DIR="$DIST_DIR/_tarball-cuda-libs"
-    if [ -d "$TARBALL_CUDA_LIBS_DIR" ]; then
-        mkdir -p "$TARBALL_DIR/usr/lib/dictee"
-        for lib in libonnxruntime.so libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so; do
-            if [ -f "$TARBALL_CUDA_LIBS_DIR/$lib" ]; then
-                cp -L "$TARBALL_CUDA_LIBS_DIR/$lib" "$TARBALL_DIR/usr/lib/dictee/"
-            fi
-        done
-        if [ -f "$TARBALL_CUDA_LIBS_DIR/dictee.conf" ]; then
-            mkdir -p "$TARBALL_DIR/etc/ld.so.conf.d"
-            cp -L "$TARBALL_CUDA_LIBS_DIR/dictee.conf" \
-                  "$TARBALL_DIR/etc/ld.so.conf.d/dictee.conf"
-        fi
-    fi
-
-    # Scripts d'installation
-    cp install.sh "$TARBALL_DIR/"
-    cp uninstall.sh "$TARBALL_DIR/"
-    chmod 755 "$TARBALL_DIR/install.sh" "$TARBALL_DIR/uninstall.sh"
-
-    tar czf "$DIST_DIR/dictee-${VERSION}_amd64.tar.gz" "$TARBALL_DIR"
-    rm -rf "$TARBALL_DIR"
-    echo "Built: $DIST_DIR/dictee-${VERSION}_amd64.tar.gz"
-}
-
-# Build all Debian variants + tarball
+# Build all Debian variants
 build_cuda
 build_cpu
 build_plasmoid_deb
-build_tarball
-
-# Cleanup the temporary CUDA-libs stash used by build_tarball
-rm -rf "$DIST_DIR/_tarball-cuda-libs"
 
 # Safeguard: the build MUST produce cuda + cpu + plasmoid .deb. If any is
 # missing, someone removed or broke a build step — fail loud instead of

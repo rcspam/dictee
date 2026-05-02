@@ -3861,6 +3861,35 @@ class LLMProviderEditDialog(QDialog):
         key_w.setLayout(key_h)
         form.addRow(_("API key:"), key_w)
 
+        # Ollama-specific knobs (hidden for OpenAI/Anthropic — they have
+        # no equivalent of num_ctx in their public API and don't expose
+        # a thinking toggle).
+        self._num_ctx_spin = QSpinBox()
+        self._num_ctx_spin.setRange(512, 131072)
+        self._num_ctx_spin.setSingleStep(2048)
+        self._num_ctx_spin.setValue(int((provider or {}).get("num_ctx", 16384)))
+        self._num_ctx_spin.setSuffix(" " + _("tokens"))
+        self._num_ctx_spin.setToolTip(_(
+            "Context window passed to Ollama (num_ctx). Defaults to 2048 "
+            "in Ollama itself — too small for full transcripts. 16384 "
+            "covers a 30-min audio without hallucinating; raise if your "
+            "transcripts are longer."))
+        self._lbl_num_ctx = QLabel(_("Context window:"))
+        form.addRow(self._lbl_num_ctx, self._num_ctx_spin)
+
+        self._no_think_check = QCheckBox(
+            _("Disable thinking (reasoning models)"))
+        # Default: disabled thinking. cfg["think"] is True only if the
+        # user explicitly opted in.
+        self._no_think_check.setChecked(
+            not bool((provider or {}).get("think", False)))
+        self._no_think_check.setToolTip(_(
+            "Reasoning models (qwen3, deepseek-r1) emit a long "
+            "<think>…</think> block before the answer. Disable for "
+            "analysis profiles where you want the answer directly."))
+        self._lbl_no_think = QLabel("")
+        form.addRow(self._lbl_no_think, self._no_think_check)
+
         layout.addLayout(form)
 
         if self._is_builtin:
@@ -3908,6 +3937,11 @@ class LLMProviderEditDialog(QDialog):
         if not self._is_builtin:
             self._key_edit.setEnabled(True)
             self._btn_show.setEnabled(True)
+        # num_ctx and "disable thinking" are Ollama-only.
+        is_ollama = (ptype == "ollama")
+        for w in (self._lbl_num_ctx, self._num_ctx_spin,
+                  self._lbl_no_think, self._no_think_check):
+            w.setVisible(is_ollama)
 
     def _on_preset_changed(self):
         """Apply the selected preset by prefilling name/type/url. Custom
@@ -3984,7 +4018,7 @@ class LLMProviderEditDialog(QDialog):
 
     def provider_dict(self):
         """Return the current form state as a provider dict."""
-        return {
+        d = {
             "id": self._original_id or _llm_make_id(self._name_edit.text()),
             "name": self._name_edit.text().strip(),
             "type": self._type_combo.currentData(),
@@ -3992,6 +4026,12 @@ class LLMProviderEditDialog(QDialog):
             "api_key": self._key_edit.text().strip() or None,
             "builtin": self._is_builtin,
         }
+        # Persist Ollama-specific knobs only when relevant — keeps the
+        # JSON tidy for OpenAI / Anthropic providers.
+        if d["type"] == "ollama":
+            d["num_ctx"] = int(self._num_ctx_spin.value())
+            d["think"] = not self._no_think_check.isChecked()
+        return d
 
 
 class LLMProvidersDialog(QDialog):
@@ -4353,8 +4393,15 @@ class LLMProfileEditDialog(QDialog):
         self._model_combo.clear()
         for m in models:
             self._model_combo.addItem(m)
-        if current:
+        # Keep the old model only if it actually exists on the new
+        # provider (e.g. same Ollama instance, just a profile switch).
+        # Otherwise show the first model of the new list — anything else
+        # gives the misleading impression that the provider switch had
+        # no effect, since the visible text stays unchanged.
+        if current and current in models:
             self._model_combo.setEditText(current)
+        elif models:
+            self._model_combo.setCurrentIndex(0)
 
     def _on_refresh_models(self):
         provider_id = self._provider_combo.currentData()
