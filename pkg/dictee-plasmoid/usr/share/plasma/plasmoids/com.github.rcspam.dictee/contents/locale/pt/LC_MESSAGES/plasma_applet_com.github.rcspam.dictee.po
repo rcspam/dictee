@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-20 14:22+0200\n"
+"POT-Creation-Date: 2026-05-03 21:34+0200\n"
 "PO-Revision-Date: 2024-01-01 00:00+0000\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: Portuguese\n"
@@ -17,444 +17,130 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: package/contents/ui/configGeneral.qml:156
-msgid "Calibration done!"
-msgstr "Calibração concluída!"
+msgid "Another Dictée widget is active"
+msgstr "Outro widget Dictée está ativo"
 
-#: package/contents/ui/configGeneral.qml:158
-msgid "Calibration failed"
-msgstr "Calibração falhada"
-
-#: package/contents/ui/configGeneral.qml:230
-msgid "General"
-msgstr "Geral"
-
-#: package/contents/ui/configGeneral.qml:235
-msgid "Polling interval (ms):"
-msgstr "Intervalo de sondagem (ms):"
-
-#: package/contents/ui/configGeneral.qml:244
-msgid "How often the widget checks if the daemon is running (in milliseconds)."
-msgstr ""
-"Frequência de verificação do daemon (em milissegundos).Com que frequência o "
-"widget verifica se o daemon está em execução (em milissegundos)."
-
-#: package/contents/ui/configGeneral.qml:249
-msgid "Show last transcription:"
-msgstr "Mostrar última transcrição:"
-
-#: package/contents/ui/configGeneral.qml:255
-msgid "Display the last transcribed text in the popup window."
-msgstr "Mostrar o último texto transcrito na janela popup."
-
-#: package/contents/ui/configGeneral.qml:261
-msgid "Preview mode (test with mic):"
-msgstr "Modo pré-visualização (teste com microfone):"
-
-#: package/contents/ui/configGeneral.qml:266
-msgid "Audio context buffer:"
-msgstr "Buffer de contexto de áudio:"
-
-#: package/contents/ui/configGeneral.qml:271
-msgid "Microphone volume:"
-msgstr "Volume do microfone:"
-
-#: package/contents/ui/configGeneral.qml:295
 msgid ""
-"Adjust the microphone input volume (PipeWire/PulseAudio default source)."
+"Two instances on the same panel or desktop cause conflicts — duplicated "
+"daemon start/stop calls and races on the backend config. This widget is "
+"passive until the other is removed."
 msgstr ""
-"Ajustar o volume de entrada do microfone (fonte predefinida PipeWire/"
-"PulseAudio)."
 
-#: package/contents/ui/configGeneral.qml:301
-msgid "Noise floor:"
-msgstr "Nível de ruído:"
-
-#: package/contents/ui/configGeneral.qml:304
-msgid "Calibrate"
-msgstr "Calibrar"
-
-#: package/contents/ui/configGeneral.qml:307
-msgid "Recording silence…"
-msgstr "A gravar silêncio…"
-
-#: package/contents/ui/configGeneral.qml:313
 msgid ""
-"Record 5 seconds of silence to calibrate the background noise level. This "
-"improves animation accuracy."
+"Right-click this widget in the panel, then choose \"Remove\" to clean up."
 msgstr ""
-"Grave 5 segundos de silêncio para calibrar o nível de ruído de fundo. Isto "
-"melhora a precisão da animação."
 
-#: package/contents/ui/configGeneral.qml:324
-msgid "Noise gate:"
-msgstr "Noise gate:"
+msgid "Take over anyway"
+msgstr "Assumir mesmo assim"
 
-#: package/contents/ui/configGeneral.qml:338
 msgid ""
-"Audio levels below this threshold are zeroed. Increase to suppress "
-"background noise and get clean silence."
-msgstr ""
-"Os níveis de áudio abaixo deste limiar são zerados. Aumente para suprimir o "
-"ruído de fundo e obter um silêncio limpo."
-
-#: package/contents/ui/configGeneral.qml:343
-msgid "Envelope shape:"
-msgstr "Forma da envolvente:"
-
-#: package/contents/ui/configGeneral.qml:354
-msgid "Flat"
-msgstr "Plano"
-
-#: package/contents/ui/configGeneral.qml:356
-msgid "Normal"
-msgstr "Normal"
-
-#: package/contents/ui/configGeneral.qml:362
-msgid ""
-"Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, "
-"higher = more peaked at the center."
-msgstr ""
-"Controla a forma da envolvente de Hanning. 0 = plano (barras uniformes), 1 = "
-"normal, maior = mais acentuado no centro."
-
-#: package/contents/ui/configGeneral.qml:367
-msgid "Envelope center:"
-msgstr "Centro da envolvente:"
-
-#: package/contents/ui/configGeneral.qml:383
-msgid ""
-"Shift the envelope peak across the frequency range (80–4000 Hz). Useful with "
-"rainbow colors to emphasize different frequency bands."
-msgstr ""
-"Deslocar o pico da envolvente ao longo da gama de frequências (80–4000 Hz). "
-"Útil com cores arco-íris para realçar diferentes bandas de frequência."
-
-#: package/contents/ui/configGeneral.qml:389
-msgid "Animation"
-msgstr "Animação"
-
-#: package/contents/ui/configGeneral.qml:394
-#, fuzzy
-msgid "Reset icon settings:"
-msgstr "Definições do pulso"
-
-#: package/contents/ui/configGeneral.qml:397
-msgid "Reset to defaults"
+"Force this widget to become active. The other instance will become passive "
+"at the next refresh (3 s)."
 msgstr ""
 
-#: package/contents/ui/configGeneral.qml:402
-msgid ""
-"Restore all icon animation settings (style, bars, wave, pulse, dots, "
-"waveform, rainbow, sensitivity, envelope, noise gate) to their installation "
-"defaults. Other preferences (polling, transcription display, audio context) "
-"are not affected."
-msgstr ""
-
-#: package/contents/ui/configGeneral.qml:408
-#, fuzzy
-msgid "Reset icon settings"
-msgstr "Definições do pulso"
-
-#: package/contents/ui/configGeneral.qml:413
-msgid ""
-"All icon animation settings will be restored to defaults.\n"
-"Continue?"
-msgstr ""
-
-#: package/contents/ui/configGeneral.qml:421
-msgid "Animation style:"
-msgstr "Estilo de animação:"
-
-#: package/contents/ui/configGeneral.qml:423
-msgid "Bars (default)"
-msgstr "Barras (predefinido)"
-
-#: package/contents/ui/configGeneral.qml:424
-msgid "Wave"
-msgstr "Onda"
-
-#: package/contents/ui/configGeneral.qml:425
-msgid "Pulse"
-msgstr "Pulso"
-
-#: package/contents/ui/configGeneral.qml:426
-msgid "Dots"
-msgstr "Pontos"
-
-#: package/contents/ui/configGeneral.qml:427
-msgid "Waveform"
-msgstr "Forma de onda"
-
-#: package/contents/ui/configGeneral.qml:438
-msgid "Rainbow colors:"
-msgstr "Cores arco-íris:"
-
-#: package/contents/ui/configGeneral.qml:442
-msgid "Start hue:"
-msgstr "Tom inicial:"
-
-#: package/contents/ui/configGeneral.qml:458
-msgid "End hue:"
-msgstr "Tom final:"
-
-#: package/contents/ui/configGeneral.qml:475
-msgid "Preview:"
-msgstr "Pré-visualização:"
-
-#: package/contents/ui/configGeneral.qml:827
-msgid "Bars settings"
-msgstr "Definições das barras"
-
-#: package/contents/ui/configGeneral.qml:833
-#: package/contents/ui/configGeneral.qml:908
-#: package/contents/ui/configGeneral.qml:985
-#: package/contents/ui/configGeneral.qml:1034
-#: package/contents/ui/configGeneral.qml:1100
-msgid "Sensitivity:"
-msgstr "Sensibilidade:"
-
-#: package/contents/ui/configGeneral.qml:851
-#: package/contents/ui/configGeneral.qml:1118
-msgid "Number of bars:"
-msgstr "Número de barras:"
-
-#: package/contents/ui/configGeneral.qml:859
-#: package/contents/ui/configGeneral.qml:1126
-msgid "Bar spacing (px):"
-msgstr "Espaçamento das barras (px):"
-
-#: package/contents/ui/configGeneral.qml:867
-#: package/contents/ui/configGeneral.qml:1134
-msgid "Bar corner radius:"
-msgstr "Raio dos cantos das barras:"
-
-#: package/contents/ui/configGeneral.qml:875
-#: package/contents/ui/configGeneral.qml:1142
-msgid "Min height (%):"
-msgstr "Altura mínima (%):"
-
-#: package/contents/ui/configGeneral.qml:887
-msgid "Idle breathing animation:"
-msgstr "Animação de respiração em repouso:"
-
-#: package/contents/ui/configGeneral.qml:893
-msgid "Animation speed (ms):"
-msgstr "Velocidade da animação (ms):"
-
-#: package/contents/ui/configGeneral.qml:902
-msgid "Wave settings"
-msgstr "Definições da onda"
-
-#: package/contents/ui/configGeneral.qml:926
-msgid "Width (px):"
-msgstr "Largura (px):"
-
-#: package/contents/ui/configGeneral.qml:934
-msgid "Line thickness (px):"
-msgstr "Espessura da linha (px):"
-
-#: package/contents/ui/configGeneral.qml:942
-msgid "Wave frequency:"
-msgstr "Frequência da onda:"
-
-#: package/contents/ui/configGeneral.qml:953
-msgid "Amplitude (%):"
-msgstr "Amplitude (%):"
-
-#: package/contents/ui/configGeneral.qml:964
-msgid "Wave speed (ms):"
-msgstr "Velocidade da onda (ms):"
-
-#: package/contents/ui/configGeneral.qml:973
-msgid "Fill under wave:"
-msgstr "Preencher sob a onda:"
-
-#: package/contents/ui/configGeneral.qml:979
-msgid "Pulse settings"
-msgstr "Definições do pulso"
-
-#: package/contents/ui/configGeneral.qml:1003
-msgid "Number of rings:"
-msgstr "Número de anéis:"
-
-#: package/contents/ui/configGeneral.qml:1011
-msgid "Ring thickness (px):"
-msgstr "Espessura dos anéis (px):"
-
-#: package/contents/ui/configGeneral.qml:1019
-msgid "Pulse speed (ms):"
-msgstr "Velocidade do pulso (ms):"
-
-#: package/contents/ui/configGeneral.qml:1028
-msgid "Dots settings"
-msgstr "Definições dos pontos"
-
-#: package/contents/ui/configGeneral.qml:1052
-msgid "Number of dots:"
-msgstr "Número de pontos:"
-
-#: package/contents/ui/configGeneral.qml:1060
-msgid "Dot size (px):"
-msgstr "Tamanho dos pontos (px):"
-
-#: package/contents/ui/configGeneral.qml:1068
-msgid "Dot spacing (px):"
-msgstr "Espaçamento dos pontos (px):"
-
-#: package/contents/ui/configGeneral.qml:1076
-msgid "Bounce amplitude (%):"
-msgstr "Amplitude do salto (%):"
-
-#: package/contents/ui/configGeneral.qml:1085
-msgid "Bounce speed (ms):"
-msgstr "Velocidade do salto (ms):"
-
-#: package/contents/ui/configGeneral.qml:1094
-msgid "Waveform settings"
-msgstr "Definições da forma de onda"
-
-#: package/contents/ui/FullRepresentation.qml:63
 msgid "Dictée"
 msgstr "Dictée"
 
-#: package/contents/ui/FullRepresentation.qml:73
 msgid "Unpin popup"
 msgstr "Soltar popup"
 
-#: package/contents/ui/FullRepresentation.qml:73
 msgid "Pin popup"
 msgstr "Fixar popup"
 
-#: package/contents/ui/FullRepresentation.qml:132
 msgid "Not installed"
 msgstr "Não instalado"
 
-#: package/contents/ui/FullRepresentation.qml:133
 msgid "Not configured"
 msgstr "Não configurado"
 
-#: package/contents/ui/FullRepresentation.qml:134
 msgid "Stopped"
 msgstr "Parado"
 
-#: package/contents/ui/FullRepresentation.qml:136
 msgid "Active"
 msgstr "Ativo"
 
-#: package/contents/ui/FullRepresentation.qml:138
-#: package/contents/ui/main.qml:71
 msgid "Recording…"
 msgstr "A gravar…"
 
-#: package/contents/ui/FullRepresentation.qml:140
-#: package/contents/ui/main.qml:73
 msgid "Transcribing…"
 msgstr "A transcrever…"
 
-#: package/contents/ui/FullRepresentation.qml:142
 msgid "Switching…"
 msgstr "A mudar…"
 
-#: package/contents/ui/FullRepresentation.qml:144
-#: package/contents/ui/main.qml:77
 msgid "Preparing…"
 msgstr "A preparar..."
 
-#: package/contents/ui/FullRepresentation.qml:146
-#: package/contents/ui/main.qml:79
 msgid "Diarize ready"
 msgstr "Diarização pronta"
 
-#: package/contents/ui/FullRepresentation.qml:148
-#: package/contents/ui/main.qml:81
 msgid "Diarizing…"
 msgstr "Diarizando…"
 
-#: package/contents/ui/FullRepresentation.qml:164
 msgid "Start daemon"
 msgstr "Iniciar daemon"
 
-#: package/contents/ui/FullRepresentation.qml:164
 msgid "Stop daemon"
 msgstr "Parar daemon"
 
-#: package/contents/ui/FullRepresentation.qml:264
 msgid "Press the Configure Dictée button below to get started."
 msgstr "Prima o botão Configurar Dictée abaixo para começar."
 
-#: package/contents/ui/FullRepresentation.qml:285
 msgid "Dictation"
 msgstr "Ditado"
 
-#: package/contents/ui/FullRepresentation.qml:322
 msgid "Translate"
 msgstr "Traduzir"
 
-#: package/contents/ui/FullRepresentation.qml:373
 msgid "Preparing… (click to cancel)"
 msgstr "A preparar… (clique para cancelar)"
 
-#: package/contents/ui/FullRepresentation.qml:374
 msgid "Start meeting"
 msgstr "Iniciar reunião"
 
-#: package/contents/ui/FullRepresentation.qml:375
 msgid "Meeting in progress…"
 msgstr "Reunião em curso…"
 
-#: package/contents/ui/FullRepresentation.qml:378
 msgid "Stop meeting"
 msgstr "Parar reunião"
 
-#: package/contents/ui/FullRepresentation.qml:379
 msgid "Meeting"
 msgstr "Reunião"
 
-#: package/contents/ui/FullRepresentation.qml:421
 msgid "Sortformer model not installed. Configure in dictee-setup."
 msgstr "Modelo Sortformer não instalado. Configure em dictee-setup."
 
-#: package/contents/ui/FullRepresentation.qml:423
 msgid "Freeing GPU memory..."
 msgstr "A libertar memória GPU..."
 
-#: package/contents/ui/FullRepresentation.qml:424
 msgid "Click to start recording with speaker identification"
 msgstr "Clique para iniciar a gravação com identificação de locutores"
 
-#: package/contents/ui/FullRepresentation.qml:426
 msgid "Click to stop and identify speakers"
 msgstr "Clique para parar e identificar locutores"
 
-#: package/contents/ui/FullRepresentation.qml:427
-#: package/contents/ui/FullRepresentation.qml:428
 msgid "Record and identify speakers (max 4)"
 msgstr "Gravar e identificar locutores (máx. 4)"
 
-#: package/contents/ui/FullRepresentation.qml:452
 msgid "Last transcription:"
 msgstr "Última transcrição:"
 
-#: package/contents/ui/FullRepresentation.qml:479
 msgid "ASR:"
 msgstr "ASR:"
 
-#: package/contents/ui/FullRepresentation.qml:527
 msgid "LLM"
 msgstr "LLM"
 
-#: package/contents/ui/FullRepresentation.qml:531
 msgid ""
 "Enable LLM post-processing (grammar and spell correction via local Ollama "
 "model)."
-msgstr "Ativa o pós-processamento LLM (correção gramatical e ortográfica via modelo Ollama local)."
+msgstr ""
+"Ativa o pós-processamento LLM (correção gramatical e ortográfica via modelo "
+"Ollama local)."
 
-#: package/contents/ui/FullRepresentation.qml:547
 msgid "Context"
 msgstr "Contexto"
 
-#: package/contents/ui/FullRepresentation.qml:551
 msgid ""
 "Accumulate audio from previous dictations to improve recognition of short or "
 "technical words."
@@ -462,94 +148,297 @@ msgstr ""
 "Acumular áudio de ditados anteriores para melhorar o reconhecimento de "
 "palavras curtas ou técnicas."
 
-#: package/contents/ui/FullRepresentation.qml:565
 msgid "Short"
 msgstr "Curto"
 
-#: package/contents/ui/FullRepresentation.qml:569
 msgid "Enable short-text fix on both normal and translation pipelines."
-msgstr "Ativa a correção de texto curto em ambos os pipelines (normal e tradução)."
+msgstr ""
+"Ativa a correção de texto curto em ambos os pipelines (normal e tradução)."
 
-#: package/contents/ui/FullRepresentation.qml:584
 msgid "Translation:"
 msgstr "Tradução:"
 
-#: package/contents/ui/FullRepresentation.qml:605
 msgid "LT arrêté"
-msgstr ""
+msgstr "LT parado"
 
-#: package/contents/ui/FullRepresentation.qml:606
 msgid "Ollama arrêté"
-msgstr ""
+msgstr "Ollama parado"
 
-#: package/contents/ui/FullRepresentation.qml:607
 msgid "Modèle absent"
-msgstr ""
+msgstr "Modelo ausente"
 
-#: package/contents/ui/FullRepresentation.qml:708
 msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
 msgstr "Língua alvo — adicionar línguas em Configurar Dictée (LibreTranslate)"
 
-#: package/contents/ui/FullRepresentation.qml:709
 msgid "Target language for translation"
 msgstr "Língua alvo para tradução"
 
-#: package/contents/ui/FullRepresentation.qml:722
 msgid "Transcribe file"
 msgstr "Transcrever ficheiro"
 
-#: package/contents/ui/FullRepresentation.qml:726
 msgid "Open an audio file for transcription"
 msgstr "Abrir um ficheiro de áudio para transcrição"
 
-#: package/contents/ui/FullRepresentation.qml:730
 msgid "Configure Dictée"
 msgstr "Configurar Dictée"
 
-#: package/contents/ui/FullRepresentation.qml:734
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
 msgstr "Abrir dictee-setup para configurar ASR, tradução, atalhos"
 
-#: package/contents/ui/FullRepresentation.qml:754
+msgid "Toggle voice commands cheatsheet"
+msgstr "Mostrar/ocultar resumo de comandos de voz"
+
 msgid "Reset everything — stop all processes, restart daemon"
 msgstr "Reiniciar tudo — parar processos, reiniciar daemon"
 
-#: package/contents/ui/FullRepresentation.qml:763
 msgid "Live microphone animation preview"
 msgstr "Pré-visualização da animação do microfone"
 
-#: package/contents/ui/FullRepresentation.qml:809
 msgid "Microphone muted — click to unmute"
 msgstr "Microfone silenciado — clique para ativar"
 
-#: package/contents/ui/FullRepresentation.qml:809
 msgid "Microphone — click to mute"
 msgstr "Microfone — clique para silenciar"
 
-#: package/contents/ui/FullRepresentation.qml:833
 #, javascript-format
 msgid "Microphone volume: %1%"
 msgstr "Volume do microfone: %1%"
 
-#: package/contents/ui/main.qml:65
 msgid "Dictée not installed"
 msgstr "Dictée não instalado"
 
-#: package/contents/ui/main.qml:66
 msgid "Dictée not configured — run dictee-setup"
 msgstr "Dictée não configurado — execute dictee-setup"
 
-#: package/contents/ui/main.qml:67
 msgid "Daemon stopped"
 msgstr "Daemon parado"
 
-#: package/contents/ui/main.qml:69
 msgid "Daemon active"
 msgstr "Daemon ativo"
 
-#: package/contents/ui/main.qml:75
 msgid "Switching backend…"
 msgstr "A mudar de backend…"
+
+msgid "Calibration done!"
+msgstr "Calibração concluída!"
+
+msgid "Calibration failed"
+msgstr "Calibração falhada"
+
+msgid "General"
+msgstr "Geral"
+
+msgid "Polling interval (ms):"
+msgstr "Intervalo de sondagem (ms):"
+
+msgid "How often the widget checks if the daemon is running (in milliseconds)."
+msgstr ""
+"Frequência de verificação do daemon (em milissegundos).Com que frequência o "
+"widget verifica se o daemon está em execução (em milissegundos)."
+
+msgid "Show last transcription:"
+msgstr "Mostrar última transcrição:"
+
+msgid "Display the last transcribed text in the popup window."
+msgstr "Mostrar o último texto transcrito na janela popup."
+
+msgid "Preview mode (test with mic):"
+msgstr "Modo pré-visualização (teste com microfone):"
+
+msgid "Audio context buffer:"
+msgstr "Buffer de contexto de áudio:"
+
+msgid "Microphone volume:"
+msgstr "Volume do microfone:"
+
+msgid ""
+"Adjust the microphone input volume (PipeWire/PulseAudio default source)."
+msgstr ""
+"Ajustar o volume de entrada do microfone (fonte predefinida PipeWire/"
+"PulseAudio)."
+
+msgid "Noise floor:"
+msgstr "Nível de ruído:"
+
+msgid "Calibrate"
+msgstr "Calibrar"
+
+msgid "Recording silence…"
+msgstr "A gravar silêncio…"
+
+msgid ""
+"Record 5 seconds of silence to calibrate the background noise level. This "
+"improves animation accuracy."
+msgstr ""
+"Grave 5 segundos de silêncio para calibrar o nível de ruído de fundo. Isto "
+"melhora a precisão da animação."
+
+msgid "Noise gate:"
+msgstr "Noise gate:"
+
+msgid ""
+"Audio levels below this threshold are zeroed. Increase to suppress "
+"background noise and get clean silence."
+msgstr ""
+"Os níveis de áudio abaixo deste limiar são zerados. Aumente para suprimir o "
+"ruído de fundo e obter um silêncio limpo."
+
+msgid "Envelope shape:"
+msgstr "Forma da envolvente:"
+
+msgid "Flat"
+msgstr "Plano"
+
+msgid "Normal"
+msgstr "Normal"
+
+msgid ""
+"Controls the Hanning envelope shape. 0 = flat (uniform bars), 1 = normal, "
+"higher = more peaked at the center."
+msgstr ""
+"Controla a forma da envolvente de Hanning. 0 = plano (barras uniformes), 1 = "
+"normal, maior = mais acentuado no centro."
+
+msgid "Envelope center:"
+msgstr "Centro da envolvente:"
+
+msgid ""
+"Shift the envelope peak across the frequency range (80–4000 Hz). Useful with "
+"rainbow colors to emphasize different frequency bands."
+msgstr ""
+"Deslocar o pico da envolvente ao longo da gama de frequências (80–4000 Hz). "
+"Útil com cores arco-íris para realçar diferentes bandas de frequência."
+
+msgid "Animation"
+msgstr "Animação"
+
+msgid "Reset icon settings:"
+msgstr "Redefinir configurações do ícone:"
+
+msgid "Reset to defaults"
+msgstr "Restaurar padrões"
+msgid ""
+"Restore all icon animation settings (style, bars, wave, pulse, dots, "
+"waveform, rainbow, sensitivity, envelope, noise gate) to their installation "
+"defaults. Other preferences (polling, transcription display, audio context) "
+"are not affected."
+msgstr ""
+
+msgid "Reset icon settings"
+msgstr "Redefinir configurações do ícone"
+
+msgid ""
+"All icon animation settings will be restored to defaults.\n"
+"Continue?"
+msgstr ""
+
+msgid "Animation style:"
+msgstr "Estilo de animação:"
+
+msgid "Bars (default)"
+msgstr "Barras (predefinido)"
+
+msgid "Wave"
+msgstr "Onda"
+
+msgid "Pulse"
+msgstr "Pulso"
+
+msgid "Dots"
+msgstr "Pontos"
+
+msgid "Waveform"
+msgstr "Forma de onda"
+
+msgid "Rainbow colors:"
+msgstr "Cores arco-íris:"
+
+msgid "Start hue:"
+msgstr "Tom inicial:"
+
+msgid "End hue:"
+msgstr "Tom final:"
+
+msgid "Preview:"
+msgstr "Pré-visualização:"
+
+msgid "Bars settings"
+msgstr "Definições das barras"
+
+msgid "Sensitivity:"
+msgstr "Sensibilidade:"
+
+msgid "Number of bars:"
+msgstr "Número de barras:"
+
+msgid "Bar spacing (px):"
+msgstr "Espaçamento das barras (px):"
+
+msgid "Bar corner radius:"
+msgstr "Raio dos cantos das barras:"
+
+msgid "Min height (%):"
+msgstr "Altura mínima (%):"
+
+msgid "Idle breathing animation:"
+msgstr "Animação de respiração em repouso:"
+
+msgid "Animation speed (ms):"
+msgstr "Velocidade da animação (ms):"
+
+msgid "Wave settings"
+msgstr "Definições da onda"
+
+msgid "Width (px):"
+msgstr "Largura (px):"
+
+msgid "Line thickness (px):"
+msgstr "Espessura da linha (px):"
+
+msgid "Wave frequency:"
+msgstr "Frequência da onda:"
+
+msgid "Amplitude (%):"
+msgstr "Amplitude (%):"
+
+msgid "Wave speed (ms):"
+msgstr "Velocidade da onda (ms):"
+
+msgid "Fill under wave:"
+msgstr "Preencher sob a onda:"
+
+msgid "Pulse settings"
+msgstr "Definições do pulso"
+
+msgid "Number of rings:"
+msgstr "Número de anéis:"
+
+msgid "Ring thickness (px):"
+msgstr "Espessura dos anéis (px):"
+
+msgid "Pulse speed (ms):"
+msgstr "Velocidade do pulso (ms):"
+
+msgid "Dots settings"
+msgstr "Definições dos pontos"
+
+msgid "Number of dots:"
+msgstr "Número de pontos:"
+
+msgid "Dot size (px):"
+msgstr "Tamanho dos pontos (px):"
+
+msgid "Dot spacing (px):"
+msgstr "Espaçamento dos pontos (px):"
+
+msgid "Bounce amplitude (%):"
+msgstr "Amplitude do salto (%):"
+
+msgid "Bounce speed (ms):"
+msgstr "Velocidade do salto (ms):"
+
+msgid "Waveform settings"
+msgstr "Definições da forma de onda"
 
 #~ msgid "Start diarization"
 #~ msgstr "Iniciar diarização"
