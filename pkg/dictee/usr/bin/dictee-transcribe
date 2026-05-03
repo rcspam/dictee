@@ -177,8 +177,11 @@ class ToggleSwitch(QCheckBox):
 # === i18n ===
 
 LOCALE_DIRS = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "share", "locale"),
+    # User-space first so dev / hot translation updates win over the
+    # stale .mo shipped by the system package — avoids needing sudo
+    # to refresh translations during iteration.
     os.path.expanduser("~/.local/share/locale"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "share", "locale"),
     "/usr/local/share/locale",
     "/usr/share/locale",
 ]
@@ -218,16 +221,27 @@ AUDIO_FILTER = _("Audio files") + " (*.wav *.mp3 *.flac *.ogg *.m4a *.webm *.opu
 
 # Colors that contrast well on both light and dark backgrounds
 class _ClickSlider(QSlider):
-    """QSlider with click-to-seek and speaker segment markers."""
+    """QSlider with click-to-seek and speaker segment markers.
+
+    Markers and click handling are aligned to the *groove* rect (not
+    the widget rect): the native handle moves inside the groove, which
+    has horizontal margins, so using widget.width() shifts everything
+    away from the playback handle's actual track. The downward red
+    triangle replaces the native round handle for a clearer "tip"
+    pointing at the exact playback position.
+    """
     sliderClicked = Signal(int)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._markers = []   # list of (start_ms, end_ms, QColor)
-        self._setMinimumHeight(28)
-
-    def _setMinimumHeight(self, h):
-        self.setMinimumHeight(h)
+        self.setMinimumHeight(44)
+        # Hide the native handle so we can render our own triangle on
+        # top of the groove. The groove itself is left to the platform
+        # style (so it follows the user's KDE/GNOME palette).
+        self.setStyleSheet(
+            "QSlider::handle:horizontal { background: transparent; "
+            "border: none; width: 0px; margin: 0; }")
 
     def set_markers(self, markers):
         """Set speaker markers: list of (start_ms, end_ms, color_str)."""
@@ -242,56 +256,91 @@ class _ClickSlider(QSlider):
         self._markers.clear()
         self.update()
 
+    def _groove_rect(self):
+        """Return the rect of the slider's groove (in widget coords).
+        Falls back to a sane default if the style query fails."""
+        try:
+            from PyQt6.QtWidgets import QStyle, QStyleOptionSlider
+        except ImportError:
+            from PySide6.QtWidgets import QStyle, QStyleOptionSlider
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        return self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, opt,
+            QStyle.SubControl.SC_SliderGroove, self)
+
     def paintEvent(self, event):
         super().paintEvent(event)
-        if not self._markers or self.maximum() <= self.minimum():
+        if self.maximum() <= self.minimum():
             return
         try:
             from PyQt6.QtGui import QPainter, QPen, QPolygonF, QColor
             from PyQt6.QtCore import QPointF
-            from PyQt6.QtWidgets import QStyle, QStyleOptionSlider
         except ImportError:
             from PySide6.QtGui import QPainter, QPen, QPolygonF, QColor
             from PySide6.QtCore import QPointF
-            from PySide6.QtWidgets import QStyle, QStyleOptionSlider
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rng = self.maximum() - self.minimum()
         h = self.height()
-        # Draw colored bars for each segment (semi-transparent)
+        groove = self._groove_rect()
+        gx, gw = groove.x(), groove.width()
+        if gw <= 0:
+            p.end()
+            return
+
+        def to_x(ms):
+            return gx + (ms - self.minimum()) / rng * gw
+
+        # Speaker bars (semi-transparent) + thin colour ticks at the
+        # segment starts — both clamped to the groove so they line up
+        # exactly with the playback triangle.
         for start_ms, end_ms, color in self._markers:
-            x1 = int((start_ms - self.minimum()) / rng * self.width())
-            x2 = int((end_ms - self.minimum()) / rng * self.width())
-            bar_color = QColor(color)
-            bar_color.setAlpha(60)
-            p.fillRect(x1, 0, max(x2 - x1, 2), h, bar_color)
-        # Draw a thin vertical tick at each segment start. Triangles
-        # used to clutter long-file timelines (one triangle per
-        # segment), single-pixel ticks stay readable even with
-        # hundreds of segments.
+            x1 = int(to_x(start_ms))
+            x2 = int(to_x(end_ms))
+            bar = QColor(color); bar.setAlpha(60)
+            p.fillRect(x1, 0, max(x2 - x1, 2), h, bar)
         for start_ms, _end_ms, color in self._markers:
-            x = int((start_ms - self.minimum()) / rng * self.width())
+            x = int(to_x(start_ms))
             p.setPen(QPen(color, 1))
             p.drawLine(x, 0, x, h - 1)
-        # Redraw only the handle on top so the playback indicator stays
-        # visible above the speaker bars and ticks.
-        opt = QStyleOptionSlider()
-        self.initStyleOption(opt)
-        opt.subControls = QStyle.SubControl.SC_SliderHandle
-        self.style().drawComplexControl(
-            QStyle.ComplexControl.CC_Slider, opt, p, self)
+
+        # Up-pointing red triangle placed BELOW the groove so its apex
+        # points up at the playback position on the timeline. (User's
+        # convention: tip aimed at the groove — pointing up means
+        # sitting under it; pointing down would mean sitting above.)
+        cx = to_x(self.value())
+        tri_w = 16.0
+        tri_h = 13.0
+        tip_y = groove.bottom() + 2
+        base_y = tip_y + tri_h
+        # Clamp to the widget so the triangle is always fully drawn
+        # even on tighter heights.
+        if base_y > h - 1:
+            base_y = h - 1
+            tip_y = base_y - tri_h
+        tip = QPointF(cx, tip_y)
+        left = QPointF(cx - tri_w / 2, base_y)
+        right = QPointF(cx + tri_w / 2, base_y)
+        p.setPen(QPen(QColor("#a02020"), 1))
+        p.setBrush(QColor("#e63946"))
+        p.drawPolygon(QPolygonF([tip, left, right]))
         p.end()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            val = QSlider.minimum(self) + (
-                (QSlider.maximum(self) - QSlider.minimum(self))
-                * event.position().x() / self.width())
-            self.setValue(int(val))
-            self.sliderClicked.emit(int(val))
-            event.accept()
-        else:
-            super().mousePressEvent(event)
+            groove = self._groove_rect()
+            gx, gw = groove.x(), groove.width()
+            if gw > 0:
+                rel = (event.position().x() - gx) / gw
+                rel = max(0.0, min(1.0, rel))
+                rng = self.maximum() - self.minimum()
+                val = int(self.minimum() + rel * rng)
+                self.setValue(val)
+                self.sliderClicked.emit(val)
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
 
 SPEAKER_COLORS = [
@@ -428,12 +477,22 @@ def _detect_language(text):
     return best if scores[best] > 0 else "en"
 
 
-def _translate_available():
-    """Check if any translation backend is configured and usable."""
+def _translate_available(backend=None):
+    """Check if the requested translation backend is usable.
+
+    Backend values match the four-entry combo in the Translate pad:
+    "google" / "bing" (require the `trans` CLI binary), "ollama"
+    (requires the `ollama` CLI), "libretranslate" (requires `docker`
+    since the LT instance runs in a container). When backend is
+    None, falls back to the dictee.conf-configured backend.
+    """
     import shutil
-    conf = _read_conf()
-    backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
-    if backend == "trans":
+    if backend is None:
+        conf = _read_conf()
+        b = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        backend = (conf.get("DICTEE_TRANS_ENGINE", "google") or "google").lower() \
+                  if b == "trans" else b
+    if backend in ("google", "bing"):
         return shutil.which("trans") is not None
     if backend == "ollama":
         return shutil.which("ollama") is not None
@@ -442,17 +501,32 @@ def _translate_available():
     return False
 
 
-def _translate_text(text, lang_src="en", lang_tgt="fr"):
-    """Translate text using the configured backend. Returns translated text or None."""
+def _translate_text(text, lang_src="en", lang_tgt="fr", backend=None):
+    """Translate text using the chosen backend.
+
+    `backend` matches the plasmoid's translate selector:
+      - "google", "bing" → trans CLI with -e <engine>
+      - "ollama"        → Ollama HTTP API (model from DICTEE_OLLAMA_MODEL)
+      - "libretranslate"→ local LibreTranslate HTTP (port from
+                          DICTEE_LIBRETRANSLATE_PORT, languages from
+                          DICTEE_LIBRETRANSLATE_LANGS).
+
+    Falls back to dictee.conf's DICTEE_TRANSLATE_BACKEND (mapped
+    through DICTEE_TRANS_ENGINE for the trans case) when None — kept
+    for legacy callers. Sub-params still live in dictee.conf since
+    they describe infrastructure, not per-file choices.
+    """
     conf = _read_conf()
-    backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+    if backend is None:
+        b = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        backend = (conf.get("DICTEE_TRANS_ENGINE", "google") or "google").lower() \
+                  if b == "trans" else b
     _dbg(f"_translate_text: backend={backend}, {lang_src}→{lang_tgt}, text_len={len(text)}")
 
     try:
-        if backend == "trans":
-            engine = conf.get("DICTEE_TRANS_ENGINE", "google")
+        if backend in ("google", "bing"):
             result = subprocess.run(
-                ["trans", "-b", "-e", engine, f"{lang_src}:{lang_tgt}"],
+                ["trans", "-b", "-e", backend, f"{lang_src}:{lang_tgt}"],
                 input=text, capture_output=True, text=True, timeout=30)
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout.strip()
@@ -1159,13 +1233,15 @@ class TranslateThread(QThread):
     finished_signal = Signal(str, list)  # translated_text, translated_segments
     error_signal = Signal(str)  # error message
 
-    def __init__(self, raw_text, segments, was_diarized, lang_src="en", lang_tgt="fr"):
+    def __init__(self, raw_text, segments, was_diarized,
+                 lang_src="en", lang_tgt="fr", backend=None):
         super().__init__()
         self._raw_text = raw_text
         self._segments = segments
         self._was_diarized = was_diarized
         self._lang_src = lang_src
         self._lang_tgt = lang_tgt
+        self._backend = backend
         self._cancelled = False
 
     def cancel(self):
@@ -1188,7 +1264,7 @@ class TranslateThread(QThread):
                 failed = False
                 for _speaker, indices in groups:
                     group_text = "\n".join(self._segments[i]["text"] for i in indices)
-                    translated = _translate_text(group_text, self._lang_src, self._lang_tgt)
+                    translated = _translate_text(group_text, self._lang_src, self._lang_tgt, self._backend)
                     if translated:
                         lines = [l.strip() for l in translated.strip().splitlines() if l.strip()]
                         for j, idx in enumerate(indices):
@@ -1203,7 +1279,7 @@ class TranslateThread(QThread):
                     self.error_signal.emit(_("Translation partially failed — some segments untranslated."))
                 self.finished_signal.emit("", translated_segments)
             else:
-                translated = _translate_text(self._raw_text, self._lang_src, self._lang_tgt)
+                translated = _translate_text(self._raw_text, self._lang_src, self._lang_tgt, self._backend)
                 if self._cancelled:
                     return
                 if not translated:
@@ -1900,13 +1976,24 @@ class TranscribeWindow(QDialog):
         # All earlier attempts to shrink tooltips (dialog stylesheet,
         # QToolTip.setFont(), QApplication stylesheet) were ignored by
         # Qt on this build. The only reliable lever left is to wrap
-        # every tooltip text in a rich-text <span> with an explicit
-        # font-size, which QToolTip honours per-widget. This helper is
-        # used by the player toolbar setToolTip() calls below.
+        # every tooltip text in a rich-text element with an explicit
+        # font-size, which QToolTip honours per-widget.
         # 11pt matches the rich-text tooltips used throughout dictee-setup.py
         # (see e.g. lines 5410, 5516 of that file). Stay consistent across
         # the project rather than picking sizes at random.
-        self._tip = lambda txt: f"<span style='font-size:11pt'>{txt}</span>"
+        # For long texts (>60 chars), use <p> instead of <span>: <p> is a
+        # block element so Qt enables rich-text mode AND triggers word-wrap.
+        # The explicit `width:400px` caps the tooltip at a readable width
+        # — otherwise long plain-text tooltips render as a single line
+        # stretching the full screen on wide monitors. 400px is the
+        # project-wide convention (used in dictee-setup and dictee-tray
+        # too — see feedback-tooltips-width-400.md).
+        def _tip(txt):
+            if len(txt) > 60:
+                return ("<p style='font-size:11pt; white-space:pre-wrap; "
+                        "width:400px;'>" + txt + "</p>")
+            return f"<span style='font-size:11pt'>{txt}</span>"
+        self._tip = _tip
 
         self._process = None
         self._stdout_buf = QByteArray()
@@ -2074,26 +2161,15 @@ class TranscribeWindow(QDialog):
         pad_transcribe.setContentsMargins(10, 8, 10, 8)
         pad_transcribe.setSpacing(4)
 
-        lay_btn_transcribe = QHBoxLayout()
-
-        self._btn_transcribe = QPushButton(_("Transcribe"))
-        self._btn_transcribe.setEnabled(False)
-        self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
-        self._btn_transcribe.clicked.connect(self._on_transcribe)
-        lay_btn_transcribe.addWidget(self._btn_transcribe)
-
-        # Cancel button — only visible during the chunked long-file pipeline
-        self._btn_cancel = QPushButton(_("Cancel"))
-        self._btn_cancel.setVisible(False)
-        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
-        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
-        lay_btn_transcribe.addWidget(self._btn_cancel)
-
-        lay_btn_transcribe.addStretch()
-        pad_transcribe.addLayout(lay_btn_transcribe)
+        # Two-column pad: options on the left, tall coloured action
+        # button on the right. Purple Transcribe matches Translate's
+        # orange below — both feel actionable and stay above the fold.
+        lay_pad_h = QHBoxLayout()
+        lay_pad_h.setContentsMargins(0, 0, 0, 0)
+        lay_pad_h.setSpacing(12)
 
         lay_opts = QVBoxLayout()
-        lay_opts.setContentsMargins(20, 0, 0, 0)
+        lay_opts.setContentsMargins(0, 0, 0, 0)
         lay_opts.setSpacing(4)
 
         # Row 1: diarization toggle + threshold slider tucked to its right.
@@ -2104,9 +2180,9 @@ class TranscribeWindow(QDialog):
         sortformer_ok = _sortformer_available()
         self._chk_diarize.setEnabled(sortformer_ok)
         if sortformer_ok:
-            self._chk_diarize.setToolTip(
+            self._chk_diarize.setToolTip(self._tip(
                 _("Identify speakers (max 4). Works on any duration "
-                  "thanks to the auto-chunking pipeline."))
+                  "thanks to the auto-chunking pipeline.")))
         else:
             self._chk_diarize.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
@@ -2119,7 +2195,7 @@ class TranscribeWindow(QDialog):
         self._sld_sensitivity.setRange(0, 100)
         self._sld_sensitivity.setValue(50)
         self._sld_sensitivity.setFixedWidth(120)
-        self._sld_sensitivity.setToolTip(_("Speaker detection threshold. ← Low: more sensitive, detects more speakers (may split one person into two speakers). → High: stricter, detects fewer speakers (may merge two people into one speaker). Default (50%) works well for most recordings."))
+        self._sld_sensitivity.setToolTip(self._tip(_("Speaker detection threshold. ← Low: more sensitive, detects more speakers (may split one person into two speakers). → High: stricter, detects fewer speakers (may merge two people into one speaker). Default (50%) works well for most recordings.")))
         self._lbl_sensitivity_val = QLabel("50%")
         self._lbl_sensitivity_val.setFixedWidth(35)
         self._sld_sensitivity.valueChanged.connect(
@@ -2155,7 +2231,39 @@ class TranscribeWindow(QDialog):
         lay_fmt.addStretch()
         lay_opts.addLayout(lay_fmt)
 
-        pad_transcribe.addLayout(lay_opts)
+        lay_pad_h.addLayout(lay_opts, 1)
+
+        # Right column: tall purple Transcribe button + Cancel underneath
+        # (Cancel is shown only during the chunked long-file pipeline).
+        btn_col = QVBoxLayout()
+        btn_col.setContentsMargins(0, 0, 0, 0)
+        btn_col.setSpacing(4)
+
+        self._btn_transcribe = QPushButton(_("Transcribe"))
+        self._btn_transcribe.setEnabled(False)
+        self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
+        self._btn_transcribe.clicked.connect(self._on_transcribe)
+        self._btn_transcribe.setMinimumWidth(140)
+        self._btn_transcribe.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self._btn_transcribe.setStyleSheet(
+            "QPushButton { background: #8e44ad; color: white; "
+            "font-weight: bold; border: none; border-radius: 4px; "
+            "padding: 6px 16px; }"
+            "QPushButton:hover { background: #9b59b6; }"
+            "QPushButton:pressed { background: #7d3c98; }"
+            "QPushButton:disabled { background: rgba(142,68,173,80); "
+            "color: rgba(255,255,255,150); }")
+        btn_col.addWidget(self._btn_transcribe)
+
+        self._btn_cancel = QPushButton(_("Cancel"))
+        self._btn_cancel.setVisible(False)
+        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
+        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
+        btn_col.addWidget(self._btn_cancel)
+
+        lay_pad_h.addLayout(btn_col, 0)
+        pad_transcribe.addLayout(lay_pad_h)
 
         layout.addWidget(self._pad_transcribe)
 
@@ -2181,25 +2289,24 @@ class TranscribeWindow(QDialog):
         pad_translate.setContentsMargins(10, 8, 10, 8)
         pad_translate.setSpacing(4)
 
-        lay_btn_translate = QHBoxLayout()
+        # Two-column pad: options on the left, tall orange Translate
+        # button on the right (mirrors the Transcribe pad layout).
+        lay_translate_h = QHBoxLayout()
+        lay_translate_h.setContentsMargins(0, 0, 0, 0)
+        lay_translate_h.setSpacing(12)
 
-        self._btn_translate = QPushButton(_("Translate"))
-        self._btn_translate.setEnabled(False)
-        self._btn_translate.setToolTip(_("Translate the current transcription"))
-        self._btn_translate.clicked.connect(self._on_translate)
-        lay_btn_translate.addWidget(self._btn_translate)
-
-        lay_btn_translate.addStretch()
-        pad_translate.addLayout(lay_btn_translate)
+        lay_translate_opts = QVBoxLayout()
+        lay_translate_opts.setContentsMargins(0, 0, 0, 0)
+        lay_translate_opts.setSpacing(4)
 
         lay_opts2 = QHBoxLayout()
-        lay_opts2.setContentsMargins(20, 0, 0, 0)
+        lay_opts2.setContentsMargins(0, 0, 0, 0)
         self._chk_auto_translate = ToggleSwitch(_("Auto-translate the transcription"))
         self._chk_auto_translate.setToolTip(
             _("Automatically translate after transcription"))
         lay_opts2.addWidget(self._chk_auto_translate)
         lay_opts2.addStretch()
-        pad_translate.addLayout(lay_opts2)
+        lay_translate_opts.addLayout(lay_opts2)
 
         # -- Options: row 3 — sync slider/text bidirectional --
         # Toggles built here, layout assembled below the rename
@@ -2230,57 +2337,97 @@ class TranscribeWindow(QDialog):
         self._chk_highlight_current.toggled.connect(
             lambda v: QSettings("dictee", "transcribe").setValue("sync/highlight_current", v))
 
-        # -- Translation row (indented under the Translate button) --
+        # -- Translation row (language pickers + backend label) --
         lay_trans = QHBoxLayout()
-        lay_trans.setContentsMargins(20, 0, 0, 0)
+        lay_trans.setContentsMargins(0, 0, 0, 0)
 
         conf = _read_conf()
+        qs_translate = QSettings("dictee", "transcribe")
 
-        LANG_CODES = [
+        # Full language list — used as the master set. trans (Google)
+        # supports 100+ languages and Ollama models like translategemma
+        # cover most of them; this list keeps the most common ones to
+        # stay manageable. The target combo is filtered down further
+        # when the backend is libretranslate (only the languages loaded
+        # via DICTEE_LIBRETRANSLATE_LANGS at container startup).
+        self._lang_codes = [
             ("en", "English"), ("fr", "Français"), ("de", "Deutsch"),
             ("es", "Español"), ("it", "Italiano"), ("pt", "Português"),
-            ("uk", "Українська"), ("nl", "Nederlands"), ("pl", "Polski"),
-            ("ru", "Русский"), ("zh", "中文"), ("ja", "日本語"),
-            ("ko", "한국어"), ("ar", "العربية"),
+            ("nl", "Nederlands"), ("pl", "Polski"), ("ro", "Română"),
+            ("cs", "Čeština"), ("sk", "Slovenčina"), ("hu", "Magyar"),
+            ("sv", "Svenska"), ("da", "Dansk"), ("nb", "Norsk"),
+            ("fi", "Suomi"), ("el", "Ελληνικά"), ("bg", "Български"),
+            ("hr", "Hrvatski"), ("sr", "Српски"), ("sl", "Slovenščina"),
+            ("uk", "Українська"), ("ru", "Русский"), ("be", "Беларуская"),
+            ("tr", "Türkçe"), ("ar", "العربية"), ("he", "עברית"),
+            ("fa", "فارسی"), ("ur", "اردو"), ("hi", "हिन्दी"),
+            ("bn", "বাংলা"), ("ta", "தமிழ்"), ("te", "తెలుగు"),
+            ("zh", "中文"), ("ja", "日本語"), ("ko", "한국어"),
+            ("vi", "Tiếng Việt"), ("th", "ไทย"), ("id", "Bahasa Indonesia"),
+            ("ms", "Bahasa Melayu"), ("sw", "Kiswahili"),
         ]
 
-        self._cmb_lang_src = QComboBox()
-        for code, name in LANG_CODES:
-            self._cmb_lang_src.addItem(f"{code} — {name}", code)
-        lang_src = conf.get("DICTEE_LANG_SOURCE", "en")
-        for i in range(self._cmb_lang_src.count()):
-            if self._cmb_lang_src.itemData(i) == lang_src:
-                self._cmb_lang_src.setCurrentIndex(i)
+        # Backend combo — same four values as the plasmoid's translate
+        # backend selector. "google" and "bing" both invoke the `trans`
+        # CLI with -e <engine>; "ollama" and "libretranslate" go to
+        # their respective HTTP APIs.
+        # Per-file choice, persisted in QSettings so it never touches
+        # dictee.conf (which would silently re-route the dictation
+        # translate shortcut). Source language is auto-detected from
+        # the transcript, so no source combo here.
+        self._cmb_backend = QComboBox()
+        # "(cloud)" makes it explicit that Google/Bing send the
+        # transcription to a remote API — Ollama/LT run locally.
+        self._cmb_backend.addItem(_("Google (cloud)"), "google")
+        self._cmb_backend.addItem(_("Bing (cloud)"), "bing")
+        self._cmb_backend.addItem("Ollama", "ollama")
+        self._cmb_backend.addItem("LibreTranslate", "libretranslate")
+        # Initial default: resolve dictee.conf's backend → if "trans",
+        # fall back to DICTEE_TRANS_ENGINE (google/bing); otherwise
+        # use the backend directly (ollama/libretranslate).
+        _conf_backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
+        if _conf_backend == "trans":
+            _conf_backend = (conf.get("DICTEE_TRANS_ENGINE", "google") or "google").lower()
+        default_backend = qs_translate.value("translate/backend", _conf_backend)
+        for i in range(self._cmb_backend.count()):
+            if self._cmb_backend.itemData(i) == default_backend:
+                self._cmb_backend.setCurrentIndex(i)
                 break
-        self._cmb_lang_src.setToolTip(_("Source language"))
-        lay_trans.addWidget(self._cmb_lang_src)
+        self._cmb_backend.setToolTip(self._tip(_(
+            "Translation backend for this file. Volatile per-session; "
+            "does not modify dictee.conf, so the dictation pipeline "
+            "keeps using its own configured backend.")))
+        lay_trans.addWidget(QLabel(_("Backend:")))
+        lay_trans.addWidget(self._cmb_backend)
 
-        lay_trans.addWidget(QLabel("→"))
-
+        # Target language combo — filtered dynamically when backend is
+        # libretranslate (only the languages loaded in the LT container
+        # are usable).
         self._cmb_lang_tgt = QComboBox()
-        for code, name in LANG_CODES:
-            self._cmb_lang_tgt.addItem(f"{code} — {name}", code)
-        lang_tgt = conf.get("DICTEE_LANG_TARGET", "fr")
-        for i in range(self._cmb_lang_tgt.count()):
-            if self._cmb_lang_tgt.itemData(i) == lang_tgt:
-                self._cmb_lang_tgt.setCurrentIndex(i)
-                break
-        self._cmb_lang_tgt.setToolTip(_("Target language"))
+        self._cmb_lang_tgt.setToolTip(self._tip(_(
+            "Target language for this file. The source language is "
+            "auto-detected from the transcribed text.")))
+        lay_trans.addWidget(QLabel(_("Translate to:")))
         lay_trans.addWidget(self._cmb_lang_tgt)
 
-        backend_name = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
-        if backend_name == "trans":
-            backend_name = conf.get("DICTEE_TRANS_ENGINE", "google").capitalize()
-        elif backend_name == "ollama":
-            backend_name = "Ollama"
-        elif backend_name == "libretranslate":
-            backend_name = "LibreTranslate"
-        self._lbl_backend = QLabel(f'<small style="color: #98c379;"><b>{backend_name}</b></small>')
-        self._lbl_backend.setToolTip(_("Current translation backend"))
-        lay_trans.addWidget(self._lbl_backend)
+        # Populate combo and select the saved target. The default
+        # target falls back to dictee.conf only on the very first run
+        # — afterwards it lives in QSettings.
+        self._refilter_lang_tgt()
+        default_tgt = qs_translate.value(
+            "translate/lang_tgt",
+            conf.get("DICTEE_LANG_TARGET", "fr"))
+        for i in range(self._cmb_lang_tgt.count()):
+            if self._cmb_lang_tgt.itemData(i) == default_tgt:
+                self._cmb_lang_tgt.setCurrentIndex(i)
+                break
 
-        btn_setup_trans = QPushButton(_("Configure..."))
-        btn_setup_trans.setToolTip(_("Open translation settings in dictee-setup"))
+        btn_setup_trans = QPushButton(_("Backend settings…"))
+        btn_setup_trans.setToolTip(self._tip(_(
+            "Open dictee-setup to configure backend infrastructure "
+            "(Ollama model, LibreTranslate URL and loaded languages, "
+            "trans engine). The per-file backend and target language "
+            "above are managed here in transcribe.")))
         def _open_setup_translation():
             env = dict(os.environ)
             env["QT_QPA_PLATFORMTHEME"] = "kde"
@@ -2289,7 +2436,29 @@ class TranscribeWindow(QDialog):
         lay_trans.addWidget(btn_setup_trans)
 
         lay_trans.addStretch()
-        pad_translate.addLayout(lay_trans)
+        lay_translate_opts.addLayout(lay_trans)
+
+        lay_translate_h.addLayout(lay_translate_opts, 1)
+
+        # Right column: tall orange Translate button
+        self._btn_translate = QPushButton(_("Translate"))
+        self._btn_translate.setEnabled(False)
+        self._btn_translate.setToolTip(_("Translate the current transcription"))
+        self._btn_translate.clicked.connect(self._on_translate)
+        self._btn_translate.setMinimumWidth(140)
+        self._btn_translate.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self._btn_translate.setStyleSheet(
+            "QPushButton { background: #e67e22; color: white; "
+            "font-weight: bold; border: none; border-radius: 4px; "
+            "padding: 6px 16px; }"
+            "QPushButton:hover { background: #f39c12; }"
+            "QPushButton:pressed { background: #d35400; }"
+            "QPushButton:disabled { background: rgba(230,126,34,80); "
+            "color: rgba(255,255,255,150); }")
+        lay_translate_h.addWidget(self._btn_translate)
+
+        pad_translate.addLayout(lay_translate_h)
 
         layout.addWidget(self._pad_translate)
 
@@ -2362,10 +2531,10 @@ class TranscribeWindow(QDialog):
         # Tighten padding/margin so the button hugs the first tab tightly
         self._btn_edit_mode.setStyleSheet(
             "QPushButton { padding: 0 2px; margin: 0; }")
-        self._btn_edit_mode.setToolTip(_(
+        self._btn_edit_mode.setToolTip(self._tip(_(
             "Click-to-seek: when enabled, clicking in the text seeks the "
             "audio and the text is read-only. Toggle off to edit the "
-            "text freely (no audio seek)."))
+            "text freely (no audio seek).")))
         self._btn_edit_mode.toggled.connect(self._on_edit_mode_toggled)
         self._tabs.setCornerWidget(self._btn_edit_mode, Qt.Corner.TopLeftCorner)
 
@@ -2394,9 +2563,9 @@ class TranscribeWindow(QDialog):
 
         # Left: text tools (LLM analysis, copy)
         self._btn_llm = QPushButton(_("LLM analysis..."))
-        self._btn_llm.setToolTip(_(
+        self._btn_llm.setToolTip(self._tip(_(
             "Run an LLM analysis on the transcript "
-            "(summary, chapters, ASR correction, custom prompt)"))
+            "(summary, chapters, ASR correction, custom prompt)")))
         self._btn_llm.clicked.connect(self._on_llm_process)
         lay_btns.addWidget(self._btn_llm)
 
@@ -2547,8 +2716,8 @@ class TranscribeWindow(QDialog):
         self._file_input.textChanged.connect(self._update_transcribe_btn)
         self._file_input.textChanged.connect(self._update_long_audio_warning)
         self._cmb_format.currentIndexChanged.connect(self._on_format_changed)
-        self._cmb_lang_src.currentIndexChanged.connect(self._on_lang_changed)
-        self._cmb_lang_tgt.currentIndexChanged.connect(self._on_lang_changed)
+        self._cmb_backend.currentIndexChanged.connect(self._on_translate_choice_changed)
+        self._cmb_lang_tgt.currentIndexChanged.connect(self._on_translate_choice_changed)
         self._chk_auto_translate.toggled.connect(lambda: self._update_translate_btn())
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -2566,92 +2735,85 @@ class TranscribeWindow(QDialog):
         esc.activated.connect(self._on_escape)
 
     def _on_conf_changed(self, path):
-        """Refresh UI when dictee.conf changes (live sync with dictee-setup)."""
+        """Refresh UI when dictee.conf changes (live sync with dictee-setup).
+
+        Translate pad is now independent (backend + target language live
+        in QSettings, not dictee.conf). The only thing we still pull
+        from disk on conf change is the DICTEE_LIBRETRANSLATE_LANGS
+        list, which determines what target languages are usable when
+        backend == libretranslate.
+        """
         _dbg(f"_on_conf_changed: {path}")
-        self._sync_lang_combos_from_conf()
-        self._refresh_backend_label()
+        if self._cmb_backend.currentData() == "libretranslate":
+            self._refilter_lang_tgt()
         self._update_translate_btn()
         # Re-add to watcher (some editors replace the file, removing the watch)
         if hasattr(self, '_conf_watcher') and path not in self._conf_watcher.files():
             self._conf_watcher.addPath(path)
 
-    def _sync_lang_combos_from_conf(self):
-        """Pull DICTEE_LANG_{SOURCE,TARGET} from disk and align the combos.
+    def _refilter_lang_tgt(self):
+        """Repopulate _cmb_lang_tgt according to the current backend.
 
-        Signals are blocked during the setCurrentIndex calls so this
-        method does NOT trigger _on_lang_changed (which would write
-        back the same values we just read — harmless but wasteful and
-        potentially racy with another writer).
+        - trans / ollama: full language list (anything they support).
+        - libretranslate: only languages loaded in the LT container
+          (DICTEE_LIBRETRANSLATE_LANGS in dictee.conf — set by
+          dictee-setup when starting the container).
+
+        Preserves the current selection if the new list still contains
+        it; otherwise the combo lands on its first item and the user
+        will see the change.
         """
-        conf = _read_conf()
-        src = conf.get("DICTEE_LANG_SOURCE")
-        tgt = conf.get("DICTEE_LANG_TARGET")
-        for combo, code in ((self._cmb_lang_src, src),
-                            (self._cmb_lang_tgt, tgt)):
-            if not code:
-                continue
-            for i in range(combo.count()):
-                if combo.itemData(i) == code:
-                    if combo.currentIndex() != i:
-                        combo.blockSignals(True)
-                        combo.setCurrentIndex(i)
-                        combo.blockSignals(False)
-                    break
-
-    def _refresh_backend_label(self):
-        """Update the backend label from current config."""
-        conf = _read_conf()
-        backend = conf.get("DICTEE_TRANSLATE_BACKEND", "trans")
-        if backend == "trans":
-            name = conf.get("DICTEE_TRANS_ENGINE", "google").capitalize()
-        elif backend == "ollama":
-            name = "Ollama"
-        elif backend == "libretranslate":
-            name = "LibreTranslate"
+        prev = self._cmb_lang_tgt.currentData()
+        backend = self._cmb_backend.currentData()
+        if backend == "libretranslate":
+            conf = _read_conf()
+            allowed = set(c.strip() for c in conf.get(
+                "DICTEE_LIBRETRANSLATE_LANGS",
+                "en,fr,es,de,it,pt,uk,ru,tr,ar,zh,hi,bn,ja,ko").split(",")
+                if c.strip())
+            codes = [(c, n) for c, n in self._lang_codes if c in allowed]
         else:
-            name = backend
-        self._lbl_backend.setText(f'<small style="color: #98c379;"><b>{name}</b></small>')
+            codes = list(self._lang_codes)
 
-    def _on_lang_changed(self):
-        """Disable same language in the other ComboBox + persist to conf.
+        self._cmb_lang_tgt.blockSignals(True)
+        self._cmb_lang_tgt.clear()
+        for code, name in codes:
+            self._cmb_lang_tgt.addItem(f"{code} — {name}", code)
+        # Restore previous selection if still valid
+        if prev:
+            for i in range(self._cmb_lang_tgt.count()):
+                if self._cmb_lang_tgt.itemData(i) == prev:
+                    self._cmb_lang_tgt.setCurrentIndex(i)
+                    break
+        self._cmb_lang_tgt.blockSignals(False)
 
-        The two combos in the Translate pad are bound to dictee.conf
-        so they stay in sync with dictee-setup → Translation and with
-        the live dictation backend. The source language also drives
-        the LLM Diarization output language (DICTEE_LANG_SOURCE).
-        """
-        src = self._cmb_lang_src.currentData()
+    def _on_translate_choice_changed(self):
+        """Persist backend + target language to QSettings (per-file
+        choices that must NOT touch dictee.conf), and refilter the
+        target combo if the backend changed."""
+        backend = self._cmb_backend.currentData()
         tgt = self._cmb_lang_tgt.currentData()
-        # Grey out source lang in target ComboBox
-        model_tgt = self._cmb_lang_tgt.model()
-        for i in range(self._cmb_lang_tgt.count()):
-            item = model_tgt.item(i)
-            if item:
-                item.setEnabled(self._cmb_lang_tgt.itemData(i) != src)
-        # Grey out target lang in source ComboBox
-        model_src = self._cmb_lang_src.model()
-        for i in range(self._cmb_lang_src.count()):
-            item = model_src.item(i)
-            if item:
-                item.setEnabled(self._cmb_lang_src.itemData(i) != tgt)
+        qs = QSettings("dictee", "transcribe")
+        if backend:
+            qs.setValue("translate/backend", backend)
+        if tgt:
+            qs.setValue("translate/lang_tgt", tgt)
+        # Re-filter target language list if backend changed (the
+        # caller may have changed either combo, so we always check).
+        # blockSignals inside _refilter avoids a recursion loop.
+        self._refilter_lang_tgt()
         self._update_translate_btn()
-        if src and tgt and src != tgt:
-            try:
-                _update_conf_kv({
-                    "DICTEE_LANG_SOURCE": src,
-                    "DICTEE_LANG_TARGET": tgt,
-                })
-            except OSError:
-                pass
 
     def _update_translate_btn(self):
-        src = self._cmb_lang_src.currentData()
         tgt = self._cmb_lang_tgt.currentData()
         translating = self._translate_thread and self._translate_thread.isRunning()
+        # The translation source is always the original transcription
+        # (self._raw_text), so the button only depends on whether the
+        # original tab has produced text — not on which tab is active.
         self._btn_translate.setEnabled(
-            src != tgt
+            bool(tgt)
             and bool(self._raw_text)
-            and _translate_available()
+            and _translate_available(self._cmb_backend.currentData())
             and not self._chk_auto_translate.isChecked()
             and not translating)
 
@@ -3510,10 +3672,12 @@ class TranscribeWindow(QDialog):
         self._update_translate_btn()
         self._show_status()
 
-        # Auto-translate if checked and languages differ
+        # Auto-translate if checked and a target is selected. The
+        # source language is auto-detected inside _on_translate; same-
+        # language translations are short-circuited there too.
         if (self._chk_auto_translate.isChecked()
-                and _translate_available()
-                and self._cmb_lang_src.currentData() != self._cmb_lang_tgt.currentData()):
+                and _translate_available(self._cmb_backend.currentData())
+                and self._cmb_lang_tgt.currentData()):
             self._on_translate()
 
     def _on_finished(self, exit_code, _exit_status):
@@ -3637,10 +3801,12 @@ class TranscribeWindow(QDialog):
 
         self._show_status()
 
-        # Auto-translate if checked and languages differ
+        # Auto-translate if checked and a target is selected. The
+        # source language is auto-detected inside _on_translate; same-
+        # language translations are short-circuited there too.
         if (self._chk_auto_translate.isChecked()
-                and _translate_available()
-                and self._cmb_lang_src.currentData() != self._cmb_lang_tgt.currentData()):
+                and _translate_available(self._cmb_backend.currentData())
+                and self._cmb_lang_tgt.currentData()):
             self._on_translate()
 
     def _show_status(self):
@@ -3677,40 +3843,56 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
 
     def _on_translate(self):
-        """Translate the currently active tab."""
-        # Get data from current tab widget
-        widget = self._tabs.currentWidget()
-        raw_text = getattr(widget, '_raw_text', '') if widget else ''
-        segments = getattr(widget, '_diarize_segments', []) if widget else []
-        was_diarized = getattr(widget, '_was_diarized', False) if widget else False
-        if not raw_text and not segments:
-            # Fallback to instance state
-            raw_text = self._raw_text
-            segments = self._segments
-            was_diarized = self._was_diarized
+        """Translate the original transcription into the chosen target.
+
+        The source is always the original transcribed text/segments,
+        never the currently active translation tab. self._segments is
+        mutated on every tab change (see _on_tab_changed L3210), so
+        we MUST NOT read it here — we'd otherwise feed the worker the
+        already-translated segments and the LLM would translate from
+        the wrong language. The original tab (self._text_edit) keeps
+        its own _raw_text / _diarize_segments / _was_diarized fixed
+        for the session, so we read from there.
+        """
+        raw_text = (getattr(self._text_edit, '_raw_text', '')
+                    or self._raw_text)
+        segments = (getattr(self._text_edit, '_diarize_segments', None)
+                    or self._segments)
+        was_diarized = getattr(self._text_edit, '_was_diarized',
+                               self._was_diarized)
         if not raw_text:
             return
         # Prevent concurrent translation
         if self._translate_thread and self._translate_thread.isRunning():
             return
-        # Prevent same-language translation
-        if self._cmb_lang_src.currentData() == self._cmb_lang_tgt.currentData():
-            _dbg("_on_translate: blocked — same language")
+        # Auto-detect source language from the transcribed text. Cheap
+        # heuristic in _detect_language; replace later with the ASR's
+        # own metadata if Parakeet starts exposing it.
+        lang_src = _detect_language(raw_text) or "en"
+        lang_tgt = self._cmb_lang_tgt.currentData()
+        if not lang_tgt:
             return
-        _dbg(f"_on_translate: {self._cmb_lang_src.currentData()} → {self._cmb_lang_tgt.currentData()}")
-        # Keep transcription status and append translating
-        current = self._lbl_status.text()
-        self._lbl_status.setText(current + " — " + _("Translating..."))
+        if lang_src == lang_tgt:
+            _dbg(f"_on_translate: blocked — detected source ({lang_src}) == target")
+            return
+        backend = self._cmb_backend.currentData()
+        _dbg(f"_on_translate: backend={backend}, {lang_src}→{lang_tgt}")
+        # Keep transcription status and append a braille-spinner-led
+        # "Translating..." segment. The "—" separator gets replaced by
+        # the spinner frame, which animates while the translation runs.
+        self._translate_status_base = self._lbl_status.text()
         self._lbl_status.setVisible(True)
         self._progress.setVisible(True)
         self._btn_translate.setEnabled(False)
         self._btn_transcribe.setEnabled(False)
         self._translate_start = time.monotonic()
-        lang_src = self._cmb_lang_src.currentData()
-        lang_tgt = self._cmb_lang_tgt.currentData()
         self._current_translate_lang = lang_tgt
-        # Remember which tab we're translating from
-        self._translate_source_tab = widget
+        self._current_translate_backend = backend
+        self._start_translate_status_spinner()
+        # The source tab is always the original transcription tab —
+        # the new translation tab is inserted right after the original
+        # group regardless of which tab the user clicked from.
+        self._translate_source_tab = self._text_edit
         # Cleanup previous thread if any
         if self._translate_thread:
             try:
@@ -3725,7 +3907,7 @@ class TranscribeWindow(QDialog):
                 self._translate_thread.deleteLater()
         self._translate_thread = TranslateThread(
             raw_text, segments, was_diarized,
-            lang_src, lang_tgt)
+            lang_src, lang_tgt, backend)
         self._translate_thread.finished_signal.connect(self._on_translate_done)
         self._translate_thread.error_signal.connect(self._on_translate_error)
         self._translate_thread.start()
@@ -3733,12 +3915,14 @@ class TranscribeWindow(QDialog):
     def _on_translate_error(self, message):
         """Show translation error in status bar."""
         _dbg(f"_on_translate_error: {message}")
+        self._stop_translate_status_spinner()
         self._lbl_status.setText(message)
         self._lbl_status.setVisible(True)
 
     def _on_translate_done(self, translated_text, translated_segments):
         """Handle translation completion."""
         _dbg(f"_on_translate_done: text_len={len(translated_text)}, segments={len(translated_segments)}")
+        self._stop_translate_status_spinner()
         self._progress.setVisible(False)
         self._update_translate_btn()
         self._update_transcribe_btn()
@@ -3752,12 +3936,25 @@ class TranscribeWindow(QDialog):
                 lang_name = self._cmb_lang_tgt.itemText(i).split(" — ")[1] if " — " in self._cmb_lang_tgt.itemText(i) else lang.upper()
                 break
 
-        # Build tab name: "SourceTab → Lang"
+        # Compact label for the backend so the tab title stays readable
+        # (the user wanted to see at a glance which engine produced
+        # which translation). Matches the plasmoid's four-backend list.
+        _backend_label_map = {
+            "google": "Google",
+            "bing": "Bing",
+            "ollama": "Ollama",
+            "libretranslate": "LT",
+        }
+        backend_label = _backend_label_map.get(
+            getattr(self, "_current_translate_backend", ""), "")
+        suffix = f" ({backend_label})" if backend_label else ""
+
+        # Build tab name: "SourceTab → Lang (Backend)"
         source_tab = getattr(self, '_translate_source_tab', None)
         source_idx = self._tabs.indexOf(source_tab) if source_tab else -1
         if source_idx >= 0:
             source_name = self._tabs.tabText(source_idx)
-            tab_title = f"{source_name} → {lang_name}"
+            tab_title = f"{source_name} → {lang_name}{suffix}"
             insert_at = source_idx + 1
             # Skip any existing translation tabs after the source
             while insert_at < self._tabs.count():
@@ -3767,13 +3964,13 @@ class TranscribeWindow(QDialog):
                 else:
                     break
         else:
-            tab_title = lang_name
+            tab_title = f"{lang_name}{suffix}"
             insert_at = self._tabs.count()
 
         # Create new translation tab inserted right after source
         editor = QTextEdit()
         editor.setReadOnly(self._btn_edit_mode.isChecked())
-        editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
+        editor.setToolTip(self._tip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo.")))
         editor.viewport().installEventFilter(self)
         self._install_modified_overlay(editor)
         # Inherit audio path from the source tab so switching to this
@@ -3791,12 +3988,21 @@ class TranscribeWindow(QDialog):
         elif self._speaker_name_map:
             editor._speaker_name_map = dict(self._speaker_name_map)
 
-        # Store and display
+        # Store and display. Always populate _raw_text and
+        # _was_diarized so re-translating from this tab (without
+        # going back to the source tab) Just Works in _on_translate.
         if translated_segments:
             editor._diarize_segments = list(translated_segments)
+            editor._was_diarized = True
+            # Reconstruct a flat text from the translated segments —
+            # used both as fallback raw_text and as input to the
+            # language detector when re-translating from this tab.
+            editor._raw_text = "\n".join(
+                s.get("text", "") for s in translated_segments)
             self._apply_format_to(editor, translated_segments, None)
         elif translated_text:
             editor._raw_text = translated_text
+            editor._was_diarized = False
             self._apply_format_to(editor, [], translated_text)
 
         # Switch to this translation tab
@@ -4008,14 +4214,14 @@ class TranscribeWindow(QDialog):
 
         lay_btns = QHBoxLayout()
         self._btn_rename_apply = QPushButton(_("Apply"))
-        self._btn_rename_apply.setToolTip(_(
+        self._btn_rename_apply.setToolTip(self._tip(_(
             "Replaces speaker labels in all views and exports (text, SRT, "
-            "JSON). Does not modify raw data."))
+            "JSON). Does not modify raw data.")))
         self._btn_rename_apply.clicked.connect(self._apply_speaker_rename)
         self._btn_rename_reset = QPushButton(_("Reset"))
-        self._btn_rename_reset.setToolTip(_(
+        self._btn_rename_reset.setToolTip(self._tip(_(
             "Clears custom names and reverts to the generic labels "
-            "Speaker 0, Speaker 1, etc."))
+            "Speaker 0, Speaker 1, etc.")))
         self._btn_rename_reset.clicked.connect(self._reset_speaker_rename)
         lay_btns.addWidget(self._btn_rename_apply)
         lay_btns.addWidget(self._btn_rename_reset)
@@ -4243,11 +4449,43 @@ class TranscribeWindow(QDialog):
 
     def _stop_all_spinners(self):
         """Used on _show_status to stop spinning the active text tab
-        regardless of which call started it."""
-        if not hasattr(self, "_spinning_tabs"):
+        regardless of which call started it. Also stops the status-bar
+        translation spinner if it's running."""
+        if hasattr(self, "_spinning_tabs"):
+            for w in list(self._spinning_tabs.keys()):
+                self._stop_tab_spinner(w)
+        self._stop_translate_status_spinner()
+
+    def _start_translate_status_spinner(self):
+        """Animate a braille spinner where the leading "—" used to
+        sit before "Translating...". Lighter than creating an empty
+        target tab in advance — visible right where the user already
+        watches the elapsed-time / speakers status line."""
+        if not hasattr(self, "_translate_status_idx"):
+            self._translate_status_idx = 0
+        if not hasattr(self, "_translate_status_timer"):
+            self._translate_status_timer = QTimer(self)
+            self._translate_status_timer.setInterval(100)
+            self._translate_status_timer.timeout.connect(
+                self._tick_translate_status_spinner)
+        # Paint the first frame immediately so the user sees the
+        # spinner without waiting one tick.
+        self._tick_translate_status_spinner()
+        if not self._translate_status_timer.isActive():
+            self._translate_status_timer.start()
+
+    def _tick_translate_status_spinner(self):
+        if not hasattr(self, "_translate_status_base"):
             return
-        for w in list(self._spinning_tabs.keys()):
-            self._stop_tab_spinner(w)
+        frame = self.SPINNER_FRAMES[self._translate_status_idx]
+        self._translate_status_idx = (self._translate_status_idx + 1) % len(self.SPINNER_FRAMES)
+        base = self._translate_status_base
+        sep = " " + frame + " " if base else frame + " "
+        self._lbl_status.setText(base + sep + _("Translating..."))
+
+    def _stop_translate_status_spinner(self):
+        if hasattr(self, "_translate_status_timer") and self._translate_status_timer.isActive():
+            self._translate_status_timer.stop()
 
     def _tick_spinner(self):
         if not self._spinning_tabs:
