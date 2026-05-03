@@ -534,6 +534,20 @@ class _DiarizeTranscribeWorker(QThread):
         self._audio_path = audio_path
         self._diarize_output = diarize_output
         self._sock_path = sock_path
+        self._cancelled = False
+        self._sock = None  # current open socket, if any (for cancel)
+
+    def cancel(self):
+        """Mark thread as cancelled and try to break the blocking
+        recv() by closing the socket from the outside. The HTTP-style
+        loop in run() exits with a socket error; emit is then
+        suppressed so the UI sees the cancel as instantaneous."""
+        self._cancelled = True
+        try:
+            if self._sock is not None:
+                self._sock.close()
+        except Exception:
+            pass
 
     def _maybe_convert_to_wav(self, path):
         """transcribe-daemon opens the file as raw WAV without running
@@ -611,24 +625,33 @@ class _DiarizeTranscribeWorker(QThread):
         # not crash with "Ill-formed WAVE file" on its raw WAV reader.
         daemon_path = self._maybe_convert_to_wav(self._audio_path)
 
+        if self._cancelled:
+            return
+
         # Transcribe full audio via daemon with timestamps (diarize mode)
         _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}")
         full_text = ""
         try:
-            s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
-            s.settimeout(120)
-            s.connect(self._sock_path)
-            s.sendall((daemon_path + "\tdiarize\n").encode())
+            self._sock = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+            self._sock.settimeout(120)
+            self._sock.connect(self._sock_path)
+            self._sock.sendall((daemon_path + "\tdiarize\n").encode())
             data = b""
             while True:
-                chunk = s.recv(4096)
+                chunk = self._sock.recv(4096)
                 if not chunk:
                     break
                 data += chunk
-            s.close()
+            self._sock.close()
+            self._sock = None
             full_text = data.decode("utf-8", errors="replace").strip()
         except Exception as e:
+            if self._cancelled:
+                return
             self.error.emit(f"Daemon transcription failed: {e}")
+            return
+
+        if self._cancelled:
             return
 
         if not full_text:
@@ -1143,6 +1166,13 @@ class TranslateThread(QThread):
         self._was_diarized = was_diarized
         self._lang_src = lang_src
         self._lang_tgt = lang_tgt
+        self._cancelled = False
+
+    def cancel(self):
+        """Mark thread as cancelled. The current HTTP/CLI translation
+        call cannot be interrupted from outside but its result will be
+        discarded — the UI sees the cancel as immediate."""
+        self._cancelled = True
 
     def run(self):
         try:
@@ -1167,17 +1197,23 @@ class TranslateThread(QThread):
                             translated_segments[idx] = new_seg
                     else:
                         failed = True
+                if self._cancelled:
+                    return
                 if failed:
                     self.error_signal.emit(_("Translation partially failed — some segments untranslated."))
                 self.finished_signal.emit("", translated_segments)
             else:
                 translated = _translate_text(self._raw_text, self._lang_src, self._lang_tgt)
+                if self._cancelled:
+                    return
                 if not translated:
                     self.error_signal.emit(_("Translation failed — check backend configuration."))
                     self.finished_signal.emit(self._raw_text, [])
                 else:
                     self.finished_signal.emit(translated, [])
         except Exception as e:
+            if self._cancelled:
+                return
             self.error_signal.emit(str(e))
             self.finished_signal.emit(self._raw_text, self._segments)
 
@@ -1510,31 +1546,37 @@ class LLMAnalysisThread(QThread):
         self._dictionary = dictionary
         self._timeout = timeout
         self._lang_name = lang_name
-        self._cancelled = False
+        # Created lazily in run() because the helper class lives in the
+        # dictee-diarize-llm module which we hot-import.
+        self._cancellation = None
 
     def cancel(self):
-        """Mark the thread as cancelled.
+        """Abort the in-flight HTTP stream and suppress emit.
 
-        urllib's blocking request can't be interrupted from outside, so
-        the HTTP call keeps running in the background until it returns
-        or times out — but result/error emission is suppressed so the
-        UI sees the cancel as instantaneous.
+        Closes the live HTTPResponse from the outside — the streaming
+        loop in the provider call exits immediately. No more wasted
+        cloud tokens or pinned GPU after the user closes the tab.
         """
-        self._cancelled = True
+        c = self._cancellation
+        if c is not None:
+            c.abort()
 
     def run(self):
         try:
             mod = _dll_module()
+            self._cancellation = mod.Cancellation()
             text = mod.analyze(
                 self._segments, self._profile, self._provider_cfg,
                 model=self._model, dictionary=self._dictionary,
                 timeout=self._timeout, lang_name=self._lang_name,
+                cancellation=self._cancellation,
                 progress_cb=lambda i, n: self.progress.emit(i, n))
-            if self._cancelled:
+            if self._cancellation.cancelled:
                 return
             self.result.emit(text)
         except Exception as e:
-            if self._cancelled:
+            # CancelledError (or any other) after abort: stay silent.
+            if self._cancellation is not None and self._cancellation.cancelled:
                 return
             self.error.emit(str(e))
 
@@ -2388,19 +2430,18 @@ class TranscribeWindow(QDialog):
     def closeEvent(self, event):
         """Clean up processes on window close."""
         self._player.stop()
+        # Signal every worker to abort first (cancel + kill), then wait
+        # briefly. Without the cancel calls the wait() below would block
+        # the UI for the full HTTP/socket timeout instead of returning
+        # almost instantly.
+        self._abort_main_workers()
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
-            _dbg("closeEvent: killing transcription process")
-            self._process.kill()
             self._process.waitForFinished(3000)
         if self._translate_thread and self._translate_thread.isRunning():
-            _dbg("closeEvent: waiting for translation thread")
             self._translate_thread.wait(5000)
         if hasattr(self, '_diarize_worker') and self._diarize_worker and self._diarize_worker.isRunning():
-            _dbg("closeEvent: waiting for diarize worker")
             self._diarize_worker.wait(5000)
         if hasattr(self, '_chunked_worker') and self._chunked_worker and self._chunked_worker.isRunning():
-            _dbg("closeEvent: cancelling chunked worker")
-            self._chunked_worker.request_cancel()
             self._chunked_worker.wait(5000)
             # Safety net: if the worker timed out before the finally:
             # block in run() could fire, the tmp dir is still around.
@@ -2445,14 +2486,17 @@ class TranscribeWindow(QDialog):
         return widget if isinstance(widget, QTextEdit) else self._text_edit
 
     def _on_tab_close(self, index):
-        """Close a tab. Refuse if a worker is still writing into the tab
-        we're about to remove — Qt would delete the QTextEdit's C++
-        object while _finish_transcription is about to set its content,
-        which crashes or corrupts state."""
+        """Close a tab and abort whatever work is feeding it.
+
+        Robust shutdown: every worker that could write into the tab we
+        drop is signalled to cancel (suppress emit), so the QTextEdit
+        can be deleted without Qt firing on a dangling C++ object.
+        Long-running HTTP/socket calls keep going in the background
+        but their result is discarded.
+        """
         widget = self._tabs.widget(index)
         # LLM result tab still spinning: cancel the thread, then drop
-        # the tab. The HTTP call keeps running in the background but
-        # its emit is suppressed (see LLMAnalysisThread.cancel).
+        # the tab.
         if getattr(widget, "_is_llm_result", False):
             thread = getattr(widget, "_llm_thread", None)
             if thread is not None and thread.isRunning():
@@ -2462,28 +2506,42 @@ class TranscribeWindow(QDialog):
             widget.deleteLater()
             return
         if widget is self._text_edit:
-            chunked_running = (
-                hasattr(self, '_chunked_worker') and self._chunked_worker
-                and self._chunked_worker.isRunning())
-            diarize_running = (
-                hasattr(self, '_diarize_worker') and self._diarize_worker
-                and self._diarize_worker.isRunning())
-            qprocess_running = (
-                self._process is not None
-                and self._process.state() != QProcess.ProcessState.NotRunning)
-            translate_running = (
-                self._translate_thread is not None
-                and self._translate_thread.isRunning())
-            if (chunked_running or diarize_running or qprocess_running
-                    or translate_running):
-                self._lbl_status.setText(_(
-                    "Cannot close this tab while a transcription/translation "
-                    "is running. Cancel it first."))
-                self._lbl_status.setVisible(True)
-                QTimer.singleShot(
-                    3000, lambda: self._lbl_status.setVisible(False))
-                return
+            self._abort_main_workers()
         self._tabs.removeTab(index)
+
+    def _abort_main_workers(self):
+        """Cancel every worker that could still touch self._text_edit.
+        Used when the user closes the main tab or the whole window
+        mid-flight. Returns immediately — workers finish in the
+        background, their emit is suppressed."""
+        if self._process is not None \
+                and self._process.state() != QProcess.ProcessState.NotRunning:
+            _dbg("abort: killing transcription QProcess")
+            try:
+                self._process.kill()
+            except Exception:
+                pass
+        for attr in ("_chunked_worker", "_diarize_worker", "_translate_thread"):
+            w = getattr(self, attr, None)
+            if w is not None and w.isRunning():
+                _dbg(f"abort: cancelling {attr}")
+                # All three workers expose either request_cancel
+                # (legacy chunked pipeline) or cancel.
+                if hasattr(w, "request_cancel"):
+                    try:
+                        w.request_cancel()
+                    except Exception:
+                        pass
+                if hasattr(w, "cancel"):
+                    try:
+                        w.cancel()
+                    except Exception:
+                        pass
+        # Hide the cancel button + reset status so the next run starts
+        # from a clean slate.
+        if hasattr(self, "_btn_cancel"):
+            self._btn_cancel.setVisible(False)
+        self._update_transcribe_btn()
 
     def _connect_signals(self):
         self._file_input.textChanged.connect(self._update_transcribe_btn)
@@ -3429,27 +3487,12 @@ class TranscribeWindow(QDialog):
         # Rebuild the rename panel for the new speakers
         self._populate_rename_fields()
 
-        # Auto-detect language
-        detect_text = " ".join(seg["text"] for seg in self._segments) if self._segments else raw_output
-        detected = _detect_language(detect_text)
-        _dbg(f"_finish_transcription: detected language={detected}")
-        for i in range(self._cmb_lang_src.count()):
-            if self._cmb_lang_src.itemData(i) == detected:
-                self._cmb_lang_src.setCurrentIndex(i)
-                break
-        if self._cmb_lang_tgt.currentData() == detected:
-            import locale as _locale
-            conf = _read_conf()
-            fallback = conf.get("DICTEE_LANG_TARGET", "")
-            if not fallback or fallback == detected:
-                sys_lang = _locale.getlocale()[0]
-                if sys_lang:
-                    fallback = sys_lang.split("_")[0]
-            if fallback and fallback != detected:
-                for i in range(self._cmb_lang_tgt.count()):
-                    if self._cmb_lang_tgt.itemData(i) == fallback:
-                        self._cmb_lang_tgt.setCurrentIndex(i)
-                        break
+        # NB: language auto-detection removed deliberately. The source
+        # language combo reflects the user's choice (and DICTEE_LANG_SOURCE
+        # in dictee.conf), which is also what drives the LLM Diarization
+        # output language. Detecting & overwriting it here used to flip
+        # the combo to the audio's language — so a French user analysing
+        # an English meeting got the LLM summary in English.
 
         self._apply_format()
         # Make sure the player is on this tab's audio file. The user may
@@ -3581,31 +3624,10 @@ class TranscribeWindow(QDialog):
         # Rebuild (or hide) the speaker rename panel
         self._populate_rename_fields()
 
-        # Auto-detect language and update source/target ComboBoxes
-        detect_text = raw_output
-        if self._segments:
-            detect_text = " ".join(seg["text"] for seg in self._segments)
-        detected = _detect_language(detect_text)
-        _dbg(f"_on_finished: detected language={detected}")
-        for i in range(self._cmb_lang_src.count()):
-            if self._cmb_lang_src.itemData(i) == detected:
-                self._cmb_lang_src.setCurrentIndex(i)
-                break
-        # If target is same as detected source, switch target to user's language
-        if self._cmb_lang_tgt.currentData() == detected:
-            import locale as _locale
-            conf = _read_conf()
-            # Prefer dictee.conf target, then system locale
-            fallback = conf.get("DICTEE_LANG_TARGET", "")
-            if not fallback or fallback == detected:
-                sys_lang = _locale.getlocale()[0] or ""
-                fallback = sys_lang.split("_")[0] if sys_lang else ""
-            if fallback and fallback != detected:
-                for i in range(self._cmb_lang_tgt.count()):
-                    if self._cmb_lang_tgt.itemData(i) == fallback:
-                        self._cmb_lang_tgt.setCurrentIndex(i)
-                        break
-
+        # NB: language auto-detection removed deliberately (same as in
+        # _finish_transcription). The source combo stays on the user's
+        # choice — DICTEE_LANG_SOURCE in dictee.conf — which is also
+        # what the LLM Diarization output language is bound to.
         # Display in current format
         self._apply_format()
         self._update_player_markers()
