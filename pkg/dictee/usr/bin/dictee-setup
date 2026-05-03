@@ -8386,8 +8386,12 @@ class DicteeSetupDialog(QDialog):
                     " border: 1px solid #4a4a50; border-radius: 6px;"
                     " padding: 14px; font-size: 13px; }")
                 self._popup.setWordWrap(True)
-                self._popup.setMaximumWidth(520)
                 self._popup.setTextFormat(Qt.TextFormat.RichText)
+                # Fixed (not max) width so wrap layout settles before
+                # adjustSize computes the height — otherwise the rich-text
+                # + word-wrap + stylesheet padding combo underestimates
+                # height and the last line is clipped off the popup.
+                self._popup.setFixedWidth(520)
                 self._popup.adjustSize()
             pos = self.mapToGlobal(self.rect().bottomLeft())
             self._popup.move(pos)
