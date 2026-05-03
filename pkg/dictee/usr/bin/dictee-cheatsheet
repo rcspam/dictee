@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -485,15 +487,36 @@ def _detect_lang():
     return "en"
 
 
+def _humanize_suffix(regex_form):
+    """Turn a regex-form suffix (e.g. 'finale?s?') into a readable canonical
+    word for display in the cheatsheet (e.g. 'finale').
+
+    Strategy: drop optional-marker '?' chars together with the single ASCII
+    letter that precedes them. So 'finale?s?' → 'final', 'final?' → 'fina'.
+    For better UX we keep the bare-letter form before the last '?' (the most
+    common Latin-language pattern is `<root>e?s?` to match singular/plural):
+    after stripping the trailing '?' tokens, restore the canonical 'e' if
+    the original had 'e?' so users see 'finale' not 'final'."""
+    import re
+    # Special-case the common 'e?s?' Latin pattern → keep the 'e'
+    if regex_form.endswith("e?s?"):
+        return regex_form[:-len("e?s?")] + "e"
+    if regex_form.endswith("s?"):
+        return regex_form[:-len("s?")]
+    # Fallback: strip every '<letter>?' token
+    return re.sub(r"[A-Za-zÀ-ÿ]\?", "", regex_form)
+
+
 def _read_suffix(lang):
     """Read DICTEE_COMMAND_SUFFIX_<LANG> from dictee.conf, fallback to default.
-    Value is kept verbatim (may be a regex like 'finale?s?')."""
+    The on-disk value may be a regex (e.g. 'finale?s?'); humanize it for
+    display so the user sees 'finale' rather than the raw regex."""
     cfg = _read_kv_file(DICTEE_CONF)
     key = f"DICTEE_COMMAND_SUFFIX_{lang.upper()}"
     val = cfg.get(key, "").strip()
-    if val:
-        return val
-    return _DEFAULT_SUFFIX.get(lang, "")
+    if not val:
+        val = _DEFAULT_SUFFIX.get(lang, "")
+    return _humanize_suffix(val)
 
 
 def _read_continuation_word(lang):
@@ -567,11 +590,16 @@ class CheatsheetCard(QWidget):
         # frameless Qt.Tool windows, so we drive opacity via QSS instead).
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.resize(260, 420)
+        self.resize(320, 480)
+        self.setMinimumSize(240, 280)
 
         # Drag state.
         self._drag_start = None
         self._win_start = None
+
+        # Tracks whether we have pushed a resize cursor onto the override
+        # stack so we never call restoreOverrideCursor() spuriously.
+        self._edge_cursor_active = False
 
         # Current zoom (body text point size).
         self._zoom_pt = DEFAULT_ZOOM_PT
@@ -598,12 +626,22 @@ class CheatsheetCard(QWidget):
         self._header = self._build_header()
         root.addWidget(self._header)
 
+        # Body wrapped in QScrollArea so accordion expand and zoom never
+        # resize the window — overflow becomes a vertical/horizontal scroll.
         self._body = QFrame()
         self._body.setObjectName("CheatsheetBody")
         self._body_layout = QVBoxLayout(self._body)
         self._body_layout.setContentsMargins(8, 8, 8, 8)
         self._body_layout.setSpacing(2)
-        root.addWidget(self._body, 1)
+
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("CheatsheetScroll")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll.setWidget(self._body)
+        root.addWidget(self._scroll, 1)
 
         self._footer = QFrame()
         self._footer.setObjectName("CheatsheetFooter")
@@ -749,6 +787,36 @@ class CheatsheetCard(QWidget):
                 color: #d8e3ff;
                 font-size: {body_pt}pt;
             }}
+            QScrollArea#CheatsheetScroll {{
+                background: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical, QScrollBar:horizontal {{
+                background: transparent;
+                margin: 0;
+            }}
+            QScrollBar:vertical {{
+                width: 6px;
+            }}
+            QScrollBar:horizontal {{
+                height: 6px;
+            }}
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+                background: rgba(255, 255, 255, 51);
+                border-radius: 3px;
+                min-width: 20px;
+                min-height: 20px;
+            }}
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+                background: rgba(255, 255, 255, 102);
+            }}
+            QScrollBar::add-line, QScrollBar::sub-line,
+            QScrollBar::add-page, QScrollBar::sub-page {{
+                background: none;
+                border: none;
+                width: 0;
+                height: 0;
+            }}
         """
 
     def _apply_stylesheet(self):
@@ -799,23 +867,10 @@ class CheatsheetCard(QWidget):
         self._apply_zoom()
 
     def _apply_zoom(self):
-        # Update the stylesheet — font-sizes propagate to existing widgets,
-        # so we don't need to rebuild the body (which under Wayland causes
-        # a visible flicker / window restart).
+        # Update the stylesheet — font-sizes propagate to existing widgets.
+        # Window size stays as-is; body overflow becomes a scroll inside
+        # the QScrollArea wrapper.
         self._apply_stylesheet()
-        # Force the layout to recompute sizes with the new fonts, then resize
-        # the window to fit, capped to the screen.
-        self.layout().invalidate()
-        self.layout().activate()
-        self.adjustSize()
-        screen = self.screen() or QGuiApplication.primaryScreen()
-        if screen is not None:
-            geom = screen.availableGeometry()
-            new_size = self.size()
-            capped_w = min(new_size.width(), geom.width() - 32)
-            capped_h = min(new_size.height(), geom.height() - 32)
-            if (capped_w, capped_h) != (new_size.width(), new_size.height()):
-                self.resize(capped_w, capped_h)
 
     def _render_body(self):
         """Clear and re-build the body content based on current expand state."""
@@ -852,8 +907,18 @@ class CheatsheetCard(QWidget):
             title_btn = QPushButton(f"{arrow} {labels[cat]}")
             title_btn.setObjectName("CheatsheetCategoryTitle")
             title_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            title_btn.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
             title_btn.clicked.connect(partial(self._toggle_category, cat))
-            self._body_layout.addWidget(title_btn)
+            # Row keeps the button at its natural width and reserves the
+            # remaining horizontal space for window-drag/resize events.
+            title_row = QHBoxLayout()
+            title_row.setContentsMargins(0, 0, 0, 0)
+            title_row.setSpacing(0)
+            title_row.addWidget(title_btn)
+            title_row.addStretch(1)
+            title_container = QWidget()
+            title_container.setLayout(title_row)
+            self._body_layout.addWidget(title_container)
 
             if is_open:
                 grid = QGridLayout()
@@ -891,24 +956,93 @@ class CheatsheetCard(QWidget):
             child = child.parentWidget()
         return False
 
-    def mousePressEvent(self, event):
-        if (
-            event.button() == Qt.MouseButton.LeftButton
-            and not self._on_interactive(event.pos())
-        ):
-            # Prefer the compositor-managed system move: this is the only
-            # reliable way to drag a frameless window under Wayland, and it
-            # works fine on X11 too. Fall back to manual move() if no
-            # window handle is available yet.
-            handle = self.windowHandle()
-            if handle is not None and hasattr(handle, "startSystemMove"):
-                if handle.startSystemMove():
-                    event.accept()
-                    return
-            self._drag_start = event.globalPosition().toPoint()
-            self._win_start = self.pos()
-            event.accept()
+    def _edge_at(self, pos):
+        """Return combined Qt.Edges if pos is within the 6px resize border on
+        any of the four edges, else None. The header drag still works because
+        it occupies the bulk of the top region (only the topmost 6px are
+        reserved for the resize edge)."""
+        margin = 6
+        rect = self.rect()
+        e = None
+        if pos.x() <= margin:
+            e = Qt.Edge.LeftEdge
+        elif pos.x() >= rect.width() - margin:
+            e = Qt.Edge.RightEdge
+        if pos.y() <= margin:
+            e = Qt.Edge.TopEdge if e is None else e | Qt.Edge.TopEdge
+        elif pos.y() >= rect.height() - margin:
+            e = Qt.Edge.BottomEdge if e is None else e | Qt.Edge.BottomEdge
+        return e
+
+    def _try_system_resize(self, edges):
+        """Ask the compositor to resize the window from the given edges.
+        Returns True on success."""
+        handle = self.windowHandle()
+        if handle is not None and hasattr(handle, "startSystemResize"):
+            return bool(handle.startSystemResize(edges))
+        return False
+
+    @staticmethod
+    def _cursor_for_edges(edges):
+        """Map a Qt.Edges combination to the matching resize cursor shape.
+        Uses bitwise & directly on the enum (PyQt6 raises if you call
+        int() on a Qt.Edge member)."""
+        has_left = bool(edges & Qt.Edge.LeftEdge)
+        has_right = bool(edges & Qt.Edge.RightEdge)
+        has_top = bool(edges & Qt.Edge.TopEdge)
+        has_bottom = bool(edges & Qt.Edge.BottomEdge)
+        if (has_top and has_left) or (has_bottom and has_right):
+            return Qt.CursorShape.SizeFDiagCursor
+        if (has_top and has_right) or (has_bottom and has_left):
+            return Qt.CursorShape.SizeBDiagCursor
+        if has_left or has_right:
+            return Qt.CursorShape.SizeHorCursor
+        return Qt.CursorShape.SizeVerCursor
+
+    def _update_edge_cursor(self, root_pos):
+        """Show a resize cursor when the mouse hovers a 6px window edge,
+        restore the default cursor otherwise. Uses an override cursor stack
+        guarded by a flag so we never leak a pushed cursor."""
+        edges = self._edge_at(root_pos)
+        if edges is None:
+            if self._edge_cursor_active:
+                QApplication.restoreOverrideCursor()
+                self._edge_cursor_active = False
             return
+        cursor = self._cursor_for_edges(edges)
+        if self._edge_cursor_active:
+            QApplication.changeOverrideCursor(cursor)
+        else:
+            QApplication.setOverrideCursor(cursor)
+            self._edge_cursor_active = True
+
+    def _clear_edge_cursor(self):
+        """Pop the override cursor if we pushed one. Called on window leave."""
+        if self._edge_cursor_active:
+            QApplication.restoreOverrideCursor()
+            self._edge_cursor_active = False
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Edge resize takes precedence over drag.
+            edges = self._edge_at(event.position().toPoint())
+            if edges is not None and self._try_system_resize(edges):
+                event.accept()
+                return
+            if not self._on_interactive(event.pos()):
+                # Prefer the compositor-managed system move: this is the only
+                # reliable way to drag a frameless window under Wayland, and it
+                # works fine on X11 too. Fall back to manual move() if no
+                # window handle is available yet.
+                handle = self.windowHandle()
+                if handle is not None and hasattr(handle, "startSystemMove"):
+                    if handle.startSystemMove():
+                        event.accept()
+                        return
+                self._drag_start = event.globalPosition().toPoint()
+                self._win_start = self.pos()
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -929,12 +1063,16 @@ class CheatsheetCard(QWidget):
 
     def _install_wheel_filter(self):
         """Install self as eventFilter on all current child widgets and on
-        QApplication so wheel events get forwarded regardless of which widget
-        receives them first (children consume wheel events under Qt by default
-        even when not scrollable, breaking propagation to the parent window).
-        """
+        QApplication so wheel events (opacity ◐) and edge-cursor feedback
+        work regardless of which widget receives them first.
+
+        Mouse tracking is enabled on every descendant so MouseMove events
+        fire without a button being held — without this, the resize cursor
+        would only appear when dragging."""
+        self.setMouseTracking(True)
         for w in self.findChildren(QWidget):
             w.installEventFilter(self)
+            w.setMouseTracking(True)
         # Application-wide filter: catches wheel before any widget consumes it.
         app = QApplication.instance()
         if app is not None and not getattr(self, "_app_filter_installed", False):
@@ -968,21 +1106,32 @@ class CheatsheetCard(QWidget):
         self._opacity = max(MIN_OPACITY, min(MAX_OPACITY, new))
         self._apply_stylesheet()
 
-    def wheelEvent(self, event):
-        # Wheel anywhere on the card adjusts opacity. Cheap and bulletproof
-        # under Wayland where event propagation from children to the parent
-        # window is unreliable.
-        self._adjust_opacity(event.angleDelta().y())
-        event.accept()
-
     def eventFilter(self, obj, event):
-        # Forward wheel events from any descendant widget to the card so the
-        # opacity tweak works no matter where the cursor sits. Scope to our
-        # own widget tree since the filter is application-wide.
-        if event.type() == QEvent.Type.Wheel and isinstance(obj, QWidget):
+        # Opacity tweak: ONLY when the wheel scrolls over the ◐ header button.
+        # Anywhere else, wheel events fall through to the QScrollArea (or any
+        # other scrollable target) so the user can scroll the cheatsheet
+        # content normally.
+        if event.type() == QEvent.Type.Wheel and obj is getattr(self, "_btn_opacity", None):
+            self._adjust_opacity(event.angleDelta().y())
+            return True
+        # Edge resize from descendants: a click landing on the 6px border
+        # of any child still triggers a window resize via the compositor.
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(obj, QWidget):
+            if (obj is self or self.isAncestorOf(obj)) and event.button() == Qt.MouseButton.LeftButton:
+                root_pos = self.mapFromGlobal(event.globalPosition().toPoint())
+                edges = self._edge_at(root_pos)
+                if edges is not None and self._try_system_resize(edges):
+                    return True
+        # Hover feedback: switch to the matching resize cursor when the mouse
+        # approaches a window edge. Tracked on every descendant move because
+        # children consume mouse events before the root sees them.
+        if event.type() == QEvent.Type.MouseMove and isinstance(obj, QWidget):
             if obj is self or self.isAncestorOf(obj):
-                self._adjust_opacity(event.angleDelta().y())
-                return True
+                root_pos = self.mapFromGlobal(event.globalPosition().toPoint())
+                self._update_edge_cursor(root_pos)
+        # Restore the default cursor when the mouse leaves the window.
+        if event.type() == QEvent.Type.Leave and obj is self:
+            self._clear_edge_cursor()
         return super().eventFilter(obj, event)
 
     def show_firstrun_banner(self):

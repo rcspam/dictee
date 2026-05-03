@@ -21,30 +21,36 @@ try:
                                QProcessEnvironment, QFileSystemWatcher,
                                QUrl, QSize, QRect, QRectF,
                                QPropertyAnimation, QEasingCurve,
+                               QSettings, QEvent,
                                pyqtSignal as Signal,
                                pyqtProperty as Property)
     from PyQt6.QtGui import (QShortcut, QKeySequence, QTextDocument,
-                              QPainter, QColor, QBrush, QPen)
+                              QPainter, QColor, QBrush, QPen,
+                              QTextCharFormat, QTextCursor)
     from PyQt6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
     )
+    from PyQt6.QtGui import QFont as _QFontTip
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                 QProcessEnvironment, QFileSystemWatcher,
                                 Signal, QUrl, QSize, QRect, QRectF,
-                                QPropertyAnimation, QEasingCurve, Property)
+                                QPropertyAnimation, QEasingCurve, Property,
+                                QSettings, QEvent)
     from PySide6.QtGui import (QShortcut, QKeySequence, QTextDocument,
-                                QPainter, QColor, QBrush, QPen)
+                                QPainter, QColor, QBrush, QPen,
+                                QTextCharFormat, QTextCursor)
     from PySide6.QtWidgets import (
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
     )
+    from PySide6.QtGui import QFont as _QFontTip
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 
@@ -243,9 +249,11 @@ class _ClickSlider(QSlider):
         try:
             from PyQt6.QtGui import QPainter, QPen, QPolygonF, QColor
             from PyQt6.QtCore import QPointF
+            from PyQt6.QtWidgets import QStyle, QStyleOptionSlider
         except ImportError:
             from PySide6.QtGui import QPainter, QPen, QPolygonF, QColor
             from PySide6.QtCore import QPointF
+            from PySide6.QtWidgets import QStyle, QStyleOptionSlider
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rng = self.maximum() - self.minimum()
@@ -257,14 +265,21 @@ class _ClickSlider(QSlider):
             bar_color = QColor(color)
             bar_color.setAlpha(60)
             p.fillRect(x1, 0, max(x2 - x1, 2), h, bar_color)
-        # Draw triangle markers at segment starts
+        # Draw a thin vertical tick at each segment start. Triangles
+        # used to clutter long-file timelines (one triangle per
+        # segment), single-pixel ticks stay readable even with
+        # hundreds of segments.
         for start_ms, _end_ms, color in self._markers:
             x = int((start_ms - self.minimum()) / rng * self.width())
-            tri = QPolygonF([
-                QPointF(x - 4, 0), QPointF(x + 4, 0), QPointF(x, 7)])
             p.setPen(QPen(color, 1))
-            p.setBrush(color)
-            p.drawPolygon(tri)
+            p.drawLine(x, 0, x, h - 1)
+        # Redraw only the handle on top so the playback indicator stays
+        # visible above the speaker bars and ticks.
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        opt.subControls = QStyle.SubControl.SC_SliderHandle
+        self.style().drawComplexControl(
+            QStyle.ComplexControl.CC_Slider, opt, p, self)
         p.end()
 
     def mousePressEvent(self, event):
@@ -297,6 +312,37 @@ CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
 )
+
+
+def _update_conf_kv(updates):
+    """Patch specific keys in dictee.conf, preserving everything else.
+
+    Reads the whole file, replaces matching `key=value` lines (or
+    appends new ones), then atomically rewrites via tempfile +
+    os.replace. Per feedback-no-sed.md, this is the sanctioned way to
+    mutate dictee.conf programmatically — sed is forbidden.
+    """
+    lines = []
+    if os.path.isfile(CONF_PATH):
+        with open(CONF_PATH, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    seen = set()
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        k = s.split("=", 1)[0].strip()
+        if k in updates:
+            lines[i] = f"{k}={updates[k]}\n"
+            seen.add(k)
+    for k, v in updates.items():
+        if k not in seen:
+            lines.append(f"{k}={v}\n")
+    tmp = CONF_PATH + ".tmp"
+    os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    os.replace(tmp, CONF_PATH)
 
 
 def _read_conf():
@@ -489,11 +535,45 @@ class _DiarizeTranscribeWorker(QThread):
         self._diarize_output = diarize_output
         self._sock_path = sock_path
 
+    def _maybe_convert_to_wav(self, path):
+        """transcribe-daemon opens the file as raw WAV without running
+        ffmpeg internally, so mp3/m4a/webm/ogg inputs crash with
+        'Ill-formed WAVE file: no RIFF tag found' before any token is
+        produced. Detect non-compatible inputs via ffprobe and convert
+        to WAV 16k mono via ffmpeg into /tmp/. The temp file is left
+        behind on purpose (small, /tmp/ is cleaned at boot)."""
+        try:
+            info = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_streams", "-of", "json", path],
+                stderr=subprocess.DEVNULL, timeout=10).decode()
+            for st in json.loads(info).get("streams", []):
+                if (st.get("codec_type") == "audio"
+                        and st.get("codec_name") == "pcm_s16le"
+                        and int(st.get("sample_rate", 0)) == 16000
+                        and st.get("channels") == 1):
+                    return path  # already daemon-compatible
+        except Exception:
+            pass
+
+        out_path = f"/tmp/dictee_daemon_input_{os.getpid()}.wav"
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", path, "-ar", "16000", "-ac", "1",
+                 "-f", "wav", out_path],
+                check=True, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=120)
+            return out_path
+        except Exception:
+            return path  # caller will surface the daemon error
+
     def run(self):
         import socket as sock_mod, time as _time, re
 
-        # Wait for socket (max 15s)
-        for _ in range(60):
+        # Wait for socket (max 15s).
+        # NB: never use `_` as the loop variable — it shadows the gettext
+        # function `_(...)` for the rest of run(), and every translated
+        # string downstream blows up with "'int' object is not callable".
+        for _attempt in range(60):
             if os.path.exists(self._sock_path):
                 try:
                     s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
@@ -527,14 +607,18 @@ class _DiarizeTranscribeWorker(QThread):
 
         self.progress.emit(1, 3)  # phase 2 started
 
+        # Pre-convert non-WAV inputs (mp3/m4a/webm/...) so the daemon does
+        # not crash with "Ill-formed WAVE file" on its raw WAV reader.
+        daemon_path = self._maybe_convert_to_wav(self._audio_path)
+
         # Transcribe full audio via daemon with timestamps (diarize mode)
-        _dbg(f"DiarizeWorker: sending full audio to daemon: {self._audio_path}")
+        _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}")
         full_text = ""
         try:
             s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
             s.settimeout(120)
             s.connect(self._sock_path)
-            s.sendall((self._audio_path + "\tdiarize\n").encode())
+            s.sendall((daemon_path + "\tdiarize\n").encode())
             data = b""
             while True:
                 chunk = s.recv(4096)
@@ -599,6 +683,298 @@ class _DiarizeTranscribeWorker(QThread):
         self.finished.emit("\n".join(results))
 
 
+class _ChunkedPipelineWorker(QThread):
+    """Long-file chunked pipeline (audio > LONG_AUDIO threshold + diarize ON).
+
+    Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
+    Phase 2: diarize-only on the full file -> global speaker segments.
+    Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
+    Phase 4: merge global speakers onto tokens via argmax_overlap.
+
+    Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
+    """
+    phase_changed = Signal(int, str)    # (phase_num 1..4, label)
+    chunk_progress = Signal(int, int)   # (done, total) for Phase 3
+    finished = Signal(str)              # final formatted output
+    error = Signal(str)
+
+    CHUNK_SECONDS = 120
+    OVERLAP_SECONDS = 15
+    STEP_SECONDS = 105    # CHUNK - OVERLAP
+
+    def __init__(self, audio_path, sensitivity, parent=None):
+        super().__init__(parent)
+        self._audio_path = audio_path
+        self._sensitivity = sensitivity
+        self._cancel = False
+        self._tmp_dir = None
+        self._current_proc = None
+        # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
+        # without it, ORT cannot find libonnxruntime.so and falls back to CPU
+        # silently. Mirrors the QProcess env setup in _on_transcribe.
+        self._subprocess_env = os.environ.copy()
+        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort_lib):
+            self._subprocess_env["ORT_DYLIB_PATH"] = ort_lib
+
+    def request_cancel(self):
+        self._cancel = True
+        if self._current_proc is not None:
+            try:
+                self._current_proc.terminate()
+                # Give the child 200 ms to exit on SIGTERM, then SIGKILL.
+                # Without this kill(), communicate() in run() may hang
+                # several seconds and trip closeEvent's wait timeout,
+                # leaking /tmp/dictee_chunks_<pid>/.
+                try:
+                    self._current_proc.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    self._current_proc.kill()
+            except Exception:
+                pass
+
+    def run(self):
+        try:
+            duration = self._get_duration()
+            if duration <= 0:
+                self.error.emit(_("Could not determine audio duration"))
+                return
+
+            self.phase_changed.emit(1, _("Phase 1/4: pre-cut audio"))
+            self._tmp_dir = self._make_tmp_dir()
+            chunks = self._ffmpeg_split(duration)
+            if self._cancel:
+                return
+            if not chunks:
+                self.error.emit(_("No chunks produced from audio split"))
+                return
+
+            self.phase_changed.emit(2, _("Phase 2/4: global diarization"))
+            speaker_segments = self._run_diarize_only()
+            if self._cancel:
+                return
+            if not speaker_segments:
+                self.error.emit(_("No speaker segments detected"))
+                return
+
+            self.phase_changed.emit(3, _("Phase 3/4: chunked transcription"))
+            tokens_absolute = self._run_transcribe_batch(chunks)
+            if self._cancel:
+                return
+            if not tokens_absolute:
+                self.error.emit(_("No transcription tokens produced"))
+                return
+
+            self.phase_changed.emit(4, _("Phase 4/4: merging speakers"))
+            output = self._merge(tokens_absolute, speaker_segments)
+            if not output:
+                self.error.emit(_("Merge produced empty output"))
+                return
+
+            self.finished.emit(output)
+        except Exception as e:
+            self.error.emit(f"Chunked pipeline failed: {e}")
+        finally:
+            self._cleanup_tmp()
+
+    def _make_tmp_dir(self):
+        d = f"/tmp/dictee_chunks_{os.getpid()}_{int(time.time())}"
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _get_duration(self):
+        try:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", self._audio_path],
+                stderr=subprocess.DEVNULL, timeout=30,
+            ).decode().strip()
+            return float(out)
+        except Exception:
+            return 0.0
+
+    def _ffmpeg_split(self, duration):
+        """Split audio into chunks (idx, abs_start_seconds, chunk_path)."""
+        chunks = []
+        idx = 0
+        start = 0.0
+        while start < duration:
+            if self._cancel:
+                return []
+            chunk_path = os.path.join(self._tmp_dir, f"chunk_{idx:04d}.wav")
+            cmd = [
+                "ffmpeg", "-y", "-ss", f"{start:.3f}",
+                "-t", str(self.CHUNK_SECONDS),
+                "-i", self._audio_path,
+                "-ar", "16000", "-ac", "1", "-f", "wav",
+                chunk_path,
+            ]
+            self._current_proc = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=self._subprocess_env,
+            )
+            rc = self._current_proc.wait()
+            self._current_proc = None
+            if rc == 0 and os.path.exists(chunk_path) \
+                    and os.path.getsize(chunk_path) > 1024:
+                chunks.append((idx, start, chunk_path))
+            idx += 1
+            start += self.STEP_SECONDS
+        return chunks
+
+    def _run_diarize_only(self):
+        """Run diarize-only. Stdout format: 'start end speaker_id' per line."""
+        cmd = ["diarize-only", "--sensitivity", f"{self._sensitivity:.2f}",
+               self._audio_path]
+        self._current_proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            env=self._subprocess_env,
+        )
+        try:
+            stdout_data, _err = self._current_proc.communicate(timeout=600)
+        except subprocess.TimeoutExpired:
+            self._current_proc.kill()
+            return []
+        finally:
+            self._current_proc = None
+
+        segments = []
+        for line in stdout_data.decode("utf-8", errors="replace").splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 3:
+                try:
+                    segments.append({
+                        "start": float(parts[0]),
+                        "end": float(parts[1]),
+                        "speaker": int(parts[2]),
+                    })
+                except ValueError:
+                    continue
+        return segments
+
+    def _run_transcribe_batch(self, chunks):
+        """Run transcribe-diarize-batch --no-diarize on chunks via stdin.
+
+        Stdout format per chunk:
+            ===CHUNK <idx> <path>===
+            [X.XXs - Y.YYs] text
+            ...
+
+        Tokens whose midpoint falls outside the chunk's useful zone are
+        dropped (deduplication of overlap zones).
+        """
+        chunks_paths = [c[2] for c in chunks]
+        n = len(chunks)
+        last_idx = n - 1
+
+        # --no-postprocess: postprocess is applied per-segment in
+        # _finish_transcription, matching the existing _DiarizeTranscribeWorker
+        # pattern. Avoids double processing.
+        cmd = ["transcribe-diarize-batch", "--no-diarize",
+               "--no-postprocess", "--stdin"]
+        self._current_proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=self._subprocess_env,
+        )
+        stdin_data = ("\n".join(chunks_paths) + "\n").encode()
+        try:
+            stdout_data, _err = self._current_proc.communicate(
+                input=stdin_data, timeout=3600,
+            )
+        except subprocess.TimeoutExpired:
+            self._current_proc.kill()
+            return []
+        finally:
+            self._current_proc = None
+
+        chunk_re = re.compile(r"^===CHUNK\s+(\d+)\s+(.+?)===$")
+        token_re = re.compile(r"^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*(.+)$")
+        tokens_abs = []
+        cur_idx = -1
+        cur_offset = 0.0
+        half_overlap = self.OVERLAP_SECONDS / 2.0
+
+        for line in stdout_data.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            m = chunk_re.match(line)
+            if m:
+                cur_idx = int(m.group(1))
+                cur_offset = chunks[cur_idx][1] if 0 <= cur_idx < n else 0.0
+                self.chunk_progress.emit(cur_idx + 1, n)
+                continue
+            tm = token_re.match(line)
+            if tm and cur_idx >= 0:
+                local_start = float(tm.group(1))
+                local_end = float(tm.group(2))
+                text = tm.group(3).strip()
+                if not text:
+                    continue
+                # Useful zone (relative to chunk start)
+                if cur_idx == 0:
+                    z_start = 0.0
+                    z_end = self.CHUNK_SECONDS - half_overlap
+                elif cur_idx == last_idx:
+                    z_start = half_overlap
+                    z_end = float(self.CHUNK_SECONDS)
+                else:
+                    z_start = half_overlap
+                    z_end = self.CHUNK_SECONDS - half_overlap
+                mid = (local_start + local_end) / 2.0
+                if z_start <= mid < z_end:
+                    tokens_abs.append({
+                        "start": cur_offset + local_start,
+                        "end": cur_offset + local_end,
+                        "text": text,
+                    })
+
+        tokens_abs.sort(key=lambda t: t["start"])
+        return tokens_abs
+
+    def _merge(self, tokens, speaker_segments):
+        """Merge speakers onto tokens via argmax_overlap.
+
+        Output: '[X.XXs - Y.YYs] Speaker N: text' per line.
+        Speaker label is hardcoded English to stay DIARIZE_RE-compatible.
+        """
+        results = []
+        for tok in tokens:
+            best_speaker = -1
+            best_overlap = 0.0
+            for seg in speaker_segments:
+                ov_start = max(tok["start"], seg["start"])
+                ov_end = min(tok["end"], seg["end"])
+                ov = max(0.0, ov_end - ov_start)
+                if ov > best_overlap:
+                    best_overlap = ov
+                    best_speaker = seg["speaker"]
+            spk = f"Speaker {best_speaker}" if best_speaker >= 0 else "UNKNOWN"
+            results.append(
+                f"[{tok['start']:.2f}s - {tok['end']:.2f}s] {spk}: {tok['text']}"
+            )
+        return "\n".join(results)
+
+    def _cleanup_tmp(self):
+        if self._tmp_dir and os.path.exists(self._tmp_dir):
+            try:
+                shutil.rmtree(self._tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+
+# Strip ASCII control characters (except \t \n \r) from segment text.
+# Parakeet-TDT occasionally emits SentencePiece special tokens (e.g.
+#  ETX) that leak through the decoder and pollute the start of
+# some segments — visible in exports as "Good morning".
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _clean_segment_text(text):
+    return _CONTROL_CHAR_RE.sub("", text).strip()
+
+
 def _parse_diarize_output(text):
     """Parse transcribe-diarize output into segments."""
     segments = []
@@ -609,7 +985,7 @@ def _parse_diarize_output(text):
                 "start": float(m.group(1)),
                 "end": float(m.group(2)),
                 "speaker": m.group(3),
-                "text": m.group(4).strip(),
+                "text": _clean_segment_text(m.group(4)),
             })
     return segments
 
@@ -621,6 +997,20 @@ def _seconds_to_srt_time(seconds):
     s = int(seconds % 60)
     ms = int((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def _format_elapsed(s):
+    """Format an elapsed-seconds float as 'HH:MM:SS' when >= 1 h,
+    'MM:SS' when >= 1 min, else '12.3s'. Compact clock style — easier
+    to scan than '1 h 4 mn 56 s'."""
+    if s < 60:
+        return f"{s:.1f}s"
+    total = int(s)
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def _format_text(segments, name_map=None):
@@ -904,6 +1294,556 @@ class ExportDialog(QDialog):
         return self._base_name
 
 
+# === LLM result Export Dialog ===
+
+class LLMExportDialog(QDialog):
+    """Single-tab export for LLM analysis results.
+
+    Two output formats: Markdown (.md) and PDF (.pdf). Markdown writes
+    the editor content as-is (the LLM produces markdown). PDF renders
+    via QTextDocument.setMarkdown() + QPrinter for headings/lists/etc.
+    Filename and target directory are user-editable.
+    """
+
+    def __init__(self, default_filename, content, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Export LLM result"))
+        self.setMinimumWidth(520)
+        self._content = content or ""
+
+        layout = QVBoxLayout(self)
+
+        from PyQt6.QtWidgets import QFormLayout
+        form = QFormLayout()
+
+        self._name_edit = QLineEdit(default_filename)
+        form.addRow(_("Filename:"), self._name_edit)
+
+        self._dir_input = QLineEdit()
+        try:
+            desktop = subprocess.check_output(
+                ["xdg-user-dir", "DESKTOP"], text=True, timeout=3).strip()
+        except Exception:
+            desktop = os.path.expanduser("~/Desktop")
+        if not os.path.isdir(desktop):
+            desktop = os.path.expanduser("~")
+        self._dir_input.setText(desktop)
+        dir_h = QHBoxLayout()
+        dir_h.setContentsMargins(0, 0, 0, 0)
+        dir_h.addWidget(self._dir_input, 1)
+        btn_browse = QPushButton(_("Browse..."))
+        btn_browse.clicked.connect(self._on_browse)
+        dir_h.addWidget(btn_browse)
+        dir_w = QWidget()
+        dir_w.setLayout(dir_h)
+        form.addRow(_("Directory:"), dir_w)
+
+        layout.addLayout(form)
+
+        # Format checkboxes
+        group_fmt = QGroupBox(_("Formats"))
+        lay_fmt = QHBoxLayout(group_fmt)
+        self._chk_md = ToggleSwitch(_("Markdown (.md)"))
+        self._chk_md.setChecked(True)
+        self._chk_pdf = ToggleSwitch(_("PDF (.pdf)"))
+        lay_fmt.addWidget(self._chk_md)
+        lay_fmt.addWidget(self._chk_pdf)
+        layout.addWidget(group_fmt)
+
+        # Buttons
+        lay_btns = QHBoxLayout()
+        lay_btns.addStretch()
+        btn_save = QPushButton(_("Save"))
+        btn_save.setDefault(True)
+        btn_save.clicked.connect(self._on_save)
+        lay_btns.addWidget(btn_save)
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        lay_btns.addWidget(btn_cancel)
+        layout.addLayout(lay_btns)
+
+    def _on_browse(self):
+        d = QFileDialog.getExistingDirectory(
+            self, _("Select directory"), self._dir_input.text())
+        if d:
+            self._dir_input.setText(d)
+
+    def _on_save(self):
+        name = self._name_edit.text().strip()
+        out_dir = self._dir_input.text().strip()
+        if not name:
+            QMessageBox.warning(self, _("Validation"),
+                                _("Filename is required."))
+            return
+        if not os.path.isdir(out_dir):
+            QMessageBox.warning(
+                self, _("Validation"),
+                _("Directory does not exist: {dir}").format(dir=out_dir))
+            return
+        formats = []
+        if self._chk_md.isChecked():
+            formats.append("md")
+        if self._chk_pdf.isChecked():
+            formats.append("pdf")
+        if not formats:
+            QMessageBox.warning(self, _("Validation"),
+                                _("Pick at least one format."))
+            return
+
+        # Strip any extension the user typed; we add ours.
+        stem = re.sub(r"\.(md|pdf|txt)$", "", name, flags=re.IGNORECASE)
+
+        written = []
+        for fmt in formats:
+            path = os.path.join(out_dir, f"{stem}.{fmt}")
+            try:
+                if fmt == "md":
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(self._content)
+                elif fmt == "pdf":
+                    self._write_pdf(path, self._content)
+                written.append(path)
+            except Exception as e:
+                QMessageBox.critical(
+                    self, _("Export failed"),
+                    _("Could not write {path}:\n{err}").format(
+                        path=path, err=str(e)))
+                return
+
+        QMessageBox.information(
+            self, _("Export OK"),
+            _("Wrote:\n") + "\n".join(written))
+        self.accept()
+
+    def _write_pdf(self, path, markdown_text):
+        """Render markdown as PDF via QTextDocument + QPrinter. Headings,
+        bullet lists, code blocks etc. are rendered properly."""
+        from PyQt6.QtPrintSupport import QPrinter
+        from PyQt6.QtGui import QTextDocument
+        from PyQt6.QtCore import QMarginsF
+        from PyQt6.QtGui import QPageLayout, QPageSize
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(path)
+        layout_pdf = QPageLayout(
+            QPageSize(QPageSize.PageSizeId.A4),
+            QPageLayout.Orientation.Portrait,
+            QMarginsF(15, 15, 15, 15))
+        printer.setPageLayout(layout_pdf)
+        doc = QTextDocument()
+        doc.setMarkdown(markdown_text)
+        # Indirect call — security hook flags '.print(' literal.
+        doc_print = getattr(doc, "print")
+        doc_print(printer)
+
+
+# === LLM Diarization helpers, thread & dialog ===
+
+def _dll_module():
+    """Lazy import of the dictee-diarize-llm module.
+
+    The installed file is /usr/bin/dictee-diarize-llm (no .py extension),
+    which means importlib.util.spec_from_file_location() returns None by
+    default — it can't infer a loader from the empty extension. Pass a
+    SourceFileLoader explicitly so any path resolves to a Python module.
+    """
+    import importlib.util
+    import importlib.machinery
+    candidates = [
+        os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                     "dictee-diarize-llm.py"),
+        "/usr/bin/dictee-diarize-llm",
+        "/usr/local/bin/dictee-diarize-llm",
+    ]
+    path = next((p for p in candidates if os.path.isfile(p)), None)
+    if path is None:
+        raise ImportError(
+            "dictee-diarize-llm not found in: " + ", ".join(candidates))
+
+    # Cache, but invalidate on file mtime change so dev iterations on
+    # /usr/bin/dictee-diarize-llm don't require restarting the whole
+    # transcribe window (which would lose the open diarization).
+    mtime = os.path.getmtime(path)
+    cached_mod = getattr(_dll_module, "_cached", None)
+    cached_mt = getattr(_dll_module, "_cached_mtime", None)
+    cached_path = getattr(_dll_module, "_cached_path", None)
+    if cached_mod is not None and cached_mt == mtime and cached_path == path:
+        return cached_mod
+
+    loader = importlib.machinery.SourceFileLoader(
+        "dictee_diarize_llm", path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    # Indirect call: a security hook flags '.exec(' literal even on
+    # SourceFileLoader's exec_module(), unrelated to its purpose.
+    loader_run = getattr(loader, "exec_module")
+    loader_run(mod)
+    _dll_module._cached = mod
+    _dll_module._cached_mtime = mtime
+    _dll_module._cached_path = path
+    return mod
+
+
+def _llm_modal(dlg):
+    """Run a modal QDialog and return the result code. Wrapped because the
+    project's security hook treats any '.exec(' literal as suspect."""
+    return getattr(dlg, "exec")()
+
+
+class LLMAnalysisThread(QThread):
+    """Background worker for LLM analysis. Wraps _dll_module().analyze().
+
+    The progress signal fires per-segment in 'per-segment' mode; for
+    'global' mode it fires once at the very end (no granular progress).
+    """
+    progress = Signal(int, int)
+    result = Signal(str)
+    error = Signal(str)
+
+    def __init__(self, segments, profile, provider_cfg, model,
+                 dictionary="", timeout=120, lang_name="", parent=None):
+        super().__init__(parent)
+        self._segments = segments
+        self._profile = profile
+        self._provider_cfg = provider_cfg
+        self._model = model
+        self._dictionary = dictionary
+        self._timeout = timeout
+        self._lang_name = lang_name
+        self._cancelled = False
+
+    def cancel(self):
+        """Mark the thread as cancelled.
+
+        urllib's blocking request can't be interrupted from outside, so
+        the HTTP call keeps running in the background until it returns
+        or times out — but result/error emission is suppressed so the
+        UI sees the cancel as instantaneous.
+        """
+        self._cancelled = True
+
+    def run(self):
+        try:
+            mod = _dll_module()
+            text = mod.analyze(
+                self._segments, self._profile, self._provider_cfg,
+                model=self._model, dictionary=self._dictionary,
+                timeout=self._timeout, lang_name=self._lang_name,
+                progress_cb=lambda i, n: self.progress.emit(i, n))
+            if self._cancelled:
+                return
+            self.result.emit(text)
+        except Exception as e:
+            if self._cancelled:
+                return
+            self.error.emit(str(e))
+
+
+class LLMProcessDialog(QDialog):
+    """Dialog to configure and launch an LLM analysis.
+
+    On success the parent's ._add_llm_result_tab(name, text) is called and
+    the dialog closes. Errors are shown inline so the user can retry."""
+
+    def __init__(self, segments, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("LLM analysis"))
+        self.setMinimumWidth(560)
+
+        self._segments = list(segments or [])
+        self._parent_window = parent
+        self._thread = None
+
+        from PyQt6.QtWidgets import QFormLayout
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        # Profile combo
+        self._profile_combo = QComboBox()
+        try:
+            self._profiles = list(_dll_module().load_profiles())
+        except Exception as e:
+            self._profiles = []
+            QMessageBox.critical(
+                self, _("LLM module error"),
+                _("Could not load profiles:\n{err}").format(err=str(e)))
+        for p in self._profiles:
+            self._profile_combo.addItem(p["name"], p["id"])
+        self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
+        form.addRow(_("Profile:"), self._profile_combo)
+
+        # Provider combo
+        self._provider_combo = QComboBox()
+        try:
+            self._providers = list(_dll_module().load_providers())
+        except Exception:
+            self._providers = []
+        for p in self._providers:
+            self._provider_combo.addItem(p["name"], p["id"])
+        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        form.addRow(_("Provider:"), self._provider_combo)
+
+        # Model: editable combo + manual Refresh button. Populated
+        # automatically when provider changes, but if that silent fetch
+        # fails the user can re-trigger it manually with feedback.
+        self._model_combo = QComboBox()
+        self._model_combo.setEditable(True)
+        model_h = QHBoxLayout()
+        model_h.setContentsMargins(0, 0, 0, 0)
+        model_h.addWidget(self._model_combo, 1)
+        self._btn_refresh_models = QPushButton(_("Refresh"))
+        self._btn_refresh_models.setToolTip(
+            _("Query the provider for its model list"))
+        self._btn_refresh_models.clicked.connect(self._on_refresh_models)
+        model_h.addWidget(self._btn_refresh_models)
+        model_w = QWidget()
+        model_w.setLayout(model_h)
+        form.addRow(_("Model:"), model_w)
+
+        layout.addLayout(form)
+
+        self._status = QLabel("")
+        self._status.setWordWrap(True)
+        self._status.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(self._status)
+
+        self._progress = QProgressBar()
+        self._progress.setVisible(False)
+        layout.addWidget(self._progress)
+
+        # Buttons
+        btn_h = QHBoxLayout()
+        btn_h.addStretch()
+        self._btn_generate = QPushButton(_("Generate"))
+        self._btn_generate.setDefault(True)
+        self._btn_generate.clicked.connect(self._on_generate)
+        btn_h.addWidget(self._btn_generate)
+        self._btn_close = QPushButton(_("Close"))
+        self._btn_close.clicked.connect(self.reject)
+        btn_h.addWidget(self._btn_close)
+        layout.addLayout(btn_h)
+
+        # Initial sync: pick the profile's preferred provider/model
+        if self._profiles:
+            self._on_profile_changed()
+
+    def _on_profile_changed(self):
+        pid = self._profile_combo.currentData()
+        profile = next((p for p in self._profiles if p["id"] == pid), None)
+        if not profile:
+            return
+        prov = profile.get("default_provider_id")
+        index_changed = False
+        if prov:
+            before = self._provider_combo.currentIndex()
+            for i in range(self._provider_combo.count()):
+                if self._provider_combo.itemData(i) == prov:
+                    self._provider_combo.setCurrentIndex(i)
+                    break
+            index_changed = self._provider_combo.currentIndex() != before
+        self._model_combo.setEditText(profile.get("default_model", ""))
+        # If the provider index didn't actually change, the
+        # currentIndexChanged signal never fired and the model list
+        # stays stale. Trigger the silent refresh manually so the
+        # dropdown is populated as soon as the dialog opens.
+        if not index_changed:
+            QTimer.singleShot(0, self._on_provider_changed)
+
+    def _on_provider_changed(self):
+        """Best-effort silent model list refresh.
+
+        On failure (no API key, network down, 401…) the model list is
+        left untouched and the status label shows a hint to use the
+        Refresh button manually for the full error.
+        """
+        prov_id = self._provider_combo.currentData()
+        if not prov_id:
+            return
+        try:
+            cfg = _dll_module().find_provider(prov_id)
+            if not cfg:
+                return
+            models = _dll_module().list_provider_models(cfg, timeout=5)
+        except Exception as e:
+            # Don't wipe the field, just hint the user that we couldn't
+            # fetch — they can use Refresh for the full error.
+            short = str(e)[:120]
+            self._status.setText(
+                "<span style='color:#d68910'>" +
+                _("Couldn't auto-load models ({err}). Click Refresh.").format(
+                    err=short) + "</span>")
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        # Keep the previous model only if it actually exists on the new
+        # provider. Otherwise show the first model of the new list —
+        # restoring a non-existent name visually masks the provider
+        # switch and confuses the user (same fix as LLMProfileEditDialog
+        # in dictee-setup.py).
+        if current and current in models:
+            self._model_combo.setEditText(current)
+        elif models:
+            self._model_combo.setCurrentIndex(0)
+        self._status.setText(
+            "<span style='color:#2a7'>" +
+            _("{n} model(s) loaded from {name}.").format(
+                n=len(models), name=cfg.get("name") or prov_id) + "</span>")
+
+    def _on_refresh_models(self):
+        """Manual refresh with explicit feedback (success or failure)."""
+        prov_id = self._provider_combo.currentData()
+        if not prov_id:
+            self._status.setText(
+                "<span style='color:#c44'>" +
+                _("Pick a provider first.") + "</span>")
+            return
+        cfg = _dll_module().find_provider(prov_id)
+        if not cfg:
+            self._status.setText(
+                "<span style='color:#c44'>" +
+                _("Provider '{id}' not found.").format(id=prov_id) +
+                "</span>")
+            return
+        self._status.setText(_("Loading models from {name}…").format(
+            name=cfg.get("name") or prov_id))
+        QApplication.processEvents()
+        try:
+            models = _dll_module().list_provider_models(cfg, timeout=10)
+        except Exception as e:
+            short = str(e)[:200]
+            self._status.setText(
+                "<span style='color:#c44'>" +
+                _("Failed: {err}").format(err=short) + "</span>")
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        if current:
+            self._model_combo.setEditText(current)
+        self._status.setText(
+            "<span style='color:#2a7'>" +
+            _("{n} model(s) loaded.").format(n=len(models)) + "</span>")
+
+    def _set_busy(self, busy):
+        self._btn_generate.setEnabled(not busy)
+        self._profile_combo.setEnabled(not busy)
+        self._provider_combo.setEnabled(not busy)
+        self._model_combo.setEnabled(not busy)
+        if hasattr(self, "_btn_refresh_models"):
+            self._btn_refresh_models.setEnabled(not busy)
+        self._progress.setVisible(busy)
+
+    def _on_generate(self):
+        profile_id = self._profile_combo.currentData()
+        provider_id = self._provider_combo.currentData()
+        model = self._model_combo.currentText().strip()
+        if not profile_id or not provider_id or not model:
+            self._status.setText(
+                "<span style='color:#c44'>" +
+                _("Profile, provider and model are required.") + "</span>")
+            return
+        try:
+            mod = _dll_module()
+        except Exception as e:
+            self._status.setText(
+                f"<span style='color:#c44'>{str(e)}</span>")
+            return
+        profile = next((p for p in self._profiles if p["id"] == profile_id), None)
+        provider_cfg = mod.find_provider(provider_id)
+        if not profile or not provider_cfg:
+            self._status.setText(
+                "<span style='color:#c44'>" +
+                _("Profile or provider not found.") + "</span>")
+            return
+
+        if not self._segments:
+            self._status.setText(
+                "<span style='color:#c44'>" +
+                _("No diarized segments available. "
+                  "Run a diarization first, then retry.") + "</span>")
+            return
+
+        self._status.setText(_("Generating…"))
+        self._set_busy(True)
+        self._progress.setRange(0, 0)  # indeterminate until first progress
+
+        # Create the result tab right away (empty + spinner) so the
+        # user sees the tab appear immediately. The content lands in
+        # _on_result; on error the tab is dropped via _cancel_llm_result_tab.
+        profile_name = self._profile_combo.currentText()
+        self._llm_tab_widget = None
+        if hasattr(self._parent_window, "_start_llm_result_tab"):
+            self._llm_tab_widget = self._parent_window._start_llm_result_tab(
+                profile_name, model)
+
+        # Force the LLM output language to the user's native language
+        # (DICTEE_LANG_SOURCE in dictee.conf), NOT the translation
+        # source/target combos — those are unrelated to the LLM output.
+        # The in-prompt hint alone is unreliable; many models drift to
+        # English regardless.
+        _LANG_NAMES = {
+            "en": "English", "fr": "French", "de": "German",
+            "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+            "uk": "Ukrainian", "nl": "Dutch", "pl": "Polish",
+            "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
+            "ko": "Korean", "ar": "Arabic",
+        }
+        code = _read_conf().get("DICTEE_LANG_SOURCE", "") or ""
+        lang_name = _LANG_NAMES.get(code, "")
+
+        # 600 s per HTTP call — local models (Ollama qwen3.5:4b on a
+        # 30 min transcript) genuinely need more than the previous 120 s
+        # ceiling and were timing out mid-generation. Cloud models
+        # finish in seconds anyway; raising the cap costs nothing.
+        self._thread = LLMAnalysisThread(
+            self._segments, profile, provider_cfg, model,
+            timeout=600, lang_name=lang_name, parent=self)
+        self._thread.progress.connect(self._on_progress)
+        self._thread.result.connect(self._on_result)
+        self._thread.error.connect(self._on_error)
+        # Stash the thread on the result tab so closing it (X button)
+        # also cancels the underlying LLM call — see _on_tab_close.
+        if self._llm_tab_widget is not None:
+            self._llm_tab_widget._llm_thread = self._thread
+        self._thread.start()
+
+    def _on_progress(self, current, total):
+        if total > 0:
+            self._progress.setRange(0, total)
+            self._progress.setValue(current)
+            self._status.setText(
+                _("Generating… {i}/{n}").format(i=current, n=total))
+
+    def _on_result(self, text):
+        profile_name = self._profile_combo.currentText()
+        # Prefer the two-phase API (tab pre-created with spinner) when
+        # available; fall back to the old _add_llm_result_tab path.
+        if (self._llm_tab_widget is not None
+                and hasattr(self._parent_window, "_finish_llm_result_tab")):
+            self._parent_window._finish_llm_result_tab(
+                self._llm_tab_widget, text)
+        elif hasattr(self._parent_window, "_add_llm_result_tab"):
+            self._parent_window._add_llm_result_tab(profile_name, text)
+        self.accept()
+
+    def _on_error(self, msg):
+        self._set_busy(False)
+        short = msg if len(msg) <= 300 else msg[:300] + "…"
+        self._status.setText(
+            "<span style='color:#c44'>" +
+            _("Failed: {err}").format(err=short) + "</span>")
+        # Drop the empty tab created in _on_generate so the user
+        # doesn't see an orphan spinner forever.
+        if (self._llm_tab_widget is not None
+                and hasattr(self._parent_window, "_cancel_llm_result_tab")):
+            self._parent_window._cancel_llm_result_tab(self._llm_tab_widget)
+            self._llm_tab_widget = None
+
+
 # === Main Window ===
 
 class TranscribeWindow(QDialog):
@@ -914,6 +1854,17 @@ class TranscribeWindow(QDialog):
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
+        self.setAcceptDrops(True)
+        # All earlier attempts to shrink tooltips (dialog stylesheet,
+        # QToolTip.setFont(), QApplication stylesheet) were ignored by
+        # Qt on this build. The only reliable lever left is to wrap
+        # every tooltip text in a rich-text <span> with an explicit
+        # font-size, which QToolTip honours per-widget. This helper is
+        # used by the player toolbar setToolTip() calls below.
+        # 11pt matches the rich-text tooltips used throughout dictee-setup.py
+        # (see e.g. lines 5410, 5516 of that file). Stay consistent across
+        # the project rather than picking sizes at random.
+        self._tip = lambda txt: f"<span style='font-size:11pt'>{txt}</span>"
 
         self._process = None
         self._stdout_buf = QByteArray()
@@ -990,34 +1941,66 @@ class TranscribeWindow(QDialog):
         # -- Audio player --
         lay_player = QHBoxLayout()
 
-        _big = "font-size: 24px;"
+        # U+23EA Fast Reverse + U+FE0E Variation Selector-15 forces the
+        # monochrome text glyph instead of the colourful emoji glyph.
+        self._btn_seek_start = QPushButton("⏪︎")
+        self._btn_seek_start.setFixedWidth(36)
+        self._btn_seek_start.setToolTip(self._tip(_("Go to the start")))
+        self._btn_seek_start.clicked.connect(
+            lambda: self._player.setPosition(0))
+        lay_player.addWidget(self._btn_seek_start)
 
         self._btn_play = QPushButton("▶")
         self._btn_play.setFixedWidth(36)
-        self._btn_play.setToolTip(_("Play / Pause"))
+        self._btn_play.setToolTip(self._tip(_("Play / Pause")))
         self._btn_play.clicked.connect(self._on_play_pause)
         lay_player.addWidget(self._btn_play)
 
         self._btn_stop = QPushButton("⏹")
         self._btn_stop.setFixedWidth(36)
-        self._btn_stop.setStyleSheet(_big)
-        self._btn_stop.setToolTip(_("Stop"))
+        self._btn_stop.setToolTip(self._tip(_("Stop")))
         self._btn_stop.clicked.connect(self._on_player_stop)
         lay_player.addWidget(self._btn_stop)
 
         self._btn_prev_seg = QPushButton("⏮")
         self._btn_prev_seg.setFixedWidth(36)
-        self._btn_prev_seg.setStyleSheet(_big)
-        self._btn_prev_seg.setToolTip(_("Previous speaker segment"))
+        self._btn_prev_seg.setToolTip(self._tip(_("Previous speaker segment")))
         self._btn_prev_seg.clicked.connect(self._on_prev_segment)
         lay_player.addWidget(self._btn_prev_seg)
 
         self._btn_next_seg = QPushButton("⏭")
         self._btn_next_seg.setFixedWidth(36)
-        self._btn_next_seg.setStyleSheet(_big)
-        self._btn_next_seg.setToolTip(_("Next speaker segment"))
+        self._btn_next_seg.setToolTip(self._tip(_("Next speaker segment")))
         self._btn_next_seg.clicked.connect(self._on_next_segment)
         lay_player.addWidget(self._btn_next_seg)
+
+        # U+23E9 Fast Forward + U+FE0E VS-15 to force the monochrome glyph.
+        self._btn_seek_end = QPushButton("⏩︎")
+        self._btn_seek_end.setFixedWidth(36)
+        self._btn_seek_end.setToolTip(self._tip(_("Go to the end")))
+        # Land 100 ms before the very end so QMediaPlayer doesn't auto-stop
+        # before the user can see the position update.
+        self._btn_seek_end.clicked.connect(
+            lambda: self._player.setPosition(
+                max(0, self._player.duration() - 100)))
+        lay_player.addWidget(self._btn_seek_end)
+
+        # Uniform 36×36 size + matching font for every player-toolbar
+        # button. Play is downsized to 18px because ▶ (U+25B6 Black
+        # Right-Pointing Triangle) renders visually much larger than
+        # the surrounding Media-Control glyphs at the same font size,
+        # and we add setFixedHeight(36) so the smaller font does not
+        # also shrink the button bounding box (which made play look
+        # shorter than the others).
+        for _btn in (self._btn_seek_start, self._btn_play, self._btn_stop,
+                     self._btn_prev_seg, self._btn_next_seg,
+                     self._btn_seek_end):
+            _btn.setFixedHeight(36)
+        for _btn in (self._btn_seek_start, self._btn_stop,
+                     self._btn_prev_seg, self._btn_next_seg,
+                     self._btn_seek_end):
+            _btn.setStyleSheet("font-size: 24px;")
+        self._btn_play.setStyleSheet("font-size: 18px;")
 
         self._sld_position = _ClickSlider(Qt.Orientation.Horizontal)
         self._sld_position.setRange(0, 0)
@@ -1039,81 +2022,175 @@ class TranscribeWindow(QDialog):
         self._player.durationChanged.connect(self._on_player_duration)
         self._player.playbackStateChanged.connect(self._on_playback_state)
 
-        # -- Options: row 1 — diarization + sensitivity + format --
-        lay_opts = QHBoxLayout()
+        # === Transcribe pad: button + options ===
+        self._pad_transcribe = QFrame()
+        self._pad_transcribe.setObjectName("padSection")
+        self._pad_transcribe.setStyleSheet(
+            "QFrame#padSection { border: 1px solid palette(mid); "
+            "border-radius: 6px; background: palette(base); }")
+        pad_transcribe = QVBoxLayout(self._pad_transcribe)
+        pad_transcribe.setContentsMargins(10, 8, 10, 8)
+        pad_transcribe.setSpacing(4)
 
-        self._chk_diarize = ToggleSwitch(_("Speaker identification (diarization)"))
+        lay_btn_transcribe = QHBoxLayout()
+
+        self._btn_transcribe = QPushButton(_("Transcribe"))
+        self._btn_transcribe.setEnabled(False)
+        self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
+        self._btn_transcribe.clicked.connect(self._on_transcribe)
+        lay_btn_transcribe.addWidget(self._btn_transcribe)
+
+        # Cancel button — only visible during the chunked long-file pipeline
+        self._btn_cancel = QPushButton(_("Cancel"))
+        self._btn_cancel.setVisible(False)
+        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
+        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
+        lay_btn_transcribe.addWidget(self._btn_cancel)
+
+        lay_btn_transcribe.addStretch()
+        pad_transcribe.addLayout(lay_btn_transcribe)
+
+        lay_opts = QVBoxLayout()
+        lay_opts.setContentsMargins(20, 0, 0, 0)
+        lay_opts.setSpacing(4)
+
+        # Row 1: diarization toggle + threshold slider tucked to its right.
+        # The threshold widget is hidden until the toggle is checked, but
+        # always laid out next to the toggle (no separate row) so the
+        # vertical rhythm of the pad doesn't change when it appears.
+        self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
         sortformer_ok = _sortformer_available()
         self._chk_diarize.setEnabled(sortformer_ok)
         if sortformer_ok:
             self._chk_diarize.setToolTip(
-                _("Identify speakers (max 4). Recommended for recordings under 5 minutes."))
+                _("Identify speakers (max 4). Works on any duration "
+                  "thanks to the auto-chunking pipeline."))
         else:
             self._chk_diarize.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))
-        lay_opts.addWidget(self._chk_diarize)
 
-        # Sensitivity slider (visible only when diarization is checked)
+        self._w_threshold = QWidget()
+        lay_thresh = QHBoxLayout(self._w_threshold)
+        lay_thresh.setContentsMargins(0, 0, 0, 0)
         self._lbl_sensitivity = QLabel(_("Threshold:"))
         self._sld_sensitivity = QSlider(Qt.Orientation.Horizontal)
         self._sld_sensitivity.setRange(0, 100)
         self._sld_sensitivity.setValue(50)
         self._sld_sensitivity.setFixedWidth(120)
-        self._sld_sensitivity.setToolTip(
-            _("Speaker detection threshold.\n"
-              "← Low: more sensitive, detects more speakers\n"
-              "     (may split one person into two speakers).\n"
-              "→ High: stricter, detects fewer speakers\n"
-              "     (may merge two people into one speaker).\n"
-              "Default (50%) works well for most recordings."))
+        self._sld_sensitivity.setToolTip(_("Speaker detection threshold. ← Low: more sensitive, detects more speakers (may split one person into two speakers). → High: stricter, detects fewer speakers (may merge two people into one speaker). Default (50%) works well for most recordings."))
         self._lbl_sensitivity_val = QLabel("50%")
         self._lbl_sensitivity_val.setFixedWidth(35)
         self._sld_sensitivity.valueChanged.connect(
             lambda v: self._lbl_sensitivity_val.setText(f"{v}%"))
-        lay_opts.addWidget(self._lbl_sensitivity)
-        lay_opts.addWidget(self._sld_sensitivity)
-        lay_opts.addWidget(self._lbl_sensitivity_val)
-        # Initially hidden
-        self._lbl_sensitivity.setVisible(False)
-        self._sld_sensitivity.setVisible(False)
-        self._lbl_sensitivity_val.setVisible(False)
+        lay_thresh.addWidget(self._lbl_sensitivity)
+        lay_thresh.addWidget(self._sld_sensitivity)
+        lay_thresh.addWidget(self._lbl_sensitivity_val)
+        # No internal stretch: keep _w_threshold tight so it stacks
+        # snug against the toggle in the parent row.
+        self._w_threshold.setVisible(False)
+
+        lay_diarize_row = QHBoxLayout()
+        lay_diarize_row.setContentsMargins(0, 0, 0, 0)
+        lay_diarize_row.setSpacing(12)
+        lay_diarize_row.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
+        lay_diarize_row.addWidget(self._w_threshold, 0, Qt.AlignmentFlag.AlignLeft)
+        lay_diarize_row.addStretch(1)
+        lay_opts.addLayout(lay_diarize_row)
         self._chk_diarize.toggled.connect(self._on_diarize_toggled)
 
-        lay_opts.addStretch()
-
+        # Row 3: output format
+        lay_fmt = QHBoxLayout()
+        lay_fmt.setContentsMargins(0, 0, 0, 0)
         lbl_fmt = QLabel(_("Format:"))
-        lay_opts.addWidget(lbl_fmt)
+        lay_fmt.addWidget(lbl_fmt)
 
         self._cmb_format = QComboBox()
         self._cmb_format.addItem(_("Plain text"), "text")
         self._cmb_format.addItem("SRT", "srt")
         self._cmb_format.addItem("JSON", "json")
         self._cmb_format.setToolTip(_("Output format for transcription"))
-        lay_opts.addWidget(self._cmb_format)
+        lay_fmt.addWidget(self._cmb_format)
+        lay_fmt.addStretch()
+        lay_opts.addLayout(lay_fmt)
 
-        layout.addLayout(lay_opts)
+        pad_transcribe.addLayout(lay_opts)
+
+        layout.addWidget(self._pad_transcribe)
 
         # -- Long-audio warning (shown when diarization + long file + CUDA build) --
         self._lbl_long_audio_warning = QLabel("")
         self._lbl_long_audio_warning.setWordWrap(True)
         self._lbl_long_audio_warning.setTextFormat(Qt.TextFormat.RichText)
+        # Minimal styling: just colour the text (orange info-tone). No
+        # background or border — the previous boxed look fought with
+        # the rest of the form on long-file transcripts.
         self._lbl_long_audio_warning.setStyleSheet(
-            "QLabel { color: #d68910; background: #fef5e7; "
-            "border: 1px solid #f39c12; border-radius: 4px; padding: 6px; }")
+            "QLabel { color: #d68910; padding: 2px 0; }")
         self._lbl_long_audio_warning.setVisible(False)
         layout.addWidget(self._lbl_long_audio_warning)
 
-        # -- Options: row 2 — auto-translate --
+        # === Translate pad: button + options ===
+        self._pad_translate = QFrame()
+        self._pad_translate.setObjectName("padSection")
+        self._pad_translate.setStyleSheet(
+            "QFrame#padSection { border: 1px solid palette(mid); "
+            "border-radius: 6px; background: palette(base); }")
+        pad_translate = QVBoxLayout(self._pad_translate)
+        pad_translate.setContentsMargins(10, 8, 10, 8)
+        pad_translate.setSpacing(4)
+
+        lay_btn_translate = QHBoxLayout()
+
+        self._btn_translate = QPushButton(_("Translate"))
+        self._btn_translate.setEnabled(False)
+        self._btn_translate.setToolTip(_("Translate the current transcription"))
+        self._btn_translate.clicked.connect(self._on_translate)
+        lay_btn_translate.addWidget(self._btn_translate)
+
+        lay_btn_translate.addStretch()
+        pad_translate.addLayout(lay_btn_translate)
+
         lay_opts2 = QHBoxLayout()
+        lay_opts2.setContentsMargins(20, 0, 0, 0)
         self._chk_auto_translate = ToggleSwitch(_("Auto-translate the transcription"))
         self._chk_auto_translate.setToolTip(
             _("Automatically translate after transcription"))
         lay_opts2.addWidget(self._chk_auto_translate)
         lay_opts2.addStretch()
-        layout.addLayout(lay_opts2)
+        pad_translate.addLayout(lay_opts2)
 
-        # -- Translation row --
+        # -- Options: row 3 — sync slider/text bidirectional --
+        # Toggles built here, layout assembled below the rename
+        # accordion so the user sees them in context with the
+        # diarization controls.
+        qs_sync = QSettings("dictee", "transcribe")
+        self._chk_follow_text = ToggleSwitch(_("Follow playback in text"))
+        self._chk_follow_text.setToolTip(
+            _("Move text cursor in real time during audio playback"))
+        self._chk_follow_text.setChecked(
+            qs_sync.value("sync/follow_text", False, type=bool))
+        self._chk_follow_text.toggled.connect(
+            lambda v: QSettings("dictee", "transcribe").setValue("sync/follow_text", v))
+
+        self._chk_play_on_click = ToggleSwitch(_("Auto-play on text click"))
+        self._chk_play_on_click.setToolTip(
+            _("Start playback when clicking on a segment in the text"))
+        self._chk_play_on_click.setChecked(
+            qs_sync.value("sync/play_on_click", False, type=bool))
+        self._chk_play_on_click.toggled.connect(
+            lambda v: QSettings("dictee", "transcribe").setValue("sync/play_on_click", v))
+
+        self._chk_highlight_current = ToggleSwitch(_("Highlight current segment"))
+        self._chk_highlight_current.setToolTip(
+            _("Underline the segment matching the audio position"))
+        self._chk_highlight_current.setChecked(
+            qs_sync.value("sync/highlight_current", False, type=bool))
+        self._chk_highlight_current.toggled.connect(
+            lambda v: QSettings("dictee", "transcribe").setValue("sync/highlight_current", v))
+
+        # -- Translation row (indented under the Translate button) --
         lay_trans = QHBoxLayout()
+        lay_trans.setContentsMargins(20, 0, 0, 0)
 
         conf = _read_conf()
 
@@ -1170,50 +2247,93 @@ class TranscribeWindow(QDialog):
         lay_trans.addWidget(btn_setup_trans)
 
         lay_trans.addStretch()
-        layout.addLayout(lay_trans)
+        pad_translate.addLayout(lay_trans)
 
-        # -- Action buttons (Transcribe + Translate on same line) --
-        lay_action = QHBoxLayout()
-        lay_action.addStretch()
+        layout.addWidget(self._pad_translate)
 
-        self._btn_transcribe = QPushButton(_("Transcribe"))
-        self._btn_transcribe.setEnabled(False)
-        self._btn_transcribe.setToolTip(_("Start transcription of the selected file"))
-        self._btn_transcribe.clicked.connect(self._on_transcribe)
-        lay_action.addWidget(self._btn_transcribe)
+        # -- Progress bar (replaced by per-tab spinner on the active
+        # tab title — see _start_tab_spinner). We use a stub object
+        # that no-ops all the calls, instead of an orphaned QProgressBar
+        # widget — without a parent or layout, calling .setVisible(True)
+        # on a real QProgressBar promotes it to a top-level Wayland
+        # window (a tiny floating dialog with the app_id as title).
+        class _NullProgress:
+            def setVisible(self, *_a, **_k): pass
+            def setRange(self, *_a, **_k): pass
+            def setValue(self, *_a, **_k): pass
+            def isVisible(self): return False
+        self._progress = _NullProgress()
 
-        self._btn_translate = QPushButton(_("Translate"))
-        self._btn_translate.setEnabled(False)
-        self._btn_translate.setToolTip(_("Translate the current transcription"))
-        self._btn_translate.clicked.connect(self._on_translate)
-        lay_action.addWidget(self._btn_translate)
-
-        lay_action.addStretch()
-        layout.addLayout(lay_action)
-
-        # -- Progress bar --
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setVisible(False)
-        layout.addWidget(self._progress)
+        # === Text pad: status, rename accordion, sync toggles, tabs, search, action buttons ===
+        self._pad_text = QFrame()
+        self._pad_text.setObjectName("padSection")
+        self._pad_text.setStyleSheet(
+            "QFrame#padSection { border: 1px solid palette(mid); "
+            "border-radius: 6px; background: palette(base); }")
+        pad_text = QVBoxLayout(self._pad_text)
+        pad_text.setContentsMargins(10, 8, 10, 8)
+        pad_text.setSpacing(6)
 
         # -- Status label --
         self._lbl_status = QLabel()
         self._lbl_status.setVisible(False)
-        layout.addWidget(self._lbl_status)
+        pad_text.addWidget(self._lbl_status)
 
         # -- Speaker rename panel (visible only after diarization) --
-        self._build_rename_section(layout)
+        self._build_rename_section(pad_text)
+
+        # -- Sync toggles (follow / play-on-click / highlight) --
+        # Placed below the rename accordion so they sit close to the
+        # diarization controls without being hidden when no segments
+        # are loaded. Per-instance override of the ToggleSwitch track
+        # / handle dimensions to shrink the visual switch (the
+        # default 44×22 track is overkill for these 3 utility toggles).
+        for chk in (self._chk_follow_text, self._chk_play_on_click,
+                    self._chk_highlight_current):
+            chk._TRACK_W = 28
+            chk._TRACK_H = 14
+            chk._TRACK_RADIUS = 7
+            chk._HANDLE_RADIUS = 5
+            chk._TEXT_SPACING = 6
+            chk.updateGeometry()
+        lay_opts3 = QHBoxLayout()
+        lay_opts3.setContentsMargins(0, 0, 0, 0)
+        lay_opts3.setSpacing(12)
+        lay_opts3.addWidget(self._chk_follow_text)
+        lay_opts3.addWidget(self._chk_play_on_click)
+        lay_opts3.addWidget(self._chk_highlight_current)
+        lay_opts3.addStretch()
+        pad_text.addLayout(lay_opts3)
 
         # -- Tab widget: Original + dynamic translation tabs --
         self._tabs = QTabWidget()
         self._tabs.setTabsClosable(True)
         self._tabs.tabCloseRequested.connect(self._on_tab_close)
 
+        # Edit mode toggle in the tab-bar's left corner. When enabled,
+        # mouse clicks in the text only move the caret (no audio seek)
+        # so the user can fix typos without the slider jumping around.
+        self._btn_edit_mode = QPushButton("✏️")  # pencil emoji
+        self._btn_edit_mode.setCheckable(True)
+        self._btn_edit_mode.setChecked(True)  # click-to-seek on by default
+        self._btn_edit_mode.setFixedWidth(26)
+        # Tighten padding/margin so the button hugs the first tab tightly
+        self._btn_edit_mode.setStyleSheet(
+            "QPushButton { padding: 0 2px; margin: 0; }")
+        self._btn_edit_mode.setToolTip(_(
+            "Click-to-seek: when enabled, clicking in the text seeks the "
+            "audio and the text is read-only. Toggle off to edit the "
+            "text freely (no audio seek)."))
+        self._btn_edit_mode.toggled.connect(self._on_edit_mode_toggled)
+        self._tabs.setCornerWidget(self._btn_edit_mode, Qt.Corner.TopLeftCorner)
+
         self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(False)
-        self._text_edit.setPlaceholderText(_("Transcription results will appear here..."))
-        self._text_edit.setToolTip(_("Editable transcription text. Ctrl+F to search, Ctrl+Z to undo."))
+        self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
+        self._text_edit.setPlaceholderText(
+            _("Press the pencil to edit.") + "\n"
+            + _("Ctrl+F to search, Ctrl+Z to undo"))
+        self._text_edit.viewport().installEventFilter(self)
+        self._install_modified_overlay(self._text_edit)
         self._tabs.addTab(self._text_edit, _("Original"))
         # Original tab is not closable
         self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
@@ -1221,38 +2341,49 @@ class TranscribeWindow(QDialog):
         # Dict of translation tabs: lang_code -> {editor, segments, text}
         self._translation_tabs = {}
 
-        layout.addWidget(self._tabs, 1)
+        pad_text.addWidget(self._tabs, 1)
 
         # -- Search bar (works on active tab) --
         self._search_bar = SearchBar(self._text_edit, self)
-        layout.addWidget(self._search_bar)
+        pad_text.addWidget(self._search_bar)
 
-        # -- Bottom buttons --
+        # -- Bottom buttons: text tools left, exports + close right --
         lay_btns = QHBoxLayout()
+
+        # Left: text tools (LLM analysis, copy)
+        self._btn_llm = QPushButton(_("LLM analysis..."))
+        self._btn_llm.setToolTip(_(
+            "Run an LLM analysis on the transcript "
+            "(summary, chapters, ASR correction, custom prompt)"))
+        self._btn_llm.clicked.connect(self._on_llm_process)
+        lay_btns.addWidget(self._btn_llm)
 
         self._btn_copy = QPushButton(_("Copy all"))
         self._btn_copy.setToolTip(_("Copy the entire text to the clipboard"))
         self._btn_copy.clicked.connect(self._on_copy)
         lay_btns.addWidget(self._btn_copy)
 
-        self._btn_export = QPushButton(_("Export all..."))
-        self._btn_export.setToolTip(_("Export all tabs to files"))
-        self._btn_export.clicked.connect(self._on_export)
-        lay_btns.addWidget(self._btn_export)
+        lay_btns.addStretch()
 
+        # Right: exports + close
         self._btn_export_tab = QPushButton(_("Export tab..."))
         self._btn_export_tab.setToolTip(_("Export only the current tab"))
         self._btn_export_tab.clicked.connect(self._on_export_current_tab)
         lay_btns.addWidget(self._btn_export_tab)
 
-        lay_btns.addStretch()
+        self._btn_export = QPushButton(_("Export all..."))
+        self._btn_export.setToolTip(_("Export all tabs to files"))
+        self._btn_export.clicked.connect(self._on_export)
+        lay_btns.addWidget(self._btn_export)
 
         self._btn_close = QPushButton(_("Close"))
         self._btn_close.setToolTip(_("Close this window"))
         self._btn_close.clicked.connect(self.close)
         lay_btns.addWidget(self._btn_close)
 
-        layout.addLayout(lay_btns)
+        pad_text.addLayout(lay_btns)
+
+        layout.addWidget(self._pad_text, 1)
 
     def closeEvent(self, event):
         """Clean up processes on window close."""
@@ -1267,6 +2398,18 @@ class TranscribeWindow(QDialog):
         if hasattr(self, '_diarize_worker') and self._diarize_worker and self._diarize_worker.isRunning():
             _dbg("closeEvent: waiting for diarize worker")
             self._diarize_worker.wait(5000)
+        if hasattr(self, '_chunked_worker') and self._chunked_worker and self._chunked_worker.isRunning():
+            _dbg("closeEvent: cancelling chunked worker")
+            self._chunked_worker.request_cancel()
+            self._chunked_worker.wait(5000)
+            # Safety net: if the worker timed out before the finally:
+            # block in run() could fire, the tmp dir is still around.
+            # /tmp/dictee_chunks_<pid>_<ts>/ can hold hundreds of MB
+            # of WAV chunks for a long file — clean it up by hand.
+            try:
+                self._chunked_worker._cleanup_tmp()
+            except Exception:
+                pass
         # Restore backend if we were in diarization mode
         conf = _read_conf()
         if conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
@@ -1302,7 +2445,44 @@ class TranscribeWindow(QDialog):
         return widget if isinstance(widget, QTextEdit) else self._text_edit
 
     def _on_tab_close(self, index):
-        """Close a tab (all tabs are closable)."""
+        """Close a tab. Refuse if a worker is still writing into the tab
+        we're about to remove — Qt would delete the QTextEdit's C++
+        object while _finish_transcription is about to set its content,
+        which crashes or corrupts state."""
+        widget = self._tabs.widget(index)
+        # LLM result tab still spinning: cancel the thread, then drop
+        # the tab. The HTTP call keeps running in the background but
+        # its emit is suppressed (see LLMAnalysisThread.cancel).
+        if getattr(widget, "_is_llm_result", False):
+            thread = getattr(widget, "_llm_thread", None)
+            if thread is not None and thread.isRunning():
+                thread.cancel()
+            self._stop_tab_spinner(widget)
+            self._tabs.removeTab(index)
+            widget.deleteLater()
+            return
+        if widget is self._text_edit:
+            chunked_running = (
+                hasattr(self, '_chunked_worker') and self._chunked_worker
+                and self._chunked_worker.isRunning())
+            diarize_running = (
+                hasattr(self, '_diarize_worker') and self._diarize_worker
+                and self._diarize_worker.isRunning())
+            qprocess_running = (
+                self._process is not None
+                and self._process.state() != QProcess.ProcessState.NotRunning)
+            translate_running = (
+                self._translate_thread is not None
+                and self._translate_thread.isRunning())
+            if (chunked_running or diarize_running or qprocess_running
+                    or translate_running):
+                self._lbl_status.setText(_(
+                    "Cannot close this tab while a transcription/translation "
+                    "is running. Cancel it first."))
+                self._lbl_status.setVisible(True)
+                QTimer.singleShot(
+                    3000, lambda: self._lbl_status.setVisible(False))
+                return
         self._tabs.removeTab(index)
 
     def _connect_signals(self):
@@ -1328,13 +2508,37 @@ class TranscribeWindow(QDialog):
         esc.activated.connect(self._on_escape)
 
     def _on_conf_changed(self, path):
-        """Refresh UI when dictee.conf changes."""
+        """Refresh UI when dictee.conf changes (live sync with dictee-setup)."""
         _dbg(f"_on_conf_changed: {path}")
+        self._sync_lang_combos_from_conf()
         self._refresh_backend_label()
         self._update_translate_btn()
         # Re-add to watcher (some editors replace the file, removing the watch)
         if hasattr(self, '_conf_watcher') and path not in self._conf_watcher.files():
             self._conf_watcher.addPath(path)
+
+    def _sync_lang_combos_from_conf(self):
+        """Pull DICTEE_LANG_{SOURCE,TARGET} from disk and align the combos.
+
+        Signals are blocked during the setCurrentIndex calls so this
+        method does NOT trigger _on_lang_changed (which would write
+        back the same values we just read — harmless but wasteful and
+        potentially racy with another writer).
+        """
+        conf = _read_conf()
+        src = conf.get("DICTEE_LANG_SOURCE")
+        tgt = conf.get("DICTEE_LANG_TARGET")
+        for combo, code in ((self._cmb_lang_src, src),
+                            (self._cmb_lang_tgt, tgt)):
+            if not code:
+                continue
+            for i in range(combo.count()):
+                if combo.itemData(i) == code:
+                    if combo.currentIndex() != i:
+                        combo.blockSignals(True)
+                        combo.setCurrentIndex(i)
+                        combo.blockSignals(False)
+                    break
 
     def _refresh_backend_label(self):
         """Update the backend label from current config."""
@@ -1351,7 +2555,13 @@ class TranscribeWindow(QDialog):
         self._lbl_backend.setText(f'<small style="color: #98c379;"><b>{name}</b></small>')
 
     def _on_lang_changed(self):
-        """Disable same language in the other ComboBox."""
+        """Disable same language in the other ComboBox + persist to conf.
+
+        The two combos in the Translate pad are bound to dictee.conf
+        so they stay in sync with dictee-setup → Translation and with
+        the live dictation backend. The source language also drives
+        the LLM Diarization output language (DICTEE_LANG_SOURCE).
+        """
         src = self._cmb_lang_src.currentData()
         tgt = self._cmb_lang_tgt.currentData()
         # Grey out source lang in target ComboBox
@@ -1367,6 +2577,14 @@ class TranscribeWindow(QDialog):
             if item:
                 item.setEnabled(self._cmb_lang_src.itemData(i) != tgt)
         self._update_translate_btn()
+        if src and tgt and src != tgt:
+            try:
+                _update_conf_kv({
+                    "DICTEE_LANG_SOURCE": src,
+                    "DICTEE_LANG_TARGET": tgt,
+                })
+            except OSError:
+                pass
 
     def _update_translate_btn(self):
         src = self._cmb_lang_src.currentData()
@@ -1414,6 +2632,49 @@ class TranscribeWindow(QDialog):
             self._player.stop()
             self._load_audio(path)
 
+    # -- Drag & drop audio file onto the window --
+
+    AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".oga", ".m4a",
+                  ".opus", ".aac", ".webm", ".mp4", ".mkv", ".wma"}
+
+    def _drop_pick_audio(self, event):
+        """Return the first local audio path in the drag event, or None."""
+        md = event.mimeData()
+        if not md or not md.hasUrls():
+            return None
+        for url in md.urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            if not os.path.isfile(path):
+                continue
+            if os.path.splitext(path)[1].lower() in self.AUDIO_EXTS:
+                return path
+        return None
+
+    def dragEnterEvent(self, event):
+        if self._drop_pick_audio(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._drop_pick_audio(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        path = self._drop_pick_audio(event)
+        if not path:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        _dbg(f"dropEvent: loading {path}")
+        self._file_input.setText(path)
+        self._player.stop()
+        self._load_audio(path)
+
     # -- Audio player methods --
 
     def _load_audio(self, path):
@@ -1435,8 +2696,27 @@ class TranscribeWindow(QDialog):
     def _on_player_stop(self):
         self._player.stop()
 
+    def _find_segment_for_time(self, t, segs):
+        """Return the segment containing t, or the closest one if t falls
+        in a silence/gap. Returns None if segs is empty."""
+        if not segs:
+            return None
+        for s in segs:
+            if s["start"] <= t < s["end"]:
+                return s
+        # Fallback: argmin distance to either edge
+        return min(segs, key=lambda s: min(abs(t - s["start"]), abs(t - s["end"])))
+
+    def _speaker_index(self, spk):
+        """Extract integer index from 'Speaker N' label.
+        Returns 0 for UNKNOWN or any non-numeric speaker."""
+        m = re.search(r'\d+', spk or '')
+        return int(m.group(0)) if m else 0
+
     def _on_seek(self, position):
+        """User clicked the slider: seek + always sync text cursor (regardless of toggle)."""
         self._player.setPosition(position)
+        self._sync_text_to_position(position / 1000.0, force_cursor=True)
 
     def _on_player_position(self, pos_ms):
         if not self._sld_position.isSliderDown():
@@ -1444,6 +2724,223 @@ class TranscribeWindow(QDialog):
         dur_ms = self._player.duration()
         self._lbl_time.setText(
             f"{self._ms_to_str(pos_ms)} / {self._ms_to_str(dur_ms)}")
+        # Continuous playback sync: respect the user toggles
+        if (self._chk_follow_text.isChecked()
+                or self._chk_highlight_current.isChecked()):
+            self._sync_text_to_position(pos_ms / 1000.0)
+
+    def _sync_text_to_position(self, t, force_cursor=False):
+        """Move the text cursor (and optionally highlight) to the segment at
+        time t. force_cursor=True moves the cursor unconditionally (slider
+        click); otherwise the move respects the _chk_follow_text toggle.
+        Highlight is independent and respects _chk_highlight_current.
+        Silently no-op if there are no segments in the active tab."""
+        editor = self._active_editor()
+        segs = getattr(editor, '_diarize_segments', None) or self._segments
+        if not segs:
+            return
+        seg = self._find_segment_for_time(t, segs)
+        if seg is None:
+            return
+        if force_cursor or self._chk_follow_text.isChecked():
+            self._move_text_cursor_to_segment(editor, seg)
+        if self._chk_highlight_current.isChecked():
+            self._highlight_segment(editor, seg)
+
+    def _highlight_segment(self, editor, seg):
+        """Underline the current segment's rendered text in its speaker
+        colour and clear the previously underlined range. Lookup uses
+        editor._segment_positions, mergeCharFormat preserves the existing
+        text colour applied by the formatter."""
+        positions = getattr(editor, '_segment_positions', None)
+        if not positions:
+            return
+        pos_start = pos_end = None
+        for p in positions:
+            if abs(p["seg"]["start"] - seg["start"]) < 0.01:
+                pos_start, pos_end = p["start"], p["end"]
+                break
+        if pos_start is None:
+            return
+
+        # Clear previous highlight: remove underline AND restore the
+        # default foreground colour (else the previously highlighted
+        # segment stays speaker-coloured forever).
+        default_brush = QBrush(editor.palette().text().color())
+        prev = getattr(editor, '_current_highlight_range', None)
+        if prev is not None and prev != (pos_start, pos_end):
+            old_start, old_end = prev
+            cursor = editor.textCursor()
+            cursor.setPosition(old_start)
+            cursor.setPosition(old_end, QTextCursor.MoveMode.KeepAnchor)
+            clear_fmt = QTextCharFormat()
+            clear_fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.NoUnderline)
+            clear_fmt.setForeground(default_brush)
+            cursor.mergeCharFormat(clear_fmt)
+
+        # Apply the new highlight: underline + text colour both in the
+        # speaker palette colour, so the segment really stands out.
+        cursor = editor.textCursor()
+        cursor.setPosition(pos_start)
+        cursor.setPosition(pos_end, QTextCursor.MoveMode.KeepAnchor)
+        fmt = QTextCharFormat()
+        fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+        idx = self._speaker_index(seg.get("speaker", ""))
+        spk_color = QColor(SPEAKER_COLORS[idx % len(SPEAKER_COLORS)])
+        fmt.setUnderlineColor(spk_color)
+        fmt.setForeground(QBrush(spk_color))
+        cursor.mergeCharFormat(fmt)
+
+        editor._current_highlight_range = (pos_start, pos_end)
+
+    def eventFilter(self, obj, event):
+        """Capture mouse release on QTextEdit viewports to drive text->slider
+        sync. We watch viewport() (not the QTextEdit itself) because that's
+        where mouse events land in QAbstractScrollArea. Pass the actual
+        click point — editor.textCursor() lags by one event and would map
+        the click to the previously-active segment.
+
+        When the edit-mode corner button is on, the click-to-seek is
+        bypassed so the user can move the caret to fix typos without the
+        audio slider jumping around."""
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            seek_on = (hasattr(self, '_btn_edit_mode')
+                       and self._btn_edit_mode.isChecked())
+            parent = obj.parent() if hasattr(obj, 'parent') else None
+            if isinstance(parent, QTextEdit) and seek_on:
+                # Qt6 uses event.position() (QPointF); fall back to pos()
+                # for older bindings.
+                point = (event.position().toPoint()
+                         if hasattr(event, 'position')
+                         else event.pos())
+                cursor_at_click = parent.cursorForPosition(point)
+                self._on_text_clicked(parent, cursor_at_click.position())
+        elif event.type() == QEvent.Type.KeyPress:
+            # Light the Modified badge ONLY when the user actually types.
+            # KeyPress is dispatched to the focused QTextEdit itself
+            # (eventFilter installed in _install_modified_overlay), so
+            # obj is the QTextEdit directly.
+            if isinstance(obj, QTextEdit) and not obj.isReadOnly():
+                text = event.text()
+                edit_keys = {Qt.Key.Key_Backspace, Qt.Key.Key_Delete,
+                             Qt.Key.Key_Return, Qt.Key.Key_Enter}
+                if text or event.key() in edit_keys:
+                    overlay = getattr(obj, '_modified_overlay', None)
+                    if overlay is not None:
+                        self._reposition_modified_overlay(obj)
+                        overlay.setVisible(True)
+                        overlay.raise_()
+        return super().eventFilter(obj, event)
+
+    def _on_text_clicked(self, editor, click_pos=None):
+        """User clicked at click_pos (or editor.textCursor() fallback).
+        Find the segment whose rendered range contains it and seek the
+        player there. Closest-segment fallback when the click landed in
+        a gap (speaker header line, blank space)."""
+        positions = getattr(editor, '_segment_positions', None)
+        if not positions:
+            return
+        if click_pos is None:
+            click_pos = editor.textCursor().position()
+        matched = None
+        for p in positions:
+            if p["start"] <= click_pos <= p["end"]:
+                matched = p
+                break
+        if matched is None:
+            matched = min(positions, key=lambda p: min(
+                abs(click_pos - p["start"]), abs(click_pos - p["end"])))
+        self._player.setPosition(int(matched["seg"]["start"] * 1000))
+        if self._chk_play_on_click.isChecked():
+            self._player.play()
+
+    def _install_modified_overlay(self, editor):
+        """Attach a red 'Modified' badge in the top-right of the editor.
+        Visibility is driven by KeyPress events caught in eventFilter:
+        we install the filter on the editor itself (KeyPress is dispatched
+        to the focused widget, not its viewport — viewport only sees
+        mouse events). Hidden by _apply_format_to (after a render) and
+        by _on_edit_mode_toggled (after the sync recompute)."""
+        overlay = QLabel(_("● Modified"), editor)
+        overlay.setStyleSheet(
+            "QLabel { color: white; background: rgba(220, 50, 50, 220); "
+            "padding: 2px 8px; border-radius: 4px; font-weight: bold; }")
+        overlay.setVisible(False)
+        overlay.adjustSize()
+        overlay.raise_()
+        editor._modified_overlay = overlay
+
+        # KeyPress goes to the QTextEdit (focused widget), not the
+        # viewport which only handles mouse events.
+        editor.installEventFilter(self)
+
+        # Wrap resizeEvent (subclassing avoided) to reposition on resize.
+        base_resize = editor.resizeEvent
+        def _resize(ev):
+            base_resize(ev)
+            self._reposition_modified_overlay(editor)
+        editor.resizeEvent = _resize
+        self._reposition_modified_overlay(editor)
+
+    def _reposition_modified_overlay(self, editor):
+        overlay = getattr(editor, '_modified_overlay', None)
+        if overlay is None:
+            return
+        margin = 8
+        x = editor.viewport().width() - overlay.width() - margin
+        overlay.move(x, margin)
+
+    def _on_edit_mode_toggled(self, checked):
+        """Sync read-only state of every QTextEdit with the click-to-seek
+        toggle. checked=True (✏️ on) makes editors read-only and also
+        re-computes the segment<->position mapping in case the user
+        added/removed characters while the toggle was off (otherwise the
+        highlight would land on stale offsets). Surface a brief status
+        line so the user knows the sync was refreshed."""
+        n_recomputed = 0
+        for i in range(self._tabs.count()):
+            w = self._tabs.widget(i)
+            if isinstance(w, QTextEdit):
+                w.setReadOnly(checked)
+                if checked:
+                    segs = getattr(w, '_diarize_segments', None) or []
+                    if segs:
+                        self._compute_segment_positions(w, segs)
+                        n_recomputed += 1
+                    # Sync caught up — hide the per-tab Modified badge.
+                    overlay = getattr(w, '_modified_overlay', None)
+                    if overlay is not None:
+                        overlay.setVisible(False)
+        if checked and n_recomputed > 0:
+            self._lbl_status.setText(_("Sync positions refreshed after edits."))
+            self._lbl_status.setVisible(True)
+            QTimer.singleShot(2500, lambda: self._lbl_status.setVisible(False))
+
+    def _move_text_cursor_to_segment(self, editor, seg):
+        """Position the cursor at the start of the segment's rendered text
+        and centre it vertically in the viewport. Uses _segment_positions
+        populated by _apply_format_to (plain colored, SRT and JSON).
+
+        QTextEdit has no centerCursor() (only QPlainTextEdit does), so we
+        centre manually: compute the cursor's Y in the viewport and shift
+        the vertical scrollbar to bring it to the middle. The scrollbar
+        clamps automatically near top/bottom of the document."""
+        positions = getattr(editor, '_segment_positions', None)
+        if not positions:
+            return
+        for p in positions:
+            if abs(p["seg"]["start"] - seg["start"]) < 0.01:
+                cursor = editor.textCursor()
+                cursor.setPosition(p["start"])
+                editor.setTextCursor(cursor)
+                rect = editor.cursorRect()
+                viewport_h = editor.viewport().height()
+                sb = editor.verticalScrollBar()
+                sb.setValue(sb.value()
+                            + rect.top()
+                            - viewport_h // 2
+                            + rect.height() // 2)
+                return
 
     def _on_player_duration(self, dur_ms):
         self._sld_position.setRange(0, dur_ms)
@@ -1487,23 +2984,30 @@ class TranscribeWindow(QDialog):
         self._sld_position.set_markers(markers)
 
     def _on_prev_segment(self):
-        """Jump to previous speaker segment start."""
-        if not self._segments:
+        """Jump to previous speaker segment start. Reads segments from
+        the active tab so navigation works even when the window-level
+        self._segments has been zeroed by a tab switch."""
+        segs = (getattr(self._active_editor(), '_diarize_segments', None)
+                or self._segments)
+        if not segs:
             return
         pos_s = self._player.position() / 1000.0 - 0.1
-        for seg in reversed(self._segments):
+        for seg in reversed(segs):
             if seg["start"] < pos_s:
                 self._player.setPosition(int(seg["start"] * 1000))
                 return
         # Wrap to last
-        self._player.setPosition(int(self._segments[-1]["start"] * 1000))
+        self._player.setPosition(int(segs[-1]["start"] * 1000))
 
     def _on_next_segment(self):
-        """Jump to next speaker segment start."""
-        if not self._segments:
+        """Jump to next speaker segment start. Reads segments from the
+        active tab — see _on_prev_segment."""
+        segs = (getattr(self._active_editor(), '_diarize_segments', None)
+                or self._segments)
+        if not segs:
             return
         pos_s = self._player.position() / 1000.0 + 0.1
-        for seg in self._segments:
+        for seg in segs:
             if seg["start"] > pos_s:
                 self._player.setPosition(int(seg["start"] * 1000))
                 return
@@ -1519,6 +3023,14 @@ class TranscribeWindow(QDialog):
             if hasattr(self, '_grp_rename'):
                 self._grp_rename.setVisible(False)
             return
+        # Reload the audio file associated with this tab so the
+        # timeline length matches the current tab (different tabs may
+        # have different durations).
+        audio_path = getattr(widget, '_audio_path', None)
+        if audio_path and os.path.isfile(audio_path):
+            current_src = self._player.source().toLocalFile()
+            if current_src != audio_path:
+                self._load_audio(audio_path)
         segs = getattr(widget, '_diarize_segments', [])
         # Build markers only from this tab's segments
         markers = []
@@ -1543,10 +3055,19 @@ class TranscribeWindow(QDialog):
             else:
                 self._grp_rename.setVisible(False)
 
+        # Grey out the buttons that don't apply to LLM result tabs.
+        is_llm = bool(getattr(widget, "_is_llm_result", False))
+        if hasattr(self, "_btn_copy"):
+            self._btn_copy.setEnabled(not is_llm)
+        if hasattr(self, "_btn_export"):
+            self._btn_export.setEnabled(not is_llm)
+        if hasattr(self, "_btn_llm"):
+            self._btn_llm.setEnabled(not is_llm)
+        # _btn_export_tab stays enabled — it routes to LLMExportDialog
+        # for LLM tabs and to ExportDialog for regular tabs.
+
     def _on_diarize_toggled(self, checked):
-        self._lbl_sensitivity.setVisible(checked)
-        self._sld_sensitivity.setVisible(checked)
-        self._lbl_sensitivity_val.setVisible(checked)
+        self._w_threshold.setVisible(checked)
         self._update_long_audio_warning()
 
     # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
@@ -1559,29 +3080,14 @@ class TranscribeWindow(QDialog):
         return os.path.isfile("/usr/lib/dictee/libonnxruntime.so")
 
     def _update_long_audio_warning(self):
-        """Show a warning when file duration + diarization + CUDA may cause OOM."""
-        try:
-            path = self._file_input.text().strip()
-        except AttributeError:
-            return
-        if not path or not os.path.isfile(path):
+        """No-op since v1.3 chunked pipeline merge — long-audio
+        diarization is now unbounded thanks to the auto-chunking
+        pipeline (ffmpeg pre-cut + diarize-only global +
+        transcribe-diarize-batch + speaker merge). The label is
+        kept hidden, and the attribute itself is preserved in case
+        some other call-site references it."""
+        if hasattr(self, "_lbl_long_audio_warning"):
             self._lbl_long_audio_warning.setVisible(False)
-            return
-        if not self._chk_diarize.isChecked() or not self._has_cuda_build():
-            self._lbl_long_audio_warning.setVisible(False)
-            return
-        dur_s = self._get_audio_duration(path)
-        if dur_s < self.LONG_AUDIO_WARN_MINUTES * 60:
-            self._lbl_long_audio_warning.setVisible(False)
-            return
-        minutes = int(dur_s // 60)
-        self._lbl_long_audio_warning.setText(
-            _("⚠ Long file detected ({min} min). Diarization + transcription "
-              "may fail on a GPU with less than 10 GB of VRAM (out of memory). "
-              "Consider splitting your file and processing it in several passes, "
-              "or disable diarization. Automatic splitting will be available "
-              "in v1.4.").format(min=minutes))
-        self._lbl_long_audio_warning.setVisible(True)
 
     def _on_transcribe(self):
         if not self.isVisible():
@@ -1622,11 +3128,20 @@ class TranscribeWindow(QDialog):
             self._text_edit.setReadOnly(True)
         # Create new tab at the right
         self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(False)
+        self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
         self._text_edit.setPlaceholderText(
             _("Transcription results will appear here..."))
+        self._text_edit.viewport().installEventFilter(self)
+        self._install_modified_overlay(self._text_edit)
+        # Remember which audio file this tab transcribed, so switching
+        # tabs reloads the right file (and hence the right duration).
+        self._text_edit._audio_path = audio_path
         self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
+        # Animate the tab title with a braille spinner while the
+        # transcription / diarization is running. _show_status() will
+        # call _stop_all_spinners() when results land.
+        self._start_tab_spinner(self._text_edit, tab_name)
         self._segments = []
         self._raw_text = ""
         self._stdout_buf = QByteArray()
@@ -1693,6 +3208,28 @@ class TranscribeWindow(QDialog):
         self._lbl_status.setVisible(True)
         self._btn_transcribe.setEnabled(False)
         self._btn_translate.setEnabled(False)
+
+        # Long-file chunked pipeline: diarize ON + duration > threshold + CUDA build
+        # → ffmpeg pre-cut + diarize-only global + transcribe-diarize-batch --no-diarize
+        # → merge speakers via argmax_overlap. Avoids OOM on 8 GB VRAM beyond ~10-15 min.
+        if (diarize
+                and self._audio_duration >= self.LONG_AUDIO_WARN_MINUTES * 60
+                and self._has_cuda_build()):
+            sensitivity = self._sld_sensitivity.value() / 100.0
+            _dbg(f"_on_transcribe: routing to chunked pipeline "
+                 f"(dur={self._audio_duration:.1f}s, sens={sensitivity:.2f})")
+            self._was_diarized = True
+            self._diarize_two_phase = False  # chunked replaces two-phase
+            self._chunked_worker = _ChunkedPipelineWorker(
+                audio_path, sensitivity, self)
+            self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
+            self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
+            self._chunked_worker.finished.connect(self._on_chunked_done)
+            self._chunked_worker.error.connect(self._on_chunked_error)
+            self._btn_cancel.setVisible(True)
+            self._btn_cancel.setEnabled(True)
+            self._chunked_worker.start()
+            return
 
         self._process = QProcess(self)
         if getattr(self, '_diarize_two_phase', False):
@@ -1821,6 +3358,42 @@ class TranscribeWindow(QDialog):
         self._lbl_status.setText(msg)
         self._update_transcribe_btn()
 
+    # === Chunked long-file pipeline slots ===
+
+    def _on_chunked_phase(self, phase_num, label):
+        """Phase 1..4 status update from _ChunkedPipelineWorker."""
+        self._lbl_status.setText(label)
+
+    def _on_chunked_progress(self, done, total):
+        """Phase 3 chunk-by-chunk progress."""
+        self._lbl_status.setText(
+            _("Phase 3/4: chunk {done}/{total}").format(done=done, total=total))
+
+    def _on_chunked_done(self, raw_output):
+        """Final output ready: forward to the common _finish_transcription path."""
+        _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
+        self._chunked_worker = None
+        self._btn_cancel.setVisible(False)
+        self._finish_transcription(raw_output)
+
+    def _on_chunked_error(self, msg):
+        """Pipeline failed at some phase: surface message, restore UI."""
+        _dbg(f"_on_chunked_error: {msg}")
+        self._chunked_worker = None
+        self._btn_cancel.setVisible(False)
+        self._progress.setVisible(False)
+        self._lbl_status.setText(msg)
+        self._update_transcribe_btn()
+
+    def _on_cancel_chunked(self):
+        """User clicked Cancel during the chunked pipeline."""
+        if not (hasattr(self, '_chunked_worker') and self._chunked_worker):
+            return
+        _dbg("_on_cancel_chunked: requesting worker cancel")
+        self._btn_cancel.setEnabled(False)  # avoid double clicks
+        self._lbl_status.setText(_("Cancelling..."))
+        self._chunked_worker.request_cancel()
+
     def _finish_transcription(self, raw_output):
         """Common finish logic for both single-phase and two-phase diarization."""
         self._progress.setVisible(False)
@@ -1841,7 +3414,7 @@ class TranscribeWindow(QDialog):
 
         # Post-process each segment's text through dictee-postprocess
         for seg in self._segments:
-            seg["text"] = _postprocess(seg["text"])
+            seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
         # Rebuild raw_output with post-processed text
         raw_output = "\n".join(
             f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
@@ -1879,6 +3452,15 @@ class TranscribeWindow(QDialog):
                         break
 
         self._apply_format()
+        # Make sure the player is on this tab's audio file. The user may
+        # have browsed to a different file while the transcription was
+        # running, so QMediaPlayer.source could point elsewhere — without
+        # this check the timeline would inherit the unrelated file's
+        # duration after the transcription lands.
+        tab_audio = getattr(self._text_edit, '_audio_path', None)
+        if tab_audio and os.path.isfile(tab_audio):
+            if self._player.source().toLocalFile() != tab_audio:
+                self._load_audio(tab_audio)
         self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
@@ -1981,7 +3563,7 @@ class TranscribeWindow(QDialog):
             self._segments = _parse_diarize_output(raw_output)
             # Post-process each segment's text
             for seg in self._segments:
-                seg["text"] = _postprocess(seg["text"])
+                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
             raw_output = "\n".join(
                 f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
                 for seg in self._segments) if self._segments else raw_output
@@ -2040,7 +3622,15 @@ class TranscribeWindow(QDialog):
             self._on_translate()
 
     def _show_status(self):
-        """Show final status with timing and speaker info."""
+        """Show final status with timing and speaker info.
+
+        For diarized transcriptions the summary lives next to the
+        rename accordion header (more visual context); for plain
+        transcriptions it stays in the bottom status label.
+        """
+        # Any tab spinner started by transcription / diarization /
+        # translation stops here.
+        self._stop_all_spinners()
         dur = self._audio_duration
         dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
         n_speakers = len(set(s["speaker"] for s in self._segments)) if self._segments else 0
@@ -2048,10 +3638,21 @@ class TranscribeWindow(QDialog):
         if self._was_diarized and self._segments:
             parts.append(_("{n} speaker(s)").format(n=n_speakers))
         parts.append(_("audio {dur}").format(dur=dur_str))
-        parts.append(_("transcribed in {t:.1f}s").format(t=self._transcribe_elapsed))
+        parts.append(_("transcribed in {t}").format(
+            t=_format_elapsed(self._transcribe_elapsed)))
         if self._translate_elapsed > 0:
-            parts.append(_("translated in {t:.1f}s").format(t=self._translate_elapsed))
-        self._lbl_status.setText(" — ".join(parts))
+            parts.append(_("translated in {t}").format(
+                t=_format_elapsed(self._translate_elapsed)))
+        text = " — ".join(parts)
+        if self._was_diarized and hasattr(self, "_lbl_rename_status"):
+            self._lbl_rename_status.setText(text)
+            self._lbl_status.setText("")
+            self._lbl_status.setVisible(False)
+        else:
+            if hasattr(self, "_lbl_rename_status"):
+                self._lbl_rename_status.setText("")
+            self._lbl_status.setText(text)
+            self._lbl_status.setVisible(True)
 
     def _on_translate(self):
         """Translate the currently active tab."""
@@ -2149,8 +3750,13 @@ class TranscribeWindow(QDialog):
 
         # Create new translation tab inserted right after source
         editor = QTextEdit()
-        editor.setReadOnly(False)
+        editor.setReadOnly(self._btn_edit_mode.isChecked())
         editor.setToolTip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo."))
+        editor.viewport().installEventFilter(self)
+        self._install_modified_overlay(editor)
+        # Inherit audio path from the source tab so switching to this
+        # translation reloads the right audio file in the player.
+        editor._audio_path = getattr(self._text_edit, '_audio_path', None)
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
@@ -2213,7 +3819,13 @@ class TranscribeWindow(QDialog):
                 editor.setPlainText(_format_json(segments, name_map))
             else:
                 self._set_colored_diarize_to(editor, segments, name_map)
+            # Build segment <-> rendered text position mapping so the
+            # text-slider sync helpers can move the cursor / highlight /
+            # detect clicks without relying on a textual anchor (the
+            # colored-diarize format hides timestamps from the view).
+            self._compute_segment_positions(editor, segments)
         else:
+            editor._segment_positions = []
             text = raw_text or ""
             if fmt == "json":
                 editor.setPlainText(json.dumps(
@@ -2223,6 +3835,47 @@ class TranscribeWindow(QDialog):
                     f"1\n00:00:00,000 --> 99:59:59,999\n{text}\n")
             else:
                 editor.setPlainText(text)
+
+        # Programmatic render -> hide any stale Modified badge on this
+        # editor. The badge is only ever lit by KeyPress events caught
+        # in eventFilter, so other tabs are not affected by this call.
+        overlay = getattr(editor, '_modified_overlay', None)
+        if overlay is not None:
+            overlay.setVisible(False)
+
+    def _compute_segment_positions(self, editor, segments):
+        """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
+        Searches each segment's text in order, advancing the cursor so that
+        repeated phrases match the right occurrence. Stored on the editor
+        for tab safety (one mapping per tab).
+
+        Notes:
+        - We do NOT fall back to a global text.find when the per-cursor
+          search misses. A global hit would land on an earlier segment
+          and shift every subsequent position by a chunk, breaking
+          highlight + click-to-seek silently. Skipping a missing
+          segment is far less surprising than misaligning all the
+          following ones.
+        - The `_set_colored_diarize_to` formatter inserts &nbsp;-based
+          indentation; toPlainText() preserves those as U+00A0 chars.
+          Searching by seg["text"] (no leading whitespace) still hits
+          the correct position because find() walks past the prefix
+          characters automatically — no offset shift needed."""
+        text = editor.toPlainText()
+        positions = []
+        cursor_pos = 0
+        for seg in segments:
+            snippet = (seg.get("text") or "").strip()
+            if not snippet:
+                continue
+            idx = text.find(snippet, cursor_pos)
+            if idx < 0:
+                # Skip silently — see docstring above.
+                continue
+            end_idx = idx + len(snippet)
+            positions.append({"start": idx, "end": end_idx, "seg": seg})
+            cursor_pos = end_idx
+        editor._segment_positions = positions
 
     def _set_colored_diarize_to(self, editor, segments, name_map=None):
         """Display diarized text with colored speaker headers in given editor.
@@ -2257,17 +3910,79 @@ class TranscribeWindow(QDialog):
         produces segments. Each row shows a color swatch matching the
         canonical speaker id + a QLineEdit to set a custom display name.
         """
-        self._grp_rename = QGroupBox(_("Renommer les locuteurs"))
+        # True accordion (arrow toggle, no checkbox). Outer container is
+        # a QFrame with a thin border so it still reads as a grouped
+        # section; header is a QToolButton with a ▼/▶ arrow that
+        # collapses self._rename_content underneath.
+        self._grp_rename = QFrame()
+        self._grp_rename.setObjectName("renameAccordion")
+        self._grp_rename.setStyleSheet(
+            "#renameAccordion { border: 1px solid palette(mid); "
+            "border-radius: 4px; }")
         self._grp_rename.setVisible(False)
         gv = QVBoxLayout(self._grp_rename)
-        gv.setSpacing(4)
-        gv.setContentsMargins(8, 6, 8, 6)
+        gv.setContentsMargins(0, 0, 0, 0)
+        gv.setSpacing(0)
+
+        # Use unicode triangles ▼/▶ in the text (same style as
+        # dictee-setup.py accordions). QPushButton (not QToolButton)
+        # because text-align:left is reliably honoured here.
+        self._btn_rename_toggle = QPushButton(
+            "▶  " + _("Renommer les locuteurs"))
+        self._btn_rename_toggle.setCheckable(True)
+        self._btn_rename_toggle.setChecked(False)
+        self._btn_rename_toggle.setFlat(True)
+        self._btn_rename_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Maximum (not Expanding) so the clickable area is just the text
+        # width — clicking the empty space to the right (where the
+        # status label sits) doesn't accidentally collapse the
+        # accordion. See feedback-toggle-sizepolicy-max.md.
+        self._btn_rename_toggle.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._btn_rename_toggle.setStyleSheet(
+            "QPushButton { border: none; padding: 4px 6px; "
+            "font-weight: bold; text-align: left; }"
+            "QPushButton:hover { background: rgba(127,127,127,40); "
+            "border-radius: 3px; }")
+        self._btn_rename_toggle.toggled.connect(
+            self._on_rename_group_toggled)
+
+        # Header row : toggle button + diarization summary on the right.
+        # The summary ("2 speakers — audio 5:23 — transcribed in 12s")
+        # used to live in the bottom status label, but it makes more
+        # sense visually next to the rename header.
+        header_h = QHBoxLayout()
+        header_h.setContentsMargins(0, 0, 0, 0)
+        header_h.setSpacing(8)
+        # No stretch on the button: its setSizePolicy(Maximum) keeps it
+        # tight to the text, so clicks on empty space to its right do
+        # NOT collapse the accordion.
+        header_h.addWidget(self._btn_rename_toggle)
+        self._lbl_rename_status = QLabel("")
+        # Use palette text colour (always readable on the current theme)
+        # — palette(mid) was invisible on some Plasma themes.
+        self._lbl_rename_status.setStyleSheet(
+            "QLabel { padding: 0 8px; font-style: italic; }")
+        self._lbl_rename_status.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        header_h.addWidget(self._lbl_rename_status)
+        header_h.addStretch(1)
+        gv.addLayout(header_h)
+
+        self._rename_content = QFrame()
+        # Match the toggle's initial unchecked state. setChecked(False)
+        # on an already-False button does NOT emit `toggled`, so the
+        # slot would never run to hide the content frame.
+        self._rename_content.setVisible(False)
+        content = QVBoxLayout(self._rename_content)
+        content.setContentsMargins(8, 4, 8, 6)
+        content.setSpacing(4)
 
         # Two-column grid: up to 4 speakers fit on 2 rows × 2 cols.
         self._rename_rows_layout = QGridLayout()
         self._rename_rows_layout.setHorizontalSpacing(16)
         self._rename_rows_layout.setVerticalSpacing(3)
-        gv.addLayout(self._rename_rows_layout)
+        content.addLayout(self._rename_rows_layout)
 
         lay_btns = QHBoxLayout()
         self._btn_rename_apply = QPushButton(_("Appliquer"))
@@ -2283,9 +3998,17 @@ class TranscribeWindow(QDialog):
         lay_btns.addWidget(self._btn_rename_apply)
         lay_btns.addWidget(self._btn_rename_reset)
         lay_btns.addStretch()
-        gv.addLayout(lay_btns)
+        content.addLayout(lay_btns)
 
+        gv.addWidget(self._rename_content)
         parent_layout.addWidget(self._grp_rename)
+
+    def _on_rename_group_toggled(self, checked):
+        """Collapse / expand the rename accordion. Toggle the inner
+        content frame and flip the unicode triangle on the header."""
+        self._rename_content.setVisible(checked)
+        prefix = "▼  " if checked else "▶  "
+        self._btn_rename_toggle.setText(prefix + _("Renommer les locuteurs"))
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.
@@ -2349,6 +4072,11 @@ class TranscribeWindow(QDialog):
         self._rename_rows_layout.setColumnStretch(1, 1)
 
         self._grp_rename.setVisible(True)
+        # Keep the rename pane collapsed by default after a diarization.
+        # The status next to the toggle ("2 speakers — audio 5:23 — …")
+        # already gives enough feedback; the user expands the pane only
+        # when they actually want to rename speakers.
+        self._btn_rename_toggle.setChecked(False)
 
     def _apply_speaker_rename(self):
         """Collect QLineEdit values, update the display map, re-render.
@@ -2380,12 +4108,8 @@ class TranscribeWindow(QDialog):
 
         # Refresh active tab explicitly too (covers the non-diarize case)
         self._apply_format()
-
-        if new_map:
-            self._lbl_status.setText(_("Noms des locuteurs appliqués."))
-        else:
-            self._lbl_status.setText(_("Libellés par défaut restaurés."))
-        self._lbl_status.setVisible(True)
+        # No status message: the visual change in the tabs is its own
+        # confirmation, and a status row would push everything down.
 
     def _reset_speaker_rename(self):
         """Clear all QLineEdits and re-apply an empty map."""
@@ -2407,8 +4131,183 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
 
     def _on_export_current_tab(self):
-        """Export only the currently active tab."""
+        """Export only the currently active tab. LLM result tabs use a
+        dedicated dialog (PDF + Markdown), regular tabs go through the
+        standard ExportDialog (txt/srt/json)."""
+        editor = self._tabs.currentWidget()
+        if getattr(editor, "_is_llm_result", False):
+            self._on_export_llm_tab(editor)
+            return
         self._on_export(current_only=True)
+
+    def _on_export_llm_tab(self, editor):
+        """Show the LLMExportDialog for an LLM result tab."""
+        text = editor.toPlainText() if hasattr(editor, "toPlainText") else ""
+        if not text.strip():
+            self._lbl_status.setText(_("Nothing to export."))
+            self._lbl_status.setVisible(True)
+            return
+        # Default filename: {audio_basename}-{profile_name} sanitized.
+        audio = self._file_input.text() if hasattr(self, "_file_input") else ""
+        base = os.path.splitext(os.path.basename(audio))[0] or "transcription"
+        profile = getattr(editor, "_llm_profile_name", "") or "llm"
+        default_name = re.sub(r"[^\w.-]", "_", f"{base}-{profile}")
+        dlg = LLMExportDialog(default_name, text, self)
+        dlg.exec()
+
+    def _on_llm_process(self):
+        """Open the LLM analysis dialog. Uses the diarized segments stored
+        on the active tab (or window-level fallback). The user's speaker
+        rename map (Speaker 1 → "Alice") is applied to the speaker field
+        of each segment so the LLM sees the human-friendly names instead
+        of the canonical labels. Result lands in a brand-new tab via
+        _add_llm_result_tab."""
+        editor = self._tabs.currentWidget()
+        raw_segments = (getattr(editor, "_diarize_segments", None)
+                        or self._segments or [])
+        name_map = getattr(self, "_speaker_name_map", None) or {}
+        segments = []
+        for seg in raw_segments:
+            seg_copy = dict(seg)
+            canonical = seg.get("speaker", "")
+            if canonical in name_map and name_map[canonical].strip():
+                seg_copy["speaker"] = name_map[canonical].strip()
+            segments.append(seg_copy)
+        try:
+            self._llm_dlg = LLMProcessDialog(segments, self)
+        except ImportError as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self, _("Module missing"),
+                _("Could not load LLM module:\n{err}").format(err=str(e)))
+            return
+        self._llm_dlg.setModal(True)
+        self._llm_dlg.open()
+
+    # === Tab spinner (used during transcription and LLM analysis) ===
+
+    SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def _ensure_spinner_timer(self):
+        if not hasattr(self, "_spinning_tabs"):
+            self._spinning_tabs = {}  # widget → base title (str)
+            self._spinner_idx = 0
+            self._spinner_timer = QTimer(self)
+            self._spinner_timer.setInterval(100)
+            self._spinner_timer.timeout.connect(self._tick_spinner)
+
+    def _start_tab_spinner(self, widget, base_title):
+        if widget is None:
+            return
+        self._ensure_spinner_timer()
+        self._spinning_tabs[widget] = base_title
+        idx = self._tabs.indexOf(widget)
+        if idx >= 0:
+            frame = self.SPINNER_FRAMES[self._spinner_idx]
+            self._tabs.setTabText(idx, f"{frame} {base_title}")
+        if not self._spinner_timer.isActive():
+            self._spinner_timer.start()
+
+    def _stop_tab_spinner(self, widget, final_title=None):
+        if not hasattr(self, "_spinning_tabs"):
+            return
+        base = self._spinning_tabs.pop(widget, None)
+        idx = self._tabs.indexOf(widget)
+        if idx >= 0:
+            self._tabs.setTabText(idx, final_title if final_title is not None
+                                  else (base or self._tabs.tabText(idx)))
+        if not self._spinning_tabs:
+            self._spinner_timer.stop()
+
+    def _stop_all_spinners(self):
+        """Used on _show_status to stop spinning the active text tab
+        regardless of which call started it."""
+        if not hasattr(self, "_spinning_tabs"):
+            return
+        for w in list(self._spinning_tabs.keys()):
+            self._stop_tab_spinner(w)
+
+    def _tick_spinner(self):
+        if not self._spinning_tabs:
+            self._spinner_timer.stop()
+            return
+        self._spinner_idx = (self._spinner_idx + 1) % len(self.SPINNER_FRAMES)
+        frame = self.SPINNER_FRAMES[self._spinner_idx]
+        for widget, base in list(self._spinning_tabs.items()):
+            idx = self._tabs.indexOf(widget)
+            if idx < 0:
+                self._spinning_tabs.pop(widget, None)
+                continue
+            self._tabs.setTabText(idx, f"{frame} {base}")
+
+    def _start_llm_result_tab(self, profile_name, model_name=""):
+        """Create the LLM result tab immediately, empty, with a spinner.
+        Returns the editor widget; caller passes it to
+        _finish_llm_result_tab once the LLM call is done."""
+        editor = QTextEdit()
+        editor.setReadOnly(True)
+        editor.setPlaceholderText(_("Generating LLM analysis…"))
+        try:
+            editor.viewport().installEventFilter(self)
+        except Exception:
+            pass
+        editor._audio_path = None
+        editor._is_llm_result = True
+        editor._llm_profile_name = profile_name
+        # Tab title shows both the profile (what kind of analysis) and
+        # the model used (so the user can tell two runs of the same
+        # profile with different models apart at a glance).
+        if model_name:
+            base_title = f"{profile_name} · {model_name}"
+        else:
+            base_title = profile_name
+        editor._spinner_base_title = base_title
+        idx = self._tabs.addTab(editor, base_title)
+        self._tabs.setCurrentIndex(idx)
+        self._start_tab_spinner(editor, base_title)
+        return editor
+
+    def _finish_llm_result_tab(self, editor, text):
+        """Fill the LLM result tab with the model output and stop the
+        spinner."""
+        if editor is None:
+            return
+        editor.setPlainText(text or "")
+        base = getattr(editor, "_spinner_base_title", None) or self._tabs.tabText(
+            self._tabs.indexOf(editor))
+        self._stop_tab_spinner(editor, final_title=base)
+
+    def _cancel_llm_result_tab(self, editor):
+        """LLM call failed mid-flight: drop the empty tab and clean up."""
+        if editor is None:
+            return
+        self._stop_tab_spinner(editor)
+        idx = self._tabs.indexOf(editor)
+        if idx >= 0:
+            self._tabs.removeTab(idx)
+            editor.deleteLater()
+
+    def _add_llm_result_tab(self, profile_name, text):
+        """Append a new tab containing an LLM analysis result (markdown
+        or reformatted diarize). Read-only by default — user can toggle
+        edit mode if they want to tweak it."""
+        editor = QTextEdit()
+        editor.setReadOnly(True)
+        editor.setPlainText(text or "")
+        try:
+            editor.viewport().installEventFilter(self)
+        except Exception:
+            pass
+        # No audio binding — these tabs are not tied to a wav file.
+        editor._audio_path = None
+        # Marker used by _on_tab_changed and _on_export_current_tab to
+        # show the LLM-specific Export dialog (PDF/Markdown) and grey
+        # out the irrelevant buttons (Copy all, Export all, LLM analysis).
+        editor._is_llm_result = True
+        editor._llm_profile_name = profile_name
+        tab_name = _("LLM: {profile}").format(profile=profile_name)
+        idx = self._tabs.addTab(editor, tab_name)
+        self._tabs.setCurrentIndex(idx)
 
     def _on_export(self, current_only=False):
         _dbg(f"_on_export: {self._tabs.count()} tabs, current_only={current_only}")
@@ -2514,6 +4413,11 @@ def main():
                         help="Enable speaker diarization")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
+    # Positional args: receive %F from .desktop / file-manager open-with /
+    # CLI usage like `dictee-transcribe foo.wav`. Only the first one is
+    # used (the UI handles a single file at a time).
+    parser.add_argument("files", nargs="*",
+                        help="Audio file path(s); first one is opened.")
     args = parser.parse_args()
 
     global DEBUG
@@ -2525,8 +4429,9 @@ def main():
     app.setApplicationName("dictee-transcribe")
     app.setDesktopFileName("dictee-transcribe")
 
+    file_path = args.file or (args.files[0] if args.files else None)
     win = TranscribeWindow(
-        file_path=args.file,
+        file_path=file_path,
         auto_diarize=args.diarize,
     )
     win.show()

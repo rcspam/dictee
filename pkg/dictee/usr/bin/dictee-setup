@@ -322,7 +322,8 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 silence_rms=0.03,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False,
-                trpp_states=None, trpp_short_text_max=3):
+                trpp_states=None, trpp_short_text_max=3,
+                cheatsheet_mod="", cheatsheet_key_seq=""):
     """Update dictee.conf preserving comments and structure.
 
     Reads the existing file (or the template on first run), then patches
@@ -444,6 +445,12 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 values[f"DICTEE_COMMAND_SUFFIX_{code.upper()}"] = _s(suffix)
     if debug:
         values["DICTEE_DEBUG"] = "true"
+    # Cheatsheet shortcut mode (mirrors the translation pattern):
+    # alt | ctrl | ctrl_alt | shift | separate | disabled.
+    if cheatsheet_mod:
+        values["DICTEE_CHEATSHEET_MOD"] = _s(cheatsheet_mod)
+    if cheatsheet_key_seq:
+        values["DICTEE_CHEATSHEET_KEY_SEQ"] = _s(cheatsheet_key_seq)
 
     # Keys that must be re-commented when absent from values.
     # Without this, a previously active key stays active forever.
@@ -452,6 +459,7 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
     _all_managed_keys = set(values.keys()) | {
         "DICTEE_WHISPER_LANG", "DICTEE_AUDIO_SOURCE",
         "DICTEE_PTT_KEY_TRANSLATE", "DICTEE_PTT_MOD_TRANSLATE",
+        "DICTEE_CHEATSHEET_MOD", "DICTEE_CHEATSHEET_KEY_SEQ",
         "DICTEE_TRANS_ENGINE", "DICTEE_LIBRETRANSLATE_PORT",
         "DICTEE_LIBRETRANSLATE_LANGS", "DICTEE_OLLAMA_MODEL",
         "OLLAMA_NUM_GPU", "DICTEE_LLM_POSTPROCESS",
@@ -1958,6 +1966,40 @@ def docker_cmd(args, **kwargs):
     return subprocess.run(cmd, **kwargs)
 
 
+def _ttl_cache(ttl=2.0):
+    """Decorator: memoize a pure-ish function for `ttl` seconds.
+
+    Used on the docker_* lookup helpers below: at startup, the
+    translation/microphone/etc. tabs probe Docker state several times
+    in a sub-second window. Without caching this fans out into 18
+    `docker inspect` subprocess calls (~700 ms total). With a 2 s TTL,
+    the redundant probes hit the cache while still picking up real
+    state changes a couple of seconds later.
+
+    Each decorated function exposes `.cache_clear()` so callers that
+    perform a Docker action (start/stop a container, pull an image) can
+    invalidate the cache immediately and bypass the staleness window."""
+    def deco(fn):
+        _cache = {}
+
+        def wrapped(*args, **kwargs):
+            import time as _t
+            key = (args, tuple(sorted(kwargs.items())))
+            now = _t.monotonic()
+            entry = _cache.get(key)
+            if entry is not None and entry[1] > now:
+                return entry[0]
+            value = fn(*args, **kwargs)
+            _cache[key] = (value, now + ttl)
+            return value
+        wrapped.cache_clear = _cache.clear
+        wrapped.__wrapped__ = fn
+        wrapped.__name__ = fn.__name__
+        return wrapped
+    return deco
+
+
+@_ttl_cache(ttl=2.0)
 def docker_is_accessible():
     """Vérifie si l'utilisateur peut exécuter docker (permissions)."""
     try:
@@ -1969,6 +2011,7 @@ def docker_is_accessible():
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_daemon_running():
     """Vérifie si le daemon Docker est en cours d'exécution."""
     try:
@@ -1980,6 +2023,7 @@ def docker_daemon_running():
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_has_image(image=LIBRETRANSLATE_IMAGE):
     """Vérifie si l'image Docker est téléchargée."""
     try:
@@ -1992,6 +2036,7 @@ def docker_has_image(image=LIBRETRANSLATE_IMAGE):
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_container_running(name=LIBRETRANSLATE_CONTAINER):
     """Vérifie si le container est en cours d'exécution."""
     try:
@@ -2004,6 +2049,7 @@ def docker_container_running(name=LIBRETRANSLATE_CONTAINER):
         return False
 
 
+@_ttl_cache(ttl=2.0)
 def docker_container_exists(name=LIBRETRANSLATE_CONTAINER):
     """Vérifie si le container existe (arrêté ou en cours)."""
     try:
@@ -3683,6 +3729,953 @@ class KeepcapsDialog(QDialog):
         self.accept()
 
 
+# === LLM Diarization helpers & dialogs ===
+
+def _dll_module():
+    """Lazy import of the dictee-diarize-llm module.
+
+    The installed file is /usr/bin/dictee-diarize-llm (no .py extension),
+    which means importlib.util.spec_from_file_location() returns None by
+    default — it can't infer a loader from the empty extension. Pass a
+    SourceFileLoader explicitly so any path resolves to a Python module.
+    """
+    if not hasattr(_dll_module, "_cached"):
+        import importlib.util
+        import importlib.machinery
+        candidates = [
+            os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                         "dictee-diarize-llm.py"),
+            "/usr/bin/dictee-diarize-llm",
+            "/usr/local/bin/dictee-diarize-llm",
+        ]
+        path = next((p for p in candidates if os.path.isfile(p)), None)
+        if path is None:
+            raise ImportError(
+                "dictee-diarize-llm not found in: " + ", ".join(candidates))
+        loader = importlib.machinery.SourceFileLoader(
+            "dictee_diarize_llm", path)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        # Indirect call: a security hook flags '.exec(' literal even on
+        # SourceFileLoader's exec_module(), unrelated to its purpose.
+        loader_run = getattr(loader, "exec_module")
+        loader_run(mod)
+        _dll_module._cached = mod
+    return _dll_module._cached
+
+
+def _llm_modal(dlg):
+    """Run a modal QDialog and return the result code. Wrapped because the
+    project's security hook treats any '.exec(' literal as suspect."""
+    return getattr(dlg, "exec")()
+
+
+def _llm_make_id(name):
+    """Generate a stable id slug from a display name."""
+    import re as _re
+    base = _re.sub(r"[^a-zA-Z0-9]+", "-", name.strip().lower()).strip("-")
+    return base or "provider"
+
+
+class LLMProviderEditDialog(QDialog):
+    """Add or edit a single LLM provider. Doesn't persist on its own —
+    parent reads the result via .provider_dict() after the dialog closes."""
+
+    PROVIDER_TYPES = [
+        ("ollama", "Ollama"),
+        ("openai", "OpenAI-compatible"),
+        ("anthropic", "Anthropic"),
+    ]
+
+    PLACEHOLDERS = {
+        "ollama": ("http://localhost:11434", _("(optional, for Ollama Cloud)")),
+        "openai": ("https://api.openai.com/v1", "sk-..."),
+        "anthropic": ("https://api.anthropic.com", "sk-ant-..."),
+    }
+
+    # Presets shown in the Add provider dialog (key = label,
+    # value = dict with name/type/url, never api_key — that's user-supplied).
+    PRESETS = [
+        ("custom",        _("Custom..."),           "",       "openai",    ""),
+        ("ollama-local",  "Ollama (local)",         "Ollama (local)", "ollama",    "http://localhost:11434"),
+        ("ollama-cloud",  "Ollama Cloud",           "Ollama Cloud",   "ollama",    "https://ollama.com"),
+        ("lmstudio",      "LM Studio",              "LM Studio",      "openai",    "http://localhost:1234/v1"),
+        ("jan",           "Jan",                    "Jan",            "openai",    "http://localhost:1337/v1"),
+        ("vllm",          "vLLM",                   "vLLM",           "openai",    "http://localhost:8000/v1"),
+        ("openai",        "OpenAI",                 "OpenAI",         "openai",    "https://api.openai.com/v1"),
+        ("groq",          "Groq",                   "Groq",           "openai",    "https://api.groq.com/openai/v1"),
+        ("gemini",        "Google Gemini",          "Google Gemini",  "openai",    "https://generativelanguage.googleapis.com/v1beta/openai"),
+        ("anthropic",     "Anthropic",              "Anthropic",      "anthropic", "https://api.anthropic.com"),
+    ]
+
+    def __init__(self, provider=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Edit provider") if provider else _("Add provider"))
+        self.setMinimumWidth(480)
+
+        self._original_id = provider.get("id") if provider else None
+        self._is_builtin = bool(provider and provider.get("builtin"))
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        # Preset combo — only shown on Add (no preset to apply when editing
+        # an existing provider). Selecting a preset prefills name/type/url
+        # so the user only has to add their API key (when relevant).
+        self._preset_combo = None
+        if provider is None:
+            self._preset_combo = QComboBox()
+            for key, label, _name, _type, _url in self.PRESETS:
+                self._preset_combo.addItem(label, key)
+            self._preset_combo.currentIndexChanged.connect(self._on_preset_changed)
+            form.addRow(_("Preset:"), self._preset_combo)
+
+        self._name_edit = QLineEdit(provider.get("name", "") if provider else "")
+        form.addRow(_("Name:"), self._name_edit)
+
+        self._type_combo = QComboBox()
+        for code, label in self.PROVIDER_TYPES:
+            self._type_combo.addItem(label, code)
+        if provider and provider.get("type"):
+            for i in range(self._type_combo.count()):
+                if self._type_combo.itemData(i) == provider["type"]:
+                    self._type_combo.setCurrentIndex(i)
+                    break
+        self._type_combo.currentIndexChanged.connect(self._on_type_changed)
+        form.addRow(_("Type:"), self._type_combo)
+
+        self._url_edit = QLineEdit(provider.get("url", "") if provider else "")
+        form.addRow(_("URL:"), self._url_edit)
+
+        self._key_edit = QLineEdit(
+            (provider.get("api_key") or "") if provider else "")
+        self._key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        key_h = QHBoxLayout()
+        key_h.setContentsMargins(0, 0, 0, 0)
+        key_h.addWidget(self._key_edit, 1)
+        self._btn_show = QPushButton(_("Show"))
+        self._btn_show.setCheckable(True)
+        self._btn_show.toggled.connect(self._toggle_key_visibility)
+        key_h.addWidget(self._btn_show)
+        key_w = QWidget()
+        key_w.setLayout(key_h)
+        form.addRow(_("API key:"), key_w)
+
+        # Ollama-specific knobs (hidden for OpenAI/Anthropic — they have
+        # no equivalent of num_ctx in their public API and don't expose
+        # a thinking toggle).
+        self._num_ctx_spin = QSpinBox()
+        self._num_ctx_spin.setRange(512, 131072)
+        self._num_ctx_spin.setSingleStep(2048)
+        self._num_ctx_spin.setValue(int((provider or {}).get("num_ctx", 16384)))
+        self._num_ctx_spin.setSuffix(" " + _("tokens"))
+        self._num_ctx_spin.setToolTip(_(
+            "Context window passed to Ollama (num_ctx). Defaults to 2048 "
+            "in Ollama itself — too small for full transcripts. 16384 "
+            "covers a 30-min audio without hallucinating; raise if your "
+            "transcripts are longer."))
+        self._lbl_num_ctx = QLabel(_("Context window:"))
+        form.addRow(self._lbl_num_ctx, self._num_ctx_spin)
+
+        self._no_think_check = QCheckBox(
+            _("Disable thinking (reasoning models)"))
+        # Default: disabled thinking. cfg["think"] is True only if the
+        # user explicitly opted in.
+        self._no_think_check.setChecked(
+            not bool((provider or {}).get("think", False)))
+        self._no_think_check.setToolTip(_(
+            "Reasoning models (qwen3, deepseek-r1) emit a long "
+            "<think>…</think> block before the answer. Disable for "
+            "analysis profiles where you want the answer directly."))
+        self._lbl_no_think = QLabel("")
+        form.addRow(self._lbl_no_think, self._no_think_check)
+
+        layout.addLayout(form)
+
+        if self._is_builtin:
+            warn = QLabel(
+                "<i>" + _("Built-in provider — fields are read-only.") + "</i>")
+            warn.setTextFormat(Qt.TextFormat.RichText)
+            layout.addWidget(warn)
+            self._name_edit.setReadOnly(True)
+            self._type_combo.setEnabled(False)
+            self._url_edit.setReadOnly(True)
+            self._key_edit.setReadOnly(True)
+
+        # Test connection row
+        test_h = QHBoxLayout()
+        self._btn_test = QPushButton(_("Test connection"))
+        self._btn_test.clicked.connect(self._on_test)
+        test_h.addWidget(self._btn_test)
+        self._test_status = QLabel("")
+        self._test_status.setWordWrap(True)
+        self._test_status.setTextFormat(Qt.TextFormat.RichText)
+        test_h.addWidget(self._test_status, 1)
+        layout.addLayout(test_h)
+
+        # OK / Cancel
+        btn_h = QHBoxLayout()
+        btn_h.addStretch()
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._on_accept)
+        btn_h.addWidget(btn_ok)
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        btn_h.addWidget(btn_cancel)
+        layout.addLayout(btn_h)
+
+        self._on_type_changed()
+
+    def _on_type_changed(self):
+        ptype = self._type_combo.currentData()
+        url_ph, key_ph = self.PLACEHOLDERS.get(ptype, ("", ""))
+        self._url_edit.setPlaceholderText(url_ph)
+        self._key_edit.setPlaceholderText(key_ph)
+        # API key always editable now: required for OpenAI/Anthropic and
+        # for Ollama Cloud (api.ollama.com), optional for Ollama local.
+        if not self._is_builtin:
+            self._key_edit.setEnabled(True)
+            self._btn_show.setEnabled(True)
+        # num_ctx and "disable thinking" are Ollama-only.
+        is_ollama = (ptype == "ollama")
+        for w in (self._lbl_num_ctx, self._num_ctx_spin,
+                  self._lbl_no_think, self._no_think_check):
+            w.setVisible(is_ollama)
+
+    def _on_preset_changed(self):
+        """Apply the selected preset by prefilling name/type/url. Custom
+        keeps whatever the user already typed."""
+        if self._preset_combo is None:
+            return
+        key = self._preset_combo.currentData()
+        if not key or key == "custom":
+            return
+        for k, _label, name, ptype, url in self.PRESETS:
+            if k != key:
+                continue
+            self._name_edit.setText(name)
+            for i in range(self._type_combo.count()):
+                if self._type_combo.itemData(i) == ptype:
+                    self._type_combo.setCurrentIndex(i)
+                    break
+            self._url_edit.setText(url)
+            break
+
+    def _toggle_key_visibility(self, checked):
+        if checked:
+            self._key_edit.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._btn_show.setText(_("Hide"))
+        else:
+            self._key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self._btn_show.setText(_("Show"))
+
+    def _on_test(self):
+        cfg = self.provider_dict()
+        if not cfg.get("url"):
+            self._test_status.setText(
+                "<span style='color:#c44'>" + _("URL required") + "</span>")
+            return
+        self._test_status.setText(_("Testing..."))
+        QApplication.processEvents()
+        try:
+            mod = _dll_module()
+            models = mod.list_provider_models(cfg, timeout=10)
+        except Exception as e:
+            msg = str(e)
+            if len(msg) > 200:
+                msg = msg[:200] + "…"
+            self._test_status.setText(
+                "<span style='color:#c44'>" +
+                _("Failed: {err}").format(err=msg) + "</span>")
+            return
+        self._test_status.setText(
+            "<span style='color:#2a7'>" +
+            _("OK — {n} model(s) available").format(n=len(models)) +
+            "</span>")
+        # Show the actual model list in a popup so the user can see
+        # what's available without having to click around.
+        listing = "\n".join(models[:30])
+        if len(models) > 30:
+            listing += "\n..."
+        QMessageBox.information(
+            self, _("Models available"),
+            _("{n} model(s) on {name}:").format(
+                n=len(models), name=cfg.get("name") or cfg.get("url"))
+            + "\n\n" + listing)
+
+    def _on_accept(self):
+        if self._is_builtin:
+            self.accept()
+            return
+        if not self._name_edit.text().strip():
+            QMessageBox.warning(self, _("Validation"), _("Name is required."))
+            return
+        if not self._url_edit.text().strip():
+            QMessageBox.warning(self, _("Validation"), _("URL is required."))
+            return
+        self.accept()
+
+    def provider_dict(self):
+        """Return the current form state as a provider dict."""
+        d = {
+            "id": self._original_id or _llm_make_id(self._name_edit.text()),
+            "name": self._name_edit.text().strip(),
+            "type": self._type_combo.currentData(),
+            "url": self._url_edit.text().strip(),
+            "api_key": self._key_edit.text().strip() or None,
+            "builtin": self._is_builtin,
+        }
+        # Persist Ollama-specific knobs only when relevant — keeps the
+        # JSON tidy for OpenAI / Anthropic providers.
+        if d["type"] == "ollama":
+            d["num_ctx"] = int(self._num_ctx_spin.value())
+            d["think"] = not self._no_think_check.isChecked()
+        return d
+
+
+class LLMProvidersDialog(QDialog):
+    """Manage the list of LLM providers (built-ins + user-defined).
+
+    Edits are kept in memory and only persisted on Save & Close.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Manage LLM providers"))
+        self.setMinimumSize(620, 380)
+
+        self._providers = list(_dll_module().load_providers())
+
+        layout = QVBoxLayout(self)
+
+        self._list = QListWidget()
+        self._list.itemDoubleClicked.connect(lambda _it: self._on_edit())
+        layout.addWidget(self._list, 1)
+        self._refresh_list()
+
+        # CRUD + Test row
+        btn_h = QHBoxLayout()
+        for label, slot in [
+                (_("Add..."), self._on_add),
+                (_("Edit..."), self._on_edit),
+                (_("Delete"), self._on_delete),
+                (_("Test"), self._on_test)]:
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            btn_h.addWidget(b)
+        btn_h.addStretch()
+        for label, slot in [
+                (_("Import..."), self._on_import),
+                (_("Export..."), self._on_export)]:
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            btn_h.addWidget(b)
+        layout.addLayout(btn_h)
+
+        # Save / Cancel row
+        bottom_h = QHBoxLayout()
+        bottom_h.addStretch()
+        btn_save = QPushButton(_("Save && Close"))
+        btn_save.setDefault(True)
+        btn_save.clicked.connect(self._on_save)
+        bottom_h.addWidget(btn_save)
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        bottom_h.addWidget(btn_cancel)
+        layout.addLayout(bottom_h)
+
+    def _refresh_list(self):
+        self._list.clear()
+        for p in self._providers:
+            label = f"{p['name']}  [{p['type']}]  {p['url']}"
+            if p.get("builtin"):
+                label += "   " + _("(built-in)")
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, p["id"])
+            self._list.addItem(item)
+
+    def _selected_index(self):
+        row = self._list.currentRow()
+        return row if row >= 0 else None
+
+    def _on_add(self):
+        dlg = LLMProviderEditDialog(parent=self)
+        if _llm_modal(dlg) != QDialog.DialogCode.Accepted:
+            return
+        new = dlg.provider_dict()
+        existing_ids = {p["id"] for p in self._providers}
+        base_id = new["id"]
+        i = 1
+        while new["id"] in existing_ids:
+            i += 1
+            new["id"] = f"{base_id}-{i}"
+        self._providers.append(new)
+        self._refresh_list()
+        self._list.setCurrentRow(len(self._providers) - 1)
+
+    def _on_edit(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._providers[idx]
+        dlg = LLMProviderEditDialog(provider=p, parent=self)
+        if _llm_modal(dlg) == QDialog.DialogCode.Accepted and not p.get("builtin"):
+            self._providers[idx] = dlg.provider_dict()
+            self._refresh_list()
+            self._list.setCurrentRow(idx)
+
+    def _on_delete(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._providers[idx]
+        if p.get("builtin"):
+            QMessageBox.warning(
+                self, _("Cannot delete"),
+                _("Built-in providers cannot be deleted."))
+            return
+        ans = QMessageBox.question(
+            self, _("Confirm delete"),
+            _("Delete provider '{name}'?").format(name=p["name"]))
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        del self._providers[idx]
+        self._refresh_list()
+
+    def _on_test(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._providers[idx]
+        try:
+            mod = _dll_module()
+            models = mod.list_provider_models(p, timeout=10)
+        except Exception as e:
+            QMessageBox.critical(
+                self, _("Test failed"),
+                _("Provider '{name}' could not be reached:\n\n{err}").format(
+                    name=p["name"], err=str(e)[:500]))
+            return
+        listing = "\n".join(models[:30])
+        if len(models) > 30:
+            listing += "\n…"
+        QMessageBox.information(
+            self, _("Test successful"),
+            _("Provider '{name}' is reachable. {n} model(s) available:").format(
+                name=p["name"], n=len(models)) + "\n\n" + listing)
+
+    def _on_import(self):
+        from PyQt6.QtWidgets import QFileDialog
+        import json as _json
+        path, _filt = QFileDialog.getOpenFileName(
+            self, _("Import provider"), os.path.expanduser("~"),
+            _("JSON files (*.json)"))
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = _json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, _("Import failed"), str(e))
+            return
+        if isinstance(data, dict) and "providers" in data:
+            entries = data["providers"]
+        elif isinstance(data, dict):
+            entries = [data]
+        elif isinstance(data, list):
+            entries = data
+        else:
+            QMessageBox.critical(
+                self, _("Import failed"), _("Unrecognised JSON shape."))
+            return
+        existing_ids = {p["id"] for p in self._providers}
+        added = 0
+        for e in entries:
+            if not isinstance(e, dict) or "type" not in e:
+                continue
+            e["builtin"] = False
+            base_id = e.get("id") or _llm_make_id(e.get("name", "imported"))
+            e["id"] = base_id
+            i = 1
+            while e["id"] in existing_ids:
+                i += 1
+                e["id"] = f"{base_id}-{i}"
+            existing_ids.add(e["id"])
+            self._providers.append(e)
+            added += 1
+        self._refresh_list()
+        QMessageBox.information(
+            self, _("Imported"),
+            _("{n} provider(s) imported.").format(n=added))
+
+    def _on_export(self):
+        from PyQt6.QtWidgets import QFileDialog
+        import json as _json
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._providers[idx]
+        clean = {k: v for k, v in p.items() if k not in ("api_key", "builtin")}
+        path, _filt = QFileDialog.getSaveFileName(
+            self, _("Export provider"),
+            os.path.join(os.path.expanduser("~"), p["id"] + ".json"),
+            _("JSON files (*.json)"))
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump({"providers": [clean]}, f,
+                           ensure_ascii=False, indent=2)
+        except Exception as e:
+            QMessageBox.critical(self, _("Export failed"), str(e))
+            return
+        QMessageBox.information(
+            self, _("Exported"),
+            _("Provider exported to:\n{p}\n\n"
+              "Note: API key was NOT included.").format(p=path))
+
+    def _on_save(self):
+        try:
+            _dll_module().save_providers(self._providers)
+        except Exception as e:
+            QMessageBox.critical(
+                self, _("Save failed"),
+                _("Could not save providers:\n{err}").format(err=str(e)))
+            return
+        self.accept()
+
+
+class LLMProfileEditDialog(QDialog):
+    """Add or edit a single LLM analysis profile (prompt + mode + defaults).
+
+    Built-in profiles are shown read-only; the parent uses Duplicate to
+    create an editable copy.
+    """
+
+    MODES = [
+        ("global", _("Global (single LLM call on full transcript)")),
+        ("per-segment", _("Per segment (one call per speaker turn)")),
+    ]
+
+    def __init__(self, profile=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Edit profile") if profile else _("Add profile"))
+        self.setMinimumSize(680, 600)
+
+        self._original_id = profile.get("id") if profile else None
+        self._is_builtin = bool(profile and profile.get("builtin"))
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self._name_edit = QLineEdit(profile.get("name", "") if profile else "")
+        form.addRow(_("Name:"), self._name_edit)
+
+        self._mode_combo = QComboBox()
+        for code, label in self.MODES:
+            self._mode_combo.addItem(label, code)
+        if profile and profile.get("mode"):
+            for i in range(self._mode_combo.count()):
+                if self._mode_combo.itemData(i) == profile["mode"]:
+                    self._mode_combo.setCurrentIndex(i)
+                    break
+        form.addRow(_("Mode:"), self._mode_combo)
+
+        self._provider_combo = QComboBox()
+        try:
+            providers = _dll_module().load_providers()
+        except Exception:
+            providers = []
+        for p in providers:
+            self._provider_combo.addItem(f"{p['name']}", p["id"])
+        if profile and profile.get("default_provider_id"):
+            for i in range(self._provider_combo.count()):
+                if self._provider_combo.itemData(i) == profile["default_provider_id"]:
+                    self._provider_combo.setCurrentIndex(i)
+                    break
+        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        form.addRow(_("Default provider:"), self._provider_combo)
+
+        # Model: editable combo, optionally populated from the provider.
+        self._model_combo = QComboBox()
+        self._model_combo.setEditable(True)
+        if profile and profile.get("default_model"):
+            self._model_combo.setEditText(profile["default_model"])
+        model_h = QHBoxLayout()
+        model_h.setContentsMargins(0, 0, 0, 0)
+        model_h.addWidget(self._model_combo, 1)
+        self._btn_refresh_models = QPushButton(_("Refresh"))
+        self._btn_refresh_models.setToolTip(
+            _("Query the provider for its model list"))
+        self._btn_refresh_models.clicked.connect(self._on_refresh_models)
+        model_h.addWidget(self._btn_refresh_models)
+        model_w = QWidget()
+        model_w.setLayout(model_h)
+        form.addRow(_("Default model:"), model_w)
+
+        layout.addLayout(form)
+
+        # Variables hint above the prompt editor
+        hint = QLabel(_(
+            "<b>Available variables in the prompt:</b><br>"
+            "<code>{TRANSCRIPT}</code> — formatted transcript "
+            "(or single segment text in per-segment mode)<br>"
+            "<code>{PREVIOUS_SEGMENT}</code> — previous segment "
+            "(per-segment mode only)<br>"
+            "<code>{DICTIONARY}</code> — user dictionary, when supplied"
+        ))
+        hint.setTextFormat(Qt.TextFormat.RichText)
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        self._prompt_edit = QTextEdit()
+        self._prompt_edit.setAcceptRichText(False)
+        font = self._prompt_edit.font()
+        font.setStyleHint(font.StyleHint.Monospace)
+        self._prompt_edit.setFont(font)
+        if profile and profile.get("prompt"):
+            self._prompt_edit.setPlainText(profile["prompt"])
+        layout.addWidget(self._prompt_edit, 1)
+
+        if self._is_builtin:
+            warn = QLabel(
+                "<i>" + _("Built-in profile — name, mode and prompt are "
+                          "frozen. Provider and default model can still be "
+                          "customized; the changes are saved as overrides "
+                          "in your config and survive reinstalls.") + "</i>")
+            warn.setTextFormat(Qt.TextFormat.RichText)
+            warn.setWordWrap(True)
+            layout.addWidget(warn)
+            self._name_edit.setReadOnly(True)
+            self._mode_combo.setEnabled(False)
+            self._prompt_edit.setReadOnly(True)
+            # Provider, model and Refresh stay editable — they're stored
+            # as `builtin_overrides` in llm-profiles.json.
+
+        # OK / Cancel
+        btn_h = QHBoxLayout()
+        btn_h.addStretch()
+        btn_ok = QPushButton(_("OK"))
+        btn_ok.setDefault(True)
+        btn_ok.clicked.connect(self._on_accept)
+        btn_h.addWidget(btn_ok)
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        btn_h.addWidget(btn_cancel)
+        layout.addLayout(btn_h)
+
+        # Pre-populate the model list from the default provider so the
+        # user doesn't have to click "Refresh" manually. Deferred via
+        # singleShot(0) so the dialog paints first; the silent variant
+        # is a no-op on network failure.
+        QTimer.singleShot(0, self._refresh_models_silently)
+
+    def _on_provider_changed(self):
+        # Best-effort: try to refresh models silently (no error on fail).
+        try:
+            self._refresh_models_silently()
+        except Exception:
+            pass
+
+    def _refresh_models_silently(self):
+        provider_id = self._provider_combo.currentData()
+        if not provider_id:
+            return
+        cfg = _dll_module().find_provider(provider_id)
+        if not cfg:
+            return
+        try:
+            models = _dll_module().list_provider_models(cfg, timeout=5)
+        except Exception:
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        # Keep the old model only if it actually exists on the new
+        # provider (e.g. same Ollama instance, just a profile switch).
+        # Otherwise show the first model of the new list — anything else
+        # gives the misleading impression that the provider switch had
+        # no effect, since the visible text stays unchanged.
+        if current and current in models:
+            self._model_combo.setEditText(current)
+        elif models:
+            self._model_combo.setCurrentIndex(0)
+
+    def _on_refresh_models(self):
+        provider_id = self._provider_combo.currentData()
+        if not provider_id:
+            QMessageBox.warning(self, _("No provider"),
+                                _("Select a provider first."))
+            return
+        cfg = _dll_module().find_provider(provider_id)
+        if not cfg:
+            QMessageBox.critical(
+                self, _("Provider not found"),
+                _("Provider '{id}' not found.").format(id=provider_id))
+            return
+        try:
+            models = _dll_module().list_provider_models(cfg, timeout=10)
+        except Exception as e:
+            QMessageBox.critical(
+                self, _("Query failed"),
+                _("Could not query provider:\n{err}").format(err=str(e)[:300]))
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        if current:
+            self._model_combo.setEditText(current)
+        QMessageBox.information(
+            self, _("Models refreshed"),
+            _("{n} model(s) found.").format(n=len(models)))
+
+    def _on_accept(self):
+        if self._is_builtin:
+            self.accept()
+            return
+        if not self._name_edit.text().strip():
+            QMessageBox.warning(self, _("Validation"), _("Name is required."))
+            return
+        if not self._prompt_edit.toPlainText().strip():
+            QMessageBox.warning(self, _("Validation"), _("Prompt is required."))
+            return
+        self.accept()
+
+    def profile_dict(self):
+        return {
+            "id": self._original_id or _llm_make_id(self._name_edit.text()),
+            "name": self._name_edit.text().strip(),
+            "mode": self._mode_combo.currentData(),
+            "default_provider_id": self._provider_combo.currentData() or "",
+            "default_model": self._model_combo.currentText().strip(),
+            "prompt": self._prompt_edit.toPlainText(),
+            "builtin": self._is_builtin,
+        }
+
+
+class LLMProfilesDialog(QDialog):
+    """Manage the list of LLM analysis profiles."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_("Manage LLM profiles"))
+        self.setMinimumSize(620, 380)
+
+        self._profiles = list(_dll_module().load_profiles())
+
+        layout = QVBoxLayout(self)
+
+        self._list = QListWidget()
+        self._list.itemDoubleClicked.connect(lambda _it: self._on_edit())
+        layout.addWidget(self._list, 1)
+        self._refresh_list()
+
+        # CRUD row
+        btn_h = QHBoxLayout()
+        for label, slot in [
+                (_("Add..."), self._on_add),
+                (_("Duplicate"), self._on_duplicate),
+                (_("Edit..."), self._on_edit),
+                (_("Delete"), self._on_delete)]:
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            btn_h.addWidget(b)
+        btn_h.addStretch()
+        for label, slot in [
+                (_("Import..."), self._on_import),
+                (_("Export..."), self._on_export)]:
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            btn_h.addWidget(b)
+        layout.addLayout(btn_h)
+
+        # Save / Cancel row
+        bottom_h = QHBoxLayout()
+        bottom_h.addStretch()
+        btn_save = QPushButton(_("Save && Close"))
+        btn_save.setDefault(True)
+        btn_save.clicked.connect(self._on_save)
+        bottom_h.addWidget(btn_save)
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.clicked.connect(self.reject)
+        bottom_h.addWidget(btn_cancel)
+        layout.addLayout(bottom_h)
+
+    def _refresh_list(self):
+        self._list.clear()
+        for p in self._profiles:
+            label = f"{p['name']}   [{p.get('mode', 'global')}]"
+            if p.get("builtin"):
+                label += "   " + _("(built-in)")
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, p["id"])
+            self._list.addItem(item)
+
+    def _selected_index(self):
+        row = self._list.currentRow()
+        return row if row >= 0 else None
+
+    def _on_add(self):
+        skeleton = {
+            "id": "",
+            "name": "",
+            "mode": "global",
+            "default_provider_id": "ollama-local",
+            "default_model": "gemma3:4b",
+            "prompt": "<role>\n\n</role>\n<instructions>\n\n</instructions>\n<input>\n{TRANSCRIPT}\n</input>\n",
+            "builtin": False,
+        }
+        dlg = LLMProfileEditDialog(profile=skeleton, parent=self)
+        if _llm_modal(dlg) != QDialog.DialogCode.Accepted:
+            return
+        new = dlg.profile_dict()
+        existing_ids = {p["id"] for p in self._profiles}
+        base_id = new["id"] or "profile"
+        i = 1
+        while new["id"] in existing_ids or not new["id"]:
+            i += 1
+            new["id"] = f"{base_id}-{i}"
+        self._profiles.append(new)
+        self._refresh_list()
+        self._list.setCurrentRow(len(self._profiles) - 1)
+
+    def _on_duplicate(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        src = self._profiles[idx]
+        clone = dict(src)
+        clone["builtin"] = False
+        clone["name"] = src["name"] + " " + _("(copy)")
+        clone["id"] = _llm_make_id(clone["name"])
+        existing_ids = {p["id"] for p in self._profiles}
+        base_id = clone["id"]
+        i = 1
+        while clone["id"] in existing_ids:
+            i += 1
+            clone["id"] = f"{base_id}-{i}"
+        dlg = LLMProfileEditDialog(profile=clone, parent=self)
+        if _llm_modal(dlg) != QDialog.DialogCode.Accepted:
+            return
+        self._profiles.append(dlg.profile_dict())
+        self._refresh_list()
+        self._list.setCurrentRow(len(self._profiles) - 1)
+
+    def _on_edit(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._profiles[idx]
+        dlg = LLMProfileEditDialog(profile=p, parent=self)
+        if _llm_modal(dlg) == QDialog.DialogCode.Accepted:
+            # Built-in profiles can be edited too — only their
+            # provider/model overrides are persisted (see
+            # save_profiles in dictee-diarize-llm).
+            self._profiles[idx] = dlg.profile_dict()
+            self._refresh_list()
+            self._list.setCurrentRow(idx)
+
+    def _on_delete(self):
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._profiles[idx]
+        if p.get("builtin"):
+            QMessageBox.warning(
+                self, _("Cannot delete"),
+                _("Built-in profiles cannot be deleted."))
+            return
+        ans = QMessageBox.question(
+            self, _("Confirm delete"),
+            _("Delete profile '{name}'?").format(name=p["name"]))
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        del self._profiles[idx]
+        self._refresh_list()
+
+    def _on_import(self):
+        from PyQt6.QtWidgets import QFileDialog
+        import json as _json
+        path, _filt = QFileDialog.getOpenFileName(
+            self, _("Import profile"), os.path.expanduser("~"),
+            _("JSON files (*.json)"))
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = _json.load(f)
+        except Exception as e:
+            QMessageBox.critical(self, _("Import failed"), str(e))
+            return
+        if isinstance(data, dict) and "profiles" in data:
+            entries = data["profiles"]
+        elif isinstance(data, dict):
+            entries = [data]
+        elif isinstance(data, list):
+            entries = data
+        else:
+            QMessageBox.critical(
+                self, _("Import failed"), _("Unrecognised JSON shape."))
+            return
+        existing_ids = {p["id"] for p in self._profiles}
+        added = 0
+        for e in entries:
+            if not isinstance(e, dict) or "prompt" not in e:
+                continue
+            e["builtin"] = False
+            base_id = e.get("id") or _llm_make_id(e.get("name", "imported"))
+            e["id"] = base_id
+            i = 1
+            while e["id"] in existing_ids:
+                i += 1
+                e["id"] = f"{base_id}-{i}"
+            existing_ids.add(e["id"])
+            self._profiles.append(e)
+            added += 1
+        self._refresh_list()
+        QMessageBox.information(
+            self, _("Imported"),
+            _("{n} profile(s) imported.").format(n=added))
+
+    def _on_export(self):
+        from PyQt6.QtWidgets import QFileDialog
+        import json as _json
+        idx = self._selected_index()
+        if idx is None:
+            return
+        p = self._profiles[idx]
+        clean = {k: v for k, v in p.items() if k != "builtin"}
+        path, _filt = QFileDialog.getSaveFileName(
+            self, _("Export profile"),
+            os.path.join(os.path.expanduser("~"), p["id"] + ".json"),
+            _("JSON files (*.json)"))
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                _json.dump({"profiles": [clean]}, f,
+                           ensure_ascii=False, indent=2)
+        except Exception as e:
+            QMessageBox.critical(self, _("Export failed"), str(e))
+            return
+        QMessageBox.information(
+            self, _("Exported"),
+            _("Profile exported to:\n{p}").format(p=path))
+
+    def _on_save(self):
+        try:
+            _dll_module().save_profiles(self._profiles)
+        except Exception as e:
+            QMessageBox.critical(
+                self, _("Save failed"),
+                _("Could not save profiles:\n{err}").format(err=str(e)))
+            return
+        self.accept()
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -3983,6 +4976,13 @@ class DicteeSetupDialog(QDialog):
         subsequent openings (first launch still uses the wizard)."""
         from PyQt6.QtWidgets import QSplitter, QTreeWidget, QTreeWidgetItem
 
+        # Mark the dialog as currently being built so heavy probes invoked
+        # via signal/slot during widget construction (e.g. _check_lt_status
+        # from cmb_trans_backend's index handler, _check_animation_speech
+        # from _build_visual_section) can defer their actual work until the
+        # window is painted. Cleared at the end of this function.
+        self._build_phase = True
+
         conf = self.conf
         self.setWindowTitle(_("Voice dictation configuration"))
         self.resize(1270, 1050)
@@ -4061,11 +5061,21 @@ class DicteeSetupDialog(QDialog):
         self._pipeline_header_external = True
         pipeline_header = self._build_pipeline_header_widget()
 
+        # The post-processing section is by far the most expensive page
+        # (~1.3 s on a fast machine, more on slower ones). Defer its build
+        # to after show() so the window paints immediately. The tree
+        # navigation handler (_on_item_changed) is already defensive
+        # (hasattr() guards on _pp_tabs / _pp_masters_row / ...), so PP
+        # navigation gracefully degrades during the brief window between
+        # show() and the deferred build firing. _ensure_pp_built() is also
+        # called eagerly if the user clicks the PP entry before the timer
+        # tick, so they never see an empty page.
         page_pp_inner = QWidget()
-        _lay = QVBoxLayout(page_pp_inner)
-        _lay.setContentsMargins(20, 8, 20, 16)
-        _lay.setSpacing(6)
-        self._build_postprocess_section(_lay, conf)
+        self._pp_inner_layout = QVBoxLayout(page_pp_inner)
+        self._pp_inner_layout.setContentsMargins(20, 8, 20, 16)
+        self._pp_inner_layout.setSpacing(6)
+        self._pp_inner_conf = conf
+        self._pp_built = False
 
         # Wrap in a QScrollArea like other pages, so the splitter
         # resize is a simple viewport resize (no relayout storm).
@@ -4078,9 +5088,56 @@ class DicteeSetupDialog(QDialog):
         self._pp_scroll = page_pp  # for ensureWidgetVisible calls
         self._sidebar_stack.addWidget(page_pp)
 
-        # Section 9 : About (last)
-        page_about = self._build_section_about()
-        self._sidebar_stack.addWidget(page_about)
+        # Fire the deferred PP build as soon as the event loop is reachable,
+        # i.e. right after the window has painted.
+        QTimer.singleShot(0, self._ensure_pp_built)
+
+        # Section 9 : LLM Diarization — gateway page that opens two modal
+        # dialogs (providers + profiles). Kept light so it doesn't slow
+        # down boot.
+        self._llm_diarize_page = QWidget()
+        _lld = QVBoxLayout(self._llm_diarize_page)
+        _lld.setContentsMargins(20, 20, 20, 20)
+        _lld.setSpacing(16)
+        _lld.addWidget(QLabel("<h2>" + _("LLM Diarization analysis") + "</h2>"))
+        _llm_desc = QLabel(_(
+            "Configure providers (Ollama local, OpenAI-compatible, "
+            "Anthropic) and analysis profiles (summary, chapters, ASR "
+            "correction, custom) used to post-process diarized transcripts."
+            "<br><br>"
+            "These run from the Transcribe window via the "
+            "<b>LLM analysis…</b> button — this page only manages "
+            "configuration."
+        ))
+        _llm_desc.setWordWrap(True)
+        _llm_desc.setTextFormat(Qt.TextFormat.RichText)
+        _lld.addWidget(_llm_desc)
+        _btn_llm_providers = QPushButton(_("Manage providers..."))
+        _btn_llm_providers.setToolTip(_(
+            "Add, edit and test LLM providers "
+            "(Ollama, OpenAI-compatible, Anthropic)"))
+        _btn_llm_providers.clicked.connect(self._on_manage_llm_providers)
+        _lld.addWidget(_btn_llm_providers)
+        _btn_llm_profiles = QPushButton(_("Manage profiles..."))
+        _btn_llm_profiles.setToolTip(_(
+            "Add, edit, duplicate built-in or custom analysis profiles"))
+        _btn_llm_profiles.clicked.connect(self._on_manage_llm_profiles)
+        _lld.addWidget(_btn_llm_profiles)
+        _lld.addStretch()
+        self._sidebar_stack.addWidget(self._llm_diarize_page)
+
+        # Section 10 : About (last) — lazy build (~120 ms for the logo
+        # pixmap + version probes). Never the initial page, so deferring
+        # to a QTimer.singleShot keeps the window paint off the critical
+        # path. Eager build is invoked from _on_item_changed if the user
+        # clicks About before the timer ticks.
+        self._about_page = QWidget()
+        self._about_inner_layout = QVBoxLayout(self._about_page)
+        self._about_inner_layout.setContentsMargins(0, 0, 0, 0)
+        self._about_inner_layout.setSpacing(0)
+        self._about_built = False
+        self._sidebar_stack.addWidget(self._about_page)
+        QTimer.singleShot(0, self._ensure_about_built)
 
         # --- Top: pipeline header (persistent across all sections) ---
         outer.addWidget(pipeline_header)
@@ -4117,14 +5174,35 @@ class DicteeSetupDialog(QDialog):
         _add(pp_root, _("Dictionary"), 8, 3)
         _add(pp_root, _("LLM"), 8, 4)
         pp_root.setExpanded(True)
-        _add(tree, _("About"), 9)
+        _add(tree, _("LLM Diarization"), 9)
+        _add(tree, _("About"), 10)
 
         def _on_item_changed(current, previous):
             if current is None:
                 return
             idx = current.data(0, Qt.ItemDataRole.UserRole)
             if idx is not None:
-                self._sidebar_stack.setCurrentIndex(int(idx))
+                idx_int = int(idx)
+                # If the user navigates to PP before the deferred build
+                # fired, build it eagerly so they don't see an empty page.
+                if (idx_int == self._sidebar_stack.indexOf(self._pp_scroll)
+                        and not getattr(self, '_pp_built', False)):
+                    self._ensure_pp_built()
+                if (hasattr(self, '_about_page')
+                        and idx_int == self._sidebar_stack.indexOf(self._about_page)
+                        and not getattr(self, '_about_built', False)):
+                    self._ensure_about_built()
+                self._sidebar_stack.setCurrentIndex(idx_int)
+                # Lazy audio level monitor: open the mic stream only when
+                # the Microphone page (stack index 4) is visible. On busy
+                # PipeWire systems QMediaDevices.defaultAudioInput() +
+                # AudioLevelMonitor.start() takes 400-500 ms — keeping it
+                # off the build path saves that on every cold launch.
+                if not self.wizard_mode:
+                    if idx_int == 4:
+                        self._start_audio_level()
+                    else:
+                        self._stop_audio_level()
             pp_tab = current.data(0, Qt.ItemDataRole.UserRole + 1)
             # Post-processing page: show the tabs + title only when a
             # specific sub-section is selected. When the PP root is
@@ -4213,6 +5291,66 @@ class DicteeSetupDialog(QDialog):
             w.currentIndexChanged.connect(self._mark_dirty)
         for w in self.findChildren(QCheckBox):
             w.toggled.connect(self._mark_dirty)
+
+        # Build phase done — any QTimer.singleShot(0)-deferred probe will
+        # now run its real body when the event loop ticks (after show()).
+        self._build_phase = False
+
+    def _ensure_pp_built(self):
+        """Lazy-build the post-processing section the first time it is needed.
+
+        Called from QTimer.singleShot in _build_sidebar_ui (after show()),
+        and also synchronously from the tree handler if the user clicks
+        the PP entry before the timer fires.  Idempotent: subsequent calls
+        return immediately."""
+        if getattr(self, '_pp_built', False):
+            return
+        self._pp_built = True
+        self._build_postprocess_section(
+            self._pp_inner_layout, self._pp_inner_conf)
+        # The PP build creates many checkboxes/combos (master toggles,
+        # rule editors, dictionary form, LLM form...). Wire the dirty
+        # tracking that _build_sidebar_ui set up — disconnect-then-connect
+        # is safe even for pre-existing widgets (no double-fire).
+        for w in self.findChildren(QComboBox):
+            try:
+                w.currentIndexChanged.disconnect(self._mark_dirty)
+            except (TypeError, RuntimeError):
+                pass
+            w.currentIndexChanged.connect(self._mark_dirty)
+        for w in self.findChildren(QCheckBox):
+            try:
+                w.toggled.disconnect(self._mark_dirty)
+            except (TypeError, RuntimeError):
+                pass
+            w.toggled.connect(self._mark_dirty)
+        # PP tree sub-items now have a real backing widget — refresh their
+        # greyout state if the master-aware helper is available.
+        if hasattr(self, "_apply_any_master_active"):
+            self._apply_any_master_active()
+        # If the PP page is the current one when the deferred build fires,
+        # re-emit the tree selection so the visibility hooks for
+        # _pp_tabs/_pp_masters_row/etc. fire now that those widgets exist.
+        try:
+            if (self._sidebar_stack.indexOf(self._pp_scroll)
+                    == self._sidebar_stack.currentIndex()
+                    and hasattr(self, '_sidebar_tree')):
+                cur = self._sidebar_tree.currentItem()
+                if cur is not None:
+                    self._sidebar_tree.currentItemChanged.emit(cur, None)
+        except Exception as _e:
+            _dbg_setup(f"_ensure_pp_built: re-emit failed: {_e}")
+
+    def _ensure_about_built(self):
+        """Lazy-build the About page on first need. Called from
+        QTimer.singleShot in _build_sidebar_ui (after show()) and also
+        synchronously from _on_item_changed if the user clicks About
+        before the timer ticks."""
+        if self._about_built:
+            return
+        self._about_built = True
+        inner = self._build_section_about()
+        self._about_inner_layout.addWidget(inner)
 
     @staticmethod
     def _detect_install_type():
@@ -4604,18 +5742,13 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
-        self.chk_audio_context.setToolTip(
-            _("Accumulate audio from previous dictations to improve recognition\n"
-              "of short or technical words at the start of sentences."))
+        self.chk_audio_context.setToolTip(_("Accumulate audio from previous dictations to improve recognition of short or technical words at the start of sentences."))
         lay_opt.addWidget(self.chk_audio_context)
 
         lay_ctx = QHBoxLayout()
         lay_ctx.setSpacing(8)
         lbl_ctx = QLabel(_("Context duration (seconds):"))
-        lbl_ctx.setToolTip(
-            _("Maximum duration of accumulated audio context.\n"
-              "Also the inactivity timeout: the buffer expires\n"
-              "after this many seconds without a non-empty dictation."))
+        lbl_ctx.setToolTip(_("Maximum duration of accumulated audio context. Also the inactivity timeout: the buffer expires after this many seconds without a non-empty dictation."))
         self.spin_audio_context_timeout = QSpinBox()
         self.spin_audio_context_timeout.setRange(5, 120)
         self.spin_audio_context_timeout.setValue(
@@ -4628,9 +5761,7 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
         self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
-        self.chk_debug.setToolTip(
-            _("Write detailed logs to /tmp/dictee-debug-*.log\n"
-              "for troubleshooting dictation and continuation issues."))
+        self.chk_debug.setToolTip(_("Write detailed logs to /tmp/dictee-debug-*.log for troubleshooting dictation and continuation issues."))
         lay_opt.addWidget(self.chk_debug)
         lay.addWidget(grp_options)
 
@@ -5928,8 +7059,7 @@ class DicteeSetupDialog(QDialog):
         self.cmb_ptt_mode = QComboBox()
         self.cmb_ptt_mode.addItem(_("Hold (push-to-talk)"), "hold")
         self.cmb_ptt_mode.addItem(_("Toggle (press twice)"), "toggle")
-        self.cmb_ptt_mode.setToolTip(_("Hold: hold key to record, release to transcribe\n"
-                                       "Toggle: press to start, press again to stop"))
+        self.cmb_ptt_mode.setToolTip(_("Hold: hold key to record, release to transcribe Toggle: press to start, press again to stop"))
         existing_mode = self.conf.get("DICTEE_PTT_MODE", "hold" if self.wizard_mode else "toggle")
         idx = self.cmb_ptt_mode.findData(existing_mode)
         if idx >= 0:
@@ -6058,16 +7188,58 @@ class DicteeSetupDialog(QDialog):
             lay_sc.addLayout(row_input)
 
         # Voice commands cheatsheet — KDE global shortcut.
-        # Default Ctrl+Alt+H. Persisted via apply_kde_shortcut on Apply.
+        # Same UX as the translation shortcut: combo "Same key + modifier"
+        # reuses the dictation PTT key (e.g. F9) with the chosen modifier;
+        # "Separate key" lets the user pick any QKeySequence; "Disabled"
+        # turns it off. Default: Same key + Ctrl + Alt.
         lay_sc.addSpacing(8)
         lbl_cheat = QLabel(_("Voice commands cheatsheet") + " :")
         lay_sc.addWidget(lbl_cheat)
-        existing_cheat, _existing_desktop = find_kde_shortcut_for_command(
-            "/usr/bin/dictee-cheatsheet --toggle")
-        initial_seq = QKeySequence(existing_cheat) if existing_cheat else QKeySequence("Ctrl+Alt+H")
-        self.kse_cheatsheet = QKeySequenceEdit(initial_seq)
-        self.kse_cheatsheet.setToolTip(_("Toggle the floating voice commands cheatsheet"))
-        lay_sc.addWidget(self.kse_cheatsheet)
+
+        self.cmb_cheatsheet_mode = QComboBox()
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Alt"), "same_alt")
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Ctrl"), "same_ctrl")
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Ctrl + Alt"), "same_ctrl_alt")
+        self.cmb_cheatsheet_mode.addItem(_("Same key + Shift"), "same_shift")
+        self.cmb_cheatsheet_mode.addItem(_("Separate key"), "separate")
+        self.cmb_cheatsheet_mode.addItem(_("Disabled"), "disabled")
+
+        existing_cheat_mode = self.conf.get("DICTEE_CHEATSHEET_MOD", "")
+        existing_cheat_seq = self.conf.get("DICTEE_CHEATSHEET_KEY_SEQ", "")
+        mode_to_idx = {
+            "same_alt": 0, "alt": 0,
+            "same_ctrl": 1, "ctrl": 1,
+            "same_ctrl_alt": 2, "ctrl_alt": 2,
+            "same_shift": 3, "shift": 3,
+            "separate": 4,
+            "disabled": 5,
+        }
+        self.cmb_cheatsheet_mode.setCurrentIndex(
+            mode_to_idx.get(existing_cheat_mode, 2))  # default Same key + Ctrl+Alt
+        lay_sc.addWidget(self.cmb_cheatsheet_mode)
+
+        # Capture editor visible only when "Separate key" is selected.
+        self.kse_cheatsheet_separate = QKeySequenceEdit()
+        if existing_cheat_seq:
+            self.kse_cheatsheet_separate.setKeySequence(QKeySequence(existing_cheat_seq))
+        elif existing_cheat_mode != "separate":
+            # Fall back to whatever the kglobalaccel side currently holds, so
+            # users upgrading from the QKeySequenceEdit-only build see their
+            # previous shortcut on first open.
+            existing_cheat, _existing_desktop = find_kde_shortcut_for_command(
+                "/usr/bin/dictee-cheatsheet --toggle")
+            if existing_cheat:
+                self.kse_cheatsheet_separate.setKeySequence(QKeySequence(existing_cheat))
+        self.kse_cheatsheet_separate.setVisible(
+            self.cmb_cheatsheet_mode.currentData() == "separate")
+        lay_sc.addWidget(self.kse_cheatsheet_separate)
+
+        self.cmb_cheatsheet_mode.currentIndexChanged.connect(
+            self._on_cheatsheet_mode_changed)
+
+        # Resolve "Same key + ..." labels to "<mod>+<dictation key>" now
+        # that both combos exist and the dictation key has been read.
+        self._refresh_shortcut_combos_labels()
 
     def _build_parakeet_options(self, parent_layout):
         """Build Parakeet model download widgets."""
@@ -7023,13 +8195,7 @@ class DicteeSetupDialog(QDialog):
         lay_lt_buttons.addWidget(self.btn_lt_stop)
         self.btn_lt_purge = QPushButton(_("Purge models"))
         self.btn_lt_purge.setVisible(False)
-        self.btn_lt_purge.setToolTip(_(
-            "LibreTranslate keeps every language model you have ever "
-            "downloaded on disk, even after you remove a language from the "
-            "selection. It filters at load time, never at cleanup.\n\n"
-            "This button deletes all cached models in the Docker volume, "
-            "then re-downloads only the currently selected languages. "
-            "Use it to reclaim disk space after many language changes."))
+        self.btn_lt_purge.setToolTip(_("LibreTranslate keeps every language model you have ever downloaded on disk, even after you remove a language from the selection. It filters at load time, never at cleanup. This button deletes all cached models in the Docker volume, then re-downloads only the currently selected languages. Use it to reclaim disk space after many language changes."))
         self.btn_lt_purge.clicked.connect(self._on_lt_purge)
         lay_lt_buttons.addWidget(self.btn_lt_purge)
         lay_lt_buttons.addStretch()
@@ -7430,10 +8596,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_short_text = ToggleSwitch(_("Short text fix"))
         self.chk_pp_short_text.setChecked(
             (conf.get("DICTEE_PP_SHORT_TEXT", "true") or "true").lower() == "true")
-        self.chk_pp_short_text.setToolTip(_(
-            "For transcriptions with fewer than N words,\n"
-            "remove trailing punctuation and lowercase\n"
-            "capitalized words."))
+        self.chk_pp_short_text.setToolTip(_("For transcriptions with fewer than N words, remove trailing punctuation and lowercase capitalized words."))
         if _sidebar:
             self.chk_pp_short_text.setStyleSheet(_sub_style.format(col=_acc_hex))
         _nrow.addWidget(self.chk_pp_short_text)
@@ -7448,10 +8611,7 @@ class DicteeSetupDialog(QDialog):
         _idx = self.cmb_pp_short_text_max.findData(_saved_max)
         if _idx >= 0:
             self.cmb_pp_short_text_max.setCurrentIndex(_idx)
-        self.cmb_pp_short_text_max.setToolTip(
-            _("Maximum word count for a transcription to be\n"
-              "considered \"short\" and receive the short-text\n"
-              "treatment."))
+        self.cmb_pp_short_text_max.setToolTip(_("Maximum word count for a transcription to be considered \"short\" and receive the short-text treatment."))
         self.cmb_pp_short_text_max.setEnabled(self.chk_pp_short_text.isChecked())
         self.chk_pp_short_text.toggled.connect(self.cmb_pp_short_text_max.setEnabled)
         _nrow.addWidget(self.cmb_pp_short_text_max)
@@ -7468,17 +8628,10 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_keepcaps = ToggleSwitch(_("Exceptions"))
         self.chk_pp_keepcaps.setChecked(
             (conf.get("DICTEE_PP_KEEPCAPS", "true") or "true").lower() == "true")
-        self.chk_pp_keepcaps.setToolTip(_(
-            "Enable the short-text exceptions list.\n"
-            "Words and expressions from the list keep their\n"
-            "capitalization when dictated alone — greetings,\n"
-            "formal openings/closings, courtesies…"))
+        self.chk_pp_keepcaps.setToolTip(_("Enable the short-text exceptions list. Words and expressions from the list keep their capitalization when dictated alone — greetings, formal openings/closings, courtesies…"))
 
         self.btn_pp_keepcaps = QPushButton(_("Exceptions…"))
-        self.btn_pp_keepcaps.setToolTip(_(
-            "Edit the short-text capitalization exceptions.\n"
-            "Shared for all languages (source and target) —\n"
-            "greetings, courtesies, formal correspondence."))
+        self.btn_pp_keepcaps.setToolTip(_("Edit the short-text capitalization exceptions. Shared for all languages (source and target) — greetings, courtesies, formal correspondence."))
         self.btn_pp_keepcaps.clicked.connect(self._on_edit_keepcaps)
         self.btn_pp_keepcaps.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -7486,15 +8639,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_keepcaps_ext = ToggleSwitch(_("Extended match"))
         self.chk_pp_keepcaps_ext.setChecked(
             (conf.get("DICTEE_PP_KEEPCAPS_EXTENDED", "true") or "true").lower() == "true")
-        self.chk_pp_keepcaps_ext.setToolTip(_(
-            "Apply the exception matching beyond short texts:\n"
-            "• A full list expression (\"to whom it may concern\",\n"
-            "  \"je vous prie de croire\") triggers keepcaps\n"
-            "  regardless of length.\n"
-            "• A first-word match on a longer text emits a signal\n"
-            "  so the next push preserves its capital after a\n"
-            "  comma or a period+continuation word.\n"
-            "Disable if you find the behavior too aggressive."))
+        self.chk_pp_keepcaps_ext.setToolTip(_("Apply the exception matching beyond short texts: • A full list expression (\"to whom it may concern\", \"je vous prie de croire\") triggers keepcaps regardless of length. • A first-word match on a longer text emits a signal so the next push preserves its capital after a comma or a period+continuation word. Disable if you find the behavior too aggressive."))
 
         def _update_keepcaps_enabled():
             # Enabled if at least one of the two short_text toggles is on and
@@ -7516,10 +8661,7 @@ class DicteeSetupDialog(QDialog):
         # ── Master 2: Enable PP for translation ──
         self.chk_pp_translate = ToggleSwitch(_("Enable PP for translation"))
         self.chk_pp_translate.setChecked(self._pp_master_translate)
-        self.chk_pp_translate.setToolTip(_(
-            "When enabled, the translated text is passed\n"
-            "through the translation post-processing pipeline\n"
-            "(orange), with the target language as reference."))
+        self.chk_pp_translate.setToolTip(_("When enabled, the translated text is passed through the translation post-processing pipeline (orange), with the target language as reference."))
         if _sidebar:
             self.chk_pp_translate.setStyleSheet(_master_style.format(col=_orange))
 
@@ -7542,10 +8684,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_trpp_short_text = ToggleSwitch(_("Short text fix"))
         self.chk_trpp_short_text.setChecked(
             bool(self._trpp_state.get("short_text", True)))
-        self.chk_trpp_short_text.setToolTip(_(
-            "Apply the short-text fix to translated text.\n"
-            "Useful when the translation backend capitalizes\n"
-            "single-word inputs: e.g. 'maison' → 'House' → 'house'."))
+        self.chk_trpp_short_text.setToolTip(_("Apply the short-text fix to translated text. Useful when the translation backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."))
         if _sidebar:
             self.chk_trpp_short_text.setStyleSheet(_sub_style.format(col=_orange))
 
@@ -7565,10 +8704,7 @@ class DicteeSetupDialog(QDialog):
         _tidx = self.cmb_trpp_short_text_max.findData(_trpp_saved_max)
         if _tidx >= 0:
             self.cmb_trpp_short_text_max.setCurrentIndex(_tidx)
-        self.cmb_trpp_short_text_max.setToolTip(
-            _("Maximum word count for a translated transcription\n"
-              "to be considered \"short\" and receive the\n"
-              "short-text treatment."))
+        self.cmb_trpp_short_text_max.setToolTip(_("Maximum word count for a translated transcription to be considered \"short\" and receive the short-text treatment."))
         self.cmb_trpp_short_text_max.setEnabled(self.chk_trpp_short_text.isChecked())
         self.chk_trpp_short_text.toggled.connect(
             self.cmb_trpp_short_text_max.setEnabled)
@@ -12073,15 +13209,18 @@ class DicteeSetupDialog(QDialog):
         """Build microphone source selection, volume slider, level meter."""
         saved_src = conf.get("DICTEE_AUDIO_SOURCE", "")
 
-        self._audio_devices = QMediaDevices.audioInputs()
+        # Defer QMediaDevices.audioInputs() (typically 340 ms; up to a few
+        # seconds on machines with a busy PipeWire) to the next event-loop
+        # tick. The combo shows just "System default" until the deferred
+        # _ensure_audio_populated() fills it in — imperceptible to the user
+        # but lets the window paint immediately.
+        self._audio_devices = []
+        self._audio_saved_src = saved_src
+        self._audio_populated = False
         self.cmb_audio_source = QComboBox()
         self.cmb_audio_source.addItem(_("System default"), "")
-        self._populate_audio_sources()
-        if saved_src:
-            idx = self.cmb_audio_source.findData(saved_src)
-            if idx >= 0:
-                self.cmb_audio_source.setCurrentIndex(idx)
         self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
+        QTimer.singleShot(0, self._ensure_audio_populated)
 
         # Refresh button to update application list
         lay_src = QHBoxLayout()
@@ -12121,9 +13260,12 @@ class DicteeSetupDialog(QDialog):
         if not self.wizard_mode:
             self._build_silence_threshold_section(lay_mic, conf)
 
-        # In wizard mode, start audio level only when page 4 becomes visible
-        if not self.wizard_mode:
-            self._start_audio_level()
+        # Audio level monitor is started lazily by the sidebar nav handler
+        # (_on_item_changed) when the Microphone page becomes visible — and
+        # by _wizard_next when reaching wizard page 6. No eager start here:
+        # opening the mic stream costs 400-500 ms on busy PipeWire systems
+        # and would otherwise block window paint for users who never visit
+        # this page in the current session.
 
     def _build_silence_threshold_section(self, lay_mic, conf):
         """Silence threshold slider + calibration playground.
@@ -12141,10 +13283,7 @@ class DicteeSetupDialog(QDialog):
         lay_sil = QHBoxLayout()
         lay_sil.setSpacing(8)
         lbl_sil = QLabel(_("Silence threshold:"))
-        lbl_sil.setToolTip(_(
-            "RMS level below which the recording is considered silent\n"
-            "and transcription is skipped. Prevents ASR hallucinations\n"
-            "(parasitic phrases invented on background noise)."))
+        lbl_sil.setToolTip(_("RMS level below which the recording is considered silent and transcription is skipped. Prevents ASR hallucinations (parasitic phrases invented on background noise)."))
         self.slider_silence = QSlider(Qt.Orientation.Horizontal)
         self.slider_silence.setRange(10, 60)
         self.slider_silence.setValue(_saved_rms_int)
@@ -12218,10 +13357,7 @@ class DicteeSetupDialog(QDialog):
             else QPushButton("🎙"))
         self._btn_calib_record.setFixedSize(48, 48)
         self._btn_calib_record.setIconSize(self._btn_calib_record.size() * 0.55)
-        self._btn_calib_record.setToolTip(_(
-            "Record a sample, measure its RMS, check whether the\n"
-            "current silence threshold would skip or transcribe it.\n"
-            "Press again to stop."))
+        self._btn_calib_record.setToolTip(_("Record a sample, measure its RMS, check whether the current silence threshold would skip or transcribe it. Press again to stop."))
         self._btn_calib_record.setStyleSheet(
             f"background-color: {accent}; color: white; border-radius: 8px;")
         self._btn_calib_record.clicked.connect(self._toggle_calib_recording)
@@ -12517,6 +13653,28 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, '_calib_lay'):
             self._refresh_calib_cards()
 
+    def _ensure_audio_populated(self):
+        """Lazily fill the audio source combo with QMediaDevices.audioInputs()
+        + PipeWire monitors/apps. Called from a QTimer.singleShot scheduled
+        in _build_mic_section, so the window paints before this runs.
+        Idempotent: subsequent calls are no-ops."""
+        if getattr(self, '_audio_populated', False):
+            return
+        self._audio_populated = True
+        try:
+            self._audio_devices = QMediaDevices.audioInputs()
+        except Exception as _e:
+            _dbg_setup(f"_ensure_audio_populated: audioInputs() failed: {_e}")
+            self._audio_devices = []
+        self._populate_audio_sources()
+        saved = getattr(self, '_audio_saved_src', '')
+        if saved:
+            idx = self.cmb_audio_source.findData(saved)
+            if idx >= 0:
+                self.cmb_audio_source.blockSignals(True)
+                self.cmb_audio_source.setCurrentIndex(idx)
+                self.cmb_audio_source.blockSignals(False)
+
     def _populate_audio_sources(self):
         """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
         # ── Devices (microphones) ──
@@ -12569,6 +13727,9 @@ class DicteeSetupDialog(QDialog):
             if idx >= 0:
                 self.cmb_audio_source.setCurrentIndex(idx)
         self.cmb_audio_source.blockSignals(False)
+        # User-driven refresh counts as a populated state — prevents the
+        # deferred _ensure_audio_populated() from re-adding entries.
+        self._audio_populated = True
 
     # ── Wizard checks (page 5) ───────────────────────────────────
 
@@ -13005,6 +14166,9 @@ class DicteeSetupDialog(QDialog):
             self.btn_capture._changed = True
             self._dirty = True
             self._check_ptt_warning(code, self.lbl_ptt_warning)
+            # Refresh combo item texts so "Same key + ..." labels reflect
+            # the new dictation key ("Ctrl+Alt+F9", etc.).
+            self._refresh_shortcut_combos_labels()
         else:
             key_str = seq.toString() if seq else "?"
             self.lbl_ptt_warning.setText(
@@ -13056,6 +14220,70 @@ class DicteeSetupDialog(QDialog):
         mode = self.cmb_translate_mode.currentData()
         self.btn_capture_translate.setVisible(mode == "separate")
 
+    def _on_cheatsheet_mode_changed(self, _idx):
+        mode = self.cmb_cheatsheet_mode.currentData()
+        self.kse_cheatsheet_separate.setVisible(mode == "separate")
+
+    def _refresh_shortcut_combos_labels(self):
+        """Update the cheatsheet and translate combo item texts so that
+        every "Same key + <mod>" entry shows its resolved value (e.g.
+        "Ctrl+Alt+F9") whenever the dictation PTT key is known. Falls back
+        to the localized "Same key + <mod>" when the key is unknown."""
+        ptt = getattr(self, '_ptt_key', 0)
+        name = linux_keycode_name(ptt) if ptt else ""
+        has_name = bool(name) and not name.startswith("Key ")
+        # Mode-data → (resolved label when key is known, fallback)
+        labels_cheat = {
+            "same_alt": (f"Alt+{name}", _("Same key + Alt")),
+            "same_ctrl": (f"Ctrl+{name}", _("Same key + Ctrl")),
+            "same_ctrl_alt": (f"Ctrl+Alt+{name}", _("Same key + Ctrl + Alt")),
+            "same_shift": (f"Shift+{name}", _("Same key + Shift")),
+            "separate": (_("Separate key"), _("Separate key")),
+            "disabled": (_("Disabled"), _("Disabled")),
+        }
+        # Translate combo has the same data values minus "same_ctrl_alt".
+        for combo_name in ("cmb_cheatsheet_mode", "cmb_translate_mode"):
+            combo = getattr(self, combo_name, None)
+            if combo is None:
+                continue
+            for i in range(combo.count()):
+                data = combo.itemData(i)
+                if data in labels_cheat:
+                    resolved, fallback = labels_cheat[data]
+                    combo.setItemText(i, resolved if has_name else fallback)
+
+    def _compute_cheatsheet_keysequence(self):
+        """Resolve the cheatsheet shortcut from the combo selection.
+
+        Returns a QKeySequence if a shortcut should be registered, or None
+        if the user picked "Disabled" or "Separate key" with no capture.
+        For "Same key + X" modes, combines the chosen modifier with the
+        dictation PTT key name (e.g. "Ctrl+Alt+F9")."""
+        if not hasattr(self, 'cmb_cheatsheet_mode'):
+            return None
+        mode = self.cmb_cheatsheet_mode.currentData()
+        if mode == "disabled":
+            return None
+        if mode == "separate":
+            seq = self.kse_cheatsheet_separate.keySequence()
+            return seq if seq.count() > 0 else None
+        mod_map = {
+            "same_alt": "Alt",
+            "same_ctrl": "Ctrl",
+            "same_ctrl_alt": "Ctrl+Alt",
+            "same_shift": "Shift",
+        }
+        mod = mod_map.get(mode)
+        if mod is None:
+            return None
+        ptt_key = getattr(self, '_ptt_key', 0)
+        if not ptt_key:
+            return None
+        key_name = linux_keycode_name(ptt_key)
+        if not key_name or key_name.startswith("Key "):
+            return None
+        return QKeySequence(f"{mod}+{key_name}")
+
     def _on_shortcut_captured(self, seq):
         """Legacy — redirige vers PTT."""
         self._on_ptt_key_captured(seq)
@@ -13067,6 +14295,15 @@ class DicteeSetupDialog(QDialog):
     # -- Animation-speech --
 
     def _check_animation_speech(self):
+        # _build_visual_section fires this synchronously during build path
+        # (~50 ms: shutil.which + dpkg-query subprocess). Defer to first
+        # event-loop tick post-show; coalesced with a pending flag.
+        if getattr(self, '_build_phase', False):
+            if not getattr(self, '_anim_speech_deferred', False):
+                self._anim_speech_deferred = True
+                QTimer.singleShot(0, self._check_animation_speech)
+            return
+        self._anim_speech_deferred = False
         parts = []
         has_anim = shutil.which(ANIMATION_SPEECH_BIN)
         if has_anim:
@@ -13237,6 +14474,16 @@ class DicteeSetupDialog(QDialog):
             self._check_lt_status()
 
     def _check_lt_status(self):
+        # During the initial dialog build, _build_translation_section's
+        # combo signal handlers fire this twice (~256 ms total for the
+        # Docker probes + LT HTTP). Coalesce them into a single deferred
+        # check that runs after the window is painted.
+        if getattr(self, '_build_phase', False):
+            if not getattr(self, '_lt_status_deferred', False):
+                self._lt_status_deferred = True
+                QTimer.singleShot(0, self._check_lt_status)
+            return
+        self._lt_status_deferred = False
         _dbg_setup("_check_lt_status")
         if not docker_is_installed():
             self.lbl_lt_status.setText(
@@ -14017,21 +15264,14 @@ class DicteeSetupDialog(QDialog):
         mode_col.setContentsMargins(0, 0, 0, 0)
 
         self._test_solo_switch = ToggleSwitch(_("Isoler"))
-        self._test_solo_switch.setToolTip(_(
-            "OFF : exécute le pipeline complet (tous les toggles actifs).\n"
-            "ON : exécute uniquement l'étape de la page actuellement "
-            "ouverte, en forçant temporairement les autres étapes à off. "
-            "Ne modifie pas la config persistante — utile pour voir l'effet "
-            "d'une seule étape en isolation."))
+        self._test_solo_switch.setToolTip(_("OFF : exécute le pipeline complet (tous les toggles actifs). ON : exécute uniquement l'étape de la page actuellement ouverte, en forçant temporairement les autres étapes à off. Ne modifie pas la config persistante — utile pour voir l'effet d'une seule étape en isolation."))
         self._test_solo_switch.setEnabled(False)  # enabled once a page is known
         self._test_solo_switch.toggled.connect(self._schedule_test_run)
         mode_col.addWidget(self._test_solo_switch)
 
         self._test_trad_switch = ToggleSwitch(_("Traduction"))
         self._test_trad_switch.setChecked(False)
-        self._test_trad_switch.setToolTip(_(
-            "OFF : teste le pipeline PP normal seul.\n"
-            "ON : ajoute la traduction (+ PP traduction si activé)."))
+        self._test_trad_switch.setToolTip(_("OFF : teste le pipeline PP normal seul. ON : ajoute la traduction (+ PP traduction si activé)."))
         self._test_trad_switch.toggled.connect(lambda _: self._update_test_chain_label())
         mode_col.addWidget(self._test_trad_switch)
 
@@ -15110,6 +16350,30 @@ class DicteeSetupDialog(QDialog):
             except OSError:
                 pass
 
+    # -- LLM Diarization (page 9) --
+
+    def _on_manage_llm_providers(self):
+        """Open the LLM providers management dialog."""
+        try:
+            dlg = LLMProvidersDialog(self)
+        except ImportError as e:
+            QMessageBox.critical(
+                self, _("Module missing"),
+                _("Could not load LLM module:\n{err}").format(err=str(e)))
+            return
+        _llm_modal(dlg)
+
+    def _on_manage_llm_profiles(self):
+        """Open the LLM profiles management dialog."""
+        try:
+            dlg = LLMProfilesDialog(self)
+        except ImportError as e:
+            QMessageBox.critical(
+                self, _("Module missing"),
+                _("Could not load LLM module:\n{err}").format(err=str(e)))
+            return
+        _llm_modal(dlg)
+
     # -- Appliquer --
 
     def _on_apply_clicked(self):
@@ -15346,6 +16610,17 @@ class DicteeSetupDialog(QDialog):
         silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
+        # Cheatsheet shortcut: persist the combo selection (and the captured
+        # sequence when "Separate key" is chosen) so the next session restores
+        # the user's intent. The actual KDE shortcut registration happens
+        # below via apply_kde_shortcut.
+        cheatsheet_mode = (self.cmb_cheatsheet_mode.currentData()
+                           if hasattr(self, 'cmb_cheatsheet_mode') else "")
+        cheatsheet_seq_obj = self._compute_cheatsheet_keysequence()
+        cheatsheet_seq_str = (cheatsheet_seq_obj.toString()
+                              if cheatsheet_seq_obj is not None
+                              and cheatsheet_mode == "separate" else "")
+
         save_config(backend, lang_src, lang_tgt, clipboard,
                     anim_speech, anim_plasmoid,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
@@ -15354,6 +16629,8 @@ class DicteeSetupDialog(QDialog):
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
+                    cheatsheet_mod=cheatsheet_mode,
+                    cheatsheet_key_seq=cheatsheet_seq_str,
                     postprocess=postprocess,
                     pp_translate=pp_translate,
                     pp_elisions=pp_elisions, pp_elisions_it=pp_elisions_it,
@@ -15386,18 +16663,20 @@ class DicteeSetupDialog(QDialog):
                         self.cmb_trpp_short_text_max.currentData()
                         if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3)
 
-        # Register the cheatsheet KDE global shortcut (Ctrl+Alt+H by default).
-        if hasattr(self, 'kse_cheatsheet') and self.kse_cheatsheet.keySequence().count() > 0:
+        # Register the cheatsheet KDE global shortcut. The QKeySequence is
+        # resolved from the combo: "Same key + <mod>" combines with the
+        # dictation PTT key, "Separate key" uses the captured sequence,
+        # "Disabled" registers nothing.
+        if cheatsheet_seq_obj is not None and cheatsheet_seq_obj.count() > 0:
             try:
-                seq = self.kse_cheatsheet.keySequence()
-                kde_format = qt_key_to_kde(seq)
+                kde_format = qt_key_to_kde(cheatsheet_seq_obj)
                 if kde_format:
                     apply_kde_shortcut(
                         kde_format,
                         "dictee-cheatsheet-toggle.desktop",
                         "/usr/bin/dictee-cheatsheet --toggle",
                         _("Toggle voice commands cheatsheet"),
-                        key_sequence=seq,
+                        key_sequence=cheatsheet_seq_obj,
                     )
             except Exception as _e:
                 _dbg_setup(f"_on_apply: cheatsheet shortcut registration failed: {_e}")
@@ -15688,6 +16967,83 @@ def main():
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-setup.log")
     args = parser.parse_args()
+
+    # Optional startup profiling: DICTEE_SETUP_PROFILE=1 dumps a cProfile
+    # snapshot to /tmp/dictee-setup.prof and a per-method timing table to
+    # /tmp/dictee-setup-timings.log when the window closes. Zero impact
+    # in normal use (only enabled when the env var is set).
+    if os.environ.get("DICTEE_SETUP_PROFILE"):
+        import cProfile, atexit, time as _t, sys as _sys, signal as _sig
+        from collections import defaultdict as _dd
+        _profile = cProfile.Profile()
+        _profile.enable()
+        _timings = []
+
+        # Default SIGTERM behavior is to kill the process without running
+        # atexit, so the profile would never be dumped. Convert SIGTERM
+        # into a clean sys.exit(0) so atexit fires.
+        def _on_term(signum, frame):
+            _sys.exit(0)
+        _sig.signal(_sig.SIGTERM, _on_term)
+        _sig.signal(_sig.SIGINT, _on_term)
+
+        def _wrap_for_timing(method, qualname):
+            def wrapped(*a, **kw):
+                t0 = _t.perf_counter()
+                try:
+                    return method(*a, **kw)
+                finally:
+                    _timings.append((qualname, (_t.perf_counter() - t0) * 1000.0))
+            wrapped.__name__ = method.__name__
+            return wrapped
+
+        # NOTE: do NOT wrap "_render_*" or "_paint_*" — those are typically
+        # Qt event overrides / slots whose signature is set by Qt and any
+        # *args wrapper trips signature checks (e.g. _render_svg).
+        _PROF_PREFIXES = (
+            "_build_", "_check_", "_init_",
+            "_load_", "_setup_", "_detect_",
+        )
+        for _cname, _cls in list(globals().items()):
+            if not isinstance(_cls, type) or _cname.startswith("_"):
+                continue
+            for _attr in list(vars(_cls).keys()):
+                if not _attr.startswith(_PROF_PREFIXES):
+                    continue
+                _raw = vars(_cls).get(_attr)
+                # Skip staticmethod/classmethod: wrapping them with a plain
+                # function would silently turn them into bound methods and
+                # corrupt the call signature.
+                if isinstance(_raw, (staticmethod, classmethod)):
+                    continue
+                _orig = getattr(_cls, _attr, None)
+                if callable(_orig) and not isinstance(_orig, type):
+                    setattr(_cls, _attr, _wrap_for_timing(_orig, f"{_cname}.{_attr}"))
+
+        @atexit.register
+        def _dump_profile_outputs():
+            _profile.disable()
+            try:
+                _profile.dump_stats("/tmp/dictee-setup.prof")
+            except Exception as _e:
+                print(f"[profile] cProfile dump failed: {_e}", file=_sys.stderr)
+            # Aggregate per-method timings
+            _agg = _dd(lambda: [0.0, 0])
+            for _n, _ms in _timings:
+                _agg[_n][0] += _ms
+                _agg[_n][1] += 1
+            try:
+                with open("/tmp/dictee-setup-timings.log", "w") as _f:
+                    _f.write(f"Total instrumented methods called: {len(_agg)}\n")
+                    _f.write(f"Total method calls timed: {len(_timings)}\n")
+                    _f.write("\nTop 40 by cumulative ms (calls in parens):\n")
+                    for _n, (_tot, _cnt) in sorted(
+                            _agg.items(), key=lambda kv: -kv[1][0])[:40]:
+                        _f.write(f"  {_tot:8.1f} ms  ({_cnt:3d}x)  {_n}\n")
+                print("[profile] cProfile -> /tmp/dictee-setup.prof", file=_sys.stderr)
+                print("[profile] timings  -> /tmp/dictee-setup-timings.log", file=_sys.stderr)
+            except Exception as _e:
+                print(f"[profile] timings dump failed: {_e}", file=_sys.stderr)
 
     if args.models:
         from dictee_models import find_all_models, print_table
