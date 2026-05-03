@@ -227,7 +227,66 @@ class ProviderError(Exception):
     """Raised on provider call failures (network, API, parsing)."""
 
 
+class CancelledError(ProviderError):
+    """Raised when the caller aborts the request mid-stream."""
+
+
+class Cancellation:
+    """Cooperative cancellation token for a single LLM call.
+
+    The UI (LLMAnalysisThread) creates one and passes it down; if the
+    user clicks the X on the result tab, `abort()` flips the flag and
+    closes the live HTTP response so the streaming `for line in resp`
+    loop in the provider call exits immediately. Without this the
+    response would keep streaming in the background, burning cloud
+    tokens (OpenAI / Anthropic / Groq) and pinning the GPU on Ollama.
+    """
+    def __init__(self):
+        self.cancelled = False
+        self.response = None
+
+    def abort(self):
+        self.cancelled = True
+        r = self.response
+        if r is not None:
+            try:
+                r.close()
+            except Exception:
+                pass
+
+    def check(self):
+        if self.cancelled:
+            raise CancelledError("cancelled")
+
+
+_NULL_CANCELLATION = Cancellation()  # for callers that don't pass one
+
+
 _DEFAULT_USER_AGENT = "dictee/1.3 (+https://github.com/rcspam/dictee)"
+
+
+def _open_stream(url, payload, headers, timeout, cancellation):
+    """POST JSON, return the raw HTTPResponse for streaming. The
+    response is registered on the cancellation token so an external
+    abort() can close it. Caller is responsible for closing it after
+    consumption."""
+    data = json.dumps(payload).encode("utf-8")
+    headers = dict(headers)
+    headers.setdefault("User-Agent", _DEFAULT_USER_AGENT)
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        resp = urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise ProviderError(f"HTTP {e.code} {e.reason}: {body[:300]}") from e
+    except urllib.error.URLError as e:
+        raise ProviderError(f"Network error: {e.reason}") from e
+    except (TimeoutError, socket.timeout) as e:
+        raise ProviderError(f"Timeout after {timeout}s") from e
+    except (OSError, ValueError) as e:
+        raise ProviderError(f"{type(e).__name__}: {e}") from e
+    cancellation.response = resp
+    return resp
 
 
 def _http_post_json(url, payload, headers, timeout):
@@ -281,31 +340,49 @@ def _ollama_headers(cfg):
     return h
 
 
-def _provider_call_ollama(cfg, model, system, prompt, timeout):
+def _provider_call_ollama(cfg, model, system, prompt, timeout,
+                          cancellation=_NULL_CANCELLATION):
     url = cfg["url"].rstrip("/") + "/api/generate"
     # Ollama defaults `num_ctx` to 2048 tokens. A 30-min transcript is
     # ~10-15 k tokens, so without raising the context window the model
     # only sees the first ~3 minutes and hallucinates the rest.
-    # Default 16384 covers any reasonable transcript and adds ~1-2 GB
-    # VRAM on a 4B model. Per-provider override via cfg["num_ctx"]
-    # (top-level for UI simplicity) or cfg["options"]["num_ctx"].
     options = {"num_ctx": int(cfg.get("num_ctx", 16384))}
     if isinstance(cfg.get("options"), dict):
         options.update(cfg["options"])
     payload = {
         "model": model,
         "prompt": prompt,
-        "stream": False,
+        # Streaming so we can interrupt mid-generation when the user
+        # closes the result tab — without it the model keeps generating
+        # in background, pinning GPU/CPU for nothing.
+        "stream": True,
         "options": options,
+        "think": bool(cfg.get("think", False)),
     }
-    # Reasoning models (qwen3.x, deepseek-r1) emit a long <think>...</think>
-    # preamble by default. For analysis profiles we want the answer
-    # directly. Disable unless explicitly opted in via cfg["think"].
-    payload["think"] = bool(cfg.get("think", False))
     if system:
         payload["system"] = system
-    data = _http_post_json(url, payload, _ollama_headers(cfg), timeout)
-    return data.get("response", "").strip()
+    resp = _open_stream(url, payload, _ollama_headers(cfg), timeout, cancellation)
+    chunks = []
+    try:
+        for line in resp:
+            cancellation.check()
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            piece = obj.get("response", "")
+            if piece:
+                chunks.append(piece)
+            if obj.get("done"):
+                break
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    return "".join(chunks).strip()
 
 
 def _provider_list_models_ollama(cfg, timeout=10):
@@ -314,22 +391,48 @@ def _provider_list_models_ollama(cfg, timeout=10):
     return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
 
 
-def _provider_call_openai(cfg, model, system, prompt, timeout):
+def _provider_call_openai(cfg, model, system, prompt, timeout,
+                          cancellation=_NULL_CANCELLATION):
     url = cfg["url"].rstrip("/") + "/chat/completions"
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    payload = {"model": model, "messages": messages, "stream": False}
+    payload = {"model": model, "messages": messages, "stream": True}
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {cfg.get('api_key', '')}",
     }
-    data = _http_post_json(url, payload, headers, timeout)
-    choices = data.get("choices") or []
-    if not choices:
-        raise ProviderError(f"No choices in response: {str(data)[:300]}")
-    return choices[0].get("message", {}).get("content", "").strip()
+    resp = _open_stream(url, payload, headers, timeout, cancellation)
+    chunks = []
+    try:
+        for line in resp:
+            cancellation.check()
+            line = line.strip()
+            if not line.startswith(b"data: "):
+                continue
+            data = line[6:]
+            if data == b"[DONE]":
+                break
+            try:
+                obj = json.loads(data)
+            except ValueError:
+                continue
+            choices = obj.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            piece = delta.get("content") or ""
+            if piece:
+                chunks.append(piece)
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    if not chunks:
+        raise ProviderError("Empty stream response")
+    return "".join(chunks).strip()
 
 
 def _provider_list_models_openai(cfg, timeout=10):
@@ -339,12 +442,14 @@ def _provider_list_models_openai(cfg, timeout=10):
     return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
 
 
-def _provider_call_anthropic(cfg, model, system, prompt, timeout):
+def _provider_call_anthropic(cfg, model, system, prompt, timeout,
+                             cancellation=_NULL_CANCELLATION):
     url = cfg["url"].rstrip("/") + "/v1/messages"
     payload = {
         "model": model,
         "max_tokens": 4096,
         "messages": [{"role": "user", "content": prompt}],
+        "stream": True,
     }
     if system:
         payload["system"] = system
@@ -353,12 +458,36 @@ def _provider_call_anthropic(cfg, model, system, prompt, timeout):
         "x-api-key": cfg.get("api_key", ""),
         "anthropic-version": "2023-06-01",
     }
-    data = _http_post_json(url, payload, headers, timeout)
-    content = data.get("content") or []
-    if not content:
-        raise ProviderError(f"No content in response: {str(data)[:300]}")
-    parts = [c.get("text", "") for c in content if c.get("type") == "text"]
-    return "".join(parts).strip()
+    resp = _open_stream(url, payload, headers, timeout, cancellation)
+    chunks = []
+    try:
+        for line in resp:
+            cancellation.check()
+            line = line.strip()
+            if not line.startswith(b"data: "):
+                continue
+            data = line[6:]
+            try:
+                obj = json.loads(data)
+            except ValueError:
+                continue
+            etype = obj.get("type")
+            if etype == "content_block_delta":
+                delta = obj.get("delta") or {}
+                piece = delta.get("text") or ""
+                if piece:
+                    chunks.append(piece)
+            elif etype == "message_stop":
+                break
+            elif etype == "error":
+                raise ProviderError(
+                    f"Anthropic error: {obj.get('error', {}).get('message')}")
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
+    return "".join(chunks).strip()
 
 
 def _provider_list_models_anthropic(cfg, timeout=10):
@@ -379,17 +508,21 @@ PROVIDER_DISPATCH = {
 
 
 def call_provider(provider_cfg, model, prompt, system=None,
-                  timeout=DEFAULT_TIMEOUT):
+                  timeout=DEFAULT_TIMEOUT,
+                  cancellation=_NULL_CANCELLATION):
     """Dispatch a generation call to the right provider type.
 
     provider_cfg: provider dict from llm-providers.json (or built-in).
-    Returns the generated text (string), or raises ProviderError.
+    cancellation: optional Cancellation token; abort() on it closes
+    the live HTTP response and the streaming loop returns immediately.
+    Returns the generated text (string), or raises ProviderError /
+    CancelledError.
     """
     ptype = provider_cfg.get("type")
     if ptype not in PROVIDER_DISPATCH:
         raise ProviderError(f"Unknown provider type: {ptype!r}")
     call_fn, _ = PROVIDER_DISPATCH[ptype]
-    return call_fn(provider_cfg, model, system, prompt, timeout)
+    return call_fn(provider_cfg, model, system, prompt, timeout, cancellation)
 
 
 def list_provider_models(provider_cfg, timeout=10):
@@ -575,37 +708,33 @@ def _lang_user_suffix(lang_name):
 
 
 def analyze_global(segments, profile, provider_cfg, model, dictionary="",
-                   timeout=DEFAULT_TIMEOUT, lang_name=""):
-    """Run a global-mode profile (Synthèse, Chapitrage, custom).
-
-    Sends the full formatted transcript in one LLM call. Returns the
-    raw LLM output (typically markdown).
-    """
+                   timeout=DEFAULT_TIMEOUT, lang_name="",
+                   cancellation=_NULL_CANCELLATION):
+    """Run a global-mode profile (Synthèse, Chapitrage, custom)."""
     transcript = format_segments_for_prompt(segments)
     prompt = _render_prompt(profile["prompt"], transcript,
                             dictionary=dictionary)
     prompt += _lang_user_suffix(lang_name)
     return call_provider(provider_cfg, model, prompt,
                          system=_lang_system_prompt(lang_name),
-                         timeout=timeout)
+                         timeout=timeout, cancellation=cancellation)
 
 
 def analyze_per_segment(segments, profile, provider_cfg, model,
                         dictionary="", timeout=DEFAULT_TIMEOUT,
-                        progress_cb=None, lang_name=""):
+                        progress_cb=None, lang_name="",
+                        cancellation=_NULL_CANCELLATION):
     """Run a per-segment-mode profile (Correction ASR).
 
-    For each segment, send only the text (no speaker label) plus the
-    previous segment as context. Reassemble the corrected transcript
-    keeping the original DIARIZE_RE format so it stays compatible with
-    dictee-transcribe parsing.
-
-    progress_cb: optional callable(idx, total) for UI feedback.
+    Cancelling between two segments stops the loop immediately;
+    cancelling during a segment's HTTP stream closes that response so
+    we don't waste tokens on the rest of the transcript.
     """
     out_lines = []
     previous = ""
     total = len(segments)
     for idx, seg in enumerate(segments):
+        cancellation.check()
         if progress_cb is not None:
             progress_cb(idx, total)
         prompt = _render_prompt(profile["prompt"], seg["text"],
@@ -615,15 +744,16 @@ def analyze_per_segment(segments, profile, provider_cfg, model,
         try:
             corrected = call_provider(provider_cfg, model, prompt,
                                       system=_lang_system_prompt(lang_name),
-                                      timeout=timeout).strip()
+                                      timeout=timeout,
+                                      cancellation=cancellation).strip()
             if not corrected:
                 corrected = seg["text"]
+        except CancelledError:
+            raise
         except ProviderError as e:
             print(f"[dictee-diarize-llm] Segment {idx + 1}/{total} failed: "
                   f"{e} — keeping original.", file=sys.stderr)
             corrected = seg["text"]
-        # Reassemble in DIARIZE_RE-compatible form so the result can be
-        # round-tripped back into the UI without re-parsing logic.
         out_lines.append(
             f"[{seg['start']:.2f}s - {seg['end']:.2f}s] "
             f"{seg['speaker']}: {corrected}"
@@ -635,15 +765,15 @@ def analyze_per_segment(segments, profile, provider_cfg, model,
 
 
 def analyze(segments, profile, provider_cfg, model=None, dictionary="",
-            timeout=DEFAULT_TIMEOUT, progress_cb=None, lang_name=""):
+            timeout=DEFAULT_TIMEOUT, progress_cb=None, lang_name="",
+            cancellation=_NULL_CANCELLATION):
     """Top-level entry point. Routes to global or per-segment based on
     the profile's mode.
 
-    model: overrides profile's default_model if given. Lets the UI
-    surface a model picker without mutating the saved profile.
-    lang_name: full language name (e.g. "French"). When provided,
-    forces the LLM output language via a system prompt — much more
-    reliable than the in-prompt hint.
+    cancellation: optional Cancellation token. When abort()-ed by the
+    UI thread, the current HTTP stream is closed and CancelledError
+    bubbles up — no more wasted tokens / GPU cycles after the user
+    closes the result tab.
     """
     effective_model = model or profile.get("default_model")
     if not effective_model:
@@ -654,10 +784,11 @@ def analyze(segments, profile, provider_cfg, model=None, dictionary="",
         return analyze_per_segment(segments, profile, provider_cfg,
                                    effective_model, dictionary=dictionary,
                                    timeout=timeout, progress_cb=progress_cb,
-                                   lang_name=lang_name)
+                                   lang_name=lang_name,
+                                   cancellation=cancellation)
     return analyze_global(segments, profile, provider_cfg, effective_model,
                           dictionary=dictionary, timeout=timeout,
-                          lang_name=lang_name)
+                          lang_name=lang_name, cancellation=cancellation)
 
 
 # ── CLI ──────────────────────────────────────────────────────────────
