@@ -13647,13 +13647,13 @@ class DicteeSetupDialog(QDialog):
         color = "#2ecc71" if not rec["skipped"] else "#e67e22"
         lbl_rms = QLabel(
             f"<span style='color:{color}; font-weight:bold;'>{mark}</span> "
-            f"RMS mesuré : <b>{rms_str}</b> &nbsp; Seuil : <b>{thr_str}</b>")
+            + _("Measured RMS: <b>{rms}</b> &nbsp; Threshold: <b>{thr}</b>").format(
+                rms=rms_str, thr=thr_str))
         lbl_rms.setStyleSheet("font-size: 11px;")
         lay.addWidget(lbl_rms)
 
-        lbl_src = QLabel(
-            f"Source : <i>{rec['source']}</i> &nbsp;|&nbsp; "
-            f"ASR : <i>{rec['backend']}</i>")
+        lbl_src = QLabel(_("Source: <i>{src}</i> &nbsp;|&nbsp; ASR: <i>{backend}</i>").format(
+            src=rec['source'], backend=rec['backend']))
         lbl_src.setStyleSheet("color: #888; font-size: 10px;")
         lay.addWidget(lbl_src)
 
