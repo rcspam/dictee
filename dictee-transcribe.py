@@ -1353,6 +1353,22 @@ class ExportDialog(QDialog):
         lay_fmt.addWidget(self._chk_json)
         layout.addWidget(group_fmt)
 
+        # -- Filename prefix (base name) --
+        # Pre-filled with the audio source's basename, editable so the
+        # user can override it (e.g. "weekly-meeting" instead of the
+        # raw audio filename). Final files are named:
+        #   <basename>-<tab_name>.<ext>
+        lay_name = QHBoxLayout()
+        lay_name.addWidget(QLabel(_("Filename prefix:")))
+        self._name_input = QLineEdit()
+        self._name_input.setText(base_name)
+        self._name_input.setPlaceholderText(base_name)
+        self._name_input.setToolTip(_(
+            "Base name used for every exported file. The tab name "
+            "and the extension are appended automatically."))
+        lay_name.addWidget(self._name_input, 1)
+        layout.addLayout(lay_name)
+
         # -- Directory --
         lay_dir = QHBoxLayout()
         lay_dir.addWidget(QLabel(_("Directory:")))
@@ -1408,7 +1424,10 @@ class ExportDialog(QDialog):
         return self._dir_input.text()
 
     def base_name(self):
-        return self._base_name
+        """User-edited filename prefix (falls back to the original
+        audio basename if the user cleared the field)."""
+        text = self._name_input.text().strip()
+        return text or self._base_name
 
 
 # === LLM result Export Dialog ===
@@ -1668,7 +1687,13 @@ class LLMProcessDialog(QDialog):
     On success the parent's ._add_llm_result_tab(name, text) is called and
     the dialog closes. Errors are shown inline so the user can retry."""
 
-    def __init__(self, segments, parent=None):
+    def __init__(self, segments, parent=None, is_plain=False):
+        """`is_plain=True` when the source tab is a non-diarized
+        transcription. The profile combo is then filtered to the
+        plain-text profiles only (and conversely, diarized tabs only
+        see the diarized profiles) so the user can't pick a profile
+        whose prompt expects [Speaker N] labels on plain text or
+        vice-versa."""
         super().__init__(parent)
         self.setWindowTitle(_("LLM analysis"))
         self.setMinimumWidth(560)
@@ -1676,21 +1701,26 @@ class LLMProcessDialog(QDialog):
         self._segments = list(segments or [])
         self._parent_window = parent
         self._thread = None
+        self._is_plain = is_plain
 
         from PyQt6.QtWidgets import QFormLayout
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        # Profile combo
+        # Profile combo — filtered by the source tab's diarized state
         self._profile_combo = QComboBox()
         try:
-            self._profiles = list(_dll_module().load_profiles())
+            all_profiles = list(_dll_module().load_profiles())
         except Exception as e:
-            self._profiles = []
+            all_profiles = []
             QMessageBox.critical(
                 self, _("LLM module error"),
                 _("Could not load profiles:\n{err}").format(err=str(e)))
+        if is_plain:
+            self._profiles = [p for p in all_profiles if p.get("format") == "plain"]
+        else:
+            self._profiles = [p for p in all_profiles if p.get("format") != "plain"]
         for p in self._profiles:
             self._profile_combo.addItem(p["name"], p["id"])
         self._profile_combo.currentIndexChanged.connect(self._on_profile_changed)
@@ -1886,8 +1916,8 @@ class LLMProcessDialog(QDialog):
         if not self._segments:
             self._status.setText(
                 "<span style='color:#c44'>" +
-                _("No diarized segments available. "
-                  "Run a diarization first, then retry.") + "</span>")
+                _("No transcript available. Run a transcription "
+                  "first, then retry.") + "</span>")
             return
 
         self._status.setText(_("Generating…"))
@@ -4400,10 +4430,28 @@ class TranscribeWindow(QDialog):
         rename map (Speaker 1 → "Alice") is applied to the speaker field
         of each segment so the LLM sees the human-friendly names instead
         of the canonical labels. Result lands in a brand-new tab via
-        _add_llm_result_tab."""
+        _add_llm_result_tab.
+
+        If no diarized segments exist (plain transcription), wraps the
+        raw text in a single synthetic segment so global-mode profiles
+        (Synthèse, Chapitrage) still work on non-diarized output.
+        """
         editor = self._tabs.currentWidget()
         raw_segments = (getattr(editor, "_diarize_segments", None)
                         or self._segments or [])
+        is_plain = not raw_segments
+        if is_plain:
+            # Plain transcription path: synthesise one segment from
+            # the original transcript so the LLM has something to
+            # work with. The dialog filters its profile list to the
+            # plain-text family.
+            raw_text = (getattr(self._text_edit, "_raw_text", "")
+                        or self._raw_text)
+            if raw_text:
+                raw_segments = [{
+                    "start": 0.0, "end": 0.0,
+                    "speaker": "Speaker 0", "text": raw_text,
+                }]
         name_map = getattr(self, "_speaker_name_map", None) or {}
         segments = []
         for seg in raw_segments:
@@ -4413,7 +4461,7 @@ class TranscribeWindow(QDialog):
                 seg_copy["speaker"] = name_map[canonical].strip()
             segments.append(seg_copy)
         try:
-            self._llm_dlg = LLMProcessDialog(segments, self)
+            self._llm_dlg = LLMProcessDialog(segments, self, is_plain=is_plain)
         except ImportError as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
@@ -4611,6 +4659,7 @@ class TranscribeWindow(QDialog):
         selected = dlg.selected_tabs()
         formats = dlg.export_formats()
         out_dir = dlg.export_dir()
+        base = dlg.base_name()  # user-editable filename prefix
 
         if not selected or not formats:
             self._lbl_status.setText(_("Nothing to export."))
@@ -4662,7 +4711,11 @@ class TranscribeWindow(QDialog):
                         content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
 
                 safe_name = re.sub(r'[^\w.-]', '_', tab_name)
-                filename = f"{base}-{safe_name}{ext}"
+                # Sanitise the user-editable base too, otherwise a
+                # slash in the field would let os.path.join escape
+                # the chosen output directory.
+                safe_base = re.sub(r'[^\w.-]', '_', base) or "transcription"
+                filename = f"{safe_base}-{safe_name}{ext}"
                 path = os.path.join(out_dir, filename)
                 try:
                     with open(path, "w", encoding="utf-8") as f:

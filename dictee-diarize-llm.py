@@ -141,6 +141,103 @@ User dictionary:
 </input>
 """
 
+
+# ── Plain-text variants (no diarization) ──────────────────────────────
+# Profiles for transcripts that come from a non-diarized run: the text
+# is one continuous flow without [Speaker N] labels or timestamps.
+
+PROMPT_SYNTHESE_PLAIN = """\
+<role>
+You summarise a transcript (single speaker or non-diarized recording). You are not a conversational assistant.
+</role>
+<instructions>
+From the transcript below, produce a structured Markdown report.
+
+CRITICAL — Output language: write the entire report in the **same language as the transcript** (English transcript → English report; French → French; etc.). This applies to the section headings.
+
+Sections (translate each heading into the transcript's language):
+
+## Summary
+3-5 sentences capturing the main message.
+
+## Key points
+- Bulleted list of the most important ideas, in transcript order.
+
+## Action items
+Concrete actions, decisions, deadlines stated in the transcript. If none, write "_None_" (in the transcript's language).
+
+## Open questions
+Issues raised without resolution. If none, write "_None_".
+
+Strict rules:
+- Absolute fidelity: do not invent, do not infer what is not said.
+- Do NOT reproduce the transcript, only the synthesis.
+- No preamble, no added conclusion.
+</instructions>
+<input>
+{TRANSCRIPT}
+</input>
+"""
+
+PROMPT_CHAPITRAGE_PLAIN = """\
+<role>
+You split a transcript (single speaker or non-diarized) into thematic sections and produce a navigable outline.
+</role>
+<instructions>
+Identify topic shifts in the transcript below and emit a Markdown outline.
+
+CRITICAL — Output language: write each section title in the **same language as the transcript**. Never translate.
+
+Strict output format:
+
+## Short title (3-7 words)
+First sentence of the section, verbatim from the transcript (or paraphrased in 1 short sentence if it gives a clearer entry point).
+
+## Next title…
+
+Rules:
+- New section only when the topic actually changes.
+- Target: 1 section every ~200-400 words of transcript (adapt to length).
+- Descriptive, neutral titles (e.g., "Q3 Roadmap", not "Discussion about the roadmap").
+- No timestamps — the input is plain text without time markers.
+- Output ONLY the outline, nothing else.
+</instructions>
+<input>
+{TRANSCRIPT}
+</input>
+"""
+
+PROMPT_CORRECTION_ASR_PLAIN = """\
+<role>
+Speech-recognition (ASR) error corrector. You are not a conversational assistant.
+</role>
+<instructions>
+Fix ONLY the likely recognition errors in the transcript below (output of a Parakeet ASR run without diarization).
+
+CRITICAL — Output language: reply in the **same language as the input**. Never translate.
+
+DO:
+- Correct homophones, misrecognised words, mangled proper nouns.
+- Prefer terms from the user dictionary (when one is provided) in case of phonetic doubt.
+- Preserve verbatim: existing correct punctuation, casing, hesitations ("uh", "um", "euh", "hum"…).
+- Output the full corrected transcript as a single continuous text.
+
+DO NOT:
+- Rephrase, summarise, restructure or split into sections.
+- Modify correct punctuation.
+- Add content not present in the transcript.
+- Comment, introduce, or explain.
+
+If nothing needs correcting, return the transcript unchanged, with no comment.
+
+User dictionary:
+{DICTIONARY}
+</instructions>
+<input>
+{TRANSCRIPT}
+</input>
+"""
+
 BUILTIN_PROFILES = [
     {
         "id": "synthese",
@@ -165,6 +262,42 @@ BUILTIN_PROFILES = [
         "name": "Correction ASR contextuelle",
         "prompt": PROMPT_CORRECTION_ASR,
         "mode": "per-segment",
+        "default_provider_id": "ollama-local",
+        "default_model": "gemma3:4b",
+        "builtin": True,
+    },
+    # Plain-text variants — used when the transcript has no diarization
+    # (single-speaker or unlabelled audio). transcribe.py auto-wraps a
+    # plain transcript into a single synthetic segment, so these
+    # profiles also flag `format: "plain"` to bypass the
+    # `[Speaker N] (HH:MM:SS → HH:MM:SS): ...` formatting that would
+    # otherwise pollute the prompt.
+    {
+        "id": "synthese-plain",
+        "name": "Synthèse / compte-rendu (texte brut)",
+        "prompt": PROMPT_SYNTHESE_PLAIN,
+        "mode": "global",
+        "format": "plain",
+        "default_provider_id": "ollama-local",
+        "default_model": "gemma3:4b",
+        "builtin": True,
+    },
+    {
+        "id": "chapitrage-plain",
+        "name": "Chapitrage (texte brut)",
+        "prompt": PROMPT_CHAPITRAGE_PLAIN,
+        "mode": "global",
+        "format": "plain",
+        "default_provider_id": "ollama-local",
+        "default_model": "gemma3:4b",
+        "builtin": True,
+    },
+    {
+        "id": "correction-asr-plain",
+        "name": "Correction ASR (texte brut)",
+        "prompt": PROMPT_CORRECTION_ASR_PLAIN,
+        "mode": "global",
+        "format": "plain",
         "default_provider_id": "ollama-local",
         "default_model": "gemma3:4b",
         "builtin": True,
@@ -358,6 +491,14 @@ def _provider_call_ollama(cfg, model, system, prompt, timeout,
         "stream": True,
         "options": options,
         "think": bool(cfg.get("think", False)),
+        # Force Ollama to unload the model right after this response
+        # by default. Otherwise its 5-minute keep_alive leaves the
+        # 3-5 GB of VRAM busy and the next Parakeet transcription
+        # fails with an ONNX OOM (BFCArena AllocateRawInternal).
+        # Users who chain LLM analyses can override with
+        # "keep_alive": "5m" (or any Go duration string) in the
+        # provider config to skip the cold-start cost.
+        "keep_alive": cfg.get("keep_alive", 0),
     }
     if system:
         payload["system"] = system
@@ -710,8 +851,18 @@ def _lang_user_suffix(lang_name):
 def analyze_global(segments, profile, provider_cfg, model, dictionary="",
                    timeout=DEFAULT_TIMEOUT, lang_name="",
                    cancellation=_NULL_CANCELLATION):
-    """Run a global-mode profile (Synthèse, Chapitrage, custom)."""
-    transcript = format_segments_for_prompt(segments)
+    """Run a global-mode profile (Synthèse, Chapitrage, custom).
+
+    Profiles flagged `format: "plain"` skip the
+    `[Speaker N] (HH:MM:SS → HH:MM:SS): ...` decoration and feed the
+    raw text(s) directly — used for non-diarized transcripts where
+    speaker labels and timestamps would just be noise.
+    """
+    if profile.get("format") == "plain":
+        transcript = "\n\n".join(seg.get("text", "") for seg in segments
+                                 if seg.get("text", "").strip())
+    else:
+        transcript = format_segments_for_prompt(segments)
     prompt = _render_prompt(profile["prompt"], transcript,
                             dictionary=dictionary)
     prompt += _lang_user_suffix(lang_name)

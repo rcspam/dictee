@@ -4299,6 +4299,24 @@ class LLMProfileEditDialog(QDialog):
                     break
         form.addRow(_("Mode:"), self._mode_combo)
 
+        # Transcript type — decides where the profile lands in the
+        # Manage profiles list (Diarized vs Plain section) AND which
+        # profiles dictee-transcribe shows in the LLM analysis dialog
+        # depending on whether the source tab was diarized or not.
+        self._format_combo = QComboBox()
+        self._format_combo.addItem(
+            _("Diarized (with [Speaker N] labels)"), "diarized")
+        self._format_combo.addItem(
+            _("Plain text (single flow, no speakers)"), "plain")
+        if profile and profile.get("format") == "plain":
+            self._format_combo.setCurrentIndex(1)
+        self._format_combo.setToolTip(_tt(_(
+            "Choose 'Plain text' for transcripts produced without "
+            "diarization (single speaker / unlabelled audio). The "
+            "profile will then appear in the dialog only when the "
+            "active tab matches this type.")))
+        form.addRow(_("Transcript type:"), self._format_combo)
+
         self._provider_combo = QComboBox()
         try:
             providers = _dll_module().load_providers()
@@ -4462,7 +4480,7 @@ class LLMProfileEditDialog(QDialog):
         self.accept()
 
     def profile_dict(self):
-        return {
+        d = {
             "id": self._original_id or _llm_make_id(self._name_edit.text()),
             "name": self._name_edit.text().strip(),
             "mode": self._mode_combo.currentData(),
@@ -4471,6 +4489,13 @@ class LLMProfileEditDialog(QDialog):
             "prompt": self._prompt_edit.toPlainText(),
             "builtin": self._is_builtin,
         }
+        # Only persist the format key when set to "plain" — keeping the
+        # diarized default implicit (absent key) makes the user JSON
+        # backwards compatible with profiles created before this combo
+        # existed.
+        if self._format_combo.currentData() == "plain":
+            d["format"] = "plain"
+        return d
 
 
 class LLMProfilesDialog(QDialog):
@@ -4522,18 +4547,51 @@ class LLMProfilesDialog(QDialog):
         layout.addLayout(bottom_h)
 
     def _refresh_list(self):
+        """Refresh the profile list. Diarized and plain-text profiles
+        are visually separated by a non-selectable header so the user
+        can pick the right family for the transcript at hand."""
         self._list.clear()
-        for p in self._profiles:
+        diarized = [p for p in self._profiles if p.get("format") != "plain"]
+        plain = [p for p in self._profiles if p.get("format") == "plain"]
+
+        def add_header(text):
+            it = QListWidgetItem(text)
+            it.setFlags(Qt.ItemFlag.NoItemFlags)
+            f = it.font(); f.setBold(True); it.setFont(f)
+            self._list.addItem(it)
+
+        def add_profile(p):
             label = f"{p['name']}   [{p.get('mode', 'global')}]"
             if p.get("builtin"):
                 label += "   " + _("(built-in)")
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, p["id"])
-            self._list.addItem(item)
+            it = QListWidgetItem(label)
+            it.setData(Qt.ItemDataRole.UserRole, p["id"])
+            self._list.addItem(it)
+
+        if diarized:
+            add_header("── " + _("For diarized transcripts") + " ──")
+            for p in diarized: add_profile(p)
+        if plain:
+            add_header("── " + _("For plain (non-diarized) transcripts") + " ──")
+            for p in plain: add_profile(p)
 
     def _selected_index(self):
-        row = self._list.currentRow()
-        return row if row >= 0 else None
+        """Return index in self._profiles of the selected list item.
+
+        The list now contains non-selectable header rows mixed with
+        profile rows, so currentRow() doesn't map 1-to-1 anymore —
+        we resolve via the profile id stored in UserRole.
+        """
+        it = self._list.currentItem()
+        if it is None:
+            return None
+        pid = it.data(Qt.ItemDataRole.UserRole)
+        if not pid:
+            return None
+        for i, p in enumerate(self._profiles):
+            if p["id"] == pid:
+                return i
+        return None
 
     def _on_add(self):
         skeleton = {
