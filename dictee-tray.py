@@ -19,6 +19,10 @@ import sys
 
 # === i18n ===
 LOCALE_DIRS = [
+    # User-space first so dev / hot translation updates win over the
+    # stale .mo shipped by the system package — avoids needing sudo
+    # to refresh translations during iteration.
+    os.path.expanduser("~/.local/share/locale"),
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "po"),
     "/usr/share/locale",
     "/usr/local/share/locale",
@@ -29,6 +33,18 @@ for _d in LOCALE_DIRS:
         break
 gettext.textdomain("dictee")
 _ = gettext.gettext
+
+
+def _tt(text):
+    """Wrap a tooltip in HTML rich-text so Qt activates word-wrap and
+    caps the width to 400px — otherwise long tooltips stretch to the
+    full screen on wide monitors. Project-wide convention (cf.
+    feedback-tooltips-width-400.md)."""
+    if len(text) > 60:
+        return ("<p style='font-size:11pt; white-space:pre-wrap; "
+                "width:400px;'>" + text + "</p>")
+    return f"<span style='font-size:11pt'>{text}</span>"
+
 
 # === Debug ===
 # Uses the same log file as shell scripts, activated by DICTEE_DEBUG=true

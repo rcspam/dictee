@@ -4197,9 +4197,7 @@ msgstr "Riavvio del daemon per la trascrizione…"
 
 #: dictee-transcribe.py:3555
 msgid "GPU memory full — unloading translation model and retrying..."
-msgstr ""
-"Memoria GPU piena — scaricamento del modello di traduzione e nuovo tentativo…"
-"Memoria GPU piena — scaricamento del modello di traduzione e nuovo "
+msgstr "Memoria GPU piena — scaricamento del modello di traduzione e nuovo tentativo…"
 "tentativo..."
 
 #: dictee-transcribe.py:3578
@@ -4235,9 +4233,7 @@ msgstr "Traduzione in corso..."
 
 #: dictee-transcribe.py:3776
 msgid "Editable translation text. Ctrl+F to search, Ctrl+Z to undo."
-msgstr ""
-"Testo di traduzione modificabile. Ctrl+F per cercare, Ctrl+Z per annullare."
-"Testo di traduzione modificabile. Ctrl+F per cercare, Ctrl+Z per annullare."
+msgstr "Testo di traduzione modificabile. Ctrl+F per cercare, Ctrl+Z per annullare."
 
 #: dictee-transcribe.py:3953 dictee-transcribe.py:4033
 msgid "Rename speakers"

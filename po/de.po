@@ -3756,7 +3756,6 @@ msgstr "Suchen..."
 msgid "Translation partially failed — some segments untranslated."
 msgstr ""
 "Übersetzung teilweise fehlgeschlagen — einige Segmente nicht übersetzt."
-"Übersetzung teilweise fehlgeschlagen — einige Abschnitte nicht übersetzt."
 
 #: dictee-transcribe.py:1210
 msgid "Translation failed — check backend configuration."
@@ -4256,9 +4255,7 @@ msgstr "Übersetzen..."
 
 #: dictee-transcribe.py:3776
 msgid "Editable translation text. Ctrl+F to search, Ctrl+Z to undo."
-msgstr ""
-"Bearbeitbarer Übersetzungstext. Strg+F zum Suchen, Strg+Z zum Rückgängig."
-"Bearbeitbarer Übersetzungstext. Strg+F zum Suchen, Strg+Z zum "
+msgstr "Bearbeitbarer Übersetzungstext. Strg+F zum Suchen, Strg+Z zum Rückgängig."
 "Rückgängigmachen."
 
 #: dictee-transcribe.py:3953 dictee-transcribe.py:4033

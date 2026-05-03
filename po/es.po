@@ -1306,9 +1306,6 @@ msgstr "Descargue el modelo Vosk para {lang} antes de continuar."
 msgid "faster-whisper is not installed. Please click 'Install Whisper' above."
 msgstr ""
 "faster-whisper no está instalado. Haga clic en «Instalar Whisper» arriba."
-"faster-whisper no está instalado. Haga clic en «Instalar Whisper» arriba."
-"faster-whisper no está instalado. Haga clic en 'Instalar motor Whisper' "
-"arriba."
 
 #: dictee-setup.py:6062
 msgid ""
@@ -3640,8 +3637,6 @@ msgstr "Iniciar diarización"
 msgid "Speaker identification (max 4). Switches to Parakeet automatically."
 msgstr ""
 "Identificación de hablantes (máx. 4). Cambia a Parakeet automáticamente."
-"Identificación de hablantes (máx. 4). Cambia a Parakeet automáticamente."
-"Identificación de hablantes (máx. 4). Cambia a Parakeet automáticamente."
 
 #: dictee-tray.py:863 dictee-tray.py:1163
 msgid "Dictation — offline"
@@ -4244,9 +4239,7 @@ msgstr "Traduciendo..."
 
 #: dictee-transcribe.py:3776
 msgid "Editable translation text. Ctrl+F to search, Ctrl+Z to undo."
-msgstr ""
-"Texto de traducción editable. Ctrl+F para buscar, Ctrl+Z para deshacer.Texto "
-"de traducción editable. Ctrl+F para buscar, Ctrl+Z para deshacer."
+msgstr "Texto de traducción editable. Ctrl+F para buscar, Ctrl+Z para deshacer."
 
 #: dictee-transcribe.py:3953 dictee-transcribe.py:4033
 msgid "Rename speakers"

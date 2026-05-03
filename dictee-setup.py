@@ -68,8 +68,11 @@ except ImportError:
 # === i18n ===
 
 LOCALE_DIRS = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "share", "locale"),
+    # User-space first so dev / hot translation updates win over the
+    # stale .mo shipped by the system package — avoids needing sudo
+    # to refresh translations during iteration.
     os.path.expanduser("~/.local/share/locale"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "share", "locale"),
     "/usr/local/share/locale",
     "/usr/share/locale",
 ]
@@ -81,6 +84,20 @@ for _d in LOCALE_DIRS:
 
 gettext.textdomain("dictee")
 _ = gettext.gettext
+
+
+def _tt(text):
+    """Wrap a tooltip in HTML rich-text so Qt activates word-wrap and
+    caps the width to 400px — otherwise long plain-text tooltips
+    stretch to the full screen width on wide monitors. 400px is the
+    project-wide convention (cf. feedback-tooltips-width-400.md).
+    Short tooltips (<= 60 chars) get a <span> with the same font-size,
+    skipping the wrap because it isn't needed."""
+    if len(text) > 60:
+        return ("<p style='font-size:11pt; white-space:pre-wrap; "
+                "width:400px;'>" + text + "</p>")
+    return f"<span style='font-size:11pt'>{text}</span>"
+
 
 _NATIVE_TEXT = QKeySequence.SequenceFormat.NativeText
 
@@ -3869,11 +3886,11 @@ class LLMProviderEditDialog(QDialog):
         self._num_ctx_spin.setSingleStep(2048)
         self._num_ctx_spin.setValue(int((provider or {}).get("num_ctx", 16384)))
         self._num_ctx_spin.setSuffix(" " + _("tokens"))
-        self._num_ctx_spin.setToolTip(_(
+        self._num_ctx_spin.setToolTip(_tt(_(
             "Context window passed to Ollama (num_ctx). Defaults to 2048 "
             "in Ollama itself — too small for full transcripts. 16384 "
             "covers a 30-min audio without hallucinating; raise if your "
-            "transcripts are longer."))
+            "transcripts are longer.")))
         self._lbl_num_ctx = QLabel(_("Context window:"))
         form.addRow(self._lbl_num_ctx, self._num_ctx_spin)
 
@@ -3883,10 +3900,10 @@ class LLMProviderEditDialog(QDialog):
         # user explicitly opted in.
         self._no_think_check.setChecked(
             not bool((provider or {}).get("think", False)))
-        self._no_think_check.setToolTip(_(
+        self._no_think_check.setToolTip(_tt(_(
             "Reasoning models (qwen3, deepseek-r1) emit a long "
             "<think>…</think> block before the answer. Disable for "
-            "analysis profiles where you want the answer directly."))
+            "analysis profiles where you want the answer directly.")))
         self._lbl_no_think = QLabel("")
         form.addRow(self._lbl_no_think, self._no_think_check)
 
@@ -5113,9 +5130,9 @@ class DicteeSetupDialog(QDialog):
         _llm_desc.setTextFormat(Qt.TextFormat.RichText)
         _lld.addWidget(_llm_desc)
         _btn_llm_providers = QPushButton(_("Manage providers..."))
-        _btn_llm_providers.setToolTip(_(
+        _btn_llm_providers.setToolTip(_tt(_(
             "Add, edit and test LLM providers "
-            "(Ollama, OpenAI-compatible, Anthropic)"))
+            "(Ollama, OpenAI-compatible, Anthropic)")))
         _btn_llm_providers.clicked.connect(self._on_manage_llm_providers)
         _lld.addWidget(_btn_llm_providers)
         _btn_llm_profiles = QPushButton(_("Manage profiles..."))
@@ -5742,13 +5759,13 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
-        self.chk_audio_context.setToolTip(_("Accumulate audio from previous dictations to improve recognition of short or technical words at the start of sentences."))
+        self.chk_audio_context.setToolTip(_tt(_("Accumulate audio from previous dictations to improve recognition of short or technical words at the start of sentences.")))
         lay_opt.addWidget(self.chk_audio_context)
 
         lay_ctx = QHBoxLayout()
         lay_ctx.setSpacing(8)
         lbl_ctx = QLabel(_("Context duration (seconds):"))
-        lbl_ctx.setToolTip(_("Maximum duration of accumulated audio context. Also the inactivity timeout: the buffer expires after this many seconds without a non-empty dictation."))
+        lbl_ctx.setToolTip(_tt(_("Maximum duration of accumulated audio context. Also the inactivity timeout: the buffer expires after this many seconds without a non-empty dictation.")))
         self.spin_audio_context_timeout = QSpinBox()
         self.spin_audio_context_timeout.setRange(5, 120)
         self.spin_audio_context_timeout.setValue(
@@ -5761,7 +5778,7 @@ class DicteeSetupDialog(QDialog):
 
         self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
         self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
-        self.chk_debug.setToolTip(_("Write detailed logs to /tmp/dictee-debug-*.log for troubleshooting dictation and continuation issues."))
+        self.chk_debug.setToolTip(_tt(_("Write detailed logs to /tmp/dictee-debug-*.log for troubleshooting dictation and continuation issues.")))
         lay_opt.addWidget(self.chk_debug)
         lay.addWidget(grp_options)
 
@@ -7059,7 +7076,7 @@ class DicteeSetupDialog(QDialog):
         self.cmb_ptt_mode = QComboBox()
         self.cmb_ptt_mode.addItem(_("Hold (push-to-talk)"), "hold")
         self.cmb_ptt_mode.addItem(_("Toggle (press twice)"), "toggle")
-        self.cmb_ptt_mode.setToolTip(_("Hold: hold key to record, release to transcribe Toggle: press to start, press again to stop"))
+        self.cmb_ptt_mode.setToolTip(_tt(_("Hold: hold key to record, release to transcribe Toggle: press to start, press again to stop")))
         existing_mode = self.conf.get("DICTEE_PTT_MODE", "hold" if self.wizard_mode else "toggle")
         idx = self.cmb_ptt_mode.findData(existing_mode)
         if idx >= 0:
@@ -8195,7 +8212,7 @@ class DicteeSetupDialog(QDialog):
         lay_lt_buttons.addWidget(self.btn_lt_stop)
         self.btn_lt_purge = QPushButton(_("Purge models"))
         self.btn_lt_purge.setVisible(False)
-        self.btn_lt_purge.setToolTip(_("LibreTranslate keeps every language model you have ever downloaded on disk, even after you remove a language from the selection. It filters at load time, never at cleanup. This button deletes all cached models in the Docker volume, then re-downloads only the currently selected languages. Use it to reclaim disk space after many language changes."))
+        self.btn_lt_purge.setToolTip(_tt(_("LibreTranslate keeps every language model you have ever downloaded on disk, even after you remove a language from the selection. It filters at load time, never at cleanup. This button deletes all cached models in the Docker volume, then re-downloads only the currently selected languages. Use it to reclaim disk space after many language changes.")))
         self.btn_lt_purge.clicked.connect(self._on_lt_purge)
         lay_lt_buttons.addWidget(self.btn_lt_purge)
         lay_lt_buttons.addStretch()
@@ -8601,7 +8618,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_short_text = ToggleSwitch(_("Short text fix"))
         self.chk_pp_short_text.setChecked(
             (conf.get("DICTEE_PP_SHORT_TEXT", "true") or "true").lower() == "true")
-        self.chk_pp_short_text.setToolTip(_("For transcriptions with fewer than N words, remove trailing punctuation and lowercase capitalized words."))
+        self.chk_pp_short_text.setToolTip(_tt(_("For transcriptions with fewer than N words, remove trailing punctuation and lowercase capitalized words.")))
         if _sidebar:
             self.chk_pp_short_text.setStyleSheet(_sub_style.format(col=_acc_hex))
         _nrow.addWidget(self.chk_pp_short_text)
@@ -8633,10 +8650,10 @@ class DicteeSetupDialog(QDialog):
         self.chk_pp_keepcaps = ToggleSwitch(_("Exceptions"))
         self.chk_pp_keepcaps.setChecked(
             (conf.get("DICTEE_PP_KEEPCAPS", "true") or "true").lower() == "true")
-        self.chk_pp_keepcaps.setToolTip(_("Enable the short-text exceptions list. Words and expressions from the list keep their capitalization when dictated alone — greetings, formal openings/closings, courtesies…"))
+        self.chk_pp_keepcaps.setToolTip(_tt(_("Enable the short-text exceptions list. Words and expressions from the list keep their capitalization when dictated alone — greetings, formal openings/closings, courtesies…")))
 
         self.btn_pp_keepcaps = QPushButton(_("Exceptions…"))
-        self.btn_pp_keepcaps.setToolTip(_("Edit the short-text capitalization exceptions. Shared for all languages (source and target) — greetings, courtesies, formal correspondence."))
+        self.btn_pp_keepcaps.setToolTip(_tt(_("Edit the short-text capitalization exceptions. Shared for all languages (source and target) — greetings, courtesies, formal correspondence.")))
         self.btn_pp_keepcaps.clicked.connect(self._on_edit_keepcaps)
         self.btn_pp_keepcaps.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -8666,7 +8683,7 @@ class DicteeSetupDialog(QDialog):
         # ── Master 2: Enable PP for translation ──
         self.chk_pp_translate = ToggleSwitch(_("Enable PP for translation"))
         self.chk_pp_translate.setChecked(self._pp_master_translate)
-        self.chk_pp_translate.setToolTip(_("When enabled, the translated text is passed through the translation post-processing pipeline (orange), with the target language as reference."))
+        self.chk_pp_translate.setToolTip(_tt(_("When enabled, the translated text is passed through the translation post-processing pipeline (orange), with the target language as reference.")))
         if _sidebar:
             self.chk_pp_translate.setStyleSheet(_master_style.format(col=_orange))
 
@@ -8689,7 +8706,7 @@ class DicteeSetupDialog(QDialog):
         self.chk_trpp_short_text = ToggleSwitch(_("Short text fix"))
         self.chk_trpp_short_text.setChecked(
             bool(self._trpp_state.get("short_text", True)))
-        self.chk_trpp_short_text.setToolTip(_("Apply the short-text fix to translated text. Useful when the translation backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'."))
+        self.chk_trpp_short_text.setToolTip(_tt(_("Apply the short-text fix to translated text. Useful when the translation backend capitalizes single-word inputs: e.g. 'maison' → 'House' → 'house'.")))
         if _sidebar:
             self.chk_trpp_short_text.setStyleSheet(_sub_style.format(col=_orange))
 
@@ -11339,7 +11356,7 @@ class DicteeSetupDialog(QDialog):
         common_btns.addStretch()
 
         btn_revert = QPushButton(_("Revert to saved"))
-        btn_revert.setToolTip(_("Discard all unsaved changes and reload the last saved version"))
+        btn_revert.setToolTip(_tt(_("Discard all unsaved changes and reload the last saved version")))
         btn_revert.clicked.connect(self._dict_revert_to_saved)
         common_btns.addWidget(btn_revert)
 
@@ -13288,7 +13305,7 @@ class DicteeSetupDialog(QDialog):
         lay_sil = QHBoxLayout()
         lay_sil.setSpacing(8)
         lbl_sil = QLabel(_("Silence threshold:"))
-        lbl_sil.setToolTip(_("RMS level below which the recording is considered silent and transcription is skipped. Prevents ASR hallucinations (parasitic phrases invented on background noise)."))
+        lbl_sil.setToolTip(_tt(_("RMS level below which the recording is considered silent and transcription is skipped. Prevents ASR hallucinations (parasitic phrases invented on background noise).")))
         self.slider_silence = QSlider(Qt.Orientation.Horizontal)
         self.slider_silence.setRange(10, 60)
         self.slider_silence.setValue(_saved_rms_int)
@@ -13362,7 +13379,7 @@ class DicteeSetupDialog(QDialog):
             else QPushButton("🎙"))
         self._btn_calib_record.setFixedSize(48, 48)
         self._btn_calib_record.setIconSize(self._btn_calib_record.size() * 0.55)
-        self._btn_calib_record.setToolTip(_("Record a sample, measure its RMS, check whether the current silence threshold would skip or transcribe it. Press again to stop."))
+        self._btn_calib_record.setToolTip(_tt(_("Record a sample, measure its RMS, check whether the current silence threshold would skip or transcribe it. Press again to stop.")))
         self._btn_calib_record.setStyleSheet(
             f"background-color: {accent}; color: white; border-radius: 8px;")
         self._btn_calib_record.clicked.connect(self._toggle_calib_recording)
@@ -15269,14 +15286,14 @@ class DicteeSetupDialog(QDialog):
         mode_col.setContentsMargins(0, 0, 0, 0)
 
         self._test_solo_switch = ToggleSwitch(_("Isoler"))
-        self._test_solo_switch.setToolTip(_("OFF: runs the full pipeline (all toggles active). ON: runs only the step of the currently open page, temporarily forcing the other steps off. Does not modify the persistent config — useful to see the effect of a single step in isolation."))
+        self._test_solo_switch.setToolTip(_tt(_("OFF: runs the full pipeline (all toggles active). ON: runs only the step of the currently open page, temporarily forcing the other steps off. Does not modify the persistent config — useful to see the effect of a single step in isolation.")))
         self._test_solo_switch.setEnabled(False)  # enabled once a page is known
         self._test_solo_switch.toggled.connect(self._schedule_test_run)
         mode_col.addWidget(self._test_solo_switch)
 
         self._test_trad_switch = ToggleSwitch(_("Traduction"))
         self._test_trad_switch.setChecked(False)
-        self._test_trad_switch.setToolTip(_("OFF: tests the normal PP pipeline alone. ON: adds translation (+ translation PP if enabled)."))
+        self._test_trad_switch.setToolTip(_tt(_("OFF: tests the normal PP pipeline alone. ON: adds translation (+ translation PP if enabled).")))
         self._test_trad_switch.toggled.connect(lambda _: self._update_test_chain_label())
         mode_col.addWidget(self._test_trad_switch)
 
