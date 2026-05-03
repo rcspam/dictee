@@ -23,6 +23,21 @@ pkg/dictee/usr/bin/transcribe-daemon
 pkg/dictee/usr/bin/transcribe-client
 pkg/dictee/usr/bin/transcribe-diarize
 pkg/dictee/usr/bin/transcribe-stream-diarize
+pkg/dictee/usr/bin/transcribe-diarize-batch
+pkg/dictee/usr/bin/diarize-only
+
+# CUDA build trees and per-distro packages produced by build-deb.sh,
+# build-rpm.sh, makepkg, and dpkg-deb extractions. Real release
+# artefacts go to .dev/dist/.
+pkg/dictee-cuda/
+pkg/dictee-cuda-debug/
+src/dictee-*/
+src/dictee-*.tar.gz
+/dictee-*.tar.gz
+/dictee-*.pkg.tar.zst
+# dpkg -x extractions land here when validating .deb contents
+/etc/
+/usr/
 
 # ──────────────────────────────────────────────────────────────────
 # Models & datasets (bundled at install time, not tracked)
