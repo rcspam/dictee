@@ -3805,7 +3805,7 @@ class LLMProviderEditDialog(QDialog):
     ]
 
     PLACEHOLDERS = {
-        "ollama": ("http://localhost:11434", _("(optional, for Ollama Cloud)")),
+        "ollama": ("http://localhost:11434", _("(optional, only if logged in to api.ollama.com for cloud models)")),
         "openai": ("https://api.openai.com/v1", "sk-..."),
         "anthropic": ("https://api.anthropic.com", "sk-ant-..."),
     }
@@ -3813,16 +3813,43 @@ class LLMProviderEditDialog(QDialog):
     # Presets shown in the Add provider dialog (key = label,
     # value = dict with name/type/url, never api_key — that's user-supplied).
     PRESETS = [
+        # Ollama Cloud (api.ollama.com) is intentionally NOT a separate
+        # preset: the local Ollama daemon already proxies cloud models
+        # transparently when the user is logged in (`ollama login`),
+        # so a second entry just confused users with a duplicate.
+        # "Custom..." is always first so users with an unlisted endpoint
+        # have an obvious starting point — type / URL / key are all
+        # editable from the skeleton it produces.
         ("custom",        _("Custom..."),           "",       "openai",    ""),
-        ("ollama-local",  "Ollama (local)",         "Ollama (local)", "ollama",    "http://localhost:11434"),
-        ("ollama-cloud",  "Ollama Cloud",           "Ollama Cloud",   "ollama",    "https://ollama.com"),
+        # ── Local servers ──
+        # Preset key kept as "ollama-local" for backwards compatibility
+        # with references in BUILTIN_PROFILES (dictee-diarize-llm.py).
+        # Display name is just "Ollama" since the cloud preset was removed.
+        ("ollama-local",  "Ollama",                 "Ollama",         "ollama",    "http://localhost:11434"),
         ("lmstudio",      "LM Studio",              "LM Studio",      "openai",    "http://localhost:1234/v1"),
         ("jan",           "Jan",                    "Jan",            "openai",    "http://localhost:1337/v1"),
         ("vllm",          "vLLM",                   "vLLM",           "openai",    "http://localhost:8000/v1"),
+        # Claude Code proxy — third-party tool (e.g. claude-code-proxy
+        # by 1rgs) that re-uses the local Claude Code OAuth session so
+        # Max/Pro subscribers can hit Claude without spending API
+        # credits. NOT officially supported by Anthropic; use at your
+        # own risk and check the project's ToS. Default port matches
+        # the most common implementation; edit the URL if your proxy
+        # listens elsewhere.
+        ("claude-code-proxy", "Claude Code proxy (Max/Pro)",
+                                                    "Claude Code proxy",
+                                                                      "openai",    "http://localhost:8082/v1"),
+        # ── Cloud — direct providers ──
         ("openai",        "OpenAI",                 "OpenAI",         "openai",    "https://api.openai.com/v1"),
-        ("groq",          "Groq",                   "Groq",           "openai",    "https://api.groq.com/openai/v1"),
+        ("anthropic",     "Claude (Anthropic)",     "Claude",         "anthropic", "https://api.anthropic.com"),
         ("gemini",        "Google Gemini",          "Google Gemini",  "openai",    "https://generativelanguage.googleapis.com/v1beta/openai"),
-        ("anthropic",     "Anthropic",              "Anthropic",      "anthropic", "https://api.anthropic.com"),
+        ("mistral",       "Mistral AI",             "Mistral AI",     "openai",    "https://api.mistral.ai/v1"),
+        ("deepseek",      "DeepSeek",               "DeepSeek",       "openai",    "https://api.deepseek.com/v1"),
+        ("perplexity",    "Perplexity",             "Perplexity",     "openai",    "https://api.perplexity.ai"),
+        # ── Cloud — fast inference / aggregators ──
+        ("groq",          "Groq",                   "Groq",           "openai",    "https://api.groq.com/openai/v1"),
+        ("cerebras",      "Cerebras",               "Cerebras",       "openai",    "https://api.cerebras.ai/v1"),
+        ("openrouter",    "OpenRouter",             "OpenRouter",     "openai",    "https://openrouter.ai/api/v1"),
     ]
 
     def __init__(self, provider=None, parent=None):
@@ -3949,8 +3976,9 @@ class LLMProviderEditDialog(QDialog):
         url_ph, key_ph = self.PLACEHOLDERS.get(ptype, ("", ""))
         self._url_edit.setPlaceholderText(url_ph)
         self._key_edit.setPlaceholderText(key_ph)
-        # API key always editable now: required for OpenAI/Anthropic and
-        # for Ollama Cloud (api.ollama.com), optional for Ollama local.
+        # API key always editable now: required for OpenAI/Anthropic
+        # and for Ollama users logged in to api.ollama.com (cloud
+        # models proxied by the local daemon), optional otherwise.
         if not self._is_builtin:
             self._key_edit.setEnabled(True)
             self._btn_show.setEnabled(True)

@@ -1302,38 +1302,39 @@ class TranslateThread(QThread):
 # === Export Dialog ===
 
 class ExportDialog(QDialog):
-    """Dialog to export one or more tabs in chosen format and directory."""
+    """Single-tab export dialog (Format(s) + Filename + Directory).
+
+    Multi-tab export was removed because it produced a confusing pile
+    of files when the user only wanted the active tab — the dialog
+    now reflects that: it exports exactly the tab the user clicked
+    Export from. The first element of `tabs_info` is the only one
+    used; the other parameters keep the same names purely so the
+    callers stay short.
+    """
 
     def __init__(self, tabs_info, current_format, base_name, parent=None,
                  current_tab_index=None):
         """
-        tabs_info: list of (tab_name, text_content)
-        current_format: "text", "srt", or "json"
-        base_name: base filename from audio file
-        current_tab_index: if set, only this tab is pre-checked
+        tabs_info: list with a single (tab_name, text_content) tuple.
+        current_format: "text", "srt", or "json" (pre-checked).
+        base_name: default filename prefix (audio basename).
+        current_tab_index: ignored — kept for back-compat.
         """
         super().__init__(parent)
         self.setWindowTitle(_("Export"))
         self.setMinimumWidth(450)
 
-        self._tabs_info = tabs_info
+        self._tabs_info = list(tabs_info)
         self._base_name = base_name
 
         layout = QVBoxLayout(self)
 
-        # -- Tabs to export --
-        group = QGroupBox(_("Tabs to export"))
-        lay_tabs = QVBoxLayout(group)
-        self._tab_checks = []
-        for i, (name, _text) in enumerate(tabs_info):
-            chk = ToggleSwitch(name)
-            if current_tab_index is not None:
-                chk.setChecked(i == current_tab_index)
-            else:
-                chk.setChecked(True)
-            lay_tabs.addWidget(chk)
-            self._tab_checks.append(chk)
-        layout.addWidget(group)
+        # Show which tab will be exported (read-only label)
+        if self._tabs_info:
+            tab_name = self._tabs_info[0][0]
+            lbl = QLabel(_("Tab: <b>{name}</b>").format(name=tab_name))
+            lbl.setTextFormat(Qt.TextFormat.RichText)
+            layout.addWidget(lbl)
 
         # -- Formats (checkboxes) --
         group_fmt = QGroupBox(_("Formats"))
@@ -1405,9 +1406,10 @@ class ExportDialog(QDialog):
             self._dir_input.setText(d)
 
     def selected_tabs(self):
-        """Return list of (tab_name, text_content) for checked tabs."""
-        return [(name, text) for (name, text), chk
-                in zip(self._tabs_info, self._tab_checks) if chk.isChecked()]
+        """Return [(tab_name, text_content)] — always a 1-element list
+        now that multi-tab export was removed. Kept as a list to keep
+        the calling _do_export loop intact."""
+        return list(self._tabs_info)
 
     def export_formats(self):
         """Return list of selected format codes."""
@@ -2041,6 +2043,10 @@ class TranscribeWindow(QDialog):
 
         self._build_ui()
         self._connect_signals()
+        # Set the initial window icon to match the current Diarize
+        # toggle state (off = blue 'transcribing', on = violet
+        # 'diarize'). Subsequent toggles update it in real time.
+        self._refresh_window_icon()
 
         # Check if dictee is configured — explain and offer wizard if not
         conf = _read_conf()
@@ -2274,13 +2280,16 @@ class TranscribeWindow(QDialog):
         self._btn_transcribe.setMinimumWidth(140)
         self._btn_transcribe.setSizePolicy(
             QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        # #9B59B6 matches the violet used by dictee-tray for the
+        # "diarizing / preparing / diarize-ready" states — keeps the
+        # whole project on a single visual cue for diarization.
         self._btn_transcribe.setStyleSheet(
-            "QPushButton { background: #8e44ad; color: white; "
+            "QPushButton { background: #9b59b6; color: white; "
             "font-weight: bold; border: none; border-radius: 4px; "
             "padding: 6px 16px; }"
-            "QPushButton:hover { background: #9b59b6; }"
-            "QPushButton:pressed { background: #7d3c98; }"
-            "QPushButton:disabled { background: rgba(142,68,173,80); "
+            "QPushButton:hover { background: #a569bd; }"
+            "QPushButton:pressed { background: #8e44ad; }"
+            "QPushButton:disabled { background: rgba(155,89,182,80); "
             "color: rgba(255,255,255,150); }")
         btn_col.addWidget(self._btn_transcribe)
 
@@ -2605,14 +2614,11 @@ class TranscribeWindow(QDialog):
         lay_btns.addStretch()
 
         # Right: exports + close
-        self._btn_export_tab = QPushButton(_("Export tab..."))
-        self._btn_export_tab.setToolTip(_("Export only the current tab"))
-        self._btn_export_tab.clicked.connect(self._on_export_current_tab)
-        lay_btns.addWidget(self._btn_export_tab)
-
-        self._btn_export = QPushButton(_("Export all..."))
-        self._btn_export.setToolTip(_("Export all tabs to files"))
-        self._btn_export.clicked.connect(self._on_export)
+        self._btn_export = QPushButton(_("Export..."))
+        self._btn_export.setToolTip(_(
+            "Export the currently active tab "
+            "(transcription, translation, or LLM result)"))
+        self._btn_export.clicked.connect(self._on_export_current_tab)
         lay_btns.addWidget(self._btn_export)
 
         self._btn_close = QPushButton(_("Close"))
@@ -3309,16 +3315,44 @@ class TranscribeWindow(QDialog):
         is_llm = bool(getattr(widget, "_is_llm_result", False))
         if hasattr(self, "_btn_copy"):
             self._btn_copy.setEnabled(not is_llm)
-        if hasattr(self, "_btn_export"):
-            self._btn_export.setEnabled(not is_llm)
         if hasattr(self, "_btn_llm"):
             self._btn_llm.setEnabled(not is_llm)
-        # _btn_export_tab stays enabled — it routes to LLMExportDialog
-        # for LLM tabs and to ExportDialog for regular tabs.
+        # _btn_export stays enabled even on LLM tabs — its handler
+        # routes to LLMExportDialog (PDF + Markdown) instead of the
+        # standard ExportDialog.
 
     def _on_diarize_toggled(self, checked):
         self._w_threshold.setVisible(checked)
         self._update_long_audio_warning()
+        self._refresh_window_icon()
+
+    def _refresh_window_icon(self):
+        """Switch the window icon between the violet 'diarize' and the
+        blue 'transcribing' variants depending on whether the user has
+        ticked Diarization. Plasma 6.2+ + Qt 6.7+ propagate
+        QApplication.setWindowIcon to the taskbar via the
+        xdg-toplevel-icon protocol; calling it on the QApplication
+        instance (not just the widget) is what makes the taskbar
+        actually update under Wayland."""
+        try:
+            from PyQt6.QtGui import QIcon
+            from PyQt6.QtWidgets import QApplication
+        except ImportError:
+            from PySide6.QtGui import QIcon
+            from PySide6.QtWidgets import QApplication
+        name = ("parakeet-diarize" if getattr(self, "_chk_diarize", None)
+                and self._chk_diarize.isChecked()
+                else "parakeet-transcribing")
+        icon = QIcon.fromTheme(name)
+        if icon.isNull():
+            return
+        # Set both: app-level (taskbar) and window-level (title bar /
+        # alt-tab thumbnail). On Wayland the app-level call is what
+        # the taskbar icon listens to.
+        app = QApplication.instance()
+        if app is not None:
+            app.setWindowIcon(icon)
+        self.setWindowIcon(icon)
 
     # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
     # Parakeet-TDT loads the full mel-spectrogram → ~185 MB VRAM per minute peak.
@@ -4400,14 +4434,32 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
 
     def _on_export_current_tab(self):
-        """Export only the currently active tab. LLM result tabs use a
-        dedicated dialog (PDF + Markdown), regular tabs go through the
-        standard ExportDialog (txt/srt/json)."""
+        """Export the currently active tab. LLM result tabs use a
+        dedicated dialog (PDF + Markdown); regular tabs (transcription
+        and translations) go through the standard ExportDialog
+        (txt/srt/json). One tab at a time — multi-tab export was
+        removed because it produced a confusing pile of files."""
         editor = self._tabs.currentWidget()
         if getattr(editor, "_is_llm_result", False):
             self._on_export_llm_tab(editor)
             return
-        self._on_export(current_only=True)
+        if not isinstance(editor, QTextEdit):
+            return
+        text = editor.toPlainText()
+        if not text.strip():
+            self._lbl_status.setText(_("Nothing to export."))
+            self._lbl_status.setVisible(True)
+            return
+        idx = self._tabs.indexOf(editor)
+        tab_name = self._tabs.tabText(idx) if idx >= 0 else _("Tab")
+        base = os.path.splitext(os.path.basename(self._file_input.text()))[0] or "transcription"
+        dlg = ExportDialog(
+            [(tab_name, text)], self._cmb_format.currentData(), base, self,
+            current_tab_index=0)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._do_export(dlg.selected_tabs(), dlg.export_formats(),
+                        dlg.export_dir(), dlg.base_name())
 
     def _on_export_llm_tab(self, editor):
         """Show the LLMExportDialog for an LLM result tab."""
@@ -4425,26 +4477,28 @@ class TranscribeWindow(QDialog):
         dlg.exec()
 
     def _on_llm_process(self):
-        """Open the LLM analysis dialog. Uses the diarized segments stored
-        on the active tab (or window-level fallback). The user's speaker
-        rename map (Speaker 1 → "Alice") is applied to the speaker field
-        of each segment so the LLM sees the human-friendly names instead
-        of the canonical labels. Result lands in a brand-new tab via
-        _add_llm_result_tab.
+        """Open the LLM analysis dialog.
 
-        If no diarized segments exist (plain transcription), wraps the
-        raw text in a single synthetic segment so global-mode profiles
-        (Synthèse, Chapitrage) still work on non-diarized output.
+        The source is **always the original transcription** (read from
+        self._text_edit), never the currently active tab — same
+        principle as _on_translate (commit 7da1705). Analysing a
+        translated tab would feed the LLM text that has already lost
+        nuances; the original is the source of truth, and the LLM's
+        output is forced to the user's native language anyway.
+
+        If the original is plain (no diarization), the raw text is
+        wrapped in a single synthetic segment so global-mode profiles
+        (Synthèse, Chapitrage) still work — the dialog filters its
+        profile list to the plain-text family.
+
+        Speaker rename map (Speaker 1 → "Alice") is propagated to the
+        speaker field of each segment so the LLM sees human-friendly
+        names instead of the canonical labels.
         """
-        editor = self._tabs.currentWidget()
-        raw_segments = (getattr(editor, "_diarize_segments", None)
-                        or self._segments or [])
+        raw_segments = list(getattr(self._text_edit, "_diarize_segments", None)
+                            or self._segments or [])
         is_plain = not raw_segments
         if is_plain:
-            # Plain transcription path: synthesise one segment from
-            # the original transcript so the LLM has something to
-            # work with. The dialog filters its profile list to the
-            # plain-text family.
             raw_text = (getattr(self._text_edit, "_raw_text", "")
                         or self._raw_text)
             if raw_text:
@@ -4575,13 +4629,24 @@ class TranscribeWindow(QDialog):
         editor._audio_path = None
         editor._is_llm_result = True
         editor._llm_profile_name = profile_name
-        # Tab title shows both the profile (what kind of analysis) and
-        # the model used (so the user can tell two runs of the same
-        # profile with different models apart at a glance).
+        # Inherit the "#N " counter from the original transcription
+        # tab (self._text_edit) so the result visibly belongs to that
+        # transcription, e.g. "#3 LLM: Synthèse". We use the original
+        # rather than the currently active tab because _on_llm_process
+        # always analyses the original, not the active translation.
+        src_idx = self._tabs.indexOf(self._text_edit)
+        prefix = ""
+        if src_idx >= 0:
+            m = re.match(r"^(#\d+)\s", self._tabs.tabText(src_idx))
+            if m:
+                prefix = m.group(1) + " "
+        # Tab title shows the source-counter + profile + model so the
+        # user can tell two runs of the same profile with different
+        # models apart at a glance.
         if model_name:
-            base_title = f"{profile_name} · {model_name}"
+            base_title = f"{prefix}LLM: {profile_name} · {model_name}"
         else:
-            base_title = profile_name
+            base_title = f"{prefix}LLM: {profile_name}"
         editor._spinner_base_title = base_title
         idx = self._tabs.addTab(editor, base_title)
         self._tabs.setCurrentIndex(idx)
@@ -4626,41 +4691,23 @@ class TranscribeWindow(QDialog):
         # out the irrelevant buttons (Copy all, Export all, LLM analysis).
         editor._is_llm_result = True
         editor._llm_profile_name = profile_name
-        tab_name = _("LLM: {profile}").format(profile=profile_name)
+        # Match _start_llm_result_tab: inherit "#N " from the
+        # **original** transcription tab (self._text_edit), since the
+        # LLM always analyses the original, not the active tab.
+        src_idx = self._tabs.indexOf(self._text_edit)
+        prefix = ""
+        if src_idx >= 0:
+            m = re.match(r"^(#\d+)\s", self._tabs.tabText(src_idx))
+            if m:
+                prefix = m.group(1) + " "
+        tab_name = prefix + _("LLM: {profile}").format(profile=profile_name)
         idx = self._tabs.addTab(editor, tab_name)
         self._tabs.setCurrentIndex(idx)
 
-    def _on_export(self, current_only=False):
-        _dbg(f"_on_export: {self._tabs.count()} tabs, current_only={current_only}")
-        # Collect tabs with content
-        tabs_info = []
-        current_tab_index = None
-        cur_widget = self._tabs.currentWidget()
-        for i in range(self._tabs.count()):
-            editor = self._tabs.widget(i)
-            if isinstance(editor, QTextEdit):
-                text = editor.toPlainText()
-                if text.strip():
-                    if editor is cur_widget:
-                        current_tab_index = len(tabs_info)
-                    tabs_info.append((self._tabs.tabText(i), text))
-
-        if not tabs_info:
-            self._lbl_status.setText(_("Nothing to export."))
-            self._lbl_status.setVisible(True)
-            return
-
-        base = os.path.splitext(os.path.basename(self._file_input.text()))[0] or "transcription"
-        dlg = ExportDialog(tabs_info, self._cmb_format.currentData(), base, self,
-                           current_tab_index=current_tab_index if current_only else None)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        selected = dlg.selected_tabs()
-        formats = dlg.export_formats()
-        out_dir = dlg.export_dir()
-        base = dlg.base_name()  # user-editable filename prefix
-
+    def _do_export(self, selected, formats, out_dir, base):
+        """Write the selected tab's text out in the chosen format(s).
+        `selected` is always a single-tab list — multi-tab export was
+        removed because users found the resulting file pile confusing."""
         if not selected or not formats:
             self._lbl_status.setText(_("Nothing to export."))
             self._lbl_status.setVisible(True)
@@ -4755,7 +4802,22 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("dictee-transcribe")
-    app.setDesktopFileName("dictee-transcribe")
+    # Intentionally NOT calling setDesktopFileName: under Plasma 6
+    # Wayland it makes the compositor read the icon from the .desktop
+    # file and ignore setWindowIcon, breaking the dynamic icon switch
+    # between blue (transcribe) and violet (diarize). The .desktop
+    # match for MIME associations / "Open with" still works through
+    # StartupWMClass=dictee-transcribe declared in the .desktop file.
+    # If you re-enable setDesktopFileName, expect the taskbar icon to
+    # become static again.
+    # Initial icon — _refresh_window_icon() will switch it as the
+    # Diarization toggle changes; we set a sane default so the very
+    # first paint isn't a generic Wayland icon.
+    try:
+        from PyQt6.QtGui import QIcon
+    except ImportError:
+        from PySide6.QtGui import QIcon
+    app.setWindowIcon(QIcon.fromTheme("parakeet-transcribing"))
 
     file_path = args.file or (args.files[0] if args.files else None)
     win = TranscribeWindow(
