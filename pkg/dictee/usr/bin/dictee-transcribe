@@ -3229,8 +3229,10 @@ class TranscribeWindow(QDialog):
             if seg["start"] > pos_s:
                 self._player.setPosition(int(seg["start"] * 1000))
                 return
-        # Wrap to first
-        self._player.setPosition(int(self._segments[0]["start"] * 1000))
+        # Wrap to first — reuse `segs` (the active tab's list) instead
+        # of self._segments, otherwise a tab switch + wrap would jump
+        # to a different tab's first segment.
+        self._player.setPosition(int(segs[0]["start"] * 1000))
 
     def _on_tab_changed(self, index):
         self._search_bar.set_editor(self._active_editor())
@@ -4024,8 +4026,19 @@ class TranscribeWindow(QDialog):
         return SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]
 
     def _apply_format(self):
-        """Format and display current transcription tab."""
-        self._apply_format_to(self._text_edit, self._segments, self._raw_text)
+        """Format and display the original transcription tab.
+
+        Reads segments/raw_text from self._text_edit itself rather than
+        the instance-level mutable triple — those follow the active
+        tab (see _on_tab_changed L~3268), so if the user is on a
+        translation tab when the format combo changes we'd otherwise
+        re-format the original tab with the translation's segments.
+        """
+        segments = (getattr(self._text_edit, "_diarize_segments", None)
+                    or self._segments)
+        raw_text = (getattr(self._text_edit, "_raw_text", "")
+                    or self._raw_text)
+        self._apply_format_to(self._text_edit, segments, raw_text)
 
     def _apply_format_to(self, editor, segments, raw_text):
         """Format and display text in the given editor.
@@ -4640,10 +4653,12 @@ class TranscribeWindow(QDialog):
                     elif segments and fmt == "json":
                         content = _format_json(segments, name_map)
                     elif fmt == "json":
-                        raw = self._raw_text if tab_name == self._tabs.tabText(0) else text
+                        raw = (getattr(self._text_edit, "_raw_text", "")
+                               if tab_name == self._tabs.tabText(0) else text)
                         content = json.dumps([{"text": raw}], ensure_ascii=False, indent=2)
                     elif fmt == "srt":
-                        raw = self._raw_text if tab_name == self._tabs.tabText(0) else text
+                        raw = (getattr(self._text_edit, "_raw_text", "")
+                               if tab_name == self._tabs.tabText(0) else text)
                         content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
 
                 safe_name = re.sub(r'[^\w.-]', '_', tab_name)
