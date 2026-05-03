@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.3.0~rc3"
+VERSION="1.3.0"
 PKG_DIR="pkg/dictee"
 
 # Final artefacts go in .dev/dist/ (gitignored), keeping the repo root clean.
@@ -102,7 +102,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.3.0~rc3
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -231,7 +231,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.3.0~rc3
+Version: 1.3.0
 Section: sound
 Priority: optional
 Architecture: amd64

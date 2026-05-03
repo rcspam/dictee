@@ -13,7 +13,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.3.0~rc3"
+VERSION="1.3.0"
 PKG_DIR="pkg/dictee"
 DIST_DIR=".dev/dist"
 mkdir -p "$DIST_DIR"

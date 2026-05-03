@@ -3353,6 +3353,23 @@ class TranscribeWindow(QDialog):
         if app is not None:
             app.setWindowIcon(icon)
         self.setWindowIcon(icon)
+        # Mutter (GNOME) and Muffin (Cinnamon) don't implement
+        # xdg-toplevel-icon-v1 yet, so under their Wayland sessions the
+        # taskbar icon stays frozen on the .desktop's Icon= entry.
+        # Log once so debugging a "why doesn't my taskbar update" report
+        # surfaces the compositor limitation immediately.
+        if not getattr(self, "_icon_swap_warned", False):
+            self._icon_swap_warned = True
+            session = os.environ.get("XDG_SESSION_TYPE", "")
+            desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
+            if session == "wayland" and any(
+                d in desktop for d in ("GNOME", "Cinnamon")
+            ):
+                _dbg(
+                    f"window icon swap: {desktop}/Wayland does not support "
+                    f"xdg-toplevel-icon-v1 — taskbar will not update "
+                    f"(title bar and Alt+Tab thumbnail will)"
+                )
 
     # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
     # Parakeet-TDT loads the full mel-spectrogram → ~185 MB VRAM per minute peak.

@@ -2,7 +2,7 @@
 # build-common.sh — shared scaffolding for build-deb.sh / build-rpm.sh / build-tar.sh
 #
 # Sourced (not executed) by the build scripts. Each caller must set:
-#   - VERSION    (e.g. "1.3.0~rc3")
+#   - VERSION    (e.g. "1.3.0")
 #   - PKG_DIR    (default: pkg/dictee)
 #   - DIST_DIR   (default: .dev/dist)
 #
