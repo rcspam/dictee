@@ -3950,7 +3950,7 @@ class TranscribeWindow(QDialog):
         # dictee-setup.py accordions). QPushButton (not QToolButton)
         # because text-align:left is reliably honoured here.
         self._btn_rename_toggle = QPushButton(
-            "▶  " + _("Renommer les locuteurs"))
+            "▶  " + _("Rename speakers"))
         self._btn_rename_toggle.setCheckable(True)
         self._btn_rename_toggle.setChecked(False)
         self._btn_rename_toggle.setFlat(True)
@@ -4007,15 +4007,15 @@ class TranscribeWindow(QDialog):
         content.addLayout(self._rename_rows_layout)
 
         lay_btns = QHBoxLayout()
-        self._btn_rename_apply = QPushButton(_("Appliquer"))
+        self._btn_rename_apply = QPushButton(_("Apply"))
         self._btn_rename_apply.setToolTip(_(
-            "Remplace les libellés des locuteurs dans toutes les vues et "
-            "exports (texte, SRT, JSON). Ne modifie pas les données brutes."))
+            "Replaces speaker labels in all views and exports (text, SRT, "
+            "JSON). Does not modify raw data."))
         self._btn_rename_apply.clicked.connect(self._apply_speaker_rename)
-        self._btn_rename_reset = QPushButton(_("Réinitialiser"))
+        self._btn_rename_reset = QPushButton(_("Reset"))
         self._btn_rename_reset.setToolTip(_(
-            "Efface les noms personnalisés et revient aux libellés "
-            "génériques Speaker 0, Speaker 1, etc."))
+            "Clears custom names and reverts to the generic labels "
+            "Speaker 0, Speaker 1, etc."))
         self._btn_rename_reset.clicked.connect(self._reset_speaker_rename)
         lay_btns.addWidget(self._btn_rename_apply)
         lay_btns.addWidget(self._btn_rename_reset)
@@ -4030,7 +4030,7 @@ class TranscribeWindow(QDialog):
         content frame and flip the unicode triangle on the header."""
         self._rename_content.setVisible(checked)
         prefix = "▼  " if checked else "▶  "
-        self._btn_rename_toggle.setText(prefix + _("Renommer les locuteurs"))
+        self._btn_rename_toggle.setText(prefix + _("Rename speakers"))
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.

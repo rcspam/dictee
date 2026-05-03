@@ -8452,7 +8452,7 @@ class DicteeSetupDialog(QDialog):
         toggle_btn = QToolButton()
         toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-        toggle_btn.setText(_("Visualisation interactive des pipelines de post-traitement"))
+        toggle_btn.setText(_("Interactive visualization of post-processing pipelines"))
         toggle_btn.setCheckable(True)
         toggle_btn.setChecked(False)
         toggle_btn.setAutoRaise(True)
@@ -8783,9 +8783,9 @@ class DicteeSetupDialog(QDialog):
             "<span style='color:#e67e22;font-weight:bold;'>⚠ "
             + _("Diarisation") + "</span> &nbsp;—&nbsp; "
             + _(
-                "en mode multi-locuteurs, le texte brut est conservé tel "
-                "quel (ni post-processing, ni traduction, ni LLM) pour "
-                "préserver les labels ")
+                "in multi-speaker mode, the raw text is kept as-is (no "
+                "post-processing, no translation, no LLM) to preserve "
+                "the labels ")
             + "<span style='background:rgba(230,126,34,0.2);"
               "padding:1px 5px;border-radius:3px;font-family:monospace;'>"
               "[SPK1]</span>, "
@@ -13321,8 +13321,8 @@ class DicteeSetupDialog(QDialog):
         lay_mic.addLayout(lay_sil)
 
         lbl_sil_warn = QLabel(_(
-            "⚠ Trop bas → l'ASR peut halluciner sur le bruit de fond. "
-            "Trop haut → risque de couper les voix douces."))
+            "⚠ Too low → ASR may hallucinate on background noise. "
+            "Too high → risk of cutting soft voices."))
         lbl_sil_warn.setWordWrap(True)
         lbl_sil_warn.setStyleSheet(
             "color: #e67e22; font-size: 11px; padding-left: 4px;")
@@ -13350,7 +13350,7 @@ class DicteeSetupDialog(QDialog):
 
         hdr = QHBoxLayout()
         hdr.setSpacing(8)
-        lbl_title = QLabel(_("Tester le réglage du seuil :"))
+        lbl_title = QLabel(_("Test the threshold setting:"))
         lbl_title.setStyleSheet("font-weight: bold; font-size: 12px;")
         hdr.addWidget(lbl_title)
 
@@ -13578,7 +13578,7 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(lbl_src)
 
         if rec["skipped"]:
-            lbl_verdict = QLabel("⚠ " + _("Silence détecté — skippé"))
+            lbl_verdict = QLabel("⚠ " + _("Silence detected — skipped"))
             lbl_verdict.setStyleSheet(
                 "color: #e67e22; font-style: italic; font-size: 11px;")
         else:
@@ -15268,14 +15268,14 @@ class DicteeSetupDialog(QDialog):
         mode_col.setContentsMargins(0, 0, 0, 0)
 
         self._test_solo_switch = ToggleSwitch(_("Isoler"))
-        self._test_solo_switch.setToolTip(_("OFF : exécute le pipeline complet (tous les toggles actifs). ON : exécute uniquement l'étape de la page actuellement ouverte, en forçant temporairement les autres étapes à off. Ne modifie pas la config persistante — utile pour voir l'effet d'une seule étape en isolation."))
+        self._test_solo_switch.setToolTip(_("OFF: runs the full pipeline (all toggles active). ON: runs only the step of the currently open page, temporarily forcing the other steps off. Does not modify the persistent config — useful to see the effect of a single step in isolation."))
         self._test_solo_switch.setEnabled(False)  # enabled once a page is known
         self._test_solo_switch.toggled.connect(self._schedule_test_run)
         mode_col.addWidget(self._test_solo_switch)
 
         self._test_trad_switch = ToggleSwitch(_("Traduction"))
         self._test_trad_switch.setChecked(False)
-        self._test_trad_switch.setToolTip(_("OFF : teste le pipeline PP normal seul. ON : ajoute la traduction (+ PP traduction si activé)."))
+        self._test_trad_switch.setToolTip(_("OFF: tests the normal PP pipeline alone. ON: adds translation (+ translation PP if enabled)."))
         self._test_trad_switch.toggled.connect(lambda _: self._update_test_chain_label())
         mode_col.addWidget(self._test_trad_switch)
 
@@ -15422,7 +15422,7 @@ class DicteeSetupDialog(QDialog):
         _out_col.setSpacing(0)
         _out_col.setContentsMargins(0, 0, 0, 0)
 
-        self._lbl_test_unsaved = QLabel(_("Non enregistré"))
+        self._lbl_test_unsaved = QLabel(_("Unsaved"))
         self._lbl_test_unsaved.setStyleSheet(
             "QLabel { color: #e03030; font-size: 13px; font-weight: bold;"
             " padding: 0 2px; }")
