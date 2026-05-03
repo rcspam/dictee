@@ -1473,8 +1473,8 @@ def has_text2num():
             )
             if r.returncode == 0:
                 return True
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg_setup(f"silenced: {_e!r}")
     return False
 
 
@@ -2126,8 +2126,8 @@ def _sync_volume_for_languages(languages):
                 "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
                 "alpine", "rm", "-rf", "/data/share", "/data/cache",
             ], capture_output=True, timeout=10)
-    except Exception:
-        pass
+    except Exception as _e:
+        _dbg_setup(f"silenced: {_e!r}")
 
 
 def docker_start_libretranslate(port=LIBRETRANSLATE_PORT, languages="fr,en,es,de"):
@@ -2204,8 +2204,8 @@ def _docker_container_size():
                 if size_b >= 1_000_000:
                     return f"{size_b / 1_000_000:.0f} MB"
                 return f"{size_b / 1_000:.0f} kB"
-    except Exception:
-        pass
+    except Exception as _e:
+        _dbg_setup(f"silenced: {_e!r}")
     return ""
 
 
@@ -2405,8 +2405,8 @@ class _DockerActionThread(QThread):
                     "-v", f"{LIBRETRANSLATE_VOLUME}:/data",
                     "alpine", "rm", "-rf", "/data/share", "/data/cache",
                 ], capture_output=True, timeout=10)
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg_setup(f"silenced: {_e!r}")
 
     def _wait_ready(self):
         """Attend que l'API LibreTranslate soit prête (max 180s).
@@ -2441,8 +2441,8 @@ class _DockerActionThread(QThread):
                 with urllib.request.urlopen(url, timeout=3):
                     self.progress.emit(_("Ready!"))
                     return
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
 
             # 3. Analyser les logs Docker pour afficher un message clair
             # LibreTranslate writes downloads to stdout and server to stderr
@@ -2541,8 +2541,8 @@ class _DockerActionThread(QThread):
                 # Keep last 3 relevant lines
                 lines = [l for l in log.split("\n") if l.strip()][-3:]
                 return "\n".join(lines)
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg_setup(f"silenced: {_e!r}")
         return ""
 
 
@@ -4392,8 +4392,8 @@ class LLMProfileEditDialog(QDialog):
         # Best-effort: try to refresh models silently (no error on fail).
         try:
             self._refresh_models_silently()
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg_setup(f"silenced: {_e!r}")
 
     def _refresh_models_silently(self):
         provider_id = self._provider_combo.currentData()
@@ -5387,8 +5387,8 @@ class DicteeSetupDialog(QDialog):
                     if len(parts) >= 2 and parts[1]:
                         return {"kind": "deb", "label": f"{parts[0]} {parts[1]}",
                                 "asset_hint": ".deb"}
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
         # rpm (Fedora/RHEL/openSUSE)
         if shutil.which("rpm"):
             try:
@@ -5403,8 +5403,8 @@ class DicteeSetupDialog(QDialog):
                     if len(parts) >= 2:
                         return {"kind": "rpm", "label": f"{parts[0]} {parts[1]}",
                                 "asset_hint": ".rpm"}
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
         # pacman (Arch)
         if shutil.which("pacman"):
             try:
@@ -5413,8 +5413,8 @@ class DicteeSetupDialog(QDialog):
                 if r.returncode == 0 and r.stdout.strip():
                     return {"kind": "pacman", "label": r.stdout.strip(),
                             "asset_hint": ".pkg.tar.zst"}
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
         # Source install detected via presence of Cargo.toml alongside
         _script_dir = os.path.dirname(os.path.abspath(__file__))
         if os.path.isfile(os.path.join(_script_dir, "Cargo.toml")):
@@ -5828,8 +5828,8 @@ class DicteeSetupDialog(QDialog):
                     capture_output=True, text=True, timeout=1)
                 if r.returncode == 0 and r.stdout.strip():
                     return "Dark" in r.stdout
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
             return None
 
         def _gnome_probe():
@@ -5843,8 +5843,8 @@ class DicteeSetupDialog(QDialog):
                         return True
                     if val in ("prefer-light", "default"):
                         return False
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
             return None
 
         def _qt_fallback():
@@ -13649,16 +13649,16 @@ class DicteeSetupDialog(QDialog):
             try:
                 self._calib_rec_process.terminate()
                 self._calib_rec_process.waitForFinished(1000)
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
             self._calib_rec_process = None
         # Stop playback and release the source so the WAV can be unlinked
         if getattr(self, '_calib_player', None) is not None:
             try:
                 self._calib_player.stop()
                 self._calib_player.setSource(QUrl())
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg_setup(f"silenced: {_e!r}")
         self._calib_playing_path = None
         for rec in getattr(self, '_calib_records', []):
             try:
@@ -14068,8 +14068,8 @@ class DicteeSetupDialog(QDialog):
                 raw = r.stdout.strip()
                 if raw:
                     return [c for c in raw.split(",") if c and c != "---"]
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg_setup(f"silenced: {_e!r}")
         return None
 
     def _update_src_languages(self):
@@ -16831,8 +16831,8 @@ class DicteeSetupDialog(QDialog):
             for desktop in (DICTEE_DESKTOP, DICTEE_TRANSLATE_DESKTOP):
                 try:
                     remove_kde_shortcut(desktop)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    _dbg_setup(f"silenced: {_e!r}")
             shortcut_msg = "\n" + _("PTT key: {key} ({mode})").format(
                 key=linux_keycode_name(ptt_key), mode=ptt_mode)
 

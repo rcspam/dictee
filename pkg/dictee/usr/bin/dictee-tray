@@ -99,8 +99,8 @@ def _acquire_singleton_lock():
     except (BlockingIOError, OSError):
         try:
             os.close(fd)
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
         return None
 
 
@@ -662,8 +662,8 @@ class DicteeTrayAppIndicator:
                 f = Gio.File.new_for_path(STATE_FILE)
                 self._monitor = f.monitor_file(Gio.FileMonitorFlags.NONE, None)
                 self._monitor.connect("changed", self._on_file_changed)
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
 
     def _on_file_changed(self, _monitor, _file, _other, event):
         self._check_state()

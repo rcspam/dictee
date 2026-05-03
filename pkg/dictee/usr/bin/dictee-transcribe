@@ -625,8 +625,8 @@ class _DiarizeTranscribeWorker(QThread):
         try:
             if self._sock is not None:
                 self._sock.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
 
     def _maybe_convert_to_wav(self, path):
         """transcribe-daemon opens the file as raw WAV without running
@@ -645,8 +645,8 @@ class _DiarizeTranscribeWorker(QThread):
                         and int(st.get("sample_rate", 0)) == 16000
                         and st.get("channels") == 1):
                     return path  # already daemon-compatible
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
 
         out_path = f"/tmp/dictee_daemon_input_{os.getpid()}.wav"
         try:
@@ -832,8 +832,8 @@ class _ChunkedPipelineWorker(QThread):
                     self._current_proc.wait(timeout=0.2)
                 except subprocess.TimeoutExpired:
                     self._current_proc.kill()
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg(f"silenced: {_e!r}")
 
     def run(self):
         try:
@@ -1062,8 +1062,8 @@ class _ChunkedPipelineWorker(QThread):
         if self._tmp_dir and os.path.exists(self._tmp_dir):
             try:
                 shutil.rmtree(self._tmp_dir, ignore_errors=True)
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg(f"silenced: {_e!r}")
 
 
 # Strip ASCII control characters (except \t \n \r) from segment text.
@@ -2616,8 +2616,8 @@ class TranscribeWindow(QDialog):
             # of WAV chunks for a long file — clean it up by hand.
             try:
                 self._chunked_worker._cleanup_tmp()
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg(f"silenced: {_e!r}")
         # Restore backend if we were in diarization mode
         conf = _read_conf()
         if conf.get("DICTEE_PRE_DIARIZE_BACKEND"):
@@ -2638,8 +2638,8 @@ class TranscribeWindow(QDialog):
                 fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 with open(_state_file, "w") as sf:
                     sf.write("idle")
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
         # Close log file
         global _log_file
         if _log_file:
@@ -2686,8 +2686,8 @@ class TranscribeWindow(QDialog):
             _dbg("abort: killing transcription QProcess")
             try:
                 self._process.kill()
-            except Exception:
-                pass
+            except Exception as _e:
+                _dbg(f"silenced: {_e!r}")
         for attr in ("_chunked_worker", "_diarize_worker", "_translate_thread"):
             w = getattr(self, attr, None)
             if w is not None and w.isRunning():
@@ -2697,13 +2697,13 @@ class TranscribeWindow(QDialog):
                 if hasattr(w, "request_cancel"):
                     try:
                         w.request_cancel()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        _dbg(f"silenced: {_e!r}")
                 if hasattr(w, "cancel"):
                     try:
                         w.cancel()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        _dbg(f"silenced: {_e!r}")
         # Hide the cancel button + reset status so the next run starts
         # from a clean slate.
         if hasattr(self, "_btn_cancel"):
@@ -3731,8 +3731,8 @@ class TranscribeWindow(QDialog):
                             data=json.dumps({"model": model, "keep_alive": 0}).encode(),
                             headers={"Content-Type": "application/json"})
                         urllib.request.urlopen(req, timeout=5)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        _dbg(f"silenced: {_e!r}")
                 # Re-trigger transcription after delay
                 QTimer.singleShot(2000, self._on_transcribe)
                 return
@@ -4522,8 +4522,8 @@ class TranscribeWindow(QDialog):
         editor.setPlaceholderText(_("Generating LLM analysis…"))
         try:
             editor.viewport().installEventFilter(self)
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
         editor._audio_path = None
         editor._is_llm_result = True
         editor._llm_profile_name = profile_name
@@ -4569,8 +4569,8 @@ class TranscribeWindow(QDialog):
         editor.setPlainText(text or "")
         try:
             editor.viewport().installEventFilter(self)
-        except Exception:
-            pass
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
         # No audio binding — these tabs are not tied to a wav file.
         editor._audio_path = None
         # Marker used by _on_tab_changed and _on_export_current_tab to
