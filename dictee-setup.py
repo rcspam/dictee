@@ -1843,33 +1843,12 @@ ASR_MODELS = [
             "Identifies and separates up to <b>4 different speakers</b> in an audio recording.<br>"
             "Labels each transcription segment with the speaker who said it.<br><br>"
             "<b>Optional</b> — only needed if you want speaker identification.<br>"
-            "Used by: <code>transcribe-diarize</code>, <code>transcribe-stream-diarize</code>"
+            "Used by: <code>transcribe-diarize</code>"
         ),
         "dir": os.path.join(MODEL_DIR, "sortformer"),
         "check_file": "diar_streaming_sortformer_4spk-v2.1.onnx",
         "files": [
             ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/diar_streaming_sortformer_4spk-v2.1.onnx", "diar_streaming_sortformer_4spk-v2.1.onnx"),
-        ],
-        "required": False,
-    },
-    {
-        "id": "nemotron",
-        "name": "Nemotron 0.6B",
-        "desc": _("English streaming (~2.5 GB)"),
-        "help": _(
-            "<b>Nemotron 0.6B</b> — English streaming model<br><br>"
-            "Optimized for <b>real-time English</b> transcription with low latency.<br>"
-            "Processes audio in streaming chunks instead of waiting for the full recording.<br><br>"
-            "<b>Optional</b> — only needed for English streaming + diarization mode.<br>"
-            "Used by: <code>transcribe-stream-diarize</code>"
-        ),
-        "dir": os.path.join(MODEL_DIR, "nemotron"),
-        "check_file": "encoder.onnx",
-        "files": [
-            ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b/encoder.onnx", "encoder.onnx"),
-            ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b/encoder.onnx.data", "encoder.onnx.data"),
-            ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b/decoder_joint.onnx", "decoder_joint.onnx"),
-            ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b/tokenizer.model", "tokenizer.model"),
         ],
         "required": False,
     },
@@ -7356,9 +7335,6 @@ class DicteeSetupDialog(QDialog):
                      "Supports 25 languages with native punctuation and capitalization."),
             "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
                             "in a recording. Optional — only needed for speaker identification."),
-            "nemotron": _("Real-time English streaming with speaker diarization. "
-                          "English only. Processes audio in live chunks for low-latency results. "
-                          "Optional — only needed for live English transcription with speaker identification."),
         }
 
         for model in ASR_MODELS:
