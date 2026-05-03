@@ -354,6 +354,18 @@ DIARIZE_RE = re.compile(
     r"\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*(Speaker\s+\d+|UNKNOWN):\s*(.*)"
 )
 
+# ISO-2 code → English language name. Used by the Ollama translate
+# prompt and by the LLM Diarization "force output language" hint —
+# both want English names regardless of the user's UI locale, since
+# foreign-language LLM prompts tend to drift in unpredictable ways.
+LANG_NAMES_EN = {
+    "en": "English", "fr": "French", "de": "German",
+    "es": "Spanish", "it": "Italian", "pt": "Portuguese",
+    "uk": "Ukrainian", "nl": "Dutch", "pl": "Polish",
+    "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
+    "ko": "Korean", "ar": "Arabic",
+}
+
 
 # === Configuration ===
 
@@ -534,18 +546,11 @@ def _translate_text(text, lang_src="en", lang_tgt="fr", backend=None):
         elif backend == "ollama":
             import json as _json
             import urllib.request
-            _LANG_NAMES = {
-                "en": "English", "fr": "French", "de": "German",
-                "es": "Spanish", "it": "Italian", "pt": "Portuguese",
-                "uk": "Ukrainian", "nl": "Dutch", "pl": "Polish",
-                "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
-                "ko": "Korean", "ar": "Arabic",
-            }
             model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
             if ":" not in model:
                 model += ":latest"
-            src_name = _LANG_NAMES.get(lang_src, lang_src)
-            tgt_name = _LANG_NAMES.get(lang_tgt, lang_tgt)
+            src_name = LANG_NAMES_EN.get(lang_src, lang_src)
+            tgt_name = LANG_NAMES_EN.get(lang_tgt, lang_tgt)
             prompt = (
                 f"You are a professional {src_name} to {tgt_name} translator. "
                 f"Produce only the {tgt_name} translation, without any additional "
@@ -1903,15 +1908,8 @@ class LLMProcessDialog(QDialog):
         # source/target combos — those are unrelated to the LLM output.
         # The in-prompt hint alone is unreliable; many models drift to
         # English regardless.
-        _LANG_NAMES = {
-            "en": "English", "fr": "French", "de": "German",
-            "es": "Spanish", "it": "Italian", "pt": "Portuguese",
-            "uk": "Ukrainian", "nl": "Dutch", "pl": "Polish",
-            "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
-            "ko": "Korean", "ar": "Arabic",
-        }
         code = _read_conf().get("DICTEE_LANG_SOURCE", "") or ""
-        lang_name = _LANG_NAMES.get(code, "")
+        lang_name = LANG_NAMES_EN.get(code, "")
 
         # 600 s per HTTP call — local models (Ollama qwen3.5:4b on a
         # 30 min transcript) genuinely need more than the previous 120 s
@@ -4416,23 +4414,48 @@ class TranscribeWindow(QDialog):
 
     SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
+    # All spinners (per-tab title + bottom translate-status label)
+    # share a single QTimer + frame index so they stay in sync and we
+    # don't multiply timers. Targets register themselves; the timer
+    # stops automatically when nothing is left to animate.
+
     def _ensure_spinner_timer(self):
         if not hasattr(self, "_spinning_tabs"):
-            self._spinning_tabs = {}  # widget → base title (str)
+            self._spinning_tabs = {}    # widget → base title (str)
+            self._spinning_status = False  # translate-status active flag
             self._spinner_idx = 0
             self._spinner_timer = QTimer(self)
             self._spinner_timer.setInterval(100)
             self._spinner_timer.timeout.connect(self._tick_spinner)
+
+    def _render_spinner_frame(self):
+        """Apply the current frame to every active spinner target.
+        Called both on each tick and once at start so the user sees
+        the spinner without waiting for the first interval."""
+        frame = self.SPINNER_FRAMES[self._spinner_idx]
+        for widget, base in list(self._spinning_tabs.items()):
+            idx = self._tabs.indexOf(widget)
+            if idx < 0:
+                self._spinning_tabs.pop(widget, None)
+                continue
+            self._tabs.setTabText(idx, f"{frame} {base}")
+        if self._spinning_status:
+            base = getattr(self, "_translate_status_base", "")
+            sep = (" " + frame + " ") if base else (frame + " ")
+            self._lbl_status.setText(base + sep + _("Translating..."))
+
+    def _maybe_stop_timer(self):
+        if (hasattr(self, "_spinner_timer")
+                and not self._spinning_tabs
+                and not self._spinning_status):
+            self._spinner_timer.stop()
 
     def _start_tab_spinner(self, widget, base_title):
         if widget is None:
             return
         self._ensure_spinner_timer()
         self._spinning_tabs[widget] = base_title
-        idx = self._tabs.indexOf(widget)
-        if idx >= 0:
-            frame = self.SPINNER_FRAMES[self._spinner_idx]
-            self._tabs.setTabText(idx, f"{frame} {base_title}")
+        self._render_spinner_frame()
         if not self._spinner_timer.isActive():
             self._spinner_timer.start()
 
@@ -4444,61 +4467,38 @@ class TranscribeWindow(QDialog):
         if idx >= 0:
             self._tabs.setTabText(idx, final_title if final_title is not None
                                   else (base or self._tabs.tabText(idx)))
-        if not self._spinning_tabs:
-            self._spinner_timer.stop()
+        self._maybe_stop_timer()
+
+    def _start_translate_status_spinner(self):
+        """Animate the braille spinner in the bottom status label,
+        replacing the leading "—" before "Translating...". Reuses the
+        shared spinner timer so it stays in sync with any tab spinner
+        already running."""
+        self._ensure_spinner_timer()
+        self._spinning_status = True
+        self._render_spinner_frame()
+        if not self._spinner_timer.isActive():
+            self._spinner_timer.start()
+
+    def _stop_translate_status_spinner(self):
+        if getattr(self, "_spinning_status", False):
+            self._spinning_status = False
+            self._maybe_stop_timer()
 
     def _stop_all_spinners(self):
-        """Used on _show_status to stop spinning the active text tab
-        regardless of which call started it. Also stops the status-bar
-        translation spinner if it's running."""
+        """Stop every active spinner — used on _show_status when
+        results land, regardless of which workflow started them."""
         if hasattr(self, "_spinning_tabs"):
             for w in list(self._spinning_tabs.keys()):
                 self._stop_tab_spinner(w)
         self._stop_translate_status_spinner()
 
-    def _start_translate_status_spinner(self):
-        """Animate a braille spinner where the leading "—" used to
-        sit before "Translating...". Lighter than creating an empty
-        target tab in advance — visible right where the user already
-        watches the elapsed-time / speakers status line."""
-        if not hasattr(self, "_translate_status_idx"):
-            self._translate_status_idx = 0
-        if not hasattr(self, "_translate_status_timer"):
-            self._translate_status_timer = QTimer(self)
-            self._translate_status_timer.setInterval(100)
-            self._translate_status_timer.timeout.connect(
-                self._tick_translate_status_spinner)
-        # Paint the first frame immediately so the user sees the
-        # spinner without waiting one tick.
-        self._tick_translate_status_spinner()
-        if not self._translate_status_timer.isActive():
-            self._translate_status_timer.start()
-
-    def _tick_translate_status_spinner(self):
-        if not hasattr(self, "_translate_status_base"):
-            return
-        frame = self.SPINNER_FRAMES[self._translate_status_idx]
-        self._translate_status_idx = (self._translate_status_idx + 1) % len(self.SPINNER_FRAMES)
-        base = self._translate_status_base
-        sep = " " + frame + " " if base else frame + " "
-        self._lbl_status.setText(base + sep + _("Translating..."))
-
-    def _stop_translate_status_spinner(self):
-        if hasattr(self, "_translate_status_timer") and self._translate_status_timer.isActive():
-            self._translate_status_timer.stop()
-
     def _tick_spinner(self):
-        if not self._spinning_tabs:
+        if not self._spinning_tabs and not self._spinning_status:
             self._spinner_timer.stop()
             return
         self._spinner_idx = (self._spinner_idx + 1) % len(self.SPINNER_FRAMES)
-        frame = self.SPINNER_FRAMES[self._spinner_idx]
-        for widget, base in list(self._spinning_tabs.items()):
-            idx = self._tabs.indexOf(widget)
-            if idx < 0:
-                self._spinning_tabs.pop(widget, None)
-                continue
-            self._tabs.setTabText(idx, f"{frame} {base}")
+        self._render_spinner_frame()
 
     def _start_llm_result_tab(self, profile_name, model_name=""):
         """Create the LLM result tab immediately, empty, with a spinner.
