@@ -50,7 +50,7 @@ makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang')
 # the onig_sys crate) under LTO triggers `undefined reference to onig_*`
 # errors at the final link step. LTO would discard sections from the .a
 # that the linker hasn't yet observed referenced.
-options=('!lto')
+options=('!lto' '!strip')
 install=dictee-cuda.install
 # ONNX Runtime version must match the version expected by the `ort`
 # crate used in dictee. Bumping `ort` requires bumping this URL too.
@@ -103,7 +103,11 @@ build() {
     # lib. If it's missing, the build silently fell back to a CPU-only
     # configuration — abort rather than ship a CUDA package that runs
     # on CPU (incident 2026-05-02 on the deb/rpm builders).
-    if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
+    # The lib lands either in target/release/ (as a symlink) or directly
+    # in ~/.cache/ort.pyke.io/dfbin/*/ when the crate cached the
+    # artifact. Both are valid — only fail if neither has it.
+    if [ ! -f target/release/libonnxruntime_providers_cuda.so ] && \
+       ! ls "$HOME"/.cache/ort.pyke.io/dfbin/*/*/libonnxruntime_providers_cuda.so >/dev/null 2>&1; then
         echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing" >&2
         return 1
     fi

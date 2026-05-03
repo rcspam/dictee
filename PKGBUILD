@@ -43,7 +43,7 @@ conflicts=('dictee-cuda')
 makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang')
 # Disable LTO — see PKGBUILD-cuda for the rationale (libonig.a + LTO
 # break the link with `undefined reference to onig_*` errors).
-options=('!lto')
+options=('!lto' '!strip')
 install=dictee.install
 source=("$pkgname-$_tag.tar.gz::https://github.com/rcspam/dictee/archive/v$_tag.tar.gz")
 sha256sums=('SKIP')
