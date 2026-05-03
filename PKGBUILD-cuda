@@ -12,9 +12,9 @@
 # make pacman refuse to install both at once.
 
 pkgname=dictee-cuda
-pkgver=1.3.0.rc3
+pkgver=1.3.0
 pkgrel=1
-_tag=1.3.0-rc3
+_tag=1.3.0
 pkgdesc="Fast push-to-talk voice dictation for Linux (NVIDIA CUDA build)"
 arch=('x86_64')
 url="https://github.com/rcspam/dictee"
