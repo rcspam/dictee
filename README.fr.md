@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <b>Parlez librement, le texte apparaît instantanément</b> — dictée vocale 100 % locale pour Linux avec 25+ langues, 5 backends de traduction, diarisation des locuteurs et retour visuel en temps réel. Le texte s'écrit directement à l'endroit de votre curseur.
+  <b>Parlez librement, le texte apparaît instantanément sur <em>Wayland</em></b> (compatible X11) — dictée vocale 100 % locale pour Linux avec 25+ langues, 5 backends de traduction, diarisation des locuteurs et retour visuel en temps réel. Le texte s'écrit directement à l'endroit de votre curseur.
 </p>
 
 <p align="center">
