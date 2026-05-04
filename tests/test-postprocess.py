@@ -3715,10 +3715,13 @@ class TestEdgeCasesExtended(unittest.TestCase):
         self.assertIn("🦀", result)
 
     def test_control_chars_stripped(self):
-        """Control characters (except \\t, \\n) stripped by final cleanup."""
-        result = run_postprocess("Hello\x03world\x04here.", lang="en")
+        """Control characters (except markers \\x01-\\x04, \\t, \\n) stripped by final cleanup."""
+        # \x05 / \x06: no functional role, must be stripped.
+        # \x03 non-leading is also stripped (only a leading \x03 = keepcaps signal is kept).
+        result = run_postprocess("Hello\x03world\x05here\x06.", lang="en")
         self.assertNotIn("\x03", result)
-        self.assertNotIn("\x04", result)
+        self.assertNotIn("\x05", result)
+        self.assertNotIn("\x06", result)
         self.assertIn("world", result)
 
     def test_tab_preserved(self):
