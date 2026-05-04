@@ -23,7 +23,25 @@
   <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
-> 📚 **Nouveau** : le [**wiki dictée**](https://github.com/rcspam/dictee/wiki/fr-Home) complet est désormais en ligne — 24 pages couvrant l'installation, la configuration, les 4 backends ASR (avec deep-dives Parakeet-TDT et Canary-1B), le post-traitement, la diarisation, le dépannage et le guide développeur. Disponible en 🇫🇷 français et 🇬🇧 anglais.
+> 🎉 **v1.3.1 stable — mai 2026.** Changements majeurs depuis la v1.2 :
+>
+> - **`dictee-transcribe`** — nouvelle fenêtre dédiée pour la transcription hors-ligne de fichiers audio/vidéo. Lecteur synchronisé sur la timeline, multi-onglets, traduction et analyse LLM par onglet, export en PDF / SRT / JSON / Markdown.
+> - **Diarisation des locuteurs** jusqu'à 4 locuteurs via NVIDIA Sortformer, plus un pipeline découpé qui lève la limite VRAM sur les fichiers longs (keynote de 54 min diarisée en 122 s).
+> - **Analyse LLM** sur les transcriptions diarisées — synthèse, chapitrage, correction ASR ; 14 providers configurables côte à côte (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…).
+> - **Backend ASR Canary-1B v2** (NVIDIA AED) avec **traduction native** sur 12 paires intra-modèle — plus besoin de service externe.
+> - **Libs CUDA portables** via venv pip au postinst — plus besoin du dépôt NVIDIA.
+>
+> Correctifs v1.3.1 : fallback CUDA → CPU au runtime, chargement automatique de `uinput` sur Fedora/RHEL, vérifications strictes du wizard de configuration. → [Release](https://github.com/rcspam/dictee/releases/tag/v1.3.1) · [Changelog](https://github.com/rcspam/dictee/wiki/fr-Changelog)
+>
+> 📚 Le [**wiki dictée**](https://github.com/rcspam/dictee/wiki/fr-Home) complet est en ligne — 24 pages couvrant l'installation, la configuration, les 4 backends ASR (avec deep-dives Parakeet-TDT et Canary-1B), le post-traitement, la diarisation, le dépannage et le guide développeur. Disponible en 🇫🇷 français et 🇬🇧 anglais.
+
+<p align="center">
+  <img src="assets/demo-dictee-1.3.1.gif" alt="dictée — démo push-to-talk : appuyez F8, parlez, le texte apparaît au curseur" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/transcribe-diarize_1.3.png" alt="dictee-transcribe — transcription de fichier avec diarisation des locuteurs, lecteur audio et traduction par onglet" width="900">
+</p>
 
 <p align="center">
   <a href="#quest-ce-que-dictée-">Qu'est-ce que dictée ?</a> &bull;
@@ -131,6 +149,18 @@ Répond à la question *« qui a parlé et quand ? »* dans les enregistrements 
 <p align="center">
   <img src="assets/screenshots-vm/diarisation-2_1.3.png" alt="Diarisation — étiquettes des locuteurs" width="900">
 </p>
+
+### Transcription de fichiers audio et vidéo
+
+Le push-to-talk reste le flux principal de dictée, mais la fenêtre **`dictee-transcribe`** livrée avec l'application gère aussi la transcription hors-ligne de tout fichier audio ou vidéo que vous avez déjà. Interface multi-onglets, lecteur audio synchronisé sur la timeline, traduction et analyse LLM par onglet, export en **PDF / SRT / JSON / Markdown**.
+
+- **N'importe quel format d'entrée** (mp3, mp4, wav, opus, flac, mkv…) — converti automatiquement via ffmpeg
+- **Multi-onglets** — gardez la transcription d'origine côte à côte avec ses traductions et ses analyses LLM (synthèse, chapitrage, correction ASR…)
+- **Diarisation des locuteurs** intégrée — activez le toggle, jusqu'à 4 locuteurs étiquetés et renommables
+- **Analyse LLM** — 14 providers configurables côte à côte (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…)
+- **Traduction par onglet** — Canary / LibreTranslate / Ollama / Google / Bing
+
+→ [Wiki LLM-Diarization](https://github.com/rcspam/dictee/wiki/fr-LLM-Diarization)
 
 ### 3 interfaces visuelles
 

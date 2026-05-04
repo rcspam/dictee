@@ -23,7 +23,25 @@
   <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
-> 📚 **New**: the full [**dictee wiki**](https://github.com/rcspam/dictee/wiki) is now online — 24 pages covering installation, configuration, all 4 ASR backends (with Parakeet-TDT and Canary-1B deep-dives), post-processing, diarization, troubleshooting, and developer guide. Available in 🇬🇧 English and 🇫🇷 French.
+> 🎉 **v1.3.1 stable — May 2026.** Major changes since v1.2:
+>
+> - **`dictee-transcribe`** — new dedicated window for offline transcription of audio/video files. Timeline player synced with text, multi-tab, per-tab translation and LLM analysis, export to PDF / SRT / JSON / Markdown.
+> - **Speaker diarization** up to 4 speakers via NVIDIA Sortformer, plus a chunked pipeline that lifts the VRAM cap on long files (54-min keynote diarized in 122 s).
+> - **LLM analysis** on diarized transcripts — synthesis, chapters, ASR cleanup; 14 providers configurable side by side (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…).
+> - **Canary-1B v2** ASR backend (NVIDIA AED) with **built-in translation** on 12 native pairs — no external service needed.
+> - **Portable CUDA libs** via pip venv at postinst — no NVIDIA repo required.
+>
+> v1.3.1 patch fixes: CUDA → CPU runtime fallback, `uinput` auto-load on Fedora/RHEL, strict setup-wizard checks. → [Release](https://github.com/rcspam/dictee/releases/tag/v1.3.1) · [Changelog](https://github.com/rcspam/dictee/wiki/Changelog)
+>
+> 📚 The full [**dictee wiki**](https://github.com/rcspam/dictee/wiki) is online — 24 pages covering installation, configuration, all 4 ASR backends (with Parakeet-TDT and Canary-1B deep-dives), post-processing, diarization, troubleshooting, and developer guide. Available in 🇬🇧 English and 🇫🇷 French.
+
+<p align="center">
+  <img src="assets/demo-dictee-1.3.1.gif" alt="dictee — push-to-talk demo: press F8, speak, text appears at the cursor" width="900">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots-vm/transcribe-diarize_1.3.png" alt="dictee-transcribe — file transcription with speaker diarization, audio player, and per-tab translation" width="900">
+</p>
 
 <p align="center">
   <a href="#what-is-dictee">What is dictee?</a> &bull;
@@ -131,6 +149,18 @@ Answer *"who spoke when?"* in multi-speaker recordings via NVIDIA's **Sortformer
 <p align="center">
   <img src="assets/screenshots-vm/diarisation-2_1.3.png" alt="Speaker diarization — speaker labels" width="900">
 </p>
+
+### Transcribe audio & video files
+
+Push-to-talk is dictee's main flow, but the bundled **`dictee-transcribe`** window also handles offline transcription of any audio or video file you already have. Multi-tab interface, audio player synchronised with the timeline, per-tab translation and LLM analysis, export to **PDF / SRT / JSON / Markdown**.
+
+- **Any input format** (mp3, mp4, wav, opus, flac, mkv…) — auto-converted via ffmpeg
+- **Multi-tab** — keep the original transcription side-by-side with translations and LLM analyses (summary, chapters, ASR cleanup…)
+- **Speaker diarization** built-in — toggle on, get up to 4 speakers labelled and renamable
+- **LLM analysis** — 14 providers configurable side by side (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…)
+- **Per-tab translation** — Canary / LibreTranslate / Ollama / Google / Bing
+
+→ [LLM-Diarization wiki](https://github.com/rcspam/dictee/wiki/LLM-Diarization)
 
 ### 3 visual interfaces
 
