@@ -1689,19 +1689,25 @@ class LLMProcessDialog(QDialog):
     On success the parent's ._add_llm_result_tab(name, text) is called and
     the dialog closes. Errors are shown inline so the user can retry."""
 
-    def __init__(self, segments, parent=None, is_plain=False):
+    def __init__(self, segments, parent=None, is_plain=False, source_widget=None):
         """`is_plain=True` when the source tab is a non-diarized
         transcription. The profile combo is then filtered to the
         plain-text profiles only (and conversely, diarized tabs only
         see the diarized profiles) so the user can't pick a profile
         whose prompt expects [Speaker N] labels on plain text or
-        vice-versa."""
+        vice-versa.
+
+        `source_widget` pins the analysis to the transcription tab the
+        user clicked from, so the resulting "#N LLM: …" tab inherits
+        the correct counter even if the user later opens a fresh
+        transcription that updates `parent._text_edit`."""
         super().__init__(parent)
         self.setWindowTitle(_("LLM analysis"))
         self.setMinimumWidth(560)
 
         self._segments = list(segments or [])
         self._parent_window = parent
+        self._source_widget = source_widget
         self._thread = None
         self._is_plain = is_plain
 
@@ -1933,7 +1939,7 @@ class LLMProcessDialog(QDialog):
         self._llm_tab_widget = None
         if hasattr(self._parent_window, "_start_llm_result_tab"):
             self._llm_tab_widget = self._parent_window._start_llm_result_tab(
-                profile_name, model)
+                profile_name, model, source_widget=self._source_widget)
 
         # Force the LLM output language to the user's native language
         # (DICTEE_LANG_SOURCE in dictee.conf), NOT the translation
@@ -1975,7 +1981,8 @@ class LLMProcessDialog(QDialog):
             self._parent_window._finish_llm_result_tab(
                 self._llm_tab_widget, text)
         elif hasattr(self._parent_window, "_add_llm_result_tab"):
-            self._parent_window._add_llm_result_tab(profile_name, text)
+            self._parent_window._add_llm_result_tab(
+                profile_name, text, source_widget=self._source_widget)
         self.accept()
 
     def _on_error(self, msg):
@@ -2853,8 +2860,30 @@ class TranscribeWindow(QDialog):
 
     def _update_transcribe_btn(self):
         has_file = bool(self._file_input.text().strip())
-        not_running = self._process is None
+        # `_transcription_in_progress` is the single source of truth: it
+        # is raised at the start of _on_transcribe and lowered only when
+        # the run truly ends (success or error). The QProcess /
+        # _diarize_worker / _chunked_worker checks remain as belt &
+        # braces — there's a brief window between phase 1's QProcess
+        # cleanup and phase 2's worker spawn where all three are None,
+        # which the flag covers.
+        not_running = (
+            not getattr(self, "_transcription_in_progress", False)
+            and self._process is None
+            and getattr(self, "_diarize_worker", None) is None
+            and getattr(self, "_chunked_worker", None) is None
+        )
         self._btn_transcribe.setEnabled(has_file and not_running)
+        # Same gating for inputs whose value would otherwise be picked
+        # up mid-run (diarize toggle is read at job start; auto-translate
+        # is checked when results land). We never *force* them on; we
+        # only block changes while a job is in-flight.
+        if hasattr(self, "_chk_diarize"):
+            self._chk_diarize.setEnabled(not_running)
+        if hasattr(self, "_chk_auto_translate"):
+            self._chk_auto_translate.setEnabled(not_running)
+        if hasattr(self, "_sld_sensitivity"):
+            self._sld_sensitivity.setEnabled(not_running)
 
     @staticmethod
     def _get_audio_duration(path):
@@ -3507,8 +3536,10 @@ class TranscribeWindow(QDialog):
 
         self._lbl_status.setText(_("Transcribing..."))
         self._lbl_status.setVisible(True)
-        self._btn_transcribe.setEnabled(False)
+        # Single flag drives the whole gating logic — see _update_transcribe_btn.
+        self._transcription_in_progress = True
         self._btn_translate.setEnabled(False)
+        self._update_transcribe_btn()
 
         # Long-file chunked pipeline: diarize ON + duration > threshold + CUDA build
         # → ffmpeg pre-cut + diarize-only global + transcribe-diarize-batch --no-diarize
@@ -3564,6 +3595,7 @@ class TranscribeWindow(QDialog):
                     self._lbl_status.setText(
                         _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
                     self._lbl_status.setVisible(True)
+                    self._transcription_in_progress = False
                     self._update_transcribe_btn()
                     self._process.deleteLater()
                     self._process = None
@@ -3578,6 +3610,7 @@ class TranscribeWindow(QDialog):
                 self._lbl_status.setText(
                     _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
                 self._lbl_status.setVisible(True)
+                self._transcription_in_progress = False
                 self._update_transcribe_btn()
                 self._process.deleteLater()
                 self._process = None
@@ -3624,6 +3657,7 @@ class TranscribeWindow(QDialog):
         audio_path = getattr(self, '_diarize_audio_path', '')
         if not audio_path or not os.path.isfile(audio_path):
             self._lbl_status.setText(_("Audio file not found for phase 2."))
+            self._transcription_in_progress = False
             self._update_transcribe_btn()
             return
 
@@ -3657,6 +3691,7 @@ class TranscribeWindow(QDialog):
         self._diarize_worker = None
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
+        self._transcription_in_progress = False
         self._update_transcribe_btn()
 
     # === Chunked long-file pipeline slots ===
@@ -3684,6 +3719,7 @@ class TranscribeWindow(QDialog):
         self._btn_cancel.setVisible(False)
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
+        self._transcription_in_progress = False
         self._update_transcribe_btn()
 
     def _on_cancel_chunked(self):
@@ -3698,7 +3734,11 @@ class TranscribeWindow(QDialog):
     def _finish_transcription(self, raw_output):
         """Common finish logic for both single-phase and two-phase diarization."""
         self._progress.setVisible(False)
-        self._btn_transcribe.setEnabled(True)
+        # Lower the single source-of-truth flag, then route through
+        # _update_transcribe_btn so the diarize toggle, auto-translate
+        # checkbox and sensitivity slider come back together.
+        self._transcription_in_progress = False
+        self._update_transcribe_btn()
         self._btn_translate.setEnabled(True)
 
         if not raw_output:
@@ -3768,7 +3808,13 @@ class TranscribeWindow(QDialog):
         if self._process:
             self._process.deleteLater()
         self._process = None
-        self._update_transcribe_btn()
+        # Note: do NOT touch _transcription_in_progress here — for two-
+        # phase diarize we are about to spawn _diarize_worker. Lowering
+        # the flag now would create a brief window where the button is
+        # re-enabled mid-flight (the bug the user hit on "Transcribing
+        # 1/3"). The flag is lowered in _finish_transcription /
+        # _on_diarize_error / _on_chunked_error / the error branches
+        # below.
 
         raw_output = bytes(self._stdout_buf).decode("utf-8", errors="replace").strip()
 
@@ -3777,7 +3823,9 @@ class TranscribeWindow(QDialog):
             self._diarize_two_phase = False
             _dbg(f"_on_finished: phase 1 done (diarize-only), segments:\n{raw_output}")
             self._lbl_status.setText(_("Restarting daemon for transcription..."))
-            # Restart daemon
+            # Restart daemon — _diarize_worker is created here and will
+            # keep _update_transcribe_btn() returning False until phase 2
+            # actually completes via _on_diarize_done.
             self._restart_daemon_and_transcribe(raw_output)
             return
 
@@ -3828,6 +3876,8 @@ class TranscribeWindow(QDialog):
             self._raw_text = ""
             self._segments = []
             self._grp_rename.setVisible(False)
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
             self._update_translate_btn()
             return
 
@@ -3837,6 +3887,8 @@ class TranscribeWindow(QDialog):
             self._raw_text = ""
             self._segments = []
             self._grp_rename.setVisible(False)
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
             self._update_translate_btn()
             return
 
@@ -3881,6 +3933,12 @@ class TranscribeWindow(QDialog):
         self._update_translate_btn()
 
         self._show_status()
+
+        # Run is genuinely done — release the gating flag and refresh
+        # button states (this also enables the diarize toggle, the
+        # auto-translate checkbox and the sensitivity slider).
+        self._transcription_in_progress = False
+        self._update_transcribe_btn()
 
         # Auto-translate if checked and a target is selected. The
         # source language is auto-detected inside _on_translate; same-
@@ -4512,18 +4570,28 @@ class TranscribeWindow(QDialog):
         speaker field of each segment so the LLM sees human-friendly
         names instead of the canonical labels.
         """
-        raw_segments = list(getattr(self._text_edit, "_diarize_segments", None)
+        # Pin the source = the tab the user clicked from. Without this,
+        # _start_llm_result_tab would compute the "#N " prefix from
+        # self._text_edit, which tracks the *last created* transcription
+        # tab — not the one currently visible. Picking up the active
+        # widget at click time keeps the LLM result tab's counter in
+        # sync with the transcription it analyses.
+        src_widget = self._tabs.currentWidget()
+        if src_widget is None or getattr(src_widget, "_is_llm_result", False):
+            src_widget = self._text_edit
+        raw_segments = list(getattr(src_widget, "_diarize_segments", None)
                             or self._segments or [])
         is_plain = not raw_segments
         if is_plain:
-            raw_text = (getattr(self._text_edit, "_raw_text", "")
+            raw_text = (getattr(src_widget, "_raw_text", "")
                         or self._raw_text)
             if raw_text:
                 raw_segments = [{
                     "start": 0.0, "end": 0.0,
                     "speaker": "Speaker 0", "text": raw_text,
                 }]
-        name_map = getattr(self, "_speaker_name_map", None) or {}
+        name_map = (getattr(src_widget, "_speaker_name_map", None)
+                    or getattr(self, "_speaker_name_map", None) or {})
         segments = []
         for seg in raw_segments:
             seg_copy = dict(seg)
@@ -4532,7 +4600,8 @@ class TranscribeWindow(QDialog):
                 seg_copy["speaker"] = name_map[canonical].strip()
             segments.append(seg_copy)
         try:
-            self._llm_dlg = LLMProcessDialog(segments, self, is_plain=is_plain)
+            self._llm_dlg = LLMProcessDialog(
+                segments, self, is_plain=is_plain, source_widget=src_widget)
         except ImportError as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(
@@ -4632,7 +4701,7 @@ class TranscribeWindow(QDialog):
         self._spinner_idx = (self._spinner_idx + 1) % len(self.SPINNER_FRAMES)
         self._render_spinner_frame()
 
-    def _start_llm_result_tab(self, profile_name, model_name=""):
+    def _start_llm_result_tab(self, profile_name, model_name="", source_widget=None):
         """Create the LLM result tab immediately, empty, with a spinner.
         Returns the editor widget; caller passes it to
         _finish_llm_result_tab once the LLM call is done."""
@@ -4646,12 +4715,13 @@ class TranscribeWindow(QDialog):
         editor._audio_path = None
         editor._is_llm_result = True
         editor._llm_profile_name = profile_name
-        # Inherit the "#N " counter from the original transcription
-        # tab (self._text_edit) so the result visibly belongs to that
-        # transcription, e.g. "#3 LLM: Synthèse". We use the original
-        # rather than the currently active tab because _on_llm_process
-        # always analyses the original, not the active translation.
-        src_idx = self._tabs.indexOf(self._text_edit)
+        # Inherit the "#N " counter from the source transcription tab
+        # the user clicked from (captured by _on_llm_process), so the
+        # result visibly belongs to that transcription — e.g. "#3 LLM:
+        # Synthèse". Falling back to self._text_edit only matters for
+        # legacy callers that didn't pass `source_widget`.
+        src = source_widget if source_widget is not None else self._text_edit
+        src_idx = self._tabs.indexOf(src)
         prefix = ""
         if src_idx >= 0:
             m = re.match(r"^(#\d+)\s", self._tabs.tabText(src_idx))
@@ -4690,7 +4760,7 @@ class TranscribeWindow(QDialog):
             self._tabs.removeTab(idx)
             editor.deleteLater()
 
-    def _add_llm_result_tab(self, profile_name, text):
+    def _add_llm_result_tab(self, profile_name, text, source_widget=None):
         """Append a new tab containing an LLM analysis result (markdown
         or reformatted diarize). Read-only by default — user can toggle
         edit mode if they want to tweak it."""
@@ -4708,10 +4778,11 @@ class TranscribeWindow(QDialog):
         # out the irrelevant buttons (Copy all, Export all, LLM analysis).
         editor._is_llm_result = True
         editor._llm_profile_name = profile_name
-        # Match _start_llm_result_tab: inherit "#N " from the
-        # **original** transcription tab (self._text_edit), since the
-        # LLM always analyses the original, not the active tab.
-        src_idx = self._tabs.indexOf(self._text_edit)
+        # Inherit "#N " from the source transcription tab captured at
+        # click-time (falls back to the last-touched tab for legacy
+        # callers).
+        src = source_widget if source_widget is not None else self._text_edit
+        src_idx = self._tabs.indexOf(src)
         prefix = ""
         if src_idx >= 0:
             m = re.match(r"^(#\d+)\s", self._tabs.tabText(src_idx))

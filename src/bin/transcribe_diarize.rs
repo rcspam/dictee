@@ -1,7 +1,7 @@
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 #[cfg(feature = "sortformer")]
-use parakeet_rs::{ExecutionConfig, ExecutionProvider, ParakeetTDT, TimestampMode, Transcriber};
+use parakeet_rs::{best_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
 #[cfg(feature = "sortformer")]
 use std::env;
 #[cfg(feature = "sortformer")]
@@ -119,11 +119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(not(feature = "cuda"))]
         let daemon_was_active = false;
 
-        // Configure execution
-        #[cfg(feature = "cuda")]
-        let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
-        #[cfg(not(feature = "cuda"))]
-        let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+        // Detects a usable NVIDIA GPU at runtime; falls back to CPU otherwise.
+        let config = ExecutionConfig::new().with_execution_provider(best_provider());
 
         // Load Sortformer for diarization
         let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);

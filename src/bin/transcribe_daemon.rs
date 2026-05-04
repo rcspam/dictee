@@ -1,5 +1,5 @@
 use parakeet_rs::{
-    Canary, ExecutionConfig, ExecutionProvider, ParakeetTDT, TimestampMode, Transcriber,
+    best_provider, Canary, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber,
     TranscriptionResult,
 };
 use std::env;
@@ -131,11 +131,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::remove_file(&socket_path)?;
     }
 
-    // Configure execution provider
-    #[cfg(feature = "cuda")]
-    let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
-    #[cfg(not(feature = "cuda"))]
-    let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+    // Detects a usable NVIDIA GPU at runtime; falls back to CPU otherwise.
+    let config = ExecutionConfig::new().with_execution_provider(best_provider());
 
     eprintln!(
         "Loading {} model from {}...",

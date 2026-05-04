@@ -9,7 +9,7 @@
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 #[cfg(feature = "sortformer")]
-use parakeet_rs::{ExecutionConfig, ExecutionProvider, Nemotron};
+use parakeet_rs::{best_provider, ExecutionConfig, ExecutionProvider, Nemotron};
 #[cfg(feature = "sortformer")]
 use std::env;
 use std::path::Path;
@@ -93,27 +93,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Load models — try CUDA first, fallback to CPU
         eprint!("Loading Nemotron... ");
         std::io::stderr().flush()?;
-        #[cfg(feature = "cuda")]
-        let (mut nemotron, config) = {
-            let cuda_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
-            match Nemotron::from_pretrained(&nemotron_dir, Some(cuda_cfg.clone())) {
-                Ok(n) => { eprintln!("OK (CUDA)"); (n, cuda_cfg) }
-                Err(_) => {
-                    eprintln!("CUDA failed, falling back to CPU");
-                    let cpu_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
-                    eprint!("Loading Nemotron... ");
-                    let n = Nemotron::from_pretrained(&nemotron_dir, Some(cpu_cfg.clone()))?;
-                    eprintln!("OK (CPU)");
-                    (n, cpu_cfg)
-                }
+        // Runtime provider probe + safety-net retry on CPU if GPU init crashes late.
+        let provider = best_provider();
+        let cfg = ExecutionConfig::new().with_execution_provider(provider);
+        let (mut nemotron, config) = match Nemotron::from_pretrained(&nemotron_dir, Some(cfg.clone())) {
+            Ok(n) => {
+                eprintln!("OK ({:?})", provider);
+                (n, cfg)
             }
-        };
-        #[cfg(not(feature = "cuda"))]
-        let (mut nemotron, config) = {
-            let cpu_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
-            let n = Nemotron::from_pretrained(&nemotron_dir, Some(cpu_cfg.clone()))?;
-            eprintln!("OK");
-            (n, cpu_cfg)
+            Err(e) if provider != ExecutionProvider::Cpu => {
+                eprintln!("GPU init failed ({}); retrying on CPU", e);
+                let cpu_cfg = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+                eprint!("Loading Nemotron... ");
+                let n = Nemotron::from_pretrained(&nemotron_dir, Some(cpu_cfg.clone()))?;
+                eprintln!("OK (CPU)");
+                (n, cpu_cfg)
+            }
+            Err(e) => return Err(e.into()),
         };
 
         eprint!("Loading Sortformer... ");

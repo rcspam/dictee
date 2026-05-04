@@ -114,25 +114,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             dbg_print!("config=custom onset={:.3} offset={:.3}", onset, offset);
             DiarizationConfig::custom(onset, offset)
         };
-        #[cfg(feature = "cuda")]
-        let mut sortformer = {
-            let cuda_cfg = ExecutionConfig::new()
-                .with_execution_provider(parakeet_rs::ExecutionProvider::Cuda);
-            match Sortformer::with_config(&sortformer_path, Some(cuda_cfg), diar_config.clone()) {
-                Ok(sf) => sf,
-                Err(_) => {
-                    eprintln!("CUDA init failed for Sortformer, falling back to CPU");
-                    let cpu_cfg = ExecutionConfig::new()
-                        .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
-                    Sortformer::with_config(&sortformer_path, Some(cpu_cfg), diar_config)?
-                }
+        // Runtime provider probe + safety-net retry on CPU if GPU init crashes
+        // late (e.g. driver insufficient for runtime version).
+        let provider = parakeet_rs::best_provider();
+        let cfg = ExecutionConfig::new().with_execution_provider(provider);
+        let mut sortformer = match Sortformer::with_config(&sortformer_path, Some(cfg), diar_config.clone()) {
+            Ok(sf) => sf,
+            Err(e) if provider != parakeet_rs::ExecutionProvider::Cpu => {
+                eprintln!("[dictee] Sortformer GPU init failed ({}); retrying on CPU.", e);
+                let cpu_cfg = ExecutionConfig::new()
+                    .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
+                Sortformer::with_config(&sortformer_path, Some(cpu_cfg), diar_config)?
             }
-        };
-        #[cfg(not(feature = "cuda"))]
-        let mut sortformer = {
-            let cpu_cfg = ExecutionConfig::new()
-                .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
-            Sortformer::with_config(&sortformer_path, Some(cpu_cfg), diar_config)?
+            Err(e) => return Err(e.into()),
         };
 
         dbg_print!("model loaded, audio={} samples, rate={}, channels={}", audio.len(), spec.sample_rate, spec.channels);

@@ -72,11 +72,17 @@ _install_cuda_venv() {
 }
 
 post_install() {
+    # Load uinput now so dotool & dictee-ptt work without a reboot.
+    # /etc/modules-load.d/dictee-uinput.conf handles subsequent boots.
+    modprobe uinput 2>/dev/null || true
+
     _install_postprocess_venv
     _install_cuda_venv
 }
 
 post_upgrade() {
+    modprobe uinput 2>/dev/null || true
+
     _upgrade_postprocess_venv
     _install_cuda_venv
 }

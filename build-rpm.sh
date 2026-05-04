@@ -3,7 +3,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.3.0"
+VERSION="1.3.1"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -106,6 +106,10 @@ prepare_buildroot() {
     # Udev
     mkdir -p "$buildroot/etc/udev/rules.d"
     cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$buildroot/etc/udev/rules.d/"
+
+    # modules-load.d (Fedora/RHEL n'auto-loadent pas uinput)
+    mkdir -p "$buildroot/etc/modules-load.d"
+    cp "$PKG_DIR/etc/modules-load.d/dictee-uinput.conf" "$buildroot/etc/modules-load.d/"
 
     # Systemd
     mkdir -p "$buildroot/usr/lib/systemd/user"
@@ -309,6 +313,7 @@ Features:
 /usr/lib/dictee/*
 /etc/ld.so.conf.d/dictee.conf
 /etc/udev/rules.d/80-dotool.rules
+/etc/modules-load.d/dictee-uinput.conf
 /usr/lib/systemd/user/*.service
 /usr/lib/systemd/user-preset/*.preset
 /usr/share/man/man1/*.gz
@@ -326,6 +331,9 @@ UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
 if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
     sed -i 's/MODE="0620"/MODE="0660"/' "\$UDEV_RULE"
 fi
+# Charger uinput maintenant (Fedora/RHEL ne le font pas par défaut, et
+# /etc/modules-load.d/dictee-uinput.conf ne s'applique qu'au prochain boot).
+modprobe uinput 2>/dev/null || true
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
@@ -544,6 +552,7 @@ Features:
 %files
 /usr/bin/*
 /etc/udev/rules.d/80-dotool.rules
+/etc/modules-load.d/dictee-uinput.conf
 /usr/lib/dictee/*
 /usr/lib/systemd/user/*.service
 /usr/lib/systemd/user-preset/*.preset
@@ -561,6 +570,8 @@ UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
 if [ -f "\$UDEV_RULE" ] && grep -q 'MODE="0620"' "\$UDEV_RULE"; then
     sed -i 's/MODE="0620"/MODE="0660"/' "\$UDEV_RULE"
 fi
+# Charger uinput maintenant (Fedora/RHEL ne le font pas par défaut).
+modprobe uinput 2>/dev/null || true
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 

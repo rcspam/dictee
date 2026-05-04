@@ -1,4 +1,8 @@
 post_install() {
+    # Load uinput now so dotool & dictee-ptt work without a reboot.
+    # /etc/modules-load.d/dictee-uinput.conf handles subsequent boots.
+    modprobe uinput 2>/dev/null || true
+
     # Create Python venv for text2num (number conversion)
     PP_VENV="/usr/share/dictee/postprocess-env"
     if command -v python3 >/dev/null 2>&1; then
@@ -13,6 +17,8 @@ post_install() {
 }
 
 post_upgrade() {
+    modprobe uinput 2>/dev/null || true
+
     PP_VENV="/usr/share/dictee/postprocess-env"
     if [ -d "$PP_VENV" ] && command -v python3 >/dev/null 2>&1; then
         "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true

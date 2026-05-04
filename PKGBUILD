@@ -9,9 +9,9 @@
 # other in `conflicts=()` — pacman refuses to install both.
 
 pkgname=dictee
-pkgver=1.3.0
+pkgver=1.3.1
 pkgrel=1
-_tag=1.3.0
+_tag=1.3.1
 pkgdesc="Fast push-to-talk voice dictation for Linux (CPU build)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
@@ -198,4 +198,11 @@ package() {
     echo "$pkgver build $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
         > "$pkgdir/usr/share/dictee/VERSION"
     chmod 644 "$pkgdir/usr/share/dictee/VERSION"
+
+    # uinput auto-load — dotool & dictee-ptt need /dev/uinput. The AUR
+    # `dotool` package ships the udev rule, but no distro guarantees the
+    # kernel module is loaded. Add a modules-load.d drop-in so it is
+    # pulled in at every boot by systemd-modules-load.service.
+    install -Dm644 pkg/dictee/etc/modules-load.d/dictee-uinput.conf \
+        "$pkgdir/etc/modules-load.d/dictee-uinput.conf"
 }

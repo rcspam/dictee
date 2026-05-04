@@ -511,6 +511,12 @@ mode_tarball() {
     # --- udev rule for dotool ---
     info "Installing udev rules"
     install -Dm644 "$SCRIPT_DIR/etc/udev/rules.d/80-dotool.rules" /etc/udev/rules.d/80-dotool.rules
+    # modules-load.d so uinput auto-loads at boot (Fedora/RHEL don't load it).
+    if [ -f "$SCRIPT_DIR/etc/modules-load.d/dictee-uinput.conf" ]; then
+        install -Dm644 "$SCRIPT_DIR/etc/modules-load.d/dictee-uinput.conf" \
+            /etc/modules-load.d/dictee-uinput.conf
+    fi
+    modprobe uinput 2>/dev/null || true
     udevadm control --reload-rules 2>/dev/null || true
     udevadm trigger /dev/uinput 2>/dev/null || true
 

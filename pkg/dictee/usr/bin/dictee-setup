@@ -21,6 +21,7 @@ import subprocess
 import sys
 import locale
 import tempfile
+import time
 
 # Allow importing dictee_models from local dir first (dev), then /usr/lib/dictee (packaged)
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13819,7 +13820,7 @@ class DicteeSetupDialog(QDialog):
 
     def _run_wizard_checks(self):
         checks = {
-            "daemon": self._check_daemon_active,   # service exists (not running yet)
+            "daemon": self._check_daemon_active,   # service active AND socket ready
             "model": self._check_model_installed_fn,
             "shortcut": self._check_shortcut_registered,
             "audio": lambda: len(QMediaDevices.audioInputs()) > 0,
@@ -13865,15 +13866,35 @@ class DicteeSetupDialog(QDialog):
             )
 
     def _check_daemon_active(self):
-        """Vérifie que le service systemd du backend choisi existe."""
+        """Vérifie que le service ASR est réellement actif (et la socket ouverte
+        pour les backends Rust). Tolère un état `activating` transitoire (model
+        loading) jusqu'à ~6 s avant de conclure à l'échec, ce qui évite un
+        faux positif quand le daemon crashe en boucle (driver CUDA cassé,
+        modèle absent, etc.)."""
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
-        svc = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
-        try:
-            r = subprocess.run(["systemctl", "--user", "list-unit-files", f"{svc}.service"],
-                               capture_output=True, text=True)
-            return svc in r.stdout
-        except (FileNotFoundError, OSError):
-            return False
+        svc = {"parakeet": "dictee", "vosk": "dictee-vosk",
+               "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+        sock = os.path.join(runtime_dir, "transcribe.sock")
+        needs_socket = asr in ("parakeet", "canary")
+        deadline = time.monotonic() + 6.0
+        last_state = "?"
+        while time.monotonic() < deadline:
+            try:
+                r = subprocess.run(
+                    ["systemctl", "--user", "is-active", f"{svc}.service"],
+                    capture_output=True, text=True, timeout=2,
+                )
+            except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+                return False
+            last_state = (r.stdout or "").strip()
+            if last_state == "active" and (not needs_socket or os.path.exists(sock)):
+                return True
+            if last_state in ("failed", "inactive"):
+                return False
+            # `activating` (or socket not yet ready) — wait and retry.
+            time.sleep(0.4)
+        return False
 
     def _check_model_installed_fn(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"

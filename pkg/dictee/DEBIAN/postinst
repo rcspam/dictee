@@ -214,6 +214,9 @@ if [ -f "$UDEV_RULE" ] && grep -q 'MODE="0620"' "$UDEV_RULE"; then
     sed -i 's/MODE="0620"/MODE="0660"/' "$UDEV_RULE"
     echo "✓ Règle udev corrigée (0620 → 0660)"
 fi
+# Charger uinput immédiatement (Fedora/RHEL ne le font pas par défaut, et
+# /etc/modules-load.d/dictee-uinput.conf ne s'applique qu'au prochain boot).
+modprobe uinput 2>/dev/null || true
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 echo "Règles udev rechargées (dotool/uinput)"

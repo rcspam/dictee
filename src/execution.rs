@@ -182,3 +182,80 @@ impl ModelConfig {
         Ok(builder)
     }
 }
+
+/// Probe whether a CUDA-capable GPU is actually usable on this host.
+///
+/// This is needed because the build-time `feature = "cuda"` flag only says
+/// the binary *can* drive CUDA — it does not guarantee a working driver at
+/// runtime. On a virtio VM, a headless container, or a host where the NVIDIA
+/// kernel module is unloaded, asking ONNX Runtime for the CUDA provider
+/// crashes deep inside `cudaSetDevice()` with code 35 ("driver insufficient")
+/// and bypasses ort's own provider-list fallback.
+///
+/// Honors `DICTEE_FORCE_CPU` as a manual override.
+#[cfg(feature = "cuda")]
+pub fn cuda_runtime_available() -> bool {
+    if std::env::var_os("DICTEE_FORCE_CPU").is_some() {
+        return false;
+    }
+    // Primary probe: NVIDIA driver populates one dir per GPU under
+    // /proc/driver/nvidia/gpus/<bus-id>/ when the kernel module is loaded.
+    if let Ok(mut entries) = std::fs::read_dir("/proc/driver/nvidia/gpus") {
+        if entries.next().is_some() {
+            return true;
+        }
+    }
+    // Secondary probe: /dev/nvidia0 character device, in case /proc is
+    // restricted (sandboxes, certain container runtimes).
+    std::path::Path::new("/dev/nvidia0").exists()
+}
+
+/// Pick the best execution provider available at runtime.
+///
+/// CUDA-enabled binaries call this instead of hard-wiring `Cuda`, so the
+/// same artifact gracefully falls back to CPU on machines without a working
+/// NVIDIA driver. Emits a one-line note on stderr when falling back.
+pub fn best_provider() -> ExecutionProvider {
+    #[cfg(feature = "cuda")]
+    {
+        if cuda_runtime_available() {
+            return ExecutionProvider::Cuda;
+        }
+        eprintln!(
+            "[dictee] No NVIDIA GPU detected (or DICTEE_FORCE_CPU set) — using CPU provider."
+        );
+    }
+    ExecutionProvider::Cpu
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn best_provider_default_is_cpu_without_cuda_feature() {
+        // When the cuda feature is off, best_provider() must always return Cpu.
+        // When the cuda feature is on, the result depends on the host — we
+        // only assert it returns *something* without panicking.
+        let p = best_provider();
+        #[cfg(not(feature = "cuda"))]
+        assert_eq!(p, ExecutionProvider::Cpu);
+        #[cfg(feature = "cuda")]
+        let _ = p; // smoke test only
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn force_cpu_env_var_disables_cuda() {
+        // Save and restore env to be polite to other tests.
+        let prev = std::env::var_os("DICTEE_FORCE_CPU");
+        // SAFETY: tests run sequentially within this module by default; we
+        // restore the variable below before returning.
+        unsafe { std::env::set_var("DICTEE_FORCE_CPU", "1") };
+        assert!(!cuda_runtime_available());
+        match prev {
+            Some(v) => unsafe { std::env::set_var("DICTEE_FORCE_CPU", v) },
+            None => unsafe { std::env::remove_var("DICTEE_FORCE_CPU") },
+        }
+    }
+}

@@ -1,4 +1,4 @@
-use parakeet_rs::{ParakeetTDT, Transcriber, TimestampMode, ExecutionConfig, ExecutionProvider};
+use parakeet_rs::{best_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
 use std::env;
 use std::fs;
 use std::process::{Command, Stdio};
@@ -59,11 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = fs::remove_file(&wav_path);
     }
 
-    // Configure execution provider
-    #[cfg(feature = "cuda")]
-    let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda);
-    #[cfg(not(feature = "cuda"))]
-    let config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+    // Detects a usable NVIDIA GPU at runtime; falls back to CPU otherwise.
+    let config = ExecutionConfig::new().with_execution_provider(best_provider());
 
     // Load TDT model (multilingual, supports French)
     let mut parakeet = ParakeetTDT::from_pretrained(model_dir, Some(config))?;

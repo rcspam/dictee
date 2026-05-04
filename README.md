@@ -190,7 +190,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Pin a specific version
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.0
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.1
 
 # Non-interactive
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -203,22 +203,22 @@ Download from [Releases](../../releases).
 **Ubuntu / Debian (CPU):**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.0_amd64.deb
+sudo apt install ./dictee-cpu_1.3.1_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU):** requires the NVIDIA CUDA APT repo — see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) for the one-time setup, then:
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.0_amd64.deb
+sudo apt install ./dictee-cuda_1.3.1_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU):**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.0-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.1-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.0-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.1-1.x86_64.rpm`.
 
 **Arch Linux (AUR):** `PKGBUILD` in the repo root (x86_64 + aarch64). Clone + `makepkg -si`.
 
@@ -227,8 +227,8 @@ sudo dnf install ./dictee-cpu-1.3.0-1.x86_64.rpm
 **Other distros (tarball):**
 
 ```bash
-tar xzf dictee-1.3.0_amd64.tar.gz
-cd dictee-1.3.0
+tar xzf dictee-1.3.1_amd64.tar.gz
+cd dictee-1.3.1
 sudo ./install.sh
 ```
 
@@ -349,7 +349,9 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 
 ## Roadmap
 
-**v1.3.0 (current)** — Short-text keepcaps exceptions (7 languages), extended match mode, LibreTranslate purge models, continuation + translate fixes, version-number dictation, multi-user safe (UID suffix on state files), plasmoid cross-process toggles (LLM / Short / Meeting), 682 postprocess tests + 148 pipeline tests, theme-aware banner.
+**v1.3.1 (current)** — **CUDA → CPU runtime fallback**: the CUDA package now probes `/proc/driver/nvidia/gpus/` at startup and falls back to CPU automatically on hosts without a usable NVIDIA driver (virtio VMs, headless containers, machines with the driver uninstalled), instead of crashing in a restart loop. Setup wizard's "ASR service" check is now strict (active state + open socket), so the final page can no longer report "Everything is ready" while the daemon is dead. New `DICTEE_FORCE_CPU=1` env override.
+
+**v1.3.0** — Short-text keepcaps exceptions (7 languages), extended match mode, LibreTranslate purge models, continuation + translate fixes, version-number dictation, multi-user safe (UID suffix on state files), plasmoid cross-process toggles (LLM / Short / Meeting), 682 postprocess tests + 148 pipeline tests, theme-aware banner.
 
 **v1.4+ (planned)**
 - **Chunked diarization** — process files > 15 min via `transcribe-diarize-batch` (prototype validated: 54 min in 122 s)

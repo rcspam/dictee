@@ -13,7 +13,7 @@ set -e
 
 cd "$(dirname "$0")"
 
-VERSION="1.3.0"
+VERSION="1.3.1"
 PKG_DIR="pkg/dictee"
 DIST_DIR=".dev/dist"
 mkdir -p "$DIST_DIR"
@@ -136,6 +136,7 @@ mkdir -p \
     "$TARBALL_DIR/usr/share/applications" \
     "$TARBALL_DIR/usr/share/dictee/assets" \
     "$TARBALL_DIR/etc/udev/rules.d" \
+    "$TARBALL_DIR/etc/modules-load.d" \
     "$TARBALL_DIR/etc/ld.so.conf.d"
 
 for _lang in fr de es it pt uk; do
@@ -187,6 +188,8 @@ echo "/usr/lib/dictee" > "$TARBALL_DIR/etc/ld.so.conf.d/dictee.conf"
 # Udev, services, presets, icons, .desktop, locales, configs, plasmoid
 [ -f "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" ] && \
     cp "$PKG_DIR/etc/udev/rules.d/80-dotool.rules" "$TARBALL_DIR/etc/udev/rules.d/"
+[ -f "$PKG_DIR/etc/modules-load.d/dictee-uinput.conf" ] && \
+    cp "$PKG_DIR/etc/modules-load.d/dictee-uinput.conf" "$TARBALL_DIR/etc/modules-load.d/"
 cp "$PKG_DIR/usr/lib/systemd/user/"*.service               "$TARBALL_DIR/usr/lib/systemd/user/"        2>/dev/null || true
 cp "$PKG_DIR/usr/lib/systemd/user-preset/"*.preset         "$TARBALL_DIR/usr/lib/systemd/user-preset/" 2>/dev/null || true
 cp "$PKG_DIR/usr/share/man/man1/"*.1                        "$TARBALL_DIR/usr/share/man/man1/"          2>/dev/null || true
