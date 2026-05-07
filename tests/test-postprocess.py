@@ -2808,10 +2808,12 @@ class TestLongText(unittest.TestCase):
                 {"response": long_text}).encode("utf-8")
             mock_url.return_value = mock_resp
             result = _pp.llm_postprocess(long_text)
-            # Check that full text was sent
+            # Check that full text was sent (wrapped with <TRANSCRIPT>
+            # markers since 5db4044 — prompt-injection defense)
             req = mock_url.call_args[0][0]
             payload = _json.loads(req.data.decode("utf-8"))
-            self.assertEqual(payload["prompt"], long_text)
+            expected = f"<TRANSCRIPT>\n{long_text}\n</TRANSCRIPT>"
+            self.assertEqual(payload["prompt"], expected)
 
 
 # ══════════════════════════════════════════════════════════════════════
