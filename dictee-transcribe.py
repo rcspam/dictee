@@ -3358,13 +3358,17 @@ class TranscribeWindow(QDialog):
             markers.append((int(seg["start"] * 1000), int(seg["end"] * 1000), color))
         self._sld_position.set_markers(markers)
 
-        # Sync the speaker rename panel with the active tab's map
+        # Sync per-tab state onto the instance. Read _was_diarized from the
+        # tab itself (set in _finish_transcription / _on_finished) so that
+        # switching from a diarized tab to a plain-text tab correctly
+        # resets the flag — otherwise downstream code (_apply_format,
+        # _show_status, etc.) would still treat the active tab as diarized.
+        self._was_diarized = bool(getattr(widget, '_was_diarized', False))
+        self._segments = list(segs) if segs else []
+        self._speaker_name_map = dict(
+            getattr(widget, "_speaker_name_map", {}) or {})
         if hasattr(self, '_grp_rename'):
-            if segs:
-                self._segments = list(segs)
-                self._was_diarized = True
-                self._speaker_name_map = dict(
-                    getattr(widget, "_speaker_name_map", {}) or {})
+            if self._was_diarized and self._segments:
                 self._populate_rename_fields()
             else:
                 self._grp_rename.setVisible(False)
