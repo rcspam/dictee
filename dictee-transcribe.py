@@ -4279,19 +4279,32 @@ class TranscribeWindow(QDialog):
         return SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]
 
     def _apply_format(self):
-        """Format and display the original transcription tab.
+        """Format and display the active tab.
 
-        Reads segments/raw_text from self._text_edit itself rather than
-        the instance-level mutable triple — those follow the active
-        tab (see _on_tab_changed L~3268), so if the user is on a
-        translation tab when the format combo changes we'd otherwise
-        re-format the original tab with the translation's segments.
+        Reads segments/raw_text from the active widget itself (per-tab
+        state set by _finish_transcription / _on_finished / translation
+        handlers). Original behaviour was to anchor on self._text_edit
+        (the latest original tab) to avoid mismatching translation
+        segments with the original tab — but that broke the format
+        combo for any earlier original tab (e.g. user has Tab1=diarize
+        + Tab2=plain, switches to Tab1, changes format → nothing
+        happens because self._text_edit points at Tab2). Each tab now
+        carries its own segments/raw_text since translation tabs also
+        set those, so anchoring on the active widget is safe and
+        WYSIWYG.
+
+        Skips LLM-result tabs and other non-QTextEdit widgets.
         """
-        segments = (getattr(self._text_edit, "_diarize_segments", None)
-                    or self._segments)
-        raw_text = (getattr(self._text_edit, "_raw_text", "")
-                    or self._raw_text)
-        self._apply_format_to(self._text_edit, segments, raw_text)
+        widget = self._tabs.currentWidget()
+        if not isinstance(widget, QTextEdit):
+            return
+        if getattr(widget, "_is_llm_result", False):
+            return
+        segments = getattr(widget, "_diarize_segments", None) or []
+        raw_text = getattr(widget, "_raw_text", "")
+        if not raw_text and not segments:
+            return
+        self._apply_format_to(widget, segments, raw_text)
 
     def _apply_format_to(self, editor, segments, raw_text):
         """Format and display text in the given editor.
