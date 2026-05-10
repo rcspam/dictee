@@ -2859,7 +2859,9 @@ class TestLLMEndToEndMinistral(unittest.TestCase):
             "DICTEE_LLM_MODEL": self.MODEL,
             "DICTEE_LLM_POSITION": position,
             "DICTEE_LLM_SYSTEM_PROMPT": preset,
-            "DICTEE_LLM_TIMEOUT": "15",
+            # 30s covers Ministral 3B cold-start (~12-20s on RTX 4070).
+            # Subsequent tests reuse the warm model and finish under 1s.
+            "DICTEE_LLM_TIMEOUT": "30",
         })
 
     def test_basic_correction_fr(self):
@@ -2960,7 +2962,8 @@ class TestLLMEndToEndGemma(unittest.TestCase):
             "DICTEE_LLM_MODEL": self.MODEL,
             "DICTEE_LLM_POSITION": position,
             "DICTEE_LLM_SYSTEM_PROMPT": preset,
-            "DICTEE_LLM_TIMEOUT": "15",
+            # 30s covers Gemma3 4B cold-start. Subsequent tests reuse warm model.
+            "DICTEE_LLM_TIMEOUT": "30",
         })
 
     def test_basic_correction_fr(self):

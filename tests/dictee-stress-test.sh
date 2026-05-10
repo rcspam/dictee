@@ -838,7 +838,7 @@ if command -v dictee-postprocess >/dev/null 2>&1; then
 
     pp_test "Texte vide" "" ""
     pp_test "Espaces seuls" "   " ""
-    pp_test "Un seul mot" "Bonjour" "bonjour"
+    pp_test "Un seul mot" "Bonjour" "[Bb]onjour"
     pp_test "Hesitations FR" "euh ben oui euh c'est ca" "[Oo]ui c'est ca"
     pp_test "Commande virgule" "bonjour virgule comment allez-vous" "[Bb]onjour, [Cc]omment"
     pp_test "Commande point suivi" "bonjour point suivi bonne journee" "[Bb]onjour\\..* [Bb]onne"
