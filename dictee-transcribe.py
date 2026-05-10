@@ -786,17 +786,23 @@ class _DiarizeTranscribeWorker(QThread):
 
 
 class _ChunkedPipelineWorker(QThread):
-    """Long-file chunked pipeline (audio > LONG_AUDIO threshold + diarize ON).
+    """Long-file chunked pipeline (audio > VRAM-adaptive threshold + CUDA build).
 
-    Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
-    Phase 2: diarize-only on the full file -> global speaker segments.
-    Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
-    Phase 4: merge global speakers onto tokens via argmax_overlap.
+    With diarize=True (4 phases):
+      Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
+      Phase 2: diarize-only on the full file -> global speaker segments.
+      Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
+      Phase 4: merge global speakers onto tokens via argmax_overlap.
+      Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
 
-    Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
+    With diarize=False (2 phases — extends chunking to plain transcription):
+      Phase 1: ffmpeg pre-cut into 2-min chunks (same as above).
+      Phase 2: transcribe-diarize-batch --no-diarize on chunks -> tokens.
+      Output: plain text, postprocessed downstream like the non-chunked
+      `transcribe` batch path.
     """
-    phase_changed = Signal(int, str)    # (phase_num 1..4, label)
-    chunk_progress = Signal(int, int)   # (done, total) for Phase 3
+    phase_changed = Signal(int, str)    # (phase_num, label)
+    chunk_progress = Signal(int, int)   # (done, total) during chunked transcription
     finished = Signal(str)              # final formatted output
     error = Signal(str)
 
@@ -804,10 +810,11 @@ class _ChunkedPipelineWorker(QThread):
     OVERLAP_SECONDS = 15
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, parent=None):
+    def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
+        self._diarize = diarize
         self._cancel = False
         self._tmp_dir = None
         self._current_proc = None
@@ -842,7 +849,9 @@ class _ChunkedPipelineWorker(QThread):
                 self.error.emit(_("Could not determine audio duration"))
                 return
 
-            self.phase_changed.emit(1, _("Phase 1/4: pre-cut audio"))
+            n_phases = 4 if self._diarize else 2
+            self.phase_changed.emit(
+                1, _("Phase 1/{n}: pre-cut audio").format(n=n_phases))
             self._tmp_dir = self._make_tmp_dir()
             chunks = self._ffmpeg_split(duration)
             if self._cancel:
@@ -852,16 +861,23 @@ class _ChunkedPipelineWorker(QThread):
                 self.error.emit(_("No chunks produced from audio split"))
                 return
 
-            self.phase_changed.emit(2, _("Phase 2/4: global diarization"))
-            speaker_segments = self._run_diarize_only()
-            if self._cancel:
-                self.error.emit(_("Cancelled"))
-                return
-            if not speaker_segments:
-                self.error.emit(_("No speaker segments detected"))
-                return
+            speaker_segments = None
+            if self._diarize:
+                self.phase_changed.emit(
+                    2, _("Phase 2/{n}: global diarization").format(n=n_phases))
+                speaker_segments = self._run_diarize_only()
+                if self._cancel:
+                    self.error.emit(_("Cancelled"))
+                    return
+                if not speaker_segments:
+                    self.error.emit(_("No speaker segments detected"))
+                    return
 
-            self.phase_changed.emit(3, _("Phase 3/4: chunked transcription"))
+            transcribe_phase = 3 if self._diarize else 2
+            self.phase_changed.emit(
+                transcribe_phase,
+                _("Phase {p}/{n}: chunked transcription").format(
+                    p=transcribe_phase, n=n_phases))
             tokens_absolute = self._run_transcribe_batch(chunks)
             if self._cancel:
                 self.error.emit(_("Cancelled"))
@@ -870,11 +886,21 @@ class _ChunkedPipelineWorker(QThread):
                 self.error.emit(_("No transcription tokens produced"))
                 return
 
-            self.phase_changed.emit(4, _("Phase 4/4: merging speakers"))
-            output = self._merge(tokens_absolute, speaker_segments)
-            if not output:
-                self.error.emit(_("Merge produced empty output"))
-                return
+            if self._diarize:
+                self.phase_changed.emit(
+                    4, _("Phase 4/{n}: merging speakers").format(n=n_phases))
+                output = self._merge(tokens_absolute, speaker_segments)
+                if not output:
+                    self.error.emit(_("Merge produced empty output"))
+                    return
+            else:
+                # Plain transcription: concatenate token texts. Downstream
+                # _finish_transcription will run dictee-postprocess once
+                # on the joined string, mirroring the non-chunked path.
+                output = " ".join(t["text"] for t in tokens_absolute).strip()
+                if not output:
+                    self.error.emit(_("Empty transcription output"))
+                    return
 
             self.finished.emit(output)
         except Exception as e:
@@ -3403,14 +3429,61 @@ class TranscribeWindow(QDialog):
                     f"(title bar and Alt+Tab thumbnail will)"
                 )
 
-    # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
-    # Parakeet-TDT loads the full mel-spectrogram → ~185 MB VRAM per minute peak.
-    # On an 8 GB GPU shared with OS/compositor, ~10-15 min is the practical limit.
+    # Fallback when nvidia-smi is unavailable. Parakeet-TDT loads the full
+    # mel-spectrogram → ~185 MB VRAM per minute peak. On 8 GB shared with
+    # OS/compositor, ~10 min is the practical limit. _long_audio_threshold_minutes
+    # below picks a per-VRAM value at runtime.
     LONG_AUDIO_WARN_MINUTES = 10
 
     def _has_cuda_build(self):
         """Heuristic: dictee-cuda package ships libonnxruntime.so in /usr/lib/dictee."""
         return os.path.isfile("/usr/lib/dictee/libonnxruntime.so")
+
+    # Hard cap independent of VRAM: the Parakeet-TDT v3 ONNX model has a
+    # self-attention mask whose dim-3 size doesn't broadcast past ~4000
+    # frames (~5:20 min audio @ 12.5 fps). Above that, the simple
+    # `transcribe` batch binary errors with "right operand cannot
+    # broadcast on dim 3". Empirically validated 2026-05-10: works
+    # ≤ 320 s, fails ≥ 330 s. Capping the chunked threshold at 5 min
+    # routes anything close to that limit through the chunked path
+    # (120-s chunks, well under the model limit). Remove this cap once
+    # the binary/model is fixed.
+    PARAKEET_TDT_MAX_MINUTES = 5
+
+    def _long_audio_threshold_minutes(self):
+        """Audio-duration threshold (min) above which we route to the
+        chunked pipeline. Detects total NVIDIA VRAM via nvidia-smi and
+        picks a value calibrated against Parakeet-TDT's ~185 MB/min mel
+        peak + ~6 GB base reserve (model + ORT + OS). Beyond the
+        threshold, chunking has no latency cost (each 120 s chunk fits
+        on any GPU capable of running Parakeet). The result is then
+        capped at PARAKEET_TDT_MAX_MINUTES to dodge the model attention
+        bug. Cached after 1st call."""
+        if hasattr(self, '_cached_long_audio_threshold'):
+            return self._cached_long_audio_threshold
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.total",
+                 "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL, timeout=2,
+            ).decode().strip().splitlines()[0]
+            vram_mb = int(out)
+            if vram_mb < 6000:
+                minutes = 5
+            elif vram_mb < 10000:
+                minutes = 10
+            elif vram_mb < 16000:
+                minutes = 20
+            elif vram_mb < 28000:
+                minutes = 40
+            else:
+                minutes = 60
+        except Exception:
+            minutes = self.LONG_AUDIO_WARN_MINUTES
+        minutes = min(minutes, self.PARAKEET_TDT_MAX_MINUTES)
+        self._cached_long_audio_threshold = minutes
+        _dbg(f"_long_audio_threshold_minutes: {minutes} min")
+        return minutes
 
     def _update_long_audio_warning(self):
         """No-op since v1.3 chunked pipeline merge — long-audio
@@ -3544,19 +3617,22 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(False)
         self._update_transcribe_btn()
 
-        # Long-file chunked pipeline: diarize ON + duration > threshold + CUDA build
-        # → ffmpeg pre-cut + diarize-only global + transcribe-diarize-batch --no-diarize
-        # → merge speakers via argmax_overlap. Avoids OOM on 8 GB VRAM beyond ~10-15 min.
-        if (diarize
-                and self._audio_duration >= self.LONG_AUDIO_WARN_MINUTES * 60
+        # Long-file chunked pipeline: duration > VRAM-adaptive threshold +
+        # CUDA build. Both diarize ON and OFF route here to avoid OOM on long
+        # files (Parakeet-TDT loads the full mel in one pass otherwise).
+        # diarize ON  → ffmpeg cut + diarize-only global + chunked transcribe + speaker merge
+        # diarize OFF → ffmpeg cut + chunked transcribe (plain text out)
+        threshold_min = self._long_audio_threshold_minutes()
+        if (self._audio_duration >= threshold_min * 60
                 and self._has_cuda_build()):
-            sensitivity = self._sld_sensitivity.value() / 100.0
+            sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
-                 f"(dur={self._audio_duration:.1f}s, sens={sensitivity:.2f})")
-            self._was_diarized = True
+                 f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
+                 f"threshold={threshold_min}min, sens={sensitivity:.2f})")
+            self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
-                audio_path, sensitivity, self)
+                audio_path, sensitivity, diarize=diarize, parent=self)
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -3700,13 +3776,18 @@ class TranscribeWindow(QDialog):
     # === Chunked long-file pipeline slots ===
 
     def _on_chunked_phase(self, phase_num, label):
-        """Phase 1..4 status update from _ChunkedPipelineWorker."""
+        """Phase status update from _ChunkedPipelineWorker. Label uses
+        '1/2..2/2' for diarize OFF and '1/4..4/4' for diarize ON."""
+        self._chunked_phase_label = label
         self._lbl_status.setText(label)
 
     def _on_chunked_progress(self, done, total):
-        """Phase 3 chunk-by-chunk progress."""
+        """Chunk-by-chunk progress during the transcription phase."""
+        base = getattr(self, '_chunked_phase_label',
+                       _("Chunked transcription"))
         self._lbl_status.setText(
-            _("Phase 3/4: chunk {done}/{total}").format(done=done, total=total))
+            _("{base} — chunk {done}/{total}").format(
+                base=base, done=done, total=total))
 
     def _on_chunked_done(self, raw_output):
         """Final output ready: forward to the common _finish_transcription path."""
@@ -3769,20 +3850,26 @@ class TranscribeWindow(QDialog):
             return
 
         self._retry_done = False
-        self._was_diarized = True
-        self._segments = _parse_diarize_output(raw_output)
-
-        # Post-process each segment's text through dictee-postprocess
-        for seg in self._segments:
-            seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
-        # Rebuild raw_output with post-processed text
-        raw_output = "\n".join(
-            f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
-            for seg in self._segments) if self._segments else raw_output
+        # _was_diarized is set by the caller (chunked or two-phase) before
+        # we land here — honour it instead of forcing True. The chunked
+        # pipeline now also services diarize=False (long plain transcription
+        # on CUDA), and that path emits plain text rather than DIARIZE_RE.
+        if self._was_diarized:
+            self._segments = _parse_diarize_output(raw_output)
+            # Post-process each segment's text through dictee-postprocess
+            for seg in self._segments:
+                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
+            # Rebuild raw_output with post-processed text
+            raw_output = "\n".join(
+                f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
+                for seg in self._segments) if self._segments else raw_output
+        else:
+            self._segments = []
+            raw_output = _clean_segment_text(_postprocess(raw_output))
         self._raw_text = raw_output
         # Store data on the tab widget for per-tab translation & markers
         self._text_edit._raw_text = raw_output
-        self._text_edit._was_diarized = True
+        self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
         self._text_edit._speaker_name_map = dict(self._speaker_name_map)
 
