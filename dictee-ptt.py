@@ -70,6 +70,43 @@ def read_state():
         return "offline"
 
 
+def _transcribe_client_running():
+    """True if a transcribe-client process is alive for the current user.
+    pgrep -x matches /proc/<pid>/comm which the kernel truncates to 15
+    chars (TASK_COMM_LEN), so transcribe-client (17 chars) shows up as
+    transcribe-clie."""
+    try:
+        return subprocess.run(
+            ["pgrep", "-u", str(os.getuid()), "-x", "transcribe-clie"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def read_state_with_cleanup():
+    """Read state file, with stale-state self-healing.
+
+    If state is in an active phase (recording/transcribing) but no PIDFILE
+    exists and no transcribe-client is alive, the previous F9 cycle exited
+    without resetting state (daemon killed mid-flight, OOM, signal). Reset
+    to idle so callers don't get blocked indefinitely on a stale value.
+    Mirror of the dictee shell stale-state cleanup — needed here too because
+    PTT short-circuits before invoking the shell when state == transcribing."""
+    state = read_state()
+    if state in ("recording", "transcribing"):
+        if not os.path.isfile(PIDFILE) and not _transcribe_client_running():
+            try:
+                with open(STATE_FILE, "w") as f:
+                    f.write("idle\n")
+                print(f"[ptt] stale state cleanup: {state} -> idle")
+            except OSError:
+                pass
+            return "idle"
+    return state
+
+
 DICTEE_BIN = None  # auto-detect
 _UID_SUFFIX = f"-{os.getuid()}"
 PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
@@ -387,7 +424,7 @@ class PttState:
             if value == KEY_DOWN and not self.recording:
                 if not self._check_debounce(now):
                     return
-                _st = read_state()
+                _st = read_state_with_cleanup()
                 if _st == "offline":
                     pass  # let dictee handle the error notification
                 elif _st == "transcribing":
@@ -427,7 +464,7 @@ class PttState:
                     return
                 # Block if daemon offline or still transcribing
                 if not self.recording:
-                    _st = read_state()
+                    _st = read_state_with_cleanup()
                     if _st == "offline":
                         pass  # let dictee handle the error notification
                     elif _st == "transcribing":
@@ -449,7 +486,7 @@ class PttState:
             if value == KEY_DOWN and not self.recording_translate:
                 if not self._check_debounce(now):
                     return
-                _st = read_state()
+                _st = read_state_with_cleanup()
                 if _st == "offline":
                     pass  # let dictee handle the error notification
                 elif _st == "transcribing":
@@ -488,7 +525,7 @@ class PttState:
                     return
                 # Block if daemon offline or still transcribing
                 if not self.recording_translate:
-                    _st = read_state()
+                    _st = read_state_with_cleanup()
                     if _st == "offline":
                         pass  # let dictee handle the error notification
                     elif _st == "transcribing":

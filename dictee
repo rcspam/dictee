@@ -1250,9 +1250,12 @@ fi
 if [ ! -f "$PIDFILE" ]; then
     _stale_state=$(cat "$STATE_FILE" 2>/dev/null || true)
     case "$_stale_state" in
-        transcribing|diarizing|recording)
-            if ! pgrep -u "$(id -u)" -x transcribe-client >/dev/null 2>&1; then
-                _dbg "stale state: $_stale_state without PIDFILE/transcribe-client, resetting to idle"
+        transcribing|recording)
+            # pgrep -x matches /proc/<pid>/comm which is truncated to 15 chars
+            # by the kernel (TASK_COMM_LEN). transcribe-client (17 chars) shows
+            # up as "transcribe-clie".
+            if ! pgrep -u "$(id -u)" -x transcribe-clie >/dev/null 2>&1; then
+                _dbg "stale state: $_stale_state without PIDFILE/transcribe-clie, resetting to idle"
                 write_state "idle"
             fi
             ;;
