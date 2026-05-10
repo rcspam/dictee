@@ -1241,6 +1241,24 @@ if [ -f "$PIDFILE" ]; then
     fi
 fi
 
+# Clean up stale state file if state is "transcribing"/"diarizing"/"recording"
+# but no PIDFILE exists and no transcribe-client process is running.
+# Indicates a previous run exited without resetting state (daemon killed
+# mid-flight, OOM, signal interruption, tmpfs persists across reboots until
+# next idle write). Without this, F9 would stay blocked at the state check
+# below until manual reset of /dev/shm/.dictee_state.
+if [ ! -f "$PIDFILE" ]; then
+    _stale_state=$(cat "$STATE_FILE" 2>/dev/null || true)
+    case "$_stale_state" in
+        transcribing|diarizing|recording)
+            if ! pgrep -u "$(id -u)" -x transcribe-client >/dev/null 2>&1; then
+                _dbg "stale state: $_stale_state without PIDFILE/transcribe-client, resetting to idle"
+                write_state "idle"
+            fi
+            ;;
+    esac
+fi
+
 if [ -f "$PIDFILE" ]; then
     # === STOP RECORDING ===
     _dbg "stop-recording: pid=$(cat "$PIDFILE" 2>/dev/null) translate=$TRANSLATE diarize=$DIARIZE"
