@@ -3373,6 +3373,20 @@ class TranscribeWindow(QDialog):
             else:
                 self._grp_rename.setVisible(False)
 
+        # Sync the format combo to whatever was last rendered on this
+        # tab. Block signals so the lookup doesn't trigger a re-render
+        # via _on_format_changed (the tab is already showing the right
+        # text — we're just bringing the combo in line with it).
+        tab_fmt = getattr(widget, "_format", None)
+        if tab_fmt is not None and hasattr(self, "_cmb_format"):
+            idx = self._cmb_format.findData(tab_fmt)
+            if idx >= 0 and idx != self._cmb_format.currentIndex():
+                self._cmb_format.blockSignals(True)
+                try:
+                    self._cmb_format.setCurrentIndex(idx)
+                finally:
+                    self._cmb_format.blockSignals(False)
+
         # Grey out the buttons that don't apply to LLM result tabs.
         is_llm = bool(getattr(widget, "_is_llm_result", False))
         if hasattr(self, "_btn_copy"):
@@ -4347,6 +4361,9 @@ class TranscribeWindow(QDialog):
         overlay = getattr(editor, '_modified_overlay', None)
         if overlay is not None:
             overlay.setVisible(False)
+        # Remember the format used to render this tab so _on_tab_changed
+        # can sync the combo back to it on switch.
+        editor._format = fmt
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
