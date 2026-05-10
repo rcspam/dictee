@@ -1200,6 +1200,60 @@ def _format_json(segments, name_map=None):
     return json.dumps(out, ensure_ascii=False, indent=2)
 
 
+# === Transcription routing ===
+
+def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
+                           has_diarize_only, has_transcribe_diarize):
+    """Pick the ASR command and pipeline mode for a transcription run.
+
+    Pure function (no I/O, no Qt) so the routing matrix stays
+    regression-tested without spinning up a window. Called from
+    _on_transcribe with shutil.which() and conf-derived inputs.
+
+    Routing rules:
+      diarize=False  + transcribe binary → ("transcribe", False, None)
+      diarize=True   + Canary daemon     → ("transcribe-diarize", False, None)
+        Canary path bypasses the daemon socket because the daemon is
+        locked at DICTEE_LANG_SOURCE — phase-2 transcription would
+        mistranscribe any audio in another language. Standalone
+        transcribe-diarize loads Parakeet-TDT itself (multilingual
+        auto-detect).
+      diarize=True   + Parakeet daemon   → ("diarize-only", True, None)
+        Two-phase: diarize-only emits speaker timestamps, daemon
+        socket transcribes each segment. Reuses the loaded model.
+      diarize=True   + diarize-only missing → ("transcribe-diarize", False, None)
+        Legacy fallback when the two-phase binary is not installed.
+      Required binary missing → (None, False, error_string)
+
+    Inputs:
+      diarize: bool — diarize checkbox state.
+      asr_backend: str — DICTEE_ASR_BACKEND from dictee.conf.
+        "" / "parakeet" / "canary" / etc. Case-insensitive.
+      has_transcribe / has_diarize_only / has_transcribe_diarize: bools
+        — typically `bool(shutil.which(<name>))`.
+
+    Returns: (cmd, two_phase, error). On error, cmd is None and
+    error is the missing-binary message ready for the status bar.
+    """
+    if not diarize:
+        if not has_transcribe:
+            return None, False, "transcribe"
+        return "transcribe", False, None
+
+    daemon_is_canary = (asr_backend or "").lower() == "canary"
+
+    if daemon_is_canary and has_transcribe_diarize:
+        return "transcribe-diarize", False, None
+
+    if has_diarize_only:
+        return "diarize-only", True, None
+
+    if has_transcribe_diarize:
+        return "transcribe-diarize", False, None
+
+    return None, False, "diarize-only"
+
+
 # === Search Bar ===
 
 class SearchBar(QWidget):
@@ -3678,56 +3732,31 @@ class TranscribeWindow(QDialog):
         self._process.finished.connect(self._on_finished)
 
         import shutil
-        # Diarisation : pipeline en 2 phases (diarize-only → daemon transcription)
-        # Transcription seule : transcribe (batch)
-        if diarize:
-            # Phase 2 of two-phase diarize routes through transcribe-daemon
-            # via /tmp/transcribe.sock. When the user's PTT daemon is
-            # Canary (DICTEE_ASR_BACKEND=canary), the daemon is locked at
-            # DICTEE_LANG_SOURCE — feeding it audio in another language
-            # produces gibberish or silent translation. Force the standalone
-            # transcribe-diarize binary instead (Parakeet-TDT + Sortformer
-            # self-contained, multilingual auto-detect, no daemon coupling).
-            # Plain transcription is unaffected — its `transcribe` binary
-            # is hardcoded to Parakeet-TDT and never touches the daemon.
-            daemon_is_canary = _read_conf().get(
-                "DICTEE_ASR_BACKEND", "").lower() == "canary"
-            cmd = "diarize-only"
-            fallback_cmd = "transcribe-diarize"  # ancien binaire si diarize-only absent
-            if daemon_is_canary and shutil.which(fallback_cmd):
-                _dbg("_on_transcribe: Canary daemon detected — using "
-                     "standalone transcribe-diarize to keep diarize multilingual")
-                cmd = fallback_cmd
-                self._diarize_two_phase = False
-            elif not shutil.which(cmd):
-                if shutil.which(fallback_cmd):
-                    cmd = fallback_cmd
-                    self._diarize_two_phase = False
-                else:
-                    self._progress.setVisible(False)
-                    self._lbl_status.setText(
-                        _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
-                    self._lbl_status.setVisible(True)
-                    self._transcription_in_progress = False
-                    self._update_transcribe_btn()
-                    self._process.deleteLater()
-                    self._process = None
-                    return
-            else:
-                self._diarize_two_phase = True
-        else:
-            cmd = "transcribe"
-            self._diarize_two_phase = False
-            if not shutil.which(cmd):
-                self._progress.setVisible(False)
-                self._lbl_status.setText(
-                    _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
-                self._lbl_status.setVisible(True)
-                self._transcription_in_progress = False
-                self._update_transcribe_btn()
-                self._process.deleteLater()
-                self._process = None
-                return
+        # Routing matrix lives in _select_transcribe_cmd (pure function,
+        # tests/test-transcribe-routing.py). Honours DICTEE_ASR_BACKEND
+        # so a Canary PTT daemon doesn't hijack diarize phase-2.
+        asr_backend = _read_conf().get("DICTEE_ASR_BACKEND", "")
+        cmd, two_phase, missing = _select_transcribe_cmd(
+            diarize=diarize,
+            asr_backend=asr_backend,
+            has_transcribe=bool(shutil.which("transcribe")),
+            has_diarize_only=bool(shutil.which("diarize-only")),
+            has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
+        )
+        if cmd is None:
+            self._progress.setVisible(False)
+            self._lbl_status.setText(
+                _("Command '{cmd}' not found. Install dictee first.").format(cmd=missing))
+            self._lbl_status.setVisible(True)
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
+            self._process.deleteLater()
+            self._process = None
+            return
+        self._diarize_two_phase = two_phase
+        if diarize and asr_backend.lower() == "canary" and not two_phase:
+            _dbg("_on_transcribe: Canary daemon detected — using "
+                 "standalone transcribe-diarize to keep diarize multilingual")
         _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
         self._diarize_audio_path = audio_path
         args = [audio_path]

@@ -54,6 +54,13 @@ jobs:
     - name: Run apply_continuation tests
       run: bash tests/test-apply-continuation.sh
 
+  test-transcribe-routing:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Run dictee-transcribe routing tests
+      run: python3 tests/test-transcribe-routing.py -v
+
   test-x86:
     runs-on: ubuntu-latest
     steps:
@@ -77,7 +84,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    needs: [lint, test-postprocess, test-apply-continuation, test-x86, test-arm64]
+    needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, test-x86, test-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
