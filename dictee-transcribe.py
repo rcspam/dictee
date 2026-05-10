@@ -4184,20 +4184,23 @@ class TranscribeWindow(QDialog):
         lang_tgt = self._cmb_lang_tgt.currentData()
         if not lang_tgt:
             # Empty target combo (e.g. LibreTranslate with no languages
-            # installed). Was a silent return — surface it.
-            self._lbl_status.setText(_(
-                "Translation skipped: no target language selected."))
+            # installed). Was a silent return — surface in red so the
+            # user sees it stands out from the normal status messages.
+            msg = _("Translation skipped: no target language selected.")
+            self._lbl_status.setText(f'<span style="color:#d93025;">{msg}</span>')
             self._lbl_status.setVisible(True)
             _dbg("_on_translate: blocked — empty lang_tgt combo")
             return
         if lang_src == lang_tgt:
             # Was a silent return: user clicks Translate, nothing
             # happens, no clue why. Tell them which language was
-            # detected and how to fix it.
+            # detected and how to fix it. Red span stands out in the
+            # status bar; the next normal status message clears it
+            # because QLabel auto-detects rich vs plain text.
             src_name = LANG_NAMES_EN.get(lang_src, lang_src)
-            self._lbl_status.setText(_(
-                "Translation skipped: source language detected as {src} "
-                "— select a different target above.").format(src=src_name))
+            msg = _("Translation skipped: source language detected as {src} "
+                    "— select a different target above.").format(src=src_name)
+            self._lbl_status.setText(f'<span style="color:#d93025;">{msg}</span>')
             self._lbl_status.setVisible(True)
             _dbg(f"_on_translate: blocked — detected source ({lang_src}) == target")
             return
