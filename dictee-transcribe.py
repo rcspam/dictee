@@ -4342,12 +4342,22 @@ class TranscribeWindow(QDialog):
         Resolves the speaker name map per-tab (attached to editor) with a
         fallback to the window-level map, so renaming propagates correctly
         to translation tabs.
+
+        Reads `was_diarized` from the editor itself (per-tab flag set by
+        _finish_transcription / _on_finished / _on_translate_done) rather
+        than self._was_diarized — the instance flag tracks the *active*
+        tab, but this method may be called for a non-active tab (e.g. a
+        translation tab being rendered after the user switched away from
+        the source tab, or _apply_speaker_rename's loop over all diarize
+        tabs). Anchoring on self._was_diarized would render the editor as
+        plain text with raw_text=None and yield an empty tab.
         """
         fmt = self._cmb_format.currentData()
         name_map = getattr(editor, "_speaker_name_map", None) \
             or getattr(self, "_speaker_name_map", None)
+        was_diarized = bool(getattr(editor, "_was_diarized", self._was_diarized))
 
-        if self._was_diarized and segments:
+        if was_diarized and segments:
             if fmt == "srt":
                 editor.setPlainText(_format_srt(segments, name_map))
             elif fmt == "json":
