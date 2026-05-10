@@ -4209,7 +4209,11 @@ class TranscribeWindow(QDialog):
         # Keep transcription status and append a braille-spinner-led
         # "Translating..." segment. The "—" separator gets replaced by
         # the spinner frame, which animates while the translation runs.
-        self._translate_status_base = self._lbl_status.text()
+        # Drop a previous translate-skip warning (red HTML span) — it
+        # shouldn't tail the running spinner ("[red error] ⠋ Translating…").
+        prev_status = self._lbl_status.text()
+        self._translate_status_base = (
+            "" if "<span" in prev_status else prev_status)
         self._lbl_status.setVisible(True)
         self._progress.setVisible(True)
         self._btn_translate.setEnabled(False)
