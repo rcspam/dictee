@@ -3681,9 +3681,25 @@ class TranscribeWindow(QDialog):
         # Diarisation : pipeline en 2 phases (diarize-only → daemon transcription)
         # Transcription seule : transcribe (batch)
         if diarize:
+            # Phase 2 of two-phase diarize routes through transcribe-daemon
+            # via /tmp/transcribe.sock. When the user's PTT daemon is
+            # Canary (DICTEE_ASR_BACKEND=canary), the daemon is locked at
+            # DICTEE_LANG_SOURCE — feeding it audio in another language
+            # produces gibberish or silent translation. Force the standalone
+            # transcribe-diarize binary instead (Parakeet-TDT + Sortformer
+            # self-contained, multilingual auto-detect, no daemon coupling).
+            # Plain transcription is unaffected — its `transcribe` binary
+            # is hardcoded to Parakeet-TDT and never touches the daemon.
+            daemon_is_canary = _read_conf().get(
+                "DICTEE_ASR_BACKEND", "").lower() == "canary"
             cmd = "diarize-only"
             fallback_cmd = "transcribe-diarize"  # ancien binaire si diarize-only absent
-            if not shutil.which(cmd):
+            if daemon_is_canary and shutil.which(fallback_cmd):
+                _dbg("_on_transcribe: Canary daemon detected — using "
+                     "standalone transcribe-diarize to keep diarize multilingual")
+                cmd = fallback_cmd
+                self._diarize_two_phase = False
+            elif not shutil.which(cmd):
                 if shutil.which(fallback_cmd):
                     cmd = fallback_cmd
                     self._diarize_two_phase = False
