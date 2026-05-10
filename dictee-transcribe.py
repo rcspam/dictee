@@ -846,6 +846,7 @@ class _ChunkedPipelineWorker(QThread):
             self._tmp_dir = self._make_tmp_dir()
             chunks = self._ffmpeg_split(duration)
             if self._cancel:
+                self.error.emit(_("Cancelled"))
                 return
             if not chunks:
                 self.error.emit(_("No chunks produced from audio split"))
@@ -854,6 +855,7 @@ class _ChunkedPipelineWorker(QThread):
             self.phase_changed.emit(2, _("Phase 2/4: global diarization"))
             speaker_segments = self._run_diarize_only()
             if self._cancel:
+                self.error.emit(_("Cancelled"))
                 return
             if not speaker_segments:
                 self.error.emit(_("No speaker segments detected"))
@@ -862,6 +864,7 @@ class _ChunkedPipelineWorker(QThread):
             self.phase_changed.emit(3, _("Phase 3/4: chunked transcription"))
             tokens_absolute = self._run_transcribe_batch(chunks)
             if self._cancel:
+                self.error.emit(_("Cancelled"))
                 return
             if not tokens_absolute:
                 self.error.emit(_("No transcription tokens produced"))
@@ -3710,17 +3713,33 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
+        self._restart_daemon_if_stopped()
         self._finish_transcription(raw_output)
 
     def _on_chunked_error(self, msg):
-        """Pipeline failed at some phase: surface message, restore UI."""
+        """Pipeline failed at some phase (or user cancelled): surface
+        message, restore UI. Stops any spinner started for this run."""
         _dbg(f"_on_chunked_error: {msg}")
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
+        self._lbl_status.setVisible(True)
         self._transcription_in_progress = False
         self._update_transcribe_btn()
+        self._update_translate_btn()
+        self._stop_all_spinners()
+        self._restart_daemon_if_stopped()
+
+    def _restart_daemon_if_stopped(self):
+        """Restart the ASR daemon if we stopped it earlier to free VRAM.
+        Called from every transcription-finishing slot (success, error,
+        cancel) so push-to-talk dictation is always usable again after
+        dictee-transcribe runs."""
+        if getattr(self, '_daemon_was_active', False):
+            self._daemon_was_active = False
+            _dbg("_restart_daemon_if_stopped: restarting ASR daemon")
+            self._start_daemon()
 
     def _on_cancel_chunked(self):
         """User clicked Cancel during the chunked pipeline."""
@@ -3830,10 +3849,7 @@ class TranscribeWindow(QDialog):
             return
 
         # Restart daemon if we stopped it for VRAM
-        if getattr(self, '_daemon_was_active', False):
-            self._daemon_was_active = False
-            _dbg("_on_finished: restarting transcribe-daemon")
-            self._start_daemon()
+        self._restart_daemon_if_stopped()
         _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
 
         if exit_code != 0:
