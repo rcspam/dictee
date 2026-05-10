@@ -566,6 +566,16 @@ msgstr ""
 msgid "Translating..."
 msgstr "Traduction en cours..."
 
+msgid "Translation skipped: no target language selected."
+msgstr "Traduction ignorée : aucune langue cible sélectionnée."
+
+msgid ""
+"Translation skipped: source language detected as {src} — select a different "
+"target above."
+msgstr ""
+"Traduction ignorée : langue source détectée ({src}) — choisir une autre "
+"cible au-dessus."
+
 msgid "Generating LLM analysis…"
 msgstr "Génération de l'analyse LLM…"
 
@@ -1534,8 +1544,19 @@ msgstr "Étape {n} sur {total}"
 msgid "Finish"
 msgstr "✓ Terminer"
 
-msgid "Start configuration"
-msgstr "Démarrer la configuration"
+msgid ""
+"Start complete\n"
+"setup"
+msgstr ""
+"Démarrer la\n"
+"configuration complète"
+
+msgid ""
+"Quick install\n"
+"(no translation)"
+msgstr ""
+"Installation rapide\n"
+"(sans traduction)"
 
 msgid "Model required"
 msgstr " (requis)"
