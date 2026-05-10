@@ -4183,8 +4183,22 @@ class TranscribeWindow(QDialog):
         lang_src = _detect_language(raw_text) or "en"
         lang_tgt = self._cmb_lang_tgt.currentData()
         if not lang_tgt:
+            # Empty target combo (e.g. LibreTranslate with no languages
+            # installed). Was a silent return — surface it.
+            self._lbl_status.setText(_(
+                "Translation skipped: no target language selected."))
+            self._lbl_status.setVisible(True)
+            _dbg("_on_translate: blocked — empty lang_tgt combo")
             return
         if lang_src == lang_tgt:
+            # Was a silent return: user clicks Translate, nothing
+            # happens, no clue why. Tell them which language was
+            # detected and how to fix it.
+            src_name = LANG_NAMES_EN.get(lang_src, lang_src)
+            self._lbl_status.setText(_(
+                "Translation skipped: source language detected as {src} "
+                "— select a different target above.").format(src=src_name))
+            self._lbl_status.setVisible(True)
             _dbg(f"_on_translate: blocked — detected source ({lang_src}) == target")
             return
         backend = self._cmb_backend.currentData()
