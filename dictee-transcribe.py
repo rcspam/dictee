@@ -3767,6 +3767,13 @@ class TranscribeWindow(QDialog):
     def _on_diarize_done(self, raw_output):
         _dbg(f"_on_diarize_done: output_len={len(raw_output)}, btn_enabled_before={self._btn_transcribe.isEnabled()}")
         self._diarize_worker = None
+        # _DiarizeTranscribeWorker is only spawned for two-phase diarize
+        # mode, so the result is always diarized text. _finish_transcription
+        # now honours the flag instead of forcing True (so the chunked
+        # diarize=False path can route through it too) — set it explicitly
+        # here, otherwise the rename panel and DIARIZE_RE parsing get
+        # skipped on every two-phase short-file diarization.
+        self._was_diarized = True
         self._finish_transcription(raw_output)
         _dbg(f"_on_diarize_done: btn_enabled_after={self._btn_transcribe.isEnabled()}")
 
