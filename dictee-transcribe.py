@@ -3328,10 +3328,21 @@ class TranscribeWindow(QDialog):
         return f"{s // 60}:{s % 60:02d}"
 
     def _update_player_markers(self):
-        """Update slider markers from current segments."""
+        """Update slider markers from current segments.
+
+        Same target-tab pattern as _apply_format_to / _refresh_rename_panel_for_target:
+        if the user has switched away from the transcription target tab while
+        the diarization was running, do NOT push the target's speaker markers
+        onto the global timeline — that would make the timeline show speakers
+        of the target tab while the visible tab is a plain-text transcription
+        (visually inconsistent). _on_tab_changed re-syncs the markers when
+        the user returns to the target.
+        """
         # Store segments on current text_edit for tab switching
         if hasattr(self, '_text_edit'):
             self._text_edit._diarize_segments = list(self._segments)
+        if self._tabs.currentWidget() is not self._text_edit:
+            return
         if not self._segments:
             self._sld_position.clear_markers()
             return
