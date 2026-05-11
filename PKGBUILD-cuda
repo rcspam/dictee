@@ -111,12 +111,18 @@ build() {
     # lib. If it's missing, the build silently fell back to a CPU-only
     # configuration — abort rather than ship a CUDA package that runs
     # on CPU (incident 2026-05-02 on the deb/rpm builders).
-    # The lib lands either in target/release/ (older ort versions
-    # created a symlink there) or directly in
-    # ~/.cache/ort.pyke.io/dfbin/<triple>/<hash>/ (current ort
-    # 2.0.0-rc.11 layout). Both are valid — only fail if neither has it.
+    # The lib lands in one of three places:
+    #   - target/release/ (older ort versions created a symlink there)
+    #   - ~/.cache/ort.pyke.io/dfbin/<triple>/<hash>/ (ort 2.0.0-rc.11 layout
+    #     when the toolchain auto-downloaded the ORT distribution)
+    #   - $srcdir/onnxruntime-linux-x64-gpu-$_ort_ver/lib/ (when makepkg
+    #     downloaded the second source=() entry instead — Arch-typical
+    #     because the build runs in a clean home where the ort cache
+    #     doesn't pre-exist)
+    # All three are valid — only fail if none has it.
     if [ ! -f target/release/libonnxruntime_providers_cuda.so ] && \
-       ! ls "$HOME"/.cache/ort.pyke.io/dfbin/*/*/libonnxruntime_providers_cuda.so >/dev/null 2>&1; then
+       ! ls "$HOME"/.cache/ort.pyke.io/dfbin/*/*/libonnxruntime_providers_cuda.so >/dev/null 2>&1 && \
+       [ ! -f "$srcdir/onnxruntime-linux-x64-gpu-$_ort_ver/lib/libonnxruntime_providers_cuda.so" ]; then
         echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing" >&2
         return 1
     fi
