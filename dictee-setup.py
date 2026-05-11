@@ -7446,7 +7446,7 @@ class DicteeSetupDialog(QDialog):
             "disabled": 5,
         }
         self.cmb_cheatsheet_mode.setCurrentIndex(
-            mode_to_idx.get(existing_cheat_mode, 5))  # default Disabled
+            mode_to_idx.get(existing_cheat_mode, 3))  # default Same key + Shift
         lay_sc.addWidget(self.cmb_cheatsheet_mode)
 
         # Capture editor visible only when "Separate key" is selected.
