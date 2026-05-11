@@ -3915,7 +3915,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("No transcription result."))
             self._raw_text = ""
             self._segments = []
-            self._grp_rename.setVisible(False)
+            self._refresh_rename_panel_for_target()
             self._update_translate_btn()
             return
 
@@ -3943,8 +3943,9 @@ class TranscribeWindow(QDialog):
         self._text_edit._diarize_segments = list(self._segments)
         self._text_edit._speaker_name_map = dict(self._speaker_name_map)
 
-        # Rebuild the rename panel for the new speakers
-        self._populate_rename_fields()
+        # Rebuild the rename panel for the new speakers — only when the
+        # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
+        self._refresh_rename_panel_for_target()
 
         # NB: language auto-detection removed deliberately. The source
         # language combo reflects the user's choice (and DICTEE_LANG_SOURCE
@@ -4053,7 +4054,7 @@ class TranscribeWindow(QDialog):
                 self._text_edit.setPlainText(raw_output)
             self._raw_text = ""
             self._segments = []
-            self._grp_rename.setVisible(False)
+            self._refresh_rename_panel_for_target()
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
@@ -4064,7 +4065,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             self._raw_text = ""
             self._segments = []
-            self._grp_rename.setVisible(False)
+            self._refresh_rename_panel_for_target()
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
@@ -4096,8 +4097,9 @@ class TranscribeWindow(QDialog):
         self._text_edit._diarize_segments = list(self._segments)
         self._text_edit._speaker_name_map = dict(self._speaker_name_map)
 
-        # Rebuild (or hide) the speaker rename panel
-        self._populate_rename_fields()
+        # Rebuild (or hide) the speaker rename panel — only when the target
+        # tab is visible (cf. _refresh_rename_panel_for_target docstring).
+        self._refresh_rename_panel_for_target()
 
         # NB: language auto-detection removed deliberately (same as in
         # _finish_transcription). The source combo stays on the user's
@@ -4614,6 +4616,21 @@ class TranscribeWindow(QDialog):
         self._rename_content.setVisible(checked)
         prefix = "▼  " if checked else "▶  "
         self._btn_rename_toggle.setText(prefix + _("Rename speakers"))
+
+    def _refresh_rename_panel_for_target(self):
+        """Sync the global rename panel to self._text_edit (the transcription
+        target tab) — but only when that tab is currently visible. Async
+        finalizers (_on_finished, _finish_transcription) call this instead of
+        touching self._grp_rename / _populate_rename_fields directly, so the
+        panel of a tab the user has switched to is never clobbered. When the
+        user switches back to the target later, _on_tab_changed re-syncs.
+        """
+        if self._tabs.currentWidget() is not self._text_edit:
+            return
+        if self._was_diarized and self._segments:
+            self._populate_rename_fields()
+        else:
+            self._grp_rename.setVisible(False)
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.
