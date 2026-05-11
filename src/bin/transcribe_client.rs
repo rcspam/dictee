@@ -341,7 +341,13 @@ fn send_to_daemon(audio_path: &str) -> Result<String, Box<dyn std::error::Error>
         )
     })?;
 
-    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    // 120 s instead of 30 s — fail-safe against a daemon hang, not a routing
+    // mechanism. Parakeet/Canary respond in <2 s typically, but Whisper
+    // large-v3 takes ~1 s per minute audio, so 30 s capped audio at ~25-30 min
+    // on a fast GPU and made the WouldBlock error appear on slower hardware
+    // well before the actual VRAM limit. 120 s covers ~2 h audio on RTX 4070
+    // for Whisper, no-op for the other backends.
+    stream.set_read_timeout(Some(Duration::from_secs(120)))?;
 
     writeln!(stream, "{}", audio_path)?;
     stream.flush()?;
