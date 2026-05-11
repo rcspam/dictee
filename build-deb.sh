@@ -84,6 +84,17 @@ expose_plasmoid_in_dist
 # Build CUDA version
 build_cuda() {
     echo "=== [CUDA] Compiling binaries with GPU support ==="
+    # Use a dedicated staging dir so the CUDA binaries + libonnxruntime libs
+    # don't get overwritten by the subsequent CPU build (which would leave
+    # pkg/dictee/usr/bin/transcribe-daemon as a CPU binary and silently
+    # downgrade `/usr/bin/transcribe-daemon` dev symlinks). Snapshot the
+    # common staging (pkg/dictee, populated by dict_prepare_pkg_dir +
+    # build_dotool) so we inherit all .py wrappers, configs, locales,
+    # systemd units, etc. — only the binaries + control + libs differ.
+    local PKG_DIR="pkg/dictee-cuda"
+    rm -rf "$PKG_DIR"
+    cp -a pkg/dictee "$PKG_DIR"
+
     # CRITICAL: --no-default-features disables ort-defaults (static linking)
     # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
     cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
@@ -215,6 +226,12 @@ EOF
 build_cpu() {
     echo ""
     echo "=== [CPU] Compiling binaries for CPU-only ==="
+    # Dedicated staging dir (cf. build_cuda comment). Snapshot the common
+    # staging — only the binaries + control differ from the CUDA flavor.
+    local PKG_DIR="pkg/dictee-cpu"
+    rm -rf "$PKG_DIR"
+    cp -a pkg/dictee "$PKG_DIR"
+
     cargo build --release --features "sortformer" \
         --bin transcribe \
         --bin transcribe-daemon \
@@ -337,8 +354,12 @@ EOF
 # Run `./build-tar.sh` separately when you need the tarball.
 
 # Build all Debian variants
-build_cuda
+# Order matters: CPU first, CUDA last → cargo build for CUDA finishes the
+# pass, so target/release/ ends with CUDA-build binaries. That way the dev
+# host symlinks /usr/bin/transcribe-{daemon,…} → target/release/* keep
+# working in GPU mode after the script returns.
 build_cpu
+build_cuda
 build_plasmoid_deb
 
 # Safeguard: the build MUST produce cuda + cpu + plasmoid .deb. If any is
