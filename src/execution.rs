@@ -214,16 +214,23 @@ pub fn cuda_runtime_available() -> bool {
 ///
 /// CUDA-enabled binaries call this instead of hard-wiring `Cuda`, so the
 /// same artifact gracefully falls back to CPU on machines without a working
-/// NVIDIA driver. Emits a one-line note on stderr when falling back.
+/// NVIDIA driver. Emits a one-line note on stderr when falling back, but
+/// only when stderr is attached to a terminal — when the process is piloted
+/// by `dictee-transcribe` (QProcess merges stderr into stdout) the warning
+/// would otherwise pollute the transcription buffer, the post-process
+/// pipeline (LLM), and translation. CLI users still see it.
 pub fn best_provider() -> ExecutionProvider {
     #[cfg(feature = "cuda")]
     {
+        use std::io::IsTerminal;
         if cuda_runtime_available() {
             return ExecutionProvider::Cuda;
         }
-        eprintln!(
-            "[dictee] No NVIDIA GPU detected (or DICTEE_FORCE_CPU set) — using CPU provider."
-        );
+        if std::io::stderr().is_terminal() {
+            eprintln!(
+                "[dictee] No NVIDIA GPU detected (or DICTEE_FORCE_CPU set) — using CPU provider."
+            );
+        }
     }
     ExecutionProvider::Cpu
 }
