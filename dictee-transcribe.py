@@ -806,8 +806,9 @@ class _ChunkedPipelineWorker(QThread):
     finished = Signal(str)              # final formatted output
     error = Signal(str)
 
-    CHUNK_SECONDS = 120
-    OVERLAP_SECONDS = 15
+    CHUNK_SECONDS = 180   # 3 min — comfortable margin under the Parakeet
+    OVERLAP_SECONDS = 15  # TDT v3 attention-mask cap (~320 s) while saving
+                          # ~30 % wall-clock vs the previous 120 s.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
     def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
@@ -3689,18 +3690,25 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(False)
         self._update_transcribe_btn()
 
-        # Long-file chunked pipeline: duration > VRAM-adaptive threshold +
-        # CUDA build. Both diarize ON and OFF route here to avoid OOM on long
-        # files (Parakeet-TDT loads the full mel in one pass otherwise).
-        # diarize ON  → ffmpeg cut + diarize-only global + chunked transcribe + speaker merge
-        # diarize OFF → ffmpeg cut + chunked transcribe (plain text out)
-        threshold_min = self._long_audio_threshold_minutes()
-        if (self._audio_duration >= threshold_min * 60
-                and self._has_cuda_build()):
+        # Long-file chunked pipeline: any file longer than a single chunk
+        # routes here, regardless of CUDA/CPU build or diarize on/off.
+        # Rationale: chunks of CHUNK_SECONDS = 180 s sit well below the
+        # Parakeet-TDT v3 ONNX attention-mask bug (~320 s) so chunked is
+        # the only path that avoids the model crash for *any* host
+        # (incl. dictee-cpu users on CPU). Previously gated on
+        # _has_cuda_build() + a VRAM-aware threshold — the gate left
+        # dictee-cpu users facing the ONNX crash, and the VRAM-aware
+        # threshold was always capped at PARAKEET_TDT_MAX_MINUTES = 5
+        # anyway, so the simple "> CHUNK_SECONDS" rule subsumes both.
+        # _long_audio_threshold_minutes() and _has_cuda_build() are kept
+        # in case the upstream ONNX bug gets fixed and we want to revert
+        # to a VRAM-aware threshold.
+        if self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS:
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
-                 f"threshold={threshold_min}min, sens={sensitivity:.2f})")
+                 f"chunk={_ChunkedPipelineWorker.CHUNK_SECONDS}s, "
+                 f"sens={sensitivity:.2f})")
             self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
@@ -3782,6 +3790,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("Transcription timed out (5 min)."))
             self._lbl_status.setVisible(True)
             self._progress.setVisible(False)
+            self._stop_all_spinners()
             self._process.deleteLater()
             self._process = None
             self._transcription_in_progress = False
