@@ -3994,10 +3994,18 @@ class TranscribeWindow(QDialog):
         # running, so QMediaPlayer.source could point elsewhere — without
         # this check the timeline would inherit the unrelated file's
         # duration after the transcription lands.
-        tab_audio = getattr(self._text_edit, '_audio_path', None)
-        if tab_audio and os.path.isfile(tab_audio):
-            if self._player.source().toLocalFile() != tab_audio:
-                self._load_audio(tab_audio)
+        # Only switch the player to the target tab's audio if that tab is
+        # currently visible. Otherwise the user is listening to (or about to
+        # listen to) the audio of another tab — interrupting that with the
+        # newly-finished tab's file would be intrusive. _on_tab_changed
+        # reloads the right audio when the user comes back to the target.
+        # Same target-aware family as _apply_format_to and
+        # _refresh_rename_panel_for_target.
+        if self._tabs.currentWidget() is self._text_edit:
+            tab_audio = getattr(self._text_edit, '_audio_path', None)
+            if tab_audio and os.path.isfile(tab_audio):
+                if self._player.source().toLocalFile() != tab_audio:
+                    self._load_audio(tab_audio)
         self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
