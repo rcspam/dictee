@@ -3953,7 +3953,12 @@ class TranscribeWindow(QDialog):
         # the combo to the audio's language — so a French user analysing
         # an English meeting got the LLM summary in English.
 
-        self._apply_format()
+        # Render into the target tab explicitly, not the active one — the
+        # user may have switched tabs while the transcription was running,
+        # in which case self._apply_format() would format the visible tab's
+        # (empty) segments and the target tab would stay blank. Mirrors the
+        # pattern already used by _on_translate_done.
+        self._apply_format_to(self._text_edit, self._segments, raw_output)
         # Make sure the player is on this tab's audio file. The user may
         # have browsed to a different file while the transcription was
         # running, so QMediaPlayer.source could point elsewhere — without
@@ -4098,8 +4103,10 @@ class TranscribeWindow(QDialog):
         # _finish_transcription). The source combo stays on the user's
         # choice — DICTEE_LANG_SOURCE in dictee.conf — which is also
         # what the LLM Diarization output language is bound to.
-        # Display in current format
-        self._apply_format()
+        # Display in current format — render into the target tab, not the
+        # active one (the user may have switched tabs during transcription).
+        # See _finish_transcription for the same pattern + rationale.
+        self._apply_format_to(self._text_edit, self._segments, raw_output)
         self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
