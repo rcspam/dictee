@@ -4888,7 +4888,12 @@ class DicteeSetupDialog(QDialog):
             self._command_suffixes[code] = _tmp_conf.get(
                 f"DICTEE_COMMAND_SUFFIX_{code.upper()}",
                 _sfx_defaults.get(code, ""))
-        self._test_thread = None
+        # Two separate handles: a shared _test_thread was a tab-target bug —
+        # clicking "Test translation" while "Test dictation" was still running
+        # stopped the dictation thread, swapped the handle, and the late
+        # `result` signal of the original landed on the translation UI.
+        self._test_dictee_thread = None
+        self._test_translate_thread = None
         self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
         self._open_translation = open_translation
@@ -8138,7 +8143,7 @@ class DicteeSetupDialog(QDialog):
                     r = subprocess.run(["pkexec", "rm", "-rf", d],
                                        capture_output=True, timeout=10)
                     if r.returncode == 0:
-                        os.makedirs(d, mode=0o777, exist_ok=True)
+                        os.makedirs(d, mode=0o755, exist_ok=True)
                     else:
                         failed = True
         if failed:
@@ -14180,8 +14185,8 @@ class DicteeSetupDialog(QDialog):
 
     def _on_test_dictee(self):
         _dbg_setup("_on_test_dictee")
-        if self._test_thread and self._test_thread.isRunning():
-            self._test_thread.stop()
+        if self._test_dictee_thread and self._test_dictee_thread.isRunning():
+            self._test_dictee_thread.stop()
             self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
             self.btn_test_dictee.setEnabled(True)
             if hasattr(self, '_test_timer'):
@@ -14197,10 +14202,10 @@ class DicteeSetupDialog(QDialog):
         _thr = (
             self.slider_silence.value() / 1000.0
             if hasattr(self, 'slider_silence') else None)
-        self._test_thread = TestDicteeThread(
+        self._test_dictee_thread = TestDicteeThread(
             duration=5, postprocess=pp_enabled, silence_threshold=_thr)
-        self._test_thread.result.connect(self._on_test_result)
-        self._test_thread.start()
+        self._test_dictee_thread.result.connect(self._on_test_result)
+        self._test_dictee_thread.start()
 
     def _on_test_tick(self):
         self._test_countdown -= 1
@@ -14221,8 +14226,8 @@ class DicteeSetupDialog(QDialog):
 
     def _on_test_translate(self):
         _dbg_setup("_on_test_translate")
-        if self._test_thread and self._test_thread.isRunning():
-            self._test_thread.stop()
+        if self._test_translate_thread and self._test_translate_thread.isRunning():
+            self._test_translate_thread.stop()
             self.btn_test_translate.setText("🌐 " + _("Test translation"))
             self.btn_test_translate.setEnabled(True)
             if hasattr(self, '_test_timer_tr'):
@@ -14257,14 +14262,14 @@ class DicteeSetupDialog(QDialog):
         _thr = (
             self.slider_silence.value() / 1000.0
             if hasattr(self, 'slider_silence') else None)
-        self._test_thread = TestTranslateThread(
+        self._test_translate_thread = TestTranslateThread(
             duration=5, asr_backend=asr, trans_backend=trans_backend,
             source_lang=source, target_lang=target, trans_engine=trans_engine,
             lt_port=lt_port, ollama_model=ollama_model, postprocess=pp_enabled,
             silence_threshold=_thr,
         )
-        self._test_thread.result.connect(self._on_test_translate_result)
-        self._test_thread.start()
+        self._test_translate_thread.result.connect(self._on_test_translate_result)
+        self._test_translate_thread.start()
 
     def _on_test_translate_tick(self):
         self._test_countdown_tr -= 1
@@ -15325,7 +15330,7 @@ class DicteeSetupDialog(QDialog):
                     r = subprocess.run(["pkexec", "rm", "-rf", model_dir],
                                        capture_output=True, timeout=10)
                     if r.returncode == 0:
-                        os.makedirs(model_dir, mode=0o777, exist_ok=True)
+                        os.makedirs(model_dir, mode=0o755, exist_ok=True)
         w = self._model_widgets[mid]
         self._update_venv_button(w["button"], name, False)
         w["btn_delete"].setVisible(False)

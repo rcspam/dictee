@@ -3771,12 +3771,21 @@ class TranscribeWindow(QDialog):
         self._process_timer.start(300_000)
 
     def _on_process_timeout(self):
+        # Audit fix: previous version called self._set_status() / _set_busy()
+        # which don't exist on TranscribeWindow → AttributeError silently
+        # froze the UI when the 5-min watchdog fired (button stayed disabled,
+        # _process / _transcription_in_progress never reset).
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("Process timeout — killing")
             self._process.kill()
             self._process.waitForFinished(3000)
-            self._set_status(_("Transcription timed out (5 min)."))
-            self._set_busy(False)
+            self._lbl_status.setText(_("Transcription timed out (5 min)."))
+            self._lbl_status.setVisible(True)
+            self._progress.setVisible(False)
+            self._process.deleteLater()
+            self._process = None
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
 
     def _on_stdout(self):
         if self._process is None:

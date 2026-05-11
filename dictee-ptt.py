@@ -554,26 +554,11 @@ def run_evdev(ptt):
 
     print(f"[ptt] claviers: {[d.path for d in devices]}")
 
-    # Créer le clavier virtuel pour ré-émettre les événements non-PTT
-    ui = UInput(name="dictee-ptt-passthrough")
-    print(f"[ptt] uinput: {ui.device.path}")
-
-    # Grab tous les claviers
-    for dev in devices:
-        try:
-            dev.grab()
-            print(f"[ptt] grab: {dev.name}")
-        except OSError as e:
-            print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
-
-    # Vider les événements en buffer (évite de traiter des KEY_DOWN périmés au démarrage)
-    for dev in devices:
-        try:
-            while dev.read_one() is not None:
-                pass
-        except (OSError, BlockingIOError):
-            pass
-
+    # Install signal handlers BEFORE UInput / grab so a SIGTERM during
+    # setup (e.g. `systemctl --user stop dictee-ptt` racing with startup)
+    # triggers the finally cleanup instead of the kernel's default action.
+    # Without this, an early kill leaves the keyboards grabbed and the
+    # user has to reboot — keys never reach any app.
     running = True
     last_rescan = time.monotonic()
 
@@ -584,14 +569,38 @@ def run_evdev(ptt):
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
 
-    print("[ptt] en écoute (evdev grab)...")
-
-    # Grace period : ignorer les événements pendant 500ms après le démarrage
-    # pour éviter de traiter des KEY_DOWN empilés dans le noyau
-    startup_time = time.monotonic()
-    STARTUP_GRACE = 0.5
+    # ui declared before the try so the finally can close it even when
+    # UInput() itself raises.
+    ui = None
 
     try:
+        # Créer le clavier virtuel pour ré-émettre les événements non-PTT
+        ui = UInput(name="dictee-ptt-passthrough")
+        print(f"[ptt] uinput: {ui.device.path}")
+
+        # Grab tous les claviers
+        for dev in devices:
+            try:
+                dev.grab()
+                print(f"[ptt] grab: {dev.name}")
+            except OSError as e:
+                print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
+
+        # Vider les événements en buffer (évite KEY_DOWN périmés au démarrage)
+        for dev in devices:
+            try:
+                while dev.read_one() is not None:
+                    pass
+            except (OSError, BlockingIOError):
+                pass
+
+        print("[ptt] en écoute (evdev grab)...")
+
+        # Grace period : ignorer les événements pendant 500ms après le démarrage
+        # pour éviter de traiter des KEY_DOWN empilés dans le noyau
+        startup_time = time.monotonic()
+        STARTUP_GRACE = 0.5
+
         while running:
             # Hotplug : rescanner périodiquement
             now_mono = time.monotonic()
@@ -681,7 +690,8 @@ def run_evdev(ptt):
                         pass
                     devices.remove(dev)
     finally:
-        # Ungrab + fermer proprement
+        # Ungrab + fermer proprement. Reachable even if UInput() raised
+        # (ui is None then) or if SIGTERM arrived during the grab loop.
         for dev in devices:
             try:
                 dev.ungrab()
@@ -691,7 +701,11 @@ def run_evdev(ptt):
                 dev.close()
             except OSError:
                 pass
-        ui.close()
+        if ui is not None:
+            try:
+                ui.close()
+            except Exception as _e:
+                print(f"[ptt] uinput close error: {_e!r}", file=sys.stderr)
 
 
 # ─── Backend raw (fallback sans evdev) ──────────────────────────────
