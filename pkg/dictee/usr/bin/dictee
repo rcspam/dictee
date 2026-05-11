@@ -190,15 +190,41 @@ else
     SUPPRIME=""
 fi
 
+# dotool needs to write to /dev/uinput, which is restricted to the `input`
+# group. dictee is invoked from many parents whose group-set may differ:
+#  - dictee-ptt.service       → has `sg input -c …` in ExecStart, OK
+#  - tray clic / plasmoid clic → inherit plasmashell's groups, which were
+#    fixed at graphical login: if the user was added to `input` AFTER the
+#    login (postinst, %post, .install hook), plasmashell never picked the
+#    new group up → dotool here fails with "could not open device file".
+#
+# Detect the situation once at startup. When the input group is missing
+# from the running process's group-set, all dotool calls go through
+# `sg input -c`, which re-runs initgroups() against /etc/group and gets
+# the missing group without needing a logout.
+if id -nG 2>/dev/null | grep -qw input; then
+    _DOTOOL_NEEDS_SG=0
+else
+    _DOTOOL_NEEDS_SG=1
+fi
+
 # Safe dotool wrapper for trap ERR
 safe_dotool() {
-    if dotool 2>/dev/null; then true; fi
+    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
+        sg input -c 'dotool' 2>/dev/null || true
+    else
+        if dotool 2>/dev/null; then true; fi
+    fi
 }
 
 # Release all keyboard modifiers — called from trap and before ctrl+* commands
 # to guarantee we never leave a modifier stuck if dotool is interrupted mid-stream.
 release_modifiers() {
-    printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | dotool 2>/dev/null || true
+    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
+        printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | sg input -c 'dotool' 2>/dev/null || true
+    else
+        printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | dotool 2>/dev/null || true
+    fi
 }
 
 # Safe wrapper for modifier-using key commands — releases modifiers before and after
@@ -1213,6 +1239,27 @@ if [ -f "$PIDFILE" ]; then
         cleanup_session
         write_state "idle"
     fi
+fi
+
+# Clean up stale state file if state is "transcribing"/"diarizing"/"recording"
+# but no PIDFILE exists and no transcribe-client process is running.
+# Indicates a previous run exited without resetting state (daemon killed
+# mid-flight, OOM, signal interruption, tmpfs persists across reboots until
+# next idle write). Without this, F9 would stay blocked at the state check
+# below until manual reset of /dev/shm/.dictee_state.
+if [ ! -f "$PIDFILE" ]; then
+    _stale_state=$(cat "$STATE_FILE" 2>/dev/null || true)
+    case "$_stale_state" in
+        transcribing|recording)
+            # pgrep -x matches /proc/<pid>/comm which is truncated to 15 chars
+            # by the kernel (TASK_COMM_LEN). transcribe-client (17 chars) shows
+            # up as "transcribe-clie".
+            if ! pgrep -u "$(id -u)" -x transcribe-clie >/dev/null 2>&1; then
+                _dbg "stale state: $_stale_state without PIDFILE/transcribe-clie, resetting to idle"
+                write_state "idle"
+            fi
+            ;;
+    esac
 fi
 
 if [ -f "$PIDFILE" ]; then

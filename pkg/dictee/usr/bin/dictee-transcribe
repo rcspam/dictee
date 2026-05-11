@@ -786,17 +786,23 @@ class _DiarizeTranscribeWorker(QThread):
 
 
 class _ChunkedPipelineWorker(QThread):
-    """Long-file chunked pipeline (audio > LONG_AUDIO threshold + diarize ON).
+    """Long-file chunked pipeline (audio > VRAM-adaptive threshold + CUDA build).
 
-    Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
-    Phase 2: diarize-only on the full file -> global speaker segments.
-    Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
-    Phase 4: merge global speakers onto tokens via argmax_overlap.
+    With diarize=True (4 phases):
+      Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
+      Phase 2: diarize-only on the full file -> global speaker segments.
+      Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
+      Phase 4: merge global speakers onto tokens via argmax_overlap.
+      Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
 
-    Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
+    With diarize=False (2 phases — extends chunking to plain transcription):
+      Phase 1: ffmpeg pre-cut into 2-min chunks (same as above).
+      Phase 2: transcribe-diarize-batch --no-diarize on chunks -> tokens.
+      Output: plain text, postprocessed downstream like the non-chunked
+      `transcribe` batch path.
     """
-    phase_changed = Signal(int, str)    # (phase_num 1..4, label)
-    chunk_progress = Signal(int, int)   # (done, total) for Phase 3
+    phase_changed = Signal(int, str)    # (phase_num, label)
+    chunk_progress = Signal(int, int)   # (done, total) during chunked transcription
     finished = Signal(str)              # final formatted output
     error = Signal(str)
 
@@ -804,10 +810,11 @@ class _ChunkedPipelineWorker(QThread):
     OVERLAP_SECONDS = 15
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, parent=None):
+    def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
+        self._diarize = diarize
         self._cancel = False
         self._tmp_dir = None
         self._current_proc = None
@@ -842,36 +849,58 @@ class _ChunkedPipelineWorker(QThread):
                 self.error.emit(_("Could not determine audio duration"))
                 return
 
-            self.phase_changed.emit(1, _("Phase 1/4: pre-cut audio"))
+            n_phases = 4 if self._diarize else 2
+            self.phase_changed.emit(
+                1, _("Phase 1/{n}: pre-cut audio").format(n=n_phases))
             self._tmp_dir = self._make_tmp_dir()
             chunks = self._ffmpeg_split(duration)
             if self._cancel:
+                self.error.emit(_("Cancelled"))
                 return
             if not chunks:
                 self.error.emit(_("No chunks produced from audio split"))
                 return
 
-            self.phase_changed.emit(2, _("Phase 2/4: global diarization"))
-            speaker_segments = self._run_diarize_only()
-            if self._cancel:
-                return
-            if not speaker_segments:
-                self.error.emit(_("No speaker segments detected"))
-                return
+            speaker_segments = None
+            if self._diarize:
+                self.phase_changed.emit(
+                    2, _("Phase 2/{n}: global diarization").format(n=n_phases))
+                speaker_segments = self._run_diarize_only()
+                if self._cancel:
+                    self.error.emit(_("Cancelled"))
+                    return
+                if not speaker_segments:
+                    self.error.emit(_("No speaker segments detected"))
+                    return
 
-            self.phase_changed.emit(3, _("Phase 3/4: chunked transcription"))
+            transcribe_phase = 3 if self._diarize else 2
+            self.phase_changed.emit(
+                transcribe_phase,
+                _("Phase {p}/{n}: chunked transcription").format(
+                    p=transcribe_phase, n=n_phases))
             tokens_absolute = self._run_transcribe_batch(chunks)
             if self._cancel:
+                self.error.emit(_("Cancelled"))
                 return
             if not tokens_absolute:
                 self.error.emit(_("No transcription tokens produced"))
                 return
 
-            self.phase_changed.emit(4, _("Phase 4/4: merging speakers"))
-            output = self._merge(tokens_absolute, speaker_segments)
-            if not output:
-                self.error.emit(_("Merge produced empty output"))
-                return
+            if self._diarize:
+                self.phase_changed.emit(
+                    4, _("Phase 4/{n}: merging speakers").format(n=n_phases))
+                output = self._merge(tokens_absolute, speaker_segments)
+                if not output:
+                    self.error.emit(_("Merge produced empty output"))
+                    return
+            else:
+                # Plain transcription: concatenate token texts. Downstream
+                # _finish_transcription will run dictee-postprocess once
+                # on the joined string, mirroring the non-chunked path.
+                output = " ".join(t["text"] for t in tokens_absolute).strip()
+                if not output:
+                    self.error.emit(_("Empty transcription output"))
+                    return
 
             self.finished.emit(output)
         except Exception as e:
@@ -1169,6 +1198,60 @@ def _format_json(segments, name_map=None):
             "text": seg["text"],
         })
     return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+# === Transcription routing ===
+
+def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
+                           has_diarize_only, has_transcribe_diarize):
+    """Pick the ASR command and pipeline mode for a transcription run.
+
+    Pure function (no I/O, no Qt) so the routing matrix stays
+    regression-tested without spinning up a window. Called from
+    _on_transcribe with shutil.which() and conf-derived inputs.
+
+    Routing rules:
+      diarize=False  + transcribe binary → ("transcribe", False, None)
+      diarize=True   + Canary daemon     → ("transcribe-diarize", False, None)
+        Canary path bypasses the daemon socket because the daemon is
+        locked at DICTEE_LANG_SOURCE — phase-2 transcription would
+        mistranscribe any audio in another language. Standalone
+        transcribe-diarize loads Parakeet-TDT itself (multilingual
+        auto-detect).
+      diarize=True   + Parakeet daemon   → ("diarize-only", True, None)
+        Two-phase: diarize-only emits speaker timestamps, daemon
+        socket transcribes each segment. Reuses the loaded model.
+      diarize=True   + diarize-only missing → ("transcribe-diarize", False, None)
+        Legacy fallback when the two-phase binary is not installed.
+      Required binary missing → (None, False, error_string)
+
+    Inputs:
+      diarize: bool — diarize checkbox state.
+      asr_backend: str — DICTEE_ASR_BACKEND from dictee.conf.
+        "" / "parakeet" / "canary" / etc. Case-insensitive.
+      has_transcribe / has_diarize_only / has_transcribe_diarize: bools
+        — typically `bool(shutil.which(<name>))`.
+
+    Returns: (cmd, two_phase, error). On error, cmd is None and
+    error is the missing-binary message ready for the status bar.
+    """
+    if not diarize:
+        if not has_transcribe:
+            return None, False, "transcribe"
+        return "transcribe", False, None
+
+    daemon_is_canary = (asr_backend or "").lower() == "canary"
+
+    if daemon_is_canary and has_transcribe_diarize:
+        return "transcribe-diarize", False, None
+
+    if has_diarize_only:
+        return "diarize-only", True, None
+
+    if has_transcribe_diarize:
+        return "transcribe-diarize", False, None
+
+    return None, False, "diarize-only"
 
 
 # === Search Bar ===
@@ -3329,16 +3412,34 @@ class TranscribeWindow(QDialog):
             markers.append((int(seg["start"] * 1000), int(seg["end"] * 1000), color))
         self._sld_position.set_markers(markers)
 
-        # Sync the speaker rename panel with the active tab's map
+        # Sync per-tab state onto the instance. Read _was_diarized from the
+        # tab itself (set in _finish_transcription / _on_finished) so that
+        # switching from a diarized tab to a plain-text tab correctly
+        # resets the flag — otherwise downstream code (_apply_format,
+        # _show_status, etc.) would still treat the active tab as diarized.
+        self._was_diarized = bool(getattr(widget, '_was_diarized', False))
+        self._segments = list(segs) if segs else []
+        self._speaker_name_map = dict(
+            getattr(widget, "_speaker_name_map", {}) or {})
         if hasattr(self, '_grp_rename'):
-            if segs:
-                self._segments = list(segs)
-                self._was_diarized = True
-                self._speaker_name_map = dict(
-                    getattr(widget, "_speaker_name_map", {}) or {})
+            if self._was_diarized and self._segments:
                 self._populate_rename_fields()
             else:
                 self._grp_rename.setVisible(False)
+
+        # Sync the format combo to whatever was last rendered on this
+        # tab. Block signals so the lookup doesn't trigger a re-render
+        # via _on_format_changed (the tab is already showing the right
+        # text — we're just bringing the combo in line with it).
+        tab_fmt = getattr(widget, "_format", None)
+        if tab_fmt is not None and hasattr(self, "_cmb_format"):
+            idx = self._cmb_format.findData(tab_fmt)
+            if idx >= 0 and idx != self._cmb_format.currentIndex():
+                self._cmb_format.blockSignals(True)
+                try:
+                    self._cmb_format.setCurrentIndex(idx)
+                finally:
+                    self._cmb_format.blockSignals(False)
 
         # Grey out the buttons that don't apply to LLM result tabs.
         is_llm = bool(getattr(widget, "_is_llm_result", False))
@@ -3400,14 +3501,61 @@ class TranscribeWindow(QDialog):
                     f"(title bar and Alt+Tab thumbnail will)"
                 )
 
-    # Threshold (minutes) above which we warn about VRAM for diarize+transcribe.
-    # Parakeet-TDT loads the full mel-spectrogram → ~185 MB VRAM per minute peak.
-    # On an 8 GB GPU shared with OS/compositor, ~10-15 min is the practical limit.
+    # Fallback when nvidia-smi is unavailable. Parakeet-TDT loads the full
+    # mel-spectrogram → ~185 MB VRAM per minute peak. On 8 GB shared with
+    # OS/compositor, ~10 min is the practical limit. _long_audio_threshold_minutes
+    # below picks a per-VRAM value at runtime.
     LONG_AUDIO_WARN_MINUTES = 10
 
     def _has_cuda_build(self):
         """Heuristic: dictee-cuda package ships libonnxruntime.so in /usr/lib/dictee."""
         return os.path.isfile("/usr/lib/dictee/libonnxruntime.so")
+
+    # Hard cap independent of VRAM: the Parakeet-TDT v3 ONNX model has a
+    # self-attention mask whose dim-3 size doesn't broadcast past ~4000
+    # frames (~5:20 min audio @ 12.5 fps). Above that, the simple
+    # `transcribe` batch binary errors with "right operand cannot
+    # broadcast on dim 3". Empirically validated 2026-05-10: works
+    # ≤ 320 s, fails ≥ 330 s. Capping the chunked threshold at 5 min
+    # routes anything close to that limit through the chunked path
+    # (120-s chunks, well under the model limit). Remove this cap once
+    # the binary/model is fixed.
+    PARAKEET_TDT_MAX_MINUTES = 5
+
+    def _long_audio_threshold_minutes(self):
+        """Audio-duration threshold (min) above which we route to the
+        chunked pipeline. Detects total NVIDIA VRAM via nvidia-smi and
+        picks a value calibrated against Parakeet-TDT's ~185 MB/min mel
+        peak + ~6 GB base reserve (model + ORT + OS). Beyond the
+        threshold, chunking has no latency cost (each 120 s chunk fits
+        on any GPU capable of running Parakeet). The result is then
+        capped at PARAKEET_TDT_MAX_MINUTES to dodge the model attention
+        bug. Cached after 1st call."""
+        if hasattr(self, '_cached_long_audio_threshold'):
+            return self._cached_long_audio_threshold
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.total",
+                 "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL, timeout=2,
+            ).decode().strip().splitlines()[0]
+            vram_mb = int(out)
+            if vram_mb < 6000:
+                minutes = 5
+            elif vram_mb < 10000:
+                minutes = 10
+            elif vram_mb < 16000:
+                minutes = 20
+            elif vram_mb < 28000:
+                minutes = 40
+            else:
+                minutes = 60
+        except Exception:
+            minutes = self.LONG_AUDIO_WARN_MINUTES
+        minutes = min(minutes, self.PARAKEET_TDT_MAX_MINUTES)
+        self._cached_long_audio_threshold = minutes
+        _dbg(f"_long_audio_threshold_minutes: {minutes} min")
+        return minutes
 
     def _update_long_audio_warning(self):
         """No-op since v1.3 chunked pipeline merge — long-audio
@@ -3541,19 +3689,22 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(False)
         self._update_transcribe_btn()
 
-        # Long-file chunked pipeline: diarize ON + duration > threshold + CUDA build
-        # → ffmpeg pre-cut + diarize-only global + transcribe-diarize-batch --no-diarize
-        # → merge speakers via argmax_overlap. Avoids OOM on 8 GB VRAM beyond ~10-15 min.
-        if (diarize
-                and self._audio_duration >= self.LONG_AUDIO_WARN_MINUTES * 60
+        # Long-file chunked pipeline: duration > VRAM-adaptive threshold +
+        # CUDA build. Both diarize ON and OFF route here to avoid OOM on long
+        # files (Parakeet-TDT loads the full mel in one pass otherwise).
+        # diarize ON  → ffmpeg cut + diarize-only global + chunked transcribe + speaker merge
+        # diarize OFF → ffmpeg cut + chunked transcribe (plain text out)
+        threshold_min = self._long_audio_threshold_minutes()
+        if (self._audio_duration >= threshold_min * 60
                 and self._has_cuda_build()):
-            sensitivity = self._sld_sensitivity.value() / 100.0
+            sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
-                 f"(dur={self._audio_duration:.1f}s, sens={sensitivity:.2f})")
-            self._was_diarized = True
+                 f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
+                 f"threshold={threshold_min}min, sens={sensitivity:.2f})")
+            self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
-                audio_path, sensitivity, self)
+                audio_path, sensitivity, diarize=diarize, parent=self)
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -3581,40 +3732,31 @@ class TranscribeWindow(QDialog):
         self._process.finished.connect(self._on_finished)
 
         import shutil
-        # Diarisation : pipeline en 2 phases (diarize-only → daemon transcription)
-        # Transcription seule : transcribe (batch)
-        if diarize:
-            cmd = "diarize-only"
-            fallback_cmd = "transcribe-diarize"  # ancien binaire si diarize-only absent
-            if not shutil.which(cmd):
-                if shutil.which(fallback_cmd):
-                    cmd = fallback_cmd
-                    self._diarize_two_phase = False
-                else:
-                    self._progress.setVisible(False)
-                    self._lbl_status.setText(
-                        _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
-                    self._lbl_status.setVisible(True)
-                    self._transcription_in_progress = False
-                    self._update_transcribe_btn()
-                    self._process.deleteLater()
-                    self._process = None
-                    return
-            else:
-                self._diarize_two_phase = True
-        else:
-            cmd = "transcribe"
-            self._diarize_two_phase = False
-            if not shutil.which(cmd):
-                self._progress.setVisible(False)
-                self._lbl_status.setText(
-                    _("Command '{cmd}' not found. Install dictee first.").format(cmd=cmd))
-                self._lbl_status.setVisible(True)
-                self._transcription_in_progress = False
-                self._update_transcribe_btn()
-                self._process.deleteLater()
-                self._process = None
-                return
+        # Routing matrix lives in _select_transcribe_cmd (pure function,
+        # tests/test-transcribe-routing.py). Honours DICTEE_ASR_BACKEND
+        # so a Canary PTT daemon doesn't hijack diarize phase-2.
+        asr_backend = _read_conf().get("DICTEE_ASR_BACKEND", "")
+        cmd, two_phase, missing = _select_transcribe_cmd(
+            diarize=diarize,
+            asr_backend=asr_backend,
+            has_transcribe=bool(shutil.which("transcribe")),
+            has_diarize_only=bool(shutil.which("diarize-only")),
+            has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
+        )
+        if cmd is None:
+            self._progress.setVisible(False)
+            self._lbl_status.setText(
+                _("Command '{cmd}' not found. Install dictee first.").format(cmd=missing))
+            self._lbl_status.setVisible(True)
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
+            self._process.deleteLater()
+            self._process = None
+            return
+        self._diarize_two_phase = two_phase
+        if diarize and asr_backend.lower() == "canary" and not two_phase:
+            _dbg("_on_transcribe: Canary daemon detected — using "
+                 "standalone transcribe-diarize to keep diarize multilingual")
         _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
         self._diarize_audio_path = audio_path
         args = [audio_path]
@@ -3684,6 +3826,13 @@ class TranscribeWindow(QDialog):
     def _on_diarize_done(self, raw_output):
         _dbg(f"_on_diarize_done: output_len={len(raw_output)}, btn_enabled_before={self._btn_transcribe.isEnabled()}")
         self._diarize_worker = None
+        # _DiarizeTranscribeWorker is only spawned for two-phase diarize
+        # mode, so the result is always diarized text. _finish_transcription
+        # now honours the flag instead of forcing True (so the chunked
+        # diarize=False path can route through it too) — set it explicitly
+        # here, otherwise the rename panel and DIARIZE_RE parsing get
+        # skipped on every two-phase short-file diarization.
+        self._was_diarized = True
         self._finish_transcription(raw_output)
         _dbg(f"_on_diarize_done: btn_enabled_after={self._btn_transcribe.isEnabled()}")
 
@@ -3697,30 +3846,51 @@ class TranscribeWindow(QDialog):
     # === Chunked long-file pipeline slots ===
 
     def _on_chunked_phase(self, phase_num, label):
-        """Phase 1..4 status update from _ChunkedPipelineWorker."""
+        """Phase status update from _ChunkedPipelineWorker. Label uses
+        '1/2..2/2' for diarize OFF and '1/4..4/4' for diarize ON."""
+        self._chunked_phase_label = label
         self._lbl_status.setText(label)
 
     def _on_chunked_progress(self, done, total):
-        """Phase 3 chunk-by-chunk progress."""
+        """Chunk-by-chunk progress during the transcription phase."""
+        base = getattr(self, '_chunked_phase_label',
+                       _("Chunked transcription"))
         self._lbl_status.setText(
-            _("Phase 3/4: chunk {done}/{total}").format(done=done, total=total))
+            _("{base} — chunk {done}/{total}").format(
+                base=base, done=done, total=total))
 
     def _on_chunked_done(self, raw_output):
         """Final output ready: forward to the common _finish_transcription path."""
         _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
+        self._restart_daemon_if_stopped()
         self._finish_transcription(raw_output)
 
     def _on_chunked_error(self, msg):
-        """Pipeline failed at some phase: surface message, restore UI."""
+        """Pipeline failed at some phase (or user cancelled): surface
+        message, restore UI. Stops any spinner started for this run."""
         _dbg(f"_on_chunked_error: {msg}")
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
+        self._lbl_status.setVisible(True)
         self._transcription_in_progress = False
         self._update_transcribe_btn()
+        self._update_translate_btn()
+        self._stop_all_spinners()
+        self._restart_daemon_if_stopped()
+
+    def _restart_daemon_if_stopped(self):
+        """Restart the ASR daemon if we stopped it earlier to free VRAM.
+        Called from every transcription-finishing slot (success, error,
+        cancel) so push-to-talk dictation is always usable again after
+        dictee-transcribe runs."""
+        if getattr(self, '_daemon_was_active', False):
+            self._daemon_was_active = False
+            _dbg("_restart_daemon_if_stopped: restarting ASR daemon")
+            self._start_daemon()
 
     def _on_cancel_chunked(self):
         """User clicked Cancel during the chunked pipeline."""
@@ -3750,20 +3920,26 @@ class TranscribeWindow(QDialog):
             return
 
         self._retry_done = False
-        self._was_diarized = True
-        self._segments = _parse_diarize_output(raw_output)
-
-        # Post-process each segment's text through dictee-postprocess
-        for seg in self._segments:
-            seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
-        # Rebuild raw_output with post-processed text
-        raw_output = "\n".join(
-            f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
-            for seg in self._segments) if self._segments else raw_output
+        # _was_diarized is set by the caller (chunked or two-phase) before
+        # we land here — honour it instead of forcing True. The chunked
+        # pipeline now also services diarize=False (long plain transcription
+        # on CUDA), and that path emits plain text rather than DIARIZE_RE.
+        if self._was_diarized:
+            self._segments = _parse_diarize_output(raw_output)
+            # Post-process each segment's text through dictee-postprocess
+            for seg in self._segments:
+                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
+            # Rebuild raw_output with post-processed text
+            raw_output = "\n".join(
+                f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
+                for seg in self._segments) if self._segments else raw_output
+        else:
+            self._segments = []
+            raw_output = _clean_segment_text(_postprocess(raw_output))
         self._raw_text = raw_output
         # Store data on the tab widget for per-tab translation & markers
         self._text_edit._raw_text = raw_output
-        self._text_edit._was_diarized = True
+        self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
         self._text_edit._speaker_name_map = dict(self._speaker_name_map)
 
@@ -3830,10 +4006,7 @@ class TranscribeWindow(QDialog):
             return
 
         # Restart daemon if we stopped it for VRAM
-        if getattr(self, '_daemon_was_active', False):
-            self._daemon_was_active = False
-            _dbg("_on_finished: restarting transcribe-daemon")
-            self._start_daemon()
+        self._restart_daemon_if_stopped()
         _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
 
         if exit_code != 0:
@@ -4010,8 +4183,25 @@ class TranscribeWindow(QDialog):
         lang_src = _detect_language(raw_text) or "en"
         lang_tgt = self._cmb_lang_tgt.currentData()
         if not lang_tgt:
+            # Empty target combo (e.g. LibreTranslate with no languages
+            # installed). Was a silent return — surface in red so the
+            # user sees it stands out from the normal status messages.
+            msg = _("Translation skipped: no target language selected.")
+            self._lbl_status.setText(f'<span style="color:#d93025;">{msg}</span>')
+            self._lbl_status.setVisible(True)
+            _dbg("_on_translate: blocked — empty lang_tgt combo")
             return
         if lang_src == lang_tgt:
+            # Was a silent return: user clicks Translate, nothing
+            # happens, no clue why. Tell them which language was
+            # detected and how to fix it. Red span stands out in the
+            # status bar; the next normal status message clears it
+            # because QLabel auto-detects rich vs plain text.
+            src_name = LANG_NAMES_EN.get(lang_src, lang_src)
+            msg = _("Translation skipped: source language detected as {src} "
+                    "— select a different target above.").format(src=src_name)
+            self._lbl_status.setText(f'<span style="color:#d93025;">{msg}</span>')
+            self._lbl_status.setVisible(True)
             _dbg(f"_on_translate: blocked — detected source ({lang_src}) == target")
             return
         backend = self._cmb_backend.currentData()
@@ -4019,7 +4209,11 @@ class TranscribeWindow(QDialog):
         # Keep transcription status and append a braille-spinner-led
         # "Translating..." segment. The "—" separator gets replaced by
         # the spinner frame, which animates while the translation runs.
-        self._translate_status_base = self._lbl_status.text()
+        # Drop a previous translate-skip warning (red HTML span) — it
+        # shouldn't tail the running spinner ("[red error] ⠋ Translating…").
+        prev_status = self._lbl_status.text()
+        self._translate_status_base = (
+            "" if "<span" in prev_status else prev_status)
         self._lbl_status.setVisible(True)
         self._progress.setVisible(True)
         self._btn_translate.setEnabled(False)
@@ -4165,19 +4359,32 @@ class TranscribeWindow(QDialog):
         return SPEAKER_COLORS[idx % len(SPEAKER_COLORS)]
 
     def _apply_format(self):
-        """Format and display the original transcription tab.
+        """Format and display the active tab.
 
-        Reads segments/raw_text from self._text_edit itself rather than
-        the instance-level mutable triple — those follow the active
-        tab (see _on_tab_changed L~3268), so if the user is on a
-        translation tab when the format combo changes we'd otherwise
-        re-format the original tab with the translation's segments.
+        Reads segments/raw_text from the active widget itself (per-tab
+        state set by _finish_transcription / _on_finished / translation
+        handlers). Original behaviour was to anchor on self._text_edit
+        (the latest original tab) to avoid mismatching translation
+        segments with the original tab — but that broke the format
+        combo for any earlier original tab (e.g. user has Tab1=diarize
+        + Tab2=plain, switches to Tab1, changes format → nothing
+        happens because self._text_edit points at Tab2). Each tab now
+        carries its own segments/raw_text since translation tabs also
+        set those, so anchoring on the active widget is safe and
+        WYSIWYG.
+
+        Skips LLM-result tabs and other non-QTextEdit widgets.
         """
-        segments = (getattr(self._text_edit, "_diarize_segments", None)
-                    or self._segments)
-        raw_text = (getattr(self._text_edit, "_raw_text", "")
-                    or self._raw_text)
-        self._apply_format_to(self._text_edit, segments, raw_text)
+        widget = self._tabs.currentWidget()
+        if not isinstance(widget, QTextEdit):
+            return
+        if getattr(widget, "_is_llm_result", False):
+            return
+        segments = getattr(widget, "_diarize_segments", None) or []
+        raw_text = getattr(widget, "_raw_text", "")
+        if not raw_text and not segments:
+            return
+        self._apply_format_to(widget, segments, raw_text)
 
     def _apply_format_to(self, editor, segments, raw_text):
         """Format and display text in the given editor.
@@ -4185,12 +4392,22 @@ class TranscribeWindow(QDialog):
         Resolves the speaker name map per-tab (attached to editor) with a
         fallback to the window-level map, so renaming propagates correctly
         to translation tabs.
+
+        Reads `was_diarized` from the editor itself (per-tab flag set by
+        _finish_transcription / _on_finished / _on_translate_done) rather
+        than self._was_diarized — the instance flag tracks the *active*
+        tab, but this method may be called for a non-active tab (e.g. a
+        translation tab being rendered after the user switched away from
+        the source tab, or _apply_speaker_rename's loop over all diarize
+        tabs). Anchoring on self._was_diarized would render the editor as
+        plain text with raw_text=None and yield an empty tab.
         """
         fmt = self._cmb_format.currentData()
         name_map = getattr(editor, "_speaker_name_map", None) \
             or getattr(self, "_speaker_name_map", None)
+        was_diarized = bool(getattr(editor, "_was_diarized", self._was_diarized))
 
-        if self._was_diarized and segments:
+        if was_diarized and segments:
             if fmt == "srt":
                 editor.setPlainText(_format_srt(segments, name_map))
             elif fmt == "json":
@@ -4220,6 +4437,9 @@ class TranscribeWindow(QDialog):
         overlay = getattr(editor, '_modified_overlay', None)
         if overlay is not None:
             overlay.setVisible(False)
+        # Remember the format used to render this tab so _on_tab_changed
+        # can sync the combo back to it on switch.
+        editor._format = fmt
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.

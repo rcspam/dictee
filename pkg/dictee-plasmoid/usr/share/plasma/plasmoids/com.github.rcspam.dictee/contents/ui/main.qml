@@ -345,7 +345,16 @@ PlasmoidItem {
 
     property string lastTranslateBackendForLangs: ""
     property bool ltRunning: false
-    property string ltCheckCmd: "bash -c 'docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false'"
+    // `docker inspect` requires the `docker` group. plasmashell inherits
+    // the supplementary groups of the graphical login session — if the
+    // user was added to docker after that login (install.sh, postinst,
+    // wizard's pkexec usermod), the new group only takes effect at next
+    // login. Without `sg docker`, the inspect call fails with permission
+    // denied → echo false → the plasmoid shows LT as down even when the
+    // container is running. `sg docker -c …` runs the command with docker
+    // as primary group, no reboot needed. id -nG "$USER" reads /etc/group
+    // (persistent), unlike groups/id without args (process-effective).
+    property string ltCheckCmd: "bash -c 'if id -nG \"$USER\" 2>/dev/null | grep -qw docker; then sg docker -c \"docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false\"; else echo false; fi'"
     // Ollama status: "ok" = running + model present, "no-model" = running but model missing, "stopped" = service down
     property string ollamaStatus: "ok"
     property string ollamaCheckCmd: "bash -c '" +

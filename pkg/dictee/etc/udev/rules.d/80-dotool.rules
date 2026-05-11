@@ -1,5 +1,2 @@
 # This allows users in group input to use dotool without root permissions.
-# Mode 0660 (read+write) is required by python-evdev's UInput which opens
-# /dev/uinput with O_RDWR. Mode 0620 (write-only group) used to be shipped
-# but breaks dictee-ptt with "could not open uinput device in write mode".
-KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"

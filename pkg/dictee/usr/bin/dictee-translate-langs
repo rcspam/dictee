@@ -48,8 +48,18 @@ case "$backend" in
         reorder "af,am,ar,as,az,be,bg,bn,bs,ca,cs,cy,da,de,el,en,es,et,eu,fa,fi,fr,ga,gl,gu,ha,he,hi,hr,hu,hy,id,ig,is,it,ja,ka,kk,km,kn,ko,ku,ky,lb,lo,lt,lv,mg,mi,mk,ml,mn,mr,ms,mt,my,ne,nl,no,ny,or,pa,pl,ps,pt,ro,ru,rw,sd,si,sk,sl,sn,so,sq,sr,st,sv,sw,ta,te,tg,th,ti,tk,tl,tr,uk,ur,uz,vi,xh,yo,zh,zu"
         ;;
     libretranslate)
-        # Only installed languages in Docker — en first, then rest alphabetical
+        # Only installed languages in Docker — en first, then rest alphabetical.
+        # Primary source: DICTEE_LIBRETRANSLATE_LANGS, written by dictee-setup
+        # when the user picks languages in the wizard's LT page. Fallback when
+        # empty: query the running LT container's /languages API directly, so
+        # the plasmoid combo isn't empty when the user installed LT manually
+        # (docker pull + run outside the wizard) or skipped that page (issue #6).
         langs="${DICTEE_LIBRETRANSLATE_LANGS:-}"
+        if [ -z "$langs" ]; then
+            port="${DICTEE_LIBRETRANSLATE_PORT:-5000}"
+            langs=$(curl -fsS --max-time 2 "http://localhost:${port}/languages" 2>/dev/null \
+                | python3 -c "import json, sys; print(','.join(d['code'] for d in json.load(sys.stdin)))" 2>/dev/null) || langs=""
+        fi
         if [ -n "$langs" ]; then
             reorder "$langs"
         fi

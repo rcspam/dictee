@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 # Prevents silent regressions (cf. ffmpeg removed in d4d1fff "fix v1.1.1").
 python3 packaging/audit-deps.py
 
-VERSION="1.3.3"
+VERSION="1.3.4"
 PKG_DIR="pkg/dictee"
 
 # Final artefacts go in .dev/dist/ (gitignored), keeping the repo root clean.
@@ -98,7 +98,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.3.3
+Version: 1.3.4
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -227,7 +227,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.3.3
+Version: 1.3.4
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -283,9 +283,12 @@ build_plasmoid_deb() {
         exit 1
     fi
 
-    # Refresh the raw .plasmoid file shipped under /usr/share/dictee/
-    mkdir -p "$PP/usr/share/dictee"
-    cp "$DIST_DIR/dictee.plasmoid" "$PP/usr/share/dictee/dictee.plasmoid"
+    # /usr/share/dictee/dictee.plasmoid is shipped by dictee-cuda/cpu (used by
+    # their postinst for `kpackagetool6 -i`). NOT shipped here to avoid the
+    # dpkg file-conflict observed in v1.3.4 ("trying to overwrite '/usr/share/
+    # dictee/dictee.plasmoid', which is also in package dictee-cuda"). The
+    # extracted tree below is enough for plasmashell auto-discovery.
+    rm -rf "$PP/usr/share/dictee"
 
     # Refresh the extracted plasmoid tree under /usr/share/plasma/plasmoids/
     local PLASMA_DIR="$PP/usr/share/plasma/plasmoids/com.github.rcspam.dictee"
