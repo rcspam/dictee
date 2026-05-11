@@ -1324,6 +1324,36 @@ if [ -f "$PIDFILE" ]; then
         exit 0
     fi
 
+    # Guard rail — ASR backends have hard duration limits:
+    #   Canary    : OOM ~3 min on conv2d buffers (mesured 2026-05-11)
+    #   Parakeet  : ONNX attention-mask bug ≥ 5:20 (320 s) — memo
+    #               project-parakeet-tdt-attention-mask-bug.md
+    # Cap conservatively so the user sees a clear notification + the audio
+    # is kept on disk, rather than a cryptic backend OOM/shape error.
+    _rec_dur=$(soxi -D "$RECORDING_FILE" 2>/dev/null || echo 0)
+    _backend_chk="${DICTEE_ASR_BACKEND:-parakeet}"
+    case "$_backend_chk" in
+        canary)   _max_dur=150 ;;   # 2:30 — Canary OOM margin
+        parakeet) _max_dur=270 ;;   # 4:30 — Parakeet ONNX-bug margin
+        *)        _max_dur=0   ;;   # whisper / vosk : streaming, no hard cap
+    esac
+    if [ "$_max_dur" -gt 0 ] && \
+       awk "BEGIN{exit(!($_rec_dur > $_max_dur))}" 2>/dev/null; then
+        _saved="/tmp/dictee-long-$(date +%s).wav"
+        cp "$RECORDING_FILE" "$_saved"
+        _dur_int=$(printf "%.0f" "$_rec_dur")
+        notify_dictee 0 dialog-warning-symbolic \
+            "Dictée trop longue (${_dur_int}s)" \
+            "Le backend $_backend_chk supporte au plus ${_max_dur}s. Audio sauvé : $_saved — ouvrir dans dictee-transcribe pour les fichiers longs."
+        cleanup_session
+        if [ "$DIARIZE" = "true" ]; then
+            dictee-switch-backend diarize false 2>/dev/null || true
+        else
+            write_state "idle"
+        fi
+        exit 0
+    fi
+
     if [ "$TRANSLATE" = true ]; then
         notify_dictee 0 audio-chat-none-symbolic "Transcription + traduction en cours…"
     else
