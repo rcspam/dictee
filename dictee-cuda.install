@@ -70,6 +70,22 @@ _install_cuda_venv() {
     if [ ! -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ]; then
         return 0
     fi
+    # Skip the ~1.5 GB download if no NVIDIA GPU is detected — the runtime
+    # fallback (v1.3.1) will pick CPU automatically. Users who plug a GPU
+    # later can re-run the pip install manually (instructions printed below).
+    # Same check as pkg/dictee/DEBIAN/postinst, build-rpm.sh %post, and
+    # install.sh mode_tarball — parity across all 4 installers.
+    if [ ! -d /proc/driver/nvidia ] && [ ! -e /dev/nvidia0 ]; then
+        echo "→ Pas de GPU NVIDIA détecté — skip téléchargement des libs CUDA (≈ 1,5 Go)."
+        echo "  Le runtime bascule automatiquement en CPU (fallback v1.3.1)."
+        echo "  Pour activer CUDA après installation d'un driver NVIDIA :"
+        echo "    sudo python3 -m venv /opt/dictee/cuda-venv"
+        echo "    sudo /opt/dictee/cuda-venv/bin/pip install nvidia-cuda-runtime-cu12 \\"
+        echo "         nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \\"
+        echo "         nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12"
+        echo "    sudo ldconfig"
+        return 0
+    fi
     if ! command -v python3 >/dev/null 2>&1; then
         return 0
     fi
