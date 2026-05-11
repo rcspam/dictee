@@ -3,6 +3,9 @@ set -e
 
 cd "$(dirname "$0")"
 
+# Packaging deps manifest audit — see build-deb.sh for rationale.
+python3 packaging/audit-deps.py
+
 VERSION="1.3.2"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
@@ -275,6 +278,7 @@ Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
+Requires:       ffmpeg-free
 
 # Do NOT auto-generate Requires for bundled libs (onnxruntime + providers)
 # or the CUDA runtime libs they depend on — those come from pip wheels
@@ -291,9 +295,13 @@ Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
+Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
 Recommends:     gnome-shell-extension-appindicator
 Recommends:     gnome-extensions-app
+Recommends:     polkit
+Recommends:     kf6-kconfig
+Recommends:     wireplumber
 Conflicts:      dictee-cpu
 Provides:       dictee = $VERSION
 
@@ -537,6 +545,7 @@ Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
+Requires:       ffmpeg-free
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Requires:       python3-evdev
@@ -546,9 +555,13 @@ Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
 Recommends:     moby-engine
+Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
 Recommends:     gnome-shell-extension-appindicator
 Recommends:     gnome-extensions-app
+Recommends:     polkit
+Recommends:     kf6-kconfig
+Recommends:     wireplumber
 Conflicts:      dictee-cuda
 Provides:       dictee = $VERSION
 

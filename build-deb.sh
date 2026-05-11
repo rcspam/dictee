@@ -3,6 +3,11 @@ set -e
 
 cd "$(dirname "$0")"
 
+# Packaging deps manifest audit — fails the build before any work if the
+# Depends/Recommends lines below diverge from packaging/dependencies.yaml.
+# Prevents silent regressions (cf. ffmpeg removed in d4d1fff "fix v1.1.1").
+python3 packaging/audit-deps.py
+
 VERSION="1.3.3"
 PKG_DIR="pkg/dictee"
 
@@ -97,8 +102,8 @@ Version: 1.3.3
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, python3-pip, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
-Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme
+Depends: python3, python3-venv, python3-pip, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
+Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, python3-gi, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -226,8 +231,8 @@ Version: 1.3.3
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox
-Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme
+Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
+Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, python3-gi, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>

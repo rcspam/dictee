@@ -27,6 +27,7 @@ depends=(
     'qt6-multimedia'
     'qt6-svg'
     'sox'
+    'ffmpeg'
 )
 optdepends=(
     'wl-clipboard: clipboard copy (Wayland)'
@@ -36,7 +37,11 @@ optdepends=(
     'python-numpy: plasmoid audio visualization'
     'ollama: 100% local translation'
     'docker: LibreTranslate local translation'
+    'python-gobject: GNOME/Unity AppIndicator backend for dictee-tray'
     'libayatana-appindicator: GNOME tray icon support'
+    'polkit: pkexec for root ops in dictee-setup (package install, usermod)'
+    'kconfig: kwriteconfig6 for KDE Plasma 6 keyboard shortcuts'
+    'wireplumber: wpctl for mic volume control in dictee-setup'
     'dictee-cuda: NVIDIA GPU acceleration (mutually exclusive)'
 )
 conflicts=('dictee-cuda')

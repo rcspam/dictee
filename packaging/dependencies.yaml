@@ -1,0 +1,320 @@
+# dictee — manifeste central des dépendances de packaging
+#
+# Source unique de vérité pour les Depends/Recommends (.deb), Requires/Recommends
+# (.rpm), depends/optdepends (Arch). Le script `packaging/audit-deps.py` compare
+# ce manifeste aux 4 builders réels et fait échouer le CI/build à la moindre
+# divergence (perte d'une dep, ajout silencieux, etc.).
+#
+# Pour ajouter / retirer une dépendance :
+#   1. Modifier ce fichier
+#   2. Modifier les 6 sections des 4 builders concernées :
+#      - build-deb.sh : heredocs dictee-cuda, dictee, dictee-plasmoid
+#      - build-rpm.sh : %spec dictee-cuda, dictee-cpu, dictee-plasmoid
+#      - PKGBUILD        (Arch CPU)
+#      - PKGBUILD-cuda   (Arch CUDA)
+#   3. Lancer `python3 packaging/audit-deps.py` → doit sortir 0
+#   4. Commit (le CI relancera l'audit)
+#
+# Structure d'une entrée :
+#   canonical          : identifiant interne lisible (utilisé pour les messages d'audit)
+#   variants           : liste parmi [cpu, cuda, plasmoid] — paquets concernés
+#   kind               : "hard" | "optional"  (Depends/Requires vs Recommends)
+#   {deb,rpm,arch}_kind: override "hard" | "optional" | "omit" pour cette distro
+#                        ("omit" = ne PAS déclarer même si name présent)
+#   deb                : nom Debian/Ubuntu (peut être "a | b" pour alternatives) ou null
+#   rpm                : nom Fedora        (peut être "(a or b)") ou null
+#   arch               : nom Arch ou null
+#   why                : raison d'usage (1 ligne)
+#
+# Notes spéciales :
+#   - Les alternatives sont matchées atomiquement (la chaîne "a | b" doit
+#     apparaître telle quelle dans le builder).
+#   - "null" = ne PAS déclarer pour cette distro (paquet bundlé, indisponible,
+#     ou couvert par une autre dep base).
+
+depends:
+
+  # ---------- runtime Python ----------
+  - canonical: python
+    variants: [cpu, cuda]
+    kind: hard
+    deb: python3
+    rpm: python3
+    arch: python
+    why: interprète des wrappers dictee-*
+
+  - canonical: python-venv
+    variants: [cpu, cuda]
+    kind: hard
+    deb: python3-venv
+    rpm: null   # builtin sur Fedora (inclus dans python3)
+    arch: null  # builtin sur Arch (inclus dans python)
+    why: postinst crée /usr/share/dictee/postprocess-env via `python3 -m venv`
+
+  - canonical: python-pip
+    variants: [cuda]
+    kind: hard
+    deb: python3-pip
+    rpm: python3-pip
+    arch: python-pip
+    why: postinst CUDA crée /opt/dictee/cuda-venv et pip-installe nvidia-*-cu12
+    # Divergence connue : pip est aussi utilisé par le postinst CPU pour
+    # `pip install text2num` dans postprocess-env. Actuellement non déclaré
+    # côté CPU (postinst tolère l'absence). À revoir si on veut hard-fail
+    # text2num sans pip → ajouter variants: [cpu, cuda] et mettre à jour
+    # les 6 sections builders.
+
+  - canonical: python-evdev
+    variants: [cpu, cuda]
+    kind: hard
+    deb: python3-evdev
+    rpm: python3-evdev
+    arch: python-evdev
+    why: dictee-ptt lit /dev/input/* via python-evdev
+
+  # ---------- audio ----------
+  - canonical: pulseaudio-utils
+    variants: [cpu, cuda]
+    kind: hard
+    deb: pulseaudio-utils
+    rpm: pulseaudio-utils
+    arch: libpulse   # `pactl` vient de libpulse sur Arch
+    why: pactl pour auto-unmute micro + détection sources audio
+
+  - canonical: audio-server
+    variants: [cpu, cuda]
+    kind: hard
+    deb: pipewire | alsa-utils
+    rpm: (pipewire or alsa-utils)
+    arch: pipewire   # alsa-utils non listé Arch — pipewire dominant
+    why: capture audio micro (pw-record / arecord fallback)
+
+  - canonical: sox
+    variants: [cpu, cuda]
+    kind: hard
+    deb: sox
+    rpm: sox
+    arch: sox
+    why: conversion + resampling audio (20-40× plus rapide que ffmpeg)
+
+  - canonical: ffmpeg
+    variants: [cpu, cuda]
+    kind: hard
+    deb: ffmpeg
+    rpm: ffmpeg-free   # Fedora utilise ffmpeg-free dans les dépôts officiels
+    arch: ffmpeg
+    why: dictee-transcribe conversion mp3/m4a/webm/ogg + chunked split fichiers longs
+
+  # ---------- desktop ----------
+  - canonical: libnotify
+    variants: [cpu, cuda]
+    kind: hard
+    deb: libnotify-bin
+    rpm: libnotify
+    arch: libnotify
+    why: notify-send pour les notifications desktop
+
+  - canonical: pyqt6
+    variants: [cpu, cuda]
+    kind: hard
+    deb: python3-pyqt6
+    rpm: (python3-pyqt6 or python3-qt6-PyQt6)
+    arch: python-pyqt6
+    why: UI dictee-setup / dictee-tray / dictee-transcribe / dictee-postprocess
+
+  - canonical: pyqt6-multimedia
+    variants: [cpu, cuda]
+    kind: hard
+    rpm_kind: optional   # divergence connue : Recommends côté RPM, hard côté DEB et Arch
+    deb: python3-pyqt6.qtmultimedia
+    rpm: python3-qt6-PyQt6-Multimedia
+    arch: qt6-multimedia
+    why: lecture/enregistrement audio dans dictee-transcribe + plasmoid
+
+  - canonical: pyqt6-svg
+    variants: [cpu, cuda]
+    kind: hard
+    deb: python3-pyqt6.qtsvg
+    rpm: null   # divergence connue : non déclaré côté RPM (à vérifier nom Fedora)
+    arch: qt6-svg
+    why: rendu SVG des icônes systray / plasmoid
+
+  # ---------- recommends / optionnel ----------
+  - canonical: wl-clipboard
+    variants: [cpu, cuda]
+    kind: optional
+    deb: wl-clipboard
+    rpm: wl-clipboard
+    arch: wl-clipboard
+    why: copie presse-papier sous Wayland
+
+  - canonical: xclip-or-xsel
+    variants: [cpu, cuda]
+    kind: optional
+    deb: xclip | xsel
+    rpm: xclip   # divergence connue : xsel non listé côté RPM
+    arch: xclip
+    why: copie presse-papier sous X11
+
+  - canonical: curl
+    variants: [cpu, cuda]
+    kind: optional
+    deb: curl
+    rpm: curl
+    arch: curl
+    why: traduction via LibreTranslate API
+
+  - canonical: translate-shell
+    variants: [cpu, cuda]
+    kind: optional
+    deb: translate-shell
+    rpm: translate-shell
+    arch: translate-shell
+    why: traduction via Google/Bing online
+
+  - canonical: numpy
+    variants: [cpu, cuda, plasmoid]
+    kind: optional
+    deb: python3-numpy
+    rpm: python3-numpy
+    arch: python-numpy
+    why: visualisation audio FFT du plasmoid
+
+  - canonical: docker
+    variants: [cpu, cuda]
+    kind: optional
+    deb: docker.io
+    rpm: moby-engine
+    arch: docker
+    why: LibreTranslate offline via container Docker
+
+  - canonical: ayatana-appindicator
+    variants: [cpu, cuda]
+    kind: optional
+    deb: gir1.2-ayatanaappindicator3-0.1
+    rpm: libayatana-appindicator-gtk3
+    arch: libayatana-appindicator
+    why: support icône systray sous GNOME (fallback non-KDE)
+
+  - canonical: python-gobject
+    variants: [cpu, cuda]
+    kind: optional
+    deb: python3-gi
+    rpm: python3-gobject
+    arch: python-gobject
+    why: dictee-tray backend AppIndicator (GNOME/Unity/Cinnamon) — fallback Qt si absent
+
+  - canonical: polkit
+    variants: [cpu, cuda]
+    kind: optional
+    deb: pkexec   # Ubuntu 24.04+ split du gros policykit-1 ; pré-24.04 = "policykit-1"
+    rpm: polkit
+    arch: polkit
+    why: dictee-setup utilise pkexec pour install paquets / usermod / nettoyage modèles
+
+  - canonical: kconfig-bin
+    variants: [cpu, cuda]
+    kind: optional
+    deb: libkf6config-bin   # dispo Debian 13 / Kubuntu — skipped silently sur Ubuntu LTS sans repo KDE
+    rpm: kf6-kconfig
+    arch: kconfig
+    why: kwriteconfig6 utilisé par dictee-setup pour les raccourcis KDE Plasma 6
+
+  - canonical: wireplumber
+    variants: [cpu, cuda]
+    kind: optional
+    deb: wireplumber
+    rpm: wireplumber
+    arch: wireplumber
+    why: wpctl utilisé par dictee-setup pour le volume micro (wrap shutil.which → graceful)
+
+  - canonical: gnome-extension-appindicator
+    variants: [cpu, cuda]
+    kind: optional
+    arch_kind: omit   # Arch ne package pas cette extension GNOME
+    deb: gnome-shell-extension-appindicator
+    rpm: gnome-shell-extension-appindicator
+    arch: null
+    why: extension GNOME Shell exposant les icônes AppIndicator
+
+  - canonical: gnome-extensions-app
+    variants: [cpu, cuda]
+    kind: optional
+    arch_kind: omit
+    deb: null   # divergence connue : non listé DEB
+    rpm: gnome-extensions-app
+    arch: null
+    why: outil CLI/GUI pour enable/disable l'extension AppIndicator côté Fedora
+
+  - canonical: qt6-gtk-platformtheme
+    variants: [cpu, cuda]
+    kind: optional
+    arch_kind: omit
+    deb: qt6-gtk-platformtheme
+    rpm: null   # divergence connue : non listé côté RPM
+    arch: null
+    why: thème Qt cohérent sous GNOME
+
+  - canonical: pyqt6-sip
+    variants: [cpu, cuda]
+    kind: optional
+    arch_kind: omit
+    deb: null   # builtin via python3-pyqt6 côté Debian
+    rpm: python3-qt6-PyQt6-sip
+    arch: null
+    why: bindings sip pour PyQt6 (Fedora les sépare du paquet principal)
+
+  # ---------- CUDA-only ----------
+  - canonical: nvidia-gpu-firmware
+    variants: [cuda]
+    kind: optional
+    arch_kind: omit
+    deb: null   # divergence connue : non listé DEB CUDA
+    rpm: nvidia-gpu-firmware
+    arch: null
+    why: firmware GPU NVIDIA (Recommends Fedora, Arch via nvidia driver)
+
+  # ---------- Arch-only (dotool dispo sur AUR, bundlé sur DEB/RPM) ----------
+  - canonical: dotool
+    variants: [cpu, cuda]
+    kind: hard
+    deb: null    # bundlé : binaire copié dans /usr/bin/dotool par build-deb.sh
+    rpm: null    # bundlé : binaire copié dans /usr/bin/dotool par build-rpm.sh
+    arch: dotool
+    why: frappe simulée pour insertion du texte transcrit
+
+  - canonical: arch-sibling-cuda-hint
+    variants: [cpu]
+    kind: optional
+    deb_kind: omit
+    rpm_kind: omit
+    deb: null
+    rpm: null
+    arch: dictee-cuda
+    why: indication pacman qu'une variante CUDA existe (mutually exclusive, non installable en parallèle)
+
+  - canonical: ollama
+    variants: [cpu, cuda]
+    kind: optional
+    arch_kind: optional
+    deb: null    # divergence connue : non listé DEB (ollama installé via script externe)
+    rpm: null
+    arch: ollama
+    why: post-traitement LLM 100% local
+
+  # ---------- plasmoid ----------
+  - canonical: plasmoid-parent
+    variants: [plasmoid]
+    kind: hard
+    deb: dictee
+    rpm: dictee
+    arch: null   # plasmoid Arch hors-scope (paquet séparé futur)
+    why: le widget plasma dépend du paquet dictee principal
+
+  - canonical: plasmoid-pactl
+    variants: [plasmoid]
+    kind: optional
+    deb: pulseaudio-utils
+    rpm: pulseaudio-utils
+    arch: null
+    why: lecture niveau micro pour visualisation temps réel

@@ -61,6 +61,15 @@ jobs:
     - name: Run dictee-transcribe routing tests
       run: python3 tests/test-transcribe-routing.py -v
 
+  packaging-audit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install PyYAML
+      run: python3 -m pip install --user pyyaml
+    - name: Audit packaging deps manifest vs builders
+      run: python3 packaging/audit-deps.py
+
   test-x86:
     runs-on: ubuntu-latest
     steps:
@@ -84,7 +93,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, test-x86, test-arm64]
+    needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, packaging-audit, test-x86, test-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
