@@ -380,14 +380,14 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 ## Feuille de route
 
 **v1.3.4 (actuelle)** — **Transcription découpée universelle + durcissement UX de `dictee-transcribe`** :
-- **Transcription découpée universelle** dans `dictee-transcribe` — routage adaptatif VRAM (CPU + GPU), chunks de 180 s par défaut, cancel/redémarrage daemon sûrs. Garde-fou par backend sur la durée d'enregistrement.
+- **Transcription découpée universelle** dans `dictee-transcribe` — les fichiers de toute durée sont désormais découpés automatiquement en chunks de 180 s sur tout hôte (CPU et GPU). Nouveau cap par backend sur la durée de dictée live (Canary 2:30, Parakeet 4:30 ; Whisper / Vosk sans cap) pour éviter les crashes silencieux.
 - **Durcissement de 5 points UI ciblés par onglet** dans `dictee-transcribe` — éditeur de texte, panneau de renommage, markers timeline, swap audio du lecteur, et rendu de la transcription ne mettent désormais à jour l'UI globale que si l'onglet cible est visible. Plus de corruption cross-onglet quand on transcrit un fichier tout en relisant un autre.
 - **Statuts de skip traduction visibles** — les cas de skip silencieux affichent désormais un message de statut coloré (i18n en 6 langues : fr / de / es / it / pt / uk).
 - **La diarisation bascule sur Parakeet + Sortformer standalone** quand le daemon PTT est Canary — évite la mistranscription silencieuse sur les fichiers dont la langue ≠ `DICTEE_LANG_SOURCE` (le daemon Canary est verrouillé au démarrage). Le binaire standalone coûte ~5–10 s de chargement modèle supplémentaire.
 - **Timeout de lecture socket** porté de 30 → 120 s pour les gros fichiers.
 - **Warning de fallback GPU** supprimé quand stderr est redirigé.
 - **Raccourci par défaut du cheatsheet** désormais « Même touche + Maj » (était « Désactivé »).
-- **Nettoyage des fichiers d'état PTT/dictee périmés** à la reprise.
+- **Nettoyage des fichiers d'état PTT / dictee périmés** au prochain F9 (récupère après un daemon tué en plein vol, OOM, signal).
 
 **v1.3.0 → v1.3.3** — **La série v1.3**. Apports majeurs par rapport à la v1.2 :
 - **`dictee-transcribe`** — fenêtre dédiée pour la transcription hors-ligne de fichiers audio/vidéo (lecteur timeline, multi-onglets, traduction et analyse LLM par onglet, export PDF / SRT / JSON / Markdown).

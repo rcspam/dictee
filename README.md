@@ -396,14 +396,14 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 ## Roadmap
 
 **v1.3.4 (current)** — **Universal chunked transcription + `dictee-transcribe` UX hardening**:
-- **Universal chunked transcription** in `dictee-transcribe` — VRAM-adaptive routing (CPU + GPU), default 180 s chunks, cancel/daemon-restart safe. Per-backend guard rail on recording duration.
+- **Universal chunked transcription** in `dictee-transcribe` — files of any length now split automatically into 180 s chunks on every host (CPU and GPU). New per-backend cap on live-dictation recording duration (Canary 2:30, Parakeet 4:30; Whisper / Vosk uncapped) to prevent silent crashes.
 - **Five-site target-tab UI hardening** in `dictee-transcribe` — text editor, rename panel, timeline markers, audio player swap, and transcription render now only update the global UI when the target tab is visible. No more cross-tab corruption when transcribing one file while reviewing another.
 - **Translate skip surfacing** — silent translate-skip cases now show a colored status message (i18n in 6 languages: fr / de / es / it / pt / uk).
 - **Diarize falls back to standalone Parakeet + Sortformer** when the PTT daemon is Canary — avoids silent mistranscription on files whose language ≠ `DICTEE_LANG_SOURCE` (Canary daemon is locked at startup). Standalone binary costs ~5–10 s extra model load.
 - **Socket read timeout** bumped 30 → 120 s for large files.
 - **GPU-fallback warning** suppressed when stderr is piped.
 - **Default cheatsheet shortcut** now "Same key + Shift" (was Disabled).
-- **PTT/dictee stale-state cleanup** on resume.
+- **PTT / dictee stale-state cleanup** on next F9 keypress (recovers from a daemon killed mid-flight, OOM, signal).
 
 **v1.3.0 → v1.3.3** — **The v1.3 series**. Major additions over v1.2:
 - **`dictee-transcribe`** — dedicated window for offline transcription of audio/video files (timeline player, multi-tab, per-tab translation and LLM analysis, export to PDF / SRT / JSON / Markdown).
