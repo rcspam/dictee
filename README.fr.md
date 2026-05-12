@@ -220,7 +220,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Épingler une version précise
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.3
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.4
 
 # Non interactif
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -233,22 +233,22 @@ Téléchargez depuis [Releases](../../releases).
 **Ubuntu / Debian (CPU) :**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.3_amd64.deb
+sudo apt install ./dictee-cpu_1.3.4_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU) :** nécessite le dépôt APT CUDA NVIDIA — voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pour la configuration unique, puis :
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.3_amd64.deb
+sudo apt install ./dictee-cuda_1.3.4_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU) :**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.3-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.4-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.3-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.4-1.x86_64.rpm`.
 
 **Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clonez + `makepkg -si`.
 
@@ -257,8 +257,8 @@ sudo dnf install ./dictee-cpu-1.3.3-1.x86_64.rpm
 **Autres distros (tarball) :**
 
 ```bash
-tar xzf dictee-1.3.3_amd64.tar.gz
-cd dictee-1.3.3
+tar xzf dictee-1.3.4_amd64.tar.gz
+cd dictee-1.3.4
 sudo ./install.sh
 ```
 
@@ -379,14 +379,27 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 
 ## Feuille de route
 
-**v1.3.3 (actuelle)** — **Cohérence du packaging cross-distro**. Les hooks `.install` Arch ajoutent désormais les groupes `input`/`docker` à l'installation (postinst .deb / %post .rpm le faisaient déjà — PTT et LT cassés silencieusement sur fresh install Arch sans ça). `python-evdev` promu en dépendance dure sur Arch (était `optdepends` → fallback en mode raw cassé). Le plasmoïde wrappe `docker inspect` via `sg docker` pour que l'indicateur LT reste juste quand plasmashell n'a pas encore rafraîchi son set de groupes. Règle udev shippée directement en mode `0660`. Venv post-traitement (`text2num`) créé aussi en mode tarball. Le script dictee wrappe `dotool` via `sg input` quand lancé depuis un parent shell aux groupes périmés (bouton Dictate plasmoïde qui tape dans la fenêtre active). Clôture les issues [#5](https://github.com/rcspam/dictee/issues/5) et [#6](https://github.com/rcspam/dictee/issues/6).
+**v1.3.4 (actuelle)** — **Transcription découpée universelle + durcissement UX de `dictee-transcribe`** :
+- **Transcription découpée universelle** dans `dictee-transcribe` — routage adaptatif VRAM (CPU + GPU), chunks de 180 s par défaut, cancel/redémarrage daemon sûrs. Garde-fou par backend sur la durée d'enregistrement.
+- **Durcissement de 5 points UI ciblés par onglet** dans `dictee-transcribe` — éditeur de texte, panneau de renommage, markers timeline, swap audio du lecteur, et rendu de la transcription ne mettent désormais à jour l'UI globale que si l'onglet cible est visible. Plus de corruption cross-onglet quand on transcrit un fichier tout en relisant un autre.
+- **Statuts de skip traduction visibles** — les cas de skip silencieux affichent désormais un message de statut coloré (i18n en 6 langues : fr / de / es / it / pt / uk).
+- **La diarisation bascule sur Parakeet + Sortformer standalone** quand le daemon PTT est Canary — évite la mistranscription silencieuse sur les fichiers dont la langue ≠ `DICTEE_LANG_SOURCE` (le daemon Canary est verrouillé au démarrage). Le binaire standalone coûte ~5–10 s de chargement modèle supplémentaire.
+- **Timeout de lecture socket** porté de 30 → 120 s pour les gros fichiers.
+- **Warning de fallback GPU** supprimé quand stderr est redirigé.
+- **Raccourci par défaut du cheatsheet** désormais « Même touche + Maj » (était « Désactivé »).
+- **Nettoyage des fichiers d'état PTT/dictee périmés** à la reprise.
 
-**v1.3.2** — **Fallback automatique CUDA → CPU au runtime** : le paquet CUDA sonde désormais `/proc/driver/nvidia/gpus/` au démarrage et bascule en CPU automatiquement sur les machines sans driver NVIDIA fonctionnel (VM virtio, conteneurs headless, postes avec driver désinstallé), au lieu de crasher en boucle de redémarrage. Le check « ASR service » de l'assistant de configuration est maintenant strict (état actif + socket ouverte), il ne peut plus afficher « Tout est prêt ! » tant que le daemon n'est pas vraiment up. Nouvelle variable d'override `DICTEE_FORCE_CPU=1`.
-
-**v1.3.0** — Exceptions keepcaps short-text (7 langues), mode de correspondance étendu, purge des modèles LibreTranslate, corrections continuation + traduction, dictée des numéros de version, sûreté multi-utilisateur (suffixe UID sur les fichiers d'état), toggles cross-process du plasmoid (LLM / Short / Meeting), 682 tests postprocess + 148 tests pipeline, bannière theme-aware.
+**v1.3.0 → v1.3.3** — **La série v1.3**. Apports majeurs par rapport à la v1.2 :
+- **`dictee-transcribe`** — fenêtre dédiée pour la transcription hors-ligne de fichiers audio/vidéo (lecteur timeline, multi-onglets, traduction et analyse LLM par onglet, export PDF / SRT / JSON / Markdown).
+- **Diarisation des locuteurs** jusqu'à 4 locuteurs via NVIDIA Sortformer, plus un pipeline découpé qui lève la limite VRAM sur les fichiers longs (keynote de 54 min diarisée en 122 s).
+- **Analyse LLM** sur les transcriptions diarisées — synthèse, chapitrage, correction ASR ; 14 providers configurables côte à côte (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…).
+- **Backend ASR Canary-1B v2** (NVIDIA AED) avec traduction native sur 12 paires intra-modèle.
+- **Libs CUDA portables** via venv pip au postinst — plus besoin du dépôt NVIDIA.
+- **Fallback automatique CUDA → CPU au runtime** + override `DICTEE_FORCE_CPU=1` (v1.3.2).
+- **Cohérence du packaging cross-distro** — hooks de groupes `.install` Arch, `python-evdev` en dépendance dure, wrappers `sg docker` / `sg input`, règle udev `0660` directe (v1.3.3, clôture [#5](https://github.com/rcspam/dictee/issues/5) + [#6](https://github.com/rcspam/dictee/issues/6)).
+- **Exceptions keepcaps short-text** (7 langues), mode de correspondance étendu, dictée des numéros de version, sûreté multi-utilisateur, toggles cross-process du plasmoid, 682 tests postprocess + 148 tests pipeline (v1.3.0).
 
 **v1.4+ (prévu)**
-- **Diarisation chunked** — traiter les fichiers > 15 min via `transcribe-diarize-batch` (prototype validé : 54 min en 122 s)
 - **Hotword boosting** — biaiser le décodage ASR vers des noms personnalisés (shallow fusion sur les logits TDT, Parakeet uniquement)
 - **Whisper translate** — traduction multi-cible via `task="translate"` (EN uniquement, hors ligne)
 - **Backend Moonshine** CPU
