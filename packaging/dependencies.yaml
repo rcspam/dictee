@@ -101,7 +101,7 @@ depends:
     variants: [cpu, cuda]
     kind: hard
     deb: ffmpeg
-    rpm: ffmpeg-free   # Fedora utilise ffmpeg-free dans les dépôts officiels
+    rpm: (ffmpeg-free or ffmpeg)   # ffmpeg-free = officiel Fedora ; ffmpeg = RPMFusion (mutually exclusive)
     arch: ffmpeg
     why: dictee-transcribe conversion mp3/m4a/webm/ogg + chunked split fichiers longs
 

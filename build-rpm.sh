@@ -278,7 +278,7 @@ Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
-Requires:       ffmpeg-free
+Requires:       (ffmpeg-free or ffmpeg)
 
 # Do NOT auto-generate Requires for bundled libs (onnxruntime + providers)
 # or the CUDA runtime libs they depend on — those come from pip wheels
@@ -545,7 +545,7 @@ Requires:       (pipewire or alsa-utils)
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
-Requires:       ffmpeg-free
+Requires:       (ffmpeg-free or ffmpeg)
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Requires:       python3-evdev
