@@ -1,4 +1,4 @@
-use std::{fmt, rc::Rc};
+use std::{env, fmt, rc::Rc, thread::available_parallelism};
 
 use crate::error::Result;
 use ort::session::builder::SessionBuilder;
@@ -59,9 +59,23 @@ impl fmt::Debug for ModelConfig {
 
 impl Default for ModelConfig {
     fn default() -> Self {
+        // Auto-detect available CPU threads, capped at 8 to avoid context-switch
+        // overhead on many-core machines. Override via DICTEE_INTRA_THREADS env
+        // var (e.g. 2 to save battery on laptops, or to limit CPU when another
+        // workload is running). Previous hardcoded value 4 was leaving 60-75 %
+        // of the CPU idle on 8+ core machines.
+        let intra_threads = env::var("DICTEE_INTRA_THREADS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|&n| (1..=64).contains(&n))
+            .unwrap_or_else(|| {
+                available_parallelism()
+                    .map(|n| n.get().min(8))
+                    .unwrap_or(4)
+            });
         Self {
             execution_provider: ExecutionProvider::default(),
-            intra_threads: 4,
+            intra_threads,
             inter_threads: 1,
             configure: None,
         }
