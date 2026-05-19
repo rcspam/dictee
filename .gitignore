@@ -72,6 +72,9 @@ __pycache__
 test-wer*.py
 tests/test-wer*.py
 
+# Test fixtures (audio samples — recreate locally, not tracked in git)
+tests/fixtures/*.wav
+
 # ──────────────────────────────────────────────────────────────────
 # Random scratch (Screenshots from Spectacle, etc.)
 # ──────────────────────────────────────────────────────────────────

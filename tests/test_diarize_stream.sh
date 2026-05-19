@@ -27,3 +27,19 @@ grep -q "\[diarize-only --stream\] ready" /tmp/diarize_stream.err || {
 }
 
 echo "PASS: stream mode emits $chunk_count chunks"
+
+# Test RESET command
+{
+  echo "FILE: $SAMPLE"
+  sleep 0.5
+  echo "RESET"
+  sleep 0.5
+  echo "FILE: $SAMPLE"
+} | $BIN --stream 2>>/tmp/diarize_stream.err >> /tmp/diarize_stream.out
+
+grep -q "^RESET_OK$" /tmp/diarize_stream.out || {
+  echo "FAIL: pas de RESET_OK dans l'output"
+  exit 1
+}
+
+echo "PASS: RESET command acknowledged"

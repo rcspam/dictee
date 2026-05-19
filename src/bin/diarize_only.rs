@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!();
             eprintln!("Options:");
             eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5)");
-            eprintln!("  --stream                 Mode streaming (lit FILE: <path> sur stdin)");
+            eprintln!("  --stream                 Streaming mode (reads FILE: <path> from stdin, keeps Sortformer alive)");
             eprintln!();
             eprintln!("Output: start_seconds end_seconds speaker_id (one segment per line)");
             return Ok(());
@@ -183,12 +183,17 @@ fn is_wav_16k_mono(path: &str) -> bool {
 
 #[cfg(feature = "sortformer")]
 fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Error>> {
+    ensure_wav_with_tmp(audio_path, TEMP_CONVERTED)
+}
+
+#[cfg(feature = "sortformer")]
+fn ensure_wav_with_tmp(audio_path: &str, tmp_path: &str) -> Result<(String, bool), Box<dyn std::error::Error>> {
     if is_wav_16k_mono(audio_path) {
         return Ok((audio_path.to_string(), false));
     }
 
     let status = Command::new("ffmpeg")
-        .args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", TEMP_CONVERTED])
+        .args(["-y", "-i", audio_path, "-ar", "16000", "-ac", "1", "-f", "wav", tmp_path])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -199,7 +204,7 @@ fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Er
         return Err(format!("ffmpeg failed to convert '{}' (exit code: {:?})", audio_path, status.code()).into());
     }
 
-    Ok((TEMP_CONVERTED.to_string(), true))
+    Ok((tmp_path.to_string(), true))
 }
 
 #[cfg(feature = "sortformer")]
@@ -275,7 +280,12 @@ fn diarize_chunk(
     sortformer: &mut Sortformer,
     path: &str,
 ) -> Result<Vec<parakeet_rs::sortformer::SpeakerSegment>, Box<dyn std::error::Error>> {
-    let (wav_path, needs_cleanup) = ensure_wav(path)?;
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("file not found: {}", path).into());
+    }
+    // PID-scoped temp path so future concurrent callers don't race
+    let tmp_path = format!("/tmp/diarize_only_stream_{}.wav", std::process::id());
+    let (wav_path, needs_cleanup) = ensure_wav_with_tmp(path, &tmp_path)?;
     let mut reader = hound::WavReader::open(&wav_path)?;
     let spec = reader.spec();
     let audio: Vec<f32> = match spec.sample_format {
