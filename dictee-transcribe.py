@@ -826,6 +826,12 @@ class _ChunkedPipelineWorker(QThread):
         ort_lib = "/usr/lib/dictee/libonnxruntime.so"
         if os.path.isfile(ort_lib):
             self._subprocess_env["ORT_DYLIB_PATH"] = ort_lib
+        # Propagate DICTEE_* keys from dictee.conf to subprocesses. Systemd
+        # services do this via EnvironmentFile=, but Popen children only inherit
+        # the plain user shell env, which doesn't source dictee.conf.
+        for _k, _v in _read_conf().items():
+            if _k.startswith("DICTEE_"):
+                self._subprocess_env[_k] = _v
 
     def request_cancel(self):
         self._cancel = True
