@@ -483,10 +483,11 @@ PlasmoidItem {
         }
     }
 
-    // Timer rapide : lit /dev/shm/.dictee_state toutes les 150ms
+    // Timer rapide : lit /dev/shm/.dictee_state. 150ms pendant activité,
+    // 1000ms en idle pour éviter le stress fork/exec sur CPU faible (T480, etc.)
     Timer {
         id: fastPollTimer
-        interval: 150
+        interval: (root.effectiveState === "recording" || root.effectiveState === "transcribing") ? 150 : 1000
         running: true
         repeat: true
         triggeredOnStart: true
@@ -715,16 +716,28 @@ PlasmoidItem {
     }
 
     // Refresh config when popup opens (catches changes from dictee-setup Apply)
+    // Lance le daemon level uniquement quand expanded ou recording (économise
+    // ~18% CPU baseline + parec capture continu sur CPU faible)
     onExpandedChanged: {
         if (expanded) {
             refreshBackends()
+            preStartAudioDaemon()
+        } else if (root.effectiveState !== "recording" && root.effectiveState !== "transcribing") {
+            executable.run("dictee-plasmoid-level stop")
         }
     }
 
-    // Load debug flag and start audio daemon
+    onEffectiveStateChanged: {
+        if (effectiveState === "recording" || effectiveState === "transcribing") {
+            preStartAudioDaemon()
+        } else if (!root.expanded) {
+            executable.run("dictee-plasmoid-level stop")
+        }
+    }
+
+    // Load debug flag — daemon level lancé à la demande via onExpandedChanged/onEffectiveStateChanged
     Component.onCompleted: {
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")
-        preStartAudioDaemon()
         refreshBackends()
     }
 
