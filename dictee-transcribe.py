@@ -428,7 +428,13 @@ def _postprocess(text):
         return text
     conf = _read_conf()
     env = os.environ.copy()
-    env["DICTEE_LANG_SOURCE"] = conf.get("DICTEE_LANG_SOURCE", env.get("LANG", "en")[:2])
+    # Propagate all DICTEE_* keys so dictee-postprocess sees DICTEE_PP_*,
+    # DICTEE_LLM_*, etc. (it reads them via os.environ.get / _env_bool).
+    for _k, _v in conf.items():
+        if _k.startswith("DICTEE_"):
+            env[_k] = _v
+    # LANG_SOURCE fallback if not in conf
+    env.setdefault("DICTEE_LANG_SOURCE", env.get("LANG", "en")[:2])
     try:
         result = subprocess.run(
             ["dictee-postprocess"],
@@ -3752,7 +3758,15 @@ class TranscribeWindow(QDialog):
         ort_lib = "/usr/lib/dictee/libonnxruntime.so"
         if os.path.isfile(ort_lib):
             env.insert("ORT_DYLIB_PATH", ort_lib)
-            self._process.setProcessEnvironment(env)
+        # Propagate DICTEE_* keys from ~/.config/dictee.conf so the Rust
+        # binary sees DICTEE_FORCE_CPU, DICTEE_PARAKEET_QUANT,
+        # DICTEE_INTRA_THREADS, etc. The systemd services get them via
+        # EnvironmentFile=, but a QProcess launched from this Python UI
+        # only inherits the user shell env, which doesn't source the conf.
+        for _k, _v in _read_conf().items():
+            if _k.startswith("DICTEE_"):
+                env.insert(_k, _v)
+        self._process.setProcessEnvironment(env)
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
 
