@@ -15,6 +15,7 @@ for d in os.listdir(VENV_SITE) if os.path.isdir(VENV_SITE) else []:
     if os.path.isdir(sp) and sp not in sys.path:
         sys.path.insert(0, sp)
 
+import ctranslate2  # noqa: E402
 from faster_whisper import WhisperModel  # noqa: E402
 
 
@@ -37,9 +38,24 @@ def main():
     if os.path.exists(sock_path):
         os.remove(sock_path)
 
+    # — Sélection device + compute_type (bench 2026-05-20, large-v3 sur 4070 8GB) —
+    # CPU : int8_float32 (RTF 0.50, ≈ int8 en perf, activations FP32 préservent WER)
+    # GPU : int8_float16 (RTF 0.064, tient sur 4 GB VRAM, ≡ float16 perf sur Tensor Cores)
+    # float32 GPU INFAISABLE sur ≤ 8 GB VRAM (poids 6.2 GB + workspace OOM)
+    force_cpu = os.environ.get("DICTEE_FORCE_CPU", "0").lower() in ("1", "true", "yes")
+    has_gpu = ctranslate2.get_cuda_device_count() > 0
+    if force_cpu or not has_gpu:
+        device, compute_type = "cpu", "int8_float32"
+    else:
+        device, compute_type = "cuda", "int8_float16"
+
     # — Chargement du modèle (une seule fois) —
-    print(f"Chargement du modèle faster-whisper '{model_size}'…", file=sys.stderr)
-    model = WhisperModel(model_size, device="auto", compute_type="auto")
+    print(
+        f"Chargement du modèle faster-whisper '{model_size}' "
+        f"[device={device}, compute={compute_type}]…",
+        file=sys.stderr,
+    )
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
     print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
 
     # — Création du socket Unix —
