@@ -8,6 +8,11 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
+    // Pin popup: when checked in FullRepresentation.qml, prevent the popup
+    // from auto-closing on window deactivation. The setting persists in
+    // Plasmoid.configuration.pinPopup; this binding wires it to the popup.
+    hideOnWindowDeactivate: !Plasmoid.configuration.pinPopup
+
     // Le plasmoid hérite par défaut du color set du panel (souvent sombre).
     // Forcer View garantit que le popup (FullRepresentation) suit le thème des
     // applications — blanc en Breeze Light, sombre en Breeze Dark.
