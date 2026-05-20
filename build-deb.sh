@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 # Prevents silent regressions (cf. ffmpeg removed in d4d1fff "fix v1.1.1").
 python3 packaging/audit-deps.py
 
-VERSION="1.3.4"
+VERSION="1.3.5"
 PKG_DIR="pkg/dictee"
 
 # Final artefacts go in .dev/dist/ (gitignored), keeping the repo root clean.
@@ -109,7 +109,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.3.4
+Version: 1.3.5
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -244,7 +244,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.3.4
+Version: 1.3.5
 Section: sound
 Priority: optional
 Architecture: amd64
