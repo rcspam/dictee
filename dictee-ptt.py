@@ -141,6 +141,11 @@ PIDFILE_TIMEOUT = 3.0  # attente max PIDFILE au key-up
 MIN_HOLD_DURATION = 0.3  # 300ms — en dessous, cancel au lieu de transcrire
 RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 
+# Whitelist de sous-chaînes (lowercase) à autoriser en plus du filtre par défaut.
+# Peuplée dans main() depuis DICTEE_PTT_EXTRA_DEVICES. Permet aux outils de
+# remapping clavier (logiops, keyd, evsieve, kmonad, etc.) de servir de PTT.
+EXTRA_KEYBOARDS = []
+
 
 def load_config():
     """Charge dictee.conf et retourne un dict."""
@@ -167,7 +172,9 @@ def find_keyboards_evdev():
         # EV_KEY présent et au moins les touches alphanumériques
         if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
             name = dev.name.lower()
-            if not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
+            if any(x in name for x in EXTRA_KEYBOARDS):
+                devs.append(dev)
+            elif not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
                 devs.append(dev)
             else:
                 dev.close()
@@ -194,7 +201,10 @@ def find_keyboards_raw():
             elif line.startswith("H:"):
                 handlers_line = line
         if "kbd" in handlers_line:
-            if not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE):
+            name_lower = name_line.lower()
+            allowed = any(x in name_lower for x in EXTRA_KEYBOARDS) or \
+                not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)
+            if allowed:
                 m = re.search(r"event\d+", handlers_line)
                 if m:
                     devs.append(f"/dev/input/{m.group()}")
@@ -823,7 +833,7 @@ def run_raw(ptt):
 # ─── Main ───────────────────────────────────────────────────────────
 
 def main():
-    global DICTEE_BIN
+    global DICTEE_BIN, EXTRA_KEYBOARDS
 
     mode = "toggle"
     key_dictee = 67   # F9
@@ -831,6 +841,11 @@ def main():
     mod_translate = ""    # modificateur traduction (alt, ctrl, shift)
     mod_cheatsheet = ""   # modificateur cheatsheet toggle (alt, ctrl, shift, super)
     conf = load_config()
+
+    extra_raw = conf.get("DICTEE_PTT_EXTRA_DEVICES", "")
+    EXTRA_KEYBOARDS = [x.strip().lower() for x in extra_raw.split(",") if x.strip()]
+    if EXTRA_KEYBOARDS:
+        print(f"[ptt] extra keyboards whitelist: {EXTRA_KEYBOARDS}")
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
 

@@ -68,6 +68,14 @@ DICTEE_PTT_KEY=67
 # Translation modifier: alt | ctrl | shift (with same PTT key)
 #DICTEE_PTT_MOD_TRANSLATE=
 
+# Extra input devices to listen to (push-to-talk via virtual keyboards).
+# By default, dictee-ptt excludes devices whose name contains "virtual",
+# "uinput", "dotool" or "dictee-ptt" to avoid feedback loops. If you remap
+# mouse buttons or keys via logiops, keyd, evsieve, kmonad, etc., add the
+# device name substring(s) here (comma-separated, case-insensitive).
+# Find your device name with: cat /proc/bus/input/devices
+#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
+
 # ============================================================================
 # Display and feedback
 # ============================================================================
