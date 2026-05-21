@@ -107,12 +107,23 @@ def main():
                 continue
 
             # — Transcription —
+            # Anti-hallucination params (Meetily pattern #1, 2026-05-21) :
+            # - condition_on_previous_text=False : reco OpenAI officielle,
+            #   évite les failure loops répétitifs et la contamination
+            #   cross-segment quand un segment foire.
+            # - temperature=[0.0, 0.2, 0.4] : raccourcit le fallback (défaut
+            #   6 niveaux jusqu'à 1.0) → évite la génération aléatoire qui
+            #   escalade sur audio ambigu.
+            # no_speech_threshold non touché (défaut 0.6) : redondant avec
+            # notre filtre RMS amont dans `dictee:1297-1324`.
             segments, _info = model.transcribe(
                 wav_path,
                 language=language,
                 beam_size=5,
                 vad_filter=True,
                 word_timestamps=timestamps_mode,
+                condition_on_previous_text=False,
+                temperature=[0.0, 0.2, 0.4],
             )
             if timestamps_mode:
                 lines = []
