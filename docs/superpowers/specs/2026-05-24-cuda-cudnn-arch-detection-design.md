@@ -56,14 +56,16 @@ GTX 10xx (Pascal) = famille très répandue → flux d'issues.
 
 ## 4. Composant A — détection d'archi (install-time)
 
-### 4.1 Détection (robuste, multi-méthode — cf. §7.4)
+### 4.1 Détection
 1. `nvidia-smi --query-gpu=compute_cap --format=csv,noheader` → `6.1`, `8.9`, `12.0`…
-2. Si ça échoue : `nvidia-smi -L` / nom GPU → table nom→cc (best-effort).
-3. Si tout échoue : ne PAS deviner faux → **installer latest** MAIS compter sur le **fallback B** au runtime.
-   Logguer un warning clair.
+2. Si ça échoue/vide → **installer latest** + warning clair, en comptant sur le **fallback B** au runtime.
 - Plusieurs GPU NVIDIA : prendre le **minimum** des compute_cap (la cuDNN doit marcher sur tous présents) —
   **sauf** si l'écart dépasse une seule cuDNN (Pascal+Blackwell) → cas non servable par A, rattrapé par B (§7.2).
 - Comparaison : `"X.Y"` → entier `X*10+Y`, comparer à **75**. Arithmétique entière, locale-safe (pas de `bc`).
+- **DESCOPÉ (décision 2026-05-24)** : PAS de fallback par nom GPU (`nvidia-smi -L` → table nom→cc).
+  `compute_cap` existe depuis driver R460 ; dictee-cuda exige CUDA 12 → driver ≥ R525 → `compute_cap`
+  toujours disponible sur tout matériel capable de faire tourner dictee-cuda. Une table nom→cc serait
+  fragile (gold-plating). Le cas « détection KO » est couvert par le fallback B.
 
 ### 4.2 Mapping (2 paliers)
 | compute_cap | cuDNN |
@@ -77,9 +79,12 @@ GTX 10xx (Pascal) = famille très répandue → flux d'issues.
   cublas 12.9 marche).
 
 ### 4.3 Où vit la logique — script partagé unique
-`setup-cuda-venv.sh` (source racine repo, copié par les 4 build-scripts en `usr/lib/dictee/`, comme
-`dictee_models.py`). Les 4 cibles d'install **appellent ce script** au lieu de dupliquer le bloc pip inline.
-Source unique de vérité, testable isolément.
+`pkg/dictee/usr/lib/dictee/setup-cuda-venv.sh` — emplacement **canonique** (décision 2026-05-24) : un seul
+fichier, qui reflète le chemin d'install `/usr/lib/dictee/`. Pas de copie racine (donc **pas de dérive
+root↔pkg**, contrairement à `dictee_models.py` qui existe en double). Ce n'est pas un artefact régénéré : il
+EST la source. Inclus dans le .deb via `cp -a pkg/dictee` ; copié explicitement par build-rpm.sh /
+build-tar.sh / PKGBUILD-cuda. Les 4 cibles d'install **appellent ce script** au lieu de dupliquer le bloc
+pip inline. Source unique de vérité, testable isolément.
 
 Le script (reproduit le mécanisme actuel + détection + robustesse) :
 ```
@@ -138,7 +143,7 @@ Support **Pascal-GPU lié à ORT 1.23** (`src/onnxruntime-linux-x64-gpu-1.23.0/`
 ## 7. Robustesse (les 5 points durs)
 
 1. **Détection ratée ne casse plus rien** : si `nvidia-smi` KO → A installe latest, mais **B** capte le crash
-   au runtime et bascule CPU. (+ détection multi-méthode §4.1.) Le trou du happy-path est colmaté par B.
+   au runtime et bascule CPU. Le trou du happy-path est colmaté par B (la détection par nom est descopée, §4.1).
 2. **Multi-GPU mixte (Pascal+Blackwell)** : A prend le min → 9.0.0 → Blackwell non couvert → **B** le rattrape
    (bascule CPU pour ce cas). Documenter : un mix Pascal+Blackwell ne peut pas avoir les DEUX en GPU. (Option
    future : détecter le GPU réellement utilisé via `CUDA_VISIBLE_DEVICES` plutôt que le min.)
@@ -155,7 +160,7 @@ Support **Pascal-GPU lié à ORT 1.23** (`src/onnxruntime-linux-x64-gpu-1.23.0/`
 ## 8. Cibles & fichiers (règle d'or packaging + daemon)
 
 **Composant A (packaging) :**
-- Nouveau : **`setup-cuda-venv.sh`** (racine repo).
+- Nouveau : **`pkg/dictee/usr/lib/dictee/setup-cuda-venv.sh`** (emplacement canonique, cf. §4.3).
 - Copie (4 build-scripts) : `build-deb.sh`, `build-rpm.sh`, `PKGBUILD-cuda`, `build-tar.sh` → `usr/lib/dictee/`.
 - Appel (4 cibles) : `pkg/dictee/DEBIAN/postinst`, `build-rpm.sh` %post, `dictee-cuda.install`,
   `install.sh` (mode_tarball). Remplacent le bloc pip inline par l'appel au script.
