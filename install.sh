@@ -672,6 +672,8 @@ EOF
         && install -Dm644 "$SCRIPT_DIR/usr/lib/dictee/dictee-common.sh" /usr/lib/dictee/dictee-common.sh
     [[ -f "$SCRIPT_DIR/usr/lib/dictee/dictee_models.py" ]] \
         && install -Dm644 "$SCRIPT_DIR/usr/lib/dictee/dictee_models.py" /usr/lib/dictee/dictee_models.py
+    [[ -f "$SCRIPT_DIR/usr/lib/dictee/setup-cuda-venv.sh" ]] \
+        && install -Dm755 "$SCRIPT_DIR/usr/lib/dictee/setup-cuda-venv.sh" /usr/lib/dictee/setup-cuda-venv.sh
 
     # --- CUDA libs (present only in the CUDA tarball variant) ---
     if [[ -d "$SCRIPT_DIR/usr/lib/dictee" ]]; then
@@ -689,67 +691,11 @@ EOF
         fi
     fi
 
-    # --- NVIDIA CUDA runtime libs via pip (mirrors postinst .deb) ---
-    # Only when the CUDA provider .so is actually present. Creates
-    # /opt/dictee/cuda-venv, pip installs nvidia-*-cu12 wheels, then
-    # symlinks their .so files into /usr/lib/dictee/ so ldconfig picks
-    # them up. Keeps the tarball portable on any distro without
-    # depending on the NVIDIA repo.
-    #
-    # Skip the ~1.5 GB download if no NVIDIA GPU is detected — the runtime
-    # fallback (v1.3.1) picks CPU automatically.
-    if [[ ! -d /proc/driver/nvidia && ! -e /dev/nvidia0 ]]; then
-        if [[ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ]]; then
-            info "No NVIDIA GPU detected — skipping CUDA libs download (~1.5 GB)."
-            info "The runtime will automatically fall back to CPU."
-            info "To enable CUDA after installing an NVIDIA driver:"
-            info "  sudo python3 -m venv /opt/dictee/cuda-venv"
-            info "  sudo /opt/dictee/cuda-venv/bin/pip install nvidia-cuda-runtime-cu12 \\"
-            info "       nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \\"
-            info "       nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12"
-            info "  sudo ldconfig"
-        fi
-    elif [[ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ]] \
-            && command -v python3 >/dev/null 2>&1; then
-        local CUDA_VENV="/opt/dictee/cuda-venv"
-        info "Setting up NVIDIA CUDA libs via pip into $CUDA_VENV (≈ 1.5 GB)"
-        mkdir -p /opt/dictee
-        if [[ ! -x "$CUDA_VENV/bin/pip" ]]; then
-            if ! python3 -m venv "$CUDA_VENV" 2>/dev/null; then
-                warn "python3 -m venv failed — is python3-venv installed?"
-            else
-                "$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-            fi
-        fi
-        if [[ -x "$CUDA_VENV/bin/pip" ]]; then
-            if "$CUDA_VENV/bin/pip" install --quiet --upgrade \
-                    nvidia-cuda-runtime-cu12 \
-                    nvidia-cublas-cu12 \
-                    nvidia-cudnn-cu12 \
-                    nvidia-cufft-cu12 \
-                    nvidia-curand-cu12 \
-                    nvidia-cuda-nvrtc-cu12 2>/dev/null; then
-                local _py_ver
-                _py_ver=$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
-                if [[ -n "$_py_ver" ]]; then
-                    local _nvidia_root="$CUDA_VENV/lib/$_py_ver/site-packages/nvidia"
-                    local _count=0
-                    for _sub in "$_nvidia_root"/*/lib; do
-                        [[ -d "$_sub" ]] || continue
-                        for _so in "$_sub"/lib*.so*; do
-                            [[ -f "$_so" ]] || continue
-                            ln -sf "$_so" "/usr/lib/dictee/$(basename "$_so")"
-                            _count=$((_count + 1))
-                        done
-                    done
-                    ok "Linked $_count NVIDIA libs into /usr/lib/dictee/"
-                    ldconfig 2>/dev/null || true
-                fi
-            else
-                warn "pip install of nvidia-*-cu12 failed (offline? disk full?)"
-                warn "Re-run later: sudo $CUDA_VENV/bin/pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 && sudo ldconfig"
-            fi
-        fi
+    # --- NVIDIA CUDA libs : mise en place centralisée dans le script partagé ---
+    # (détection GPU → bonne cuDNN selon compute_cap : Pascal/anciens → 9.0.0.312,
+    #  Turing+ → latest ; skip si pas de GPU). Source unique de vérité.
+    if [[ -f /usr/lib/dictee/setup-cuda-venv.sh ]]; then
+        bash /usr/lib/dictee/setup-cuda-venv.sh || warn "Mise en place CUDA incomplète."
     fi
 
     # --- udev rule for dotool ---

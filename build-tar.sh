@@ -175,6 +175,7 @@ done
 # Shared lib helpers
 cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$TARBALL_DIR/usr/lib/dictee/"
 cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$TARBALL_DIR/usr/lib/dictee/"
+cp "$PKG_DIR/usr/lib/dictee/setup-cuda-venv.sh" "$TARBALL_DIR/usr/lib/dictee/"
 
 # ONNX Runtime libs — the 3 CUDA libs go into /usr/lib/dictee/, plus an
 # ld.so.conf.d entry so ldconfig picks them up at install time.

@@ -84,6 +84,7 @@ prepare_buildroot() {
     mkdir -p "$buildroot/usr/lib/dictee"
     cp "$PKG_DIR/usr/lib/dictee/dictee-common.sh" "$buildroot/usr/lib/dictee/"
     cp "$PKG_DIR/usr/lib/dictee/dictee_models.py" "$buildroot/usr/lib/dictee/"
+    cp "$PKG_DIR/usr/lib/dictee/setup-cuda-venv.sh" "$buildroot/usr/lib/dictee/"
 
     # Patcher shebangs pour packaging RPM (guidelines Fedora)
     # /usr/bin/env python3 → /usr/bin/python3 pour utiliser le Python système.
@@ -424,51 +425,10 @@ if command -v python3 >/dev/null 2>&1; then
     fi
 fi
 
-# CUDA venv — pip-install nvidia-*-cu12 wheels + symlink into /usr/lib/dictee/.
-# Only triggers if the provider .so is present (i.e. dictee-cuda, not cpu).
-# Skip the ~1.5 GB download if no NVIDIA GPU is detected — the runtime
-# fallback (v1.3.1) picks CPU automatically.
-if [ ! -d /proc/driver/nvidia ] && [ ! -e /dev/nvidia0 ]; then
-    if [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ]; then
-        echo "→ Pas de GPU NVIDIA détecté — skip téléchargement des libs CUDA (≈ 1,5 Go)."
-        echo "  Le runtime bascule automatiquement en CPU (fallback v1.3.1)."
-        echo "  Pour activer CUDA après installation d'un driver NVIDIA :"
-        echo "    sudo python3 -m venv /opt/dictee/cuda-venv"
-        echo "    sudo /opt/dictee/cuda-venv/bin/pip install nvidia-cuda-runtime-cu12 \\\\"
-        echo "         nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \\\\"
-        echo "         nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12"
-        echo "    sudo ldconfig"
-    fi
-elif [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] \\
-        && command -v python3 >/dev/null 2>&1; then
-    CUDA_VENV="/opt/dictee/cuda-venv"
-    mkdir -p /opt/dictee
-    if [ ! -x "\$CUDA_VENV/bin/pip" ]; then
-        python3 -m venv "\$CUDA_VENV" 2>/dev/null || true
-        "\$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
-    fi
-    if [ -x "\$CUDA_VENV/bin/pip" ]; then
-        echo "→ Téléchargement des libs NVIDIA CUDA (≈ 1,5 Go)..."
-        if "\$CUDA_VENV/bin/pip" install --quiet --upgrade \\
-                nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 \\
-                nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 2>/dev/null; then
-            _py_ver=\$(ls "\$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
-            if [ -n "\$_py_ver" ]; then
-                _nv="\$CUDA_VENV/lib/\$_py_ver/site-packages/nvidia"
-                for _sub in "\$_nv"/*/lib; do
-                    [ -d "\$_sub" ] || continue
-                    for _so in "\$_sub"/lib*.so*; do
-                        [ -f "\$_so" ] && ln -sf "\$_so" "/usr/lib/dictee/\$(basename "\$_so")"
-                    done
-                done
-                ldconfig 2>/dev/null || true
-                echo "✓ Libs NVIDIA CUDA liées dans /usr/lib/dictee/"
-            fi
-        else
-            echo "⚠ pip install nvidia-*-cu12 a échoué (pas d'internet ?)"
-            echo "  Relancer : sudo \$CUDA_VENV/bin/pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12 && sudo ldconfig"
-        fi
-    fi
+# Mise en place CUDA centralisée dans le script partagé (détection GPU → bonne cuDNN
+# selon compute_cap : Pascal/anciens → 9.0.0.312, Turing+ → latest ; skip si pas de GPU).
+if [ -f /usr/lib/dictee/setup-cuda-venv.sh ]; then
+    bash /usr/lib/dictee/setup-cuda-venv.sh || echo "⚠ Mise en place CUDA incomplète."
 fi
 
 %postun

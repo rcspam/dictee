@@ -294,6 +294,7 @@ package() {
     # Shared libraries
     install -Dm644 dictee-common.sh "$pkgdir/usr/lib/dictee/dictee-common.sh"
     install -Dm644 dictee_models.py "$pkgdir/usr/lib/dictee/dictee_models.py"
+    install -Dm755 pkg/dictee/usr/lib/dictee/setup-cuda-venv.sh "$pkgdir/usr/lib/dictee/setup-cuda-venv.sh"
 
     # Default config files
     install -Dm644 dictee.conf.example "$pkgdir/usr/share/dictee/dictee.conf.example"
