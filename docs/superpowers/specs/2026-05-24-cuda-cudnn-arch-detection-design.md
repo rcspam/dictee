@@ -129,6 +129,26 @@ avec ce provider, et si l'init CUDA échoue → exception → `exit 1` → crash
   parakeet-int8 (−34 % vs FP32) et whisper-bench (int8_float32).
 - Couvre TOUS les `*-daemon` ASR (Parakeet/Canary/…) — auditer chaque chemin de chargement de modèle.
 
+### 5.1 Implémentation — repérage Rust (investigué 2026-05-24, prêt à coder)
+**Lieu unique : `src/bin/transcribe_daemon.rs` ~143-152** (chargement du modèle). Ce binaire charge **Parakeet ET Canary** (branche `if use_canary`), donc **un seul wrap couvre les deux**. Vosk/Whisper = daemons Python/CT2 → hors scope ORT-CUDA.
+```rust
+// AUJOURD'HUI (le `?` sur échec d'init CUDA → exit 1 → crash-loop) :
+let config = ExecutionConfig::new().with_execution_provider(best_provider()); // Cuda si GPU
+let mut backend = if use_canary {
+    AsrBackend::Canary(Canary::from_pretrained(&model_dir, Some(config), &source_lang, &target_lang)?)
+} else {
+    AsrBackend::Parakeet(ParakeetTDT::from_pretrained(&model_dir, Some(config))?)
+};
+```
+- **Le crash CUDA est à `commit_from_file`** (init de session, cf. les loaders model_tdt.rs/model.rs/model_canary.rs : `Session::builder()? → apply_to_session_builder → commit_from_file`), **PAS** à l'enregistrement de l'EP. Donc le fallback CPU natif d'ORT (liste d'EP dans `execution.rs:139-142`) **ne le capte pas** → d'où le wrap au niveau **daemon/modèle**.
+- **Fallback au niveau MODÈLE (all-or-nothing)**, pas par session : recharger TOUT le modèle en CPU (évite un mix encoder-GPU + decoder-CPU). `from_pretrained` renvoie `Err` si une session échoue → le daemon catch → reload Cpu.
+- **Patron** : extraire le chargement en closure `load(cfg) -> Result<AsrBackend>` (testable) ; capturer `was_cuda = best_provider()==Cuda` ;
+  `match load(config) { Ok=>b, Err(e) if was_cuda => { log + notify + load(cpu_config)? }, Err(e)=>return Err(e) }`.
+- **1.3** : `cpu_config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu)` (garder intra/inter threads) → MÊME modèle en CPU (FP32, pas de changement de model-path) ; **`notify-send` direct** depuis le daemon (shell-out, respecte `DICTEE_NOTIFICATIONS` lu via conf/env). `ExecutionProvider::Cpu` existe déjà (execution.rs:136).
+- **master** : en plus → modèle INT8 si présent (model-path int8) + écrire `/dev/shm/.dictee_provider = cpu-fallback`.
+- **Tests** : TDD = mock du `load` qui échoue → assert retry CPU + 1 seul notify. **E2E** (point dur) = forcer un échec CUDA : 1060 remise en cuDNN **latest** (état cassé) + daemon rebuildé → vérifier bascule CPU **sans crash-loop** + notif. (Défait temporairement le fix A sur la machine de test.)
+- **Branche** : nouvelle branche `fix/cuda-graceful-fallback` depuis release/1.3 (A est indépendant, sur `fix/cuda-cudnn-arch-detection`).
+
 ## 6. ⚠ Caveat — dépendance à la version d'ORT (atténué par B)
 
 Support **Pascal-GPU lié à ORT 1.23** (`src/onnxruntime-linux-x64-gpu-1.23.0/`).
