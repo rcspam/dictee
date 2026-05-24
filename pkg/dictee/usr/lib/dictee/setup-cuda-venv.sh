@@ -44,6 +44,15 @@ dictee_cudnn_spec() {
 dictee_setup_cuda_venv_main() {
     # Guard : variante CUDA uniquement (provider .so présent)
     [ -f "$DICTEE_LIB_DIR/libonnxruntime_providers_cuda.so" ] || return 0
+
+    # Pas de GPU NVIDIA → skip le téléchargement (~1,5 Go) ; le runtime bascule CPU.
+    if [ ! -d /proc/driver/nvidia ] && [ ! -e /dev/nvidia0 ]; then
+        echo "→ Pas de GPU NVIDIA détecté — skip téléchargement des libs CUDA (≈ 1,5 Go)."
+        echo "  Le runtime bascule automatiquement en CPU."
+        echo "  Après installation d'un driver NVIDIA, relancer : sudo bash $DICTEE_LIB_DIR/setup-cuda-venv.sh"
+        return 0
+    fi
+
     command -v python3 >/dev/null 2>&1 || { echo "⚠ python3 absent"; return 1; }
 
     mkdir -p /opt/dictee
