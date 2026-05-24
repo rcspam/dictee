@@ -42,8 +42,57 @@ dictee_cudnn_spec() {
 }
 
 dictee_setup_cuda_venv_main() {
-    # Rempli en Task 2.
-    :
+    # Guard : variante CUDA uniquement (provider .so présent)
+    [ -f "$DICTEE_LIB_DIR/libonnxruntime_providers_cuda.so" ] || return 0
+    command -v python3 >/dev/null 2>&1 || { echo "⚠ python3 absent"; return 1; }
+
+    mkdir -p /opt/dictee
+    if [ ! -x "$CUDA_VENV/bin/pip" ]; then
+        python3 -m venv "$CUDA_VENV" || { echo "⚠ python3 -m venv a échoué — python3-venv installé ?"; return 1; }
+        "$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+    fi
+
+    local cc_int cudnn_spec
+    cc_int="$(dictee_detect_cc_int)"
+    cudnn_spec="$(dictee_cudnn_spec "$cc_int")"
+    echo "→ GPU compute_cap détecté : ${cc_int:-inconnu} → cuDNN : $cudnn_spec"
+    if [ -z "$cc_int" ]; then
+        echo "  (détection GPU impossible — cuDNN latest par défaut ; le fallback CPU du daemon couvre les vieux GPU)"
+    fi
+
+    echo "→ Téléchargement des libs NVIDIA CUDA (≈ 1,5 Go, peut prendre plusieurs minutes)..."
+    # shellcheck disable=SC2086
+    if ! "$CUDA_VENV/bin/pip" install --quiet --upgrade $OTHER_CUDA_LIBS "$cudnn_spec"; then
+        echo "⚠ pip install des libs NVIDIA a échoué (pas d'internet ? disque plein ?)"
+        echo "  Relancer : sudo $CUDA_VENV/bin/pip install $OTHER_CUDA_LIBS $cudnn_spec && sudo ldconfig"
+        return 2
+    fi
+
+    # Nettoyer les symlinks périmés de $DICTEE_LIB_DIR pointant vers le venv (cas downgrade de version)
+    local _l _t
+    for _l in "$DICTEE_LIB_DIR"/lib*.so*; do
+        [ -L "$_l" ] || continue
+        _t="$(readlink "$_l")"
+        case "$_t" in "$CUDA_VENV"/*) [ -e "$_l" ] || rm -f "$_l" ;; esac
+    done
+
+    # (Re)symlink toutes les lib*.so* du venv → /usr/lib/dictee/
+    local _py _root _sub _so _count=0
+    _py="$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E '^python' | head -1)"
+    if [ -n "$_py" ]; then
+        _root="$CUDA_VENV/lib/$_py/site-packages/nvidia"
+        for _sub in "$_root"/*/lib; do
+            [ -d "$_sub" ] || continue
+            for _so in "$_sub"/lib*.so*; do
+                [ -f "$_so" ] || continue
+                ln -sf "$_so" "$DICTEE_LIB_DIR/$(basename "$_so")"
+                _count=$((_count + 1))
+            done
+        done
+        echo "✓ $_count libs NVIDIA liées dans $DICTEE_LIB_DIR/"
+    fi
+    ldconfig 2>/dev/null || true
+    return 0
 }
 
 # Ne lance main que si exécuté directement (pas si sourcé par les tests).
