@@ -1,6 +1,6 @@
 use parakeet_rs::{
-    best_provider, Canary, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber,
-    TranscriptionResult,
+    best_provider, Canary, ExecutionConfig, ExecutionProvider, ParakeetTDT, TimestampMode,
+    Transcriber, TranscriptionResult,
 };
 use std::env;
 use std::fs;
@@ -57,6 +57,57 @@ impl AsrBackend {
             AsrBackend::Canary(c) => c.last_token_ids().is_some(),
             AsrBackend::Parakeet(_) => false,
         }
+    }
+}
+
+/// True si le modèle Parakeet qui SERA chargé depuis `model_dir` est la
+/// variante int8. Reproduit la résolution de `ParakeetTDTModel::find_encoder`
+/// (model_tdt.rs) : le FP32 (`encoder-model.onnx` / `encoder.onnx`) est
+/// prioritaire ; l'int8 n'est retenu que si lui seul est présent. À garder
+/// synchrone avec find_encoder si l'ordre des candidats change.
+fn parakeet_resolves_to_int8(model_dir: &Path) -> bool {
+    !model_dir.join("encoder-model.onnx").exists()
+        && !model_dir.join("encoder.onnx").exists()
+        && model_dir.join("encoder-model.int8.onnx").exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parakeet_resolves_to_int8;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn tmp(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir()
+            .join(format!("dictee_int8_test_{}_{}", std::process::id(), tag));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn int8_only_is_int8() {
+        let d = tmp("only_int8");
+        fs::write(d.join("encoder-model.int8.onnx"), b"").unwrap();
+        assert!(parakeet_resolves_to_int8(&d));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn fp32_present_is_not_int8() {
+        let d = tmp("fp32_and_int8");
+        fs::write(d.join("encoder-model.onnx"), b"").unwrap();
+        fs::write(d.join("encoder-model.int8.onnx"), b"").unwrap();
+        // FP32 prioritaire dans find_encoder → ce n'est pas un chargement int8
+        assert!(!parakeet_resolves_to_int8(&d));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn no_model_is_not_int8() {
+        let d = tmp("empty");
+        assert!(!parakeet_resolves_to_int8(&d));
+        let _ = fs::remove_dir_all(&d);
     }
 }
 
@@ -132,7 +183,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Detects a usable NVIDIA GPU at runtime; falls back to CPU otherwise.
-    let config = ExecutionConfig::new().with_execution_provider(best_provider());
+    // Exception: a Parakeet int8 model is forced to CPU — the ORT CUDA EP
+    // doesn't optimize int8 ops (slower than int8 on CPU/AVX-VNNI), so running
+    // int8 on the GPU is never worthwhile. Canary has no int8 variant.
+    let provider = if !use_canary && parakeet_resolves_to_int8(Path::new(&model_dir)) {
+        eprintln!("[dictee] Parakeet int8 model — forcing CPU (int8 is slow on the CUDA EP)");
+        ExecutionProvider::Cpu
+    } else {
+        best_provider()
+    };
+    let config = ExecutionConfig::new().with_execution_provider(provider);
 
     eprintln!(
         "Loading {} model from {}...",
