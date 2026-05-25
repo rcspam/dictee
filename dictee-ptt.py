@@ -555,6 +555,33 @@ class PttState:
 
 # ─── Backend evdev (grab + uinput) ─────────────────────────────────
 
+def _rescan_keyboards(devices):
+    """Détecte et grab les claviers nouvellement branchés (hotplug).
+
+    Ouvre tous les /dev/input/event* (coûteux : ~30 ms/clavier). À n'appeler
+    QUE lorsque la boucle d'events est au repos — sinon le balayage fige le
+    traitement des touches, et un KEY_UP délivré en retard fait croire au
+    compositeur que la touche est maintenue → auto-répétition parasite
+    (issue #8). Modifie `devices` en place. Logue la durée si anormale.
+    """
+    t0 = time.monotonic()
+    known_paths = {d.path for d in devices}
+    for new_dev in find_keyboards_evdev():
+        if new_dev.path not in known_paths:
+            try:
+                new_dev.grab()
+                devices.append(new_dev)
+                print(f"[ptt] hotplug grab: {new_dev.name}")
+            except OSError:
+                new_dev.close()
+        else:
+            new_dev.close()
+    dt = time.monotonic() - t0
+    if dt > 0.05:
+        print(f"[ptt] WARNING rescan claviers lent: {dt * 1000:.0f}ms "
+              f"({len(devices)} claviers) [issue #8]")
+
+
 def run_evdev(ptt):
     """Boucle principale avec evdev : grab claviers, filtre la touche PTT, ré-émet le reste."""
     devices = find_keyboards_evdev()
@@ -612,22 +639,6 @@ def run_evdev(ptt):
         STARTUP_GRACE = 0.5
 
         while running:
-            # Hotplug : rescanner périodiquement
-            now_mono = time.monotonic()
-            if now_mono - last_rescan > RESCAN_INTERVAL:
-                last_rescan = now_mono
-                known_paths = {d.path for d in devices}
-                for new_dev in find_keyboards_evdev():
-                    if new_dev.path not in known_paths:
-                        try:
-                            new_dev.grab()
-                            devices.append(new_dev)
-                            print(f"[ptt] hotplug grab: {new_dev.name}")
-                        except OSError:
-                            new_dev.close()
-                    else:
-                        new_dev.close()
-
             # Nettoyer les devices morts
             dead = []
             for dev in devices:
@@ -640,8 +651,12 @@ def run_evdev(ptt):
                 devices.remove(dev)
 
             if not devices:
-                time.sleep(1)
-                last_rescan = 0
+                # Plus aucun clavier : rescan immédiat pour récupérer
+                # (aucune frappe en cours, donc pas de risque de stutter).
+                _rescan_keyboards(devices)
+                last_rescan = time.monotonic()
+                if not devices:
+                    time.sleep(1)
                 continue
 
             # select sur les fd evdev
@@ -662,6 +677,16 @@ def run_evdev(ptt):
                     except OSError:
                         pass
                     devices.remove(dev)
+                continue
+
+            if not r:
+                # Timeout select : aucune frappe en attente → moment sûr pour
+                # le hotplug. Rescanner ici (pas en haut de boucle) évite de
+                # figer la saisie, donc l'auto-répétition parasite (issue #8).
+                now_mono = time.monotonic()
+                if now_mono - last_rescan > RESCAN_INTERVAL:
+                    last_rescan = now_mono
+                    _rescan_keyboards(devices)
                 continue
 
             for dev in r:
