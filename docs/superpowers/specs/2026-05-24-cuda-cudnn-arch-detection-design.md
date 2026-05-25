@@ -15,9 +15,13 @@ Deux composants complémentaires :
 
 A optimise, B garantit. B est indispensable car A a des cas de défaillance (détection ratée, multi-GPU mixte, bump ORT) — voir §7 Robustesse.
 
-> **Différence 1.3 ↔ 1.4 = INT8 uniquement.** INT8 est une feature **v1.4** (livrée sur master, absente de
-> release/1.3). Donc le fallback B va vers **INT8 en 1.4**, vers **FP32 CPU en 1.3**. **Tout le reste**
-> (détection A + chaîne de fallback B hors choix du modèle) est **identique** entre les deux versions.
+> **Différence 1.3 ↔ 1.4 = le SWITCH DYNAMIQUE vers INT8 sur le fallback.** Le modèle INT8 **existe dans les
+> deux versions** : modèle `tdt-int8` téléchargeable (dictee-setup.py:1973), et le daemon le charge si c'est
+> le modèle installé (le fichier `.int8.onnx` est dans la liste de candidats de `model_tdt.rs`, même en 1.3).
+> La vraie différence : sur le fallback CPU, **master peut *basculer* vers INT8** (`model_tdt.rs::prefers_int8`
+> lit `DICTEE_PARAKEET_QUANT`), alors que **1.3 recharge le modèle déjà installé** tel quel (FP32 *ou* int8
+> selon l'install — le Rust 1.3 ne lit pas la variable). **Tout le reste** (détection A + chaîne de fallback B)
+> est **identique** entre les deux versions.
 
 ## 1. Problème
 
@@ -115,9 +119,10 @@ avec ce provider, et si l'init CUDA échoue → exception → `exit 1` → crash
 3. sur ÉCHEC (toute exception d'init CUDA/cuDNN) :
    a. logguer l'erreur (1 ligne claire)
    b. recréer la session en CPU EP :
-      → **v1.4** : charger le modèle INT8 si présent (Parakeet INT8 / DICTEE_PARAKEET_QUANT ;
-        Whisper compute_type int8_float32), SINON FP32 (dégradation robuste).
-      → **v1.3** : FP32 CPU directement — **INT8 n'existe pas en 1.3** (= LA seule différence 1.3/1.4 du fix).
+      → **v1.4** : peut *basculer* vers le modèle INT8 sur le fallback (Parakeet INT8 / DICTEE_PARAKEET_QUANT
+        via `prefers_int8` ; Whisper compute_type int8_float32), SINON le modèle courant (dégradation robuste).
+      → **v1.3** : recharger le **modèle déjà installé** en CPU (FP32 *ou* int8 selon l'install — le Rust 1.3
+        ne sait pas *préférer* l'int8, faute de `prefers_int8`). Pas de switch dynamique = LA différence 1.3/1.4.
    c. notifier (« GPU indisponible — bascule sur CPU », respecte DICTEE_NOTIFICATIONS) — DÉCISION 2026-05-24 :
       → **master (v1.4)** : écrire /dev/shm/.dictee_provider = **"cpu-fallback"** (NOUVELLE valeur ≠
         cuda/cpu/cpu-forced/cpu-only) ; dictee-tray (déjà QFileSystemWatcher) fire le notify-send + badge.
@@ -144,7 +149,7 @@ let mut backend = if use_canary {
 - **Fallback au niveau MODÈLE (all-or-nothing)**, pas par session : recharger TOUT le modèle en CPU (évite un mix encoder-GPU + decoder-CPU). `from_pretrained` renvoie `Err` si une session échoue → le daemon catch → reload Cpu.
 - **Patron** : extraire le chargement en closure `load(cfg) -> Result<AsrBackend>` (testable) ; capturer `was_cuda = best_provider()==Cuda` ;
   `match load(config) { Ok=>b, Err(e) if was_cuda => { log + notify + load(cpu_config)? }, Err(e)=>return Err(e) }`.
-- **1.3** : `cpu_config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu)` (garder intra/inter threads) → MÊME modèle en CPU (FP32, pas de changement de model-path) ; **`notify-send` direct** depuis le daemon (shell-out, respecte `DICTEE_NOTIFICATIONS` lu via conf/env). `ExecutionProvider::Cpu` existe déjà (execution.rs:136).
+- **1.3** : `cpu_config = ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu)` (garder intra/inter threads) → MÊME modèle en CPU (celui installé tel quel — FP32 *ou* int8 ; pas de changement de model-path) ; **`notify-send` direct** depuis le daemon (shell-out, respecte `DICTEE_NOTIFICATIONS` lu via conf/env). `ExecutionProvider::Cpu` existe déjà (execution.rs:136).
 - **master** : en plus → modèle INT8 si présent (model-path int8) + écrire `/dev/shm/.dictee_provider = cpu-fallback`.
 - **Tests** : TDD = mock du `load` qui échoue → assert retry CPU + 1 seul notify. **E2E** (point dur) = forcer un échec CUDA : 1060 remise en cuDNN **latest** (état cassé) + daemon rebuildé → vérifier bascule CPU **sans crash-loop** + notif. (Défait temporairement le fix A sur la machine de test.)
 - **Branche** : nouvelle branche `fix/cuda-graceful-fallback` depuis release/1.3 (A est indépendant, sur `fix/cuda-cudnn-arch-detection`).
@@ -194,7 +199,9 @@ Support **Pascal-GPU lié à ORT 1.23** (`src/onnxruntime-linux-x64-gpu-1.23.0/`
 - **Notif** : master → nouvelle valeur provider `cpu-fallback` (étend `provider_status()` + badge) +
   `dictee-tray.py` via watcher existant ; **1.3 → `notify-send` direct dans le daemon**, **PAS** de backport
   du provider (ffbaf31 ~373 l / 9 fichiers = hors scope patch).
-- **INT8** sur fallback : **master uniquement** (cf. §5).
+- **Switch dynamique vers INT8** sur le fallback (basculer FP32→int8 pour accélérer le CPU) : **master
+  uniquement** (`prefers_int8`). En 1.3, le fallback garde le modèle installé tel quel (cf. §5). NB : le modèle
+  int8 existe et est utilisable dans les deux versions — c'est seulement le *choix dynamique* qui diffère.
 
 ## 9. Tests / vérification
 - **Mapping testable isolément** : `setup-cuda-venv.sh` avec compute_cap simulé → 61→9.0.0.312, 75→latest,
