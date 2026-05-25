@@ -1699,14 +1699,19 @@ class _CanaryDownloadThread(QThread):
                     self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, fname)
-                if os.path.exists(dest):
+                url = f"{base_url}/{fname}"
+                resp = urllib.request.urlopen(url, timeout=1800)
+                total_size = int(resp.headers.get("Content-Length", 0))
+                # Skip uniquement si le fichier local est COMPLET (taille ==
+                # Content-Length). Un fichier tronqué d'un essai précédent est
+                # ainsi re-téléchargé au lieu d'être pris pour valide.
+                if os.path.exists(dest) and total_size > 0 and \
+                        os.path.getsize(dest) == total_size:
+                    resp.close()
                     self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
                     continue
                 self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
-                url = f"{base_url}/{fname}"
                 tmp = dest + ".part"
-                resp = urllib.request.urlopen(url, timeout=1800)
-                total_size = int(resp.headers.get("Content-Length", 0))
                 downloaded = 0
                 with open(tmp, "wb") as f:
                     while True:
@@ -1726,6 +1731,11 @@ class _CanaryDownloadThread(QThread):
                             total_mb = total_size / (1024 * 1024)
                             self.progress.emit(
                                 f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                if total_size > 0 and downloaded != total_size:
+                    os.remove(tmp)
+                    raise IOError(
+                        f"{fname}: téléchargement incomplet "
+                        f"({downloaded}/{total_size} octets) — réessayez")
                 os.rename(tmp, dest)
             # Generate tokenizer.json if missing (needed for decodercontext)
             tokenizer_path = os.path.join(model_dir, "tokenizer.json")
@@ -2053,11 +2063,14 @@ class ModelDownloadThread(QThread):
                     self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, filename)
-                if os.path.isfile(dest):
-                    continue
-                self.progress.emit(_("Downloading {name}…").format(name=filename))
                 resp = urllib.request.urlopen(url, timeout=1800)
                 total_size = int(resp.headers.get("Content-Length", 0))
+                # Skip uniquement si le fichier local est COMPLET (cf. Canary).
+                if os.path.isfile(dest) and total_size > 0 and \
+                        os.path.getsize(dest) == total_size:
+                    resp.close()
+                    continue
+                self.progress.emit(_("Downloading {name}…").format(name=filename))
                 downloaded = 0
                 tmp = dest + ".part"
                 with open(tmp, "wb") as f:
@@ -2078,6 +2091,11 @@ class ModelDownloadThread(QThread):
                             total_mb = total_size / (1024 * 1024)
                             self.progress.emit(
                                 f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                if total_size > 0 and downloaded != total_size:
+                    os.remove(tmp)
+                    raise IOError(
+                        f"{filename}: téléchargement incomplet "
+                        f"({downloaded}/{total_size} octets) — réessayez")
                 os.rename(tmp, dest)
                 done += 1
                 if total_files > 1:
