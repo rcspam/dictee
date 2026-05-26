@@ -428,7 +428,13 @@ def _postprocess(text):
         return text
     conf = _read_conf()
     env = os.environ.copy()
-    env["DICTEE_LANG_SOURCE"] = conf.get("DICTEE_LANG_SOURCE", env.get("LANG", "en")[:2])
+    # Propagate all DICTEE_* keys so dictee-postprocess sees DICTEE_PP_*,
+    # DICTEE_LLM_*, etc. (it reads them via os.environ.get / _env_bool).
+    for _k, _v in conf.items():
+        if _k.startswith("DICTEE_"):
+            env[_k] = _v
+    # LANG_SOURCE fallback if not in conf
+    env.setdefault("DICTEE_LANG_SOURCE", env.get("LANG", "en")[:2])
     try:
         result = subprocess.run(
             ["dictee-postprocess"],
@@ -806,8 +812,9 @@ class _ChunkedPipelineWorker(QThread):
     finished = Signal(str)              # final formatted output
     error = Signal(str)
 
-    CHUNK_SECONDS = 120
-    OVERLAP_SECONDS = 15
+    CHUNK_SECONDS = 180   # 3 min — comfortable margin under the Parakeet
+    OVERLAP_SECONDS = 15  # TDT v3 attention-mask cap (~320 s) while saving
+                          # ~30 % wall-clock vs the previous 120 s.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
     def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
@@ -825,6 +832,12 @@ class _ChunkedPipelineWorker(QThread):
         ort_lib = "/usr/lib/dictee/libonnxruntime.so"
         if os.path.isfile(ort_lib):
             self._subprocess_env["ORT_DYLIB_PATH"] = ort_lib
+        # Propagate DICTEE_* keys from dictee.conf to subprocesses. Systemd
+        # services do this via EnvironmentFile=, but Popen children only inherit
+        # the plain user shell env, which doesn't source dictee.conf.
+        for _k, _v in _read_conf().items():
+            if _k.startswith("DICTEE_"):
+                self._subprocess_env[_k] = _v
 
     def request_cancel(self):
         self._cancel = True
@@ -3327,10 +3340,21 @@ class TranscribeWindow(QDialog):
         return f"{s // 60}:{s % 60:02d}"
 
     def _update_player_markers(self):
-        """Update slider markers from current segments."""
+        """Update slider markers from current segments.
+
+        Same target-tab pattern as _apply_format_to / _refresh_rename_panel_for_target:
+        if the user has switched away from the transcription target tab while
+        the diarization was running, do NOT push the target's speaker markers
+        onto the global timeline — that would make the timeline show speakers
+        of the target tab while the visible tab is a plain-text transcription
+        (visually inconsistent). _on_tab_changed re-syncs the markers when
+        the user returns to the target.
+        """
         # Store segments on current text_edit for tab switching
         if hasattr(self, '_text_edit'):
             self._text_edit._diarize_segments = list(self._segments)
+        if self._tabs.currentWidget() is not self._text_edit:
+            return
         if not self._segments:
             self._sld_position.clear_markers()
             return
@@ -3689,18 +3713,25 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(False)
         self._update_transcribe_btn()
 
-        # Long-file chunked pipeline: duration > VRAM-adaptive threshold +
-        # CUDA build. Both diarize ON and OFF route here to avoid OOM on long
-        # files (Parakeet-TDT loads the full mel in one pass otherwise).
-        # diarize ON  → ffmpeg cut + diarize-only global + chunked transcribe + speaker merge
-        # diarize OFF → ffmpeg cut + chunked transcribe (plain text out)
-        threshold_min = self._long_audio_threshold_minutes()
-        if (self._audio_duration >= threshold_min * 60
-                and self._has_cuda_build()):
+        # Long-file chunked pipeline: any file longer than a single chunk
+        # routes here, regardless of CUDA/CPU build or diarize on/off.
+        # Rationale: chunks of CHUNK_SECONDS = 180 s sit well below the
+        # Parakeet-TDT v3 ONNX attention-mask bug (~320 s) so chunked is
+        # the only path that avoids the model crash for *any* host
+        # (incl. dictee-cpu users on CPU). Previously gated on
+        # _has_cuda_build() + a VRAM-aware threshold — the gate left
+        # dictee-cpu users facing the ONNX crash, and the VRAM-aware
+        # threshold was always capped at PARAKEET_TDT_MAX_MINUTES = 5
+        # anyway, so the simple "> CHUNK_SECONDS" rule subsumes both.
+        # _long_audio_threshold_minutes() and _has_cuda_build() are kept
+        # in case the upstream ONNX bug gets fixed and we want to revert
+        # to a VRAM-aware threshold.
+        if self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS:
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
-                 f"threshold={threshold_min}min, sens={sensitivity:.2f})")
+                 f"chunk={_ChunkedPipelineWorker.CHUNK_SECONDS}s, "
+                 f"sens={sensitivity:.2f})")
             self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
@@ -3727,7 +3758,15 @@ class TranscribeWindow(QDialog):
         ort_lib = "/usr/lib/dictee/libonnxruntime.so"
         if os.path.isfile(ort_lib):
             env.insert("ORT_DYLIB_PATH", ort_lib)
-            self._process.setProcessEnvironment(env)
+        # Propagate DICTEE_* keys from ~/.config/dictee.conf so the Rust
+        # binary sees DICTEE_FORCE_CPU, DICTEE_PARAKEET_QUANT,
+        # DICTEE_INTRA_THREADS, etc. The systemd services get them via
+        # EnvironmentFile=, but a QProcess launched from this Python UI
+        # only inherits the user shell env, which doesn't source the conf.
+        for _k, _v in _read_conf().items():
+            if _k.startswith("DICTEE_"):
+                env.insert(_k, _v)
+        self._process.setProcessEnvironment(env)
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
 
@@ -3771,12 +3810,22 @@ class TranscribeWindow(QDialog):
         self._process_timer.start(300_000)
 
     def _on_process_timeout(self):
+        # Audit fix: previous version called self._set_status() / _set_busy()
+        # which don't exist on TranscribeWindow → AttributeError silently
+        # froze the UI when the 5-min watchdog fired (button stayed disabled,
+        # _process / _transcription_in_progress never reset).
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("Process timeout — killing")
             self._process.kill()
             self._process.waitForFinished(3000)
-            self._set_status(_("Transcription timed out (5 min)."))
-            self._set_busy(False)
+            self._lbl_status.setText(_("Transcription timed out (5 min)."))
+            self._lbl_status.setVisible(True)
+            self._progress.setVisible(False)
+            self._stop_all_spinners()
+            self._process.deleteLater()
+            self._process = None
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
 
     def _on_stdout(self):
         if self._process is None:
@@ -3915,7 +3964,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("No transcription result."))
             self._raw_text = ""
             self._segments = []
-            self._grp_rename.setVisible(False)
+            self._refresh_rename_panel_for_target()
             self._update_translate_btn()
             return
 
@@ -3943,8 +3992,9 @@ class TranscribeWindow(QDialog):
         self._text_edit._diarize_segments = list(self._segments)
         self._text_edit._speaker_name_map = dict(self._speaker_name_map)
 
-        # Rebuild the rename panel for the new speakers
-        self._populate_rename_fields()
+        # Rebuild the rename panel for the new speakers — only when the
+        # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
+        self._refresh_rename_panel_for_target()
 
         # NB: language auto-detection removed deliberately. The source
         # language combo reflects the user's choice (and DICTEE_LANG_SOURCE
@@ -3953,16 +4003,29 @@ class TranscribeWindow(QDialog):
         # the combo to the audio's language — so a French user analysing
         # an English meeting got the LLM summary in English.
 
-        self._apply_format()
+        # Render into the target tab explicitly, not the active one — the
+        # user may have switched tabs while the transcription was running,
+        # in which case self._apply_format() would format the visible tab's
+        # (empty) segments and the target tab would stay blank. Mirrors the
+        # pattern already used by _on_translate_done.
+        self._apply_format_to(self._text_edit, self._segments, raw_output)
         # Make sure the player is on this tab's audio file. The user may
         # have browsed to a different file while the transcription was
         # running, so QMediaPlayer.source could point elsewhere — without
         # this check the timeline would inherit the unrelated file's
         # duration after the transcription lands.
-        tab_audio = getattr(self._text_edit, '_audio_path', None)
-        if tab_audio and os.path.isfile(tab_audio):
-            if self._player.source().toLocalFile() != tab_audio:
-                self._load_audio(tab_audio)
+        # Only switch the player to the target tab's audio if that tab is
+        # currently visible. Otherwise the user is listening to (or about to
+        # listen to) the audio of another tab — interrupting that with the
+        # newly-finished tab's file would be intrusive. _on_tab_changed
+        # reloads the right audio when the user comes back to the target.
+        # Same target-aware family as _apply_format_to and
+        # _refresh_rename_panel_for_target.
+        if self._tabs.currentWidget() is self._text_edit:
+            tab_audio = getattr(self._text_edit, '_audio_path', None)
+            if tab_audio and os.path.isfile(tab_audio):
+                if self._player.source().toLocalFile() != tab_audio:
+                    self._load_audio(tab_audio)
         self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
@@ -4048,7 +4111,7 @@ class TranscribeWindow(QDialog):
                 self._text_edit.setPlainText(raw_output)
             self._raw_text = ""
             self._segments = []
-            self._grp_rename.setVisible(False)
+            self._refresh_rename_panel_for_target()
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
@@ -4059,7 +4122,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             self._raw_text = ""
             self._segments = []
-            self._grp_rename.setVisible(False)
+            self._refresh_rename_panel_for_target()
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
@@ -4091,15 +4154,18 @@ class TranscribeWindow(QDialog):
         self._text_edit._diarize_segments = list(self._segments)
         self._text_edit._speaker_name_map = dict(self._speaker_name_map)
 
-        # Rebuild (or hide) the speaker rename panel
-        self._populate_rename_fields()
+        # Rebuild (or hide) the speaker rename panel — only when the target
+        # tab is visible (cf. _refresh_rename_panel_for_target docstring).
+        self._refresh_rename_panel_for_target()
 
         # NB: language auto-detection removed deliberately (same as in
         # _finish_transcription). The source combo stays on the user's
         # choice — DICTEE_LANG_SOURCE in dictee.conf — which is also
         # what the LLM Diarization output language is bound to.
-        # Display in current format
-        self._apply_format()
+        # Display in current format — render into the target tab, not the
+        # active one (the user may have switched tabs during transcription).
+        # See _finish_transcription for the same pattern + rationale.
+        self._apply_format_to(self._text_edit, self._segments, raw_output)
         self._update_player_markers()
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
@@ -4607,6 +4673,21 @@ class TranscribeWindow(QDialog):
         self._rename_content.setVisible(checked)
         prefix = "▼  " if checked else "▶  "
         self._btn_rename_toggle.setText(prefix + _("Rename speakers"))
+
+    def _refresh_rename_panel_for_target(self):
+        """Sync the global rename panel to self._text_edit (the transcription
+        target tab) — but only when that tab is currently visible. Async
+        finalizers (_on_finished, _finish_transcription) call this instead of
+        touching self._grp_rename / _populate_rename_fields directly, so the
+        panel of a tab the user has switched to is never clobbered. When the
+        user switches back to the target later, _on_tab_changed re-syncs.
+        """
+        if self._tabs.currentWidget() is not self._text_edit:
+            return
+        if self._was_diarized and self._segments:
+            self._populate_rename_fields()
+        else:
+            self._grp_rename.setVisible(False)
 
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.

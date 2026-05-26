@@ -192,6 +192,19 @@ diarize)
             set_conf "DICTEE_ASR_BACKEND" "$pre_backend"
             svc=$(asr_service "$pre_backend")
             _dbg "diarize: restoring $pre_backend → $svc"
+            # Wait until GPU processes have released VRAM (5s timeout) before
+            # restarting the daemon. Canary 1B needs ~4.7 GB and OOMs if launched
+            # while transcribe-diarize-batch / diarize-only subprocesses are
+            # still finishing their CUDA cleanup — systemd then enters a
+            # Restart=on-failure loop. Parakeet (~600 MB) tolerates residual
+            # VRAM so this asymmetry was invisible until Canary became the
+            # default backend. Symmetric with the wait in `diarize true` above.
+            for i in $(seq 1 10); do
+                if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|diarize"; then
+                    break
+                fi
+                sleep 0.5
+            done
             systemctl --user enable --now "$svc" 2>/dev/null
             set_conf "DICTEE_PRE_DIARIZE_BACKEND" ""
             notify_dictee 0 audio-speakers-symbolic "Diarisation désactivée — retour à $pre_backend"

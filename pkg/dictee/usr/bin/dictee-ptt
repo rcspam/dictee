@@ -141,6 +141,15 @@ PIDFILE_TIMEOUT = 3.0  # attente max PIDFILE au key-up
 MIN_HOLD_DURATION = 0.3  # 300ms — en dessous, cancel au lieu de transcrire
 RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 
+# Whitelist de sous-chaînes (lowercase) à autoriser en plus du filtre par défaut.
+# Peuplée dans main() depuis DICTEE_PTT_EXTRA_DEVICES. Permet aux outils de
+# remapping clavier (logiops, keyd, evsieve, kmonad, etc.) de servir de PTT.
+EXTRA_KEYBOARDS = []
+
+# Verbose diagnostic logs (e.g. slow keyboard rescan, issue #8). Enabled in
+# main() from DICTEE_DEBUG ("Debug mode" checkbox in dictee-setup / dictee.conf).
+DEBUG = False
+
 
 def load_config():
     """Charge dictee.conf et retourne un dict."""
@@ -167,7 +176,9 @@ def find_keyboards_evdev():
         # EV_KEY présent et au moins les touches alphanumériques
         if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
             name = dev.name.lower()
-            if not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
+            if any(x in name for x in EXTRA_KEYBOARDS):
+                devs.append(dev)
+            elif not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
                 devs.append(dev)
             else:
                 dev.close()
@@ -194,7 +205,10 @@ def find_keyboards_raw():
             elif line.startswith("H:"):
                 handlers_line = line
         if "kbd" in handlers_line:
-            if not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE):
+            name_lower = name_line.lower()
+            allowed = any(x in name_lower for x in EXTRA_KEYBOARDS) or \
+                not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)
+            if allowed:
                 m = re.search(r"event\d+", handlers_line)
                 if m:
                     devs.append(f"/dev/input/{m.group()}")
@@ -545,6 +559,33 @@ class PttState:
 
 # ─── Backend evdev (grab + uinput) ─────────────────────────────────
 
+def _rescan_keyboards(devices):
+    """Detect and grab newly plugged keyboards (hotplug).
+
+    Opens every /dev/input/event* (expensive: ~30 ms/keyboard). Call ONLY
+    when the event loop is idle — otherwise the scan freezes key handling,
+    and a KEY_UP delivered late makes the compositor believe the key is held
+    down → spurious auto-repeat (issue #8). Mutates `devices` in place. Logs
+    the duration when abnormal (DEBUG mode / DICTEE_DEBUG only).
+    """
+    t0 = time.monotonic()
+    known_paths = {d.path for d in devices}
+    for new_dev in find_keyboards_evdev():
+        if new_dev.path not in known_paths:
+            try:
+                new_dev.grab()
+                devices.append(new_dev)
+                print(f"[ptt] hotplug grab: {new_dev.name}")
+            except OSError:
+                new_dev.close()
+        else:
+            new_dev.close()
+    dt = time.monotonic() - t0
+    if DEBUG and dt > 0.05:
+        print(f"[ptt] WARNING slow keyboard rescan: {dt * 1000:.0f}ms "
+              f"({len(devices)} keyboards) [issue #8]")
+
+
 def run_evdev(ptt):
     """Boucle principale avec evdev : grab claviers, filtre la touche PTT, ré-émet le reste."""
     devices = find_keyboards_evdev()
@@ -554,26 +595,11 @@ def run_evdev(ptt):
 
     print(f"[ptt] claviers: {[d.path for d in devices]}")
 
-    # Créer le clavier virtuel pour ré-émettre les événements non-PTT
-    ui = UInput(name="dictee-ptt-passthrough")
-    print(f"[ptt] uinput: {ui.device.path}")
-
-    # Grab tous les claviers
-    for dev in devices:
-        try:
-            dev.grab()
-            print(f"[ptt] grab: {dev.name}")
-        except OSError as e:
-            print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
-
-    # Vider les événements en buffer (évite de traiter des KEY_DOWN périmés au démarrage)
-    for dev in devices:
-        try:
-            while dev.read_one() is not None:
-                pass
-        except (OSError, BlockingIOError):
-            pass
-
+    # Install signal handlers BEFORE UInput / grab so a SIGTERM during
+    # setup (e.g. `systemctl --user stop dictee-ptt` racing with startup)
+    # triggers the finally cleanup instead of the kernel's default action.
+    # Without this, an early kill leaves the keyboards grabbed and the
+    # user has to reboot — keys never reach any app.
     running = True
     last_rescan = time.monotonic()
 
@@ -584,31 +610,39 @@ def run_evdev(ptt):
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
 
-    print("[ptt] en écoute (evdev grab)...")
-
-    # Grace period : ignorer les événements pendant 500ms après le démarrage
-    # pour éviter de traiter des KEY_DOWN empilés dans le noyau
-    startup_time = time.monotonic()
-    STARTUP_GRACE = 0.5
+    # ui declared before the try so the finally can close it even when
+    # UInput() itself raises.
+    ui = None
 
     try:
-        while running:
-            # Hotplug : rescanner périodiquement
-            now_mono = time.monotonic()
-            if now_mono - last_rescan > RESCAN_INTERVAL:
-                last_rescan = now_mono
-                known_paths = {d.path for d in devices}
-                for new_dev in find_keyboards_evdev():
-                    if new_dev.path not in known_paths:
-                        try:
-                            new_dev.grab()
-                            devices.append(new_dev)
-                            print(f"[ptt] hotplug grab: {new_dev.name}")
-                        except OSError:
-                            new_dev.close()
-                    else:
-                        new_dev.close()
+        # Créer le clavier virtuel pour ré-émettre les événements non-PTT
+        ui = UInput(name="dictee-ptt-passthrough")
+        print(f"[ptt] uinput: {ui.device.path}")
 
+        # Grab tous les claviers
+        for dev in devices:
+            try:
+                dev.grab()
+                print(f"[ptt] grab: {dev.name}")
+            except OSError as e:
+                print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
+
+        # Vider les événements en buffer (évite KEY_DOWN périmés au démarrage)
+        for dev in devices:
+            try:
+                while dev.read_one() is not None:
+                    pass
+            except (OSError, BlockingIOError):
+                pass
+
+        print("[ptt] en écoute (evdev grab)...")
+
+        # Grace period : ignorer les événements pendant 500ms après le démarrage
+        # pour éviter de traiter des KEY_DOWN empilés dans le noyau
+        startup_time = time.monotonic()
+        STARTUP_GRACE = 0.5
+
+        while running:
             # Nettoyer les devices morts
             dead = []
             for dev in devices:
@@ -621,8 +655,12 @@ def run_evdev(ptt):
                 devices.remove(dev)
 
             if not devices:
-                time.sleep(1)
-                last_rescan = 0
+                # Plus aucun clavier : rescan immédiat pour récupérer
+                # (aucune frappe en cours, donc pas de risque de stutter).
+                _rescan_keyboards(devices)
+                last_rescan = time.monotonic()
+                if not devices:
+                    time.sleep(1)
                 continue
 
             # select sur les fd evdev
@@ -643,6 +681,16 @@ def run_evdev(ptt):
                     except OSError:
                         pass
                     devices.remove(dev)
+                continue
+
+            if not r:
+                # Timeout select : aucune frappe en attente → moment sûr pour
+                # le hotplug. Rescanner ici (pas en haut de boucle) évite de
+                # figer la saisie, donc l'auto-répétition parasite (issue #8).
+                now_mono = time.monotonic()
+                if now_mono - last_rescan > RESCAN_INTERVAL:
+                    last_rescan = now_mono
+                    _rescan_keyboards(devices)
                 continue
 
             for dev in r:
@@ -681,7 +729,8 @@ def run_evdev(ptt):
                         pass
                     devices.remove(dev)
     finally:
-        # Ungrab + fermer proprement
+        # Ungrab + fermer proprement. Reachable even if UInput() raised
+        # (ui is None then) or if SIGTERM arrived during the grab loop.
         for dev in devices:
             try:
                 dev.ungrab()
@@ -691,7 +740,11 @@ def run_evdev(ptt):
                 dev.close()
             except OSError:
                 pass
-        ui.close()
+        if ui is not None:
+            try:
+                ui.close()
+            except Exception as _e:
+                print(f"[ptt] uinput close error: {_e!r}", file=sys.stderr)
 
 
 # ─── Backend raw (fallback sans evdev) ──────────────────────────────
@@ -809,7 +862,7 @@ def run_raw(ptt):
 # ─── Main ───────────────────────────────────────────────────────────
 
 def main():
-    global DICTEE_BIN
+    global DICTEE_BIN, EXTRA_KEYBOARDS, DEBUG
 
     mode = "toggle"
     key_dictee = 67   # F9
@@ -817,6 +870,13 @@ def main():
     mod_translate = ""    # modificateur traduction (alt, ctrl, shift)
     mod_cheatsheet = ""   # modificateur cheatsheet toggle (alt, ctrl, shift, super)
     conf = load_config()
+
+    DEBUG = conf.get("DICTEE_DEBUG", "false") == "true"
+
+    extra_raw = conf.get("DICTEE_PTT_EXTRA_DEVICES", "")
+    EXTRA_KEYBOARDS = [x.strip().lower() for x in extra_raw.split(",") if x.strip()]
+    if EXTRA_KEYBOARDS:
+        print(f"[ptt] extra keyboards whitelist: {EXTRA_KEYBOARDS}")
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
 

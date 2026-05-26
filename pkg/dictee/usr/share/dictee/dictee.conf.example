@@ -68,6 +68,14 @@ DICTEE_PTT_KEY=67
 # Translation modifier: alt | ctrl | shift (with same PTT key)
 #DICTEE_PTT_MOD_TRANSLATE=
 
+# Extra input devices to listen to (push-to-talk via virtual keyboards).
+# By default, dictee-ptt excludes devices whose name contains "virtual",
+# "uinput", "dotool" or "dictee-ptt" to avoid feedback loops. If you remap
+# mouse buttons or keys via logiops, keyd, evsieve, kmonad, etc., add the
+# device name substring(s) here (comma-separated, case-insensitive).
+# Find your device name with: cat /proc/bus/input/devices
+#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
+
 # ============================================================================
 # Display and feedback
 # ============================================================================
@@ -148,6 +156,37 @@ DICTEE_AUDIO_CONTEXT=true
 
 # Max buffer duration in seconds (beyond this, the buffer is cleared)
 DICTEE_AUDIO_CONTEXT_TIMEOUT=30
+
+# ============================================================================
+# GPU / CPU mode (advanced)
+# ============================================================================
+
+# Force CPU mode for all ASR backends, even if a GPU is detected.
+# Truthy values: 1, true, yes (case-insensitive).
+# Anything else (0, false, no, empty, unset) → GPU used if available.
+# Use cases:
+#   - laptop on battery (CPU mode is more power-efficient)
+#   - GPU shared with other workloads (Ollama, games)
+#   - debugging GPU-specific issues
+# WARNING: Canary 1B is very slow on CPU (~5 s for 16 s audio, vs 0.65 s GPU).
+#DICTEE_FORCE_CPU=0
+
+# ============================================================================
+# Parakeet quantization (advanced)
+# ============================================================================
+
+# Parakeet TDT model variant: int8 | fp32 (selected from the setup UI).
+# - int8: ~670 MB, faster on CPU with AVX-VNNI (-38 % latency measured),
+#   negligible WER loss (~0-1 % depending on audio); the daemon runs it on
+#   CPU (int8 is not faster on the GPU execution provider).
+# - fp32: ~2.4 GB, best accuracy and fastest on GPU.
+# Recommended:
+#   - CPU-only or low-VRAM GPU (< 4 GB): int8
+#   - GPU with ≥ 4 GB VRAM: fp32
+# Switch via the setup UI, which downloads the matching model variant into
+# ~/.local/share/dictee/tdt/ (or /usr/share/dictee/tdt/). The daemon loads
+# int8 when it is the only variant installed.
+#DICTEE_PARAKEET_QUANT=fp32
 
 # ============================================================================
 # ORT threading (advanced)
