@@ -316,7 +316,7 @@ msgstr ""
 
 #: dictee-setup.py:1975
 msgid "Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"
-msgstr ""
+msgstr "Квантована варіація (~670 МБ) — рекомендовано для CPU та GPU з малою VRAM"
 
 #: dictee-setup.py:1977
 #, python-format
@@ -517,7 +517,7 @@ msgstr "Комбінація: {label}"
 
 #: dictee-setup.py:3168
 msgid "install the 'translate-shell' package"
-msgstr ""
+msgstr "встановіть пакунок «translate-shell»"
 
 #: dictee-setup.py:3170
 #, python-brace-format
@@ -1126,7 +1126,7 @@ msgstr "Керування постачальниками…"
 
 #: dictee-setup.py:5587
 msgid "Add, edit and test LLM providers (Ollama, OpenAI-compatible, Anthropic)"
-msgstr ""
+msgstr "Додавання, редагування та перевірка постачальників LLM (Ollama, OpenAI-сумісні, Anthropic)"
 "Додавання, редагування і перевірка постачальників LLM (Ollama, OpenAI-"
 "сумісні, Anthropic)"
 
@@ -1136,7 +1136,7 @@ msgstr "Керування профілями…"
 
 #: dictee-setup.py:5593
 msgid "Add, edit, duplicate built-in or custom analysis profiles"
-msgstr ""
+msgstr "Додавання, редагування, дублювання вбудованих або власних профілів аналізу"
 "Додавання, редагування, дублювання вбудованих або користувацьких профілів "
 "аналізу"
 
@@ -1194,19 +1194,19 @@ msgstr "Огляд..."
 
 #: dictee-setup.py:5863
 msgid "Live preview chunk duration:"
-msgstr ""
+msgstr "Тривалість фрагментів живого перегляду:"
 
 #: dictee-setup.py:5878
 msgid "Window behavior"
-msgstr ""
+msgstr "Поведінка вікна"
 
 #: dictee-setup.py:5880
 msgid "Always keep window on top"
-msgstr ""
+msgstr "Завжди тримати вікно зверху"
 
 #: dictee-setup.py:5886
 msgid "Show window on all virtual desktops"
-msgstr ""
+msgstr "Показувати вікно на всіх віртуальних стільницях"
 
 #: dictee-setup.py:5902
 #, fuzzy
@@ -1219,7 +1219,7 @@ msgstr "Дерево вихідного коду / git checkout"
 
 #: dictee-setup.py:5973
 msgid "Tarball install"
-msgstr ""
+msgstr "Встановлення з tarball"
 
 #: dictee-setup.py:5975
 msgid "Unknown install type"
@@ -1335,7 +1335,7 @@ msgstr ""
 
 #: dictee-setup.py:6348
 msgid "seconds"
-msgstr ""
+msgstr "секунд"
 
 #: dictee-setup.py:6362
 msgid "Debug mode (log to /tmp)"
@@ -1412,11 +1412,11 @@ msgstr "ollama (локальний)"
 
 #: dictee-setup.py:6675
 msgid "Google (cloud — sends text to Google)"
-msgstr ""
+msgstr "Google (хмара — надсилає текст до Google)"
 
 #: dictee-setup.py:6676
 msgid "Bing (cloud — sends text to Microsoft)"
-msgstr ""
+msgstr "Bing (хмара — надсилає текст до Microsoft)"
 
 #: dictee-setup.py:6679
 #, fuzzy, python-brace-format
@@ -1430,7 +1430,7 @@ msgstr "Помилка перекладу — перевірте налашту�
 
 #: dictee-setup.py:6689 dictee-setup.py:6697
 msgid "Test available after Finish (Vosk/Whisper require system daemon)"
-msgstr ""
+msgstr "Перевірка доступна після «Завершити» (Vosk/Whisper потребують системного демона)"
 
 #: dictee-setup.py:6699
 #, fuzzy
@@ -1527,7 +1527,7 @@ msgstr "Увімкнути постобробку"
 
 #: dictee-setup.py:6832
 msgid "Go back"
-msgstr ""
+msgstr "Назад"
 
 #: dictee-setup.py:6944
 msgid "Speak freely, type instantly"
@@ -1544,20 +1544,20 @@ msgstr ""
 
 #: dictee-setup.py:6993
 msgid "with CUDA"
-msgstr ""
+msgstr "з CUDA"
 
 #: dictee-setup.py:6995
 msgid "(CPU mode)"
-msgstr ""
+msgstr "(режим CPU)"
 
 #: dictee-setup.py:7014
 #, python-brace-format
 msgid "NVIDIA GPU detected: {name} ({vram:.1f} GB VRAM)"
-msgstr ""
+msgstr "Виявлено GPU NVIDIA: {name} ({vram:.1f} ГБ VRAM)"
 
 #: dictee-setup.py:7015
 msgid "GPU"
-msgstr ""
+msgstr "GPU"
 
 #: dictee-setup.py:7017
 #, fuzzy
@@ -1567,12 +1567,12 @@ msgstr "GPU не виявлено — ollama використовуватиме 
 #: dictee-setup.py:7018
 #, python-brace-format
 msgid "RAM: {ram:.1f} GB"
-msgstr ""
+msgstr "RAM: {ram:.1f} ГБ"
 
 #: dictee-setup.py:7019
 #, python-brace-format
 msgid "Desktop: {de}"
-msgstr ""
+msgstr "Стільниця: {de}"
 
 #: dictee-setup.py:7020
 #, fuzzy, python-brace-format
@@ -1591,33 +1591,33 @@ msgstr "Віджет KDE Plasma (панель)"
 
 #: dictee-setup.py:7027
 msgid "System tray (no plasmoid on this desktop)"
-msgstr ""
+msgstr "Системний лоток (немає плазмоїда на цій стільниці)"
 
 #: dictee-setup.py:7028
 msgid "Push-to-talk on F9 (change later if needed)"
-msgstr ""
+msgstr "Push-to-talk на F9 (можна змінити пізніше за потреби)"
 
 #: dictee-setup.py:7030
 #, python-brace-format
 msgid "Translation: LibreTranslate ({src} → EN, fully local)"
-msgstr ""
+msgstr "Переклад: LibreTranslate ({src} → EN, повністю локально)"
 
 #: dictee-setup.py:7032
 #, python-brace-format
 msgid "Translation: Ollama ({src} → EN, local LLM)"
-msgstr ""
+msgstr "Переклад: Ollama ({src} → EN, локальна LLM)"
 
 #: dictee-setup.py:7034
 msgid "Translation: off — install Docker or Ollama for local translation"
-msgstr ""
+msgstr "Переклад: вимкнено — встановіть Docker або Ollama для локального перекладу"
 
 #: dictee-setup.py:7036
 msgid "Translation: off (you can enable later)"
-msgstr ""
+msgstr "Переклад: вимкнено (можна увімкнути пізніше)"
 
 #: dictee-setup.py:7068
 msgid "Detected on your machine:"
-msgstr ""
+msgstr "Виявлено на вашій машині:"
 
 #: dictee-setup.py:7082
 #, fuzzy
@@ -1950,7 +1950,7 @@ msgstr "Тестувати переклад"
 
 #: dictee-setup.py:7970
 msgid "Go back to the translation page to change settings"
-msgstr ""
+msgstr "Повернутися на сторінку перекладу, щоб змінити налаштування"
 
 #: dictee-setup.py:7976
 msgid "Dictation test"
@@ -2072,7 +2072,7 @@ msgstr "Виявити…"
 
 #: dictee-setup.py:8272
 msgid "Scan input devices and pick virtual keyboards to whitelist"
-msgstr ""
+msgstr "Сканувати пристрої вводу та вибрати віртуальні клавіатури для дозволу"
 "Сканувати пристрої введення та вибрати віртуальні клавіатури для дозволу"
 
 #: dictee-setup.py:8279
@@ -2094,7 +2094,7 @@ msgstr "Окрема клавіша"
 
 #: dictee-setup.py:8381
 msgid "Recommended for your hardware"
-msgstr ""
+msgstr "Рекомендовано для вашого обладнання"
 
 #: dictee-setup.py:8408
 msgid ""
@@ -2110,11 +2110,11 @@ msgstr ""
 
 #: dictee-setup.py:8418
 msgid "No GPU detected — CPU is the only option (this toggle is a no-op)."
-msgstr ""
+msgstr "GPU не виявлено — CPU єдиний варіант (цей перемикач не діє)."
 
 #: dictee-setup.py:8424
 msgid "GPU acceleration enabled ({:.1f} GB VRAM detected)."
-msgstr ""
+msgstr "Прискорення GPU увімкнено (виявлено {:.1f} ГБ VRAM)."
 
 #: dictee-setup.py:8428
 msgid ""
@@ -2124,7 +2124,7 @@ msgstr ""
 
 #: dictee-setup.py:8433
 msgid "No GPU detected — running on CPU regardless of this toggle."
-msgstr ""
+msgstr "GPU не виявлено — виконання на CPU незалежно від цього перемикача."
 
 #: dictee-setup.py:8541
 #, fuzzy
@@ -2138,28 +2138,27 @@ msgstr "Видалити модель"
 
 #: dictee-setup.py:8579
 msgid "Parakeet TDT"
-msgstr ""
+msgstr "Parakeet TDT"
 
 #: dictee-setup.py:8623
 msgid "GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA"
-msgstr ""
+msgstr "Виявлено GPU з {:.1f} ГБ VRAM — FP32 найшвидший на CUDA"
 
 #: dictee-setup.py:8625
 msgid "GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits"
-msgstr ""
+msgstr "GPU лише з {:.1f} ГБ VRAM — FP32 може спричинити OOM, int8 підходить"
 
 #: dictee-setup.py:8627
-#, python-format
 msgid "No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)"
-msgstr ""
+msgstr "GPU не виявлено — int8 на ~34 % швидший на CPU (AVX-VNNI)"
 
 #: dictee-setup.py:8638
 msgid "Performance"
-msgstr ""
+msgstr "Продуктивність"
 
 #: dictee-setup.py:8670
 msgid "Sortformer"
-msgstr ""
+msgstr "Sortformer"
 
 #: dictee-setup.py:8710 dictee-setup.py:8840 dictee-setup.py:8911
 #: dictee-setup.py:8949 dictee-setup.py:9152 dictee-setup.py:9687
@@ -2211,7 +2210,7 @@ msgstr "Видалити рушій Whisper"
 
 #: dictee-setup.py:9045
 msgid "Performance profile:"
-msgstr ""
+msgstr "Профіль продуктивності:"
 
 #: dictee-setup.py:9049
 #, fuzzy
@@ -2220,19 +2219,19 @@ msgstr "GPU виявлено"
 
 #: dictee-setup.py:9050
 msgid "Ultra (beam=5)"
-msgstr ""
+msgstr "Ультра (beam=5)"
 
 #: dictee-setup.py:9051
 msgid "High (beam=3)"
-msgstr ""
+msgstr "Високий (beam=3)"
 
 #: dictee-setup.py:9052
 msgid "Medium (beam=2)"
-msgstr ""
+msgstr "Середній (beam=2)"
 
 #: dictee-setup.py:9053
 msgid "Low (beam=1)"
-msgstr ""
+msgstr "Низький (beam=1)"
 
 #: dictee-setup.py:9069
 msgid ""
@@ -2250,7 +2249,7 @@ msgstr ""
 #: dictee-setup.py:9081
 #, python-brace-format
 msgid "Detected: {tier} — {cores} cores, {ram} GB RAM, {vram} GB VRAM"
-msgstr ""
+msgstr "Виявлено: {tier} — {cores} ядер, {ram} ГБ RAM, {vram} ГБ VRAM"
 
 #: dictee-setup.py:9085
 msgid ""
@@ -2681,7 +2680,7 @@ msgstr "Повторно сканувати встановлені моделі 
 
 #: dictee-setup.py:11133
 msgid "Disable reasoning (faster on qwen3, deepseek-r1, etc.)"
-msgstr ""
+msgstr "Вимкнути міркування (швидше на qwen3, deepseek-r1 тощо)"
 
 #: dictee-setup.py:11137
 #, fuzzy
@@ -3400,7 +3399,7 @@ msgstr "Встановлено"
 
 #: dictee-setup.py:15298
 msgid "will be activated on Finish"
-msgstr ""
+msgstr "буде активовано після «Завершити»"
 
 #: dictee-setup.py:15303
 msgid "Not found"

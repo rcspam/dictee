@@ -315,7 +315,7 @@ msgstr ""
 
 #: dictee-setup.py:1975
 msgid "Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"
-msgstr ""
+msgstr "Variante cuantizada (~670 MB) — recomendada para CPU y GPU con poca VRAM"
 
 #: dictee-setup.py:1977
 #, python-format
@@ -516,7 +516,7 @@ msgstr "Atajo: {label}"
 
 #: dictee-setup.py:3168
 msgid "install the 'translate-shell' package"
-msgstr ""
+msgstr "instale el paquete «translate-shell»"
 
 #: dictee-setup.py:3170
 #, python-brace-format
@@ -1126,7 +1126,7 @@ msgstr "Gestionar proveedores..."
 
 #: dictee-setup.py:5587
 msgid "Add, edit and test LLM providers (Ollama, OpenAI-compatible, Anthropic)"
-msgstr ""
+msgstr "Añadir, editar y probar proveedores LLM (Ollama, compatible con OpenAI, Anthropic)"
 "Añadir, editar y probar proveedores LLM (Ollama, compatible con OpenAI, "
 "Anthropic)"
 
@@ -1136,7 +1136,7 @@ msgstr "Gestionar perfiles..."
 
 #: dictee-setup.py:5593
 msgid "Add, edit, duplicate built-in or custom analysis profiles"
-msgstr ""
+msgstr "Añadir, editar, duplicar perfiles de análisis integrados o personalizados"
 "Añadir, editar y duplicar perfiles de análisis integrados o personalizados"
 
 #: dictee-setup.py:5635
@@ -1193,19 +1193,19 @@ msgstr "Examinar..."
 
 #: dictee-setup.py:5863
 msgid "Live preview chunk duration:"
-msgstr ""
+msgstr "Duración de los fragmentos de la vista previa en vivo:"
 
 #: dictee-setup.py:5878
 msgid "Window behavior"
-msgstr ""
+msgstr "Comportamiento de la ventana"
 
 #: dictee-setup.py:5880
 msgid "Always keep window on top"
-msgstr ""
+msgstr "Mantener siempre la ventana encima"
 
 #: dictee-setup.py:5886
 msgid "Show window on all virtual desktops"
-msgstr ""
+msgstr "Mostrar la ventana en todos los escritorios virtuales"
 
 #: dictee-setup.py:5902
 #, fuzzy
@@ -1218,7 +1218,7 @@ msgstr "Árbol de fuentes / git checkout"
 
 #: dictee-setup.py:5973
 msgid "Tarball install"
-msgstr ""
+msgstr "Instalación por tarball"
 
 #: dictee-setup.py:5975
 msgid "Unknown install type"
@@ -1335,7 +1335,7 @@ msgstr ""
 
 #: dictee-setup.py:6348
 msgid "seconds"
-msgstr ""
+msgstr "segundos"
 
 #: dictee-setup.py:6362
 msgid "Debug mode (log to /tmp)"
@@ -1412,11 +1412,11 @@ msgstr "ollama (local)"
 
 #: dictee-setup.py:6675
 msgid "Google (cloud — sends text to Google)"
-msgstr ""
+msgstr "Google (nube — envía el texto a Google)"
 
 #: dictee-setup.py:6676
 msgid "Bing (cloud — sends text to Microsoft)"
-msgstr ""
+msgstr "Bing (nube — envía el texto a Microsoft)"
 
 #: dictee-setup.py:6679
 #, fuzzy, python-brace-format
@@ -1430,7 +1430,7 @@ msgstr "La traducción falló — verifique la configuración del backend."
 
 #: dictee-setup.py:6689 dictee-setup.py:6697
 msgid "Test available after Finish (Vosk/Whisper require system daemon)"
-msgstr ""
+msgstr "Prueba disponible tras «Finalizar» (Vosk/Whisper requieren el daemon del sistema)"
 
 #: dictee-setup.py:6699
 #, fuzzy
@@ -1528,7 +1528,7 @@ msgstr "Activar posprocesamiento"
 
 #: dictee-setup.py:6832
 msgid "Go back"
-msgstr ""
+msgstr "Atrás"
 
 #: dictee-setup.py:6944
 msgid "Speak freely, type instantly"
@@ -1545,20 +1545,20 @@ msgstr ""
 
 #: dictee-setup.py:6993
 msgid "with CUDA"
-msgstr ""
+msgstr "con CUDA"
 
 #: dictee-setup.py:6995
 msgid "(CPU mode)"
-msgstr ""
+msgstr "(modo CPU)"
 
 #: dictee-setup.py:7014
 #, python-brace-format
 msgid "NVIDIA GPU detected: {name} ({vram:.1f} GB VRAM)"
-msgstr ""
+msgstr "GPU NVIDIA detectada: {name} ({vram:.1f} GB VRAM)"
 
 #: dictee-setup.py:7015
 msgid "GPU"
-msgstr ""
+msgstr "GPU"
 
 #: dictee-setup.py:7017
 #, fuzzy
@@ -1568,12 +1568,12 @@ msgstr "No se detectó GPU — ollama usará CPU (más lento)."
 #: dictee-setup.py:7018
 #, python-brace-format
 msgid "RAM: {ram:.1f} GB"
-msgstr ""
+msgstr "RAM: {ram:.1f} GB"
 
 #: dictee-setup.py:7019
 #, python-brace-format
 msgid "Desktop: {de}"
-msgstr ""
+msgstr "Escritorio: {de}"
 
 #: dictee-setup.py:7020
 #, fuzzy, python-brace-format
@@ -1592,33 +1592,33 @@ msgstr "Widget KDE Plasma (panel)"
 
 #: dictee-setup.py:7027
 msgid "System tray (no plasmoid on this desktop)"
-msgstr ""
+msgstr "Bandeja del sistema (sin plasmoide en este escritorio)"
 
 #: dictee-setup.py:7028
 msgid "Push-to-talk on F9 (change later if needed)"
-msgstr ""
+msgstr "Push-to-talk en F9 (cámbielo más tarde si es necesario)"
 
 #: dictee-setup.py:7030
 #, python-brace-format
 msgid "Translation: LibreTranslate ({src} → EN, fully local)"
-msgstr ""
+msgstr "Traducción: LibreTranslate ({src} → EN, totalmente local)"
 
 #: dictee-setup.py:7032
 #, python-brace-format
 msgid "Translation: Ollama ({src} → EN, local LLM)"
-msgstr ""
+msgstr "Traducción: Ollama ({src} → EN, LLM local)"
 
 #: dictee-setup.py:7034
 msgid "Translation: off — install Docker or Ollama for local translation"
-msgstr ""
+msgstr "Traducción: desactivada — instale Docker u Ollama para la traducción local"
 
 #: dictee-setup.py:7036
 msgid "Translation: off (you can enable later)"
-msgstr ""
+msgstr "Traducción: desactivada (puede activarla más tarde)"
 
 #: dictee-setup.py:7068
 msgid "Detected on your machine:"
-msgstr ""
+msgstr "Detectado en su equipo:"
 
 #: dictee-setup.py:7082
 #, fuzzy
@@ -1951,7 +1951,7 @@ msgstr "Probar traducción"
 
 #: dictee-setup.py:7970
 msgid "Go back to the translation page to change settings"
-msgstr ""
+msgstr "Volver a la página de traducción para cambiar los ajustes"
 
 #: dictee-setup.py:7976
 msgid "Dictation test"
@@ -2077,7 +2077,7 @@ msgstr "Detectar…"
 
 #: dictee-setup.py:8272
 msgid "Scan input devices and pick virtual keyboards to whitelist"
-msgstr ""
+msgstr "Analizar los dispositivos de entrada y elegir los teclados virtuales a permitir"
 "Escanear dispositivos de entrada y seleccionar teclados virtuales para "
 "autorizar"
 
@@ -2100,7 +2100,7 @@ msgstr "Tecla separada"
 
 #: dictee-setup.py:8381
 msgid "Recommended for your hardware"
-msgstr ""
+msgstr "Recomendado para su hardware"
 
 #: dictee-setup.py:8408
 msgid ""
@@ -2116,11 +2116,11 @@ msgstr ""
 
 #: dictee-setup.py:8418
 msgid "No GPU detected — CPU is the only option (this toggle is a no-op)."
-msgstr ""
+msgstr "No se detectó GPU — la CPU es la única opción (este interruptor no tiene efecto)."
 
 #: dictee-setup.py:8424
 msgid "GPU acceleration enabled ({:.1f} GB VRAM detected)."
-msgstr ""
+msgstr "Aceleración GPU activada ({:.1f} GB VRAM detectados)."
 
 #: dictee-setup.py:8428
 msgid ""
@@ -2130,7 +2130,7 @@ msgstr ""
 
 #: dictee-setup.py:8433
 msgid "No GPU detected — running on CPU regardless of this toggle."
-msgstr ""
+msgstr "No se detectó GPU — se ejecuta en CPU independientemente de este interruptor."
 
 #: dictee-setup.py:8541
 #, fuzzy
@@ -2144,28 +2144,27 @@ msgstr "Eliminar modelo"
 
 #: dictee-setup.py:8579
 msgid "Parakeet TDT"
-msgstr ""
+msgstr "Parakeet TDT"
 
 #: dictee-setup.py:8623
 msgid "GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA"
-msgstr ""
+msgstr "GPU con {:.1f} GB VRAM detectada — FP32 es lo más rápido en CUDA"
 
 #: dictee-setup.py:8625
 msgid "GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits"
-msgstr ""
+msgstr "GPU con solo {:.1f} GB VRAM — FP32 puede dar OOM, int8 encaja"
 
 #: dictee-setup.py:8627
-#, python-format
 msgid "No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)"
-msgstr ""
+msgstr "No se detectó GPU — int8 es ~34 % más rápido en CPU (AVX-VNNI)"
 
 #: dictee-setup.py:8638
 msgid "Performance"
-msgstr ""
+msgstr "Rendimiento"
 
 #: dictee-setup.py:8670
 msgid "Sortformer"
-msgstr ""
+msgstr "Sortformer"
 
 #: dictee-setup.py:8710 dictee-setup.py:8840 dictee-setup.py:8911
 #: dictee-setup.py:8949 dictee-setup.py:9152 dictee-setup.py:9687
@@ -2217,7 +2216,7 @@ msgstr "Desinstalar motor Whisper"
 
 #: dictee-setup.py:9045
 msgid "Performance profile:"
-msgstr ""
+msgstr "Perfil de rendimiento:"
 
 #: dictee-setup.py:9049
 #, fuzzy
@@ -2226,19 +2225,19 @@ msgstr "GPU detectada"
 
 #: dictee-setup.py:9050
 msgid "Ultra (beam=5)"
-msgstr ""
+msgstr "Ultra (beam=5)"
 
 #: dictee-setup.py:9051
 msgid "High (beam=3)"
-msgstr ""
+msgstr "Alto (beam=3)"
 
 #: dictee-setup.py:9052
 msgid "Medium (beam=2)"
-msgstr ""
+msgstr "Medio (beam=2)"
 
 #: dictee-setup.py:9053
 msgid "Low (beam=1)"
-msgstr ""
+msgstr "Bajo (beam=1)"
 
 #: dictee-setup.py:9069
 msgid ""
@@ -2256,7 +2255,7 @@ msgstr ""
 #: dictee-setup.py:9081
 #, python-brace-format
 msgid "Detected: {tier} — {cores} cores, {ram} GB RAM, {vram} GB VRAM"
-msgstr ""
+msgstr "Detectado: {tier} — {cores} núcleos, {ram} GB RAM, {vram} GB VRAM"
 
 #: dictee-setup.py:9085
 msgid ""
@@ -2697,7 +2696,7 @@ msgstr "Volver a escanear los modelos Ollama instalados"
 
 #: dictee-setup.py:11133
 msgid "Disable reasoning (faster on qwen3, deepseek-r1, etc.)"
-msgstr ""
+msgstr "Desactivar el razonamiento (más rápido en qwen3, deepseek-r1, etc.)"
 
 #: dictee-setup.py:11137
 #, fuzzy
@@ -3421,7 +3420,7 @@ msgstr "Instalado"
 
 #: dictee-setup.py:15298
 msgid "will be activated on Finish"
-msgstr ""
+msgstr "se activará al «Finalizar»"
 
 #: dictee-setup.py:15303
 msgid "Not found"
