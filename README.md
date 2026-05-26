@@ -23,18 +23,6 @@
   <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
-> 🎉 **v1.3.3 stable — May 2026.** Major changes since v1.2:
->
-> - **`dictee-transcribe`** — new dedicated window for offline transcription of audio/video files. Timeline player synced with text, multi-tab, per-tab translation and LLM analysis, export to PDF / SRT / JSON / Markdown.
-> - **Speaker diarization** up to 4 speakers via NVIDIA Sortformer, plus a chunked pipeline that lifts the VRAM cap on long files (54-min keynote diarized in 122 s).
-> - **LLM analysis** on diarized transcripts — synthesis, chapters, ASR cleanup; 14 providers configurable side by side (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…).
-> - **Canary-1B v2** ASR backend (NVIDIA AED) with **built-in translation** on 12 native pairs — no external service needed.
-> - **Portable CUDA libs** via pip venv at postinst — no NVIDIA repo required.
->
-> v1.3.3 patch fixes: cross-distro packaging consistency — Arch `.install` hooks now add `input`/`docker` groups at install time (postinst .deb / %post .rpm already did), `python-evdev` promoted to hard depends on Arch (was optdepends → silently broke PTT), plasmoid wraps `docker inspect` in `sg docker` so the LT indicator stays accurate when plasmashell's group set hasn't refreshed yet, udev rule shipped directly in mode `0660` (used to be `0620` then sed'd at postinst), postprocess venv (`text2num`) now created in tarball install too, dictee script wraps `dotool` in `sg input` when invoked from a parent shell that lacks the group (plasmoid Dictate button typing into focused window). Also closes [#5](https://github.com/rcspam/dictee/issues/5) (NVIDIA false positive) and [#6](https://github.com/rcspam/dictee/issues/6) (PP-translate toggle persistence + LibreTranslate language combo). → [Release](https://github.com/rcspam/dictee/releases/tag/v1.3.3) · [Changelog](https://github.com/rcspam/dictee/wiki/Changelog)
->
-> 📚 The full [**dictee wiki**](https://github.com/rcspam/dictee/wiki) is online — 24 pages covering installation, configuration, all 4 ASR backends (with Parakeet-TDT and Canary-1B deep-dives), post-processing, diarization, troubleshooting, and developer guide. Available in 🇬🇧 English and 🇫🇷 French.
-
 <p align="center">
   <img src="assets/demo-dictee-1.3.2.gif" alt="dictee — push-to-talk demo: press F8, speak, text appears at the cursor" width="900">
 </p>
@@ -45,6 +33,7 @@
 
 <p align="center">
   <a href="#what-is-dictee">What is dictee?</a> &bull;
+  <a href="#system-requirements">System requirements</a> &bull;
   <a href="#quick-start">Quick start</a> &bull;
   <a href="#features">Features</a> &bull;
   <a href="#installation">Installation</a> &bull;
@@ -64,10 +53,30 @@
 
 Transcription is performed **100% locally** by default: no audio ever leaves your machine unless you explicitly choose a cloud translation backend.
 
-- 🔒 **100% local by default** — Parakeet, Canary, faster-whisper and Vosk all run offline on your hardware
-- 🌍 **25+ languages** — with native punctuation and capitalization (Parakeet-TDT)
-- 🔀 **4 ASR backends** — switch instantly depending on language, latency and hardware
-- 🎨 **Visual feedback** — KDE Plasma widget, system tray, or fullscreen animation
+---
+
+## Why dictee
+
+- **100% local processing by default** — no audio leaves the machine unless you explicitly enable a cloud translation backend. Frozen ONNX models, no training on your data.
+- **4 ASR backends to choose from** — Parakeet-TDT and Canary run as native Rust binaries (ONNX Runtime, low GPU latency), faster-whisper (99 languages) and Vosk (lightweight CPU) in Python. Transparent switching via Unix socket depending on language, latency or hardware. → [4 ASR backends](#4-asr-backends)
+- **5 translation backends to choose from** — from fully local (Canary, LibreTranslate, Ollama) to cloud (Google, Bing), with an explicit privacy table for each option. → [Translation backends](#5-translation-backends)
+- **No duration limit on audio files** — the chunked pipeline shipped in v1.3 (`dictee-transcribe`) diarizes a 54-min keynote in 122 s on an 8 GB GPU, where direct mel loading caps at 10-15 min. Ideal for meeting minutes and long interviews.
+- **Native Linux integration** — KDE Plasma 6 plasmoid + PyQt6 system tray (compatible with GNOME, XFCE, Sway via AppIndicator fallback).
+
+---
+
+## System requirements
+
+| Backend | Min RAM | CPU mode | GPU | Disk |
+|---------|---------|----------|-----|------|
+| **Parakeet-TDT** *(default)* | 4 GB | Yes — ~0.8 s per utterance (recent CPU) | NVIDIA 4 GB+ VRAM (~5× faster) | 3 GB |
+| **Canary-1B v2** | 6 GB | No — encoder too heavy | **NVIDIA 6 GB+ VRAM required** | 6 GB |
+| **faster-whisper** | 4 GB | Yes — `turbo` or `small` | NVIDIA 4 GB+ VRAM (`large-v3`) | 3 GB |
+| **Vosk** | 2 GB | Yes — by design | — | 50 MB |
+
+**Distributions tested**: Ubuntu 22.04 / 24.04 · Debian 12 · Fedora 40 / 44 · openSUSE Tumbleweed · Arch Linux · KDE Neon.
+
+**Desktop environments**: KDE Plasma 6 *(full integration via native plasmoid widget)* · GNOME, Xfce, Cinnamon *(system tray only — GNOME requires the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/))*.
 
 ---
 
@@ -80,6 +89,8 @@ Three steps to go from zero to dictation in under two minutes:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
 ```
+
+> Prefer to audit before running? `install.sh` and `install.sh.sha256` are published as release assets — download both, verify with `sha256sum -c install.sh.sha256`, read the script, then run it.
 
 **2. Configure**
 
@@ -113,6 +124,22 @@ For detailed install paths (manual `.deb`/`.rpm`, GPU prerequisites, AUR, from s
 | **Vosk** | 20+ | ~50 MB | ~1.5s | Lightweight, strict offline |
 
 Each backend runs as a systemd user service with the same Unix socket protocol — switching is transparent. → [ASR-Backends wiki](https://github.com/rcspam/dictee/wiki/ASR-Backends)
+
+### Accuracy benchmarks
+
+dictee uses **Parakeet-TDT 0.6B v3** by default. On the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard), it outperforms Whisper-large-v3 on multilingual transcription while being significantly smaller and faster:
+
+| Model | Size | English WER | FLEURS multilingual (avg) | Relative speed |
+|-------|------|-------------|---------------------------|----------------|
+| **Parakeet-TDT 0.6B v3** *(dictee default)* | 600M | ~6.5 % | **12.0 %** | ~10× Whisper-large-v3 |
+| Whisper-large-v3 | 1.55B | 7.4 % | 12.6 % | baseline |
+| Canary-1B v2 *(also bundled)* | 1B | 7.2 % | – | ~5× Whisper-large-v3 |
+| Whisper-large-v3-turbo | 809M | ~7.8 % | – | ~3-4× |
+| Vosk *(CPU fallback)* | 50 MB | ~12-18 % | – | – |
+
+Parakeet-TDT v3 wins particularly on **French**, Greek, Estonian and Maltese. For maximum language coverage (99 languages), switch to faster-whisper; for built-in translation, switch to Canary-1B.
+
+> Sources: [NVIDIA Parakeet-TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) · [Open ASR Leaderboard 2025](https://huggingface.co/blog/open-asr-leaderboard).
 
 ### 5 translation backends
 
@@ -220,7 +247,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Pin a specific version
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.4
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.5
 
 # Non-interactive
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -233,22 +260,22 @@ Download from [Releases](../../releases).
 **Ubuntu / Debian (CPU):**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.4_amd64.deb
+sudo apt install ./dictee-cpu_1.3.5_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU):** requires the NVIDIA CUDA APT repo — see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) for the one-time setup, then:
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.4_amd64.deb
+sudo apt install ./dictee-cuda_1.3.5_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU):**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.4-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.5-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.4-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.5-1.x86_64.rpm`.
 
 **Arch Linux (AUR):** `PKGBUILD` in the repo root (x86_64 + aarch64). Clone + `makepkg -si`.
 
@@ -257,8 +284,8 @@ sudo dnf install ./dictee-cpu-1.3.4-1.x86_64.rpm
 **Other distros (tarball):**
 
 ```bash
-tar xzf dictee-1.3.4_amd64.tar.gz
-cd dictee-1.3.4
+tar xzf dictee-1.3.5_amd64.tar.gz
+cd dictee-1.3.5
 sudo ./install.sh
 ```
 
@@ -385,7 +412,7 @@ Configure via `dictee --setup` → **Post-processing** tab, or test rules live w
 
 ## Known limitations
 
-- **Diarization + Parakeet on 8 GB GPU** is capped around **10–15 min of audio**. Parakeet-TDT loads the full mel-spectrogram in one pass (~185 MB VRAM per minute), which overflows consumer GPUs past ~15 min. Workarounds: split the file, disable diarization, or use the CPU backend. Auto-chunking is planned for the v1.3 final release. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
+- **Long-file diarization**: the chunked pipeline shipped in v1.3 (used by `dictee-transcribe`) lifts the VRAM cap (54-min keynote diarized in 122 s on 8 GB). In **continuous live dictation** (push-to-talk held without releasing), a single utterance > 10-15 min on an 8 GB GPU may still OOM — rare in practice, split the file or switch to the CPU backend. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
 - **AMD / Intel GPUs** are not currently supported — dictee falls back to CPU.
 - **No real-time streaming** — Parakeet-TDT and Canary require the full utterance; only Nemotron (EN-only, via Rust binary) streams natively.
 
@@ -395,7 +422,16 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 
 ## Roadmap
 
-**v1.3.4 (current)** — **Universal chunked transcription + `dictee-transcribe` UX hardening**:
+**v1.3.5 (current)** — **Push-to-talk fixes + reliability**:
+- **Push-to-talk typing fix** ([#8](https://github.com/rcspam/dictee/issues/8)) — the last character no longer repeats itself after dictating for a while, on setups with several keyboards or on Wayland.
+- **Push-to-talk with remapping tools** ([#10](https://github.com/rcspam/dictee/issues/10)) — keyboard remappers like logiops, keyd and kanata can now trigger dictation, with a new option in the settings.
+- **Safer model downloads** — an interrupted download is now detected instead of leaving a broken model that failed silently the next time you started dictee.
+- **More reliable Whisper** — better automatic CPU/GPU selection and fewer made-up words in the transcription.
+- **Snappier on CPU** — better out-of-the-box performance, and the compact Parakeet model now runs where it's fastest.
+- **Lighter desktop widget** — lower CPU usage when idle.
+- **Plus smaller fixes** — settings carried over more reliably, wider Fedora compatibility, and steadier speaker diarization.
+
+**v1.3.4** — **Universal chunked transcription + `dictee-transcribe` UX hardening**:
 - **Universal chunked transcription** in `dictee-transcribe` — files of any length now split automatically into 180 s chunks on every host (CPU and GPU). New per-backend cap on live-dictation recording duration (Canary 2:30, Parakeet 4:30; Whisper / Vosk uncapped) to prevent silent crashes.
 - **Five-site target-tab UI hardening** in `dictee-transcribe` — text editor, rename panel, timeline markers, audio player swap, and transcription render now only update the global UI when the target tab is visible. No more cross-tab corruption when transcribing one file while reviewing another.
 - **Translate skip surfacing** — silent translate-skip cases now show a colored status message (i18n in 6 languages: fr / de / es / it / pt / uk).

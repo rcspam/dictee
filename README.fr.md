@@ -23,18 +23,6 @@
   <a href="https://github.com/rcspam/dictee/wiki"><img src="https://img.shields.io/badge/docs-wiki-blue" alt="Wiki"></a>
 </p>
 
-> 🎉 **v1.3.3 stable — mai 2026.** Changements majeurs depuis la v1.2 :
->
-> - **`dictee-transcribe`** — nouvelle fenêtre dédiée pour la transcription hors-ligne de fichiers audio/vidéo. Lecteur synchronisé sur la timeline, multi-onglets, traduction et analyse LLM par onglet, export en PDF / SRT / JSON / Markdown.
-> - **Diarisation des locuteurs** jusqu'à 4 locuteurs via NVIDIA Sortformer, plus un pipeline découpé qui lève la limite VRAM sur les fichiers longs (keynote de 54 min diarisée en 122 s).
-> - **Analyse LLM** sur les transcriptions diarisées — synthèse, chapitrage, correction ASR ; 14 providers configurables côte à côte (Ollama, OpenAI, Claude, Gemini, Mistral, DeepSeek, Groq, Cerebras, OpenRouter…).
-> - **Backend ASR Canary-1B v2** (NVIDIA AED) avec **traduction native** sur 12 paires intra-modèle — plus besoin de service externe.
-> - **Libs CUDA portables** via venv pip au postinst — plus besoin du dépôt NVIDIA.
->
-> Correctifs v1.3.3 : cohérence du packaging cross-distro — les hooks `.install` Arch ajoutent désormais les groupes `input`/`docker` à l'installation (postinst .deb / %post .rpm le faisaient déjà), `python-evdev` est promu en dépendance dure sur Arch (était `optdepends` → cassait silencieusement le PTT), le plasmoïde wrappe `docker inspect` via `sg docker` pour que l'indicateur LT reste juste quand plasmashell n'a pas encore rafraîchi son set de groupes, la règle udev est shippée directement en mode `0660` (était `0620` puis sed au postinst), le venv post-traitement (`text2num`) est désormais créé aussi en mode tarball, le script dictee wrappe `dotool` via `sg input` quand il est lancé depuis un parent shell sans le groupe (bouton Dictate plasmoïde qui tape dans la fenêtre active). Clôture aussi les issues [#5](https://github.com/rcspam/dictee/issues/5) (faux positif NVIDIA) et [#6](https://github.com/rcspam/dictee/issues/6) (persistance du toggle PP-traduction + combo de langue LibreTranslate). → [Release](https://github.com/rcspam/dictee/releases/tag/v1.3.3) · [Changelog](https://github.com/rcspam/dictee/wiki/fr-Changelog)
->
-> 📚 Le [**wiki dictée**](https://github.com/rcspam/dictee/wiki/fr-Home) complet est en ligne — 24 pages couvrant l'installation, la configuration, les 4 backends ASR (avec deep-dives Parakeet-TDT et Canary-1B), le post-traitement, la diarisation, le dépannage et le guide développeur. Disponible en 🇫🇷 français et 🇬🇧 anglais.
-
 <p align="center">
   <img src="assets/demo-dictee-1.3.2.gif" alt="dictée — démo push-to-talk : appuyez F8, parlez, le texte apparaît au curseur" width="900">
 </p>
@@ -45,6 +33,7 @@
 
 <p align="center">
   <a href="#quest-ce-que-dictée-">Qu'est-ce que dictée ?</a> &bull;
+  <a href="#configuration-matérielle-requise">Configuration matérielle</a> &bull;
   <a href="#démarrage-rapide">Démarrage rapide</a> &bull;
   <a href="#fonctionnalités">Fonctionnalités</a> &bull;
   <a href="#installation">Installation</a> &bull;
@@ -64,10 +53,30 @@
 
 La transcription est effectuée **100 % localement** par défaut : aucun audio ne quitte votre machine à moins que vous ne choisissiez explicitement un backend de traduction en ligne.
 
-- 🔒 **100 % local par défaut** — Parakeet, Canary, faster-whisper et Vosk tournent tous hors ligne sur votre matériel
-- 🌍 **25+ langues** — avec ponctuation et capitalisation natives (Parakeet-TDT)
-- 🔀 **4 backends ASR** — changez instantanément selon la langue, la latence et le matériel
-- 🎨 **Retour visuel** — widget KDE Plasma, icône systray, ou animation plein écran
+---
+
+## Avantages
+
+- **100 % traitement local par défaut** — aucun audio ne quitte la machine sauf si vous activez explicitement un backend cloud de traduction. Modèles ONNX figés, pas d'entraînement sur vos données.
+- **4 backends ASR au choix** — Parakeet-TDT et Canary tournent comme binaires Rust natifs (ONNX Runtime, latence GPU faible), faster-whisper (99 langues) et Vosk (CPU léger) en Python. Bascule transparente via socket Unix selon langue, latence ou matériel. → [4 backends ASR](#4-backends-asr)
+- **5 backends de traduction au choix** — du 100 % local (Canary, LibreTranslate, Ollama) au cloud (Google, Bing), avec un tableau de confidentialité explicite pour chaque option. → [Backends de traduction](#5-backends-de-traduction)
+- **Pas de limite de durée sur les fichiers audio** — le pipeline découpé livré en v1.3 (`dictee-transcribe`) diarise une keynote de 54 min en 122 s sur un GPU 8 Go, là où le chargement direct du mel plafonne à 10-15 min. Idéal pour les comptes rendus de réunion et les interviews longues.
+- **Intégration Linux native** — plasmoid KDE Plasma 6 + icône systray PyQt6 (compatible GNOME, XFCE, Sway via repli AppIndicator).
+
+---
+
+## Configuration matérielle requise
+
+| Backend | RAM mini | CPU mode | GPU | Disque |
+|---------|----------|----------|-----|--------|
+| **Parakeet-TDT** *(par défaut)* | 4 Go | Oui — ~0,8 s par énoncé (CPU récent) | NVIDIA 4 Go+ VRAM (~5× plus rapide) | 3 Go |
+| **Canary-1B v2** | 6 Go | Non — encodeur trop lourd | **NVIDIA 6 Go+ VRAM requis** | 6 Go |
+| **faster-whisper** | 4 Go | Oui — `turbo` ou `small` | NVIDIA 4 Go+ VRAM (`large-v3`) | 3 Go |
+| **Vosk** | 2 Go | Oui — par design | — | 50 Mo |
+
+**Distributions testées** : Ubuntu 22.04 / 24.04 · Debian 12 · Fedora 40 / 44 · openSUSE Tumbleweed · Arch Linux · KDE Neon.
+
+**Environnements de bureau** : KDE Plasma 6 *(intégration complète via plasmoid natif)* · GNOME, Xfce, Cinnamon *(systray uniquement — GNOME requiert l'[extension AppIndicator](https://extensions.gnome.org/extension/615/appindicator-support/))*.
 
 ---
 
@@ -80,6 +89,8 @@ Trois étapes pour passer de zéro à la dictée en moins de deux minutes :
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash
 ```
+
+> Vous préférez auditer le script avant exécution ? `install.sh` et `install.sh.sha256` sont publiés comme assets de la release — téléchargez les deux, vérifiez avec `sha256sum -c install.sh.sha256`, lisez le script, puis lancez-le.
 
 **2. Configurer**
 
@@ -113,6 +124,22 @@ Pour les chemins d'installation détaillés (`.deb`/`.rpm` manuels, prérequis G
 | **Vosk** | 20+ | ~50 Mo | ~1,5s | Léger, strictement hors ligne |
 
 Chaque backend tourne comme service systemd utilisateur avec le même protocole socket Unix — le changement est transparent. → [Wiki ASR-Backends](https://github.com/rcspam/dictee/wiki/ASR-Backends)
+
+### Précision des modèles
+
+dictée utilise **Parakeet-TDT 0.6B v3** par défaut. Sur l'[Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard), il devance Whisper-large-v3 sur le multilingue tout en étant nettement plus petit et plus rapide :
+
+| Modèle | Taille | WER anglais | FLEURS multilingue (moy.) | Vitesse relative |
+|--------|--------|-------------|---------------------------|------------------|
+| **Parakeet-TDT 0.6B v3** *(défaut dictée)* | 600M | ~6,5 % | **12,0 %** | ~10× Whisper-large-v3 |
+| Whisper-large-v3 | 1,55B | 7,4 % | 12,6 % | référence |
+| Canary-1B v2 *(également fourni)* | 1B | 7,2 % | – | ~5× Whisper-large-v3 |
+| Whisper-large-v3-turbo | 809M | ~7,8 % | – | ~3-4× |
+| Vosk *(fallback CPU)* | 50 Mo | ~12-18 % | – | – |
+
+Parakeet-TDT v3 est particulièrement bon sur le **français**, le grec, l'estonien et le maltais. Pour une couverture maximale (99 langues), basculer sur faster-whisper ; pour la traduction intégrée, sur Canary-1B.
+
+> Sources : [NVIDIA Parakeet-TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) · [Open ASR Leaderboard 2025](https://huggingface.co/blog/open-asr-leaderboard).
 
 ### 5 backends de traduction
 
@@ -220,7 +247,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Épingler une version précise
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.4
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.5
 
 # Non interactif
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -233,22 +260,22 @@ Téléchargez depuis [Releases](../../releases).
 **Ubuntu / Debian (CPU) :**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.4_amd64.deb
+sudo apt install ./dictee-cpu_1.3.5_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU) :** nécessite le dépôt APT CUDA NVIDIA — voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pour la configuration unique, puis :
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.4_amd64.deb
+sudo apt install ./dictee-cuda_1.3.5_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU) :**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.4-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.5-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.4-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.5-1.x86_64.rpm`.
 
 **Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clonez + `makepkg -si`.
 
@@ -257,8 +284,8 @@ sudo dnf install ./dictee-cpu-1.3.4-1.x86_64.rpm
 **Autres distros (tarball) :**
 
 ```bash
-tar xzf dictee-1.3.4_amd64.tar.gz
-cd dictee-1.3.4
+tar xzf dictee-1.3.5_amd64.tar.gz
+cd dictee-1.3.5
 sudo ./install.sh
 ```
 
@@ -369,7 +396,7 @@ Configurez via `dictee --setup` → onglet **Post-traitement**, ou testez les r�
 
 ## Limitations connues
 
-- **Diarisation + Parakeet sur GPU 8 Go** plafonne à environ **10–15 min d'audio**. Parakeet-TDT charge le mel-spectrogramme complet en une passe (~185 Mo de VRAM par minute d'audio), ce qui déborde les GPU grand public au-delà d'environ 15 min. Contournements : découper le fichier, désactiver la diarisation, ou utiliser le backend CPU. L'auto-chunking est prévu pour la release v1.3 finale. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
+- **Diarisation longue de fichiers audio** : le pipeline découpé livré en v1.3 (utilisé par `dictee-transcribe`) lève la limite VRAM (keynote de 54 min diarisée en 122 s sur 8 Go). En **dictée live continue** (push-to-talk maintenu sans relâcher), un utterance unique > 10-15 min sur GPU 8 Go peut encore OOM — cas rare en pratique, à découper ou basculer en backend CPU. → [Wiki Diarization](https://github.com/rcspam/dictee/wiki/Diarization)
 - **GPU AMD / Intel** non pris en charge actuellement — dictée bascule sur CPU.
 - **Pas de streaming temps réel** — Parakeet-TDT et Canary nécessitent l'utterance complète ; seul Nemotron (EN uniquement, via binaire Rust) streame nativement.
 
@@ -379,7 +406,16 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 
 ## Feuille de route
 
-**v1.3.4 (actuelle)** — **Transcription découpée universelle + durcissement UX de `dictee-transcribe`** :
+**v1.3.5 (actuelle)** — **Corrections push-to-talk + fiabilité** :
+- **Correction de la saisie push-to-talk** ([#8](https://github.com/rcspam/dictee/issues/8)) — le dernier caractère ne se répète plus après un moment de dictée, sur les configurations à plusieurs claviers ou sous Wayland.
+- **Push-to-talk avec outils de remapping** ([#10](https://github.com/rcspam/dictee/issues/10)) — les remappeurs de clavier comme logiops, keyd et kanata peuvent désormais déclencher la dictée, avec une nouvelle option dans les réglages.
+- **Téléchargements de modèles plus sûrs** — un téléchargement interrompu est maintenant détecté, au lieu de laisser un modèle corrompu qui échouait silencieusement au démarrage suivant.
+- **Whisper plus fiable** — meilleure sélection automatique CPU/GPU et moins de mots inventés dans la transcription.
+- **Plus réactif sur CPU** — meilleures performances par défaut, et le modèle Parakeet compact tourne désormais là où il est le plus rapide.
+- **Widget de bureau plus léger** — consommation CPU réduite au repos.
+- **Et des corrections plus petites** — réglages mieux conservés, compatibilité Fedora élargie, et diarisation des locuteurs plus stable.
+
+**v1.3.4** — **Transcription découpée universelle + durcissement UX de `dictee-transcribe`** :
 - **Transcription découpée universelle** dans `dictee-transcribe` — les fichiers de toute durée sont désormais découpés automatiquement en chunks de 180 s sur tout hôte (CPU et GPU). Nouveau cap par backend sur la durée de dictée live (Canary 2:30, Parakeet 4:30 ; Whisper / Vosk sans cap) pour éviter les crashes silencieux.
 - **Durcissement de 5 points UI ciblés par onglet** dans `dictee-transcribe` — éditeur de texte, panneau de renommage, markers timeline, swap audio du lecteur, et rendu de la transcription ne mettent désormais à jour l'UI globale que si l'onglet cible est visible. Plus de corruption cross-onglet quand on transcrit un fichier tout en relisant un autre.
 - **Statuts de skip traduction visibles** — les cas de skip silencieux affichent désormais un message de statut coloré (i18n en 6 langues : fr / de / es / it / pt / uk).
