@@ -146,6 +146,10 @@ RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 # remapping clavier (logiops, keyd, evsieve, kmonad, etc.) de servir de PTT.
 EXTRA_KEYBOARDS = []
 
+# Logs de diagnostic verbeux (ex. rescan clavier lent, issue #8). Activé dans
+# main() depuis DICTEE_DEBUG (case « Debug mode » de dictee-setup / dictee.conf).
+DEBUG = False
+
 
 def load_config():
     """Charge dictee.conf et retourne un dict."""
@@ -562,7 +566,8 @@ def _rescan_keyboards(devices):
     QUE lorsque la boucle d'events est au repos — sinon le balayage fige le
     traitement des touches, et un KEY_UP délivré en retard fait croire au
     compositeur que la touche est maintenue → auto-répétition parasite
-    (issue #8). Modifie `devices` en place. Logue la durée si anormale.
+    (issue #8). Modifie `devices` en place. Logue la durée si anormale
+    (uniquement en mode DEBUG / DICTEE_DEBUG).
     """
     t0 = time.monotonic()
     known_paths = {d.path for d in devices}
@@ -577,9 +582,9 @@ def _rescan_keyboards(devices):
         else:
             new_dev.close()
     dt = time.monotonic() - t0
-    if dt > 0.05:
-        print(f"[ptt] WARNING rescan claviers lent: {dt * 1000:.0f}ms "
-              f"({len(devices)} claviers) [issue #8]")
+    if DEBUG and dt > 0.05:
+        print(f"[ptt] WARNING slow keyboard rescan: {dt * 1000:.0f}ms "
+              f"({len(devices)} keyboards) [issue #8]")
 
 
 def run_evdev(ptt):
@@ -858,7 +863,7 @@ def run_raw(ptt):
 # ─── Main ───────────────────────────────────────────────────────────
 
 def main():
-    global DICTEE_BIN, EXTRA_KEYBOARDS
+    global DICTEE_BIN, EXTRA_KEYBOARDS, DEBUG
 
     mode = "toggle"
     key_dictee = 67   # F9
@@ -866,6 +871,8 @@ def main():
     mod_translate = ""    # modificateur traduction (alt, ctrl, shift)
     mod_cheatsheet = ""   # modificateur cheatsheet toggle (alt, ctrl, shift, super)
     conf = load_config()
+
+    DEBUG = conf.get("DICTEE_DEBUG", "false") == "true"
 
     extra_raw = conf.get("DICTEE_PTT_EXTRA_DEVICES", "")
     EXTRA_KEYBOARDS = [x.strip().lower() for x in extra_raw.split(",") if x.strip()]
