@@ -60,13 +60,31 @@ impl ParakeetTDTModel {
         })
     }
     //file names simply from: https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/tree/main
+    /// True if DICTEE_PARAKEET_QUANT=int8 — the user prefers the int8 variant
+    /// even when fp32 is also installed.
+    fn prefers_int8() -> bool {
+        std::env::var("DICTEE_PARAKEET_QUANT")
+            .map(|v| v.eq_ignore_ascii_case("int8"))
+            .unwrap_or(false)
+    }
+
     fn find_encoder(dir: &Path) -> Result<PathBuf> {
-        let candidates = [
-            "encoder-model.onnx",
-            "encoder.onnx",
-            "encoder-model.int8.onnx",
-        ];
-        for candidate in &candidates {
+        // Ordered by preference: when DICTEE_PARAKEET_QUANT=int8, the int8 variant
+        // is tried first; otherwise FP32 wins (default behavior).
+        let candidates: &[&str] = if Self::prefers_int8() {
+            &[
+                "encoder-model.int8.onnx",
+                "encoder-model.onnx",
+                "encoder.onnx",
+            ]
+        } else {
+            &[
+                "encoder-model.onnx",
+                "encoder.onnx",
+                "encoder-model.int8.onnx",
+            ]
+        };
+        for candidate in candidates {
             let path = dir.join(candidate);
             if path.exists() {
                 return Ok(path);
@@ -91,13 +109,22 @@ impl ParakeetTDTModel {
 
 
     fn find_decoder_joint(dir: &Path) -> Result<PathBuf> {
-        let candidates = [
-            "decoder_joint-model.onnx",
-            "decoder_joint-model.int8.onnx",
-            "decoder_joint.onnx",
-            "decoder-model.onnx",
-        ];
-        for candidate in &candidates {
+        let candidates: &[&str] = if Self::prefers_int8() {
+            &[
+                "decoder_joint-model.int8.onnx",
+                "decoder_joint-model.onnx",
+                "decoder_joint.onnx",
+                "decoder-model.onnx",
+            ]
+        } else {
+            &[
+                "decoder_joint-model.onnx",
+                "decoder_joint-model.int8.onnx",
+                "decoder_joint.onnx",
+                "decoder-model.onnx",
+            ]
+        };
+        for candidate in candidates {
             let path = dir.join(candidate);
             if path.exists() {
                 return Ok(path);

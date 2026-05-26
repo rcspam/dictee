@@ -60,15 +60,18 @@ impl AsrBackend {
     }
 }
 
-/// True si le modèle Parakeet qui SERA chargé depuis `model_dir` est la
-/// variante int8. Reproduit la résolution de `ParakeetTDTModel::find_encoder`
-/// (model_tdt.rs) : le FP32 (`encoder-model.onnx` / `encoder.onnx`) est
-/// prioritaire ; l'int8 n'est retenu que si lui seul est présent. À garder
-/// synchrone avec find_encoder si l'ordre des candidats change.
-fn parakeet_resolves_to_int8(model_dir: &Path) -> bool {
-    !model_dir.join("encoder-model.onnx").exists()
-        && !model_dir.join("encoder.onnx").exists()
-        && model_dir.join("encoder-model.int8.onnx").exists()
+/// True if the Parakeet model that WILL be loaded from `model_dir` is the
+/// int8 variant. Mirrors `ParakeetTDTModel::find_encoder` (model_tdt.rs):
+/// int8 wins when the user prefers it (`prefers_int8` = DICTEE_PARAKEET_QUANT=int8)
+/// OR when it is the only variant present; otherwise FP32 takes priority.
+/// Keep in sync with find_encoder if the candidate order changes.
+fn parakeet_resolves_to_int8(model_dir: &Path, prefers_int8: bool) -> bool {
+    if !model_dir.join("encoder-model.int8.onnx").exists() {
+        return false;
+    }
+    prefers_int8
+        || (!model_dir.join("encoder-model.onnx").exists()
+            && !model_dir.join("encoder.onnx").exists())
 }
 
 #[cfg(test)]
@@ -89,24 +92,34 @@ mod tests {
     fn int8_only_is_int8() {
         let d = tmp("only_int8");
         fs::write(d.join("encoder-model.int8.onnx"), b"").unwrap();
-        assert!(parakeet_resolves_to_int8(&d));
+        assert!(parakeet_resolves_to_int8(&d, false));
         let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
-    fn fp32_present_is_not_int8() {
-        let d = tmp("fp32_and_int8");
+    fn fp32_present_without_pref_is_not_int8() {
+        let d = tmp("fp32_int8_nopref");
         fs::write(d.join("encoder-model.onnx"), b"").unwrap();
         fs::write(d.join("encoder-model.int8.onnx"), b"").unwrap();
-        // FP32 prioritaire dans find_encoder → ce n'est pas un chargement int8
-        assert!(!parakeet_resolves_to_int8(&d));
+        // FP32 wins in find_encoder when the user has no int8 preference.
+        assert!(!parakeet_resolves_to_int8(&d, false));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn prefers_int8_with_both_is_int8() {
+        let d = tmp("fp32_int8_pref");
+        fs::write(d.join("encoder-model.onnx"), b"").unwrap();
+        fs::write(d.join("encoder-model.int8.onnx"), b"").unwrap();
+        // DICTEE_PARAKEET_QUANT=int8 → int8 wins even with fp32 present.
+        assert!(parakeet_resolves_to_int8(&d, true));
         let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
     fn no_model_is_not_int8() {
         let d = tmp("empty");
-        assert!(!parakeet_resolves_to_int8(&d));
+        assert!(!parakeet_resolves_to_int8(&d, false));
         let _ = fs::remove_dir_all(&d);
     }
 }
@@ -186,7 +199,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Exception: a Parakeet int8 model is forced to CPU — the ORT CUDA EP
     // doesn't optimize int8 ops (slower than int8 on CPU/AVX-VNNI), so running
     // int8 on the GPU is never worthwhile. Canary has no int8 variant.
-    let provider = if !use_canary && parakeet_resolves_to_int8(Path::new(&model_dir)) {
+    // DICTEE_PARAKEET_QUANT=int8 lets the user prefer int8 even when fp32 is
+    // also installed (cf. find_encoder).
+    let prefers_int8 = std::env::var("DICTEE_PARAKEET_QUANT")
+        .map(|v| v.eq_ignore_ascii_case("int8"))
+        .unwrap_or(false);
+    let provider = if !use_canary
+        && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8)
+    {
         eprintln!("[dictee] Parakeet int8 model — forcing CPU (int8 is slow on the CUDA EP)");
         ExecutionProvider::Cpu
     } else {
