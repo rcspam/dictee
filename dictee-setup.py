@@ -357,12 +357,15 @@ def _sanitize_conf_value(val):
 def _sanitize_extra_devices(val):
     """Sanitize DICTEE_PTT_EXTRA_DEVICES (quoted in dictee.conf).
 
-    Device names contain spaces (e.g. 'LogiOps Virtual Input'), so we
-    can't strip them like _sanitize_conf_value does. Keep only chars
-    that can appear in a real device name; the value is wrapped in
-    double quotes when written, so spaces survive bash sourcing.
+    Device names contain spaces (e.g. 'LogiOps Virtual Input') and may
+    contain ':' '/' '(' ')' (e.g. 'UNIW0001:00 093A:0274', 'HDA NVidia
+    HDMI/DP'). A strict whitelist would drop those characters and silently
+    break the substring matching dictee-ptt does on device names. The value
+    is wrapped in double quotes when written, so we only strip what is
+    actually dangerous inside a double-quoted bash / systemd value:
+    '"' '`' '$' '\\' and newlines.
     """
-    return re.sub(r'[^A-Za-z0-9 ,\-_.]', '', str(val))
+    return re.sub(r'["`$\\\r\n]', '', str(val))
 
 
 def save_config(backend, lang_source, lang_target, clipboard=True,
@@ -1700,43 +1703,42 @@ class _CanaryDownloadThread(QThread):
                     return
                 dest = os.path.join(model_dir, fname)
                 url = f"{base_url}/{fname}"
-                resp = urllib.request.urlopen(url, timeout=1800)
-                total_size = int(resp.headers.get("Content-Length", 0))
-                # Skip uniquement si le fichier local est COMPLET (taille ==
-                # Content-Length). Un fichier tronqué d'un essai précédent est
-                # ainsi re-téléchargé au lieu d'être pris pour valide.
-                if os.path.exists(dest) and total_size > 0 and \
-                        os.path.getsize(dest) == total_size:
-                    resp.close()
-                    self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
-                    continue
-                self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
-                tmp = dest + ".part"
-                downloaded = 0
-                with open(tmp, "wb") as f:
-                    while True:
-                        if self._cancelled:
-                            f.close()
-                            os.remove(tmp)
-                            self.done.emit(False, _("Cancelled"))
-                            return
-                        chunk = resp.read(256 * 1024)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            pct = int(downloaded * 100 / total_size)
-                            size_mb = downloaded / (1024 * 1024)
-                            total_mb = total_size / (1024 * 1024)
-                            self.progress.emit(
-                                f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
-                if total_size > 0 and downloaded != total_size:
-                    os.remove(tmp)
-                    raise IOError(
-                        f"{fname}: téléchargement incomplet "
-                        f"({downloaded}/{total_size} octets) — réessayez")
-                os.rename(tmp, dest)
+                with urllib.request.urlopen(url, timeout=1800) as resp:
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    # Skip uniquement si le fichier local est COMPLET (taille ==
+                    # Content-Length). Un fichier tronqué d'un essai précédent est
+                    # ainsi re-téléchargé au lieu d'être pris pour valide.
+                    if os.path.exists(dest) and total_size > 0 and \
+                            os.path.getsize(dest) == total_size:
+                        self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
+                        continue
+                    self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
+                    tmp = dest + ".part"
+                    downloaded = 0
+                    with open(tmp, "wb") as f:
+                        while True:
+                            if self._cancelled:
+                                f.close()
+                                os.remove(tmp)
+                                self.done.emit(False, _("Cancelled"))
+                                return
+                            chunk = resp.read(256 * 1024)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                pct = int(downloaded * 100 / total_size)
+                                size_mb = downloaded / (1024 * 1024)
+                                total_mb = total_size / (1024 * 1024)
+                                self.progress.emit(
+                                    f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                    if total_size > 0 and downloaded != total_size:
+                        os.remove(tmp)
+                        raise IOError(
+                            f"{fname}: téléchargement incomplet "
+                            f"({downloaded}/{total_size} octets) — réessayez")
+                    os.rename(tmp, dest)
             # Generate tokenizer.json if missing (needed for decodercontext)
             tokenizer_path = os.path.join(model_dir, "tokenizer.json")
             if not os.path.exists(tokenizer_path):
@@ -2055,48 +2057,46 @@ class ModelDownloadThread(QThread):
                 model_dir = model_dir.replace(MODEL_DIR,
                     os.path.join(os.path.expanduser("~/.local/share/dictee")))
                 os.makedirs(model_dir, exist_ok=True)
-            total_files = len([f for f in self.model["files"]
-                               if not os.path.isfile(os.path.join(model_dir, f[1]))])
+            total_files = len(self.model["files"])
             done = 0
             for url, filename in self.model["files"]:
                 if self._cancelled:
                     self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, filename)
-                resp = urllib.request.urlopen(url, timeout=1800)
-                total_size = int(resp.headers.get("Content-Length", 0))
-                # Skip uniquement si le fichier local est COMPLET (cf. Canary).
-                if os.path.isfile(dest) and total_size > 0 and \
-                        os.path.getsize(dest) == total_size:
-                    resp.close()
-                    continue
-                self.progress.emit(_("Downloading {name}…").format(name=filename))
-                downloaded = 0
-                tmp = dest + ".part"
-                with open(tmp, "wb") as f:
-                    while True:
-                        if self._cancelled:
-                            f.close()
+                with urllib.request.urlopen(url, timeout=1800) as resp:
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    # Skip uniquement si le fichier local est COMPLET (cf. Canary).
+                    skip = (os.path.isfile(dest) and total_size > 0 and
+                            os.path.getsize(dest) == total_size)
+                    if not skip:
+                        self.progress.emit(_("Downloading {name}…").format(name=filename))
+                        downloaded = 0
+                        tmp = dest + ".part"
+                        with open(tmp, "wb") as f:
+                            while True:
+                                if self._cancelled:
+                                    f.close()
+                                    os.remove(tmp)
+                                    self.done.emit(False, _("Cancelled"))
+                                    return
+                                chunk = resp.read(256 * 1024)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0:
+                                    pct = int(downloaded * 100 / total_size)
+                                    size_mb = downloaded / (1024 * 1024)
+                                    total_mb = total_size / (1024 * 1024)
+                                    self.progress.emit(
+                                        f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                        if total_size > 0 and downloaded != total_size:
                             os.remove(tmp)
-                            self.done.emit(False, _("Cancelled"))
-                            return
-                        chunk = resp.read(256 * 1024)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            pct = int(downloaded * 100 / total_size)
-                            size_mb = downloaded / (1024 * 1024)
-                            total_mb = total_size / (1024 * 1024)
-                            self.progress.emit(
-                                f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
-                if total_size > 0 and downloaded != total_size:
-                    os.remove(tmp)
-                    raise IOError(
-                        f"{filename}: téléchargement incomplet "
-                        f"({downloaded}/{total_size} octets) — réessayez")
-                os.rename(tmp, dest)
+                            raise IOError(
+                                f"{filename}: téléchargement incomplet "
+                                f"({downloaded}/{total_size} octets) — réessayez")
+                        os.rename(tmp, dest)
                 done += 1
                 if total_files > 1:
                     self.progress.emit(_("Downloaded {done}/{total}").format(
