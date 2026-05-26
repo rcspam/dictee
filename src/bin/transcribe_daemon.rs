@@ -271,9 +271,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prefers_int8 = std::env::var("DICTEE_PARAKEET_QUANT")
         .map(|v| v.eq_ignore_ascii_case("int8"))
         .unwrap_or(false);
-    let provider = if !use_canary
-        && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8)
-    {
+    let parakeet_int8 =
+        !use_canary && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8);
+    let provider = if parakeet_int8 {
         eprintln!("[dictee] Parakeet int8 model — forcing CPU (int8 is slow on the CUDA EP)");
         ExecutionProvider::Cpu
     } else {
@@ -284,6 +284,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if use_canary { "Canary AED" } else { "Parakeet TDT" },
         &model_dir
     );
+    // Log the encoder variant being loaded. int8 is otherwise invisible: it is
+    // read into a buffer rather than mmap'd, so it never appears in
+    // /proc/<pid>/maps the way the fp32 encoder-model.onnx.data file does.
+    // Mirrors the candidate order in ParakeetTDTModel::find_encoder.
+    if !use_canary {
+        let dir = Path::new(&model_dir);
+        let encoder_file = if parakeet_int8 {
+            "encoder-model.int8.onnx"
+        } else if dir.join("encoder-model.onnx").exists() {
+            "encoder-model.onnx"
+        } else {
+            "encoder.onnx"
+        };
+        eprintln!(
+            "[dictee] Parakeet encoder: {} ({})",
+            encoder_file,
+            if parakeet_int8 { "int8" } else { "fp32" }
+        );
+    }
 
     // Component B — load the whole model with a graceful CPU fallback: if the
     // GPU load crashes (e.g. a cuDNN build incompatible with the GPU arch),
