@@ -37,6 +37,11 @@ dict_prepare_pkg_dir() {
     cp ./dictee-cheatsheet       "$PKG_DIR/usr/bin/dictee-cheatsheet"
     cp ./dictee-common.sh        "$PKG_DIR/usr/lib/dictee/dictee-common.sh"
     cp ./dictee_models.py        "$PKG_DIR/usr/lib/dictee/dictee_models.py"
+    # cuDNN-by-GPU-arch setup script, shared by the 4 install targets (deb
+    # postinst / rpm %post / Arch .install / tarball install.sh). Must be copied
+    # here from the repo root because build-deb.sh rm -rf's $PKG_DIR before build.
+    cp ./setup-cuda-venv.sh      "$PKG_DIR/usr/lib/dictee/setup-cuda-venv.sh"
+    chmod 755                    "$PKG_DIR/usr/lib/dictee/setup-cuda-venv.sh"
 
     chmod 755 \
         "$PKG_DIR/usr/bin/dictee" \

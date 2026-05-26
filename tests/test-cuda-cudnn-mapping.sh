@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Teste les fonctions pures de setup-cuda-venv.sh (sans GPU réel).
 set -u
-SCRIPT="$(dirname "$0")/../pkg/dictee/usr/lib/dictee/setup-cuda-venv.sh"
+SCRIPT="$(dirname "$0")/../setup-cuda-venv.sh"
 # shellcheck disable=SC1090
 DICTEE_CUDA_LIB_SOURCED=1 source "$SCRIPT"   # source sans lancer main
 
