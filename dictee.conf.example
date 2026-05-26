@@ -17,6 +17,18 @@ DICTEE_LANG_SOURCE=fr
 # Target language for translation (used by translation backends)
 DICTEE_LANG_TARGET=en
 
+# ── Hardware acceleration ───────────────────────────────────────────────────
+# Force CPU for every ASR backend, even when an NVIDIA GPU is present.
+# Truthy values ("1", "true", "yes") disable the GPU; anything else (including
+# "0", or leaving the key out) lets dictee use the GPU when available.
+#DICTEE_FORCE_CPU=0
+
+# ── Parakeet ─────────────────────────────────────────────────────────────────
+# Parakeet model precision chosen in the setup UI: fp32 or int8.
+# int8 is smaller and runs on CPU (it is not faster on the GPU execution
+# provider); switch via the setup UI, which downloads the matching variant.
+#DICTEE_PARAKEET_QUANT=fp32
+
 # ── Whisper ──────────────────────────────────────────────────────────────────
 # faster-whisper model: tiny, small, medium, large-v3-turbo, large-v3
 # or a HuggingFace CTranslate2 repo: Systran/faster-distil-whisper-large-v3
