@@ -146,8 +146,8 @@ RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 # remapping clavier (logiops, keyd, evsieve, kmonad, etc.) de servir de PTT.
 EXTRA_KEYBOARDS = []
 
-# Logs de diagnostic verbeux (ex. rescan clavier lent, issue #8). Activé dans
-# main() depuis DICTEE_DEBUG (case « Debug mode » de dictee-setup / dictee.conf).
+# Verbose diagnostic logs (e.g. slow keyboard rescan, issue #8). Enabled in
+# main() from DICTEE_DEBUG ("Debug mode" checkbox in dictee-setup / dictee.conf).
 DEBUG = False
 
 
@@ -560,14 +560,13 @@ class PttState:
 # ─── Backend evdev (grab + uinput) ─────────────────────────────────
 
 def _rescan_keyboards(devices):
-    """Détecte et grab les claviers nouvellement branchés (hotplug).
+    """Detect and grab newly plugged keyboards (hotplug).
 
-    Ouvre tous les /dev/input/event* (coûteux : ~30 ms/clavier). À n'appeler
-    QUE lorsque la boucle d'events est au repos — sinon le balayage fige le
-    traitement des touches, et un KEY_UP délivré en retard fait croire au
-    compositeur que la touche est maintenue → auto-répétition parasite
-    (issue #8). Modifie `devices` en place. Logue la durée si anormale
-    (uniquement en mode DEBUG / DICTEE_DEBUG).
+    Opens every /dev/input/event* (expensive: ~30 ms/keyboard). Call ONLY
+    when the event loop is idle — otherwise the scan freezes key handling,
+    and a KEY_UP delivered late makes the compositor believe the key is held
+    down → spurious auto-repeat (issue #8). Mutates `devices` in place. Logs
+    the duration when abnormal (DEBUG mode / DICTEE_DEBUG only).
     """
     t0 = time.monotonic()
     known_paths = {d.path for d in devices}
