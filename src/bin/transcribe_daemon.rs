@@ -74,6 +74,31 @@ fn parakeet_resolves_to_int8(model_dir: &Path, prefers_int8: bool) -> bool {
             && !model_dir.join("encoder.onnx").exists())
 }
 
+/// Load a model with a graceful GPU→CPU fallback (Component B). Calls `load`
+/// with the chosen provider; if loading fails AND the provider was the GPU
+/// (Cuda), reload once on CPU instead of crash-looping. This is the runtime
+/// safety net behind the install-time cuDNN-by-GPU-arch selection
+/// (setup-cuda-venv.sh): a cuDNN build incompatible with the GPU arch can still
+/// make CUDA session creation fail at load time. A CPU-provider failure is
+/// fatal (no retry). No-op on a CPU-only build (no Cuda variant compiled).
+fn load_with_cpu_fallback<T, E, F>(provider: ExecutionProvider, mut load: F) -> Result<T, E>
+where
+    F: FnMut(ExecutionProvider) -> Result<T, E>,
+    E: std::fmt::Display,
+{
+    match load(provider) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            #[cfg(feature = "cuda")]
+            if provider == ExecutionProvider::Cuda {
+                eprintln!("[dictee] GPU model load failed ({e}); falling back to CPU.");
+                return load(ExecutionProvider::Cpu);
+            }
+            Err(e)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::parakeet_resolves_to_int8;
@@ -121,6 +146,48 @@ mod tests {
         let d = tmp("empty");
         assert!(!parakeet_resolves_to_int8(&d, false));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    // Component B — graceful CPU fallback (load_with_cpu_fallback)
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn fallback_retries_on_cpu_when_gpu_load_fails() {
+        use super::{load_with_cpu_fallback, ExecutionProvider};
+        let mut calls: Vec<ExecutionProvider> = Vec::new();
+        let r: Result<&str, String> = load_with_cpu_fallback(ExecutionProvider::Cuda, |p| {
+            calls.push(p);
+            if p == ExecutionProvider::Cuda {
+                Err("simulated GPU load failure".to_string())
+            } else {
+                Ok("cpu-model")
+            }
+        });
+        assert_eq!(r, Ok("cpu-model"));
+        assert_eq!(calls, vec![ExecutionProvider::Cuda, ExecutionProvider::Cpu]);
+    }
+
+    #[test]
+    fn fallback_no_retry_when_cpu_load_fails() {
+        use super::{load_with_cpu_fallback, ExecutionProvider};
+        let mut calls = 0usize;
+        let r: Result<&str, String> = load_with_cpu_fallback(ExecutionProvider::Cpu, |_p| {
+            calls += 1;
+            Err("simulated CPU load failure".to_string())
+        });
+        assert!(r.is_err());
+        assert_eq!(calls, 1); // CPU load failure is fatal — no retry
+    }
+
+    #[test]
+    fn fallback_no_retry_when_load_succeeds() {
+        use super::{load_with_cpu_fallback, ExecutionProvider};
+        let mut calls = 0usize;
+        let r: Result<&str, String> = load_with_cpu_fallback(ExecutionProvider::Cpu, |_p| {
+            calls += 1;
+            Ok("ok")
+        });
+        assert_eq!(r, Ok("ok"));
+        assert_eq!(calls, 1);
     }
 }
 
@@ -212,24 +279,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         best_provider()
     };
-    let config = ExecutionConfig::new().with_execution_provider(provider);
-
     eprintln!(
         "Loading {} model from {}...",
         if use_canary { "Canary AED" } else { "Parakeet TDT" },
         &model_dir
     );
 
-    let mut backend = if use_canary {
-        AsrBackend::Canary(Canary::from_pretrained(
-            &model_dir,
-            Some(config),
-            &source_lang,
-            &target_lang,
-        )?)
-    } else {
-        AsrBackend::Parakeet(ParakeetTDT::from_pretrained(&model_dir, Some(config))?)
-    };
+    // Component B — load the whole model with a graceful CPU fallback: if the
+    // GPU load crashes (e.g. a cuDNN build incompatible with the GPU arch),
+    // reload everything on CPU instead of crash-looping. A fresh config is
+    // built per attempt (the provider differs between the GPU try and the CPU
+    // retry). Covers both Parakeet and Canary.
+    let mut backend = load_with_cpu_fallback(provider, |prov| {
+        let cfg = ExecutionConfig::new().with_execution_provider(prov);
+        if use_canary {
+            Canary::from_pretrained(&model_dir, Some(cfg), &source_lang, &target_lang)
+                .map(AsrBackend::Canary)
+        } else {
+            ParakeetTDT::from_pretrained(&model_dir, Some(cfg)).map(AsrBackend::Parakeet)
+        }
+    })?;
 
     eprintln!("Model loaded. Listening on {}", socket_path);
 
