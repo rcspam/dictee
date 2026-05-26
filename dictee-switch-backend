@@ -22,6 +22,7 @@ usage() {
     echo "  context [true|false]      Toggle audio context buffer"
     echo "  llm [true|false|toggle]   Toggle LLM post-processing"
     echo "  short_text [true|false|toggle]  Toggle short-text fix (both pp_normal + pp_translate)"
+    echo "  quant [fp32|int8|toggle]  Switch Parakeet model variant (restarts daemon)"
     echo ""
     echo "ASR backends:      parakeet, canary, vosk, whisper"
     echo "Translate backends: google, bing, ollama, libretranslate"
@@ -286,6 +287,39 @@ short_text)
     fi
     (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
     echo "Short-text: $val"
+    ;;
+
+quant)
+    # Parakeet quantization variant (fp32 | int8). Writes DICTEE_PARAKEET_QUANT
+    # to dictee.conf and restarts dictee.service so the daemon picks up the
+    # new model file at next load.
+    val="${2:-toggle}"
+    case "$val" in
+        fp32|int8) ;;
+        toggle)
+            set +eu; source "$CONF"; set -eu
+            if [ "${DICTEE_PARAKEET_QUANT:-fp32}" = "int8" ]; then val="fp32"; else val="int8"; fi
+            ;;
+        *) echo "Error: quant expects fp32, int8, or toggle" >&2; usage ;;
+    esac
+    set_conf "DICTEE_PARAKEET_QUANT" "$val"
+    _dbg "quant: $val"
+    # NOTE: unlike master, the 1.3 branch does NOT sync DICTEE_FORCE_CPU here.
+    # The 1.3 daemon already forces CPU internally for the int8 variant, so
+    # touching the global DICTEE_FORCE_CPU flag would wrongly force CPU on all
+    # other backends (whisper, canary) too.
+    # Restart the Parakeet daemon only if it's the active backend, so the new
+    # model variant is actually loaded (the env var alone isn't enough — the
+    # daemon reads it only at startup).
+    set +eu; source "$CONF"; set -eu
+    if [ "${DICTEE_ASR_BACKEND:-parakeet}" = "parakeet" ]; then
+        systemctl --user restart dictee.service 2>/dev/null || true
+        notify_dictee 0 audio-input-microphone-symbolic "Parakeet model: $val (daemon restarting)"
+    else
+        notify_dictee 0 audio-input-microphone-symbolic "Parakeet model: $val (takes effect when Parakeet is active)"
+    fi
+    (sleep 3; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification "$NOTIFY_SERVER_ID" >/dev/null 2>&1) &
+    echo "Parakeet quant: $val"
     ;;
 
 *) usage ;;

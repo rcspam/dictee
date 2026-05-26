@@ -8501,6 +8501,28 @@ class DicteeSetupDialog(QDialog):
             if container is not None:
                 self._apply_block_opacity(container, 1.0 if is_active else 0.45)
 
+    def _refresh_quant_toggle_state(self):
+        """Re-evaluate the int8/FP32 toggle's enabled state after a model
+        download finishes or a variant is deleted. The toggle is only
+        meaningful when BOTH variants are installed; otherwise the active
+        variant is auto-resolved and the toggle stays disabled. Without this,
+        the toggle keeps the state it had at page-build time (e.g. greyed out
+        right after installing int8) until the setup window is reopened."""
+        if not hasattr(self, 'tgl_quant'):
+            return
+        fp32_installed = model_is_installed(ASR_MODELS[0])
+        int8_installed = (
+            len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
+            and model_is_installed(ASR_MODELS[1])
+        )
+        both_installed = fp32_installed and int8_installed
+        self.tgl_quant.setEnabled(both_installed)
+        # When only one variant is present, force the toggle to reflect it.
+        if fp32_installed and not int8_installed:
+            self.tgl_quant.setChecked(False)
+        elif int8_installed and not fp32_installed:
+            self.tgl_quant.setChecked(True)
+
     def _build_parakeet_options(self, parent_layout):
         """Build Parakeet + Sortformer model download UI.
 
@@ -16669,6 +16691,11 @@ class DicteeSetupDialog(QDialog):
                 if not model_is_installed(dep_w["model"]):
                     self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
                     dep_w["button"].setToolTip("")
+            # A TDT variant just appeared: re-enable the int8/FP32 toggle if
+            # both variants are now installed (otherwise it stays greyed out
+            # until the window is reopened).
+            if mid in ("tdt", "tdt-int8"):
+                self._refresh_quant_toggle_state()
         else:
             self._update_venv_button(w["button"], model["name"], False)
             if message != _("Cancelled"):
@@ -16707,6 +16734,10 @@ class DicteeSetupDialog(QDialog):
             if not model_is_installed(dep_w["model"]):
                 dep_w["button"].setEnabled(False)
                 dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
+        # A TDT variant was removed: a single remaining variant must be
+        # auto-resolved and the toggle disabled.
+        if mid in ("tdt", "tdt-int8"):
+            self._refresh_quant_toggle_state()
 
     # -- Installation venv ASR --
 
@@ -18536,6 +18567,16 @@ class DicteeSetupDialog(QDialog):
         }
         _old_asr_normalized = {k: _old_asr.get(k, "") for k in _new_asr}
         _asr_changed = _new_asr != _old_asr_normalized
+        # When ONLY the Parakeet variant flipped (int8 <-> fp32) and Parakeet
+        # is the active backend, route the restart through dictee-switch-backend
+        # so the user gets a "Parakeet model: int8/fp32" notification. The conf
+        # is already saved by save_config() above, so the wrapper's set_conf is
+        # idempotent here.
+        _quant_changed = (
+            asr_backend == "parakeet"
+            and _new_parakeet_quant in ("fp32", "int8")
+            and _old_asr.get("DICTEE_PARAKEET_QUANT", "") != _new_parakeet_quant
+        )
         # Also restart if the service isn't running yet (first-install path)
         _active_running = subprocess.run(
             ["systemctl", "--user", "is-active", active_svc],
@@ -18545,8 +18586,14 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"_on_apply: restarting {active_svc} (asr_changed={_asr_changed}, running={_active_running})")
             try:
                 from PyQt6.QtWidgets import QApplication
+                _switch_bin = shutil.which("dictee-switch-backend")
+                _restart_cmd = (
+                    [_switch_bin, "quant", _new_parakeet_quant]
+                    if (_quant_changed and _switch_bin)
+                    else ["systemctl", "--user", "restart", active_svc]
+                )
                 _proc = subprocess.Popen(
-                    ["systemctl", "--user", "restart", active_svc],
+                    _restart_cmd,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 )
                 import time as _time
