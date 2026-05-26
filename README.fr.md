@@ -407,11 +407,11 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 ## Feuille de route
 
 **v1.3.5 (actuelle)** — **Corrections push-to-talk + fiabilité** :
+- **Nouveau modèle Parakeet Int8 — plus réactif sur CPU** — meilleures performances par défaut, et le modèle Parakeet compact tourne désormais là où il est le plus rapide.
 - **Correction de la saisie push-to-talk** ([#8](https://github.com/rcspam/dictee/issues/8)) — le dernier caractère ne se répète plus après un moment de dictée, sur les configurations à plusieurs claviers ou sous Wayland.
 - **Push-to-talk avec outils de remapping** ([#10](https://github.com/rcspam/dictee/issues/10)) — les remappeurs de clavier comme logiops, keyd et kanata peuvent désormais déclencher la dictée, avec une nouvelle option dans les réglages.
 - **Téléchargements de modèles plus sûrs** — un téléchargement interrompu est maintenant détecté, au lieu de laisser un modèle corrompu qui échouait silencieusement au démarrage suivant.
 - **Whisper plus fiable** — meilleure sélection automatique CPU/GPU et moins de mots inventés dans la transcription.
-- **Plus réactif sur CPU** — meilleures performances par défaut, et le modèle Parakeet compact tourne désormais là où il est le plus rapide.
 - **Widget de bureau plus léger** — consommation CPU réduite au repos.
 - **Et des corrections plus petites** — réglages mieux conservés, compatibilité Fedora élargie, et diarisation des locuteurs plus stable.
 

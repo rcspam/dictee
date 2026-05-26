@@ -423,11 +423,11 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 ## Roadmap
 
 **v1.3.5 (current)** — **Push-to-talk fixes + reliability**:
+- **New Int8 Parakeet model — snappier on CPU** — better out-of-the-box performance, with the compact Parakeet model now running where it's fastest.
 - **Push-to-talk typing fix** ([#8](https://github.com/rcspam/dictee/issues/8)) — the last character no longer repeats itself after dictating for a while, on setups with several keyboards or on Wayland.
 - **Push-to-talk with remapping tools** ([#10](https://github.com/rcspam/dictee/issues/10)) — keyboard remappers like logiops, keyd and kanata can now trigger dictation, with a new option in the settings.
 - **Safer model downloads** — an interrupted download is now detected instead of leaving a broken model that failed silently the next time you started dictee.
 - **More reliable Whisper** — better automatic CPU/GPU selection and fewer made-up words in the transcription.
-- **Snappier on CPU** — better out-of-the-box performance, and the compact Parakeet model now runs where it's fastest.
 - **Lighter desktop widget** — lower CPU usage when idle.
 - **Plus smaller fixes** — settings carried over more reliably, wider Fedora compatibility, and steadier speaker diarization.
 
