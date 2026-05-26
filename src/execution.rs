@@ -207,9 +207,14 @@ impl ModelConfig {
 /// and bypasses ort's own provider-list fallback.
 ///
 /// Honors `DICTEE_FORCE_CPU` as a manual override.
+/// Truthy values that force CPU: "1", "true" / "TRUE", "yes". Anything else
+/// (including "0", "false", "no", empty) means "let me use GPU if available".
 #[cfg(feature = "cuda")]
 pub fn cuda_runtime_available() -> bool {
-    if std::env::var_os("DICTEE_FORCE_CPU").is_some() {
+    if std::env::var("DICTEE_FORCE_CPU")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+    {
         return false;
     }
     // Primary probe: NVIDIA driver populates one dir per GPU under
