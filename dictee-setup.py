@@ -31,42 +31,37 @@ _lib_dir = "/usr/lib/dictee"
 if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
     sys.path.append(_lib_dir)
 
+# dictee targets PyQt6 (hard dependency in every package). We deliberately do
+# NOT fall back to PySide6: a partial fallback mixes the two bindings in one
+# process and crashes with "unexpected type" errors (e.g. QSvgRenderer.render,
+# setWindowIcon — GitHub #13). One binding, no mix.
+from PyQt6.QtCore import (
+    Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
+    QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+    pyqtSignal as Signal, pyqtProperty as Property,
+)
+from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
+from PyQt6.QtWidgets import (
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
+    QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
+    QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
+    QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
+    QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
+    QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
+    QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
+    QGraphicsOpacityEffect,
+)
+
+# QtMultimedia is optional. On rolling distros (KDE neon) its PyQt6 binding can
+# lag the system Qt and fail to import with an undefined-symbol error. Isolate
+# it so that failure degrades the audio-convenience features (mic VU-meter,
+# device list, calibration/playback) instead of crashing the whole app. Core
+# dictation does not use QtMultimedia (it goes through the PipeWire pipeline).
 try:
-    from PyQt6.QtCore import (
-        Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
-        pyqtSignal as Signal, pyqtProperty as Property,
-    )
-    from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
-    from PyQt6.QtWidgets import (
-        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
-        QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
-        QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
-        QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
-        QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
-        QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
-        QGraphicsOpacityEffect,
-    )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
+    HAS_QT_MULTIMEDIA = True
 except ImportError:
-    from PySide6.QtCore import (
-        Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
-        QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
-        Signal, Property,
-    )
-    from PySide6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
-    from PySide6.QtWidgets import (
-        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
-        QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
-        QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
-        QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
-        QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
-        QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
-        QGraphicsOpacityEffect,
-    )
-    from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
+    HAS_QT_MULTIMEDIA = False
 
 # === i18n ===
 
@@ -2947,6 +2942,10 @@ class AudioLevelMonitor:
 
     def __init__(self, meter, device=None):
         self._meter = meter
+        self._source = None
+        self._io = None
+        if not HAS_QT_MULTIMEDIA:
+            return
         fmt = QAudioFormat()
         fmt.setSampleRate(16000)
         fmt.setChannelCount(1)
@@ -2954,14 +2953,17 @@ class AudioLevelMonitor:
         if device is None:
             device = QMediaDevices.defaultAudioInput()
         self._source = QAudioSource(device, fmt)
-        self._io = None
 
     def start(self):
+        if self._source is None:
+            return
         self._io = self._source.start()
         if self._io:
             self._io.readyRead.connect(self._on_data)
 
     def stop(self):
+        if self._source is None:
+            return
         self._source.stop()
         self._io = None
 
@@ -15165,6 +15167,8 @@ class DicteeSetupDialog(QDialog):
         return card
 
     def _ensure_calib_player(self):
+        if not HAS_QT_MULTIMEDIA:
+            return
         if self._calib_player is None:
             self._calib_audio_out = QAudioOutput()
             self._calib_player = QMediaPlayer()
@@ -15177,6 +15181,8 @@ class DicteeSetupDialog(QDialog):
             return
         self._ensure_calib_player()
         player = self._calib_player
+        if player is None:
+            return
         if self._calib_playing_path == path:
             # Same file loaded — true pause/resume
             if player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
@@ -15298,7 +15304,10 @@ class DicteeSetupDialog(QDialog):
         self.cmb_audio_source.blockSignals(True)
         self.cmb_audio_source.clear()
         self.cmb_audio_source.addItem(_("System default"), "")
-        self._audio_devices = QMediaDevices.audioInputs()
+        try:
+            self._audio_devices = QMediaDevices.audioInputs()
+        except Exception:
+            self._audio_devices = []
         self._populate_audio_sources()
         if saved:
             idx = self.cmb_audio_source.findData(saved)
@@ -15343,7 +15352,7 @@ class DicteeSetupDialog(QDialog):
             "daemon": self._check_daemon_active,   # service active AND socket ready
             "model": self._check_model_installed_fn,
             "shortcut": self._check_shortcut_registered,
-            "audio": lambda: len(QMediaDevices.audioInputs()) > 0,
+            "audio": lambda: HAS_QT_MULTIMEDIA and len(QMediaDevices.audioInputs()) > 0,
             "dotool": lambda: shutil.which("dotool") is not None,
         }
         # Reset all labels to pending and start the spinner before running.
@@ -15506,6 +15515,8 @@ class DicteeSetupDialog(QDialog):
         self._start_audio_level()
 
     def _start_audio_level(self):
+        if not HAS_QT_MULTIMEDIA:
+            return
         if self._audio_monitor is not None:
             return
         idx = self.cmb_audio_source.currentIndex()

@@ -16,42 +16,37 @@ import subprocess
 import sys
 import time
 
+# dictee targets PyQt6 (hard dependency in every package). We deliberately do
+# NOT fall back to PySide6: a partial fallback mixes the two bindings in one
+# process and crashes with "unexpected type" errors (e.g. setWindowIcon —
+# GitHub #13). One binding, no mix.
+from PyQt6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
+                          QProcessEnvironment, QFileSystemWatcher,
+                          QUrl, QSize, QRect, QRectF,
+                          QPropertyAnimation, QEasingCurve,
+                          QSettings, QEvent,
+                          pyqtSignal as Signal,
+                          pyqtProperty as Property)
+from PyQt6.QtGui import (QShortcut, QKeySequence, QTextDocument,
+                         QPainter, QColor, QBrush, QPen,
+                         QTextCharFormat, QTextCursor)
+from PyQt6.QtWidgets import (
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
+    QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
+    QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
+)
+from PyQt6.QtGui import QFont as _QFontTip
+
+# QtMultimedia is optional — see dictee-setup.py for the rationale (rolling
+# distros can ship a QtMultimedia binding that lags the system Qt and fails to
+# import). Only the in-app audio playback uses it; isolate it so its failure
+# degrades playback instead of crashing.
 try:
-    from PyQt6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
-                               QProcessEnvironment, QFileSystemWatcher,
-                               QUrl, QSize, QRect, QRectF,
-                               QPropertyAnimation, QEasingCurve,
-                               QSettings, QEvent,
-                               pyqtSignal as Signal,
-                               pyqtProperty as Property)
-    from PyQt6.QtGui import (QShortcut, QKeySequence, QTextDocument,
-                              QPainter, QColor, QBrush, QPen,
-                              QTextCharFormat, QTextCursor)
-    from PyQt6.QtWidgets import (
-        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
-        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
-    )
-    from PyQt6.QtGui import QFont as _QFontTip
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+    HAS_QT_MULTIMEDIA = True
 except ImportError:
-    from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
-                                QProcessEnvironment, QFileSystemWatcher,
-                                Signal, QUrl, QSize, QRect, QRectF,
-                                QPropertyAnimation, QEasingCurve, Property,
-                                QSettings, QEvent)
-    from PySide6.QtGui import (QShortcut, QKeySequence, QTextDocument,
-                                QPainter, QColor, QBrush, QPen,
-                                QTextCharFormat, QTextCursor)
-    from PySide6.QtWidgets import (
-        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-        QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
-        QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
-    )
-    from PySide6.QtGui import QFont as _QFontTip
-    from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+    HAS_QT_MULTIMEDIA = False
 
 
 class ToggleSwitch(QCheckBox):
@@ -2280,13 +2275,23 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_player)
 
-        # Media player backend
-        self._audio_output = QAudioOutput()
-        self._player = QMediaPlayer()
-        self._player.setAudioOutput(self._audio_output)
-        self._player.positionChanged.connect(self._on_player_position)
-        self._player.durationChanged.connect(self._on_player_duration)
-        self._player.playbackStateChanged.connect(self._on_playback_state)
+        # Media player backend — QtMultimedia is optional (its binding can be
+        # unavailable on rolling distros). If absent, disable playback controls
+        # instead of crashing; core transcription does not need it.
+        if HAS_QT_MULTIMEDIA:
+            self._audio_output = QAudioOutput()
+            self._player = QMediaPlayer()
+            self._player.setAudioOutput(self._audio_output)
+            self._player.positionChanged.connect(self._on_player_position)
+            self._player.durationChanged.connect(self._on_player_duration)
+            self._player.playbackStateChanged.connect(self._on_playback_state)
+        else:
+            self._audio_output = None
+            self._player = None
+            for _b in (self._btn_seek_start, self._btn_play, self._btn_stop,
+                       self._btn_prev_seg, self._btn_next_seg, self._btn_seek_end):
+                _b.setEnabled(False)
+            self._sld_position.setEnabled(False)
 
         # === Transcribe pad: button + options ===
         self._pad_transcribe = QFrame()
@@ -2735,7 +2740,8 @@ class TranscribeWindow(QDialog):
 
     def closeEvent(self, event):
         """Clean up processes on window close."""
-        self._player.stop()
+        if self._player is not None:
+            self._player.stop()
         # Signal every worker to abort first (cancel + kill), then wait
         # briefly. Without the cancel calls the wait() below would block
         # the UI for the full HTTP/socket timeout instead of returning
@@ -3008,7 +3014,8 @@ class TranscribeWindow(QDialog):
         if path:
             _dbg(f"_on_browse: selected {path}")
             self._file_input.setText(path)
-            self._player.stop()
+            if self._player is not None:
+                self._player.stop()
             self._load_audio(path)
 
     # -- Drag & drop audio file onto the window --
@@ -3051,16 +3058,21 @@ class TranscribeWindow(QDialog):
         event.acceptProposedAction()
         _dbg(f"dropEvent: loading {path}")
         self._file_input.setText(path)
-        self._player.stop()
+        if self._player is not None:
+            self._player.stop()
         self._load_audio(path)
 
     # -- Audio player methods --
 
     def _load_audio(self, path):
         """Load an audio file into the player."""
+        if self._player is None:
+            return
         self._player.setSource(QUrl.fromLocalFile(path))
 
     def _on_play_pause(self):
+        if self._player is None:
+            return
         # Load file if not yet loaded
         path = self._file_input.text().strip()
         if not path:
@@ -3073,6 +3085,8 @@ class TranscribeWindow(QDialog):
             self._player.play()
 
     def _on_player_stop(self):
+        if self._player is None:
+            return
         self._player.stop()
 
     def _find_segment_for_time(self, t, segs):
@@ -3094,6 +3108,8 @@ class TranscribeWindow(QDialog):
 
     def _on_seek(self, position):
         """User clicked the slider: seek + always sync text cursor (regardless of toggle)."""
+        if self._player is None:
+            return
         self._player.setPosition(position)
         self._sync_text_to_position(position / 1000.0, force_cursor=True)
 
@@ -3229,9 +3245,10 @@ class TranscribeWindow(QDialog):
         if matched is None:
             matched = min(positions, key=lambda p: min(
                 abs(click_pos - p["start"]), abs(click_pos - p["end"])))
-        self._player.setPosition(int(matched["seg"]["start"] * 1000))
-        if self._chk_play_on_click.isChecked():
-            self._player.play()
+        if self._player is not None:
+            self._player.setPosition(int(matched["seg"]["start"] * 1000))
+            if self._chk_play_on_click.isChecked():
+                self._player.play()
 
     def _install_modified_overlay(self, editor):
         """Attach a red 'Modified' badge in the top-right of the editor.
@@ -3381,6 +3398,8 @@ class TranscribeWindow(QDialog):
                 or self._segments)
         if not segs:
             return
+        if self._player is None:
+            return
         pos_s = self._player.position() / 1000.0 - 0.1
         for seg in reversed(segs):
             if seg["start"] < pos_s:
@@ -3395,6 +3414,8 @@ class TranscribeWindow(QDialog):
         segs = (getattr(self._active_editor(), '_diarize_segments', None)
                 or self._segments)
         if not segs:
+            return
+        if self._player is None:
             return
         pos_s = self._player.position() / 1000.0 + 0.1
         for seg in segs:
@@ -3419,7 +3440,7 @@ class TranscribeWindow(QDialog):
         # timeline length matches the current tab (different tabs may
         # have different durations).
         audio_path = getattr(widget, '_audio_path', None)
-        if audio_path and os.path.isfile(audio_path):
+        if audio_path and os.path.isfile(audio_path) and self._player is not None:
             current_src = self._player.source().toLocalFile()
             if current_src != audio_path:
                 self._load_audio(audio_path)
@@ -4023,7 +4044,7 @@ class TranscribeWindow(QDialog):
         # _refresh_rename_panel_for_target.
         if self._tabs.currentWidget() is self._text_edit:
             tab_audio = getattr(self._text_edit, '_audio_path', None)
-            if tab_audio and os.path.isfile(tab_audio):
+            if tab_audio and os.path.isfile(tab_audio) and self._player is not None:
                 if self._player.source().toLocalFile() != tab_audio:
                     self._load_audio(tab_audio)
         self._update_player_markers()
