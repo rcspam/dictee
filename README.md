@@ -412,7 +412,7 @@ Configure via `dictee --setup` → **Post-processing** tab, or test rules live w
 
 ## Known limitations
 
-- **Long-file diarization**: the chunked pipeline shipped in v1.3 (used by `dictee-transcribe`) lifts the VRAM cap (54-min keynote diarized in 122 s on 8 GB). In **continuous live dictation** (push-to-talk held without releasing), a single utterance > 10-15 min on an 8 GB GPU may still OOM — rare in practice, split the file or switch to the CPU backend. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
+- **Long-file diarization**: the chunked pipeline shipped in v1.3 (used by `dictee-transcribe`) lifts the VRAM cap (54-min keynote diarized in 122 s on 8 GB). In **continuous live dictation** (push-to-talk held without releasing), a single utterance > 10-15 min on an 8 GB GPU may still run out of memory — **v1.4 lifts this by extending the chunked pipeline to live dictation**; until then, split the recording or switch to the CPU backend. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
 - **AMD / Intel GPUs** are not currently supported — dictee falls back to CPU.
 - **No real-time streaming** — Parakeet-TDT and Canary require the full utterance; only Nemotron (EN-only, via Rust binary) streams natively.
 
@@ -424,8 +424,11 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 
 **v1.3.5 (current)** — **Int8 Parakeet model + fixes + reliability**:
 - **New Int8 Parakeet model — snappier on CPU** — better out-of-the-box performance, with the compact Parakeet model now running where it's fastest.
+- **Clearer GPU/CPU switch** — the GPU/CPU toggle in settings now greys out and shows CPU whenever the GPU can't actually be used (no NVIDIA card, CPU-only build, or the int8 model), so it always reflects what really runs.
+- **Smoother model switching** — the int8 / FP32 switch becomes available as soon as both variants are installed, with a notification confirming each change.
 - **Push-to-talk typing fix** ([#8](https://github.com/rcspam/dictee/issues/8)) — the last character no longer repeats itself after dictating for a while, on setups with several keyboards or on Wayland.
 - **Push-to-talk with remapping tools** ([#10](https://github.com/rcspam/dictee/issues/10)) — keyboard remappers like logiops, keyd and kanata can now trigger dictation, with a new option in the settings.
+- **Push-to-talk no longer freezes the mouse** — on some keyboard/mouse setups, push-to-talk could lock up the pointer until the app was removed; it now leaves pointing devices untouched.
 - **Safer model downloads** — an interrupted download is now detected instead of leaving a broken model that failed silently the next time you started dictee.
 - **More reliable Whisper** — better automatic CPU/GPU selection and fewer made-up words in the transcription.
 - **Lighter desktop widget** — lower CPU usage when idle.
