@@ -8455,6 +8455,43 @@ class DicteeSetupDialog(QDialog):
         self._lbl_force_cpu_warning.setText(
             f"<p style='font-size: 10pt; color: {color};'>{msg}</p>")
 
+    def _on_force_cpu_toggled(self, checked):
+        """User flipped the GPU/CPU toggle. Record the real preference only
+        when the toggle is interactive — when it's locked to CPU (no GPU or
+        int8), the checked state is cosmetic and must not overwrite the
+        stored DICTEE_FORCE_CPU preference."""
+        if self.tgl_force_cpu.isEnabled():
+            self._force_cpu_pref = checked
+        self._refresh_force_cpu_warning()
+
+    def _refresh_force_cpu_toggle_state(self):
+        """Grey out + show CPU on the GPU/CPU toggle whenever the GPU can't
+        be used: no NVIDIA GPU detected, the CPU-only package (no CUDA
+        provider lib), or the int8 Parakeet variant (which the daemon always
+        runs on CPU). Cosmetic only: the stored preference (_force_cpu_pref)
+        is preserved, so other backends (Whisper/Canary) keep their GPU
+        setting and switching back to FP32 restores the toggle. Called at
+        build time and whenever the int8/FP32 toggle flips."""
+        if not hasattr(self, 'tgl_force_cpu'):
+            return
+        total_vram, _free = get_gpu_vram_gb()
+        cuda_pkg = os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so")
+        gpu_present = total_vram > 0 and cuda_pkg
+        int8_active = hasattr(self, 'tgl_quant') and self.tgl_quant.isChecked()
+        locked = (not gpu_present) or int8_active
+        self.tgl_force_cpu.blockSignals(True)
+        self.tgl_force_cpu.setChecked(True if locked else self._force_cpu_pref)
+        self.tgl_force_cpu.setEnabled(not locked)
+        self.tgl_force_cpu.blockSignals(False)
+        if int8_active and gpu_present:
+            # GPU exists but int8 always runs on CPU: the VRAM/FP32-centric
+            # warning would be misleading, so clear it. The int8/FP32 toggle
+            # just above already conveys the variant choice.
+            if hasattr(self, '_lbl_force_cpu_warning'):
+                self._lbl_force_cpu_warning.setText("")
+        else:
+            self._refresh_force_cpu_warning()
+
     def _apply_block_opacity(self, widget, opacity):
         """Apply or remove QGraphicsOpacityEffect on a widget.
         opacity >= 1.0 → restore full opacity (effect removed).
@@ -8682,6 +8719,10 @@ class DicteeSetupDialog(QDialog):
 
         force_cpu_active = (self.conf.get("DICTEE_FORCE_CPU", "0").lower()
                             in ("1", "true", "yes"))
+        # The user's real GPU/CPU preference. The toggle may be visually
+        # forced to CPU (greyed) when the GPU isn't usable, but this stored
+        # value is what gets written to dictee.conf — see _on_apply.
+        self._force_cpu_pref = force_cpu_active
 
         # Centered GPU [toggle] CPU row
         force_row = QHBoxLayout()
@@ -8690,7 +8731,7 @@ class DicteeSetupDialog(QDialog):
         force_row.addWidget(QLabel("GPU"))
         self.tgl_force_cpu = ToggleSwitch("")
         self.tgl_force_cpu.setChecked(force_cpu_active)
-        self.tgl_force_cpu.toggled.connect(self._refresh_force_cpu_warning)
+        self.tgl_force_cpu.toggled.connect(self._on_force_cpu_toggled)
         force_row.addWidget(self.tgl_force_cpu)
         force_row.addWidget(QLabel("CPU"))
         force_row.addStretch()
@@ -8701,8 +8742,12 @@ class DicteeSetupDialog(QDialog):
         self._lbl_force_cpu_warning.setWordWrap(True)
         self._lbl_force_cpu_warning.setStyleSheet("QLabel { padding-left: 4px; }")
         perf_lay.addWidget(self._lbl_force_cpu_warning)
-        # Initial render
-        self._refresh_force_cpu_warning()
+        # Flipping the int8/FP32 toggle changes whether the GPU is usable, so
+        # re-evaluate the GPU/CPU toggle's locked state when it does.
+        if hasattr(self, 'tgl_quant'):
+            self.tgl_quant.toggled.connect(self._refresh_force_cpu_toggle_state)
+        # Initial render (greys + shows CPU when the GPU can't be used)
+        self._refresh_force_cpu_toggle_state()
 
         lay_outer.addWidget(perf_box)
 
@@ -18412,7 +18457,7 @@ class DicteeSetupDialog(QDialog):
                         ("int8" if self.tgl_quant.isChecked() else "fp32")
                         if hasattr(self, 'tgl_quant') else None),
                     force_cpu=(
-                        self.tgl_force_cpu.isChecked()
+                        self._force_cpu_pref
                         if hasattr(self, 'tgl_force_cpu') else None),
                     meeting_dir=(
                         self.led_meeting_dir.text()
@@ -18553,7 +18598,7 @@ class DicteeSetupDialog(QDialog):
             if hasattr(self, 'tgl_quant') else ""
         )
         _new_force_cpu = (
-            ("1" if self.tgl_force_cpu.isChecked() else "0")
+            ("1" if self._force_cpu_pref else "0")
             if hasattr(self, 'tgl_force_cpu') else ""
         )
         _new_asr = {
