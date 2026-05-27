@@ -114,6 +114,8 @@ OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
 
 
 EV_KEY = 1
+EV_REL = 2   # relative axes = mouse movement (never grab a pointer device)
+EV_ABS = 3   # absolute axes = touchpad / touchscreen / tablet
 KEY_DOWN = 1
 KEY_UP = 0
 KEY_REPEAT = 2
@@ -173,8 +175,14 @@ def find_keyboards_evdev():
         except (PermissionError, OSError):
             continue
         caps = dev.capabilities(verbose=False)
-        # EV_KEY présent et au moins les touches alphanumériques
-        if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
+        # EV_KEY present with the full key set, AND no pointer axes. A real
+        # keyboard never reports EV_REL/EV_ABS. Some mice and combined
+        # keyboard+mouse HID receivers expose a node with >30 keys that ALSO
+        # carries pointer movement; EVIOCGRAB-ing such a node freezes the
+        # system mouse (forum report: dictee 1.3.4, AMD/Wayland). Excluding
+        # EV_REL/EV_ABS keeps us from ever grabbing a pointer device.
+        if (EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30
+                and EV_REL not in caps and EV_ABS not in caps):
             name = dev.name.lower()
             if any(x in name for x in EXTRA_KEYBOARDS):
                 devs.append(dev)
@@ -204,7 +212,10 @@ def find_keyboards_raw():
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-        if "kbd" in handlers_line:
+        # Require the kbd handler but reject nodes that also drive a pointer
+        # (combined keyboard+mouse HID single node) — grabbing those freezes
+        # the mouse. Mirrors the EV_REL/EV_ABS exclusion in find_keyboards_evdev.
+        if "kbd" in handlers_line and "mouse" not in handlers_line:
             name_lower = name_line.lower()
             allowed = any(x in name_lower for x in EXTRA_KEYBOARDS) or \
                 not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)
