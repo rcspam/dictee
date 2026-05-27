@@ -2029,6 +2029,14 @@ def model_is_installed(model):
     return os.path.isfile(sys_path) or os.path.isfile(user_path)
 
 
+def parakeet_installed():
+    """True if any Parakeet-TDT variant (FP32 or int8) is installed.
+    The int8 variant is a full substitute for FP32, so every "is Parakeet
+    available?" gate must accept either — not just the FP32 (required) model."""
+    return any(model_is_installed(m) for m in ASR_MODELS
+               if m.get("quant") in ("fp32", "int8"))
+
+
 class ModelDownloadThread(QThread):
     """Thread pour télécharger un modèle ASR."""
     done = Signal(bool, str)
@@ -6754,11 +6762,10 @@ class DicteeSetupDialog(QDialog):
             # Download page: verify a model is installed for selected backend
             asr = self._wizard_asr
             if asr == "parakeet":
-                for m in ASR_MODELS:
-                    if m["required"] and not model_is_installed(m):
-                        QMessageBox.warning(self, _("Model required"),
-                            _("Please download the required model before continuing."))
-                        return False
+                if not parakeet_installed():
+                    QMessageBox.warning(self, _("Model required"),
+                        _("Please download the required model before continuing."))
+                    return False
             elif asr == "vosk":
                 if not venv_is_installed(VOSK_VENV):
                     QMessageBox.warning(self, _("Setup required"),
@@ -8033,7 +8040,7 @@ class DicteeSetupDialog(QDialog):
     def _is_backend_installed(self, backend_id):
         """Check if a backend's model/engine is installed."""
         if backend_id == "parakeet":
-            return model_is_installed(ASR_MODELS[0])
+            return parakeet_installed()
         if backend_id == "vosk":
             return venv_is_installed(VOSK_VENV)
         if backend_id == "whisper":
@@ -15469,7 +15476,7 @@ class DicteeSetupDialog(QDialog):
     def _check_model_installed_fn(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         if asr == "parakeet":
-            return all(model_is_installed(m) for m in ASR_MODELS if m["required"])
+            return parakeet_installed()
         elif asr == "vosk":
             return venv_is_installed(VOSK_VENV)
         elif asr == "whisper":
@@ -16741,8 +16748,8 @@ class DicteeSetupDialog(QDialog):
             self._update_venv_button(w["button"], model["name"], True)
             w["button"].setToolTip("")
             w["btn_delete"].setVisible(True)
-            # If TDT just installed, enable Sortformer button
-            if mid == "tdt" and "sortformer" in self._model_widgets:
+            # If a TDT variant (FP32 or int8) just installed, enable Sortformer button
+            if mid in ("tdt", "tdt-int8") and "sortformer" in self._model_widgets:
                 dep_w = self._model_widgets["sortformer"]
                 if not model_is_installed(dep_w["model"]):
                     self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
@@ -16784,10 +16791,10 @@ class DicteeSetupDialog(QDialog):
         w = self._model_widgets[mid]
         self._update_venv_button(w["button"], name, False)
         w["btn_delete"].setVisible(False)
-        # If TDT deleted, disable Sortformer download
-        if mid == "tdt" and "sortformer" in self._model_widgets:
+        # If the last TDT variant was deleted, disable Sortformer download
+        if mid in ("tdt", "tdt-int8") and "sortformer" in self._model_widgets:
             dep_w = self._model_widgets["sortformer"]
-            if not model_is_installed(dep_w["model"]):
+            if not parakeet_installed() and not model_is_installed(dep_w["model"]):
                 dep_w["button"].setEnabled(False)
                 dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
         # A TDT variant was removed: a single remaining variant must be
