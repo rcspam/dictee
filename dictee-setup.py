@@ -8390,7 +8390,10 @@ class DicteeSetupDialog(QDialog):
         if model_quant:
             title = model_quant.upper()  # "FP32" or "INT8"
             is_active = (model_quant == active_quant)
-            inactive_color = " color:#888;" if not is_active else ""
+            # Don't grey the non-active variant: greyed text reads as "disabled"
+            # even though its Install button works. The ★ badge already signals
+            # the recommended variant — that's enough.
+            inactive_color = ""
         else:
             title = model["name"]
             is_active = True  # non-TDT models are always "active" (no quant choice)
@@ -8545,7 +8548,7 @@ class DicteeSetupDialog(QDialog):
             # 2) Fade or restore the whole container (label + buttons + progress)
             container = widgets.get("container")
             if container is not None:
-                self._apply_block_opacity(container, 1.0 if is_active else 0.45)
+                self._apply_block_opacity(container, 1.0 if is_active else 0.75)
 
     def _refresh_quant_toggle_state(self):
         """Re-evaluate the int8/FP32 toggle's enabled state after a model
@@ -8655,10 +8658,12 @@ class DicteeSetupDialog(QDialog):
                 "button": btn, "btn_delete": btn_del,
                 "btn_cancel": btn_cancel, "progress": progress, "model": model,
             }
-            # Apply initial opacity if this TDT variant is not active
+            # Non-active TDT variant: just slightly paler than the recommended
+            # one (0.75, not 0.45 — the strong dim made its working Install
+            # button look disabled/inaccessible).
             model_quant = model.get("quant")
             if model_quant in ("fp32", "int8") and model_quant != active_quant:
-                self._apply_block_opacity(container, 0.45)
+                self._apply_block_opacity(container, 0.75)
 
         # === Parakeet group box (no subtitle — the ASR backend combobox already
         # identifies the model family). Just "Parakeet TDT" as section anchor. ===
