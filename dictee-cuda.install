@@ -67,8 +67,8 @@ _upgrade_postprocess_venv() {
 }
 
 _install_cuda_venv() {
-    # Mise en place CUDA centralisée dans le script partagé (détection GPU → bonne cuDNN
-    # selon compute_cap : Pascal/anciens → 9.0.0.312, Turing+ → latest ; skip si pas de GPU).
+    # CUDA setup centralized in the shared script (GPU detection → right cuDNN per
+    # compute_cap: Pascal/older → 9.0.0.312, Turing+ → latest; skip if no GPU).
     if [ -f /usr/lib/dictee/setup-cuda-venv.sh ]; then
         bash /usr/lib/dictee/setup-cuda-venv.sh || echo "Warning: CUDA setup incomplete."
     fi

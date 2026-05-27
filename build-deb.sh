@@ -140,7 +140,7 @@ EOF
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
-    echo "=== Copie des libs CUDA ONNX Runtime ==="
+    echo "=== Copying CUDA ONNX Runtime libs ==="
     mkdir -p "$PKG_DIR/usr/lib/dictee"
 
     # Search paths for libonnxruntime.so (not produced by load-dynamic build)

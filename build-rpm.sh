@@ -211,7 +211,7 @@ build_rpm_cuda() {
     prepare_buildroot "$buildroot"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
-    echo "Copie des libs CUDA ONNX Runtime..."
+    echo "Copying CUDA ONNX Runtime libs..."
     mkdir -p "$buildroot/usr/lib/dictee"
 
     # Search paths for libonnxruntime.so (not produced by load-dynamic build)
@@ -425,10 +425,10 @@ if command -v python3 >/dev/null 2>&1; then
     fi
 fi
 
-# Mise en place CUDA centralisée dans le script partagé (détection GPU → bonne cuDNN
-# selon compute_cap : Pascal/anciens → 9.0.0.312, Turing+ → latest ; skip si pas de GPU).
+# CUDA setup centralized in the shared script (GPU detection → right cuDNN per
+# compute_cap: Pascal/older → 9.0.0.312, Turing+ → latest; skip if no GPU).
 if [ -f /usr/lib/dictee/setup-cuda-venv.sh ]; then
-    bash /usr/lib/dictee/setup-cuda-venv.sh || echo "⚠ Mise en place CUDA incomplète."
+    bash /usr/lib/dictee/setup-cuda-venv.sh || echo "⚠ CUDA setup incomplete."
 fi
 
 %postun

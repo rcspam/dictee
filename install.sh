@@ -64,13 +64,13 @@ auto_reset_services() {
         conf_path="$(eval echo "~$target_user")/.config/dictee.conf"
         [[ -f "$conf_path" ]] || return 0
         uid=$(id -u "$target_user" 2>/dev/null) || return 0
-        info "Configuration existante détectée — restart de dictee-ptt..."
+        info "Existing configuration detected — restarting dictee-ptt..."
         sudo -u "$target_user" XDG_RUNTIME_DIR="/run/user/${uid}" \
             systemctl --user restart dictee-ptt 2>/dev/null || true
     else
         conf_path="$HOME/.config/dictee.conf"
         [[ -f "$conf_path" ]] || return 0
-        info "Configuration existante détectée — restart de dictee-ptt..."
+        info "Existing configuration detected — restarting dictee-ptt..."
         systemctl --user restart dictee-ptt 2>/dev/null || true
     fi
 }
@@ -691,11 +691,11 @@ EOF
         fi
     fi
 
-    # --- NVIDIA CUDA libs : mise en place centralisée dans le script partagé ---
-    # (détection GPU → bonne cuDNN selon compute_cap : Pascal/anciens → 9.0.0.312,
-    #  Turing+ → latest ; skip si pas de GPU). Source unique de vérité.
+    # --- NVIDIA CUDA libs: setup centralized in the shared script ---
+    # (GPU detection → right cuDNN per compute_cap: Pascal/older → 9.0.0.312,
+    #  Turing+ → latest; skip if no GPU). Single source of truth.
     if [[ -f /usr/lib/dictee/setup-cuda-venv.sh ]]; then
-        bash /usr/lib/dictee/setup-cuda-venv.sh || warn "Mise en place CUDA incomplète."
+        bash /usr/lib/dictee/setup-cuda-venv.sh || warn "CUDA setup incomplete."
     fi
 
     # --- udev rule for dotool ---
