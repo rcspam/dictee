@@ -1,7 +1,10 @@
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 #[cfg(feature = "sortformer")]
-use parakeet_rs::{best_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
+use parakeet_rs::{
+    best_provider, parakeet_provider, ExecutionConfig, ExecutionProvider, ParakeetTDT,
+    TimestampMode, Transcriber,
+};
 #[cfg(feature = "sortformer")]
 use std::env;
 #[cfg(feature = "sortformer")]
@@ -119,8 +122,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(not(feature = "cuda"))]
         let daemon_was_active = false;
 
-        // Detects a usable NVIDIA GPU at runtime; falls back to CPU otherwise.
-        let config = ExecutionConfig::new().with_execution_provider(best_provider());
+        // Parakeet config: forces CPU for an int8 model (broken on the ORT
+        // CUDA EP). Sortformer gets its own GPU-capable config below.
+        let parakeet_config = ExecutionConfig::new()
+            .with_execution_provider(parakeet_provider(std::path::Path::new(&model_dir)));
 
         // Load Sortformer for diarization
         let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
@@ -135,11 +140,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             DiarizationConfig::custom(onset, offset)
         };
 
-        let mut sortformer = Sortformer::with_config(
+        // Sortformer has no int8 variant — run it on GPU when available (even
+        // a small one), with a CPU retry if GPU init crashes late. Mirrors
+        // diarize-only.
+        let sortformer_provider = best_provider();
+        let sortformer_config =
+            ExecutionConfig::new().with_execution_provider(sortformer_provider);
+        let mut sortformer = match Sortformer::with_config(
             &sortformer_path,
-            Some(config.clone()),
-            diar_config,
-        )?;
+            Some(sortformer_config),
+            diar_config.clone(),
+        ) {
+            Ok(sf) => sf,
+            Err(e) if sortformer_provider != ExecutionProvider::Cpu => {
+                eprintln!("[dictee] Sortformer GPU init failed ({e}); retrying on CPU.");
+                let cpu_config =
+                    ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+                Sortformer::with_config(&sortformer_path, Some(cpu_config), diar_config)?
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         dbg_print!("sortformer loaded, audio={} samples", audio.len());
 
@@ -149,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         dbg_print!("diarization: {} segments, {} speakers", speaker_segments.len(), n_spk.len());
 
         // Load TDT for transcription
-        let mut parakeet = ParakeetTDT::from_pretrained(&model_dir, Some(config))?;
+        let mut parakeet = ParakeetTDT::from_pretrained(&model_dir, Some(parakeet_config))?;
 
         // Transcribe with sentence timestamps
         let result = parakeet.transcribe_samples(

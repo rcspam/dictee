@@ -254,6 +254,30 @@ pub fn best_provider() -> ExecutionProvider {
     ExecutionProvider::Cpu
 }
 
+/// Pick the execution provider for a Parakeet model loaded from `model_dir`.
+///
+/// Same as [`best_provider`] except an int8 Parakeet model is forced to CPU:
+/// the ORT CUDA EP doesn't optimize int8 ops, so int8-on-GPU is both slower
+/// and, in practice, broken (empty/garbage output). The int8 detection
+/// mirrors `ParakeetTDTModel::find_encoder` — int8 wins when the user prefers
+/// it (DICTEE_PARAKEET_QUANT=int8) or when it is the only variant present.
+///
+/// transcribe-daemon keeps its own inline copy of this rule; keep them in sync.
+pub fn parakeet_provider(model_dir: &std::path::Path) -> ExecutionProvider {
+    let prefers_int8 = env::var("DICTEE_PARAKEET_QUANT")
+        .map(|v| v.eq_ignore_ascii_case("int8"))
+        .unwrap_or(false);
+    let int8 = model_dir.join("encoder-model.int8.onnx").exists()
+        && (prefers_int8
+            || (!model_dir.join("encoder-model.onnx").exists()
+                && !model_dir.join("encoder.onnx").exists()));
+    if int8 {
+        eprintln!("[dictee] Parakeet int8 model — forcing CPU (int8 is slow on the CUDA EP)");
+        return ExecutionProvider::Cpu;
+    }
+    best_provider()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

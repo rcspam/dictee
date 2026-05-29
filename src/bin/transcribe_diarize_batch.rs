@@ -1,7 +1,7 @@
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 #[cfg(feature = "sortformer")]
-use parakeet_rs::{best_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
+use parakeet_rs::{parakeet_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
 #[cfg(feature = "sortformer")]
 use std::env;
 #[cfg(feature = "sortformer")]
@@ -147,7 +147,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let daemon_was_active = false;
 
         // Build execution config ONCE — runtime probe + CPU fallback.
-        let config = ExecutionConfig::new().with_execution_provider(best_provider());
+        // Forces CPU for an int8 Parakeet model (broken on the ORT CUDA EP).
+        let config = ExecutionConfig::new()
+            .with_execution_provider(parakeet_provider(std::path::Path::new(&model_dir)));
 
         // Load Sortformer ONCE (skip if --no-diarize)
         let mut sortformer_opt: Option<Sortformer> = if !no_diarize {

@@ -1,4 +1,4 @@
-use parakeet_rs::{best_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
+use parakeet_rs::{parakeet_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
 use std::env;
 use std::fs;
 use std::process::{Command, Stdio};
@@ -60,7 +60,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Detects a usable NVIDIA GPU at runtime; falls back to CPU otherwise.
-    let config = ExecutionConfig::new().with_execution_provider(best_provider());
+    // Forces CPU for an int8 Parakeet model (broken on the ORT CUDA EP).
+    let config =
+        ExecutionConfig::new().with_execution_provider(parakeet_provider(std::path::Path::new(&model_dir)));
 
     // Load TDT model (multilingual, supports French)
     let mut parakeet = ParakeetTDT::from_pretrained(model_dir, Some(config))?;
