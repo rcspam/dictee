@@ -118,6 +118,7 @@ mkdir -p "$HOME/.cache" 2>/dev/null
 PIDFILE="/tmp/recording_dictee_pid${_UID_SUFFIX}"
 ID_TMP_FILE="/tmp/notify_dictee${_UID_SUFFIX}"
 MUT_FILE="/tmp/mut_dictee${_UID_SUFFIX}"
+SINK_MUT_FILE="/tmp/sinkmut_dictee${_UID_SUFFIX}"
 TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 DIARIZE_FLAG_FILE="/tmp/dictee_diarize${_UID_SUFFIX}"
@@ -154,8 +155,16 @@ restore_audio() {
         fi
         rm -f "$MUT_FILE"
     fi
-    if [ "$_IS_APP_SOURCE" = false ]; then
-        pactl set-sink-mute @DEFAULT_SINK@ 0
+    # Restore the output sink to its prior state. Only unmute it if WE muted it
+    # (it was unmuted before); if the user had it muted, leave it muted so we
+    # don't clobber their muted-output preference.
+    if [ -f "$SINK_MUT_FILE" ]; then
+        local sink_was=""
+        sink_was=$(awk -F"=" '{print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        if [ "$sink_was" = "0" ]; then
+            pactl set-sink-mute @DEFAULT_SINK@ 0
+        fi
+        rm -f "$SINK_MUT_FILE"
     fi
 }
 
@@ -1721,7 +1730,16 @@ else
             pactl set-source-mute "$_PA_SOURCE" 0
             echo "MUT=1" >"$MUT_FILE"
         fi
-        pactl set-sink-mute @DEFAULT_SINK@ 1
+        # Save the output sink's prior mute state; only mute it when it was
+        # actually unmuted, so restore_audio can put it back exactly.
+        # Unconditionally muting then unmuting it clobbered a muted-output
+        # preference (the output came back unmuted after every dictation).
+        if pactl get-sink-mute @DEFAULT_SINK@ | grep -q -i -E 'oui|yes'; then
+            echo "SINK_MUT=1" >"$SINK_MUT_FILE"
+        else
+            echo "SINK_MUT=0" >"$SINK_MUT_FILE"
+            pactl set-sink-mute @DEFAULT_SINK@ 1
+        fi
     fi
 
     # Launch animation (if mode speech or both, and if available)
