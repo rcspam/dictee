@@ -808,8 +808,10 @@ class _ChunkedPipelineWorker(QThread):
     error = Signal(str)
 
     CHUNK_SECONDS = 180   # 3 min — comfortable margin under the Parakeet
-    OVERLAP_SECONDS = 15  # TDT v3 attention-mask cap (~320 s) while saving
-                          # ~30 % wall-clock vs the previous 120 s.
+    OVERLAP_SECONDS = 75  # = CHUNK_SECONDS - STEP_SECONDS. MUST equal the real
+                          # chunk overlap, otherwise _run_transcribe_batch's
+                          # dedup zone is too narrow and keeps duplicate tokens
+                          # (repeated sentences) at every chunk boundary.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
     def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
