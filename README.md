@@ -415,6 +415,7 @@ Configure via `dictee --setup` → **Post-processing** tab, or test rules live w
 - **Long-file diarization**: the chunked pipeline shipped in v1.3 (used by `dictee-transcribe`) lifts the VRAM cap (54-min keynote diarized in 122 s on 8 GB). In **continuous live dictation** (push-to-talk held without releasing), a single utterance > 10-15 min on an 8 GB GPU may still run out of memory — **v1.4 lifts this by extending the chunked pipeline to live dictation**; until then, split the recording or switch to the CPU backend. → [Diarization wiki](https://github.com/rcspam/dictee/wiki/Diarization)
 - **AMD / Intel GPUs** are not currently supported — dictee falls back to CPU.
 - **No real-time streaming** — Parakeet-TDT and Canary require the full utterance; only Nemotron (EN-only, via Rust binary) streams natively.
+- **Wayland clipboard breaks Electron typing** — On Wayland with `wl-clipboard < 2.3.0` (still the default on Ubuntu and other LTS distros), the optional "Copy transcription to clipboard" toggle briefly steals keyboard focus and can prevent the transcript from being typed into some Electron apps (e.g. Claude Desktop). The toggle is **disabled by default** since v1.3.5; enable it only on distros shipping `wl-clipboard ≥ 2.3.0` or if you never dictate into Electron apps. → [Troubleshooting wiki](https://github.com/rcspam/dictee/wiki/Troubleshooting#wayland-clipboard-breaks-electron-typing)
 
 For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam/dictee/wiki/Troubleshooting).
 

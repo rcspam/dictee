@@ -1310,6 +1310,14 @@ msgstr ""
 msgid "Copy transcription to clipboard"
 msgstr "Copier la transcription dans le presse-papier"
 
+#: dictee-setup.py:6350 dictee-setup.py:7934
+msgid ""
+"⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can prevent the "
+"transcript from being typed into some Electron apps."
+msgstr ""
+"⚠ Sur Wayland avec wl-clipboard < 2.3.0, activer cette option peut "
+"empêcher la transcription de s'écrire dans certaines apps Electron."
+
 #: dictee-setup.py:6333
 msgid "Audio context buffer"
 msgstr "Buffer de contexte audio"

@@ -64,7 +64,7 @@ fi
 LANG_SOURCE="${DICTEE_LANG_SOURCE:-${LANG%%_*}}"
 LANG_TARGET="${DICTEE_LANG_TARGET:-en}"
 LANG_LABEL="${LANG_SOURCE^^}→${LANG_TARGET^^}"
-CLIPBOARD="${DICTEE_CLIPBOARD:-true}"
+CLIPBOARD="${DICTEE_CLIPBOARD:-false}"
 ANIM_SPEECH="${DICTEE_ANIM_SPEECH:-true}"
 ANIM_PLASMOID="${DICTEE_ANIM_PLASMOID:-false}"
 # Visual indicator appended to the typed text when continuation is pending

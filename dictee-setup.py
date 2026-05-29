@@ -363,7 +363,7 @@ def _sanitize_extra_devices(val):
     return re.sub(r'["`$\\\r\n]', '', str(val))
 
 
-def save_config(backend, lang_source, lang_target, clipboard=True,
+def save_config(backend, lang_source, lang_target, clipboard=False,
                 anim_speech=True, anim_plasmoid=False,
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
@@ -6355,8 +6355,14 @@ class DicteeSetupDialog(QDialog):
         lay_opt.setSpacing(6)
         lay_opt.setContentsMargins(16, 16, 16, 12)
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
         lay_opt.addWidget(self.chk_clipboard)
+        self.lbl_clipboard_warn = QLabel(_(
+            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
+            "prevent the transcript from being typed into some Electron apps."))
+        self.lbl_clipboard_warn.setWordWrap(True)
+        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
+        lay_opt.addWidget(self.lbl_clipboard_warn)
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
@@ -7932,8 +7938,14 @@ class DicteeSetupDialog(QDialog):
         # Options
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setStyleSheet("font-size: 11pt;")
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
         lay.addWidget(self.chk_clipboard)
+        self.lbl_clipboard_warn = QLabel(_(
+            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
+            "prevent the transcript from being typed into some Electron apps."))
+        self.lbl_clipboard_warn.setWordWrap(True)
+        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
+        lay.addWidget(self.lbl_clipboard_warn)
 
         lay.addStretch()
         scroll.setWidget(content)

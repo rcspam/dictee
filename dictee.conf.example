@@ -80,8 +80,10 @@ DICTEE_PTT_KEY=67
 # Display and feedback
 # ============================================================================
 
-# Copy text to clipboard
-DICTEE_CLIPBOARD=true
+# Copy transcription to clipboard.
+# WARNING: on Wayland with wl-clipboard < 2.3.0, enabling this can prevent
+# the transcript from being typed into some Electron apps. See README.
+DICTEE_CLIPBOARD=false
 
 # Speech animation overlay (Wayland layer-shell: KDE, Sway, Hyprland)
 DICTEE_ANIM_SPEECH=true
