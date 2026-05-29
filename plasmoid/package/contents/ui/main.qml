@@ -488,11 +488,14 @@ PlasmoidItem {
         }
     }
 
-    // Timer rapide : lit /dev/shm/.dictee_state. 150ms pendant activité,
-    // 1000ms en idle pour éviter le stress fork/exec sur CPU faible (T480, etc.)
+    // Fast timer: reads /dev/shm/.dictee_state every 150ms so the recording
+    // animation reacts immediately to F9. (The idle 1000ms throttle added by
+    // 578960b was reverted 2026-05-28: it lagged the animation start by ~1s and
+    // is unrelated to the real #8 stutter fix, which is the keyboard rescan moved
+    // off the hot path in dictee-ptt — a timing bug independent of CPU power.)
     Timer {
         id: fastPollTimer
-        interval: (root.effectiveState === "recording" || root.effectiveState === "transcribing") ? 150 : 1000
+        interval: 150
         running: true
         repeat: true
         triggeredOnStart: true
