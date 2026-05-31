@@ -1632,7 +1632,10 @@ if [ -f "$PIDFILE" ]; then
             # dotool "type" cannot handle these characters, use clipboard paste
             if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
                 sleep 0.1
-                safe_dotool_key_ctrl "ctrl+V"
+                # lowercase v: "ctrl+V" would be Ctrl+Shift+v (dotool has no uppercase
+                # key → V = Shift+v), colliding with app shortcuts such as Awesome
+                # Screenshot's Ctrl+Shift+V capture. Plain paste = ctrl+v.
+                safe_dotool_key_ctrl "ctrl+v"
             else
                 type_text "$translated"
             fi
