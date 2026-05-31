@@ -1730,9 +1730,9 @@ class _CanaryDownloadThread(QThread):
                                     f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
                     if total_size > 0 and downloaded != total_size:
                         os.remove(tmp)
-                        raise IOError(
-                            f"{fname}: téléchargement incomplet "
-                            f"({downloaded}/{total_size} octets) — réessayez")
+                        raise IOError(_(
+                            "{name}: incomplete download ({got}/{total} bytes) — please retry"
+                        ).format(name=fname, got=downloaded, total=total_size))
                     os.rename(tmp, dest)
             # Generate tokenizer.json if missing (needed for decodercontext)
             tokenizer_path = os.path.join(model_dir, "tokenizer.json")
@@ -2096,9 +2096,9 @@ class ModelDownloadThread(QThread):
                                         f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
                         if total_size > 0 and downloaded != total_size:
                             os.remove(tmp)
-                            raise IOError(
-                                f"{filename}: téléchargement incomplet "
-                                f"({downloaded}/{total_size} octets) — réessayez")
+                            raise IOError(_(
+                                "{name}: incomplete download ({got}/{total} bytes) — please retry"
+                            ).format(name=filename, got=downloaded, total=total_size))
                         os.rename(tmp, dest)
                 done += 1
                 if total_files > 1:
