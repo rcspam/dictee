@@ -1,0 +1,17 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: dictee
+Source: https://github.com/rcspam/dictee
+
+Files: *
+Copyright: 2026 rcspam <rcspams@gmail.com>
+License: GPL-3.0-or-later
+
+Files: usr/bin/dotool usr/bin/dotoold
+Copyright: 2022 geb <geb@42t.de>
+License: GPL-3.0-only
+Comment: https://sr.ht/~geb/dotool/
+
+Files: src/*
+Copyright: 2024 Enes Altun <altunenes@gmail.com>
+License: MIT
+Comment: Original parakeet-rs library https://github.com/altunenes/parakeet-rs

@@ -1,0 +1,322 @@
+#!/bin/bash
+set -e
+
+MODEL_DIR="/usr/share/dictee"
+TDT_DIR="$MODEL_DIR/tdt"
+DIAR_DIR="$MODEL_DIR/sortformer"
+NEMOTRON_DIR="$MODEL_DIR/nemotron"
+
+HF_TDT="https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
+HF_DIAR="https://huggingface.co/altunenes/parakeet-rs/resolve/main"
+HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b"
+
+TDT_FILES=(
+    "encoder-model.onnx"
+    "encoder-model.onnx.data"
+    "decoder_joint-model.onnx"
+    "vocab.txt"
+)
+
+DIAR_FILES=(
+    "diar_streaming_sortformer_4spk-v2.1.onnx"
+)
+
+NEMOTRON_FILES=(
+    "encoder.onnx"
+    "encoder.onnx.data"
+    "decoder_joint.onnx"
+    "tokenizer.model"
+)
+
+download_file() {
+    local url="$1"
+    local dest="$2"
+    if [ ! -f "$dest" ]; then
+        echo "Téléchargement de $(basename "$dest")..."
+        curl -L --progress-bar -o "$dest" "$url"
+    else
+        echo "$(basename "$dest") déjà présent."
+    fi
+}
+
+download_tdt() {
+    echo ""
+    echo "=== Modèle TDT (transcription multilingue, ~2.5 Go) ==="
+    mkdir -p "$TDT_DIR"
+    for file in "${TDT_FILES[@]}"; do
+        download_file "$HF_TDT/$file" "$TDT_DIR/$file"
+    done
+}
+
+download_sortformer() {
+    echo ""
+    echo "=== Modèle Sortformer (diarisation, ~50 Mo) ==="
+    mkdir -p "$DIAR_DIR"
+    for file in "${DIAR_FILES[@]}"; do
+        download_file "$HF_DIAR/$file" "$DIAR_DIR/$file"
+    done
+}
+
+download_nemotron() {
+    echo ""
+    echo "=== Modèle Nemotron (streaming anglais, ~2.5 Go) ==="
+    mkdir -p "$NEMOTRON_DIR"
+    for file in "${NEMOTRON_FILES[@]}"; do
+        download_file "$HF_NEMOTRON/$file" "$NEMOTRON_DIR/$file"
+    done
+}
+
+# Vérifier si les modèles existent déjà
+echo ""
+echo "=== Vérification des modèles ==="
+echo ""
+
+if [ -f "$TDT_DIR/encoder-model.onnx" ]; then
+    echo "✓ Modèle TDT présent"
+else
+    echo "⚠ Modèle TDT absent — nécessaire pour la transcription"
+fi
+
+if [ -f "$DIAR_DIR/diar_streaming_sortformer_4spk-v2.1.onnx" ]; then
+    echo "✓ Modèle Sortformer présent"
+else
+    echo "  Modèle Sortformer absent (optionnel, diarisation)"
+fi
+
+if [ -f "$NEMOTRON_DIR/encoder.onnx" ]; then
+    echo "✓ Modèle Nemotron présent"
+else
+    echo "  Modèle Nemotron absent (optionnel, streaming anglais)"
+fi
+
+if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
+    echo ""
+    echo "Lancez 'dictee-setup' pour télécharger les modèles."
+fi
+
+# Refresh dynamic linker cache (needed for CUDA libs in /usr/lib/dictee)
+if [ -f /etc/ld.so.conf.d/dictee.conf ]; then
+    ldconfig 2>/dev/null || true
+fi
+
+# Répertoire modèles — accessible en écriture pour dictee-setup (user)
+echo ""
+echo "=== Répertoire des modèles ==="
+CANARY_DIR="$MODEL_DIR/canary"
+for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
+    mkdir -p "$d"
+    chmod 777 "$d"
+done
+echo "Répertoire $MODEL_DIR prêt (écriture pour tous)"
+
+# Copier les traductions depuis le répertoire interne (fix dpkg -r qui les supprime)
+echo ""
+echo "=== Installation des traductions ==="
+for lang in fr de es it uk pt; do
+    src="/usr/share/dictee/locale/$lang/LC_MESSAGES/dictee.mo"
+    dest="/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    if [ -f "$src" ]; then
+        mkdir -p "$(dirname "$dest")"
+        cp -f "$src" "$dest"
+    fi
+done
+echo "Traductions installées"
+
+# Ajouter les utilisateurs connectés aux groupes nécessaires
+echo ""
+echo "=== Groupes utilisateur ==="
+GROUPS_CHANGED=false
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    if ! id -nG "$user" | grep -qw input; then
+        usermod -aG input "$user"
+        GROUPS_CHANGED=true
+        echo "✓ $user ajouté au groupe 'input' (raccourcis clavier)"
+    else
+        echo "✓ $user déjà dans le groupe 'input'"
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        # Start and enable Docker daemon if not running
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl enable docker 2>/dev/null || true
+            if systemctl start docker 2>/dev/null; then
+                echo "✓ Docker démarré et activé"
+            else
+                echo "⚠ Docker install OK mais start a échoué (VM sans nested-virt ?) — non bloquant"
+            fi
+        else
+            echo "✓ Docker déjà actif"
+        fi
+        if ! id -nG "$user" | grep -qw docker; then
+            usermod -aG docker "$user"
+            GROUPS_CHANGED=true
+            echo "✓ $user ajouté au groupe 'docker' (LibreTranslate)"
+        else
+            echo "✓ $user déjà dans le groupe 'docker'"
+        fi
+    fi
+done
+if [ "$GROUPS_CHANGED" = "true" ]; then
+    echo ""
+    echo "⚠ Groupe(s) ajouté(s) — redémarrez pour activer les raccourcis clavier."
+    # Notification desktop pour les installations graphiques
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            notify-send -a "dictee" -i "dialog-information" \
+            "dictee installed" \
+            "Please reboot to activate keyboard shortcuts." 2>/dev/null || true
+    done
+fi
+
+# Enable GNOME AppIndicator extension for tray icon
+echo ""
+echo "=== Extension GNOME AppIndicator ==="
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    [ -d "/run/user/$uid" ] || continue
+    sudo -u "$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null && \
+        echo "✓ AppIndicator activé pour $user" || true
+done
+
+# Install plasmoid if KDE Plasma 6 is available
+echo ""
+echo "=== Plasmoid KDE Plasma ==="
+if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+        echo "✓ Plasmoid installé pour $user"
+    done
+else
+    echo "KDE Plasma 6 non détecté ou plasmoid absent — ignoré"
+fi
+
+# Rafraîchir le cache d'icônes (nécessaire sur GNOME)
+echo ""
+echo "=== Cache d'icônes ==="
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    echo "Cache d'icônes mis à jour"
+fi
+
+# Corriger la règle udev dotool (0620 → 0660, dpkg ne remplace pas les conffiles)
+echo ""
+echo "=== Configuration udev ==="
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "$UDEV_RULE" ] && grep -q 'MODE="0620"' "$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "$UDEV_RULE"
+    echo "✓ Règle udev corrigée (0620 → 0660)"
+fi
+# Charger uinput immédiatement (Fedora/RHEL ne le font pas par défaut, et
+# /etc/modules-load.d/dictee-uinput.conf ne s'applique qu'au prochain boot).
+modprobe uinput 2>/dev/null || true
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
+echo "Règles udev rechargées (dotool/uinput)"
+
+# Recharger les services systemd pour les utilisateurs connectés
+echo ""
+echo "=== Rechargement des services ==="
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    if [ -d "/run/user/$uid" ]; then
+        echo "→ Rechargement pour $user (uid $uid)"
+        _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+        $_run systemctl --user daemon-reload 2>/dev/null || true
+        # Appliquer les presets (auto-enable au premier install)
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        # Activer les services essentiels (hors ASR — géré par backend)
+        $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+        # Démarrer/redémarrer les services
+        $_run systemctl --user restart dotoold 2>/dev/null || true
+        echo "  ↳ dotoold démarré"
+        $_run systemctl --user restart dictee-ptt 2>/dev/null || true
+        echo "  ↳ dictee-ptt démarré"
+        _user_home=$(getent passwd "$user" | cut -d: -f6)
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            $_run systemctl --user restart dictee-tray 2>/dev/null || true
+            echo "  ↳ dictee-tray démarré"
+        else
+            echo "  ↳ dictee-tray : en attente de configuration (dictee-setup)"
+        fi
+        # Démarrer le bon daemon ASR selon la config utilisateur
+        _asr_backend="parakeet"
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$_user_home/.config/dictee.conf" | cut -d= -f2)
+        fi
+        case "$_asr_backend" in
+            vosk)    _asr_svc="dictee-vosk" ;;
+            whisper) _asr_svc="dictee-whisper" ;;
+            canary)  _asr_svc="dictee-canary" ;;
+            *)       _asr_svc="dictee" ;;
+        esac
+        # Stop all ASR daemons, enable+start the configured one
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
+        $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
+        echo "  ↳ $_asr_svc démarré (backend: $_asr_backend)"
+    fi
+done
+
+echo ""
+echo "=== Venv CUDA (libs NVIDIA en pip, portable sur toute distro) ==="
+# Toute la mise en place CUDA (détection GPU → bonne cuDNN selon compute_cap + venv +
+# pip + symlinks + ldconfig) est centralisée dans le script partagé (source unique de
+# vérité, testable). Le script gère : variante CUDA seulement, skip si pas de GPU,
+# sélection cuDNN (Pascal/anciens → 9.0.0.312, Turing+ → latest).
+if [ -f /usr/lib/dictee/setup-cuda-venv.sh ]; then
+    bash /usr/lib/dictee/setup-cuda-venv.sh || \
+        echo "⚠ Mise en place CUDA incomplète — voir les messages ci-dessus."
+fi
+
+echo ""
+echo "=== Venv Python système (text2num — conversion des nombres) ==="
+PP_VENV="/usr/share/dictee/postprocess-env"
+if command -v python3 >/dev/null 2>&1; then
+    if [ ! -d "$PP_VENV" ]; then
+        if python3 -m venv "$PP_VENV" 2>/dev/null; then
+            # Upgrade pip d'abord (ensurepip embarque souvent une version ancienne)
+            "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+            if "$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null; then
+                echo "✓ Venv postprocess créé avec text2num"
+            else
+                echo "⚠ Venv créé mais pip install text2num a échoué (pas d'internet ?)"
+            fi
+        else
+            echo "⚠ python3 -m venv a échoué — python3-venv installé ?"
+        fi
+    else
+        # Venv existe déjà (réinstall/upgrade) : upgrade pip + text2num
+        "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        "$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null
+        echo "✓ Venv postprocess déjà présent"
+    fi
+fi
+
+echo ""
+echo "=== Parakeet Transcribe installé ==="
+echo ""
+echo "Les services seront activés automatiquement au prochain login."
+echo "Pour les activer/désactiver, utilisez : dictee --setup"
+echo ""
+echo "Configurez le raccourci clavier et les options :"
+echo "  dictee --setup"
+echo ""
+echo "Commandes disponibles :"
+echo "  transcribe               - Transcription simple (TDT, multilingue)"
+echo "  transcribe-daemon        - Daemon avec modèle préchargé"
+echo "  transcribe-client        - Client pour le daemon"
+echo "  transcribe-diarize       - Transcription + diarisation (TDT)"
+echo "  transcribe-stream-diarize - Streaming + diarisation (Nemotron, anglais)"
+echo "  dictee                   - Push-to-talk (dictée vocale)"
+echo ""
+
+exit 0

@@ -1,0 +1,33 @@
+.TH DICTEE-AUDIO-SOURCES "1" "April 2026" "dictee 1.3.0"
+.SH NOM
+dictee-audio-sources \- lister les sources audio PipeWire disponibles pour dictée
+.SH SYNOPSIS
+.B dictee-audio-sources
+.SH DESCRIPTION
+Liste toutes les sources d'entrée audio disponibles depuis PipeWire dans un format lisible par machine.
+Utilisé par le plasmoid KDE et dictee-setup pour peupler les menus de sélection de source audio.
+.SH FORMAT DE SORTIE
+Une ligne par source, séparées par des pipes :
+.PP
+.B valeur|icône|libellé
+.TP
+.I valeur
+Identifiant de la source : vide pour le défaut système, nom du nœud pour les sources matérielles,
+\fBapp:\fInom\fR pour les flux d'applications.
+.TP
+.I icône
+Nom d'icône Freedesktop (ex. audio-input-microphone, firefox).
+.TP
+.I libellé
+Description lisible par l'utilisateur.
+.SH EXEMPLES
+.PP
+.nf
+|audio-input-microphone|Défaut système
+alsa_input.usb-...|audio-input-microphone|Microphone USB
+alsa_output.pci-...monitor|audio-speakers|Monitor: Audio intégré
+app:firefox|firefox|Firefox \(em YouTube
+.fi
+.SH VOIR AUSSI
+.BR dictee-setup (1),
+.BR pw-dump (1)

@@ -1,0 +1,19 @@
+Package: dictee-cpu
+Version: 1.3.5
+Section: sound
+Priority: optional
+Architecture: amd64
+Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
+Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, python3-gi, gir1.2-ayatanaappindicator3-0.1, gnome-shell-extension-appindicator, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
+Conflicts: dictee-cuda
+Provides: dictee
+Maintainer: rcspam <rcspams@gmail.com>
+Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
+ A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
+ This version runs on CPU only (works on any computer, slower than GPU).
+ .
+ Features:
+  - CPU-based transcription (no GPU required)
+  - Low-latency daemon mode with preloaded model
+  - Push-to-talk dictation with dotool integration
+  - Speaker diarization with Sortformer (who speaks when)

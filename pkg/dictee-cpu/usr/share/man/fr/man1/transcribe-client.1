@@ -1,0 +1,79 @@
+.TH TRANSCRIBE-CLIENT 1 "Mars 2025" "dictee 1.3.0" "Commandes utilisateur"
+.SH NOM
+transcribe-client \- client pour transcribe-daemon
+.SH SYNOPSIS
+.B transcribe-client
+.RI [ fichier_audio ]
+.br
+.I commande
+.B |
+.B transcribe-client
+.SH DESCRIPTION
+.B transcribe-client
+envoie de l'audio à
+.BR transcribe\-daemon (1)
+pour une transcription rapide.
+.PP
+Accepte tout format audio (MP3, OGG, FLAC, OPUS, etc.) via conversion automatique
+.BR ffmpeg (1)
+en WAV 16 kHz mono. Les chemins de fichiers supportent la résolution de
+.BR ~ ", " ./ " et " ../ .
+.PP
+Il existe trois modes d'entrée :
+.TP
+.B Fichier
+Passer un fichier audio en argument. Les fichiers non-WAV sont automatiquement convertis
+via ffmpeg.
+.TP
+.B Stdin
+Envoyer des données audio par l'entrée standard. ffmpeg détecte automatiquement le format
+à partir des en-têtes du flux.
+.TP
+.B Microphone
+Sans argument et avec l'entrée standard connectée à un terminal, enregistre depuis
+le microphone par défaut (PipeWire \(-> PulseAudio \(-> ALSA en repli).
+Si le microphone est coupé, il est automatiquement réactivé pour l'enregistrement
+puis recoupé ensuite.
+.RS
+.PP
+Sans
+.BR TRANSCRIBE_DURATION ,
+l'enregistrement continue jusqu'à l'appui sur Entrée.
+Avec
+.BR TRANSCRIBE_DURATION ,
+l'enregistrement s'arrête après le nombre de secondes spécifié.
+.RE
+.SH OPTIONS
+.TP
+.I fichier_audio
+Chemin vers un fichier audio (optionnel). Supporte tout format convertible par ffmpeg.
+.TP
+.BR \-\-help ", " \-h
+Affiche un résumé d'utilisation et quitte.
+.SH ENVIRONNEMENT
+.TP
+.B TRANSCRIBE_DURATION
+Durée d'enregistrement en secondes. Sans cette variable, l'enregistrement continue jusqu'à
+l'appui sur Entrée.
+.SH EXEMPLES
+.TP
+Transcrire un fichier WAV :
+.B transcribe-client recording.wav
+.TP
+Transcrire un fichier MP3 (converti automatiquement) :
+.B transcribe-client interview.mp3
+.TP
+Transcrire depuis l'entrée standard :
+.B cat audio.ogg | transcribe-client
+.TP
+Enregistrer depuis le microphone (arrêt avec Entrée) :
+.B transcribe-client
+.TP
+Enregistrer pendant 10 secondes :
+.B TRANSCRIBE_DURATION=10 transcribe-client
+.SH VOIR AUSSI
+.BR transcribe\-daemon (1),
+.BR dictee (1),
+.BR ffmpeg (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

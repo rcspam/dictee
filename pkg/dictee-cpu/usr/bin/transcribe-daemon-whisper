@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""
+transcribe-daemon-whisper — Serveur de transcription via socket Unix
+Utilise faster-whisper (CTranslate2) comme backend ASR.
+Même protocole que transcribe-daemon (Rust/Parakeet) :
+  le client envoie un chemin WAV, le daemon répond avec le texte transcrit.
+"""
+
+import sys, os, socket, signal, traceback
+
+# — Injection du venv faster-whisper dans sys.path —
+VENV_SITE = os.path.expanduser("~/.local/share/dictee/whisper-env/lib")
+for d in os.listdir(VENV_SITE) if os.path.isdir(VENV_SITE) else []:
+    sp = os.path.join(VENV_SITE, d, "site-packages")
+    if os.path.isdir(sp) and sp not in sys.path:
+        sys.path.insert(0, sp)
+
+import ctranslate2  # noqa: E402
+from faster_whisper import WhisperModel  # noqa: E402
+
+
+def socket_path():
+    """Chemin du socket par utilisateur (même logique que le daemon Rust)."""
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return os.path.join(xdg, "transcribe.sock")
+    return f"/tmp/transcribe-{os.getuid()}.sock"
+
+
+def main():
+    sock_path = socket_path()
+
+    # — Paramètres via variables d'environnement —
+    model_size = os.environ.get("DICTEE_WHISPER_MODEL", "small")
+    language = os.environ.get("DICTEE_WHISPER_LANG") or os.environ.get("DICTEE_LANG_SOURCE") or None
+
+    # — Suppression d'un socket résiduel —
+    if os.path.exists(sock_path):
+        os.remove(sock_path)
+
+    # — Sélection device + compute_type (bench 2026-05-20, large-v3 sur 4070 8GB) —
+    # CPU : int8_float32 (RTF 0.50, ≈ int8 en perf, activations FP32 préservent WER)
+    # GPU : int8_float16 (RTF 0.064, tient sur 4 GB VRAM, ≡ float16 perf sur Tensor Cores)
+    # float32 GPU INFAISABLE sur ≤ 8 GB VRAM (poids 6.2 GB + workspace OOM)
+    force_cpu = os.environ.get("DICTEE_FORCE_CPU", "0").lower() in ("1", "true", "yes")
+    has_gpu = ctranslate2.get_cuda_device_count() > 0
+    if force_cpu or not has_gpu:
+        device, compute_type = "cpu", "int8_float32"
+    else:
+        device, compute_type = "cuda", "int8_float16"
+
+    # — Chargement du modèle (une seule fois) —
+    print(
+        f"Chargement du modèle faster-whisper '{model_size}' "
+        f"[device={device}, compute={compute_type}]…",
+        file=sys.stderr,
+    )
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
+
+    # — Création du socket Unix —
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(sock_path)
+    os.chmod(sock_path, 0o600)
+    server.listen(1)
+
+    # — Arrêt propre sur SIGTERM/SIGINT —
+    def cleanup(signum, frame):
+        print("\nArrêt du daemon.", file=sys.stderr)
+        server.close()
+        if os.path.exists(sock_path):
+            os.remove(sock_path)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+
+    # — Boucle principale : une connexion à la fois —
+    while True:
+        conn, _ = server.accept()
+        try:
+            conn.settimeout(30)  # Client must send data within 30s
+            # Le client envoie un chemin de fichier audio (une ligne)
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+
+            line = data.decode("utf-8").strip()
+            if not line:
+                conn.sendall(b"ERROR: chemin vide\n")
+                continue
+
+            # Parse: <wav_path>\ttimestamps  or  <wav_path>
+            timestamps_mode = False
+            if "\t" in line:
+                wav_path, params = line.split("\t", 1)
+                if params.strip() == "timestamps":
+                    timestamps_mode = True
+            else:
+                wav_path = line
+
+            if not os.path.isfile(wav_path):
+                conn.sendall(f"ERROR: fichier introuvable: {wav_path}\n".encode())
+                continue
+
+            # — Transcription —
+            # Anti-hallucination params (Meetily pattern #1, 2026-05-21) :
+            # - condition_on_previous_text=False : reco OpenAI officielle,
+            #   évite les failure loops répétitifs et la contamination
+            #   cross-segment quand un segment foire.
+            # - temperature=[0.0, 0.2, 0.4] : raccourcit le fallback (défaut
+            #   6 niveaux jusqu'à 1.0) → évite la génération aléatoire qui
+            #   escalade sur audio ambigu.
+            # no_speech_threshold non touché (défaut 0.6) : redondant avec
+            # notre filtre RMS amont dans `dictee:1297-1324`.
+            segments, _info = model.transcribe(
+                wav_path,
+                language=language,
+                beam_size=5,
+                vad_filter=True,
+                word_timestamps=timestamps_mode,
+                condition_on_previous_text=False,
+                temperature=[0.0, 0.2, 0.4],
+            )
+            if timestamps_mode:
+                lines = []
+                for seg in segments:
+                    if seg.words:
+                        for w in seg.words:
+                            lines.append(f"[{w.start:.2f}s - {w.end:.2f}s] {w.word.strip()}")
+                    else:
+                        lines.append(f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}")
+                text = "\n".join(lines)
+            else:
+                text = " ".join(seg.text.strip() for seg in segments).strip()
+            conn.sendall((text + "\n").encode("utf-8"))
+
+        except Exception:
+            err = traceback.format_exc().replace("\n", " ")
+            try:
+                conn.sendall(f"ERROR: {err}\n".encode("utf-8"))
+            except OSError:
+                pass
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    main()
