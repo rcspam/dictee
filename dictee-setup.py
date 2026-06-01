@@ -16792,19 +16792,31 @@ class DicteeSetupDialog(QDialog):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        import shutil
+        # The fp32 and int8 TDT variants share one dir (and vocab.txt); every
+        # other model owns its dir alone. Delete only the files this variant
+        # brought, keeping any file a still-installed sibling needs — a blanket
+        # rmtree(dir) would wipe the coexisting variant (the int8 <-> fp32 case).
+        siblings = [m for m in ASR_MODELS
+                    if m is not model and m["dir"] == model["dir"]
+                    and model_is_installed(m)]
+        shared = {os.path.basename(dest)
+                  for sib in siblings for _url, dest in sib["files"]}
+        to_delete = {os.path.basename(dest)
+                     for _url, dest in model["files"]} - shared
         # Delete from both system and user dirs
         for base in (MODEL_DIR, DICTEE_DATA_DIR):
             model_dir = model["dir"].replace(MODEL_DIR, base)
-            if os.path.isdir(model_dir):
+            if not os.path.isdir(model_dir):
+                continue
+            paths = [os.path.join(model_dir, f) for f in to_delete
+                     if os.path.isfile(os.path.join(model_dir, f))]
+            for p in paths:
                 try:
-                    shutil.rmtree(model_dir)
-                    os.makedirs(model_dir, exist_ok=True)
+                    os.remove(p)
                 except PermissionError:
-                    r = subprocess.run(["pkexec", "rm", "-rf", model_dir],
-                                       capture_output=True, timeout=10)
-                    if r.returncode == 0:
-                        os.makedirs(model_dir, mode=0o755, exist_ok=True)
+                    subprocess.run(["pkexec", "rm", "-f", *paths],
+                                   capture_output=True, timeout=10)
+                    break
         w = self._model_widgets[mid]
         self._update_venv_button(w["button"], name, False)
         w["btn_delete"].setVisible(False)
