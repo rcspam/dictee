@@ -3727,6 +3727,15 @@ msgstr ""
 "Dictée ще не налаштовано.\n"
 "Бажаєте запустити майстер налаштування?"
 
+msgid "Full precision. 25 languages with native punctuation and capitalization."
+msgstr "Повна точність. 25 мов із рідною пунктуацією та великими літерами."
+
+msgid "Quantized variant. ~3.6× smaller, ~34 % faster on CPU. Best for CPU-only or low-VRAM GPU."
+msgstr "Квантована варіація. ~3,6× менша, ~34 % швидша на CPU. Найкраща для лише CPU або GPU з малим обсягом VRAM."
+
+msgid "Speaker diarization add-on. Identifies up to 4 speakers in a recording. Optional — only needed for speaker identification."
+msgstr "Додаток діаризації мовців. Ідентифікує до 4 мовців у записі. Необов'язковий — потрібен лише для ідентифікації мовців."
+
 #~ msgid "Audio files"
 #~ msgstr "Аудіофайли"
 
@@ -4175,8 +4184,6 @@ msgstr ""
 #~ msgid "Main transcription model. Required for all dictation modes. Supports 25 languages with native punctuation and capitalization."
 #~ msgstr "Основна модель транскрипції. Обов'язкова для всіх режимів диктування. Підтримує 25 мов з вбудованою пунктуацією та капіталізацією."
 
-#~ msgid "Speaker diarization add-on. Identifies up to 4 speakers in a recording. Optional — only needed for speaker identification."
-#~ msgstr "Додаток діаризації мовців. Ідентифікує до 4 мовців у записі. Необов'язковий — потрібен лише для ідентифікації мовців."
 
 #, python-brace-format
 #~ msgid "Key '{key}' is not supported. Use a function key (F1-F12)."

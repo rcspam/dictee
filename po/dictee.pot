@@ -3771,3 +3771,12 @@ msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"
 msgstr ""
+
+msgid "Full precision. 25 languages with native punctuation and capitalization."
+msgstr ""
+
+msgid "Quantized variant. ~3.6× smaller, ~34 % faster on CPU. Best for CPU-only or low-VRAM GPU."
+msgstr ""
+
+msgid "Speaker diarization add-on. Identifies up to 4 speakers in a recording. Optional — only needed for speaker identification."
+msgstr ""
