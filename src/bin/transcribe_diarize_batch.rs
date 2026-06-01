@@ -1,7 +1,10 @@
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
 #[cfg(feature = "sortformer")]
-use parakeet_rs::{parakeet_provider, ExecutionConfig, ParakeetTDT, TimestampMode, Transcriber};
+use parakeet_rs::{
+    best_provider, parakeet_provider, ExecutionConfig, ExecutionProvider, ParakeetTDT,
+    TimestampMode, Transcriber,
+};
 #[cfg(feature = "sortformer")]
 use std::env;
 #[cfg(feature = "sortformer")]
@@ -146,8 +149,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(not(feature = "cuda"))]
         let daemon_was_active = false;
 
-        // Build execution config ONCE — runtime probe + CPU fallback.
-        // Forces CPU for an int8 Parakeet model (broken on the ORT CUDA EP).
+        // Parakeet config — runtime probe + CPU fallback. Forces CPU for an
+        // int8 Parakeet model (broken on the ORT CUDA EP). Sortformer gets its
+        // own GPU-capable config below; it must NOT inherit this one.
         let config = ExecutionConfig::new()
             .with_execution_provider(parakeet_provider(std::path::Path::new(&model_dir)));
 
@@ -163,11 +167,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 DiarizationConfig::custom(onset, offset)
             };
             eprintln!("Loading Sortformer...");
-            Some(Sortformer::with_config(
+            // Sortformer has no int8 variant — run it on GPU when available,
+            // with a CPU retry if GPU init crashes. Mirrors transcribe_diarize
+            // and diarize-only; must not inherit the int8-CPU-forced config.
+            let sortformer_provider = best_provider();
+            let sortformer_config =
+                ExecutionConfig::new().with_execution_provider(sortformer_provider);
+            Some(match Sortformer::with_config(
                 &sortformer_path,
-                Some(config.clone()),
-                diar_config,
-            )?)
+                Some(sortformer_config),
+                diar_config.clone(),
+            ) {
+                Ok(sf) => sf,
+                Err(e) if sortformer_provider != ExecutionProvider::Cpu => {
+                    eprintln!("[dictee] Sortformer GPU init failed ({e}); retrying on CPU.");
+                    let cpu_config =
+                        ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cpu);
+                    Sortformer::with_config(&sortformer_path, Some(cpu_config), diar_config)?
+                }
+                Err(e) => return Err(e.into()),
+            })
         } else {
             dbg_print!("sortformer SKIPPED (--no-diarize)");
             None
