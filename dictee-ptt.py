@@ -206,16 +206,27 @@ def find_keyboards_raw():
 
     for block in content.split("\n\n"):
         lines = block.strip().splitlines()
-        name_line = handlers_line = ""
+        name_line = handlers_line = ev_line = ""
         for line in lines:
             if line.startswith("N:"):
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-        # Require the kbd handler but reject nodes that also drive a pointer
-        # (combined keyboard+mouse HID single node) — grabbing those freezes
-        # the mouse. Mirrors the EV_REL/EV_ABS exclusion in find_keyboards_evdev.
-        if "kbd" in handlers_line and "mouse" not in handlers_line:
+            elif line.startswith("B: EV="):
+                ev_line = line
+        # Reject nodes that also drive a pointer — grabbing a combined
+        # keyboard+pointer HID node freezes it. Parse the EV capability bitmask
+        # and skip the node if it exposes relative (mouse) OR absolute
+        # (touchpad/touchscreen/tablet) axes. Mirrors the EV_REL/EV_ABS
+        # exclusion in find_keyboards_evdev — the H: "mouse" handler check alone
+        # misses abs-only pointers.
+        has_pointer = False
+        m_ev = re.search(r"B: EV=([0-9a-fA-F]+)", ev_line)
+        if m_ev:
+            ev_caps = int(m_ev.group(1), 16)
+            has_pointer = bool(ev_caps & (1 << EV_REL)) or bool(ev_caps & (1 << EV_ABS))
+        # Require the kbd handler but reject pointer devices.
+        if "kbd" in handlers_line and "mouse" not in handlers_line and not has_pointer:
             name_lower = name_line.lower()
             allowed = any(x in name_lower for x in EXTRA_KEYBOARDS) or \
                 not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)
