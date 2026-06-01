@@ -1778,6 +1778,9 @@ else
     if ! kill -0 $! 2>/dev/null; then
         _dbg "start-recording: FAILED — pw-record died immediately"
         close_notification
+        # Re-mute the mic if we unmuted it and unmute the output sink if we
+        # muted it — otherwise this early exit leaves the audio state altered.
+        restore_audio
         rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
         cleanup_session
         write_state "idle"
