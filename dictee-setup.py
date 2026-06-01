@@ -8383,12 +8383,15 @@ class DicteeSetupDialog(QDialog):
         # that both combos exist and the dictation key has been read.
         self._refresh_shortcut_combos_labels()
 
+    # Wrapped in _() so the strings are extractable/translated. Using _(variable)
+    # at the call site alone leaves them invisible to gettext extraction (and
+    # they were silently English in every locale).
     _MODEL_DESCRIPTIONS = {
-        "tdt": "Full precision. 25 languages with native punctuation and capitalization.",
-        "tdt-int8": "Quantized variant. ~3.6× smaller, ~34 % faster on CPU. "
-                    "Best for CPU-only or low-VRAM GPU.",
-        "sortformer": "Speaker diarization add-on. Identifies up to 4 speakers "
-                      "in a recording. Optional — only needed for speaker identification.",
+        "tdt": _("Full precision. 25 languages with native punctuation and capitalization."),
+        "tdt-int8": _("Quantized variant. ~3.6× smaller, ~34 % faster on CPU. "
+                      "Best for CPU-only or low-VRAM GPU."),
+        "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
+                        "in a recording. Optional — only needed for speaker identification."),
     }
 
     def _make_model_label_html(self, model, active_quant, recommended_quant):
@@ -8423,7 +8426,7 @@ class DicteeSetupDialog(QDialog):
                 + _("Recommended for your hardware") + "</span>"
             )
 
-        desc_text = _(self._MODEL_DESCRIPTIONS.get(model["id"], ""))
+        desc_text = self._MODEL_DESCRIPTIONS.get(model["id"], "")
 
         return (
             f"<p style='margin:0; line-height:1.3;'>"
@@ -8579,10 +8582,15 @@ class DicteeSetupDialog(QDialog):
         both_installed = fp32_installed and int8_installed
         self.tgl_quant.setEnabled(both_installed)
         # When only one variant is present, force the toggle to reflect it.
+        # Block signals: this programmatic sync must not mark the form dirty.
         if fp32_installed and not int8_installed:
+            self.tgl_quant.blockSignals(True)
             self.tgl_quant.setChecked(False)
+            self.tgl_quant.blockSignals(False)
         elif int8_installed and not fp32_installed:
+            self.tgl_quant.blockSignals(True)
             self.tgl_quant.setChecked(True)
+            self.tgl_quant.blockSignals(False)
 
     def _build_parakeet_options(self, parent_layout):
         """Build Parakeet + Sortformer model download UI.
@@ -8883,22 +8891,37 @@ class DicteeSetupDialog(QDialog):
         if self.wizard_mode:
             self.conf["DICTEE_VOSK_MODEL"] = code
             return
-        # Update conf file in-place
+        # Update conf file in-place, atomically. Match the active key OR an
+        # only-commented one, and drop any duplicate so we never accumulate a
+        # stale "#DICTEE_VOSK_MODEL=..." line alongside the active value.
+        key_re = re.compile(r"^\s*#?\s*DICTEE_VOSK_MODEL=")
         lines = []
         found = False
         if os.path.isfile(CONF_PATH):
             with open(CONF_PATH) as f:
                 for line in f:
-                    if line.startswith("DICTEE_VOSK_MODEL="):
-                        lines.append(f"DICTEE_VOSK_MODEL={code}\n")
-                        found = True
+                    if key_re.match(line):
+                        if not found:
+                            lines.append(f"DICTEE_VOSK_MODEL={code}\n")
+                            found = True
+                        # else: drop the duplicate (active or commented)
                     else:
                         lines.append(line)
         if not found:
             lines.append(f"DICTEE_VOSK_MODEL={code}\n")
-        os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
-        with open(CONF_PATH, "w") as f:
-            f.writelines(lines)
+        conf_dir = os.path.dirname(CONF_PATH) or "."
+        os.makedirs(conf_dir, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                f.writelines(lines)
+            os.replace(tmp_path, CONF_PATH)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         # Restart Vosk daemon if it is running
         try:
             r = subprocess.run(["systemctl", "--user", "is-active", "dictee-vosk.service"],
