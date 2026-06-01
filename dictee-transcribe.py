@@ -4529,6 +4529,10 @@ class TranscribeWindow(QDialog):
         # Remember the format used to render this tab so _on_tab_changed
         # can sync the combo back to it on switch.
         editor._format = fmt
+        # Snapshot the rendered text so _do_export can tell a real edit
+        # (content differs from this baseline) from an untouched tab, and
+        # export the edited text verbatim when the export format matches.
+        editor._rendered_baseline = editor.toPlainText()
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
@@ -5143,14 +5147,27 @@ class TranscribeWindow(QDialog):
                 # Locate the tab widget to fetch segments + per-tab name map
                 segments = None
                 name_map = None
+                displayed_fmt = None
+                edited = False
                 for i in range(self._tabs.count()):
                     if self._tabs.tabText(i) == tab_name:
                         w = self._tabs.widget(i)
                         segments = getattr(w, '_diarize_segments', None)
                         name_map = getattr(w, '_speaker_name_map', None)
+                        displayed_fmt = getattr(w, '_format', None)
+                        baseline = getattr(w, '_rendered_baseline', None)
+                        edited = baseline is not None and w.toPlainText() != baseline
                         break
 
-                if fmt == "text" and segments:
+                if edited and fmt == displayed_fmt:
+                    # The editor already holds this exact format with the
+                    # user's edits (WYSIWYG) — export it verbatim instead of
+                    # re-rendering from segments, which would drop the edits.
+                    # Cross-format export still re-renders (edited timestamp-
+                    # less text can't be remapped onto segments); the format-
+                    # locking UX that prevents that case is deferred to 1.4.
+                    content = text
+                elif fmt == "text" and segments:
                     # Re-render text format with renamed speakers so the
                     # exported file reflects the current display map even
                     # if the editor was never refreshed.
