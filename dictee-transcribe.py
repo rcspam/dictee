@@ -3943,8 +3943,17 @@ class TranscribeWindow(QDialog):
     def _on_chunked_done(self, raw_output):
         """Final output ready: forward to the common _finish_transcription path."""
         _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
+        worker = self._chunked_worker
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
+        # self._was_diarized is a shared flag that _on_tab_changed overwrites
+        # with the visible tab's value; a tab switch during the (minutes-long)
+        # chunked run can flip it, making _finish_transcription skip DIARIZE_RE
+        # parsing — no grouping, rename panel, slider markers or speaker count,
+        # and dictee-postprocess then mangles the raw "Speaker N:" labels.
+        # Re-affirm from this run's worker, mirroring _on_diarize_done.
+        if worker is not None:
+            self._was_diarized = worker._diarize
         self._restart_daemon_if_stopped()
         self._finish_transcription(raw_output)
 
