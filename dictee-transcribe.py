@@ -2192,6 +2192,11 @@ class TranscribeWindow(QDialog):
         self._file_input = QLineEdit()
         self._file_input.setPlaceholderText(_("Select an audio file..."))
         self._file_input.setToolTip(_("Path to the audio file to transcribe"))
+        # Decline drops on the line edit itself: QLineEdit's default handler
+        # inserts the raw "file://..." URI text. Letting drops bubble up to the
+        # window's dropEvent (which uses QUrl.toLocalFile()) yields a clean
+        # local path every time, regardless of where the file is dropped.
+        self._file_input.setAcceptDrops(False)
         lay_file.addWidget(self._file_input, 1)
 
         self._btn_browse = QPushButton(_("Browse..."))
