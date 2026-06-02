@@ -7022,6 +7022,9 @@ class DicteeSetupDialog(QDialog):
         backend = self._get_recommended_backend(ram_gb, gpu_total)
         backend_label = {"parakeet": "Parakeet-TDT v3", "canary": "Canary 1B v2",
                          "whisper": "faster-whisper", "vosk": "Vosk"}.get(backend, backend)
+        # Parakeet's recommended quantization is hardware-dependent — show it.
+        if backend == "parakeet":
+            backend_label += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
         cuda_suffix = ""
         if backend in ("parakeet", "canary", "whisper") and gpu_total >= 4:
             cuda_suffix = " " + _("with CUDA")
@@ -7336,8 +7339,13 @@ class DicteeSetupDialog(QDialog):
 
         rec_names = {"parakeet": "Parakeet-TDT", "vosk": "Vosk",
                      "whisper": "faster-whisper", "canary": "Canary 1B v2"}
+        rec_label = rec_names[recommended]
+        # For Parakeet the recommended quantization is hardware-dependent
+        # (int8 on CPU / low VRAM, FP32 on a ≥4 GB GPU) — surface it here too.
+        if recommended == "parakeet":
+            rec_label += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
         hw_lines.append("")
-        hw_lines.append(_("Recommended") + " : <b>" + rec_names[recommended] + "</b>")
+        hw_lines.append(_("Recommended") + " : <b>" + rec_label + "</b>")
 
         hw_lbl = QLabel("<br>".join(hw_lines))
         hw_lbl.setWordWrap(True)
@@ -8074,7 +8082,12 @@ class DicteeSetupDialog(QDialog):
 
         # Title row + recommended top-right
         title_row = QHBoxLayout()
-        lbl_title = QLabel(f"<b style='font-size: 13pt;'>{name}</b>")
+        # Parakeet's recommended quantization is hardware-dependent — append it
+        # right after the model name (int8 on CPU / low VRAM, FP32 on ≥4 GB GPU).
+        title_name = name
+        if backend_id == "parakeet":
+            title_name += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
+        lbl_title = QLabel(f"<b style='font-size: 13pt;'>{title_name}</b>")
         title_row.addWidget(lbl_title)
         title_row.addStretch()
         if is_recommended:
