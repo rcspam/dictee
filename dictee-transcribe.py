@@ -4032,7 +4032,12 @@ class TranscribeWindow(QDialog):
         self._text_edit._raw_text = raw_output
         self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
-        self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+        # Fresh transcription: no speaker renames to inherit. Reset the shared
+        # map (a mid-run tab switch may have populated it from another tab via
+        # _on_tab_changed) and the per-tab copy, so the new tab never shows
+        # another tab's speaker names.
+        self._speaker_name_map = {}
+        self._text_edit._speaker_name_map = {}
 
         # Rebuild the rename panel for the new speakers — only when the
         # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
@@ -4196,7 +4201,12 @@ class TranscribeWindow(QDialog):
         self._text_edit._raw_text = raw_output
         self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
-        self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+        # Fresh transcription: no speaker renames to inherit. Reset the shared
+        # map (a mid-run tab switch may have populated it from another tab via
+        # _on_tab_changed) and the per-tab copy, so the new tab never shows
+        # another tab's speaker names.
+        self._speaker_name_map = {}
+        self._text_edit._speaker_name_map = {}
 
         # Rebuild (or hide) the speaker rename panel — only when the target
         # tab is visible (cf. _refresh_rename_panel_for_target docstring).
