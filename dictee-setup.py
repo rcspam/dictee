@@ -3041,7 +3041,7 @@ class TestTranslateThread(QThread):
         sock = os.path.join(
             tempfile.gettempdir(),
             f"dictee-test-{os.getpid()}-{id(self)}.sock")
-        env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        env = {**os.environ, **self._wizard_env}
         cmd = ["transcribe-daemon", "--socket", sock]
         if self._model_dir:
             cmd.append(self._model_dir)
@@ -3127,13 +3127,13 @@ class TestTranslateThread(QThread):
         return True, ""
 
     def _transcribe(self, wav_path):
-        """Transcribe via transcribe-client (socket override if ad-hoc daemon)."""
-        env = os.environ.copy()
+        """Transcribe via transcribe-client (--socket override if ad-hoc daemon)."""
+        cmd = ["transcribe-client"]
         if self._daemon_socket:
-            env["DICTEE_TRANSCRIBE_SOCKET"] = self._daemon_socket
+            cmd += ["--socket", self._daemon_socket]
+        cmd.append(wav_path)
         r = subprocess.run(
-            ["transcribe-client", wav_path],
-            capture_output=True, text=True, timeout=30, env=env)
+            cmd, capture_output=True, text=True, timeout=30)
         if r.returncode == 0 and r.stdout.strip():
             text = r.stdout.strip()
             if self._postprocess and shutil.which("dictee-postprocess"):
@@ -3349,7 +3349,7 @@ class TestDicteeThread(QThread):
         sock = os.path.join(
             tempfile.gettempdir(),
             f"dictee-test-{os.getpid()}-{id(self)}.sock")
-        env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        env = {**os.environ, **self._wizard_env}
         cmd = ["transcribe-daemon", "--socket", sock]
         if self._model_dir:
             cmd.append(self._model_dir)
@@ -3459,13 +3459,14 @@ class TestDicteeThread(QThread):
                     "Could not start the transcribe daemon. "
                     "Make sure the model is downloaded and try again."))
                 return
-            client_env = os.environ.copy()
+            # Transcribe via transcribe-client <file>, with --socket pointing at
+            # the ad-hoc daemon when running the wizard pre-Finish test.
+            cmd = ["transcribe-client"]
             if ad_hoc_sock:
-                client_env["DICTEE_TRANSCRIBE_SOCKET"] = ad_hoc_sock
-            # Transcrire via transcribe-client <fichier>
+                cmd += ["--socket", ad_hoc_sock]
+            cmd.append(wav_path)
             r = subprocess.run(
-                ["transcribe-client", wav_path],
-                capture_output=True, text=True, timeout=30, env=client_env,
+                cmd, capture_output=True, text=True, timeout=30,
             )
             if r.returncode == 0 and r.stdout.strip():
                 text = r.stdout.strip()

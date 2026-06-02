@@ -24,6 +24,53 @@ fn socket_path() -> String {
     }
 }
 
+/// Parsed command-line arguments for transcribe-daemon.
+#[derive(Debug, Default)]
+struct DaemonArgs {
+    help: bool,
+    canary: bool,
+    /// Explicit socket path (`--socket <path>`); overrides `socket_path()`.
+    socket: Option<String>,
+    /// Optional positional model directory.
+    model_dir: Option<String>,
+}
+
+/// Parse argv into [`DaemonArgs`], rejecting unknown options loudly.
+///
+/// The previous implementation derived the model dir with
+/// `args.skip(1).find(|a| !a.starts_with("--"))`, which silently swallowed any
+/// unknown `--flag` value as the model dir (e.g. `--socket /path` made `/path`
+/// the model dir). This explicit parser keeps options and the single positional
+/// model dir distinct and errors on anything it does not recognise.
+fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
+    let mut out = DaemonArgs::default();
+    let mut i = 1; // skip argv[0]
+    while i < args.len() {
+        match args[i].as_str() {
+            "--help" | "-h" => out.help = true,
+            "--canary" => out.canary = true,
+            "--socket" => {
+                let path = args
+                    .get(i + 1)
+                    .ok_or_else(|| "--socket requires a path argument".to_string())?;
+                out.socket = Some(path.clone());
+                i += 1;
+            }
+            s if s.starts_with('-') => {
+                return Err(format!("unknown option '{}'", s));
+            }
+            s => {
+                if out.model_dir.is_some() {
+                    return Err(format!("unexpected extra argument '{}'", s));
+                }
+                out.model_dir = Some(s.to_string());
+            }
+        }
+        i += 1;
+    }
+    Ok(out)
+}
+
 /// Unified ASR backend: Parakeet TDT or Canary AED
 enum AsrBackend {
     Parakeet(ParakeetTDT),
@@ -193,17 +240,27 @@ mod tests {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let debug = env::var("DICTEE_DEBUG").unwrap_or_default() == "true";
-    let socket_path = socket_path();
     let args: Vec<String> = env::args().collect();
+    let parsed = match parse_daemon_args(&args) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("transcribe-daemon: {}", e);
+            eprintln!("Try 'transcribe-daemon --help' for usage.");
+            std::process::exit(2);
+        }
+    };
+    // Explicit --socket overrides the $XDG_RUNTIME_DIR-derived default.
+    let socket_path = parsed.socket.clone().unwrap_or_else(socket_path);
 
-    if args.iter().any(|a| a == "--help" || a == "-h") {
+    if parsed.help {
         eprintln!("transcribe-daemon - ASR daemon via Unix socket (Parakeet TDT / Canary AED)");
         eprintln!();
-        eprintln!("Usage: transcribe-daemon [model_dir] [--canary]");
+        eprintln!("Usage: transcribe-daemon [model_dir] [--canary] [--socket <path>]");
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  [model_dir]   Model directory (default: /usr/share/dictee/tdt or /canary)");
-        eprintln!("  --canary      Use Canary AED backend instead of Parakeet TDT");
+        eprintln!("  [model_dir]      Model directory (default: /usr/share/dictee/tdt or /canary)");
+        eprintln!("  --canary         Use Canary AED backend instead of Parakeet TDT");
+        eprintln!("  --socket <path>  Listen on this socket path (default: $XDG_RUNTIME_DIR/transcribe.sock)");
         eprintln!();
         eprintln!("Environment:");
         eprintln!("  DICTEE_ASR_BACKEND=canary    Select Canary backend");
@@ -223,7 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let use_canary = env::var("DICTEE_ASR_BACKEND")
         .map(|v| v == "canary")
         .unwrap_or(false)
-        || args.iter().any(|a| a == "--canary");
+        || parsed.canary;
 
     let source_lang = env::var("DICTEE_LANG_SOURCE").unwrap_or_else(|_| "fr".to_string());
     // For Canary: default target = source (transcription, not translation).
@@ -236,11 +293,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Find model directory
-    let model_dir = args
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with("--"))
-        .cloned()
+    let model_dir = parsed
+        .model_dir
+        .clone()
         .unwrap_or_else(|| {
             let subdir = if use_canary { "canary" } else { "tdt" };
             let user_dir = format!(
@@ -448,5 +503,59 @@ fn transcribe_file(
             Ok(lines.join("\n"))
         }
         _ => Ok(result.text.trim().to_string()),
+    }
+}
+
+#[cfg(test)]
+mod arg_tests {
+    use super::*;
+
+    fn argv(extra: &[&str]) -> Vec<String> {
+        std::iter::once("transcribe-daemon")
+            .chain(extra.iter().copied())
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn socket_flag_is_parsed() {
+        let p = parse_daemon_args(&argv(&["--socket", "/tmp/x.sock"])).unwrap();
+        assert_eq!(p.socket.as_deref(), Some("/tmp/x.sock"));
+        assert_eq!(p.model_dir, None);
+    }
+
+    #[test]
+    fn socket_path_does_not_become_model_dir() {
+        // Regression for the 1.3.5 wizard bug: passing --socket plus a model
+        // dir must keep them distinct. The old parser took the first non-"--"
+        // token (the socket path) as the model dir.
+        let p = parse_daemon_args(&argv(&["--socket", "/tmp/x.sock", "/models/tdt"]))
+            .unwrap();
+        assert_eq!(p.socket.as_deref(), Some("/tmp/x.sock"));
+        assert_eq!(p.model_dir.as_deref(), Some("/models/tdt"));
+    }
+
+    #[test]
+    fn canary_and_positional_model_dir() {
+        let p = parse_daemon_args(&argv(&["/models/tdt", "--canary"])).unwrap();
+        assert!(p.canary);
+        assert_eq!(p.model_dir.as_deref(), Some("/models/tdt"));
+        assert_eq!(p.socket, None);
+    }
+
+    #[test]
+    fn unknown_flag_is_rejected() {
+        assert!(parse_daemon_args(&argv(&["--bogus"])).is_err());
+    }
+
+    #[test]
+    fn socket_without_value_is_rejected() {
+        assert!(parse_daemon_args(&argv(&["--socket"])).is_err());
+    }
+
+    #[test]
+    fn help_flag_is_parsed() {
+        assert!(parse_daemon_args(&argv(&["--help"])).unwrap().help);
+        assert!(parse_daemon_args(&argv(&["-h"])).unwrap().help);
     }
 }

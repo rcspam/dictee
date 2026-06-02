@@ -19,20 +19,71 @@ fn user_path(name: &str) -> String {
 }
 
 static SOCKET_PATH: LazyLock<String> = LazyLock::new(|| user_path("transcribe.sock"));
+
+/// Parsed command-line arguments for transcribe-client.
+#[derive(Debug, Default)]
+struct ClientArgs {
+    help: bool,
+    /// Explicit daemon socket path (`--socket <path>`); overrides SOCKET_PATH.
+    socket: Option<String>,
+    /// Optional positional audio file. None means stdin or mic mode.
+    audio: Option<String>,
+}
+
+/// Parse argv into [`ClientArgs`], rejecting unknown options loudly so a flag
+/// the binary does not implement can never be silently taken as the audio path.
+fn parse_client_args(args: &[String]) -> Result<ClientArgs, String> {
+    let mut out = ClientArgs::default();
+    let mut i = 1; // skip argv[0]
+    while i < args.len() {
+        match args[i].as_str() {
+            "--help" | "-h" => out.help = true,
+            "--socket" => {
+                let path = args
+                    .get(i + 1)
+                    .ok_or_else(|| "--socket requires a path argument".to_string())?;
+                out.socket = Some(path.clone());
+                i += 1;
+            }
+            s if s.starts_with('-') => {
+                return Err(format!("unknown option '{}'", s));
+            }
+            s => {
+                if out.audio.is_some() {
+                    return Err(format!("unexpected extra argument '{}'", s));
+                }
+                out.audio = Some(s.to_string());
+            }
+        }
+        i += 1;
+    }
+    Ok(out)
+}
 static TEMP_WAV: LazyLock<String> = LazyLock::new(|| user_path("transcribe_recording.wav"));
 static TEMP_CONVERTED: LazyLock<String> = LazyLock::new(|| user_path("transcribe_converted.wav"));
 static TEMP_STDIN: LazyLock<String> = LazyLock::new(|| user_path("transcribe_stdin_input"));
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
+    let parsed = match parse_client_args(&args) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("transcribe-client: {}", e);
+            eprintln!("Try 'transcribe-client --help' for usage.");
+            std::process::exit(2);
+        }
+    };
 
-    if args.iter().any(|a| a == "--help" || a == "-h") {
+    if parsed.help {
         eprintln!("transcribe-client - Client de transcription (fichier, stdin, micro)");
         eprintln!();
         eprintln!("Usage:");
         eprintln!("  transcribe-client <fichier>       Transcrire un fichier audio (tout format)");
         eprintln!("  cat audio | transcribe-client     Transcrire depuis stdin");
         eprintln!("  transcribe-client                 Enregistrer depuis le micro");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  --socket <path>  Daemon socket path (default: $XDG_RUNTIME_DIR/transcribe.sock)");
         eprintln!();
         eprintln!("Mode micro:");
         eprintln!("  Sans TRANSCRIBE_DURATION : enregistrement jusqu'à Entrée");
@@ -43,11 +94,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Explicit --socket overrides the $XDG_RUNTIME_DIR-derived default.
+    let socket_path = parsed.socket.clone().unwrap_or_else(|| SOCKET_PATH.clone());
+
     // Mode 1: Direct file path provided
-    if args.len() > 1 {
-        let audio_path = resolve_path(&args[1])?;
+    if let Some(audio) = parsed.audio.as_deref() {
+        let audio_path = resolve_path(audio)?;
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
-        let text = send_to_daemon(&wav_path);
+        let text = send_to_daemon(&wav_path, &socket_path);
         if needs_cleanup {
             let _ = fs::remove_file(&wav_path);
         }
@@ -79,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("ffmpeg failed to convert stdin audio (unsupported format?)".into());
         }
 
-        let text = send_to_daemon(TEMP_CONVERTED.as_str());
+        let text = send_to_daemon(TEMP_CONVERTED.as_str(), &socket_path);
         let _ = fs::remove_file(TEMP_CONVERTED.as_str());
         println!("{}", text?);
         return Ok(());
@@ -113,7 +167,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("Recording complete. Transcribing...");
 
-    let text = send_to_daemon(TEMP_WAV.as_str());
+    let text = send_to_daemon(TEMP_WAV.as_str(), &socket_path);
     if was_muted { mute_mic(); }
     let _ = fs::remove_file(TEMP_WAV.as_str());
     println!("{}", text?);
@@ -333,11 +387,11 @@ fn ensure_wav(audio_path: &str) -> Result<(String, bool), Box<dyn std::error::Er
     Ok((TEMP_CONVERTED.to_string(), true))
 }
 
-fn send_to_daemon(audio_path: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let mut stream = UnixStream::connect(SOCKET_PATH.as_str()).map_err(|e| {
+fn send_to_daemon(audio_path: &str, socket_path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut stream = UnixStream::connect(socket_path).map_err(|e| {
         format!(
             "Cannot connect to daemon at {}. Is transcribe-daemon running? Error: {}",
-            SOCKET_PATH.as_str(), e
+            socket_path, e
         )
     })?;
 
@@ -362,5 +416,60 @@ fn send_to_daemon(audio_path: &str) -> Result<String, Box<dyn std::error::Error>
         Err(response.into())
     } else {
         Ok(response)
+    }
+}
+
+#[cfg(test)]
+mod arg_tests {
+    use super::*;
+
+    fn argv(extra: &[&str]) -> Vec<String> {
+        std::iter::once("transcribe-client")
+            .chain(extra.iter().copied())
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn socket_flag_is_parsed() {
+        let p = parse_client_args(&argv(&["--socket", "/tmp/x.sock"])).unwrap();
+        assert_eq!(p.socket.as_deref(), Some("/tmp/x.sock"));
+        assert_eq!(p.audio, None);
+    }
+
+    #[test]
+    fn socket_then_audio_stay_distinct() {
+        let p = parse_client_args(&argv(&["--socket", "/tmp/x.sock", "rec.wav"])).unwrap();
+        assert_eq!(p.socket.as_deref(), Some("/tmp/x.sock"));
+        assert_eq!(p.audio.as_deref(), Some("rec.wav"));
+    }
+
+    #[test]
+    fn bare_audio_path() {
+        let p = parse_client_args(&argv(&["rec.wav"])).unwrap();
+        assert_eq!(p.socket, None);
+        assert_eq!(p.audio.as_deref(), Some("rec.wav"));
+    }
+
+    #[test]
+    fn no_args_is_mic_mode() {
+        let p = parse_client_args(&argv(&[])).unwrap();
+        assert_eq!(p.socket, None);
+        assert_eq!(p.audio, None);
+    }
+
+    #[test]
+    fn unknown_flag_is_rejected() {
+        assert!(parse_client_args(&argv(&["--bogus"])).is_err());
+    }
+
+    #[test]
+    fn socket_without_value_is_rejected() {
+        assert!(parse_client_args(&argv(&["--socket"])).is_err());
+    }
+
+    #[test]
+    fn help_flag_is_parsed() {
+        assert!(parse_client_args(&argv(&["--help"])).unwrap().help);
     }
 }
