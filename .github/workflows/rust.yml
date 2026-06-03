@@ -94,7 +94,12 @@ jobs:
 
   release:
     needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, packaging-audit, test-x86, test-arm64]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Disabled: dictee ships locally-built CUDA assets that CI cannot produce,
+    # so a tag push must NOT auto-publish an empty release (it would also flip
+    # the GitHub "Latest" pointer and break install.sh's asset lookup for
+    # everyone). Releases are published manually via `gh` with the local
+    # .dev/dist/ assets. Re-enable only once CI can build+upload the assets.
+    if: false && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
