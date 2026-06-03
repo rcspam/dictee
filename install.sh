@@ -703,6 +703,10 @@ EOF
     # --- udev rule for dotool ---
     info "Installing udev rules"
     install -Dm644 "$SCRIPT_DIR/etc/udev/rules.d/80-dotool.rules" /etc/udev/rules.d/80-dotool.rules
+    # uinput needs group rw (0660) — dotool/evdev open it O_RDWR, so the shipped
+    # 0620 (dotool upstream) locks out group members. Bump to 0660 like the
+    # .deb postinst / .rpm %post do (installer-parity: tarball must match).
+    sed -i 's/MODE="0620"/MODE="0660"/' /etc/udev/rules.d/80-dotool.rules
     # modules-load.d so uinput auto-loads at boot (Fedora/RHEL don't load it).
     if [ -f "$SCRIPT_DIR/etc/modules-load.d/dictee-uinput.conf" ]; then
         install -Dm644 "$SCRIPT_DIR/etc/modules-load.d/dictee-uinput.conf" \
