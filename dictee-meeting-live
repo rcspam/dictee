@@ -14,6 +14,7 @@ import json
 import os
 import re
 import select
+import shutil
 import signal
 import sys
 import time
@@ -30,7 +31,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
     QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
-    QLayout, QCheckBox,
+    QLayout, QCheckBox, QMessageBox,
 )
 
 
@@ -197,7 +198,9 @@ class AudioCaptureWorker(QThread):
             self._appcap_proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         except FileNotFoundError:
-            self.error.emit("dictee-app-capture not found")
+            self.error.emit(
+                f"Capture de « {name} » impossible : composant "
+                "dictee-app-capture introuvable")
             return None
         deadline = time.time() + 4
         while True:
@@ -217,7 +220,9 @@ class AudioCaptureWorker(QThread):
                 self._appcap_sink = sink
                 return sink
         self._stop_app_capture()
-        self.error.emit("app capture failed to start")
+        self.error.emit(
+            f"Capture de « {name} » impossible : la capture d'application "
+            "n'a pas démarré")
         return None
 
     def _stop_app_capture(self):
@@ -889,7 +894,9 @@ class MeetingWindow(QWidget):
         self.transcript_view.setReadOnly(True)
         self.transcript_view.setStyleSheet("font-family: monospace; font-size: 10pt;")
         self.transcript_view.setMinimumHeight(180)
-        preview_layout.addWidget(self.transcript_view)
+        # stretch=1: the transcript fills the accordion's vertical space (the
+        # speakers panel below keeps its sizeHint), so it grows with the window.
+        preview_layout.addWidget(self.transcript_view, 1)
 
         # Speakers naming panel (inside accordion, below transcript view)
         speakers_group = QGroupBox("Speakers détectés")
@@ -899,14 +906,12 @@ class MeetingWindow(QWidget):
         # Empty by default — filled dynamically by _on_aligned
         preview_layout.addWidget(speakers_group)
 
-        layout.addWidget(self.preview_content)
-        # Absorb any transient slack AT THE BOTTOM during the show/hide relayout.
-        # SetFixedSize re-sizes the window on the NEXT event loop, so for one
-        # frame there is extra space; without this stretch it is distributed
-        # over the widgets and the top zone visibly stretches (Qt forum: a child
-        # smaller than its cell is placed per alignment). The stretch has
-        # sizeHint 0, so it doesn't affect the final compact size.
-        layout.addStretch(1)
+        # stretch=1: the accordion absorbs all extra window height. When OPEN it
+        # makes the transcript fill down to the bottom and resize with the
+        # window; when CLOSED (hidden, size 0) its stretchy empty cell still
+        # soaks up any slack so the top zone stays pinned and never stretches.
+        # This replaces the previous bottom addStretch(1).
+        layout.addWidget(self.preview_content, 1)
 
         # Plain show/hide, exactly like dictee-setup's accordions (_on_info_toggled:
         # just box.setVisible(on) — no animation, no manual resize). The central
@@ -1074,6 +1079,23 @@ class MeetingWindow(QWidget):
             pass
 
     def start_meeting(self):
+        # Guard rail: an "app:" source needs the dictee-app-capture helper.
+        # If it's missing (not installed / not in PATH), refuse to start with a
+        # clear message instead of silently recording the microphone in place of
+        # the chosen application (which looks like it "works" but captures the
+        # wrong source).
+        source = self._meeting_source()
+        if source.startswith("app:") and shutil.which("dictee-app-capture") is None:
+            QMessageBox.critical(
+                self,
+                "Capture d'application indisponible",
+                "Le composant « dictee-app-capture » est introuvable sur le "
+                "système.\n\nL'enregistrement n'a pas démarré pour éviter de "
+                "capter le micro à la place de l'application. Réinstallez dictee, "
+                "ou choisissez une autre source audio (micro, audio système…).",
+            )
+            return
+
         self.meeting_dir = meeting_dir()
         self.audio_wav = self.meeting_dir / "audio.wav"
         chunks_dir = self.meeting_dir / "chunks"
