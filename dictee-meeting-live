@@ -661,9 +661,11 @@ class MeetingWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Réunion live — capture")
-        # Compact start; the layout's SetFixedSize grows/shrinks the window
-        # with the accordion.
-        self.resize(560, 220)
+        # Minimum width 800; compact height while the accordion is collapsed,
+        # 800 tall when it opens (see _on_preview_toggled). The window stays
+        # user-resizable beyond these.
+        self.setMinimumWidth(800)
+        self.resize(800, 220)
 
         self.audio_worker = None
         self.meeting_dir = None
@@ -1254,17 +1256,18 @@ class MeetingWindow(QWidget):
         return f"{m:02d}:{s:02d}"
 
     def _on_preview_toggled(self, checked: bool):
-        # Resize the (user-resizable) window with the accordion: grow on open,
-        # shrink back to the collapsed height on close. The bottom stretch keeps
-        # the top zone pinned; the QTextEdit scrolls for long transcripts.
+        # Resize the (user-resizable) window with the accordion: open to 800 px
+        # tall, shrink back to the collapsed height on close. The preview_content
+        # stretch keeps the top zone pinned; the transcript fills the space.
         self.preview_toggle.setArrowType(
             Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
         )
         if checked:
             self._collapsed_h = self.height()
             self.preview_content.setVisible(True)
-            self.resize(self.width(),
-                        self._collapsed_h + self.preview_content.sizeHint().height())
+            # Open to a fixed 800 px height (still user-resizable afterwards;
+            # the transcript fills the extra space). Width is kept (>= 800 min).
+            self.resize(self.width(), 800)
         else:
             self.preview_content.setVisible(False)
             target = getattr(self, "_collapsed_h", None) or 220
