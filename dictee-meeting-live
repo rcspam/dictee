@@ -108,25 +108,43 @@ def _meeting_icon(recording):
 # ---------------------------------------------------------------------------
 
 class AudioCaptureWorker(QThread):
-    """Continuous audio capture via pw-record into a growing WAV file."""
+    """Continuous audio capture via pw-record into a growing WAV file.
+
+    Honors the selected meeting source: a node.name (mic / *.monitor), an
+    'app:<name>' resolved to the sink the app plays to (captured via its
+    monitor), an empty value (default mic), or 'mix' — a transient null-sink
+    fed by two loopbacks (microphone + system monitor) torn down when capture
+    ends. Sink captures use 'pw-record -P stream.capture.sink=true'.
+    """
 
     error = pyqtSignal(str)
 
-    def __init__(self, output_wav: Path):
+    def __init__(self, output_wav: Path, source: str = ""):
         super().__init__()
         self.output_wav = output_wav
+        self.source = source or ""
         self.proc = None
         self._stop = False
+        # mix lifecycle (populated by _setup_mix_sink, cleared by _teardown_mix)
+        self._mix_modules = []      # null-sink + 2 loopback module ids
+        self._mic_input_id = None   # sink-input id of the mic loopback
+        self._sys_input_id = None   # sink-input id of the system loopback
 
     def run(self):
-        cmd = [
-            "pw-record",
-            "--format=s16",
-            "--rate=16000",
-            "--channels=1",
-            "--target=@DEFAULT_AUDIO_SOURCE@",
-            str(self.output_wav),
-        ]
+        try:
+            target, capture_sink = self._resolve_target(self.source)
+        except Exception as exc:
+            self.error.emit(f"audio source setup failed: {exc}")
+            self._teardown_mix()
+            return
+        cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1"]
+        if capture_sink:
+            # Capturing a sink's monitor (system audio / an app / the mix
+            # null-sink) REQUIRES this property. 'pw-record --target=<X>.monitor'
+            # does NOT tap the monitor — it silently falls back to the default
+            # microphone — so per-app / system / mix capture would be empty.
+            cmd += ["-P", "stream.capture.sink=true"]
+        cmd += [f"--target={target}", str(self.output_wav)]
         try:
             self.proc = subprocess.Popen(
                 cmd,
@@ -139,6 +157,158 @@ class AudioCaptureWorker(QThread):
                 self.error.emit(f"pw-record exit {rc}: {err}")
         except FileNotFoundError:
             self.error.emit("pw-record not found. Is PipeWire installed?")
+        finally:
+            self._teardown_mix()
+
+    # ── source resolution ──────────────────────────────────────────────────
+    def _resolve_target(self, source):
+        """Resolve a meeting source value to (pw-record target, capture_sink).
+
+        capture_sink=True means the target is a SINK whose monitor we tap with
+        'stream.capture.sink=true' (system audio, an app's sink, or the mix
+        null-sink). False means a normal capture source (a microphone).
+        """
+        if source == "mix":
+            return self._setup_mix_sink(), True
+        if not source:
+            return "@DEFAULT_AUDIO_SOURCE@", False
+        if source.startswith("app:"):
+            sink = self._app_sink(source[4:])
+            return (sink, True) if sink else ("@DEFAULT_AUDIO_SOURCE@", False)
+        if source.endswith(".monitor"):
+            return source[:-len(".monitor")], True   # tap that sink's monitor
+        return source, False                         # microphone node.name
+
+    def _app_sink(self, name):
+        """Resolve 'app:<name>' to the SINK node.name the app currently plays to.
+
+        An app's audio can only be captured via the monitor of the sink it
+        feeds (you can't tap a lone output stream). Returns None if the app is
+        not playing. pactl output is localized → LC_ALL=C.
+        """
+        env = dict(os.environ, LC_ALL="C")
+        try:
+            si = subprocess.check_output(
+                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
+        except Exception:
+            return None
+        cur = None
+        blocks = []
+        for line in si.splitlines():
+            s = line.strip()
+            if s.startswith("Sink Input #"):
+                cur = {"sink": None, "app": None}
+                blocks.append(cur)
+            elif cur is None:
+                continue
+            elif s.startswith("Sink:"):
+                cur["sink"] = s.split(":", 1)[1].strip()
+            elif s.startswith("application.name = "):
+                cur["app"] = s.split("=", 1)[1].strip().strip('"')
+        sink_idx = None
+        for b in blocks:
+            app = (b["app"] or "").lower().split()
+            if app and app[0] == name and b["sink"]:
+                sink_idx = b["sink"]
+                break
+        if not sink_idx:
+            return None
+        try:
+            short = subprocess.check_output(
+                ["pactl", "list", "short", "sinks"], text=True, env=env, timeout=3)
+        except Exception:
+            return None
+        for line in short.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2 and parts[0] == sink_idx:
+                return parts[1]
+        return None
+
+    def _setup_mix_sink(self):
+        """Build a transient null-sink fed by two loopbacks (mic + system
+        monitor) and return the null-sink name 'dictee_mix' (captured by run()
+        with stream.capture.sink=true).
+
+        Each loopback's sink-input is tagged with a findable media.name so
+        its volume can be controlled independently (set_mic/system_volume).
+        Modules are unloaded in _teardown_mix().
+        """
+        sink = subprocess.check_output(
+            ["pactl", "get-default-sink"], text=True, timeout=3).strip()
+        src = subprocess.check_output(
+            ["pactl", "get-default-source"], text=True, timeout=3).strip()
+
+        def load(*args):
+            return subprocess.check_output(
+                ["pactl", "load-module", *args], text=True, timeout=3).strip()
+
+        self._mix_modules.append(load(
+            "module-null-sink", "sink_name=dictee_mix",
+            "sink_properties=device.description=DicteeMix"))
+        self._mix_modules.append(load(
+            "module-loopback", f"source={src}", "sink=dictee_mix",
+            "latency_msec=50",
+            "sink_input_properties=media.name=dictee_mix_mic"))
+        self._mix_modules.append(load(
+            "module-loopback", f"source={sink}.monitor", "sink=dictee_mix",
+            "latency_msec=50",
+            "sink_input_properties=media.name=dictee_mix_sys"))
+        self._mic_input_id, self._sys_input_id = self._find_mix_inputs()
+        return "dictee_mix"
+
+    def _find_mix_inputs(self):
+        """Map the two tagged loopback sink-inputs to their ids.
+
+        Loopbacks take a moment to attach, so poll briefly. pactl list output
+        is LOCALIZED (FR shows 'Entrée de la destination' instead of 'Sink
+        Input') → force LC_ALL=C so the parse works on non-English systems.
+        """
+        env = dict(os.environ, LC_ALL="C")
+        for _attempt in range(20):           # up to ~2 s
+            out = subprocess.check_output(
+                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
+            cur = mic = sysid = None
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith("Sink Input #"):
+                    cur = line.split("#", 1)[1].strip()
+                elif line == 'media.name = "dictee_mix_mic"':
+                    mic = cur
+                elif line == 'media.name = "dictee_mix_sys"':
+                    sysid = cur
+            if mic and sysid:
+                return mic, sysid
+            self.msleep(100)
+        return None, None
+
+    def _teardown_mix(self):
+        """Unload all mix modules (idempotent)."""
+        while self._mix_modules:
+            mod = self._mix_modules.pop()
+            try:
+                subprocess.run(["pactl", "unload-module", mod],
+                               timeout=3, capture_output=True)
+            except Exception:
+                pass
+        self._mic_input_id = self._sys_input_id = None
+
+    def set_mic_volume(self, pct):
+        """Set the mic loopback volume (mix mode only)."""
+        self._set_input_volume(self._mic_input_id, pct)
+
+    def set_system_volume(self, pct):
+        """Set the system loopback volume (mix mode only)."""
+        self._set_input_volume(self._sys_input_id, pct)
+
+    def _set_input_volume(self, input_id, pct):
+        if not input_id:
+            return
+        try:
+            subprocess.run(
+                ["pactl", "set-sink-input-volume", input_id, f"{int(pct)}%"],
+                timeout=2, capture_output=True)
+        except Exception:
+            pass
 
     def stop(self):
         self._stop = True
@@ -551,6 +721,8 @@ class MeetingWindow(QWidget):
         self.btn_start.setEnabled(start_on)
         self.btn_stop.setEnabled(stop_on)
         self.btn_analyze.setEnabled(analyze_on)
+        # Source can't change mid-capture: only editable when idle/stopped.
+        self.cmb_source.setEnabled(state in ("idle", "stopped"))
 
         self.status_label.setText({
             "idle": "Prêt à enregistrer",
@@ -898,8 +1070,9 @@ class MeetingWindow(QWidget):
         self._speaker_row_widgets.clear()
         self.speakers_seen = set()
 
-        # Audio capture
-        self.audio_worker = AudioCaptureWorker(self.audio_wav)
+        # Audio capture — honor the selected meeting source (incl. 'mix')
+        self.audio_worker = AudioCaptureWorker(self.audio_wav,
+                                               self._meeting_source())
         self.audio_worker.error.connect(self._on_error_msg)
         self.audio_worker.start()
 
