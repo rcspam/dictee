@@ -79,6 +79,15 @@ fn main() {
 
     pipewire::init();
     let mainloop = MainLoop::new(None).expect("mainloop");
+
+    // Block SIGINT/SIGTERM on this (main) thread BEFORE connecting to PipeWire.
+    // `core.connect()` spawns a data-loop thread that inherits this mask, so both
+    // threads keep the signals blocked. spa's signal sources (added below) consume
+    // them via signalfd on the main loop. Without this block the data thread leaves
+    // the signals unblocked, the kernel delivers them there, and the default
+    // disposition kills the process (exit 130/143) before the signalfd fires.
+    block_term_signals();
+
     let context = Context::new(&mainloop).expect("context");
     let core = context.connect(None).expect("connect");
     let registry = core.get_registry().expect("registry");
@@ -200,6 +209,19 @@ fn main() {
         .register();
 
     mainloop.run();
+}
+
+/// Block SIGINT and SIGTERM on the calling thread so the PipeWire data thread
+/// (spawned by `core.connect()`) inherits the block and the main loop's signalfd
+/// sources can consume them. Idempotent and safe to call once at startup.
+fn block_term_signals() {
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGINT);
+        libc::sigaddset(&mut set, libc::SIGTERM);
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+    }
 }
 
 /// Print `READY <sink_id>` to stdout exactly once and flush.
