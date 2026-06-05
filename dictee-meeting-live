@@ -818,9 +818,7 @@ class MeetingWindow(QWidget):
         # as --include-mic). Harmless for other sources.
         self.chk_include_mic = QCheckBox("Ajouter le micro")
         self.chk_include_mic.setChecked(self._meeting_include_mic())
-        self.chk_include_mic.toggled.connect(
-            lambda on: self._write_conf_key(
-                "DICTEE_MEETING_INCLUDE_MIC", "true" if on else "false"))
+        self.chk_include_mic.toggled.connect(self._on_include_mic_toggled)
         left_col.addWidget(self.chk_include_mic)
 
         btn_row = QHBoxLayout()
@@ -858,6 +856,8 @@ class MeetingWindow(QWidget):
         levels_layout = QHBoxLayout(levels_group)
         self.slider_mic = self._build_level_slider("🎤")
         self.slider_sys = self._build_level_slider("🔊")
+        self.slider_mic["slider"].valueChanged.connect(self._on_mic_slider)
+        self.slider_sys["slider"].valueChanged.connect(self._on_sys_slider)
         levels_layout.addLayout(self.slider_mic["col"])
         levels_layout.addLayout(self.slider_sys["col"])
         top_row.addWidget(levels_group)
@@ -920,6 +920,8 @@ class MeetingWindow(QWidget):
         # layout's SetFixedSize then snaps the window to the new content size.
         self.preview_content.setVisible(False)
         self.preview_toggle.toggled.connect(self._on_preview_toggled)
+
+        self._update_level_sliders()   # set initial enabled/greyed state
 
     def _build_level_slider(self, emoji):
         """One vertical volume slider + % label. Disabled (greyed) until the
@@ -998,6 +1000,94 @@ class MeetingWindow(QWidget):
         value = self.cmb_source.currentData()
         if value is not None:
             self._write_conf_key("DICTEE_MEETING_AUDIO_SOURCE", value)
+        self._update_level_sliders()
+
+    def _on_include_mic_toggled(self, on):
+        self._write_conf_key("DICTEE_MEETING_INCLUDE_MIC",
+                             "true" if on else "false")
+        self._update_level_sliders()
+
+    # ── Level sliders (🎤 mic / 🔊 selected output) ─────────────────────────
+    def _active_flows(self):
+        """Return (mic_active, sys_active) for the current source + add-mic.
+
+        mix → both; app: → system (+ mic if 'add mic'); *.monitor → system;
+        microphone / default → mic only.
+        """
+        src = self.cmb_source.currentData() or ""
+        if src == "mix":
+            return True, True
+        if src.startswith("app:"):
+            return self.chk_include_mic.isChecked(), True
+        if src.endswith(".monitor"):
+            return False, True
+        return True, False
+
+    def _update_level_sliders(self):
+        """Enable/grey each slider for the current source; refresh % labels."""
+        mic_on, sys_on = self._active_flows()
+        for d, on in ((self.slider_mic, mic_on), (self.slider_sys, sys_on)):
+            d["slider"].setEnabled(on)
+            d["label"].setEnabled(on)
+            d["label"].setText(f"{d['slider'].value()}%" if on else "—")
+
+    def _pactl_vol(self, args):
+        try:
+            subprocess.run(["pactl", *args], timeout=2, capture_output=True)
+        except Exception:
+            pass
+
+    def _app_sink_input(self, name):
+        """Return the pactl sink-input index of app `name` (None if absent).
+        pactl output is localized → LC_ALL=C."""
+        env = dict(os.environ, LC_ALL="C")
+        try:
+            out = subprocess.check_output(
+                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
+        except Exception:
+            return None
+        cur = None
+        blocks = []
+        for line in out.splitlines():
+            s = line.strip()
+            if s.startswith("Sink Input #"):
+                cur = {"id": s.split("#", 1)[1].strip(), "app": None}
+                blocks.append(cur)
+            elif cur is not None and s.startswith("application.name = "):
+                cur["app"] = s.split("=", 1)[1].strip().strip('"')
+        for b in blocks:
+            app = (b["app"] or "").lower().split()
+            if app and app[0] == name:
+                return b["id"]
+        return None
+
+    def _on_mic_slider(self, v):
+        self.slider_mic["label"].setText(f"{v}%")
+        src = self.cmb_source.currentData() or ""
+        if src == "mix" and self.audio_worker:
+            self.audio_worker.set_mic_volume(v)
+        else:
+            # mic flow = the default capture source
+            self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
+
+    def _on_sys_slider(self, v):
+        self.slider_sys["label"].setText(f"{v}%")
+        src = self.cmb_source.currentData() or ""
+        if src == "mix" and self.audio_worker:
+            self.audio_worker.set_system_volume(v)
+        elif src.startswith("app:"):
+            sid = self._app_sink_input(src[4:])
+            if sid:
+                self._pactl_vol(["set-sink-input-volume", sid, f"{v}%"])
+        elif src.endswith(".monitor"):
+            self._pactl_vol(
+                ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
+
+    def _apply_mix_levels(self):
+        """Push the current slider values onto the freshly-created mix loopbacks."""
+        if self.audio_worker:
+            self.audio_worker.set_mic_volume(self.slider_mic["slider"].value())
+            self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
 
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
@@ -1130,6 +1220,11 @@ class MeetingWindow(QWidget):
                                                self._meeting_include_mic())
         self.audio_worker.error.connect(self._on_error_msg)
         self.audio_worker.start()
+
+        # For 'mix', apply the current 🎤/🔊 slider levels once the loopback
+        # sink-inputs exist (they take ~1 s to appear in the null-sink).
+        if self._meeting_source() == "mix":
+            QTimer.singleShot(1500, self._apply_mix_levels)
 
         # Read chunk duration from conf (default 40s, range 20-60)
         chunk_duration = 40
