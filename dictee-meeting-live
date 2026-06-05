@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
     QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
-    QLayout, QCheckBox, QMessageBox,
+    QLayout, QCheckBox, QMessageBox, QProgressBar,
 )
 
 
@@ -686,87 +686,6 @@ class AlignerWorker(QObject):
         return best_spk
 
 
-class VuSlider(QWidget):
-    """Vertical volume slider with an integrated live peak meter drawn in the
-    same bar — mirrors the plasmoid's slider+meter widget. value 0-100,
-    level 0.0-1.0 (set via setLevel from a LevelMeterWorker)."""
-
-    valueChanged = pyqtSignal(int)
-
-    def __init__(self):
-        super().__init__()
-        self._value = 70
-        self._level = 0.0
-        self.setMinimumSize(28, 130)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-
-    def value(self):
-        return self._value
-
-    def setValue(self, v):
-        v = max(0, min(100, int(v)))
-        if v != self._value:
-            self._value = v
-            self.update()
-            self.valueChanged.emit(v)
-
-    def setLevel(self, lvl):
-        self._level = max(0.0, min(1.0, float(lvl)))
-        self.update()
-
-    def setEnabled(self, on):
-        super().setEnabled(on)
-        if not on:
-            self._level = 0.0
-        self.update()
-
-    def _value_from_y(self, y):
-        frac = 1.0 - (y / max(1, self.height()))
-        return int(round(max(0.0, min(1.0, frac)) * 100))
-
-    def mousePressEvent(self, e):
-        if self.isEnabled():
-            self.setValue(self._value_from_y(e.position().y()))
-
-    def mouseMoveEvent(self, e):
-        if self.isEnabled():
-            self.setValue(self._value_from_y(e.position().y()))
-
-    def paintEvent(self, _e):
-        from PyQt6.QtGui import QPainter, QColor
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        w, h = self.width(), self.height()
-        gw = 10
-        gx = (w - gw) // 2
-        enabled = self.isEnabled()
-        # groove
-        p.setPen(QColor(120, 120, 120) if enabled else QColor(90, 90, 90))
-        p.setBrush(QColor(35, 35, 35))
-        p.drawRoundedRect(gx, 0, gw, h - 1, 4, 4)
-        if not enabled:
-            return
-        inner = h - 2
-        # volume fill (slider value)
-        p.setPen(Qt.PenStyle.NoPen)
-        vol_h = int(inner * self._value / 100.0)
-        p.setBrush(QColor(80, 150, 240, 90))
-        p.drawRoundedRect(gx + 1, h - 1 - vol_h, gw - 2, vol_h, 2, 2)
-        # peak meter (live level, scaled ×1.5 like the plasmoid)
-        lvl = min(1.0, self._level * 1.5)
-        m_h = int(inner * lvl)
-        col = (QColor(220, 60, 60) if self._level > 0.8
-               else QColor(230, 200, 60) if self._level > 0.4
-               else QColor(80, 200, 100))
-        p.setBrush(col)
-        p.drawRoundedRect(gx + 1, h - 1 - m_h, gw - 2, m_h, 2, 2)
-        # handle
-        hy = int((h - 6) * (1.0 - self._value / 100.0))
-        p.setPen(QColor(70, 70, 70))
-        p.setBrush(QColor(235, 235, 235))
-        p.drawRoundedRect(gx - 3, hy, gw + 6, 6, 3, 3)
-
-
 # ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
@@ -823,6 +742,7 @@ class MeetingWindow(QWidget):
 
         self._build_ui()
         self._populate_sources()
+        self._update_level_sliders()   # reflect the populated/selected source
         self._apply_window_behavior()
         self._set_state("idle")
 
@@ -1057,21 +977,43 @@ class MeetingWindow(QWidget):
         self._update_level_sliders()   # set initial enabled/greyed state
 
     def _build_level_slider(self, emoji):
-        """One vertical volume slider with integrated live peak meter + % label.
-        Enabled/greyed per source by _update_level_sliders."""
+        """A native QSlider (volume) next to a vertical QProgressBar (live VU
+        meter) + % label. Enabled/greyed per source by _update_level_sliders."""
         col = QVBoxLayout()
         top = QLabel(emoji)
         top.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         col.addWidget(top)
-        slider = VuSlider()
+
+        row = QHBoxLayout()
+        row.setSpacing(3)
+        slider = QSlider(Qt.Orientation.Vertical)
+        slider.setRange(0, 100)
         slider.setValue(70)
-        slider.setEnabled(False)          # set per-source by _update_level_sliders
-        col.addWidget(slider, 1, Qt.AlignmentFlag.AlignHCenter)
+        slider.setMinimumHeight(130)
+        meter = QProgressBar()
+        meter.setOrientation(Qt.Orientation.Vertical)
+        meter.setRange(0, 100)
+        meter.setValue(0)
+        meter.setTextVisible(False)
+        meter.setFixedWidth(10)
+        meter.setMinimumHeight(130)
+        # green → yellow → red gradient, bottom-to-top
+        meter.setStyleSheet(
+            "QProgressBar { background: palette(base); border: 1px solid "
+            "palette(mid); border-radius: 3px; }"
+            "QProgressBar::chunk { border-radius: 3px; background: "
+            "qlineargradient(x1:0, y1:1, x2:0, y2:0, stop:0 #2ecc71, "
+            "stop:0.6 #f1c40f, stop:0.85 #e67e22, stop:1 #e74c3c); }"
+        )
+        row.addWidget(slider, 0, Qt.AlignmentFlag.AlignHCenter)
+        row.addWidget(meter, 0, Qt.AlignmentFlag.AlignHCenter)
+        col.addLayout(row, 1)
+
         pct = QLabel("—")
         pct.setEnabled(False)
         pct.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         col.addWidget(pct)
-        return {"col": col, "slider": slider, "label": pct}
+        return {"col": col, "slider": slider, "meter": meter, "label": pct}
 
     def _meeting_source(self):
         """Read DICTEE_MEETING_AUDIO_SOURCE from conf (default 'mix')."""
@@ -1155,12 +1097,17 @@ class MeetingWindow(QWidget):
         return True, False
 
     def _update_level_sliders(self):
-        """Enable/grey each slider for the current source; refresh % labels."""
+        """Enable/grey each slider+meter for the current source; refresh labels,
+        then (re)start the live meters for the active flows."""
         mic_on, sys_on = self._active_flows()
         for d, on in ((self.slider_mic, mic_on), (self.slider_sys, sys_on)):
             d["slider"].setEnabled(on)
+            d["meter"].setEnabled(on)
             d["label"].setEnabled(on)
             d["label"].setText(f"{d['slider'].value()}%" if on else "—")
+            if not on:
+                d["meter"].setValue(0)
+        self._refresh_meters()
 
     def _pactl_vol(self, args):
         try:
@@ -1221,6 +1168,40 @@ class MeetingWindow(QWidget):
             self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
 
     # ── Live VU meters (one parec reader per active flow) ───────────────────
+    def _app_sink_name(self, name):
+        """Sink node.name that app `name` plays to (None if absent). LC_ALL=C."""
+        env = dict(os.environ, LC_ALL="C")
+        try:
+            si = subprocess.check_output(
+                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
+        except Exception:
+            return None
+        cur, blocks = None, []
+        for line in si.splitlines():
+            s = line.strip()
+            if s.startswith("Sink Input #"):
+                cur = {"sink": None, "app": None}
+                blocks.append(cur)
+            elif cur is not None and s.startswith("Sink:"):
+                cur["sink"] = s.split(":", 1)[1].strip()
+            elif cur is not None and s.startswith("application.name = "):
+                cur["app"] = s.split("=", 1)[1].strip().strip('"')
+        idx = next((b["sink"] for b in blocks
+                    if (b["app"] or "").lower().split()[:1] == [name] and b["sink"]),
+                   None)
+        if not idx:
+            return None
+        try:
+            short = subprocess.check_output(
+                ["pactl", "list", "short", "sinks"], text=True, env=env, timeout=3)
+        except Exception:
+            return None
+        for line in short.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2 and parts[0] == idx:
+                return parts[1]
+        return None
+
     def _sys_meter_device(self):
         """parec --device for the 🔊 flow: the monitor of the captured sink.
         mix/system → default sink monitor; app: → the app's sink monitor;
@@ -1228,8 +1209,8 @@ class MeetingWindow(QWidget):
         src = self.cmb_source.currentData() or ""
         if src.endswith(".monitor"):
             return src
-        if src.startswith("app:") and self.audio_worker:
-            sink = self.audio_worker._app_sink(src[4:])
+        if src.startswith("app:"):
+            sink = self._app_sink_name(src[4:])
             return f"{sink}.monitor" if sink else None
         try:
             sink = subprocess.check_output(
@@ -1238,17 +1219,32 @@ class MeetingWindow(QWidget):
         except Exception:
             return None
 
-    def _start_meters(self):
-        """Start a parec peak-meter per active flow, feeding its VuSlider."""
+    def _meter_apply(self, meter, level):
+        """VU ballistics: instant attack, smooth decay (×1.5 like the plasmoid)."""
+        target = int(min(100, level * 150))
+        cur = meter.value()
+        meter.setValue(target if target >= cur else int(cur * 0.82))
+
+    def _on_mic_level(self, level):
+        self._meter_apply(self.slider_mic["meter"], level)
+
+    def _on_sys_level(self, level):
+        self._meter_apply(self.slider_sys["meter"], level)
+
+    def _refresh_meters(self):
+        """(Re)start a parec peak-meter per active flow — runs live whenever the
+        window is visible, so the VU bars move even before recording."""
         self._stop_meters()
+        if not self.isVisible():
+            return
         mic_on, sys_on = self._active_flows()
         if mic_on:
             self._meter_mic = LevelMeterWorker(None)   # None = default mic
-            self._meter_mic.level.connect(self.slider_mic["slider"].setLevel)
+            self._meter_mic.level.connect(self._on_mic_level)
             self._meter_mic.start()
         if sys_on:
             self._meter_sys = LevelMeterWorker(self._sys_meter_device())
-            self._meter_sys.level.connect(self.slider_sys["slider"].setLevel)
+            self._meter_sys.level.connect(self._on_sys_level)
             self._meter_sys.start()
 
     def _stop_meters(self):
@@ -1257,8 +1253,16 @@ class MeetingWindow(QWidget):
             if m:
                 m.stop()
                 setattr(self, attr, None)
-        self.slider_mic["slider"].setLevel(0.0)
-        self.slider_sys["slider"].setLevel(0.0)
+        self.slider_mic["meter"].setValue(0)
+        self.slider_sys["meter"].setValue(0)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._refresh_meters()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._stop_meters()
 
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
@@ -1396,10 +1400,7 @@ class MeetingWindow(QWidget):
         # sink-inputs exist (they take ~1 s to appear in the null-sink).
         if self._meeting_source() == "mix":
             QTimer.singleShot(1500, self._apply_mix_levels)
-
-        # Live VU meters per active flow (sys monitor needs ~1 s if it's the mix
-        # null-sink / app sink to settle).
-        QTimer.singleShot(1200, self._start_meters)
+        # VU meters already run live (started on show / source change).
 
         # Read chunk duration from conf (default 40s, range 20-60)
         chunk_duration = 40
@@ -1577,8 +1578,6 @@ class MeetingWindow(QWidget):
         # Stop the recording and freeze the WAV. Does NOT launch the analysis —
         # the user clicks "Démarrer l'analyse" (btn_analyze) for that.
         self._tick_timer.stop()
-
-        self._stop_meters()
 
         if self.audio_worker:
             self.audio_worker.resume()   # ensure not paused so stop() is clean
