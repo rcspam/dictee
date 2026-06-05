@@ -264,6 +264,12 @@ impl Sortformer {
                 .map(|chunk| chunk.iter().sum::<f32>() / channels as f32)
                 .collect();
         }
+        // An empty chunk (e.g. a 0-sample extraction) carries no information
+        // and would panic downstream (apply_preemphasis indexes audio[0]).
+        // Skip it and keep the streaming state untouched.
+        if audio.is_empty() {
+            return Ok(Vec::new());
+        }
         // No reset_state() here — state carries over from previous chunk
         let features = self.extract_mel_features(&audio);
         let total_frames = features.shape()[1];
@@ -759,7 +765,8 @@ impl Sortformer {
                 let end = (t + half + 1).min(preds.shape()[0]);
 
                 let mut values: Vec<f32> = (start..end).map(|i| preds[[i, spk]]).collect();
-                values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                // total_cmp avoids a panic if a model output frame is NaN.
+                values.sort_by(|a, b| a.total_cmp(b));
 
                 filtered[[t, spk]] = values[values.len() / 2];
             }
@@ -834,12 +841,15 @@ impl Sortformer {
             }
         }
 
-        // Sort by start time
-        segments.sort_by(|a, b| a.start.partial_cmp(&b.start).unwrap());
+        // Sort by start time (total_cmp is panic-free on any f32)
+        segments.sort_by(|a, b| a.start.total_cmp(&b.start));
         segments
     }
 
     fn apply_preemphasis(audio: &[f32]) -> Vec<f32> {
+        if audio.is_empty() {
+            return Vec::new();
+        }
         let mut result = Vec::with_capacity(audio.len());
         result.push(audio[0]);
         for i in 1..audio.len() {
@@ -930,5 +940,24 @@ impl Sortformer {
         }
 
         features
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_preemphasis_empty_does_not_panic() {
+        // An empty chunk must not index audio[0].
+        assert!(Sortformer::apply_preemphasis(&[]).is_empty());
+    }
+
+    #[test]
+    fn apply_preemphasis_basic() {
+        let out = Sortformer::apply_preemphasis(&[1.0, 2.0, 3.0]);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0], 1.0);
+        assert!((out[1] - (2.0 - PREEMPH * 1.0)).abs() < 1e-6);
     }
 }
