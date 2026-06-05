@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import select
 import signal
 import sys
 import time
@@ -140,6 +141,7 @@ class AudioCaptureWorker(QThread):
         except Exception as exc:
             self.error.emit(f"audio source setup failed: {exc}")
             self._teardown_mix()
+            self._stop_app_capture()
             return
         cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1"]
         if capture_sink:
@@ -198,13 +200,22 @@ class AudioCaptureWorker(QThread):
             self.error.emit("dictee-app-capture not found")
             return None
         deadline = time.time() + 4
-        while time.time() < deadline:
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            if self._appcap_proc.poll() is not None:
+                break
+            rlist, _, _ = select.select(
+                [self._appcap_proc.stdout], [], [], remaining)
+            if not rlist:
+                continue  # timeout slice; loop re-checks remaining/poll
             line = self._appcap_proc.stdout.readline()
+            if not line:           # EOF — process closed stdout
+                break
             if line.startswith("READY"):
                 self._appcap_sink = sink
                 return sink
-            if self._appcap_proc.poll() is not None:
-                break
         self._stop_app_capture()
         self.error.emit("app capture failed to start")
         return None
@@ -218,51 +229,6 @@ class AudioCaptureWorker(QThread):
                 self._appcap_proc.kill()
         self._appcap_proc = None
         self._appcap_sink = None
-
-    def _app_sink(self, name):
-        """Resolve 'app:<name>' to the SINK node.name the app currently plays to.
-
-        An app's audio can only be captured via the monitor of the sink it
-        feeds (you can't tap a lone output stream). Returns None if the app is
-        not playing. pactl output is localized → LC_ALL=C.
-        """
-        env = dict(os.environ, LC_ALL="C")
-        try:
-            si = subprocess.check_output(
-                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
-        except Exception:
-            return None
-        cur = None
-        blocks = []
-        for line in si.splitlines():
-            s = line.strip()
-            if s.startswith("Sink Input #"):
-                cur = {"sink": None, "app": None}
-                blocks.append(cur)
-            elif cur is None:
-                continue
-            elif s.startswith("Sink:"):
-                cur["sink"] = s.split(":", 1)[1].strip()
-            elif s.startswith("application.name = "):
-                cur["app"] = s.split("=", 1)[1].strip().strip('"')
-        sink_idx = None
-        for b in blocks:
-            app = (b["app"] or "").lower().split()
-            if app and app[0] == name and b["sink"]:
-                sink_idx = b["sink"]
-                break
-        if not sink_idx:
-            return None
-        try:
-            short = subprocess.check_output(
-                ["pactl", "list", "short", "sinks"], text=True, env=env, timeout=3)
-        except Exception:
-            return None
-        for line in short.splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2 and parts[0] == sink_idx:
-                return parts[1]
-        return None
 
     def _setup_mix_sink(self):
         """Build a transient null-sink fed by two loopbacks (mic + system
