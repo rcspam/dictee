@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import sys
 import time
 import argparse
@@ -20,11 +21,15 @@ import subprocess
 from pathlib import Path
 from datetime import datetime
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, QFileSystemWatcher, QTimer, Qt
+from PyQt6.QtCore import (
+    QObject, QThread, pyqtSignal, QFileSystemWatcher, QTimer, Qt,
+    QPropertyAnimation, QEasingCurve,
+)
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
-    QFormLayout, QLineEdit, QGroupBox,
+    QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
+    QLayout,
 )
 
 
@@ -86,6 +91,18 @@ def _build_subprocess_env():
     return env
 
 
+def _meeting_icon(recording):
+    """Window icon: red 'team-meeting.svg' while recording, black otherwise.
+    Resolved from the repo (dev) or /usr/share/dictee/assets (installed)."""
+    from PyQt6.QtGui import QIcon
+    name = "team-meeting.svg" if recording else "team-meeting-black.svg"
+    for p in (os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", name),
+              os.path.join("/usr/share/dictee/assets", name)):
+        if os.path.isfile(p):
+            return QIcon(p)
+    return QIcon()
+
+
 # ---------------------------------------------------------------------------
 # Workers
 # ---------------------------------------------------------------------------
@@ -131,6 +148,21 @@ class AudioCaptureWorker(QThread):
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+
+    def pause(self):
+        # Freeze the WAV: SIGSTOP pw-record (it stops writing). SIGCONT resumes.
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.send_signal(signal.SIGSTOP)
+            except (ProcessLookupError, OSError):
+                pass
+
+    def resume(self):
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.send_signal(signal.SIGCONT)
+            except (ProcessLookupError, OSError):
+                pass
 
 
 class ChunkerWorker(QThread):
@@ -426,7 +458,7 @@ class AlignerWorker(QObject):
 # Main window
 # ---------------------------------------------------------------------------
 
-class MeetingWindow(QMainWindow):
+class MeetingWindow(QWidget):
     """Minimal meeting capture window with collapsible live preview accordion.
 
     Captures audio with pw-record until the user clicks Stop, then launches
@@ -447,6 +479,8 @@ class MeetingWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Réunion live — capture")
+        # Compact start; the layout's SetFixedSize grows/shrinks the window
+        # with the accordion.
         self.resize(560, 220)
 
         self.audio_worker = None
@@ -455,6 +489,7 @@ class MeetingWindow(QMainWindow):
         self.transcript_path = None
         self.elapsed_seconds = 0
         self.speakers_seen = set()
+        self._state = "idle"         # idle | recording | paused | stopped
 
         # Speaker naming (purely visual for live preview)
         self._speaker_name_map = {}      # {speaker_id: user_provided_name}
@@ -470,7 +505,9 @@ class MeetingWindow(QMainWindow):
         self._tick_timer.setInterval(1000)
 
         self._build_ui()
+        self._populate_sources()
         self._apply_window_behavior()
+        self._set_state("idle")
 
         # Signal to plasmoid/tray that meeting-live UI is open
         try:
@@ -478,30 +515,168 @@ class MeetingWindow(QMainWindow):
         except OSError:
             pass
 
-    def _build_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+    def _apply_icon(self, recording):
+        # Red icon while recording, black otherwise — on the window AND the
+        # QApplication (taskbar). Works because we don't call setDesktopFileName.
+        icon = _meeting_icon(recording)
+        self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app is not None:
+            app.setWindowIcon(icon)
 
+    def _blink_rec_dot(self):
+        # Blink the COLOR (not visibility) so the dot keeps its width and the
+        # status text never shifts. Red while recording, themed while paused.
+        self._dot_on = not getattr(self, "_dot_on", True)
+        on_color = "#E53935" if self._state == "recording" else "palette(text)"
+        self.rec_dot.setStyleSheet(
+            (f"color: {on_color};" if self._dot_on else "color: transparent;")
+            + " font-size: 16pt;")
+
+    def _set_state(self, state):
+        self._state = state
+        recording = state == "recording"
+        paused = state == "paused"
+
+        # (btn_start text, tooltip, start_enabled, stop_enabled, analyze_enabled)
+        cfg = {
+            "idle":      ("▶", "Démarrer",  True,  False, False),
+            "recording": ("⏸", "Pause",     True,  True,  False),
+            "paused":    ("▶", "Reprendre", True,  True,  False),
+            "stopped":   ("▶", "Démarrer",  False, False, True),
+        }
+        text, tip, start_on, stop_on, analyze_on = cfg[state]
+        self.btn_start.setText(text)
+        self.btn_start.setToolTip(tip)
+        self.btn_start.setEnabled(start_on)
+        self.btn_stop.setEnabled(stop_on)
+        self.btn_analyze.setEnabled(analyze_on)
+
+        self.status_label.setText({
+            "idle": "Prêt à enregistrer",
+            "recording": "Enregistrement en cours",
+            "paused": "Enregistrement en pause",
+            "stopped": "Enregistrement arrêté",
+        }[state])
+
+        if recording or paused:
+            self.rec_dot.setText("●" if recording else "‖")
+            self.rec_dot.setVisible(True)
+            self._dot_on = False
+            self._blink_rec_dot()        # paint lit immediately
+            self._blink_timer.start()
+        else:
+            self._blink_timer.stop()
+            self.rec_dot.setVisible(False)
+
+        self._apply_icon(recording)      # red icon only while recording
+
+    def _on_start_pause(self):
+        if self._state == "idle":
+            self.start_meeting()
+        elif self._state == "recording":
+            if self.audio_worker:
+                self.audio_worker.pause()
+            self._tick_timer.stop()
+            self._set_state("paused")
+        elif self._state == "paused":
+            if self.audio_worker:
+                self.audio_worker.resume()
+            self._tick_timer.start()
+            self._set_state("recording")
+
+    def _build_ui(self):
+        # No SetFixedSize here: the window must stay user-resizable. We grow it
+        # when the preview accordion opens and shrink it back when it closes
+        # (in _on_preview_toggled). NOTE: any transient "stretch" of the top
+        # zone during the resize is KWin's "Geometry Change" desktop effect
+        # animating the window resize — NOT this layout (the top zone measures
+        # rock-steady). Disable that effect (globally, or via a KWin window
+        # rule on this window) to remove it.
+        layout = QVBoxLayout(self)
+
+        # ── Top zone: left controls column + right "Niveaux" column ──
+        top_row = QHBoxLayout()
+        left_col = QVBoxLayout()
+
+        status_row = QHBoxLayout()
+        self.rec_dot = QLabel("●")
+        self.rec_dot.setStyleSheet("color: #E53935; font-size: 16pt;")
+        self.rec_dot.setVisible(False)
+        status_row.addWidget(self.rec_dot)
         self.status_label = QLabel("Prêt à enregistrer")
         self.status_label.setStyleSheet("font-size: 14pt; padding: 12px;")
-        layout.addWidget(self.status_label)
+        status_row.addWidget(self.status_label, 1)
+        left_col.addLayout(status_row)
+
+        # Blinking red dot timer (active only while recording)
+        self._blink_timer = QTimer(self)
+        self._blink_timer.setInterval(500)
+        self._blink_timer.timeout.connect(self._blink_rec_dot)
 
         self.duration_label = QLabel("00:00")
         self.duration_label.setStyleSheet("font-size: 24pt; font-family: monospace; padding: 8px;")
-        layout.addWidget(self.duration_label)
+        left_col.addWidget(self.duration_label)
+
+        # Audio source selector (populated from dictee-audio-sources)
+        src_row = QHBoxLayout()
+        src_row.addWidget(QLabel("Source :"))
+        self.cmb_source = QComboBox()
+        self.cmb_source.currentIndexChanged.connect(self._on_source_changed)
+        src_row.addWidget(self.cmb_source, 1)
+        left_col.addLayout(src_row)
 
         btn_row = QHBoxLayout()
-        self.btn_start = QPushButton("▶ Démarrer")
-        self.btn_start.clicked.connect(self.start_meeting)
+        self.btn_start = QPushButton("▶")
+        self.btn_start.setToolTip("Démarrer")
+        self.btn_start.setFixedSize(64, 64)
+        self.btn_start.setStyleSheet("font-size: 22pt;")
+        self.btn_start.clicked.connect(self._on_start_pause)
         btn_row.addWidget(self.btn_start)
 
-        self.btn_stop = QPushButton("⏹ Arrêter et analyser")
-        self.btn_stop.clicked.connect(self.stop_meeting)
+        self.btn_stop = QPushButton("⏹")
+        self.btn_stop.setToolTip("Arrêter")
+        self.btn_stop.setFixedSize(64, 64)
+        self.btn_stop.setStyleSheet("font-size: 22pt;")
         self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self._on_stop)
         btn_row.addWidget(self.btn_stop)
 
-        layout.addLayout(btn_row)
+        self.btn_analyze = QPushButton("🔎")
+        self.btn_analyze.setToolTip("Démarrer l'analyse")
+        self.btn_analyze.setFixedSize(64, 64)
+        self.btn_analyze.setStyleSheet("font-size: 22pt;")
+        self.btn_analyze.setEnabled(False)
+        self.btn_analyze.clicked.connect(self._on_analyze)
+        btn_row.addWidget(self.btn_analyze)
+
+        btn_row.addStretch(1)
+        left_col.addLayout(btn_row)
+        top_row.addLayout(left_col, 1)
+
+        # Right column — "Niveaux": per-flow volume sliders + meters.
+        # Backend (per-source volume + live peak meter) not wired yet → greyed.
+        levels_group = QGroupBox("Niveaux")
+        levels_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        levels_layout = QHBoxLayout(levels_group)
+        self.slider_mic = self._build_level_slider("🎤")
+        self.slider_sys = self._build_level_slider("🔊")
+        levels_layout.addLayout(self.slider_mic["col"])
+        levels_layout.addLayout(self.slider_sys["col"])
+        top_row.addWidget(levels_group)
+
+        # Wrap the top zone so it does NOT stretch vertically — only the
+        # accordion below absorbs extra height. The vertical level sliders
+        # (Expanding) then track the left column's height instead of inflating
+        # the window. (kde-plasmoid skill: "constrain aux columns to the main
+        # content height" — Qt-widgets equivalent of binding to implicitHeight.)
+        header = QWidget()
+        header.setLayout(top_row)
+        # Fixed vertical policy: the top zone keeps EXACTLY its sizeHint height
+        # and can neither stretch nor compress during the accordion's show/hide
+        # relayout — so it never moves, open or closed.
+        header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        layout.addWidget(header)
 
         # Live preview accordion (clickable header + collapsible content)
         self.preview_toggle = QToolButton()
@@ -535,9 +710,108 @@ class MeetingWindow(QMainWindow):
         preview_layout.addWidget(speakers_group)
 
         layout.addWidget(self.preview_content)
+        # Absorb any transient slack AT THE BOTTOM during the show/hide relayout.
+        # SetFixedSize re-sizes the window on the NEXT event loop, so for one
+        # frame there is extra space; without this stretch it is distributed
+        # over the widgets and the top zone visibly stretches (Qt forum: a child
+        # smaller than its cell is placed per alignment). The stretch has
+        # sizeHint 0, so it doesn't affect the final compact size.
+        layout.addStretch(1)
 
+        # Plain show/hide, exactly like dictee-setup's accordions (_on_info_toggled:
+        # just box.setVisible(on) — no animation, no manual resize). The central
+        # layout's SetFixedSize then snaps the window to the new content size.
         self.preview_content.setVisible(False)
         self.preview_toggle.toggled.connect(self._on_preview_toggled)
+
+    def _build_level_slider(self, emoji):
+        """One vertical volume slider + % label. Disabled (greyed) until the
+        audio backend (per-source volume + live meter) is implemented."""
+        col = QVBoxLayout()
+        top = QLabel(emoji)
+        top.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        col.addWidget(top)
+        slider = QSlider(Qt.Orientation.Vertical)
+        slider.setRange(0, 100)
+        slider.setValue(70)
+        slider.setMinimumHeight(130)      # usable height under SetFixedSize
+        slider.setEnabled(False)          # greyed — backend not wired yet
+        col.addWidget(slider, 1, Qt.AlignmentFlag.AlignHCenter)
+        pct = QLabel("—")
+        pct.setEnabled(False)
+        pct.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        col.addWidget(pct)
+        return {"col": col, "slider": slider, "label": pct}
+
+    def _meeting_source(self):
+        """Read DICTEE_MEETING_AUDIO_SOURCE from conf (default 'mix')."""
+        conf = Path.home() / ".config/dictee.conf"
+        if conf.is_file():
+            try:
+                for line in conf.read_text(encoding="utf-8").splitlines():
+                    s = line.strip()
+                    if s.startswith("DICTEE_MEETING_AUDIO_SOURCE="):
+                        v = s.split("=", 1)[1].strip().strip('"').strip("'")
+                        return v or "mix"
+            except OSError:
+                pass
+        return "mix"
+
+    def _populate_sources(self):
+        """Fill the source combo from the single source of truth
+        (dictee-audio-sources), then select the saved meeting source."""
+        self.cmb_source.blockSignals(True)
+        self.cmb_source.clear()
+        # 'mix' is meeting-only — added here, NOT in the shared
+        # dictee-audio-sources helper (which also feeds the F9 selector, where
+        # 'mix' would be invalid and break dictee's source resolution).
+        self.cmb_source.addItem("🎙 Mix micro + audio système", "mix")
+        try:
+            out = subprocess.check_output(
+                ["dictee-audio-sources"], timeout=3, text=True,
+                stderr=subprocess.DEVNULL)
+        except Exception:
+            out = ""
+        for line in out.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            value, _icon, label = parts
+            if value == "mix":          # guard, should never come from helper
+                continue
+            self.cmb_source.addItem(label, value)
+        idx = self.cmb_source.findData(self._meeting_source())
+        if idx >= 0:
+            self.cmb_source.setCurrentIndex(idx)
+        self.cmb_source.blockSignals(False)
+
+    def _on_source_changed(self, _idx):
+        value = self.cmb_source.currentData()
+        if value is not None:
+            self._write_conf_key("DICTEE_MEETING_AUDIO_SOURCE", value)
+
+    def _write_conf_key(self, key, value):
+        """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
+        conf = Path.home() / ".config/dictee.conf"
+        lines = []
+        if conf.is_file():
+            try:
+                lines = conf.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                return
+        prefix = key + "="
+        replaced = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith(prefix):
+                lines[i] = prefix + value
+                replaced = True
+                break
+        if not replaced:
+            lines.append(prefix + value)
+        try:
+            conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
 
     def _apply_window_behavior(self):
         """Apply always-on-top and all-virtual-desktops options from conf."""
@@ -672,10 +946,8 @@ class MeetingWindow(QMainWindow):
         self.watcher = QFileSystemWatcher([str(self.transcript_path)])
         self.watcher.fileChanged.connect(self._reload_transcript)
 
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        self.status_label.setText("● Enregistrement en cours")
         self._tick_timer.start()
+        self._set_state("recording")
 
     def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
         # Compute absolute offset for aligner: chunk N starts at N * advance
@@ -756,12 +1028,21 @@ class MeetingWindow(QMainWindow):
         return f"{m:02d}:{s:02d}"
 
     def _on_preview_toggled(self, checked: bool):
-        self.preview_content.setVisible(checked)
+        # Resize the (user-resizable) window with the accordion: grow on open,
+        # shrink back to the collapsed height on close. The bottom stretch keeps
+        # the top zone pinned; the QTextEdit scrolls for long transcripts.
         self.preview_toggle.setArrowType(
             Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
         )
         if checked:
-            self.resize(self.width(), max(self.height(), 440))
+            self._collapsed_h = self.height()
+            self.preview_content.setVisible(True)
+            self.resize(self.width(),
+                        self._collapsed_h + self.preview_content.sizeHint().height())
+        else:
+            self.preview_content.setVisible(False)
+            target = getattr(self, "_collapsed_h", None) or 220
+            QTimer.singleShot(0, lambda: self.resize(self.width(), target))
 
     def _extract_speaker_anchors(self, min_duration_s: float = 1.5, max_anchors_per_speaker: int = 5) -> dict:
         """Parse transcript-live.md to extract temporal anchors per speaker_id.
@@ -793,15 +1074,16 @@ class MeetingWindow(QMainWindow):
             anchors[spk_id] = anchors[spk_id][:max_anchors_per_speaker]
         return anchors
 
-    def stop_meeting(self):
+    def _on_stop(self):
+        # Stop the recording and freeze the WAV. Does NOT launch the analysis —
+        # the user clicks "Démarrer l'analyse" (btn_analyze) for that.
         self._tick_timer.stop()
 
-        # Stop audio first (freeze WAV)
         if self.audio_worker:
+            self.audio_worker.resume()   # ensure not paused so stop() is clean
             self.audio_worker.stop()
             self.audio_worker = None
 
-        # Stop live preview workers (best effort)
         if hasattr(self, "chunker") and self.chunker:
             self.chunker.stop()
         if hasattr(self, "diarizer") and self.diarizer:
@@ -809,7 +1091,6 @@ class MeetingWindow(QMainWindow):
         if hasattr(self, "_executor") and self._executor:
             self._executor.shutdown(wait=False)
 
-        # Reset PTT mutex
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
         except OSError:
@@ -833,15 +1114,15 @@ class MeetingWindow(QMainWindow):
         except (OSError, AttributeError):
             pass
 
-        self.btn_start.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-
-        # Sanity check audio
+        self._set_state("stopped")
         if audio_size < 1024:
-            self.status_label.setText(f"Enregistrement trop court ({self.elapsed_seconds}s)")
-            return
+            self.status_label.setText(
+                f"Enregistrement trop court ({self.elapsed_seconds}s)")
+            self.btn_analyze.setEnabled(False)
 
-        self.status_label.setText("Ouverture de l'analyse...")
+    def _on_analyze(self):
+        # Launch dictee-transcribe on the recorded audio, then close.
+        self.status_label.setText("Ouverture de l'analyse…")
 
         # Write speakers.json next to audio.wav so dictee-transcribe can
         # pre-fill the rename panel with live-session speaker names.
@@ -891,9 +1172,10 @@ class MeetingWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.btn_stop.isEnabled():
-            # Capture still running — stop it cleanly
+            # Capture still running (or paused) — stop it cleanly
             self._tick_timer.stop()
             if self.audio_worker:
+                self.audio_worker.resume()   # unfreeze if paused so stop() works
                 self.audio_worker.stop()
         # Reset state on window close (regardless of recording state)
         try:
@@ -920,7 +1202,7 @@ def main():
         sys.exit(1)
 
     app = QApplication(sys.argv)
-    win = MeetingWindow()
+    win = MeetingWindow()   # sets its own black/idle icon (red while recording)
     win.show()
     if args.start:
         win.start_meeting()
