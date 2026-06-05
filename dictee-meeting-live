@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
     QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
-    QLayout,
+    QLayout, QCheckBox,
 )
 
 
@@ -119,16 +119,20 @@ class AudioCaptureWorker(QThread):
 
     error = pyqtSignal(str)
 
-    def __init__(self, output_wav: Path, source: str = ""):
+    def __init__(self, output_wav: Path, source: str = "",
+                 include_mic: bool = False):
         super().__init__()
         self.output_wav = output_wav
         self.source = source or ""
+        self._include_mic = include_mic   # add mic to isolated app capture
         self.proc = None
         self._stop = False
         # mix lifecycle (populated by _setup_mix_sink, cleared by _teardown_mix)
         self._mix_modules = []      # null-sink + 2 loopback module ids
         self._mic_input_id = None   # sink-input id of the mic loopback
         self._sys_input_id = None   # sink-input id of the system loopback
+        self._appcap_proc = None    # dictee-app-capture subprocess (app sources)
+        self._appcap_sink = None    # its virtual sink name
 
     def run(self):
         try:
@@ -159,6 +163,7 @@ class AudioCaptureWorker(QThread):
             self.error.emit("pw-record not found. Is PipeWire installed?")
         finally:
             self._teardown_mix()
+            self._stop_app_capture()
 
     # ── source resolution ──────────────────────────────────────────────────
     def _resolve_target(self, source):
@@ -173,11 +178,46 @@ class AudioCaptureWorker(QThread):
         if not source:
             return "@DEFAULT_AUDIO_SOURCE@", False
         if source.startswith("app:"):
-            sink = self._app_sink(source[4:])
+            sink = self._start_app_capture(source[4:], self._include_mic)
             return (sink, True) if sink else ("@DEFAULT_AUDIO_SOURCE@", False)
         if source.endswith(".monitor"):
             return source[:-len(".monitor")], True   # tap that sink's monitor
         return source, False                         # microphone node.name
+
+    def _start_app_capture(self, name, include_mic=False):
+        """Spawn dictee-app-capture for app `name`; return its private sink
+        name once READY, else None (caller falls back to the default mic)."""
+        sink = f"dictee_cap_{os.getpid()}"
+        cmd = ["dictee-app-capture", "--sink-name", sink, "--match", name]
+        if include_mic:
+            cmd.append("--include-mic")
+        try:
+            self._appcap_proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except FileNotFoundError:
+            self.error.emit("dictee-app-capture not found")
+            return None
+        deadline = time.time() + 4
+        while time.time() < deadline:
+            line = self._appcap_proc.stdout.readline()
+            if line.startswith("READY"):
+                self._appcap_sink = sink
+                return sink
+            if self._appcap_proc.poll() is not None:
+                break
+        self._stop_app_capture()
+        self.error.emit("app capture failed to start")
+        return None
+
+    def _stop_app_capture(self):
+        if self._appcap_proc and self._appcap_proc.poll() is None:
+            self._appcap_proc.terminate()
+            try:
+                self._appcap_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._appcap_proc.kill()
+        self._appcap_proc = None
+        self._appcap_sink = None
 
     def _app_sink(self, name):
         """Resolve 'app:<name>' to the SINK node.name the app currently plays to.
@@ -318,6 +358,7 @@ class AudioCaptureWorker(QThread):
                 self.proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        self._stop_app_capture()
 
     def pause(self):
         # Freeze the WAV: SIGSTOP pw-record (it stops writing). SIGCONT resumes.
@@ -723,6 +764,7 @@ class MeetingWindow(QWidget):
         self.btn_analyze.setEnabled(analyze_on)
         # Source can't change mid-capture: only editable when idle/stopped.
         self.cmb_source.setEnabled(state in ("idle", "stopped"))
+        self.chk_include_mic.setEnabled(state in ("idle", "stopped"))
 
         self.status_label.setText({
             "idle": "Prêt à enregistrer",
@@ -797,6 +839,16 @@ class MeetingWindow(QWidget):
         self.cmb_source.currentIndexChanged.connect(self._on_source_changed)
         src_row.addWidget(self.cmb_source, 1)
         left_col.addLayout(src_row)
+
+        # "Add mic" toggle: when an app source is selected, also mix the
+        # microphone into the isolated app capture (passed to dictee-app-capture
+        # as --include-mic). Harmless for other sources.
+        self.chk_include_mic = QCheckBox("Ajouter le micro")
+        self.chk_include_mic.setChecked(self._meeting_include_mic())
+        self.chk_include_mic.toggled.connect(
+            lambda on: self._write_conf_key(
+                "DICTEE_MEETING_INCLUDE_MIC", "true" if on else "false"))
+        left_col.addWidget(self.chk_include_mic)
 
         btn_row = QHBoxLayout()
         self.btn_start = QPushButton("▶")
@@ -928,6 +980,18 @@ class MeetingWindow(QWidget):
             except OSError:
                 pass
         return "mix"
+
+    def _meeting_include_mic(self):
+        conf = Path.home() / ".config/dictee.conf"
+        if conf.is_file():
+            try:
+                for line in conf.read_text(encoding="utf-8").splitlines():
+                    s = line.strip()
+                    if s.startswith("DICTEE_MEETING_INCLUDE_MIC="):
+                        return s.split("=", 1)[1].strip().strip('"').strip("'").lower() in ("true", "1", "yes")
+            except OSError:
+                pass
+        return False
 
     def _populate_sources(self):
         """Fill the source combo from the single source of truth
@@ -1072,7 +1136,8 @@ class MeetingWindow(QWidget):
 
         # Audio capture — honor the selected meeting source (incl. 'mix')
         self.audio_worker = AudioCaptureWorker(self.audio_wav,
-                                               self._meeting_source())
+                                               self._meeting_source(),
+                                               self._meeting_include_mic())
         self.audio_worker.error.connect(self._on_error_msg)
         self.audio_worker.start()
 
