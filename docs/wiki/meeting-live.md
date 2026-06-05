@@ -30,6 +30,14 @@ Each meeting creates a folder:
 
 Transcripts, summaries and exports are produced by dictee-transcribe and saved there too.
 
+## Choosing the audio source
+
+By default a meeting records your microphone. You can also pick a different source for the meeting: another microphone, the system audio (everything you hear), or a single application.
+
+When you choose a single application (for example your browser or your meeting app), only that application's sound is recorded. You keep hearing it normally, and the recording keeps working even if you switch speakers or plug in headphones during the meeting. Other applications and your own microphone are left untouched.
+
+If you also want to record your own voice on top of the captured application or system audio, tick **Add microphone** in the meeting window.
+
 ## Live preview (optional)
 
 The capture window has a collapsible "Live preview" section. Expand it to see the transcript stream chunk-by-chunk (~40 s intervals) as you record. This is a preview — the real transcription + diarization is done by the dictation window that opens at Stop.

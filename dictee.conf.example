@@ -40,6 +40,20 @@ DICTEE_VOSK_MODEL=fr
 #DICTEE_AUDIO_SOURCE=
 
 # ============================================================================
+# Live meetings
+# ============================================================================
+
+# Audio source for live meetings: empty = default microphone, a microphone
+# device name, "<sink>.monitor" = system audio, "app:<name>" = capture ONE
+# application in isolation (e.g. app:firefox) without grabbing other apps or
+# disrupting playback, or "mix" = microphone + system audio.
+#DICTEE_MEETING_AUDIO_SOURCE=
+#
+# Add your microphone on top of the captured application/system audio
+# (the "Add microphone" checkbox in the meeting window). true or false.
+#DICTEE_MEETING_INCLUDE_MIC=false
+
+# ============================================================================
 # Translation
 # ============================================================================
 
