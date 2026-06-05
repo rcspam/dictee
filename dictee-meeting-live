@@ -911,6 +911,16 @@ class MeetingWindow(QWidget):
         self.slider_sys = self._build_level_slider("🔊")
         self.slider_mic["slider"].valueChanged.connect(self._on_mic_slider)
         self.slider_sys["slider"].valueChanged.connect(self._on_sys_slider)
+        # Debounce the (subprocess) volume application so dragging stays smooth:
+        # the label tracks live, pactl/wpctl runs only when the drag pauses.
+        self._mic_vol_timer = QTimer(self)
+        self._mic_vol_timer.setSingleShot(True)
+        self._mic_vol_timer.setInterval(60)
+        self._mic_vol_timer.timeout.connect(self._apply_mic_vol)
+        self._sys_vol_timer = QTimer(self)
+        self._sys_vol_timer.setSingleShot(True)
+        self._sys_vol_timer.setInterval(60)
+        self._sys_vol_timer.timeout.connect(self._apply_sys_vol)
         levels_layout.addLayout(self.slider_mic["col"])
         levels_layout.addLayout(self.slider_sys["col"])
         top_row.addWidget(levels_group)
@@ -1110,8 +1120,10 @@ class MeetingWindow(QWidget):
         self._refresh_meters()
 
     def _pactl_vol(self, args):
+        # Fire-and-forget so the GUI thread never blocks on the subprocess.
         try:
-            subprocess.run(["pactl", *args], timeout=2, capture_output=True)
+            subprocess.Popen(["pactl", *args],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
             pass
 
@@ -1140,16 +1152,24 @@ class MeetingWindow(QWidget):
         return None
 
     def _on_mic_slider(self, v):
+        # Live label only; the actual volume change is debounced (see __init__).
         self.slider_mic["label"].setText(f"{v}%")
+        self._mic_vol_timer.start()
+
+    def _on_sys_slider(self, v):
+        self.slider_sys["label"].setText(f"{v}%")
+        self._sys_vol_timer.start()
+
+    def _apply_mic_vol(self):
+        v = self.slider_mic["slider"].value()
         src = self.cmb_source.currentData() or ""
         if src == "mix" and self.audio_worker:
             self.audio_worker.set_mic_volume(v)
         else:
-            # mic flow = the default capture source
             self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
 
-    def _on_sys_slider(self, v):
-        self.slider_sys["label"].setText(f"{v}%")
+    def _apply_sys_vol(self):
+        v = self.slider_sys["slider"].value()
         src = self.cmb_source.currentData() or ""
         if src == "mix" and self.audio_worker:
             self.audio_worker.set_system_volume(v)
