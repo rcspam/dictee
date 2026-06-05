@@ -81,7 +81,8 @@ cargo build --release --no-default-features \
     --bin transcribe-diarize \
     --bin transcribe-stream-diarize \
     --bin transcribe-diarize-batch \
-    --bin diarize-only
+    --bin diarize-only \
+    --bin dictee-app-capture
 
 # Hard guard: only the load-dynamic CUDA build emits this provider lib.
 # Without it the binaries would silently fall back to CPU at runtime.
@@ -151,7 +152,8 @@ done
 # never invokes a CPU build).
 for bin in transcribe transcribe-daemon transcribe-client \
            transcribe-diarize transcribe-stream-diarize \
-           transcribe-diarize-batch diarize-only; do
+           transcribe-diarize-batch diarize-only \
+           dictee-app-capture; do
     cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
 done
 

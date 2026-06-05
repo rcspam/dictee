@@ -104,7 +104,8 @@ build_cuda() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -138,6 +139,7 @@ EOF
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp target/release/dictee-app-capture "$PKG_DIR/usr/bin/"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "=== Copying CUDA ONNX Runtime libs ==="
@@ -239,7 +241,8 @@ build_cpu() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -272,6 +275,7 @@ EOF
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp target/release/dictee-app-capture "$PKG_DIR/usr/bin/"
 
     chmod 755 "$PKG_DIR/usr/bin/"*
 

@@ -89,7 +89,8 @@ build() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # Compile locales from .po sources
     for lang in fr de es it pt uk; do
@@ -115,6 +116,7 @@ package() {
     install -Dm755 target/release/transcribe-stream-diarize "$pkgdir/usr/bin/transcribe-stream-diarize"
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
+    install -Dm755 target/release/dictee-app-capture "$pkgdir/usr/bin/dictee-app-capture"
 
     # Scripts
     install -Dm755 dictee "$pkgdir/usr/bin/dictee"
