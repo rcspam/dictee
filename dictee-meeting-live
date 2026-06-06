@@ -18,6 +18,7 @@ import shutil
 import signal
 import struct
 import sys
+import threading
 import time
 import argparse
 import subprocess
@@ -543,6 +544,10 @@ class DiarizationWorker(QObject):
     def __init__(self):
         super().__init__()
         self.proc = None
+        # One persistent stdin/stdout pipe shared by the executor's workers:
+        # serialize diarize() calls so two chunks can't interleave their
+        # request+response (which mis-attributes segments to the wrong chunk).
+        self._lock = threading.Lock()
 
     def start(self) -> bool:
         """Launch the subprocess. Returns True if ready, False on failure."""
@@ -579,9 +584,10 @@ class DiarizationWorker(QObject):
             self.error.emit(chunk_id, f"diarize-only exited with code {self.proc.returncode}")
             return
         try:
-            self.proc.stdin.write(f"FILE: {chunk_path}\n")
-            self.proc.stdin.flush()
-            self._collect_response(chunk_id)
+            with self._lock:
+                self.proc.stdin.write(f"FILE: {chunk_path}\n")
+                self.proc.stdin.flush()
+                self._collect_response(chunk_id)
         except BrokenPipeError:
             self.error.emit(chunk_id, "diarize-only stdin pipe broken")
 
@@ -753,6 +759,7 @@ class MeetingWindow(QWidget):
         self.audio_worker = None
         self._meter_mic = None       # LevelMeterWorker for the 🎤 flow
         self._meter_sys = None       # LevelMeterWorker for the 🔊 flow
+        self._orig_mic_vol = None    # @DEFAULT_SOURCE@ % to restore after a session
         self.meeting_dir = None
         self.audio_wav = None
         self.transcript_path = None
@@ -1164,30 +1171,6 @@ class MeetingWindow(QWidget):
         except Exception:
             pass
 
-    def _app_sink_input(self, name):
-        """Return the pactl sink-input index of app `name` (None if absent).
-        pactl output is localized → LC_ALL=C."""
-        env = dict(os.environ, LC_ALL="C")
-        try:
-            out = subprocess.check_output(
-                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
-        except Exception:
-            return None
-        cur = None
-        blocks = []
-        for line in out.splitlines():
-            s = line.strip()
-            if s.startswith("Sink Input #"):
-                cur = {"id": s.split("#", 1)[1].strip(), "app": None}
-                blocks.append(cur)
-            elif cur is not None and s.startswith("application.name = "):
-                cur["app"] = s.split("=", 1)[1].strip().strip('"')
-        for b in blocks:
-            app = (b["app"] or "").lower().split()
-            if app and app[0] == name:
-                return b["id"]
-        return None
-
     def _on_mic_slider(self, v):
         # Live label only; the actual volume change is debounced (see __init__).
         self.slider_mic["label"].setText(f"{v}%")
@@ -1201,9 +1184,31 @@ class MeetingWindow(QWidget):
         v = self.slider_mic["slider"].value()
         src = self.cmb_source.currentData() or ""
         if src == "mix" and self.audio_worker:
-            self.audio_worker.set_mic_volume(v)
+            self.audio_worker.set_mic_volume(v)        # capture-only (loopback)
         else:
+            # Non-mix mic flow changes the GLOBAL @DEFAULT_SOURCE@ gain — snapshot
+            # the original so it can be restored when the meeting ends.
+            self._snapshot_mic_vol()
             self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
+
+    def _snapshot_mic_vol(self):
+        if self._orig_mic_vol is not None:
+            return
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-source-volume", "@DEFAULT_SOURCE@"],
+                text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
+            mobj = re.search(r"(\d+)%", out)
+            if mobj:
+                self._orig_mic_vol = mobj.group(1)
+        except Exception:
+            pass
+
+    def _restore_mic_vol(self):
+        if self._orig_mic_vol is not None:
+            self._pactl_vol(
+                ["set-source-volume", "@DEFAULT_SOURCE@", f"{self._orig_mic_vol}%"])
+            self._orig_mic_vol = None
 
     def _apply_sys_vol(self):
         v = self.slider_sys["slider"].value()
@@ -1234,40 +1239,6 @@ class MeetingWindow(QWidget):
         self._refresh_meters()
 
     # ── Live VU meters (one parec reader per active flow) ───────────────────
-    def _app_sink_name(self, name):
-        """Sink node.name that app `name` plays to (None if absent). LC_ALL=C."""
-        env = dict(os.environ, LC_ALL="C")
-        try:
-            si = subprocess.check_output(
-                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
-        except Exception:
-            return None
-        cur, blocks = None, []
-        for line in si.splitlines():
-            s = line.strip()
-            if s.startswith("Sink Input #"):
-                cur = {"sink": None, "app": None}
-                blocks.append(cur)
-            elif cur is not None and s.startswith("Sink:"):
-                cur["sink"] = s.split(":", 1)[1].strip()
-            elif cur is not None and s.startswith("application.name = "):
-                cur["app"] = s.split("=", 1)[1].strip().strip('"')
-        idx = next((b["sink"] for b in blocks
-                    if (b["app"] or "").lower().split()[:1] == [name] and b["sink"]),
-                   None)
-        if not idx:
-            return None
-        try:
-            short = subprocess.check_output(
-                ["pactl", "list", "short", "sinks"], text=True, env=env, timeout=3)
-        except Exception:
-            return None
-        for line in short.splitlines():
-            parts = line.split("\t")
-            if len(parts) >= 2 and parts[0] == idx:
-                return parts[1]
-        return None
-
     def _sys_meter_device(self):
         """parec --device for the 🔊 flow: the monitor of the captured sink.
         mix/system → default sink monitor; app: → the app's sink monitor;
@@ -1671,6 +1642,7 @@ class MeetingWindow(QWidget):
             self.diarizer.stop()
         if hasattr(self, "_executor") and self._executor:
             self._executor.shutdown(wait=False)
+        self._restore_mic_vol()
 
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
@@ -1768,6 +1740,7 @@ class MeetingWindow(QWidget):
                 self.diarizer.stop()
             if getattr(self, "_executor", None):
                 self._executor.shutdown(wait=False)
+        self._restore_mic_vol()
         # Reset state on window close (regardless of recording state)
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
