@@ -1178,9 +1178,11 @@ class MeetingWindow(QWidget):
         if src == "mix" and self.audio_worker:
             self.audio_worker.set_system_volume(v)
         elif src.startswith("app:"):
-            sid = self._app_sink_input(src[4:])
-            if sid:
-                self._pactl_vol(["set-sink-input-volume", sid, f"{v}%"])
+            # capture-only: attenuate the private isolated capture sink (does
+            # NOT touch the app's real playback). Only meaningful while recording.
+            if self.audio_worker and self.audio_worker._appcap_sink:
+                self._pactl_vol(
+                    ["set-sink-volume", self.audio_worker._appcap_sink, f"{v}%"])
         elif src.endswith(".monitor"):
             self._pactl_vol(
                 ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
@@ -1234,8 +1236,13 @@ class MeetingWindow(QWidget):
         if src.endswith(".monitor"):
             return src
         if src.startswith("app:"):
-            sink = self._app_sink_name(src[4:])
-            return f"{sink}.monitor" if sink else None
+            # Meter ONLY the isolated capture (the private dictee-app-capture
+            # null-sink that holds just this app) — NOT the whole device sink,
+            # so other apps playing don't move the meter. It exists only while
+            # recording; before that there is nothing to isolate → no meter.
+            if self.audio_worker and self.audio_worker._appcap_sink:
+                return f"{self.audio_worker._appcap_sink}.monitor"
+            return None
         try:
             sink = subprocess.check_output(
                 ["pactl", "get-default-sink"], text=True, timeout=3).strip()
@@ -1424,7 +1431,10 @@ class MeetingWindow(QWidget):
         # sink-inputs exist (they take ~1 s to appear in the null-sink).
         if self._meeting_source() == "mix":
             QTimer.singleShot(1500, self._apply_mix_levels)
-        # VU meters already run live (started on show / source change).
+        # Re-point the meters once the capture is up: for an app source the 🔊
+        # meter must read the private isolated sink (created by dictee-app-capture),
+        # not the whole device sink.
+        QTimer.singleShot(1800, self._refresh_meters)
 
         # Read chunk duration from conf (default 40s, range 20-60)
         chunk_duration = 40
@@ -1607,6 +1617,7 @@ class MeetingWindow(QWidget):
             self.audio_worker.resume()   # ensure not paused so stop() is clean
             self.audio_worker.stop()
             self.audio_worker = None
+        self._refresh_meters()           # private app sink gone → re-resolve meters
 
         if hasattr(self, "chunker") and self.chunker:
             self.chunker.stop()
