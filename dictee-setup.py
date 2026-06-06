@@ -5287,6 +5287,15 @@ class DicteeSetupDialog(QDialog):
         self._conf_resync_timer.setInterval(200)
         self._conf_resync_timer.timeout.connect(self._resync_external_toggles)
 
+        # In settings mode the UI was just loaded from the existing dictee.conf,
+        # so nothing is unsaved yet — clear the initial _dirty=True. Otherwise
+        # the first OK always re-ran _on_apply and popped the "Configuration
+        # saved" dialog even when the user changed nothing. Real edits set
+        # _dirty again via _mark_dirty. (Wizard/first-run keeps _dirty=True so
+        # Finish writes the defaults.)
+        if not self.wizard_mode:
+            self._dirty = False
+
     def showEvent(self, event):
         super().showEvent(event)
         _dbg_setup(f"showEvent: wizard_mode={self.wizard_mode}")
