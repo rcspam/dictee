@@ -6568,21 +6568,11 @@ class DicteeSetupDialog(QDialog):
         self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nav.addWidget(self.lbl_step, 1)
 
-        # Quick install — visible only on page 0 (welcome). Applies the
-        # recommended setup WITHOUT translation backend (lighter, no Docker
-        # image to download). Right next to the primary "Start configuration"
-        # button so users see both choices on the same line.
-        self.btn_quick_install = QPushButton("🚀 " + _("Quick install\n(no translation)"))
-        self.btn_quick_install.setToolTip(_(
-            "One-click setup: ASR + tray + shortcut, no translation. "
-            "You can enable translation later from the setup."))
-        self.btn_quick_install.setStyleSheet(
-            "QPushButton { padding: 10px 22px; font-weight: bold; "
-            "background: palette(button); color: palette(button-text); "
-            "border: 1px solid palette(mid); border-radius: 4px; }"
-            "QPushButton:hover { background: palette(midlight); }")
-        self.btn_quick_install.clicked.connect(self._on_quick_install_clicked)
-        nav.addWidget(self.btn_quick_install)
+        # Quick install button removed from the welcome page: the wizard's
+        # download step (page 2) blocks until the model is fetched, so routing
+        # everyone through the full flow guarantees the recommended model is
+        # always installed. The backend (_on_quick_install_clicked /
+        # _apply_recommended_setup) is kept so a one-click path can be re-exposed.
 
         self.btn_next = QPushButton(_("Next"))
         self.btn_next.clicked.connect(self._wizard_next)
@@ -6603,9 +6593,6 @@ class DicteeSetupDialog(QDialog):
         # Hide Previous on welcome page (no prior step). Enabled state was
         # confusing — showing a permanently-disabled button on page 0.
         self.btn_prev.setVisible(idx > 0)
-        # Quick install button: only on welcome page (page 0).
-        if hasattr(self, 'btn_quick_install'):
-            self.btn_quick_install.setVisible(idx == 0)
         if idx == 0:
             self.lbl_step.setText("")
         else:
