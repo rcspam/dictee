@@ -275,7 +275,7 @@ Group:          Applications/Multimedia
 Requires:       python3
 Requires:       python3-pip
 Requires:       pulseaudio-utils
-Requires:       (pipewire or alsa-utils)
+Requires:       pipewire
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
@@ -501,7 +501,7 @@ Group:          Applications/Multimedia
 
 Requires:       python3
 Requires:       pulseaudio-utils
-Requires:       (pipewire or alsa-utils)
+Requires:       pipewire
 Requires:       libnotify
 Requires:       (python3-pyqt6 or python3-qt6-PyQt6)
 Requires:       sox
