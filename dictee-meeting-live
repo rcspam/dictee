@@ -760,6 +760,12 @@ class MeetingWindow(QWidget):
         self._meter_mic = None       # LevelMeterWorker for the 🎤 flow
         self._meter_sys = None       # LevelMeterWorker for the 🔊 flow
         self._orig_mic_vol = None    # @DEFAULT_SOURCE@ % to restore after a session
+        # Dedicated dictee-app-capture for an app source's ISOLATED 🔊 meter
+        # preview (before recording) — so the meter shows only that app.
+        self._preview_proc = None    # QProcess
+        self._preview_app = None
+        self._preview_sink = None
+        self._preview_ready = False
         self.meeting_dir = None
         self.audio_wav = None
         self.transcript_path = None
@@ -1247,14 +1253,12 @@ class MeetingWindow(QWidget):
         if src.endswith(".monitor"):
             return src
         if src.startswith("app:"):
-            # While recording: meter ONLY the isolated capture (the private
-            # dictee-app-capture sink holding just this app), so other apps don't
-            # move it. Before recording the isolated sink doesn't exist yet —
-            # fall through to a live PREVIEW on the default sink monitor (system
-            # output, NOT the mic) so the user sees the app's audio activity.
+            # ALWAYS isolated: while recording, the worker's private sink; before
+            # recording, a dedicated preview sink (handled by _ensure_preview_appcap,
+            # not here). Never the whole device sink, so other apps never move it.
             if self.audio_worker and self.audio_worker._appcap_sink:
                 return f"{self.audio_worker._appcap_sink}.monitor"
-            # else: fall through to the default-sink monitor preview below
+            return None
         try:
             sink = subprocess.check_output(
                 ["pactl", "get-default-sink"], text=True, timeout=3).strip()
@@ -1279,6 +1283,7 @@ class MeetingWindow(QWidget):
         window is visible, so the VU bars move even before recording."""
         self._stop_meters()
         if not self.isVisible():
+            self._stop_preview_appcap()
             return
         mic_on, sys_on = self._active_flows()
         if mic_on:
@@ -1286,15 +1291,68 @@ class MeetingWindow(QWidget):
             self._meter_mic.level.connect(self._on_mic_level)
             self._meter_mic.start()
         if sys_on:
-            dev = self._sys_meter_device()
-            # IMPORTANT: a None device would make parec record the DEFAULT
-            # SOURCE (the microphone) — so for the 🔊 flow we only start a meter
-            # when we have a real sink/monitor to read (e.g. an app source has
-            # no isolated sink until recording starts).
-            if dev:
-                self._meter_sys = LevelMeterWorker(dev)
-                self._meter_sys.level.connect(self._on_sys_level)
-                self._meter_sys.start()
+            src = self.cmb_source.currentData() or ""
+            recording = bool(self.audio_worker and self.audio_worker._appcap_sink)
+            if src.startswith("app:") and not recording:
+                # Isolated preview: run a dedicated dictee-app-capture for this
+                # app so the 🔊 meter shows ONLY it (not every app on the sink).
+                self._ensure_preview_appcap(src[4:])
+            else:
+                self._stop_preview_appcap()
+                dev = self._sys_meter_device()
+                # None would make parec read the DEFAULT SOURCE (the mic) — only
+                # start when a real sink/monitor is resolved.
+                if dev:
+                    self._start_sys_meter_on(dev)
+
+    def _start_sys_meter_on(self, device):
+        if self._meter_sys:
+            return
+        self._meter_sys = LevelMeterWorker(device)
+        self._meter_sys.level.connect(self._on_sys_level)
+        self._meter_sys.start()
+
+    def _ensure_preview_appcap(self, name):
+        """Keep a dedicated dictee-app-capture running for app `name` and meter
+        its private sink — the isolated 🔊 preview before recording."""
+        if self._preview_app == name and self._preview_proc is not None:
+            if self._preview_ready:
+                self._start_sys_meter_on(f"{self._preview_sink}.monitor")
+            return
+        self._stop_preview_appcap()
+        if shutil.which("dictee-app-capture") is None:
+            return
+        from PyQt6.QtCore import QProcess
+        self._preview_app = name
+        self._preview_sink = f"dictee_cap_prev_{os.getpid()}"
+        self._preview_ready = False
+        self._preview_proc = QProcess(self)
+        self._preview_proc.readyReadStandardOutput.connect(self._on_preview_output)
+        self._preview_proc.start(
+            "dictee-app-capture", ["--sink-name", self._preview_sink, "--match", name])
+
+    def _on_preview_output(self):
+        if not self._preview_proc:
+            return
+        out = bytes(self._preview_proc.readAllStandardOutput()).decode("utf-8", "replace")
+        if "READY" in out and not self._preview_ready:
+            self._preview_ready = True
+            self._start_sys_meter_on(f"{self._preview_sink}.monitor")
+
+    def _stop_preview_appcap(self):
+        if self._preview_proc is not None:
+            try:
+                self._preview_proc.readyReadStandardOutput.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            self._preview_proc.terminate()
+            if not self._preview_proc.waitForFinished(1000):
+                self._preview_proc.kill()
+                self._preview_proc.waitForFinished(500)
+            self._preview_proc = None
+        self._preview_app = None
+        self._preview_sink = None
+        self._preview_ready = False
 
     def _stop_meters(self):
         for attr in ("_meter_mic", "_meter_sys"):
@@ -1312,6 +1370,7 @@ class MeetingWindow(QWidget):
     def hideEvent(self, e):
         super().hideEvent(e)
         self._stop_meters()
+        self._stop_preview_appcap()
 
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
@@ -1726,6 +1785,7 @@ class MeetingWindow(QWidget):
 
     def closeEvent(self, event):
         self._stop_meters()
+        self._stop_preview_appcap()
         if self.btn_stop.isEnabled():
             # Capture still running (or paused) — stop it cleanly
             self._tick_timer.stop()
