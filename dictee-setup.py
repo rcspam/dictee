@@ -5400,6 +5400,18 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, "_refresh_pp_diagrams"):
             self._refresh_pp_diagrams()
 
+        # Keep the F9 dictation source combo in sync with DICTEE_AUDIO_SOURCE —
+        # the plasmoid writes the same key, so when it changes the source there,
+        # reflect it here too (and vice-versa via the plasmoid's config poll).
+        if hasattr(self, "cmb_audio_source"):
+            src = fresh.get("DICTEE_AUDIO_SOURCE", "") or ""
+            if self.cmb_audio_source.currentData() != src:
+                idx = self.cmb_audio_source.findData(src)
+                if idx >= 0:
+                    self.cmb_audio_source.blockSignals(True)
+                    self.cmb_audio_source.setCurrentIndex(idx)
+                    self.cmb_audio_source.blockSignals(False)
+
     @property
     def _pp_parent(self):
         """Returns parent window for post-processing popups."""
