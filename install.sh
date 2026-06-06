@@ -648,7 +648,7 @@ package manager BEFORE running dictee-setup (names vary by distro):
 
   • python3 (≥3.10), python3-pip, python3-venv
   • python3-evdev, python3-pyqt6 (+ qtmultimedia + qtsvg), python3-numpy
-  • pulseaudio-utils, pipewire (or alsa-utils), libnotify(-bin), sox
+  • pulseaudio-utils, pipewire, libnotify(-bin), sox
   • wl-clipboard (Wayland), xclip (X11)
   • translate-shell, curl
 
