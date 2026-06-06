@@ -546,13 +546,14 @@ mode_online() {
             fi
         fi
 
-        info "Cloning the dictee repository (master)..."
-        # Always clone master for Arch: PKGBUILD packaging fixes (orphan
-        # cleanup, dependency tweaks, .install hooks) must ship without a
-        # full version bump. The actual binary version is pinned in
-        # Cargo.toml on master, which makepkg picks up automatically.
-        # Other distros use the .deb / .rpm assets from the release tag.
-        git clone --depth 1 "https://github.com/${REPO}.git" dictee-src
+        info "Cloning the dictee repository (release/1.3)..."
+        # Clone the matching release branch for Arch (not master): makepkg
+        # then builds THIS release's PKGBUILD, whose source= fetches the
+        # release's version tag archive (v1.3.5). PKGBUILD packaging fixes
+        # still ship without a binary version bump — the tag archive is the
+        # frozen binary source. The 1.4 line ships its own install.sh that
+        # clones master.
+        git clone --depth 1 --branch release/1.3 "https://github.com/${REPO}.git" dictee-src
         cd dictee-src
 
         info "Building via makepkg (this will compile from source)..."
