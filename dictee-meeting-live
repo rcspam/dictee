@@ -987,46 +987,37 @@ class MeetingWindow(QWidget):
         self._update_level_sliders()   # set initial enabled/greyed state
 
     def _build_level_slider(self, emoji):
-        """Volume slider with the live VU meter ON the same bar (plasmoid look):
-        a vertical QProgressBar (the meter, green→red gradient) in the back, a
-        vertical QSlider on top with a transparent groove so its handle slides
-        over the meter. Enabled/greyed per source by _update_level_sliders."""
-        from PyQt6.QtWidgets import QGridLayout
+        """A native QSlider (volume) next to a vertical QProgressBar (live VU
+        meter) + % label. Enabled/greyed per source by _update_level_sliders."""
         col = QVBoxLayout()
         top = QLabel(emoji)
         top.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         col.addWidget(top)
 
-        stack = QWidget()
-        stack.setFixedWidth(22)
-        stack.setMinimumHeight(130)
-        grid = QGridLayout(stack)
-        grid.setContentsMargins(0, 0, 0, 0)
-
+        row = QHBoxLayout()
+        row.setSpacing(3)
+        slider = QSlider(Qt.Orientation.Vertical)
+        slider.setRange(0, 100)
+        slider.setValue(70)
+        slider.setMinimumHeight(130)
         meter = QProgressBar()
         meter.setOrientation(Qt.Orientation.Vertical)
         meter.setRange(0, 100)
         meter.setValue(0)
         meter.setTextVisible(False)
+        meter.setFixedWidth(10)
+        meter.setMinimumHeight(130)
+        # green → yellow → red gradient, bottom-to-top
         meter.setStyleSheet(
             "QProgressBar { background: palette(base); border: 1px solid "
-            "palette(mid); border-radius: 4px; }"
-            "QProgressBar::chunk { border-radius: 4px; background: "
+            "palette(mid); border-radius: 3px; }"
+            "QProgressBar::chunk { border-radius: 3px; background: "
             "qlineargradient(x1:0, y1:1, x2:0, y2:0, stop:0 #2ecc71, "
             "stop:0.6 #f1c40f, stop:0.85 #e67e22, stop:1 #e74c3c); }"
         )
-        slider = QSlider(Qt.Orientation.Vertical)
-        slider.setRange(0, 100)
-        slider.setValue(70)
-        slider.setStyleSheet(
-            "QSlider::groove:vertical { background: transparent; width: 18px; }"
-            "QSlider::handle:vertical { height: 5px; margin: 0 -4px; "
-            "border-radius: 3px; background: rgba(245,245,245,0.95); "
-            "border: 1px solid #444; }"
-        )
-        grid.addWidget(meter, 0, 0)      # back
-        grid.addWidget(slider, 0, 0)     # front (transparent groove → meter shows)
-        col.addWidget(stack, 1, Qt.AlignmentFlag.AlignHCenter)
+        row.addWidget(slider, 0, Qt.AlignmentFlag.AlignHCenter)
+        row.addWidget(meter, 0, Qt.AlignmentFlag.AlignHCenter)
+        col.addLayout(row, 1)
 
         pct = QLabel("—")
         pct.setEnabled(False)
