@@ -1247,13 +1247,14 @@ class MeetingWindow(QWidget):
         if src.endswith(".monitor"):
             return src
         if src.startswith("app:"):
-            # Meter ONLY the isolated capture (the private dictee-app-capture
-            # null-sink that holds just this app) — NOT the whole device sink,
-            # so other apps playing don't move the meter. It exists only while
-            # recording; before that there is nothing to isolate → no meter.
+            # While recording: meter ONLY the isolated capture (the private
+            # dictee-app-capture sink holding just this app), so other apps don't
+            # move it. Before recording the isolated sink doesn't exist yet —
+            # fall through to a live PREVIEW on the default sink monitor (system
+            # output, NOT the mic) so the user sees the app's audio activity.
             if self.audio_worker and self.audio_worker._appcap_sink:
                 return f"{self.audio_worker._appcap_sink}.monitor"
-            return None
+            # else: fall through to the default-sink monitor preview below
         try:
             sink = subprocess.check_output(
                 ["pactl", "get-default-sink"], text=True, timeout=3).strip()
