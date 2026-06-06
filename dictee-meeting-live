@@ -1291,9 +1291,15 @@ class MeetingWindow(QWidget):
             self._meter_mic.level.connect(self._on_mic_level)
             self._meter_mic.start()
         if sys_on:
-            self._meter_sys = LevelMeterWorker(self._sys_meter_device())
-            self._meter_sys.level.connect(self._on_sys_level)
-            self._meter_sys.start()
+            dev = self._sys_meter_device()
+            # IMPORTANT: a None device would make parec record the DEFAULT
+            # SOURCE (the microphone) — so for the 🔊 flow we only start a meter
+            # when we have a real sink/monitor to read (e.g. an app source has
+            # no isolated sink until recording starts).
+            if dev:
+                self._meter_sys = LevelMeterWorker(dev)
+                self._meter_sys.level.connect(self._on_sys_level)
+                self._meter_sys.start()
 
     def _stop_meters(self):
         for attr in ("_meter_mic", "_meter_sys"):
