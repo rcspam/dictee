@@ -38,6 +38,11 @@ for n in nodes:
         print(nn + '|audio-speakers|Monitor: ' + p.get('node.description', nn))
     elif mc == 'Stream/Output/Audio':
         a = p.get('application.name', '?')
+        # An empty/whitespace application.name would make a.split()[0] raise
+        # IndexError below — which aborts this whole loop and truncates the
+        # entire source list. Skip such streams (nothing to match on).
+        if not a.strip():
+            continue
         m = p.get('media.name', '')
         # Find matching icon
         icon = 'applications-multimedia'

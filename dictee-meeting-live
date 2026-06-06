@@ -121,6 +121,8 @@ class AudioCaptureWorker(QThread):
     """
 
     error = pyqtSignal(str)
+    ready = pyqtSignal()   # emitted (worker thread) once the source is resolved
+                           #   and _appcap_sink / mix sink-input ids are set
 
     def __init__(self, output_wav: Path, source: str = "",
                  include_mic: bool = False):
@@ -145,6 +147,14 @@ class AudioCaptureWorker(QThread):
             self._teardown_mix()
             self._stop_app_capture()
             return
+        if target is None:
+            # App capture failed — do NOT record anything (never the mic).
+            self._teardown_mix()
+            self._stop_app_capture()
+            return
+        # Source resolved: _appcap_sink / mix sink-input ids are now set, so the
+        # GUI can safely point meters + apply mix volumes (no fixed-delay guess).
+        self.ready.emit()
         cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1"]
         if capture_sink:
             # Capturing a sink's monitor (system audio / an app / the mix
@@ -183,7 +193,10 @@ class AudioCaptureWorker(QThread):
             return "@DEFAULT_AUDIO_SOURCE@", False
         if source.startswith("app:"):
             sink = self._start_app_capture(source[4:], self._include_mic)
-            return (sink, True) if sink else ("@DEFAULT_AUDIO_SOURCE@", False)
+            # NEVER fall back to the mic for an app source — that would silently
+            # record the wrong thing. None → run() aborts (the error was already
+            # emitted by _start_app_capture).
+            return (sink, True) if sink else (None, False)
         if source.endswith(".monitor"):
             return source[:-len(".monitor")], True   # tap that sink's monitor
         return source, False                         # microphone node.name
@@ -331,6 +344,7 @@ class AudioCaptureWorker(QThread):
             except subprocess.TimeoutExpired:
                 self.proc.kill()
         self._stop_app_capture()
+        self.wait(5000)   # join the QThread so run()'s teardown is done
 
     def pause(self):
         # Freeze the WAV: SIGSTOP pw-record (it stops writing). SIGCONT resumes.
@@ -395,6 +409,7 @@ class LevelMeterWorker(QThread):
                 self.proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
+        self.wait(2500)   # join the QThread (terminate closed the pipe → run() exits)
 
 
 class ChunkerWorker(QThread):
@@ -464,6 +479,7 @@ class ChunkerWorker(QThread):
 
     def stop(self):
         self._stop = True
+        self.wait(3000)   # join the QThread (run() checks _stop within ~1 s)
 
 
 class TranscriptionWorker(QObject):
@@ -1210,6 +1226,13 @@ class MeetingWindow(QWidget):
             self.audio_worker.set_mic_volume(self.slider_mic["slider"].value())
             self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
 
+    def _on_capture_ready(self):
+        """Capture resolved (worker signal): apply mix levels + re-point meters
+        (for an app source the 🔊 meter now reads the private isolated sink)."""
+        if (self.cmb_source.currentData() or "") == "mix":
+            self._apply_mix_levels()
+        self._refresh_meters()
+
     # ── Live VU meters (one parec reader per active flow) ───────────────────
     def _app_sink_name(self, name):
         """Sink node.name that app `name` plays to (None if absent). LC_ALL=C."""
@@ -1400,12 +1423,18 @@ class MeetingWindow(QWidget):
             pass
 
     def start_meeting(self):
+        # Re-entrancy guard: never start a second capture over a live one
+        # (would orphan the previous worker/chunker/diarizer/executor).
+        if self._state in ("recording", "paused") or self.audio_worker:
+            return
         # Guard rail: an "app:" source needs the dictee-app-capture helper.
         # If it's missing (not installed / not in PATH), refuse to start with a
         # clear message instead of silently recording the microphone in place of
         # the chosen application (which looks like it "works" but captures the
         # wrong source).
-        source = self._meeting_source()
+        # Single source of truth = the combo the user sees (not the conf, which
+        # can name a source that vanished from the rescanned list).
+        source = self.cmb_source.currentData() or ""
         if source.startswith("app:") and shutil.which("dictee-app-capture") is None:
             QMessageBox.critical(
                 self,
@@ -1444,20 +1473,14 @@ class MeetingWindow(QWidget):
         self.speakers_seen = set()
 
         # Audio capture — honor the selected meeting source (incl. 'mix')
-        self.audio_worker = AudioCaptureWorker(self.audio_wav,
-                                               self._meeting_source(),
-                                               self._meeting_include_mic())
+        self.audio_worker = AudioCaptureWorker(self.audio_wav, source,
+                                               self.chk_include_mic.isChecked())
         self.audio_worker.error.connect(self._on_error_msg)
+        # When the capture is actually resolved (mix inputs / app private sink
+        # ready), apply mix levels and re-point the meters — driven by the
+        # worker's signal, not a fixed-delay guess that races on slow systems.
+        self.audio_worker.ready.connect(self._on_capture_ready)
         self.audio_worker.start()
-
-        # For 'mix', apply the current 🎤/🔊 slider levels once the loopback
-        # sink-inputs exist (they take ~1 s to appear in the null-sink).
-        if self._meeting_source() == "mix":
-            QTimer.singleShot(1500, self._apply_mix_levels)
-        # Re-point the meters once the capture is up: for an app source the 🔊
-        # meter must read the private isolated sink (created by dictee-app-capture),
-        # not the whole device sink.
-        QTimer.singleShot(1800, self._refresh_meters)
 
         # Read chunk duration from conf (default 40s, range 20-60)
         chunk_duration = 40
@@ -1736,6 +1759,15 @@ class MeetingWindow(QWidget):
             if self.audio_worker:
                 self.audio_worker.resume()   # unfreeze if paused so stop() works
                 self.audio_worker.stop()
+                self.audio_worker = None
+            # Also tear down the analysis pipeline (else diarize-only --stream,
+            # a model subprocess possibly holding VRAM, is orphaned on close).
+            if getattr(self, "chunker", None):
+                self.chunker.stop()
+            if getattr(self, "diarizer", None):
+                self.diarizer.stop()
+            if getattr(self, "_executor", None):
+                self._executor.shutdown(wait=False)
         # Reset state on window close (regardless of recording state)
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
