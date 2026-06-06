@@ -1015,6 +1015,7 @@ class MeetingWindow(QWidget):
             "qlineargradient(x1:0, y1:1, x2:0, y2:0, stop:0 #2ecc71, "
             "stop:0.6 #f1c40f, stop:0.85 #e67e22, stop:1 #e74c3c); }"
         )
+        slider.setFixedWidth(20)
         row.addWidget(slider, 0, Qt.AlignmentFlag.AlignHCenter)
         row.addWidget(meter, 0, Qt.AlignmentFlag.AlignHCenter)
         col.addLayout(row, 1)
@@ -1022,6 +1023,9 @@ class MeetingWindow(QWidget):
         pct = QLabel("—")
         pct.setEnabled(False)
         pct.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        # Fixed width so the "70%"→"100%"→"5%" text changes during a drag don't
+        # reflow the column (which made the Niveaux pad jitter horizontally).
+        pct.setFixedWidth(48)
         col.addWidget(pct)
         return {"col": col, "slider": slider, "meter": meter, "label": pct}
 
