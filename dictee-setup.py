@@ -3063,7 +3063,8 @@ class TestTranslateThread(QThread):
             if os.path.exists(sock):
                 self._daemon_socket = sock
                 return sock
-            if self._daemon_proc.poll() is not None:
+            _proc = self._daemon_proc
+            if _proc is None or _proc.poll() is not None:
                 return None
             if self._stopped:
                 self._stop_ad_hoc_daemon()
@@ -3379,7 +3380,8 @@ class TestDicteeThread(QThread):
             if os.path.exists(sock):
                 self._daemon_socket = sock
                 return sock
-            if self._daemon_proc.poll() is not None:
+            _proc = self._daemon_proc
+            if _proc is None or _proc.poll() is not None:
                 # Daemon died early
                 return None
             if self._stopped:
