@@ -14868,6 +14868,17 @@ class DicteeSetupDialog(QDialog):
         lay_mic.addWidget(QLabel(_("Audio source:")))
         lay_mic.addLayout(lay_src)
 
+        # Hide permanently-silent noise streams (speech-dispatcher…) from the
+        # application list. Shared with the meeting window + plasmoid via
+        # DICTEE_FILTER_NOISE_SOURCES in dictee.conf.
+        self.chk_filter_noise = QCheckBox(
+            _("Hide silent helper streams (speech-dispatcher…)"))
+        self.chk_filter_noise.setChecked(
+            (conf.get("DICTEE_FILTER_NOISE_SOURCES", "true") or "true").lower()
+            != "false")
+        self.chk_filter_noise.toggled.connect(self._on_filter_noise_toggled)
+        lay_mic.addWidget(self.chk_filter_noise)
+
         # Volume slider
         lay_vol = QHBoxLayout()
         lay_vol.setSpacing(8)
@@ -15310,6 +15321,12 @@ class DicteeSetupDialog(QDialog):
 
     def _populate_audio_sources(self):
         """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
+        # Filter permanently-silent noise streams (speech-dispatcher…)?
+        if hasattr(self, "chk_filter_noise"):
+            filter_noise = self.chk_filter_noise.isChecked()
+        else:
+            filter_noise = (self.conf.get("DICTEE_FILTER_NOISE_SOURCES", "true")
+                            or "true").lower() != "false"
         # ── Devices (microphones) ──
         for dev in self._audio_devices:
             self.cmb_audio_source.addItem(
@@ -15335,9 +15352,22 @@ class DicteeSetupDialog(QDialog):
                 # Applications playing audio
                 elif media_class == "Stream/Output/Audio":
                     app = props.get("application.name", "?")
-                    media = props.get("media.name", "")
-                    label = f"📺 {app}"
-                    if media and media != app:
+                    binary = (props.get("application.process.binary") or "").lower()
+                    if filter_noise and any(
+                            x in app.lower() or x in binary
+                            for x in ("sd_dummy", "speech-dispatcher")):
+                        continue
+                    media = props.get("media.name", "") or ""
+                    app_id = props.get("application.id", "") or ""
+                    # Friendlier base for generic process names (KDE plasmoids).
+                    base = app
+                    if app.lower() == "plasmashell" or app_id.startswith("org.kde.plasma"):
+                        base = "Plasma (widget)"
+                    label = f"📺 {base}"
+                    junk = ("qtmpulsestream", "playback", "audio-stream",
+                            "audiostream", "recording", "capture")
+                    if (media and media != app
+                            and not any(media.lower().startswith(j) for j in junk)):
                         # Truncate long media names
                         if len(media) > 50:
                             media = media[:47] + "..."
@@ -15363,6 +15393,36 @@ class DicteeSetupDialog(QDialog):
         # User-driven refresh counts as a populated state — prevents the
         # deferred _ensure_audio_populated() from re-adding entries.
         self._audio_populated = True
+
+    def _on_filter_noise_toggled(self, checked):
+        self._write_conf_key("DICTEE_FILTER_NOISE_SOURCES",
+                             "true" if checked else "false")
+        self._refresh_audio_sources()
+
+    def _write_conf_key(self, key, value):
+        """Replace-or-append a single key in ~/.config/dictee.conf (no dup line).
+        save_config preserves keys it doesn't manage, so this survives a Save."""
+        conf_path = os.path.join(os.path.expanduser("~"), ".config", "dictee.conf")
+        lines = []
+        try:
+            if os.path.isfile(conf_path):
+                with open(conf_path, encoding="utf-8") as fh:
+                    lines = fh.read().splitlines()
+        except OSError:
+            return
+        prefix = key + "="
+        for i, line in enumerate(lines):
+            if line.strip().startswith(prefix):
+                lines[i] = prefix + value
+                break
+        else:
+            lines.append(prefix + value)
+        try:
+            os.makedirs(os.path.dirname(conf_path), exist_ok=True)
+            with open(conf_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+        except OSError:
+            pass
 
     # ── Wizard checks (page 5) ───────────────────────────────────
 
