@@ -686,6 +686,23 @@ class AlignerWorker(QObject):
         return best_spk
 
 
+class SourceComboBox(QComboBox):
+    """Audio-source combo that re-scans the system each time its dropdown opens,
+    so apps/sources that appeared after the window opened show up without
+    restarting it. `refresh` rebuilds the items while preserving the selection."""
+
+    def __init__(self, refresh):
+        super().__init__()
+        self._refresh = refresh
+
+    def showPopup(self):
+        try:
+            self._refresh()
+        except Exception:
+            pass
+        super().showPopup()
+
+
 # ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
@@ -861,7 +878,7 @@ class MeetingWindow(QWidget):
         # Audio source selector (populated from dictee-audio-sources)
         src_row = QHBoxLayout()
         src_row.addWidget(QLabel("Source :"))
-        self.cmb_source = QComboBox()
+        self.cmb_source = SourceComboBox(self._populate_sources)
         self.cmb_source.currentIndexChanged.connect(self._on_source_changed)
         src_row.addWidget(self.cmb_source, 1)
         left_col.addLayout(src_row)
