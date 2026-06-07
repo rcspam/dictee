@@ -315,7 +315,20 @@ mode_online() {
         ok "Downloaded"
 
         info "Installing..."
-        sudo apt-get install -y "./${deb_file}" || die "Install failed"
+        # DEBIAN_FRONTEND=noninteractive: under curl|bash, stdin is the pipe (not
+        # a tty), so a debconf prompt from any pulled-in dependency would hang the
+        # install with no way to answer (#16). Force the non-interactive frontend.
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./${deb_file}" || die "Install failed"
+
+        # The GNOME AppIndicator extension ships as a Suggests, not a Recommends:
+        # as a Recommends it dragged gnome-shell + gdm3 onto non-GNOME systems
+        # (Kubuntu/KDE — #16). Install it only on a GNOME session, where the
+        # system-tray icon actually needs it.
+        if printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then
+            info "GNOME session detected — installing the AppIndicator extension for the tray icon..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y gnome-shell-extension-appindicator \
+                || warn "Could not install gnome-shell-extension-appindicator — the GNOME tray icon may not appear"
+        fi
     }
 
     install_fedora() {
@@ -341,6 +354,15 @@ mode_online() {
 
         info "Installing..."
         sudo dnf install -y "./${rpm_file}" || die "Install failed"
+
+        # GNOME-only: the AppIndicator extension is a Suggests now (it used to be a
+        # weak dep that pulled gnome-shell onto KDE Fedora — #16). Install it only
+        # on a GNOME session, where the tray icon needs it.
+        if printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome; then
+            info "GNOME session detected — installing the AppIndicator extension..."
+            sudo dnf install -y gnome-shell-extension-appindicator gnome-extensions-app \
+                || warn "Could not install the GNOME AppIndicator extension — the tray icon may not appear"
+        fi
     }
 
     install_suse() {

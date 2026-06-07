@@ -231,18 +231,29 @@ depends:
   - canonical: gnome-extension-appindicator
     variants: [cpu, cuda]
     kind: optional
+    # As a plain Recommends, apt/dnf auto-install this and it drags
+    # gnome-shell -> gdm3 onto non-GNOME systems (Kubuntu/KDE, #16).
+    #  - deb: apt has no "if installed" dep → omit from the audited Recommends,
+    #    shipped as `Suggests:` in build-deb.sh; install.sh installs it on GNOME.
+    #  - rpm: RPM boolean dep — recommend (auto-install) ONLY if gnome-shell is
+    #    present, so Fedora GNOME keeps the tray and Fedora KDE never pulls
+    #    gnome-shell. The whole `(... if gnome-shell)` string is the rpm dep name.
+    deb_kind: omit
     arch_kind: omit   # Arch ne package pas cette extension GNOME
     deb: gnome-shell-extension-appindicator
-    rpm: gnome-shell-extension-appindicator
+    rpm: (gnome-shell-extension-appindicator if gnome-shell)
     arch: null
     why: extension GNOME Shell exposant les icônes AppIndicator
 
   - canonical: gnome-extensions-app
     variants: [cpu, cuda]
     kind: optional
-    arch_kind: omit
+    # Same class as gnome-extension-appindicator: GNOME-shell-only tooling that
+    # must not drag gnome-shell onto KDE Fedora. RPM boolean dep → only on GNOME.
+    # (#16). Not listed on DEB.
     deb: null   # divergence connue : non listé DEB
-    rpm: gnome-extensions-app
+    rpm: (gnome-extensions-app if gnome-shell)
+    arch_kind: omit
     arch: null
     why: outil CLI/GUI pour enable/disable l'extension AppIndicator côté Fedora
 

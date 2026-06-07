@@ -298,8 +298,8 @@ Recommends:     python3-numpy
 Recommends:     moby-engine
 Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
-Recommends:     gnome-shell-extension-appindicator
-Recommends:     gnome-extensions-app
+Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
+Recommends:     (gnome-extensions-app if gnome-shell)
 Recommends:     polkit
 Recommends:     kf6-kconfig
 Recommends:     wireplumber
@@ -517,8 +517,8 @@ Recommends:     python3-numpy
 Recommends:     moby-engine
 Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
-Recommends:     gnome-shell-extension-appindicator
-Recommends:     gnome-extensions-app
+Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
+Recommends:     (gnome-extensions-app if gnome-shell)
 Recommends:     polkit
 Recommends:     kf6-kconfig
 Recommends:     wireplumber
