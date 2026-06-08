@@ -60,12 +60,25 @@ def _acquire_singleton_lock():
     return fd
 
 
-def meeting_dir(timestamp=None):
+def slug_title(title):
+    """Lowercase, spaces/non-alnum → '-', collapse repeats, trim, max 40 chars."""
+    s = (title or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s[:40].strip("-")
+
+
+def meeting_dir(timestamp=None, title=""):
     base_dir = os.environ.get("DICTEE_MEETING_DIR",
                               os.path.join(os.path.expanduser("~"),
                                            ".local/share/dictee/meetings"))
     ts = timestamp or datetime.now().strftime("%Y-%m-%d-%H%M")
-    base = Path(base_dir) / ts
+    sl = slug_title(title)
+    name = f"{ts}_{sl}" if sl else ts
+    base = Path(base_dir) / name
+    n = 2
+    while base.exists():                      # collision on date+slug → suffix -2, -3…
+        base = Path(base_dir) / f"{name}-{n}"
+        n += 1
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -894,9 +907,10 @@ class MeetingWindow(QWidget):
         self.btn_start.setEnabled(start_on)
         self.btn_stop.setEnabled(stop_on)
         self.btn_analyze.setEnabled(analyze_on)
-        # Source can't change mid-capture: only editable when idle/stopped.
+        # Source and title can't change mid-capture: only editable when idle/stopped.
         self.cmb_source.setEnabled(state in ("idle", "stopped"))
         self.chk_include_mic.setEnabled(state in ("idle", "stopped"))
+        self._title_edit.setEnabled(state in ("idle", "stopped"))
 
         self.status_label.setText({
             "idle": "Prêt à enregistrer",
@@ -963,6 +977,15 @@ class MeetingWindow(QWidget):
         self.duration_label = QLabel("00:00")
         self.duration_label.setStyleSheet("font-size: 24pt; font-family: monospace; padding: 8px;")
         left_col.addWidget(self.duration_label)
+
+        # Title field: editable before/after capture, frozen during recording
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("Titre :"))
+        self._title_edit = QLineEdit()
+        self._title_edit.setPlaceholderText("Titre de la réunion (optionnel)")
+        self._title_edit.setText("Réunion " + datetime.now().strftime("%Y-%m-%d %H:%M"))
+        title_row.addWidget(self._title_edit, 1)
+        left_col.addLayout(title_row)
 
         # Audio source selector (populated from dictee-audio-sources)
         src_row = QHBoxLayout()
@@ -1618,14 +1641,16 @@ class MeetingWindow(QWidget):
             )
             return
 
-        self.meeting_dir = meeting_dir()
+        self.meeting_dir = meeting_dir(title=self._title_edit.text())
+        self._title = self._title_edit.text().strip()
         self.audio_wav = self.meeting_dir / "audio.wav"
         chunks_dir = self.meeting_dir / "chunks"
         self.transcript_path = self.meeting_dir / "transcript-live.md"
 
         # Init transcript markdown header
+        _header = self._title or ("Réunion " + datetime.now().strftime("%Y-%m-%d %H:%M"))
         self.transcript_path.write_text(
-            f"# Réunion {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n",
+            f"# {_header}\n\n",
             encoding="utf-8",
         )
 
@@ -1854,6 +1879,7 @@ class MeetingWindow(QWidget):
         except FileNotFoundError:
             audio_size = 0
         meta = {
+            "title": self._title,
             "ended_at": datetime.now().isoformat(),
             "duration_s": self.elapsed_seconds,
             "audio_bytes": audio_size,
