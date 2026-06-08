@@ -2245,8 +2245,8 @@ class TranscribeWindow(QDialog):
             ("Whisper medium", "whisper-medium"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
-        self._asr_model_combo.setToolTip(
-            _("ASR model for this transcription (isolated from your F9 setting)"))
+        self._asr_model_combo.setToolTip(self._tip(
+            _("ASR model for this transcription (isolated from your F9 setting)")))
         if self._asr_model:
             _i = self._asr_model_combo.findData(self._asr_model)
             if _i >= 0:
