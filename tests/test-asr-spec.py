@@ -64,3 +64,20 @@ def test_chunked_env_override():
     # No override → conf-derived/default behavior, key may be absent or conf value
     w2 = dt._ChunkedPipelineWorker("/tmp/x.wav", 0.5, diarize=True)
     assert getattr(w2, "_subprocess_env", None) is not None
+
+
+def test_isolated_daemon_whisper_cmd_env():
+    d = dt.IsolatedAsrDaemon({"backend": "whisper", "env": {"DICTEE_WHISPER_MODEL": "medium"}})
+    cmd, env = d._build_cmd_env()
+    assert cmd == ["transcribe-daemon-whisper"]
+    assert env["DICTEE_WHISPER_MODEL"] == "medium"
+    assert env["DICTEE_TRANSCRIBE_SOCKET"] == d.sock
+    assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
+
+
+def test_isolated_daemon_parakeet_cmd_env():
+    d = dt.IsolatedAsrDaemon({"backend": "parakeet", "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"}})
+    cmd, env = d._build_cmd_env()
+    assert cmd[0] == "transcribe-daemon" and "--socket" in cmd
+    assert env["DICTEE_PARAKEET_QUANT"] == "int8"
+    assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"

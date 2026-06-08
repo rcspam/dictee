@@ -642,11 +642,12 @@ class _DiarizeTranscribeWorker(QThread):
     finished = Signal(str)         # final output text
     error = Signal(str)            # error message
 
-    def __init__(self, audio_path, diarize_output, sock_path, parent=None):
+    def __init__(self, audio_path, diarize_output, sock_path, parent=None, socket_timeout=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._diarize_output = diarize_output
         self._sock_path = sock_path
+        self._socket_timeout = socket_timeout
         self._cancelled = False
         self._sock = None  # current open socket, if any (for cancel)
 
@@ -696,11 +697,12 @@ class _DiarizeTranscribeWorker(QThread):
     def run(self):
         import socket as sock_mod, time as _time, re
 
-        # Wait for socket (max 15s).
+        # Wait for socket (default max 15s; isolated cold-loads override it).
         # NB: never use `_` as the loop variable — it shadows the gettext
         # function `_(...)` for the rest of run(), and every translated
         # string downstream blows up with "'int' object is not callable".
-        for _attempt in range(60):
+        _wait_s = self._socket_timeout if self._socket_timeout else 15
+        for _attempt in range(int(_wait_s / 0.25)):
             if os.path.exists(self._sock_path):
                 try:
                     s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
@@ -712,7 +714,8 @@ class _DiarizeTranscribeWorker(QThread):
                     pass
             _time.sleep(0.25)
         else:
-            self.error.emit(_("Daemon socket not available after 15s"))
+            self.error.emit(
+                _("Daemon socket not available after {s}s").format(s=int(_wait_s)))
             return
 
         # Parse diarize-only output into speaker segments
@@ -1140,6 +1143,60 @@ class _ChunkedPipelineWorker(QThread):
                 shutil.rmtree(self._tmp_dir, ignore_errors=True)
             except Exception as _e:
                 _dbg(f"silenced: {_e!r}")
+
+
+class IsolatedAsrDaemon:
+    """Spawn an ad-hoc ASR daemon on a private socket for a one-off model,
+    WITHOUT touching dictee.conf or the F9 daemon/badge. Non-blocking:
+    start() launches the process and returns the socket path immediately;
+    the phase-2 worker waits for the socket (model cold-load can be slow).
+    """
+    def __init__(self, recipe, model_dir="/usr/share/dictee/tdt"):
+        self.recipe = recipe            # {"backend", "env"} from asr_spec_to_daemon
+        self.model_dir = model_dir
+        self.sock = f"/tmp/dictee-adhoc-{os.getpid()}.sock"
+        self.proc = None
+
+    def _build_cmd_env(self):
+        """Return (cmd_list, env_dict) for the ad-hoc daemon. Pure (no spawn)."""
+        env = os.environ.copy()
+        env.update(self.recipe["env"])
+        env["DICTEE_TRANSCRIBE_SOCKET"] = self.sock     # whisper daemon honors this
+        env["DICTEE_DAEMON_NO_PROVIDER"] = "1"          # don't clobber the F9 badge
+        ort = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort):
+            env.setdefault("ORT_DYLIB_PATH", ort)
+        if self.recipe["backend"] == "whisper":
+            cmd = ["transcribe-daemon-whisper"]
+        else:  # parakeet ad-hoc (not used by the current routing, kept for completeness)
+            cmd = ["transcribe-daemon", "--socket", self.sock, self.model_dir]
+        return cmd, env
+
+    def start(self):
+        """Launch the daemon (non-blocking). Returns the private socket path."""
+        cmd, env = self._build_cmd_env()
+        try:
+            os.unlink(self.sock)        # clear a stale socket
+        except OSError:
+            pass
+        self.proc = subprocess.Popen(cmd, env=env,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+        return self.sock
+
+    def stop(self):
+        """Terminate the daemon and remove the private socket. Idempotent."""
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc = None
+        try:
+            os.unlink(self.sock)
+        except OSError:
+            pass
 
 
 # Strip ASCII control characters (except \t \n \r) from segment text.
@@ -2164,6 +2221,7 @@ class TranscribeWindow(QDialog):
         self._tip = _tip
 
         self._process = None
+        self._isolated_daemon = None  # ad-hoc isolated ASR daemon (Task 5b)
         self._stdout_buf = QByteArray()
         self._segments = []
         self._raw_text = ""  # raw transcription output (stored for reformat)
@@ -2920,6 +2978,9 @@ class TranscribeWindow(QDialog):
                         w.cancel()
                     except Exception as _e:
                         _dbg(f"silenced: {_e!r}")
+        # Kill the ad-hoc isolated ASR daemon too (window/main-tab closed
+        # mid-run). closeEvent calls this, so the private socket is freed.
+        self._stop_isolated_daemon()
         # Hide the cancel button + reset status so the next run starts
         # from a clean slate.
         if hasattr(self, "_btn_cancel"):
@@ -3887,6 +3948,21 @@ class TranscribeWindow(QDialog):
             self._process.deleteLater()
             self._process = None
             return
+        # Isolated Whisper diarized run: force the two-phase path (diarize-only
+        # speakers + phase-2 isolated whisper daemon over a private socket),
+        # regardless of the F9 backend. Requires diarize-only.
+        if _whisper_isolated:
+            if not shutil.which("diarize-only"):
+                self._progress.setVisible(False)
+                self._lbl_status.setText(
+                    _("Command '{cmd}' not found. Install dictee first.").format(cmd="diarize-only"))
+                self._lbl_status.setVisible(True)
+                self._transcription_in_progress = False
+                self._update_transcribe_btn()
+                self._process.deleteLater()
+                self._process = None
+                return
+            cmd, two_phase = "diarize-only", True
         self._diarize_two_phase = two_phase
         if diarize and asr_backend.lower() == "canary" and not two_phase:
             _dbg("_on_transcribe: Canary daemon detected — using "
@@ -3947,21 +4023,30 @@ class TranscribeWindow(QDialog):
             self._update_transcribe_btn()
             return
 
-        # Restart daemon
-        self._daemon_was_active = False
-        self._start_daemon()
-        # Match the daemon's socket resolution (transcribe_daemon.rs): when
-        # XDG_RUNTIME_DIR is unset the fallback is /tmp/transcribe-<uid>.sock,
-        # NOT /tmp/transcribe.sock (which the daemon never listens on).
-        _xdg = os.environ.get("XDG_RUNTIME_DIR")
-        sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
-                     else f"/tmp/transcribe-{os.getuid()}.sock")
+        if getattr(self, "_isolated_recipe", None) and self._isolated_recipe["backend"] == "whisper":
+            # Isolated whisper: spawn an ad-hoc daemon on a private socket
+            # (the F9 daemon/config/badge are untouched). Larger socket-wait
+            # timeout because the whisper model cold-load can take a while.
+            self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
+            sock_path = self._isolated_daemon.start()
+            _worker_timeout = 180
+        else:
+            # Restart daemon
+            self._daemon_was_active = False
+            self._start_daemon()
+            # Match the daemon's socket resolution (transcribe_daemon.rs): when
+            # XDG_RUNTIME_DIR is unset the fallback is /tmp/transcribe-<uid>.sock,
+            # NOT /tmp/transcribe.sock (which the daemon never listens on).
+            _xdg = os.environ.get("XDG_RUNTIME_DIR")
+            sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
+                         else f"/tmp/transcribe-{os.getuid()}.sock")
+            _worker_timeout = None
 
         self._lbl_status.setText(_("Waiting for daemon..."))
 
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
-            audio_path, diarize_output, sock_path, self)
+            audio_path, diarize_output, sock_path, self, socket_timeout=_worker_timeout)
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)
         self._diarize_worker.error.connect(self._on_diarize_error)
@@ -3982,9 +4067,15 @@ class TranscribeWindow(QDialog):
         # skipped on every two-phase short-file diarization.
         self._was_diarized = True
         self._finish_transcription(raw_output)
+        # Tear down the ad-hoc isolated whisper daemon (if any) and restore
+        # the F9 daemon if the VRAM-free block stopped it (no-op otherwise).
+        self._stop_isolated_daemon()
+        self._restart_daemon_if_stopped()
         _dbg(f"_on_diarize_done: btn_enabled_after={self._btn_transcribe.isEnabled()}")
 
     def _on_diarize_error(self, msg):
+        self._stop_isolated_daemon()
+        self._restart_daemon_if_stopped()
         self._diarize_worker = None
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
@@ -4052,6 +4143,16 @@ class TranscribeWindow(QDialog):
             self._daemon_was_active = False
             _dbg("_restart_daemon_if_stopped: restarting ASR daemon")
             self._start_daemon()
+
+    def _stop_isolated_daemon(self):
+        """Tear down the ad-hoc isolated ASR daemon if one is running."""
+        d = getattr(self, "_isolated_daemon", None)
+        if d is not None:
+            try:
+                d.stop()
+            except Exception as _e:
+                _dbg(f"silenced: {_e!r}")
+            self._isolated_daemon = None
 
     def _on_cancel_chunked(self):
         """User clicked Cancel during the chunked pipeline."""
