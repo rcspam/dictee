@@ -332,12 +332,9 @@ class AudioCaptureWorker(QThread):
                 pass
         self._mic_input_id = self._sys_input_id = None
 
-    def set_mic_volume(self, pct):
-        """Set the mic loopback volume (mix mode only)."""
-        self._set_input_volume(self._mic_input_id, pct)
-
     def set_system_volume(self, pct):
-        """Set the system loopback volume (mix mode only)."""
+        """Set the system/app loopback volume (mix or app+mic). The mic loopback
+        stays at 100% — the mic level is the system @DEFAULT_SOURCE@ volume."""
         self._set_input_volume(self._sys_input_id, pct)
 
     def _set_input_volume(self, input_id, pct):
@@ -741,6 +738,53 @@ class SourceComboBox(QComboBox):
         super().showPopup()
 
 
+class SourceVolumeWatcher(QThread):
+    """Emits source_changed whenever a PulseAudio/PipeWire *source* changes
+    (volume/mute), via 'pactl subscribe'. Lets the 🎤 slider refresh instantly
+    on an external change (plasmoid, system mixer) instead of polling."""
+
+    source_changed = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.proc = None
+        self._stop = False
+
+    def run(self):
+        # 'stdbuf -oL' forces pactl to LINE-buffer its stdout — a pipe is
+        # otherwise block-buffered, so events would arrive in delayed bursts
+        # (the lag). bufsize=1 + iter(readline) keeps delivery line-by-line on
+        # our side. Fall back to plain pactl if stdbuf is missing.
+        for cmd in (["stdbuf", "-oL", "pactl", "subscribe"],
+                    ["pactl", "subscribe"]):
+            try:
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    text=True, bufsize=1, env=dict(os.environ, LC_ALL="C"))
+                break
+            except (FileNotFoundError, OSError):
+                self.proc = None
+        if self.proc is None:
+            return
+        for line in iter(self.proc.stdout.readline, ""):
+            if self._stop:
+                break
+            # "Event 'change' on source #62" — exclude 'source-output' (its line
+            # reads 'on source-output #', so 'on source #' never matches it).
+            if "'change'" in line and "on source #" in line:
+                self.source_changed.emit()
+
+    def stop(self):
+        self._stop = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.wait(2000)
+
+
 # ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
@@ -775,7 +819,6 @@ class MeetingWindow(QWidget):
         self.audio_worker = None
         self._meter_mic = None       # LevelMeterWorker for the 🎤 flow
         self._meter_sys = None       # LevelMeterWorker for the 🔊 flow
-        self._orig_mic_vol = None    # @DEFAULT_SOURCE@ % to restore after a session
         # Dedicated dictee-app-capture for an app source's ISOLATED 🔊 meter
         # preview (before recording) — so the meter shows only that app.
         self._preview_proc = None    # QProcess
@@ -804,6 +847,7 @@ class MeetingWindow(QWidget):
 
         self._build_ui()
         self._populate_sources()
+        self._init_levels()            # 🎤 ← system mic, 🔊 ← remembered level
         self._update_level_sliders()   # reflect the populated/selected source
         self._apply_window_behavior()
         self._set_state("idle")
@@ -983,6 +1027,16 @@ class MeetingWindow(QWidget):
         self._sys_vol_timer.setSingleShot(True)
         self._sys_vol_timer.setInterval(60)
         self._sys_vol_timer.timeout.connect(self._apply_sys_vol)
+        # Live-sync the 🎤 slider with the system mic level so an external change
+        # (plasmoid, system mixer, dictee-setup) is reflected here too. Instant
+        # via 'pactl subscribe'; the timer is a slow safety-net fallback.
+        self._mic_sync_timer = QTimer(self)
+        self._mic_sync_timer.setInterval(2000)
+        self._mic_sync_timer.timeout.connect(self._poll_mic_level)
+        self._mic_sync_timer.start()
+        self._mic_watcher = SourceVolumeWatcher()
+        self._mic_watcher.source_changed.connect(self._poll_mic_level)
+        self._mic_watcher.start()
         levels_layout.addLayout(self.slider_mic["col"])
         levels_layout.addLayout(self.slider_sys["col"])
         top_row.addWidget(levels_group)
@@ -1149,6 +1203,7 @@ class MeetingWindow(QWidget):
         value = self.cmb_source.currentData()
         if value is not None:
             self._write_conf_key("DICTEE_MEETING_AUDIO_SOURCE", value)
+        self._load_sys_level_for_source()   # restore this source's 🔊 level
         self._update_level_sliders()
 
     def _on_include_mic_toggled(self, on):
@@ -1203,40 +1258,54 @@ class MeetingWindow(QWidget):
         self._sys_vol_timer.start()
 
     def _apply_mic_vol(self):
+        # The mic level IS the system @DEFAULT_SOURCE@ level — shared with the
+        # plasmoid, dictee-setup and the system mixer (single source of truth).
+        # Permanent, like the plasmoid (no snapshot/restore). In mix / app+mic
+        # the mic loopback stays at 100%, so this governs the captured mic too.
         v = self.slider_mic["slider"].value()
-        w = self.audio_worker
-        if w and w._mic_input_id:
-            # mix, or app+mic: the mic is a dedicated loopback (capture-only),
-            # independent of the app/system level.
-            w.set_mic_volume(v)
-        else:
-            # Non-loopback mic flow changes the GLOBAL @DEFAULT_SOURCE@ gain —
-            # snapshot the original so it can be restored when the meeting ends.
-            self._snapshot_mic_vol()
-            self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
+        self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
 
-    def _snapshot_mic_vol(self):
-        if self._orig_mic_vol is not None:
-            return
+    def _system_mic_percent(self, default=70):
+        """Current system mic volume (% of @DEFAULT_SOURCE@) so the meeting
+        slider starts aligned with the plasmoid / dictee-setup / system mixer."""
+        try:
+            out = subprocess.check_output(
+                ["wpctl", "get-volume", "@DEFAULT_SOURCE@"], text=True, timeout=2)
+            m = re.search(r"([0-9]+(?:\.[0-9]+)?)", out)   # "Volume: 0.60"
+            if m:
+                return max(0, min(150, round(float(m.group(1)) * 100)))
+        except Exception:
+            pass
         try:
             out = subprocess.check_output(
                 ["pactl", "get-source-volume", "@DEFAULT_SOURCE@"],
                 text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
-            mobj = re.search(r"(\d+)%", out)
-            if mobj:
-                self._orig_mic_vol = mobj.group(1)
+            m = re.search(r"(\d+)%", out)
+            if m:
+                return max(0, min(150, int(m.group(1))))
         except Exception:
             pass
+        return default
 
-    def _restore_mic_vol(self):
-        if self._orig_mic_vol is not None:
-            self._pactl_vol(
-                ["set-source-volume", "@DEFAULT_SOURCE@", f"{self._orig_mic_vol}%"])
-            self._orig_mic_vol = None
+    def _poll_mic_level(self):
+        """Keep the 🎤 slider live-synced with the system mic level (shared with
+        the plasmoid / system mixer): an external change (plasmoid, mixer) is
+        reflected here too. Skipped while the user drags the slider."""
+        s = self.slider_mic["slider"]
+        if s.isSliderDown():
+            return
+        cur = self._system_mic_percent(default=s.value())
+        if cur != s.value():
+            s.blockSignals(True)
+            s.setValue(cur)
+            s.blockSignals(False)
+            if s.isEnabled():
+                self.slider_mic["label"].setText(f"{cur}%")
 
     def _apply_sys_vol(self):
         v = self.slider_sys["slider"].value()
         src = self.cmb_source.currentData() or ""
+        self._save_source_level(src, v)   # remember across sessions
         w = self.audio_worker
         if w and w._sys_input_id:
             # mix, or app+mic: the system/app contribution is a dedicated
@@ -1253,16 +1322,66 @@ class MeetingWindow(QWidget):
                 ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
 
     def _apply_mix_levels(self):
-        """Push the current slider values onto the freshly-created mix loopbacks."""
+        """Push the 🔊 slider value onto the system/app loopback. The mic is
+        governed by the system @DEFAULT_SOURCE@ level (its loopback stays at
+        100%), so it is NOT pushed here."""
         if self.audio_worker:
-            self.audio_worker.set_mic_volume(self.slider_mic["slider"].value())
             self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
+
+    # ── Per-source 🔊 level persistence (meeting-only JSON, not dictee.conf
+    #    which is bash-sourced) ────────────────────────────────────────────────
+    def _levels_path(self):
+        return Path.home() / ".config/dictee/meeting-levels.json"
+
+    def _load_source_level(self, source, default=70):
+        try:
+            data = json.loads(self._levels_path().read_text(encoding="utf-8"))
+            return max(0, min(100, int(data.get(source, default))))
+        except Exception:
+            return default
+
+    def _save_source_level(self, source, level):
+        p = self._levels_path()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        except Exception:
+            data = {}
+        data[source] = max(0, min(100, int(level)))
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                         encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_sys_level_for_source(self):
+        """Set the 🔊 slider to the remembered level for the current source."""
+        lvl = self._load_source_level(self.cmb_source.currentData() or "")
+        s = self.slider_sys["slider"]
+        s.blockSignals(True)
+        s.setValue(lvl)
+        s.blockSignals(False)
+        self.slider_sys["label"].setText(f"{lvl}%")
+
+    def _init_levels(self):
+        """Start the 🎤 slider aligned with the system mic and the 🔊 slider at
+        the remembered level for the selected source. Labels are refreshed by
+        the _update_level_sliders() call that follows."""
+        m = self.slider_mic["slider"]
+        m.blockSignals(True)
+        m.setRange(0, 150)                       # mic can be boosted past 100%
+        m.setValue(self._system_mic_percent())
+        m.blockSignals(False)
+        s = self.slider_sys["slider"]
+        s.blockSignals(True)
+        s.setValue(self._load_source_level(self.cmb_source.currentData() or ""))
+        s.blockSignals(False)
 
     def _on_capture_ready(self):
         """Capture resolved (worker signal): apply mix levels + re-point meters
         (for an app source the 🔊 meter now reads the private isolated sink)."""
-        if self.audio_worker and self.audio_worker._mic_input_id:
-            # mix, or app+mic: push the initial slider values onto the loopbacks.
+        if self.audio_worker and self.audio_worker._sys_input_id:
+            # mix, or app+mic: push the initial 🔊 level onto the system loopback.
             self._apply_mix_levels()
         self._refresh_meters()
 
@@ -1724,8 +1843,6 @@ class MeetingWindow(QWidget):
             self.diarizer.stop()
         if hasattr(self, "_executor") and self._executor:
             self._executor.shutdown(wait=False)
-        self._restore_mic_vol()
-
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
         except OSError:
@@ -1827,7 +1944,6 @@ class MeetingWindow(QWidget):
             self.diarizer.stop()
         if getattr(self, "_executor", None):
             self._executor.shutdown(wait=False)
-        self._restore_mic_vol()
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
         except OSError:
@@ -1836,6 +1952,8 @@ class MeetingWindow(QWidget):
         self._set_state("idle")
 
     def closeEvent(self, event):
+        self._mic_sync_timer.stop()
+        self._mic_watcher.stop()
         self._stop_meters()
         self._stop_preview_appcap()
         if self.btn_stop.isEnabled():
@@ -1853,7 +1971,6 @@ class MeetingWindow(QWidget):
                 self.diarizer.stop()
             if getattr(self, "_executor", None):
                 self._executor.shutdown(wait=False)
-        self._restore_mic_vol()
         # Reset state on window close (regardless of recording state)
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
