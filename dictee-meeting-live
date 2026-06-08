@@ -193,11 +193,20 @@ class AudioCaptureWorker(QThread):
         if not source:
             return "@DEFAULT_AUDIO_SOURCE@", False
         if source.startswith("app:"):
-            sink = self._start_app_capture(source[4:], self._include_mic)
-            # NEVER fall back to the mic for an app source — that would silently
-            # record the wrong thing. None → run() aborts (the error was already
-            # emitted by _start_app_capture).
-            return (sink, True) if sink else (None, False)
+            # Capture the app ISOLATED (app-only, never the mic) so its meter
+            # and its level stay independent of the microphone.
+            sink = self._start_app_capture(source[4:], include_mic=False)
+            if not sink:
+                # NEVER fall back to the mic for an app source — that would
+                # silently record the wrong thing. None → run() aborts (the
+                # error was already emitted by _start_app_capture).
+                return None, False
+            if self._include_mic:
+                # 'Add mic': mix the isolated app audio with the mic through two
+                # independently-controllable loopbacks (same machinery as 'mix'),
+                # so the two levels — and the two meters — stay separate.
+                return self._setup_mix_sink(system_source=f"{sink}.monitor"), True
+            return sink, True
         if source.endswith(".monitor"):
             return source[:-len(".monitor")], True   # tap that sink's monitor
         return source, False                         # microphone node.name
@@ -250,17 +259,22 @@ class AudioCaptureWorker(QThread):
         self._appcap_proc = None
         self._appcap_sink = None
 
-    def _setup_mix_sink(self):
-        """Build a transient null-sink fed by two loopbacks (mic + system
-        monitor) and return the null-sink name 'dictee_mix' (captured by run()
+    def _setup_mix_sink(self, system_source=None):
+        """Build a transient null-sink fed by two loopbacks (mic + a 'system'
+        source) and return the null-sink name 'dictee_mix' (captured by run()
         with stream.capture.sink=true).
 
-        Each loopback's sink-input is tagged with a findable media.name so
-        its volume can be controlled independently (set_mic/system_volume).
+        system_source is the second loopback's source: the default sink's
+        monitor for the plain 'mix' source, or an isolated app sink's monitor
+        for an 'app:' source with 'add mic' (so app + mic mix with independent
+        levels). Each loopback's sink-input is tagged with a findable media.name
+        so its volume can be controlled independently (set_mic/system_volume).
         Modules are unloaded in _teardown_mix().
         """
-        sink = subprocess.check_output(
-            ["pactl", "get-default-sink"], text=True, timeout=3).strip()
+        if system_source is None:
+            sink = subprocess.check_output(
+                ["pactl", "get-default-sink"], text=True, timeout=3).strip()
+            system_source = f"{sink}.monitor"
         src = subprocess.check_output(
             ["pactl", "get-default-source"], text=True, timeout=3).strip()
 
@@ -276,7 +290,7 @@ class AudioCaptureWorker(QThread):
             "latency_msec=50",
             "sink_input_properties=media.name=dictee_mix_mic"))
         self._mix_modules.append(load(
-            "module-loopback", f"source={sink}.monitor", "sink=dictee_mix",
+            "module-loopback", f"source={system_source}", "sink=dictee_mix",
             "latency_msec=50",
             "sink_input_properties=media.name=dictee_mix_sys"))
         self._mic_input_id, self._sys_input_id = self._find_mix_inputs()
@@ -1190,12 +1204,14 @@ class MeetingWindow(QWidget):
 
     def _apply_mic_vol(self):
         v = self.slider_mic["slider"].value()
-        src = self.cmb_source.currentData() or ""
-        if src == "mix" and self.audio_worker:
-            self.audio_worker.set_mic_volume(v)        # capture-only (loopback)
+        w = self.audio_worker
+        if w and w._mic_input_id:
+            # mix, or app+mic: the mic is a dedicated loopback (capture-only),
+            # independent of the app/system level.
+            w.set_mic_volume(v)
         else:
-            # Non-mix mic flow changes the GLOBAL @DEFAULT_SOURCE@ gain — snapshot
-            # the original so it can be restored when the meeting ends.
+            # Non-loopback mic flow changes the GLOBAL @DEFAULT_SOURCE@ gain —
+            # snapshot the original so it can be restored when the meeting ends.
             self._snapshot_mic_vol()
             self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
 
@@ -1221,14 +1237,17 @@ class MeetingWindow(QWidget):
     def _apply_sys_vol(self):
         v = self.slider_sys["slider"].value()
         src = self.cmb_source.currentData() or ""
-        if src == "mix" and self.audio_worker:
-            self.audio_worker.set_system_volume(v)
+        w = self.audio_worker
+        if w and w._sys_input_id:
+            # mix, or app+mic: the system/app contribution is a dedicated
+            # loopback whose volume is independent of the mic.
+            w.set_system_volume(v)
         elif src.startswith("app:"):
-            # capture-only: attenuate the private isolated capture sink (does
-            # NOT touch the app's real playback). Only meaningful while recording.
-            if self.audio_worker and self.audio_worker._appcap_sink:
+            # app-only (no mic): attenuate the private isolated capture sink
+            # (does NOT touch the app's real playback).
+            if w and w._appcap_sink:
                 self._pactl_vol(
-                    ["set-sink-volume", self.audio_worker._appcap_sink, f"{v}%"])
+                    ["set-sink-volume", w._appcap_sink, f"{v}%"])
         elif src.endswith(".monitor"):
             self._pactl_vol(
                 ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
@@ -1242,7 +1261,8 @@ class MeetingWindow(QWidget):
     def _on_capture_ready(self):
         """Capture resolved (worker signal): apply mix levels + re-point meters
         (for an app source the 🔊 meter now reads the private isolated sink)."""
-        if (self.cmb_source.currentData() or "") == "mix":
+        if self.audio_worker and self.audio_worker._mic_input_id:
+            # mix, or app+mic: push the initial slider values onto the loopbacks.
             self._apply_mix_levels()
         self._refresh_meters()
 
