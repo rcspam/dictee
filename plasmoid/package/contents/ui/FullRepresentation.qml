@@ -1088,6 +1088,8 @@ RowLayout {
                 root.micVolume = value
                 executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
             }
+            // Pause the live re-read while dragging so the poll doesn't fight us.
+            onPressedChanged: root.micSliderActive = pressed
             QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 300

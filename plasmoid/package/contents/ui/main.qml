@@ -246,7 +246,9 @@ PlasmoidItem {
             } else if (source === micVolumeCmd) {
                 // Parse "Volume: 0.50" or "Volume: 0.50 [MUTED]"
                 var volMatch = stdout.match(/Volume:\s+(\d+\.?\d*)/)
-                if (volMatch) {
+                // Skip while the user is dragging the slider (don't fight them);
+                // the periodic re-read otherwise keeps it synced with the system.
+                if (volMatch && !root.micSliderActive) {
                     root.micVolume = parseFloat(volMatch[1])
                 }
                 root.micMuted = stdout.indexOf("[MUTED]") !== -1
@@ -332,6 +334,18 @@ PlasmoidItem {
         "cat /dev/shm/.dictee_audio_bands #B"
     ]
 
+    // Keep the mic slider live-synced with the system @DEFAULT_SOURCE@ level
+    // while the popup is open, so an external change (meeting, system mixer,
+    // dictee-setup) is reflected here too. Re-reads wpctl every 150 ms (light;
+    // skipped onto the existing micVolume parse, which ignores it mid-drag).
+    Timer {
+        id: micVolTimer
+        interval: 150
+        running: root.expanded
+        repeat: true
+        onTriggered: executable.run(root.micVolumeCmd)
+    }
+
     // Timer de lecture niveau audio (~12 fps)
     Timer {
         id: audioTimer
@@ -364,6 +378,7 @@ PlasmoidItem {
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
     property bool micMuted: false
+    property bool micSliderActive: false  // user is dragging the mic slider — pause live re-read
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
     property string currentLangSource: "fr"
