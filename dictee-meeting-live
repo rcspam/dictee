@@ -975,6 +975,9 @@ class MeetingWindow(QWidget):
         self.cmb_source.setEnabled(state in ("idle", "stopped"))
         self.chk_include_mic.setEnabled(state in ("idle", "stopped"))
         self._title_edit.setEnabled(state in ("idle", "stopped"))
+        # Live chunking indicators: only meaningful while capturing.
+        if getattr(self, "_chunk_indicators", None) is not None:
+            self._chunk_indicators.setVisible(state in ("recording", "paused"))
 
         self.status_label.setText({
             "idle": "Prêt à enregistrer",
@@ -1181,6 +1184,46 @@ class MeetingWindow(QWidget):
             "QToolButton { border: none; font-weight: bold; padding: 6px; text-align: left; }"
             "QToolButton:hover { background-color: rgba(0,0,0,0.05); }"
         )
+
+        # Live chunking indicators (thin bars + small fonts) just above the
+        # "Aperçu en direct" accordion. Bar 1 ("Chunk en cours") = the new audio
+        # accumulating toward the next live update (also = the tail still pending
+        # if you stop now). Bar 2 ("Contexte") = the overlap window reused as
+        # look-back context by the model. Driven by _tick, visible while recording.
+        self._chunk_indicators = QWidget()
+        _ind = QVBoxLayout(self._chunk_indicators)
+        _ind.setContentsMargins(6, 0, 6, 2)
+        _ind.setSpacing(1)
+        _SMALL = "font-size: 8pt; color: gray;"
+        _BARCSS = ("QProgressBar { border: none; background: rgba(0,0,0,0.08); "
+                   "border-radius: 2px; } QProgressBar::chunk { border-radius: 2px; }")
+
+        def _ind_row(caption):
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            cap = QLabel(caption)
+            cap.setStyleSheet(_SMALL)
+            cap.setFixedWidth(90)
+            bar = QProgressBar()
+            bar.setTextVisible(False)
+            bar.setRange(0, 100)
+            bar.setFixedHeight(5)
+            bar.setStyleSheet(_BARCSS)
+            val = QLabel("")
+            val.setStyleSheet(_SMALL)
+            val.setFixedWidth(70)
+            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(cap)
+            row.addWidget(bar, 1)
+            row.addWidget(val)
+            _ind.addLayout(row)
+            return bar, val
+
+        self._bar_chunk, self._chunk_val = _ind_row("Chunk en cours")
+        self._bar_ctx, self._ctx_val = _ind_row("Contexte")
+        self._chunk_indicators.setVisible(False)   # only while recording
+        layout.addWidget(self._chunk_indicators)
+
         layout.addWidget(self.preview_toggle)
 
         self.preview_content = QFrame()
@@ -1800,6 +1843,7 @@ class MeetingWindow(QWidget):
         except (OSError, ValueError):
             pass
         self.chunk_duration = chunk_duration
+        self._last_emit_elapsed = 0   # for the "chunk en cours" indicator bar
 
         # Workers for live preview
         self.chunker = ChunkerWorker(self.audio_wav, chunks_dir,
@@ -1859,6 +1903,8 @@ class MeetingWindow(QWidget):
         self._set_state("recording")
 
     def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
+        # A chunk was just extracted → reset the "chunk en cours" bar baseline.
+        self._last_emit_elapsed = self.elapsed_seconds
         # Compute absolute offset for aligner: chunk N starts at N * advance
         self.aligner.chunk_offset[chunk_id] = chunk_id * (self.chunk_duration - 10)
         self._executor.submit(self.transcriber.transcribe, chunk_id, chunk_path)
@@ -2110,6 +2156,27 @@ class MeetingWindow(QWidget):
             self.duration_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
         else:
             self.duration_label.setText(f"{m:02d}:{s:02d}")
+        self._update_chunk_indicators()
+
+    def _update_chunk_indicators(self):
+        """Drive the two thin bars above the accordion (called every second).
+        Bar 1 fills over the inter-chunk period (chunk_duration for the very
+        first chunk, then the advance = chunk_duration - overlap); at full a new
+        live block lands. Bar 2 shows the overlap context buffer (fills once,
+        then stays full)."""
+        ch = getattr(self, "chunker", None)
+        if ch is None or getattr(self, "_chunk_indicators", None) is None:
+            return
+        advance = ch.advance
+        overlap = max(0, self.chunk_duration - advance)
+        period = self.chunk_duration if ch.chunk_id == 0 else advance
+        since = max(0, self.elapsed_seconds - getattr(self, "_last_emit_elapsed", 0))
+        since = min(since, period)
+        self._bar_chunk.setValue(int(100 * since / period) if period else 0)
+        self._chunk_val.setText(f"{since}s / {period}s")
+        ctx = min(overlap, self.elapsed_seconds)
+        self._bar_ctx.setValue(int(100 * ctx / overlap) if overlap else 100)
+        self._ctx_val.setText(f"{ctx}s ctx")
 
     def _on_error_msg(self, msg: str):
         self.status_label.setText(f"Erreur : {msg}")
