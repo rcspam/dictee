@@ -3879,8 +3879,12 @@ class TranscribeWindow(QDialog):
         # Restart daemon
         self._daemon_was_active = False
         self._start_daemon()
-        sock_path = os.path.join(
-            os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "transcribe.sock")
+        # Match the daemon's socket resolution (transcribe_daemon.rs): when
+        # XDG_RUNTIME_DIR is unset the fallback is /tmp/transcribe-<uid>.sock,
+        # NOT /tmp/transcribe.sock (which the daemon never listens on).
+        _xdg = os.environ.get("XDG_RUNTIME_DIR")
+        sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
+                     else f"/tmp/transcribe-{os.getuid()}.sock")
 
         self._lbl_status.setText(_("Waiting for daemon..."))
 

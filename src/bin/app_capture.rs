@@ -138,14 +138,13 @@ fn main() {
                         st.borrow_mut().sink_id = Some(g.id);
                     } else if props.get("media.class") == Some("Stream/Output/Audio") {
                         let app = props.get("application.name").unwrap_or("").to_lowercase();
-                        let bin = props
-                            .get("application.process.binary")
-                            .unwrap_or("")
-                            .to_lowercase();
-                        let nn = props.get("node.name").unwrap_or("").to_lowercase();
-                        if m
-                            .iter()
-                            .any(|x| app.contains(x) || bin.contains(x) || nn.contains(x))
+                        // Match on the FIRST WORD of application.name only — the exact
+                        // token dictee-audio-sources advertises as 'app:<first-word>'
+                        // (a.lower().split()[0]). Substring matching across name /
+                        // binary / node.name was too broad: two apps sharing a token,
+                        // or a node.name fragment, were captured together.
+                        let app_first = app.split_whitespace().next().unwrap_or("");
+                        if !app_first.is_empty() && m.iter().any(|x| x.as_str() == app_first)
                         {
                             let ports = {
                                 let mut s = st.borrow_mut();
@@ -153,7 +152,7 @@ fn main() {
                                 s.all_out_ports.get(&g.id).cloned().unwrap_or_default()
                             };
                             link_ports(&core_cb, &st, g.id, &ports);
-                            eprintln!("[app-capture] target app node {} ({app}/{bin})", g.id);
+                            eprintln!("[app-capture] target app node {} ({app})", g.id);
                         }
                     } else if include_mic && props.get("media.class") == Some("Audio/Source") {
                         // Default microphone: an Audio/Source whose node.name is not a

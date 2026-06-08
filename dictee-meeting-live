@@ -499,7 +499,9 @@ class TranscriptionWorker(QObject):
         if xdg:
             self.daemon_socket = os.path.join(xdg, "transcribe.sock")
         else:
-            self.daemon_socket = f"/tmp/transcribe.sock-{os.getuid()}"
+            # Must match the daemon's fallback (transcribe_daemon.rs): the dash
+            # goes before the uid, not after ".sock".
+            self.daemon_socket = f"/tmp/transcribe-{os.getuid()}.sock"
 
     def transcribe(self, chunk_id: int, chunk_path: str):
         if not os.path.exists(self.daemon_socket):
@@ -1506,7 +1508,7 @@ class MeetingWindow(QWidget):
         # Audio capture — honor the selected meeting source (incl. 'mix')
         self.audio_worker = AudioCaptureWorker(self.audio_wav, source,
                                                self.chk_include_mic.isChecked())
-        self.audio_worker.error.connect(self._on_error_msg)
+        self.audio_worker.error.connect(self._on_capture_failed)
         # When the capture is actually resolved (mix inputs / app private sink
         # ready), apply mix levels and re-point the meters — driven by the
         # worker's signal, not a fixed-delay guess that races on slow systems.
@@ -1782,6 +1784,36 @@ class MeetingWindow(QWidget):
     def _on_error_msg(self, msg: str):
         self.status_label.setText(f"Erreur : {msg}")
         print(f"[meeting-live] {msg}", file=sys.stderr)
+
+    def _on_capture_failed(self, msg: str):
+        """Fatal audio-capture error (setup failed, app-capture never became
+        READY, or pw-record died): nothing is being recorded, so abort cleanly
+        back to idle instead of leaving the window stuck in 'recording'.
+
+        Distinct from _on_error_msg, which handles non-fatal preview/chunk
+        errors that must NOT tear down an ongoing recording."""
+        self.status_label.setText(f"Erreur : {msg}")
+        print(f"[meeting-live] capture failed: {msg}", file=sys.stderr)
+        if self._state not in ("recording", "paused"):
+            return  # already idle/stopped — nothing to abort
+        self._tick_timer.stop()
+        if self.audio_worker:
+            self.audio_worker.resume()   # unfreeze if paused so stop() is clean
+            self.audio_worker.stop()
+            self.audio_worker = None
+        if getattr(self, "chunker", None):
+            self.chunker.stop()
+        if getattr(self, "diarizer", None):
+            self.diarizer.stop()
+        if getattr(self, "_executor", None):
+            self._executor.shutdown(wait=False)
+        self._restore_mic_vol()
+        try:
+            Path("/dev/shm/.dictee_state").write_text("idle\n")
+        except OSError:
+            pass
+        self._refresh_meters()
+        self._set_state("idle")
 
     def closeEvent(self, event):
         self._stop_meters()
