@@ -31,7 +31,7 @@ try:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
     )
     from PyQt6.QtGui import QFont as _QFontTip
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -48,7 +48,7 @@ except ImportError:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
     )
     from PySide6.QtGui import QFont as _QFontTip
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -80,6 +80,31 @@ def asr_spec_to_daemon(spec):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
     raise ValueError(f"unknown asr spec: {spec}")
+
+
+def list_past_meetings(base=None):
+    """Return [(label, audio_path), ...] sorted recent→old, from
+    ~/.local/share/dictee/meetings/*/meeting.meta.json (title + date)."""
+    import json
+    base = base or os.path.join(os.path.expanduser("~"),
+                                ".local/share/dictee/meetings")
+    out = []
+    if not os.path.isdir(base):
+        return out
+    for name in sorted(os.listdir(base), reverse=True):   # date-prefixed → recent first
+        d = os.path.join(base, name)
+        audio = os.path.join(d, "audio.wav")
+        if not os.path.isfile(audio):
+            continue
+        title = name
+        meta = os.path.join(d, "meeting.meta.json")
+        if os.path.isfile(meta):
+            try:
+                title = json.load(open(meta, encoding="utf-8")).get("title") or name
+            except Exception:
+                pass
+        out.append((f"{name} — {title}" if title != name else name, audio))
+    return out
 
 
 class ToggleSwitch(QCheckBox):
@@ -2337,6 +2362,11 @@ class TranscribeWindow(QDialog):
         self._btn_browse.clicked.connect(self._on_browse)
         lay_file.addWidget(self._btn_browse)
 
+        self._btn_history = QPushButton(_("History"))
+        self._btn_history.setToolTip(self._tip(_("Open a past meeting")))
+        self._btn_history.clicked.connect(self._on_open_history)
+        lay_file.addWidget(self._btn_history)
+
         layout.addLayout(lay_file)
 
         # -- Audio player --
@@ -3148,6 +3178,17 @@ class TranscribeWindow(QDialog):
             self._file_input.setText(path)
             self._player.stop()
             self._load_audio(path)
+
+    def _on_open_history(self):
+        items = list_past_meetings()
+        if not items:
+            QMessageBox.information(self, _("History"), _("No past meeting found."))
+            return
+        labels = [lbl for lbl, _p in items]
+        choice, ok = QInputDialog.getItem(
+            self, _("Past meetings"), _("Meeting:"), labels, 0, False)
+        if ok and choice:
+            self._file_input.setText(dict(zip(labels, [p for _l, p in items]))[choice])
 
     # -- Drag & drop audio file onto the window --
 

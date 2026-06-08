@@ -81,3 +81,14 @@ def test_isolated_daemon_parakeet_cmd_env():
     assert cmd[0] == "transcribe-daemon" and "--socket" in cmd
     assert env["DICTEE_PARAKEET_QUANT"] == "int8"
     assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
+
+
+def test_list_past_meetings(tmp_path):
+    import json, os
+    m = tmp_path / "2026-06-08-1430_reunion"
+    (m).mkdir(parents=True)
+    (m / "audio.wav").write_bytes(b"\x00" * 100)
+    (m / "meeting.meta.json").write_text(json.dumps({"title": "Réunion équipe"}))
+    res = dt.list_past_meetings(str(tmp_path))
+    assert res == [("2026-06-08-1430_reunion — Réunion équipe",
+                    str(m / "audio.wav"))]
