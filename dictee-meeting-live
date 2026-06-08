@@ -1195,10 +1195,8 @@ class MeetingWindow(QWidget):
         _ind.setContentsMargins(6, 0, 6, 2)
         _ind.setSpacing(1)
         _SMALL = "font-size: 8pt; color: gray;"
-        _BARCSS = ("QProgressBar { border: none; background: rgba(0,0,0,0.08); "
-                   "border-radius: 2px; } QProgressBar::chunk { border-radius: 2px; }")
 
-        def _ind_row(caption):
+        def _ind_row(caption, color):
             row = QHBoxLayout()
             row.setSpacing(4)
             cap = QLabel(caption)
@@ -1208,7 +1206,10 @@ class MeetingWindow(QWidget):
             bar.setTextVisible(False)
             bar.setRange(0, 100)
             bar.setFixedHeight(5)
-            bar.setStyleSheet(_BARCSS)
+            bar.setStyleSheet(
+                "QProgressBar { border: none; background: rgba(0,0,0,0.08); "
+                "border-radius: 2px; }"
+                f"QProgressBar::chunk {{ background-color: {color}; border-radius: 2px; }}")
             val = QLabel("")
             val.setStyleSheet(_SMALL)
             val.setFixedWidth(70)
@@ -1219,8 +1220,8 @@ class MeetingWindow(QWidget):
             _ind.addLayout(row)
             return bar, val
 
-        self._bar_chunk, self._chunk_val = _ind_row("Chunk en cours")
-        self._bar_ctx, self._ctx_val = _ind_row("Contexte")
+        self._bar_chunk, self._chunk_val = _ind_row("Chunk en cours", "#e74c3c")  # red
+        self._bar_ctx, self._ctx_val = _ind_row("Contexte", "#27ae60")            # green
         self._chunk_indicators.setVisible(False)   # only while recording
         layout.addWidget(self._chunk_indicators)
 
@@ -2174,9 +2175,12 @@ class MeetingWindow(QWidget):
         since = min(since, period)
         self._bar_chunk.setValue(int(100 * since / period) if period else 0)
         self._chunk_val.setText(f"{since}s / {period}s")
-        ctx = min(overlap, self.elapsed_seconds)
-        self._bar_ctx.setValue(int(100 * ctx / overlap) if overlap else 100)
-        self._ctx_val.setText(f"{ctx}s ctx")
+        # Contexte = the LAST `overlap` seconds of the current chunk — the slice
+        # that overlaps into (and becomes the look-back context of) the next
+        # chunk. Empty until the chunk enters its final `overlap` seconds.
+        ctx_into = max(0, since - (period - overlap))
+        self._bar_ctx.setValue(int(100 * ctx_into / overlap) if overlap else 100)
+        self._ctx_val.setText(f"{ctx_into}s / {overlap}s")
 
     def _on_error_msg(self, msg: str):
         self.status_label.setText(f"Erreur : {msg}")
