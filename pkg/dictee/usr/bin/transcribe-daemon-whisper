@@ -185,12 +185,19 @@ def main():
                 conn.sendall(b"ERROR: chemin vide\n")
                 continue
 
-            # Parse: <wav_path>\ttimestamps  or  <wav_path>
+            # Parse: <wav_path>\ttimestamps | <wav_path>\tdiarize | <wav_path>
+            # "timestamps" → word-level timestamps. "diarize" → sentence-level
+            # timestamps (one line per segment), consumed by dictee-transcribe's
+            # phase-2 worker to attribute sentences to diarized speakers.
             timestamps_mode = False
+            diarize_mode = False
             if "\t" in line:
                 wav_path, params = line.split("\t", 1)
-                if params.strip() == "timestamps":
+                _p = params.strip()
+                if _p == "timestamps":
                     timestamps_mode = True
+                elif _p == "diarize":
+                    diarize_mode = True
             else:
                 wav_path = line
 
@@ -226,6 +233,12 @@ def main():
                     else:
                         lines.append(f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}")
                 text = "\n".join(lines)
+            elif diarize_mode:
+                # Sentence-level timestamps (one line per segment) for the
+                # phase-2 diarization matcher in dictee-transcribe.
+                text = "\n".join(
+                    f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}"
+                    for seg in segments)
             else:
                 text = " ".join(seg.text.strip() for seg in segments).strip()
             conn.sendall((text + "\n").encode("utf-8"))
