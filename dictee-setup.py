@@ -5155,6 +5155,24 @@ class LLMProfilesDialog(QDialog):
         self.accept()
 
 
+class SourceComboBox(QComboBox):
+    """Audio-source combo that re-scans the system each time its dropdown opens,
+    so apps/sources that appeared after the page was shown turn up without a
+    manual refresh. `refresh` rebuilds the items while preserving the selection.
+    Mirrors the plasmoid and the meeting window (dictee-meeting-live)."""
+
+    def __init__(self, refresh):
+        super().__init__()
+        self._refresh = refresh
+
+    def showPopup(self):
+        try:
+            self._refresh()
+        except Exception:
+            pass
+        super().showPopup()
+
+
 class DicteeSetupDialog(QDialog):
     def __init__(self, wizard=False, first_run=False, open_postprocess=False, open_translation=False):
         super().__init__()
@@ -14871,7 +14889,7 @@ class DicteeSetupDialog(QDialog):
         self._audio_devices = []
         self._audio_saved_src = saved_src
         self._audio_populated = False
-        self.cmb_audio_source = QComboBox()
+        self.cmb_audio_source = SourceComboBox(self._refresh_audio_sources)
         self.cmb_audio_source.addItem(_("System default"), "")
         self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
         QTimer.singleShot(0, self._ensure_audio_populated)
@@ -15341,62 +15359,41 @@ class DicteeSetupDialog(QDialog):
                 self.cmb_audio_source.blockSignals(False)
 
     def _populate_audio_sources(self):
-        """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
-        # Filter permanently-silent noise streams (speech-dispatcher…)?
-        if hasattr(self, "chk_filter_noise"):
-            filter_noise = self.chk_filter_noise.isChecked()
-        else:
-            filter_noise = (self.conf.get("DICTEE_FILTER_NOISE_SOURCES", "true")
-                            or "true").lower() != "false"
-        # ── Devices (microphones) ──
-        for dev in self._audio_devices:
-            self.cmb_audio_source.addItem(
-                "🎤 " + dev.description(), dev.id().data().decode())
-        # ── Monitors + Applications (PipeWire/PulseAudio) ──
+        """Populate the F9 source combo from dictee-audio-sources — the single
+        source of truth shared with the plasmoid (and the meeting window).
+
+        This guarantees the same value vocabulary everywhere ('' = system
+        default, '<node.name>' = device/monitor, 'app:<name>' = application
+        stream), so a source picked in the plasmoid resolves in dictee-setup and
+        vice-versa (live resync via findData), and dictee's F9 source resolution
+        understands every value.
+
+        Noise filtering (DICTEE_FILTER_NOISE_SOURCES) is applied by the helper,
+        which reads the conf file — _on_filter_noise_toggled writes it before
+        refreshing, so the live toggle is honored.
+        """
         try:
-            import json
             out = subprocess.check_output(
-                ["pw-dump"], timeout=3, stderr=subprocess.DEVNULL)
-            nodes = json.loads(out)
-            for node in nodes:
-                if node.get("type") != "PipeWire:Interface:Node":
-                    continue
-                props = node.get("info", {}).get("props", {})
-                media_class = props.get("media.class", "")
-                node_name = props.get("node.name", "")
-                # Monitors (audio output loopback)
-                if media_class == "Audio/Source" and node_name.endswith(".monitor"):
-                    desc = props.get("node.description",
-                                     props.get("node.nick", node_name))
-                    self.cmb_audio_source.addItem(
-                        "🔊 Monitor: " + desc, node_name)
-                # Applications playing audio
-                elif media_class == "Stream/Output/Audio":
-                    app = props.get("application.name", "?")
-                    binary = (props.get("application.process.binary") or "").lower()
-                    if filter_noise and any(
-                            x in app.lower() or x in binary
-                            for x in ("sd_dummy", "speech-dispatcher")):
-                        continue
-                    media = props.get("media.name", "") or ""
-                    app_id = props.get("application.id", "") or ""
-                    # Friendlier base for generic process names (KDE plasmoids).
-                    base = app
-                    if app.lower() == "plasmashell" or app_id.startswith("org.kde.plasma"):
-                        base = "Plasma (widget)"
-                    label = f"📺 {base}"
-                    junk = ("qtmpulsestream", "playback", "audio-stream",
-                            "audiostream", "recording", "capture")
-                    if (media and media != app
-                            and not any(media.lower().startswith(j) for j in junk)):
-                        # Truncate long media names
-                        if len(media) > 50:
-                            media = media[:47] + "..."
-                        label += f" — {media}"
-                    # Use node.name (stable) instead of id (ephemeral)
-                    self.cmb_audio_source.addItem(label, node_name)
+                ["dictee-audio-sources"], timeout=3, text=True,
+                stderr=subprocess.DEVNULL)
         except Exception:
-            pass  # pw-dump unavailable — Qt devices only
+            return  # helper unavailable — combo keeps just "System default"
+        for line in out.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            value, icon, label = parts
+            # The combo already carries its own translated "System default"
+            # (empty value) as the first item — skip the helper's duplicate.
+            if not value:
+                continue
+            if "microphone" in icon:
+                prefix = "🎤 "
+            elif value.endswith(".monitor") or "speaker" in icon:
+                prefix = "🔊 "
+            else:
+                prefix = "📺 "
+            self.cmb_audio_source.addItem(prefix + label, value)
 
     def _refresh_audio_sources(self):
         """Refresh the audio source list (re-scan devices + apps)."""
@@ -15644,11 +15641,18 @@ class DicteeSetupDialog(QDialog):
     def _start_audio_level(self):
         if self._audio_monitor is not None:
             return
-        idx = self.cmb_audio_source.currentIndex()
-        if idx > 0 and idx - 1 < len(self._audio_devices):
-            device = self._audio_devices[idx - 1]
-        else:
-            device = QMediaDevices.defaultAudioInput()
+        # Map the selected value back to a QAudioDevice for the VU meter. A mic
+        # carries its node.name as value, which equals QAudioDevice.id() on the
+        # Qt PipeWire backend; monitors/apps have no QAudioDevice, so the meter
+        # falls back to the default input. (Index-based mapping broke once the
+        # combo gained monitor/app entries from dictee-audio-sources.)
+        src = self.cmb_audio_source.currentData() or ""
+        device = QMediaDevices.defaultAudioInput()
+        if src:
+            for dev in self._audio_devices:
+                if dev.id().data().decode() == src:
+                    device = dev
+                    break
         self._audio_monitor = AudioLevelMonitor(self.mic_level, device)
         self._audio_monitor.start()
 
