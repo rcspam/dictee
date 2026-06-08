@@ -86,8 +86,9 @@ def list_past_meetings(base=None):
     """Return [(label, audio_path), ...] sorted recent→old, from
     ~/.local/share/dictee/meetings/*/meeting.meta.json (title + date)."""
     import json
-    base = base or os.path.join(os.path.expanduser("~"),
-                                ".local/share/dictee/meetings")
+    base = base or os.environ.get(
+        "DICTEE_MEETING_DIR",
+        os.path.join(os.path.expanduser("~"), ".local/share/dictee/meetings"))
     out = []
     if not os.path.isdir(base):
         return out
