@@ -54,6 +54,30 @@ except ImportError:
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 
+# ---------------------------------------------------------------------------
+# ASR model spec helpers
+# ---------------------------------------------------------------------------
+
+ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
+             "whisper-tiny", "whisper-small", "whisper-medium")
+
+
+def asr_spec_to_daemon(spec):
+    """Map an --asr-model spec to the isolated-daemon recipe, or None for the
+    default F9 daemon.  Raises ValueError on an unknown non-empty spec."""
+    if not spec or spec in ("f9", "default"):
+        return None
+    if spec == "parakeet-int8":
+        return {"backend": "parakeet",
+                "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"}}
+    if spec == "parakeet-fp32":
+        return {"backend": "parakeet", "env": {"DICTEE_PARAKEET_QUANT": "fp32"}}
+    if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
+        return {"backend": "whisper",
+                "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
+    raise ValueError(f"unknown asr spec: {spec}")
+
+
 class ToggleSwitch(QCheckBox):
     """Plasma/iOS-style toggle switch (copied from dictee-setup.py).
 
