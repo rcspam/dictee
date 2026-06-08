@@ -65,7 +65,7 @@ ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
 def asr_spec_to_daemon(spec):
     """Map an --asr-model spec to the isolated-daemon recipe, or None for the
     default F9 daemon.  Raises ValueError on an unknown non-empty spec."""
-    if not spec or spec in ("f9", "default"):
+    if not spec or spec in ("f9", "default"):  # UI-combo sentinels meaning "use the F9 daemon"
         return None
     if spec == "parakeet-int8":
         return {"backend": "parakeet",
