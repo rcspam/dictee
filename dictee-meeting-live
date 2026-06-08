@@ -1061,7 +1061,7 @@ class MeetingWindow(QWidget):
         }[state])
 
         if recording or paused:
-            self.rec_dot.setText("●" if recording else "‖")
+            self.rec_dot.setText("●" if recording else "⏸")
             self.rec_dot.setVisible(True)
             self._dot_on = False
             self._blink_rec_dot()        # paint lit immediately
