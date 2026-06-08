@@ -72,7 +72,12 @@ def _detect_hw_tier():
 
 
 def socket_path():
-    """Chemin du socket par utilisateur (même logique que le daemon Rust)."""
+    """Socket path. An explicit DICTEE_TRANSCRIBE_SOCKET (set by an isolated
+    ad-hoc daemon) wins; otherwise the per-user default (same as the Rust
+    daemon)."""
+    explicit = os.environ.get("DICTEE_TRANSCRIBE_SOCKET")
+    if explicit:
+        return explicit
     xdg = os.environ.get("XDG_RUNTIME_DIR")
     if xdg:
         return os.path.join(xdg, "transcribe.sock")
@@ -133,11 +138,15 @@ def main():
         _provider_status = "cpu"
     else:
         _provider_status = "cpu-only"
-    try:
-        with open("/dev/shm/.dictee_provider", "w") as _f:
-            _f.write(_provider_status)
-    except OSError:
-        pass  # Best-effort, ne pas faire planter le daemon
+    # Only the F9 daemon owns the shared badge file. An isolated ad-hoc daemon
+    # (spawned by dictee-transcribe for a one-off model) sets
+    # DICTEE_DAEMON_NO_PROVIDER=1 so it never clobbers the F9 badge.
+    if os.environ.get("DICTEE_DAEMON_NO_PROVIDER") != "1":
+        try:
+            with open("/dev/shm/.dictee_provider", "w") as _f:
+                _f.write(_provider_status)
+        except OSError:
+            pass  # Best-effort, don't crash the daemon
 
     print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
 
