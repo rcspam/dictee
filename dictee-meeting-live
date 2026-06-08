@@ -2172,13 +2172,32 @@ class MeetingWindow(QWidget):
 
     def _start_stop_pie(self):
         """Animate the stop button's pie while the last chunk is processed.
-        Creeps toward full over a few seconds (we lack granular daemon
-        progress); _finalize_stop clears it when the tail actually lands."""
+        Creeps toward (but never reaches) full over a few seconds (we lack
+        granular daemon progress); _complete_stop_pie sweeps it the rest of the
+        way and clears it when the tail actually lands."""
         self._pie_anim = QPropertyAnimation(self.btn_stop, b"pie")
         self._pie_anim.setStartValue(0.0)
-        self._pie_anim.setEndValue(0.92)
-        self._pie_anim.setDuration(8000)
+        self._pie_anim.setEndValue(0.75)
+        self._pie_anim.setDuration(6000)
         self._pie_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._pie_anim.start()
+
+    def _complete_stop_pie(self):
+        """Sweep the pie to a full circle (completion gesture) then clear — so
+        it always 'fait le tour' even when the tail finished before the slow
+        creep did. Called from _finalize_stop."""
+        if getattr(self, "_pie_anim", None):
+            self._pie_anim.stop()
+        self._pie_anim = QPropertyAnimation(self.btn_stop, b"pie")
+        self._pie_anim.setStartValue(self.btn_stop.getPie())
+        self._pie_anim.setEndValue(1.0)
+        self._pie_anim.setDuration(450)
+        self._pie_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        # Hold the full circle briefly, then clear (guard: the button may be
+        # gone if the window closed in the meantime).
+        self._pie_anim.finished.connect(
+            lambda: QTimer.singleShot(
+                250, lambda: self.btn_stop.setPie(0.0) if self.btn_stop else None))
         self._pie_anim.start()
 
     def _stop_stop_pie(self):
@@ -2197,7 +2216,7 @@ class MeetingWindow(QWidget):
         self._tail_chunk_id = None
         if getattr(self, "_finalize_watchdog", None):
             self._finalize_watchdog.stop()
-        self._stop_stop_pie()
+        self._complete_stop_pie()   # sweep the pie around, then clear
 
         if getattr(self, "diarizer", None):
             self.diarizer.stop()
