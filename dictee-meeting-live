@@ -1022,7 +1022,7 @@ class MeetingWindow(QWidget):
         # Blink the COLOR (not visibility) so the dot keeps its width and the
         # status text never shifts. Red while recording, themed while paused.
         self._dot_on = not getattr(self, "_dot_on", True)
-        on_color = "#E53935" if self._state == "recording" else "palette(text)"
+        on_color = "#E53935" if self._state == "recording" else "#EF9A9A"  # red / pale-red
         self.rec_dot.setStyleSheet(
             (f"color: {on_color};" if self._dot_on else "color: transparent;")
             + " font-size: 16pt;")
@@ -1061,12 +1061,8 @@ class MeetingWindow(QWidget):
         }[state])
 
         if recording or paused:
-            if recording:
-                self.rec_dot.setText("●")
-                self.rec_dot.setStyleSheet("color: #E53935; font-size: 16pt;")
-            else:  # paused — pale-red pause bars (monochrome glyph, respects color)
-                self.rec_dot.setText("❚❚")
-                self.rec_dot.setStyleSheet("color: #EF9A9A; font-size: 16pt;")
+            # Glyph only; _blink_rec_dot owns the colour (red vs pale-red).
+            self.rec_dot.setText("●" if recording else "❚❚")
             self.rec_dot.setVisible(True)
             self._dot_on = False
             self._blink_rec_dot()        # paint lit immediately
@@ -1108,6 +1104,13 @@ class MeetingWindow(QWidget):
         status_row = QHBoxLayout()
         self.rec_dot = QLabel("●")
         self.rec_dot.setStyleSheet("color: #E53935; font-size: 16pt;")
+        self.rec_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Reserve a fixed slot so the glyph (●/❚❚) and its show/hide never shift
+        # the status text — picto and text don't fight over each other's space.
+        self.rec_dot.setFixedWidth(34)
+        _rdsp = self.rec_dot.sizePolicy()
+        _rdsp.setRetainSizeWhenHidden(True)
+        self.rec_dot.setSizePolicy(_rdsp)
         self.rec_dot.setVisible(False)
         status_row.addWidget(self.rec_dot)
         self.status_label = QLabel("Prêt à enregistrer")
