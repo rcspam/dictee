@@ -71,7 +71,11 @@ def asr_spec_to_daemon(spec):
         return {"backend": "parakeet",
                 "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"}}
     if spec == "parakeet-fp32":
-        return {"backend": "parakeet", "env": {"DICTEE_PARAKEET_QUANT": "fp32"}}
+        # fp32 = full-precision model on the best provider (GPU if present).
+        # Explicitly clear any conf-level DICTEE_FORCE_CPU so an isolated fp32
+        # run isn't pinned to CPU by the F9 config.
+        return {"backend": "parakeet",
+                "env": {"DICTEE_PARAKEET_QUANT": "fp32", "DICTEE_FORCE_CPU": "0"}}
     if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}

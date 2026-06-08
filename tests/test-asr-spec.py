@@ -17,7 +17,7 @@ def test_parakeet_int8():
 def test_parakeet_fp32():
     assert dt.asr_spec_to_daemon("parakeet-fp32") == {
         "backend": "parakeet",
-        "env": {"DICTEE_PARAKEET_QUANT": "fp32"},
+        "env": {"DICTEE_PARAKEET_QUANT": "fp32", "DICTEE_FORCE_CPU": "0"},
     }
 
 
