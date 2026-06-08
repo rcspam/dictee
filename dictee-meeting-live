@@ -1975,6 +1975,11 @@ class MeetingWindow(QWidget):
         self._set_state("recording")
 
     def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
+        # Guard against a tail chunk_ready that arrives after the pipeline was
+        # already finalized (e.g. the chunker join timed out and _on_stop took
+        # the no-tail path): submitting to the shut-down executor would raise.
+        if getattr(self, "_finalized", False):
+            return
         # A chunk was just extracted → reset the "chunk en cours" bar baseline.
         self._last_emit_elapsed = self.elapsed_seconds
         # Compute absolute offset for aligner: chunk N starts at N * advance
