@@ -1218,10 +1218,12 @@ class MeetingWindow(QWidget):
             row.addWidget(bar, 1)
             row.addWidget(val)
             _ind.addLayout(row)
-            return bar, val
+            return bar, val, cap
 
-        self._bar_chunk, self._chunk_val = _ind_row("Chunk en cours", "#e74c3c")  # red
-        self._bar_ctx, self._ctx_val = _ind_row("Contexte", "#27ae60")            # green
+        # Chunk caption is dynamic ("Chunk N", updated in _update_chunk_indicators);
+        # its fixed width reserves space so the bar never shifts as N grows.
+        self._bar_chunk, self._chunk_val, self._lbl_chunk = _ind_row("Chunk 1", "#e74c3c")
+        self._bar_ctx, self._ctx_val, _ = _ind_row("Contexte", "#27ae60")
         self._chunk_indicators.setVisible(False)   # only while recording
         layout.addWidget(self._chunk_indicators)
 
@@ -2173,6 +2175,8 @@ class MeetingWindow(QWidget):
         period = self.chunk_duration if ch.chunk_id == 0 else advance
         since = max(0, self.elapsed_seconds - getattr(self, "_last_emit_elapsed", 0))
         since = min(since, period)
+        # 1-indexed current chunk number (chunk_id is the next chunk to emit).
+        self._lbl_chunk.setText(f"Chunk {ch.chunk_id + 1}")
         self._bar_chunk.setValue(int(100 * since / period) if period else 0)
         self._chunk_val.setText(f"{since}s / {period}s")
         # Contexte = the LAST `overlap` seconds of the current chunk — the slice
