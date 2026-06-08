@@ -276,10 +276,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Write detailed provider status to /dev/shm/.dictee_provider for UI
     // consumers (plasmoid badge, tray menu, dictee-setup). "cpu-int8" is a
     // CPU-voulu value (blue badge); provider_status() would say "cuda" here.
-    let _ = std::fs::write(
-        "/dev/shm/.dictee_provider",
-        if force_cpu_int8 { "cpu-int8" } else { provider_status() },
-    );
+    // Only the F9 daemon owns the shared badge file. An isolated ad-hoc daemon
+    // (spawned by dictee-transcribe for a one-off model) sets
+    // DICTEE_DAEMON_NO_PROVIDER=1 so it never clobbers the F9 badge.
+    if env::var("DICTEE_DAEMON_NO_PROVIDER").as_deref() != Ok("1") {
+        let _ = std::fs::write(
+            "/dev/shm/.dictee_provider",
+            if force_cpu_int8 { "cpu-int8" } else { provider_status() },
+        );
+    }
 
     eprintln!(
         "Loading {} model from {}...",
