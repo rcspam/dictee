@@ -1061,7 +1061,12 @@ class MeetingWindow(QWidget):
         }[state])
 
         if recording or paused:
-            self.rec_dot.setText("●" if recording else "⏸")
+            if recording:
+                self.rec_dot.setText("●")
+                self.rec_dot.setStyleSheet("color: #E53935; font-size: 16pt;")
+            else:  # paused — pale-red pause bars (monochrome glyph, respects color)
+                self.rec_dot.setText("❚❚")
+                self.rec_dot.setStyleSheet("color: #EF9A9A; font-size: 16pt;")
             self.rec_dot.setVisible(True)
             self._dot_on = False
             self._blink_rec_dot()        # paint lit immediately
