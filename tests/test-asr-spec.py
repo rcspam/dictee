@@ -46,3 +46,21 @@ def test_unknown_raises():
     import pytest
     with pytest.raises(ValueError):
         dt.asr_spec_to_daemon("whisper-large")   # large intentionally excluded
+
+
+def test_chunked_env_override():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except ImportError:
+        from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    w = dt._ChunkedPipelineWorker("/tmp/x.wav", 0.5, diarize=True,
+                                   env_override={"DICTEE_PARAKEET_QUANT": "int8",
+                                                 "DICTEE_FORCE_CPU": "1"})
+    assert w._subprocess_env["DICTEE_PARAKEET_QUANT"] == "int8"
+    assert w._subprocess_env["DICTEE_FORCE_CPU"] == "1"
+    # No override → conf-derived/default behavior, key may be absent or conf value
+    w2 = dt._ChunkedPipelineWorker("/tmp/x.wav", 0.5, diarize=True)
+    assert getattr(w2, "_subprocess_env", None) is not None

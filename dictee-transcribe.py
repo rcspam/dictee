@@ -843,7 +843,7 @@ class _ChunkedPipelineWorker(QThread):
                           # (repeated sentences) at every chunk boundary.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
+    def __init__(self, audio_path, sensitivity, diarize=True, parent=None, env_override=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
@@ -864,6 +864,10 @@ class _ChunkedPipelineWorker(QThread):
         for _k, _v in _read_conf().items():
             if _k.startswith("DICTEE_"):
                 self._subprocess_env[_k] = _v
+        # Per-run model override (e.g. isolated Parakeet quant chosen in the
+        # combo): wins over the conf-derived values WITHOUT touching dictee.conf.
+        if env_override:
+            self._subprocess_env.update(env_override)
 
     def request_cancel(self):
         self._cancel = True
@@ -3677,6 +3681,11 @@ class TranscribeWindow(QDialog):
         diarize = self._chk_diarize.isChecked()
         _dbg(f"_on_transcribe: file={audio_path}, diarize={diarize}")
 
+        # Isolated ASR model selection (combo). None = Default F9 (unchanged).
+        # Only honored for diarized runs (see _ChunkedPipelineWorker / phase-2).
+        _spec = self._asr_model_combo.currentData() if hasattr(self, "_asr_model_combo") else ""
+        self._isolated_recipe = asr_spec_to_daemon(_spec)
+
         # Create a new tab for this transcription (keep previous tabs)
         self._was_diarized = False
         # Name tab after mode + sensitivity + counter
@@ -3795,7 +3804,19 @@ class TranscribeWindow(QDialog):
         # _long_audio_threshold_minutes() and _has_cuda_build() are kept
         # in case the upstream ONNX bug gets fixed and we want to revert
         # to a VRAM-aware threshold.
-        if self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS:
+        # Hybrid isolated-model routing: a diarized run with an isolated
+        # Parakeet quant selected goes through the chunked pipeline at ANY
+        # length (one chunk for short files), with the quant env forced onto
+        # the batch CLI subprocess. An isolated Whisper selection is handled
+        # by the two-phase socket path (Task 5b) and must NOT enter here.
+        _parakeet_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "parakeet")
+        _whisper_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "whisper")
+        if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
+                or _parakeet_isolated) and not _whisper_isolated):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
@@ -3804,7 +3825,8 @@ class TranscribeWindow(QDialog):
             self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
-                audio_path, sensitivity, diarize=diarize, parent=self)
+                audio_path, sensitivity, diarize=diarize, parent=self,
+                env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None))
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
