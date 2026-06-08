@@ -2001,7 +2001,7 @@ class MeetingWindow(QWidget):
     def _on_diarizer_ready(self):
         self._diarizer_ready = True
         if self._state == "recording":
-            self.status_label.setText("● Enregistrement en cours — modèles prêts")
+            self.status_label.setText("Enregistrement en cours — modèles prêts")
 
     def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
         # Guard against a tail chunk_ready that arrives after the pipeline was
