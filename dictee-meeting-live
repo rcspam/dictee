@@ -27,14 +27,57 @@ from datetime import datetime
 
 from PyQt6.QtCore import (
     QObject, QThread, pyqtSignal, QFileSystemWatcher, QTimer, Qt,
-    QPropertyAnimation, QEasingCurve,
+    QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF,
 )
+from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
     QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
     QLayout, QCheckBox, QMessageBox, QProgressBar,
 )
+
+
+# ---------------------------------------------------------------------------
+# Widgets
+# ---------------------------------------------------------------------------
+
+class StopButton(QPushButton):
+    """Stop button that can overlay a pie-sector progress in its corner — used
+    to show the final ('tail') chunk being flushed and transcribed after the
+    user stops. setPie(0..1); 0 hides the overlay. `pie` is a Qt property so a
+    QPropertyAnimation can drive it smoothly."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pie = 0.0
+
+    def getPie(self):
+        return self._pie
+
+    def setPie(self, value):
+        self._pie = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    pie = pyqtProperty(float, getPie, setPie)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._pie <= 0.0:
+            return
+        side = min(self.width(), self.height()) * 0.42
+        margin = 5.0
+        rect = QRectF(self.width() - side - margin,
+                      self.height() - side - margin, side, side)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 0, 0, 40))            # faint track
+        p.drawEllipse(rect)
+        p.setBrush(QColor(39, 174, 96, 230))       # green filled sector
+        # Sweep clockwise from 12 o'clock (Qt angles: 1/16°, CCW-positive).
+        p.drawPie(rect, 90 * 16, -int(360 * self._pie) * 16)
+        p.end()
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +546,20 @@ class ChunkerWorker(QThread):
                     self.error.emit(f"ffmpeg extract failed (chunk {self.chunk_id})")
                     return
             time.sleep(1)
+        # Stopped: flush the final partial chunk so the live preview captures
+        # the tail (audio recorded after the last full chunk).
+        self._flush_tail(start_t)
+
+    def _flush_tail(self, start_t):
+        """Emit a final partial chunk [start_t, end] on stop, but only if there
+        is NEW content beyond the overlap the last full chunk already covered."""
+        duration = self._wav_duration(self.audio_wav)
+        if duration <= start_t + self.overlap:
+            return
+        chunk_path = self.chunks_dir / f"chunk_{self.chunk_id:04d}.wav"
+        if self._extract(start_t, duration - start_t, chunk_path) == 0:
+            self.chunk_ready.emit(self.chunk_id, str(chunk_path))
+            self.chunk_id += 1
 
     def _wav_duration(self, path: Path) -> float:
         # 44 byte header + raw PCM s16le mono 16 kHz = 32000 B/s
@@ -1101,7 +1158,7 @@ class MeetingWindow(QWidget):
         self.btn_start.clicked.connect(self._on_start_pause)
         btn_row.addWidget(self.btn_start)
 
-        self.btn_stop = QPushButton("⏹")
+        self.btn_stop = StopButton("⏹")
         self.btn_stop.setToolTip("Arrêter")
         self.btn_stop.setFixedSize(64, 64)
         self.btn_stop.setStyleSheet("font-size: 22pt;")
@@ -1224,6 +1281,15 @@ class MeetingWindow(QWidget):
         # its fixed width reserves space so the bar never shifts as N grows.
         self._bar_chunk, self._chunk_val, self._lbl_chunk = _ind_row("Chunk 1", "#e74c3c")
         self._bar_ctx, self._ctx_val, _ = _ind_row("Contexte", "#27ae60")
+        # Smooth the per-second jumps: animate each bar toward its new target
+        # over ~1 s (linear) instead of snapping. _update_chunk_indicators sets
+        # the targets once per tick; these slide there continuously.
+        self._anim_chunk = QPropertyAnimation(self._bar_chunk, b"value")
+        self._anim_chunk.setDuration(950)
+        self._anim_chunk.setEasingCurve(QEasingCurve.Type.Linear)
+        self._anim_ctx = QPropertyAnimation(self._bar_ctx, b"value")
+        self._anim_ctx.setDuration(950)
+        self._anim_ctx.setEasingCurve(QEasingCurve.Type.Linear)
         self._chunk_indicators.setVisible(False)   # only while recording
         layout.addWidget(self._chunk_indicators)
 
@@ -1847,6 +1913,9 @@ class MeetingWindow(QWidget):
             pass
         self.chunk_duration = chunk_duration
         self._last_emit_elapsed = 0   # for the "chunk en cours" indicator bar
+        self._finalized = False       # stop-finalize guard (tail flush flow)
+        self._finalizing = False
+        self._tail_chunk_id = None
 
         # Workers for live preview
         self.chunker = ChunkerWorker(self.audio_wav, chunks_dir,
@@ -1925,6 +1994,9 @@ class MeetingWindow(QWidget):
                 if spk not in self.speakers_seen:
                     self.speakers_seen.add(spk)
                     self._add_speaker_row(spk)
+        # The tail chunk (flushed on stop) just landed → finalize the stop.
+        if getattr(self, "_finalizing", False) and chunk_id == getattr(self, "_tail_chunk_id", None):
+            self._finalize_stop()
 
     def _add_speaker_row(self, spk_id: int):
         """Add a QLineEdit row for naming a newly detected speaker."""
@@ -2055,6 +2127,9 @@ class MeetingWindow(QWidget):
     def _on_stop(self):
         # Stop the recording and freeze the WAV. Does NOT launch the analysis —
         # the user clicks "Démarrer l'analyse" (btn_analyze) for that.
+        # The chunker flushes a final partial chunk; we keep the live pipeline
+        # alive until that tail is transcribed (so the live preview captures the
+        # end), showing a pie on the stop button meanwhile, then finalize.
         self._tick_timer.stop()
 
         if self.audio_worker:
@@ -2063,11 +2138,65 @@ class MeetingWindow(QWidget):
             self.audio_worker = None
         self._refresh_meters()           # private app sink gone → re-resolve meters
 
-        if hasattr(self, "chunker") and self.chunker:
+        # Stop the chunker → it flushes the tail (queued chunk_ready). chunk_id
+        # grows iff a tail chunk was actually emitted.
+        tail_id = None
+        if getattr(self, "chunker", None):
+            before = self.chunker.chunk_id
             self.chunker.stop()
-        if hasattr(self, "diarizer") and self.diarizer:
+            if self.chunker.chunk_id > before:
+                tail_id = self.chunker.chunk_id - 1
+
+        if tail_id is not None:
+            # Keep diarizer / executor / whisper ALIVE so the queued tail chunk
+            # gets transcribed + diarized; finalize when it aligns (or watchdog).
+            self.btn_stop.setEnabled(False)
+            self._blink_timer.stop()
+            self.rec_dot.setVisible(False)
+            self._apply_icon(False)
+            self._tail_chunk_id = tail_id
+            self._finalizing = True
+            self._start_stop_pie()
+            self._finalize_watchdog = QTimer(self)
+            self._finalize_watchdog.setSingleShot(True)
+            self._finalize_watchdog.timeout.connect(self._finalize_stop)
+            self._finalize_watchdog.start(25000)   # safety net
+            self.status_label.setText("Finalisation du dernier segment…")
+        else:
+            self._finalize_stop()
+
+    def _start_stop_pie(self):
+        """Animate the stop button's pie while the last chunk is processed.
+        Creeps toward full over a few seconds (we lack granular daemon
+        progress); _finalize_stop clears it when the tail actually lands."""
+        self._pie_anim = QPropertyAnimation(self.btn_stop, b"pie")
+        self._pie_anim.setStartValue(0.0)
+        self._pie_anim.setEndValue(0.92)
+        self._pie_anim.setDuration(8000)
+        self._pie_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._pie_anim.start()
+
+    def _stop_stop_pie(self):
+        if getattr(self, "_pie_anim", None):
+            self._pie_anim.stop()
+        self.btn_stop.setPie(0.0)
+
+    def _finalize_stop(self):
+        """Tear down the live pipeline and switch to 'stopped'. Idempotent:
+        runs when the tail chunk aligns, on the watchdog, or directly when
+        there was no tail to flush."""
+        if getattr(self, "_finalized", False):
+            return
+        self._finalized = True
+        self._finalizing = False
+        self._tail_chunk_id = None
+        if getattr(self, "_finalize_watchdog", None):
+            self._finalize_watchdog.stop()
+        self._stop_stop_pie()
+
+        if getattr(self, "diarizer", None):
             self.diarizer.stop()
-        if hasattr(self, "_executor") and self._executor:
+        if getattr(self, "_executor", None):
             self._executor.shutdown(wait=False)
         self._stop_live_whisper()
         try:
@@ -2177,14 +2306,24 @@ class MeetingWindow(QWidget):
         since = min(since, period)
         # 1-indexed current chunk number (chunk_id is the next chunk to emit).
         self._lbl_chunk.setText(f"Chunk {ch.chunk_id + 1}")
-        self._bar_chunk.setValue(int(100 * since / period) if period else 0)
+        self._smooth_bar(self._anim_chunk, self._bar_chunk,
+                         int(100 * since / period) if period else 0)
         self._chunk_val.setText(f"{since}s / {period}s")
         # Contexte = the LAST `overlap` seconds of the current chunk — the slice
         # that overlaps into (and becomes the look-back context of) the next
         # chunk. Empty until the chunk enters its final `overlap` seconds.
         ctx_into = max(0, since - (period - overlap))
-        self._bar_ctx.setValue(int(100 * ctx_into / overlap) if overlap else 100)
+        self._smooth_bar(self._anim_ctx, self._bar_ctx,
+                         int(100 * ctx_into / overlap) if overlap else 100)
         self._ctx_val.setText(f"{ctx_into}s / {overlap}s")
+
+    @staticmethod
+    def _smooth_bar(anim, bar, target):
+        """Animate a progress bar toward `target` from its current value."""
+        anim.stop()
+        anim.setStartValue(bar.value())
+        anim.setEndValue(int(target))
+        anim.start()
 
     def _on_error_msg(self, msg: str):
         self.status_label.setText(f"Erreur : {msg}")
@@ -2224,8 +2363,13 @@ class MeetingWindow(QWidget):
         self._mic_watcher.stop()
         self._stop_meters()
         self._stop_preview_appcap()
-        if self.btn_stop.isEnabled():
-            # Capture still running (or paused) — stop it cleanly
+        # Stop the stop-button pie + finalize watchdog if a stop was in flight.
+        self._stop_stop_pie()
+        if getattr(self, "_finalize_watchdog", None):
+            self._finalize_watchdog.stop()
+        if self.btn_stop.isEnabled() or getattr(self, "_finalizing", False):
+            # Capture still running/paused, OR we were finalizing the tail —
+            # tear the live pipeline down cleanly either way.
             self._tick_timer.stop()
             if self.audio_worker:
                 self.audio_worker.resume()   # unfreeze if paused so stop() works
