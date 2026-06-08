@@ -2126,8 +2126,9 @@ class LLMProcessDialog(QDialog):
 class TranscribeWindow(QDialog):
     """Main transcription/diarization window."""
 
-    def __init__(self, file_path=None, auto_diarize=False, parent=None):
+    def __init__(self, file_path=None, auto_diarize=False, asr_model="", parent=None):
         super().__init__(parent)
+        self._asr_model = asr_model or ""
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
@@ -2232,6 +2233,26 @@ class TranscribeWindow(QDialog):
 
         # -- File picker --
         lay_file = QHBoxLayout()
+
+        self._asr_model_combo = QComboBox()
+        # (label, userData=spec). "" = Default (F9).
+        for _lbl, _spec in (
+            (_("Default (F9)"), ""),
+            ("Parakeet int8", "parakeet-int8"),
+            ("Parakeet fp32", "parakeet-fp32"),
+            ("Whisper tiny", "whisper-tiny"),
+            ("Whisper small", "whisper-small"),
+            ("Whisper medium", "whisper-medium"),
+        ):
+            self._asr_model_combo.addItem(_lbl, _spec)
+        self._asr_model_combo.setToolTip(
+            _("ASR model for this transcription (isolated from your F9 setting)"))
+        if self._asr_model:
+            _i = self._asr_model_combo.findData(self._asr_model)
+            if _i >= 0:
+                self._asr_model_combo.setCurrentIndex(_i)
+        lay_file.addWidget(self._asr_model_combo)
+
         lbl = QLabel(_("File:"))
         lay_file.addWidget(lbl)
 
@@ -5345,6 +5366,10 @@ def main():
     parser.add_argument("--file", "-f", help="Audio file to transcribe")
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
+    parser.add_argument("--asr-model", default="",
+                        help="ASR model spec (parakeet-int8|parakeet-fp32|"
+                             "whisper-tiny|whisper-small|whisper-medium). "
+                             "Empty = use the F9 daemon (default).")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
     # Positional args: receive %F from .desktop / file-manager open-with /
@@ -5382,6 +5407,7 @@ def main():
     win = TranscribeWindow(
         file_path=file_path,
         auto_diarize=args.diarize,
+        asr_model=args.asr_model,
     )
     win.show()
     sys.exit(app.exec())
