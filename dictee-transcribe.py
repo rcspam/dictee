@@ -100,7 +100,8 @@ def list_past_meetings(base=None):
         meta = os.path.join(d, "meeting.meta.json")
         if os.path.isfile(meta):
             try:
-                title = json.load(open(meta, encoding="utf-8")).get("title") or name
+                with open(meta, encoding="utf-8") as f:
+                    title = json.load(f).get("title") or name
             except Exception:
                 pass
         out.append((f"{name} — {title}" if title != name else name, audio))
