@@ -687,6 +687,7 @@ class DiarizationWorker(QObject):
 
     diarized = pyqtSignal(int, list)
     error = pyqtSignal(int, str)
+    ready = pyqtSignal()           # emitted once Sortformer has finished loading
 
     def __init__(self):
         super().__init__()
@@ -697,7 +698,11 @@ class DiarizationWorker(QObject):
         self._lock = threading.Lock()
 
     def start(self) -> bool:
-        """Launch the subprocess. Returns True if ready, False on failure."""
+        """Launch diarize-only --stream WITHOUT blocking the caller. The model
+        load (a few seconds of Sortformer/ONNX + CUDA init) is awaited on a
+        background thread that emits `ready` (or `error`). The first live chunk
+        only arrives at chunk_duration (~40 s), so the model has ample time to
+        load. Returns True if the process spawned, False on spawn failure."""
         try:
             self.proc = subprocess.Popen(
                 ["diarize-only", "--stream"],
@@ -708,20 +713,32 @@ class DiarizationWorker(QObject):
                 bufsize=1,
                 env=_build_subprocess_env(),
             )
-            # Wait for "ready" message on stderr (timeout 30s for slow CPU)
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                line = self.proc.stderr.readline()
-                if not line:
-                    self.error.emit(0, "diarize-only --stream stderr EOF before ready")
-                    return False
-                if "ready" in line:
-                    return True
-            self.error.emit(0, "diarize-only --stream startup timeout (30s)")
-            return False
         except FileNotFoundError:
             self.error.emit(0, "diarize-only binary not found. Sortformer feature built?")
             return False
+        threading.Thread(target=self._await_ready, daemon=True).start()
+        return True
+
+    def _await_ready(self):
+        """Background: wait for the 'ready' line on stderr, then keep draining
+        stderr so its pipe never fills and blocks the daemon."""
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            line = self.proc.stderr.readline()
+            if not line:
+                self.error.emit(0, "diarize-only --stream stderr EOF before ready")
+                return
+            if "ready" in line:
+                self.ready.emit()
+                break
+        else:
+            self.error.emit(0, "diarize-only --stream startup timeout (30s)")
+            return
+        try:
+            for _ in self.proc.stderr:   # drain (discard) until the proc exits
+                pass
+        except Exception:
+            pass
 
     def diarize(self, chunk_id: int, chunk_path: str):
         if not self.proc:
@@ -1951,7 +1968,9 @@ class MeetingWindow(QWidget):
 
         self.transcriber = TranscriptionWorker(whisper_sock=self._live_whisper_sock)
         self.diarizer = DiarizationWorker()
-        if not self.diarizer.start():
+        self._diarizer_ready = False
+        self.diarizer.ready.connect(self._on_diarizer_ready)
+        if not self.diarizer.start():   # non-blocking: model loads in background
             self._on_error_msg("Failed to start diarize-only --stream")
 
         self.aligner = AlignerWorker()
@@ -1973,6 +1992,16 @@ class MeetingWindow(QWidget):
 
         self._tick_timer.start()
         self._set_state("recording")
+        # Models load in the background (no UI freeze); keep the user informed.
+        _loading = ["diarisation"]
+        if self._live_whisper_proc is not None:
+            _loading.append("Whisper")
+        self.status_label.setText("⏳ Chargement du modèle : " + " + ".join(_loading) + "…")
+
+    def _on_diarizer_ready(self):
+        self._diarizer_ready = True
+        if self._state == "recording":
+            self.status_label.setText("● Enregistrement en cours — modèles prêts")
 
     def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
         # Guard against a tail chunk_ready that arrives after the pipeline was
@@ -1986,6 +2015,9 @@ class MeetingWindow(QWidget):
         self.aligner.chunk_offset[chunk_id] = chunk_id * (self.chunk_duration - 10)
         self._executor.submit(self.transcriber.transcribe, chunk_id, chunk_path)
         self._executor.submit(self.diarizer.diarize, chunk_id, chunk_path)
+        if not getattr(self, "_finalizing", False):
+            self.status_label.setText(
+                f"⚙ Chunk {chunk_id + 1} : transcription + diarisation…")
 
     def _on_aligned(self, chunk_id: int, lines: list):
         with open(self.transcript_path, "a", encoding="utf-8") as f:
@@ -1999,6 +2031,8 @@ class MeetingWindow(QWidget):
                 if spk not in self.speakers_seen:
                     self.speakers_seen.add(spk)
                     self._add_speaker_row(spk)
+        if not getattr(self, "_finalizing", False):
+            self.status_label.setText(f"✓ Chunk {chunk_id + 1} ajouté à l'aperçu")
         # The tail chunk (flushed on stop) just landed → finalize the stop.
         if getattr(self, "_finalizing", False) and chunk_id == getattr(self, "_tail_chunk_id", None):
             self._finalize_stop()
@@ -2026,6 +2060,10 @@ class MeetingWindow(QWidget):
 
     def _on_chunk_error(self, chunk_id: int, msg: str):
         print(f"[meeting-live] chunk {chunk_id}: {msg}", file=sys.stderr)
+        # Surface transient chunk issues (e.g. Whisper model still cold-loading)
+        # in the status bar so the user knows what's happening.
+        if not getattr(self, "_finalizing", False):
+            self.status_label.setText(f"⚠ Chunk {chunk_id + 1} : {msg}")
 
     def _reload_transcript(self):
         if not self.transcript_path:
