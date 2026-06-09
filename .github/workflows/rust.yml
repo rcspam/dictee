@@ -70,6 +70,17 @@ jobs:
     - name: Audit packaging deps manifest vs builders
       run: python3 packaging/audit-deps.py
 
+  test-install-arch-source:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Verify the Arch installer resolves to an existing source tarball
+      # Guards against issue #17: the Arch install path must clone a ref
+      # whose PKGBUILD _tag points at a tarball that actually exists (HTTP
+      # 200). Catches a master bump to an unreleased version, a stale
+      # hard-coded branch, or any tag/_tag mismatch — before users hit it.
+      run: bash tests/test-install-arch-source.sh
+
   test-x86:
     runs-on: ubuntu-latest
     steps:
@@ -93,7 +104,7 @@ jobs:
       run: cargo test --verbose
 
   release:
-    needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, packaging-audit, test-x86, test-arm64]
+    needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, packaging-audit, test-install-arch-source, test-x86, test-arm64]
     # Disabled: dictee ships locally-built CUDA assets that CI cannot produce,
     # so a tag push must NOT auto-publish an empty release (it would also flip
     # the GitHub "Latest" pointer and break install.sh's asset lookup for

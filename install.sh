@@ -568,14 +568,21 @@ mode_online() {
             fi
         fi
 
-        info "Cloning the dictee repository (release/1.3)..."
-        # Clone the matching release branch for Arch (not master): makepkg
-        # then builds THIS release's PKGBUILD, whose source= fetches the
-        # release's version tag archive (v1.3.5). PKGBUILD packaging fixes
-        # still ship without a binary version bump — the tag archive is the
-        # frozen binary source. The 1.4 line ships its own install.sh that
-        # clones master.
-        git clone --depth 1 --branch release/1.3 "https://github.com/${REPO}.git" dictee-src
+        info "Cloning dictee at the latest release tag (${RELEASE_TAG})..."
+        # Clone the resolved release TAG ($RELEASE_TAG), NOT master. This
+        # mirrors what the deb/rpm/tarball paths already do — they pull assets
+        # from the release tag — so all four targets follow the same published
+        # release. The Arch path builds from source, so it clones the tag to
+        # read its PKGBUILD; makepkg then builds it via source=()
+        # (archive/v$_tag.tar.gz). Cloning the tag guarantees that archive
+        # exists: a published tag always has a downloadable archive, and the
+        # tag's PKGBUILD pins _tag to that same version. master must NOT be
+        # cloned — it can sit ahead on an unreleased dev version (e.g.
+        # 1.4.0-beta) whose tag does not exist yet, making makepkg fetch a 404
+        # archive and abort (issue #17). Tracking $RELEASE_TAG also means Arch
+        # follows the latest published release automatically, nothing
+        # hard-coded. $RELEASE_TAG is set above (latest stable, or --version).
+        git clone --depth 1 --branch "$RELEASE_TAG" "https://github.com/${REPO}.git" dictee-src
         cd dictee-src
 
         info "Building via makepkg (this will compile from source)..."
