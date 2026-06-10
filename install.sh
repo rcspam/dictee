@@ -555,8 +555,8 @@ mode_online() {
         git clone --depth 1 "https://github.com/${REPO}.git" dictee-src
         cd dictee-src
 
-        # Pre-build heads-up: makepkg compiles parakeet-rs (Rust+ONNX) from
-        # source, which is silent and slow. Without this warning, users
+        # Pre-build heads-up: makepkg compiles the dictee ASR engine (Rust+ONNX)
+        # from source, which is silent and slow. Without this warning, users
         # routinely Ctrl-C around minute 4-5 thinking the install hung.
         echo
         warn "About to build dictee from source via makepkg."
