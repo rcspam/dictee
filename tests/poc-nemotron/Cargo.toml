@@ -1,0 +1,12 @@
+[package]
+name = "nemo-fr"
+version = "0.1.0"
+edition = "2021"
+
+# Isolated workspace so this POC doesn't get pulled into the parent dictee crate.
+[workspace]
+
+[dependencies]
+# CPU defaults (["cpu", "ort-defaults"]); Nemotron needs no extra feature.
+# For CUDA: parakeet-rs = { version = "0.3.6", features = ["cuda"] }
+parakeet-rs = "0.3.6"

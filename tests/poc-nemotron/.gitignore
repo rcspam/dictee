@@ -1,0 +1,6 @@
+# Build artifacts
+/target/
+# Downloaded model weights (~2.5 GB) — fetch via the curl commands in the README/script
+/nemotron_multi/
+# Local test audio
+*.wav
