@@ -146,7 +146,7 @@ STATE_FILE = "/dev/shm/.dictee_state"
 PROVIDER_FILE = "/dev/shm/.dictee_provider"
 TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary", "dictee-nemotron")
 CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
@@ -210,6 +210,7 @@ ASR_BACKENDS = [
     ("canary",        "Canary",                  "canary",   None),
     ("vosk",          "Vosk",                    "vosk",     None),
     ("whisper",       "Whisper",                 "whisper",  None),
+    ("nemotron",      "Nemotron",                "nemotron", None),
 ]
 
 TRANSLATE_BACKENDS = [
@@ -389,6 +390,11 @@ def _asr_service_exists(key):
         if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
             return False
         return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
+    if key == "nemotron":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        return os.path.isdir("/usr/share/dictee/nemotron") or \
+            os.path.isfile(os.path.join(data_dir, "nemotron", "encoder.onnx"))
     # Vosk/Whisper: check venv
     venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)
@@ -490,7 +496,8 @@ def daemon_is_active():
 def _conf_asr_service():
     """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
     mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
-               "whisper": "dictee-whisper", "canary": "dictee-canary"}
+               "whisper": "dictee-whisper", "canary": "dictee-canary",
+               "nemotron": "dictee-nemotron"}
     try:
         with open(CONF_PATH) as f:
             for line in f:
