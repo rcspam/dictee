@@ -3926,9 +3926,10 @@ class TranscribeWindow(QDialog):
         # length (one chunk for short files), with the quant env forced onto
         # the batch CLI subprocess. An isolated Whisper or Nemotron selection
         # is handled by the two-phase socket path and must NOT enter here.
-        # Nemotron has no duration limit (streaming), so its chunk bypass is
-        # not gated on diarize — even a long plain nemotron file must skip the
-        # Parakeet chunked CLI pipeline.
+        # Both _whisper_isolated and _nemotron_isolated are gated on diarize:
+        # non-diarized runs always fall through to the plain Parakeet CLI
+        # (known limitation — selecting whisper/nemotron for a non-diarized
+        # batch file currently yields Parakeet output via the transcribe CLI).
         _parakeet_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "parakeet")
@@ -3936,7 +3937,7 @@ class TranscribeWindow(QDialog):
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "whisper")
         _nemotron_isolated = bool(
-            getattr(self, "_isolated_recipe", None)
+            diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "nemotron")
         if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
                 or _parakeet_isolated) and not _whisper_isolated
@@ -4010,7 +4011,7 @@ class TranscribeWindow(QDialog):
         # Isolated Whisper/Nemotron diarized run: force the two-phase path
         # (diarize-only speakers + phase-2 isolated daemon over a private
         # socket), regardless of the F9 backend. Requires diarize-only.
-        if _whisper_isolated or (_nemotron_isolated and diarize):
+        if _whisper_isolated or _nemotron_isolated:
             if not shutil.which("diarize-only"):
                 self._progress.setVisible(False)
                 self._lbl_status.setText(
