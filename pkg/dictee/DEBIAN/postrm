@@ -8,8 +8,8 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
         [ "$user" = "root" ] && continue
         [ -d "/run/user/$uid" ] || continue
         _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
-        $_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-        $_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+        $_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
         $_run systemctl --user daemon-reload 2>/dev/null || true
     done
 
