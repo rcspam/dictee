@@ -3924,16 +3924,23 @@ class TranscribeWindow(QDialog):
         # Hybrid isolated-model routing: a diarized run with an isolated
         # Parakeet quant selected goes through the chunked pipeline at ANY
         # length (one chunk for short files), with the quant env forced onto
-        # the batch CLI subprocess. An isolated Whisper selection is handled
-        # by the two-phase socket path (Task 5b) and must NOT enter here.
+        # the batch CLI subprocess. An isolated Whisper or Nemotron selection
+        # is handled by the two-phase socket path and must NOT enter here.
+        # Nemotron has no duration limit (streaming), so its chunk bypass is
+        # not gated on diarize — even a long plain nemotron file must skip the
+        # Parakeet chunked CLI pipeline.
         _parakeet_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "parakeet")
         _whisper_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "whisper")
+        _nemotron_isolated = bool(
+            getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "nemotron")
         if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
-                or _parakeet_isolated) and not _whisper_isolated):
+                or _parakeet_isolated) and not _whisper_isolated
+                and not _nemotron_isolated):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
@@ -4000,10 +4007,10 @@ class TranscribeWindow(QDialog):
             self._process.deleteLater()
             self._process = None
             return
-        # Isolated Whisper diarized run: force the two-phase path (diarize-only
-        # speakers + phase-2 isolated whisper daemon over a private socket),
-        # regardless of the F9 backend. Requires diarize-only.
-        if _whisper_isolated:
+        # Isolated Whisper/Nemotron diarized run: force the two-phase path
+        # (diarize-only speakers + phase-2 isolated daemon over a private
+        # socket), regardless of the F9 backend. Requires diarize-only.
+        if _whisper_isolated or (_nemotron_isolated and diarize):
             if not shutil.which("diarize-only"):
                 self._progress.setVisible(False)
                 self._lbl_status.setText(
@@ -4075,10 +4082,12 @@ class TranscribeWindow(QDialog):
             self._update_transcribe_btn()
             return
 
-        if getattr(self, "_isolated_recipe", None) and self._isolated_recipe["backend"] == "whisper":
-            # Isolated whisper: spawn an ad-hoc daemon on a private socket
-            # (the F9 daemon/config/badge are untouched). Larger socket-wait
-            # timeout because the whisper model cold-load can take a while.
+        if (getattr(self, "_isolated_recipe", None)
+                and self._isolated_recipe["backend"] in ("whisper", "nemotron")):
+            # Isolated whisper/nemotron: spawn an ad-hoc daemon on a private
+            # socket (the F9 daemon/config/badge are untouched). Extended
+            # socket-wait timeout because both models cold-load slowly
+            # (whisper model download + init; nemotron 2.45 GB load).
             self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
