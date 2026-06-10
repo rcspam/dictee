@@ -146,6 +146,7 @@ package() {
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-vosk.service "$pkgdir/usr/lib/systemd/user/dictee-vosk.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-canary.service "$pkgdir/usr/lib/systemd/user/dictee-canary.service"
+    install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-nemotron.service "$pkgdir/usr/lib/systemd/user/dictee-nemotron.service"
     # Note: dotoold.service is shipped by the AUR `dotool` package (declared in depends).
     # Shipping it here causes a pacman file conflict. See GitHub issue #4.
     install -Dm644 pkg/dictee/usr/lib/systemd/user-preset/90-dictee.preset "$pkgdir/usr/lib/systemd/user-preset/90-dictee.preset"

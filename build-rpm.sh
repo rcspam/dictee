@@ -388,7 +388,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     # Only restart tray if user has a config (avoid starting unconfigured tray)
@@ -402,13 +402,14 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         _asr_backend=\$(grep -s '^DICTEE_ASR_BACKEND=' "\$_user_home/.config/dictee.conf" | cut -d= -f2)
     fi
     case "\$_asr_backend" in
-        vosk)    _asr_svc="dictee-vosk" ;;
-        whisper) _asr_svc="dictee-whisper" ;;
-        canary)  _asr_svc="dictee-canary" ;;
-        *)       _asr_svc="dictee" ;;
+        vosk)     _asr_svc="dictee-vosk" ;;
+        whisper)  _asr_svc="dictee-whisper" ;;
+        canary)   _asr_svc="dictee-canary" ;;
+        nemotron) _asr_svc="dictee-nemotron" ;;
+        *)        _asr_svc="dictee" ;;
     esac
-    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
     \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
@@ -494,8 +495,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     # Clean locales
@@ -646,7 +647,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     # Only restart tray if user has a config (avoid starting unconfigured tray)
@@ -660,13 +661,14 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         _asr_backend=\$(grep -s '^DICTEE_ASR_BACKEND=' "\$_user_home/.config/dictee.conf" | cut -d= -f2)
     fi
     case "\$_asr_backend" in
-        vosk)    _asr_svc="dictee-vosk" ;;
-        whisper) _asr_svc="dictee-whisper" ;;
-        canary)  _asr_svc="dictee-canary" ;;
-        *)       _asr_svc="dictee" ;;
+        vosk)     _asr_svc="dictee-vosk" ;;
+        whisper)  _asr_svc="dictee-whisper" ;;
+        canary)   _asr_svc="dictee-canary" ;;
+        nemotron) _asr_svc="dictee-nemotron" ;;
+        *)        _asr_svc="dictee" ;;
     esac
-    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
     \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
@@ -695,8 +697,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     for lang in fr de es it uk pt; do
