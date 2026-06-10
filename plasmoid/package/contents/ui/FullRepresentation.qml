@@ -574,7 +574,8 @@ RowLayout {
                     append({ "text": i18n("Parakeet (fast)"),    "value": "parakeet", "quant": "int8" })
                     append({ "text": "Canary",   "value": "canary",  "quant": "" })
                     append({ "text": "Vosk",     "value": "vosk",    "quant": "" })
-                    append({ "text": "Whisper",  "value": "whisper", "quant": "" })
+                    append({ "text": "Whisper",  "value": "whisper",   "quant": "" })
+                    append({ "text": "Nemotron", "value": "nemotron", "quant": "" })
                 }
             }
             textRole: "text"

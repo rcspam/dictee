@@ -368,12 +368,12 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
+    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
-    property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
+    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "nemotron"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
@@ -472,6 +472,7 @@ PlasmoidItem {
         "  && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
+        "{ [ -d /usr/share/dictee/nemotron ] || [ -d \"$dd/nemotron\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo nemotron; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
@@ -806,15 +807,15 @@ PlasmoidItem {
                 "svc=dictee; " +
                 "if [ -f \"$conf\" ]; then " +
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
-                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
+                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; nemotron) svc=dictee-nemotron;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
         case "stop-daemon":
-            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
+            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
-            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary", "nemotron": "dictee-nemotron" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
             root.activeButton = ""
