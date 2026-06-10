@@ -4,3 +4,5 @@
 /nemotron_multi/
 # Local test audio
 *.wav
+# Python bytecode cache
+__pycache__/

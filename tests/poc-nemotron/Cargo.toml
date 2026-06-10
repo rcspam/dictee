@@ -10,3 +10,4 @@ edition = "2021"
 # cuda feature compiled in; provider chosen at runtime via env NEMO_CUDA=1
 # (falls back to CPU otherwise, and parakeet-rs falls back to CPU if CUDA init fails).
 parakeet-rs = { version = "0.3.6", features = ["cuda"] }
+hound = "3"  # WAV reading for the positional streaming POC

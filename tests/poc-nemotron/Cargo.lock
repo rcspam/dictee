@@ -567,6 +567,7 @@ dependencies = [
 name = "nemo-fr"
 version = "0.1.0"
 dependencies = [
+ "hound",
  "parakeet-rs",
 ]
 
