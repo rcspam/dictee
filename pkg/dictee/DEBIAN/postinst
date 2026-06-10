@@ -8,7 +8,7 @@ NEMOTRON_DIR="$MODEL_DIR/nemotron"
 
 HF_TDT="https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
 HF_DIAR="https://huggingface.co/altunenes/parakeet-rs/resolve/main"
-HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b"
+HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
 
 TDT_FILES=(
     "encoder-model.onnx"
@@ -59,7 +59,7 @@ download_sortformer() {
 
 download_nemotron() {
     echo ""
-    echo "=== Nemotron model (English streaming, ~2.5 GB) ==="
+    echo "=== Nemotron model (multilingual streaming, ~2.5 GB) ==="
     mkdir -p "$NEMOTRON_DIR"
     for file in "${NEMOTRON_FILES[@]}"; do
         download_file "$HF_NEMOTRON/$file" "$NEMOTRON_DIR/$file"
@@ -86,7 +86,7 @@ fi
 if [ -f "$NEMOTRON_DIR/encoder.onnx" ]; then
     echo "✓ Nemotron model present"
 else
-    echo "  Nemotron model missing (optional, English streaming)"
+    echo "  Nemotron model missing (optional, multilingual streaming)"
 fi
 
 if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
