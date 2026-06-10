@@ -345,6 +345,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dictee-asr"
+version = "1.4.0-beta"
+dependencies = [
+ "ctrlc",
+ "eyre",
+ "hound",
+ "libc",
+ "ndarray",
+ "ort",
+ "pipewire",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "tokenizers",
+]
+
+[[package]]
 name = "dispatch2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1008,23 +1025,6 @@ dependencies = [
  "hmac-sha256",
  "lzma-rust2",
  "ureq",
-]
-
-[[package]]
-name = "parakeet-rs"
-version = "1.4.0-beta"
-dependencies = [
- "ctrlc",
- "eyre",
- "hound",
- "libc",
- "ndarray",
- "ort",
- "pipewire",
- "rustfft",
- "serde",
- "serde_json",
- "tokenizers",
 ]
 
 [[package]]
