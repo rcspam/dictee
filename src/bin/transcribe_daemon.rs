@@ -99,7 +99,15 @@ impl AsrBackend {
             AsrBackend::Canary(c) => c.transcribe_samples(audio, sample_rate, channels, mode),
             AsrBackend::Nemotron(n) => {
                 // Nemotron expects 16 kHz mono; the dictee pipeline already
-                // delivers that. No word timestamps -> empty tokens.
+                // delivers that. Guard loudly so wrong-rate audio is never
+                // silently mistranscribed.
+                if sample_rate != 16000 {
+                    return Err(parakeet_rs::Error::Audio(format!(
+                        "Nemotron expects 16000 Hz mono, got {} Hz",
+                        sample_rate
+                    )));
+                }
+                // No word timestamps -> empty tokens.
                 let text = n.transcribe_audio(&audio)?;
                 Ok(TranscriptionResult { text, tokens: Vec::new() })
             }
@@ -236,6 +244,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|v| v == "nemotron")
         .unwrap_or(false)
         || parsed.nemotron;
+
+    if use_canary && use_nemotron {
+        eprintln!("[daemon] warning: --canary and --nemotron both set; using Canary");
+    }
 
     let source_lang = env::var("DICTEE_LANG_SOURCE").unwrap_or_else(|_| "fr".to_string());
     // For Canary: default target = source (transcription, not translation).
