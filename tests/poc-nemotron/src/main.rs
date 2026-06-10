@@ -8,7 +8,7 @@
 //
 // Model dir: $NEMO_MODEL_DIR or ./nemotron_multi.
 
-use parakeet_rs::{Nemotron, NemotronMode};
+use parakeet_rs::{ExecutionConfig, ExecutionProvider, Nemotron, NemotronMode};
 use std::env;
 use std::time::Instant;
 
@@ -21,8 +21,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wavs = &args[2..];
     let model_dir = env::var("NEMO_MODEL_DIR").unwrap_or_else(|_| "./nemotron_multi".to_string());
 
+    let cfg = if env::var("NEMO_CUDA").map(|v| v == "1").unwrap_or(false) {
+        eprintln!("[nemo] provider: CUDA");
+        Some(ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda))
+    } else {
+        eprintln!("[nemo] provider: CPU");
+        None
+    };
     let t0 = Instant::now();
-    let mut model = Nemotron::from_pretrained(&model_dir, None)?;
+    let mut model = Nemotron::from_pretrained(&model_dir, cfg)?;
     eprintln!("[nemo] loaded in {:.1}s, mode={:?}", t0.elapsed().as_secs_f32(), model.mode());
 
     if let NemotronMode::Multilingual = model.mode() {

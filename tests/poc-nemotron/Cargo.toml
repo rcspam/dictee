@@ -7,6 +7,6 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-# CPU defaults (["cpu", "ort-defaults"]); Nemotron needs no extra feature.
-# For CUDA: parakeet-rs = { version = "0.3.6", features = ["cuda"] }
-parakeet-rs = "0.3.6"
+# cuda feature compiled in; provider chosen at runtime via env NEMO_CUDA=1
+# (falls back to CPU otherwise, and parakeet-rs falls back to CPU if CUDA init fails).
+parakeet-rs = { version = "0.3.6", features = ["cuda"] }
