@@ -7,7 +7,7 @@
 //     lang: "fr-FR" (default), "fr", "auto", "en-US", …
 // Stop with Ctrl+C.
 
-use parakeet_rs::{Nemotron, NemotronMode};
+use parakeet_rs::{ExecutionConfig, ExecutionProvider, Nemotron, NemotronMode};
 use std::env;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -16,8 +16,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lang = env::args().nth(1).unwrap_or_else(|| "fr-FR".to_string());
     let model_dir = env::var("NEMO_MODEL_DIR").unwrap_or_else(|_| "./nemotron_multi".to_string());
 
+    let cfg = if env::var("NEMO_CUDA").map(|v| v == "1").unwrap_or(false) {
+        eprintln!("[nemo] provider: CUDA");
+        Some(ExecutionConfig::new().with_execution_provider(ExecutionProvider::Cuda))
+    } else {
+        eprintln!("[nemo] provider: CPU");
+        None
+    };
     eprintln!("Loading Nemotron from {model_dir} …");
-    let mut model = Nemotron::from_pretrained(&model_dir, None)?;
+    let mut model = Nemotron::from_pretrained(&model_dir, cfg)?;
     match model.mode() {
         NemotronMode::Multilingual => {
             if lang != "auto" {
