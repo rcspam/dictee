@@ -1,6 +1,6 @@
 use parakeet_rs::{
-    best_provider, provider_status, Canary, ExecutionConfig, ExecutionProvider, ParakeetTDT,
-    TimestampMode, Transcriber, TranscriptionResult,
+    best_provider, provider_status, Canary, ExecutionConfig, ExecutionProvider, Nemotron,
+    ParakeetTDT, TimestampMode, Transcriber, TranscriptionResult,
 };
 use std::env;
 use std::fs;
@@ -36,6 +36,7 @@ fn socket_path() -> String {
 struct DaemonArgs {
     help: bool,
     canary: bool,
+    nemotron: bool,
     /// Explicit socket path (`--socket <path>`); overrides socket_path().
     socket: Option<String>,
     /// Optional positional model directory.
@@ -55,6 +56,7 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
         match args[i].as_str() {
             "--help" | "-h" => out.help = true,
             "--canary" => out.canary = true,
+            "--nemotron" => out.nemotron = true,
             "--socket" => {
                 let path = args
                     .get(i + 1)
@@ -77,10 +79,11 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
     Ok(out)
 }
 
-/// Unified ASR backend: Parakeet TDT or Canary AED
+/// Unified ASR backend: Parakeet TDT, Canary AED, or Nemotron RNNT
 enum AsrBackend {
     Parakeet(ParakeetTDT),
     Canary(Canary),
+    Nemotron(Nemotron),
 }
 
 impl AsrBackend {
@@ -94,6 +97,12 @@ impl AsrBackend {
         match self {
             AsrBackend::Parakeet(p) => p.transcribe_samples(audio, sample_rate, channels, mode),
             AsrBackend::Canary(c) => c.transcribe_samples(audio, sample_rate, channels, mode),
+            AsrBackend::Nemotron(n) => {
+                // Nemotron expects 16 kHz mono; the dictee pipeline already
+                // delivers that. No word timestamps -> empty tokens.
+                let text = n.transcribe_audio(&audio)?;
+                Ok(TranscriptionResult { text, tokens: Vec::new() })
+            }
         }
     }
 
@@ -109,6 +118,7 @@ impl AsrBackend {
         match self {
             AsrBackend::Canary(c) => c.last_token_ids().is_some(),
             AsrBackend::Parakeet(_) => false,
+            AsrBackend::Nemotron(_) => false,
         }
     }
 }
@@ -192,17 +202,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = parsed.socket.clone().unwrap_or_else(socket_path);
 
     if parsed.help {
-        eprintln!("transcribe-daemon - ASR daemon via Unix socket (Parakeet TDT / Canary AED)");
+        eprintln!("transcribe-daemon - ASR daemon via Unix socket (Parakeet TDT / Canary AED / Nemotron RNNT)");
         eprintln!();
-        eprintln!("Usage: transcribe-daemon [model_dir] [--canary] [--socket <path>]");
+        eprintln!("Usage: transcribe-daemon [model_dir] [--canary|--nemotron] [--socket <path>]");
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  [model_dir]      Model directory (default: /usr/share/dictee/tdt or /canary)");
+        eprintln!("  [model_dir]      Model directory (default: /usr/share/dictee/tdt, /canary, or /nemotron)");
         eprintln!("  --canary         Use Canary AED backend instead of Parakeet TDT");
+        eprintln!("  --nemotron       Use Nemotron RNNT backend instead of Parakeet TDT");
         eprintln!("  --socket <path>  Listen on this socket path (default: $DICTEE_TRANSCRIBE_SOCKET or $XDG_RUNTIME_DIR/transcribe.sock)");
         eprintln!();
         eprintln!("Environment:");
         eprintln!("  DICTEE_ASR_BACKEND=canary    Select Canary backend");
+        eprintln!("  DICTEE_ASR_BACKEND=nemotron  Select Nemotron backend");
         eprintln!("  DICTEE_LANG_SOURCE=fr        Source language (default: fr)");
         eprintln!("  DICTEE_LANG_TARGET=fr        Target language (default: source)");
         eprintln!();
@@ -220,6 +232,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|v| v == "canary")
         .unwrap_or(false)
         || parsed.canary;
+    let use_nemotron = env::var("DICTEE_ASR_BACKEND")
+        .map(|v| v == "nemotron")
+        .unwrap_or(false)
+        || parsed.nemotron;
 
     let source_lang = env::var("DICTEE_LANG_SOURCE").unwrap_or_else(|_| "fr".to_string());
     // For Canary: default target = source (transcription, not translation).
@@ -236,15 +252,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .model_dir
         .clone()
         .unwrap_or_else(|| {
-            let subdir = if use_canary { "canary" } else { "tdt" };
+            let subdir = if use_canary { "canary" } else if use_nemotron { "nemotron" } else { "tdt" };
             let user_dir = format!(
                 "{}/.local/share/dictee/{}",
                 env::var("HOME").unwrap_or_else(|_| "/root".to_string()),
                 subdir
             );
             let sys_dir = format!("/usr/share/dictee/{}", subdir);
+            // Nemotron uses tokenizer.model as sentinel; Parakeet/Canary use vocab.txt.
+            let sentinel = if use_nemotron { "tokenizer.model" } else { "vocab.txt" };
             // User dir takes priority (local overrides, test models)
-            if Path::new(&user_dir).join("vocab.txt").exists() {
+            if Path::new(&user_dir).join(sentinel).exists() {
                 user_dir
             } else {
                 sys_dir
@@ -264,7 +282,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|v| v.eq_ignore_ascii_case("int8"))
         .unwrap_or(false);
     let force_cpu_int8 =
-        !use_canary && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8);
+        !use_canary && !use_nemotron && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8);
     let provider = if force_cpu_int8 {
         eprintln!("[dictee] Parakeet int8 model — forcing CPU (int8 is slow on the CUDA EP)");
         ExecutionProvider::Cpu
@@ -288,14 +306,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!(
         "Loading {} model from {}...",
-        if use_canary { "Canary AED" } else { "Parakeet TDT" },
+        if use_canary { "Canary AED" } else if use_nemotron { "Nemotron RNNT" } else { "Parakeet TDT" },
         &model_dir
     );
     // Log the encoder variant being loaded. int8 is otherwise invisible: it is
     // read into a buffer rather than mmap'd, so it never appears in
     // /proc/<pid>/maps the way the fp32 encoder-model.onnx.data file does.
     // Mirrors the candidate order in ParakeetTDTModel::find_encoder.
-    if !use_canary {
+    if !use_canary && !use_nemotron {
         let dir = Path::new(&model_dir);
         let encoder_file = if force_cpu_int8 {
             "encoder-model.int8.onnx"
@@ -318,6 +336,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &source_lang,
             &target_lang,
         )?)
+    } else if use_nemotron {
+        let mut n = Nemotron::from_pretrained(&model_dir, Some(config))?;
+        // Decision A: drive language from the global DICTEE_LANG_SOURCE; "auto"
+        // (or unset) lets Nemotron pick — robust for FR. Only pin when set.
+        if let parakeet_rs::NemotronMode::Multilingual = n.mode() {
+            if source_lang != "auto" && !source_lang.is_empty() {
+                if let Err(e) = n.set_target_lang(&source_lang) {
+                    eprintln!("[daemon] nemotron lang '{}' rejected, using auto: {}", source_lang, e);
+                }
+            }
+        }
+        AsrBackend::Nemotron(n)
     } else {
         AsrBackend::Parakeet(ParakeetTDT::from_pretrained(&model_dir, Some(config))?)
     };
