@@ -59,7 +59,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
-             "whisper-tiny", "whisper-small", "whisper-medium")
+             "whisper-tiny", "whisper-small", "whisper-medium",
+             "nemotron")
 
 
 def asr_spec_to_daemon(spec):
@@ -79,6 +80,9 @@ def asr_spec_to_daemon(spec):
     if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
+    if spec == "nemotron":
+        return {"backend": "nemotron",
+                "env": {"DICTEE_ASR_BACKEND": "nemotron"}}
     raise ValueError(f"unknown asr spec: {spec}")
 
 
@@ -1195,6 +1199,10 @@ class IsolatedAsrDaemon:
             env.setdefault("ORT_DYLIB_PATH", ort)
         if self.recipe["backend"] == "whisper":
             cmd = ["transcribe-daemon-whisper"]
+        elif self.recipe["backend"] == "nemotron":
+            # transcribe-daemon reads DICTEE_ASR_BACKEND=nemotron from env and
+            # auto-selects the nemotron model directory (no positional arg needed).
+            cmd = ["transcribe-daemon", "--socket", self.sock]
         else:  # parakeet ad-hoc (not used by the current routing, kept for completeness)
             cmd = ["transcribe-daemon", "--socket", self.sock, self.model_dir]
         return cmd, env
@@ -2336,6 +2344,7 @@ class TranscribeWindow(QDialog):
             ("Whisper tiny", "whisper-tiny"),
             ("Whisper small", "whisper-small"),
             ("Whisper medium", "whisper-medium"),
+            ("Nemotron", "nemotron"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
         self._asr_model_combo.setToolTip(self._tip(
