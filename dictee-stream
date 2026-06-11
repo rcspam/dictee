@@ -121,6 +121,7 @@ class Typist:
     def __init__(self, dry_run=False):
         self.dry_run = dry_run
         self.typed = ""
+        self._proc = None  # persistent dotool process (lazy)
 
     @property
     def typed_len(self):
@@ -152,18 +153,53 @@ class Typist:
             cmds.append(f"type {buf}")
         return cmds
 
+    def _dotool_proc(self):
+        """Persistent dotool process, (re)spawned lazily.
+
+        A fresh dotool per call would create a new uinput virtual keyboard
+        every time — device registration by the compositor costs hundreds of
+        ms, which is paid PER WORD in word granularity. One long-lived
+        process types everything for the session; dotool executes commands
+        as lines arrive on stdin.
+        """
+        if self._proc is None or self._proc.poll() is not None:
+            # `sg input -c dotool` fallback mirrors safe_dotool (dictee:221).
+            # Note: this fallback only covers FileNotFoundError (dotool not on
+            # PATH). Group-permission failures are expected to be prevented by
+            # the dictee shell wrapper, which runs under the 'input' group.
+            try:
+                self._proc = subprocess.Popen(["dotool"], stdin=subprocess.PIPE)
+            except FileNotFoundError:
+                self._proc = subprocess.Popen(["sg", "input", "-c", "dotool"],
+                                              stdin=subprocess.PIPE)
+        return self._proc
+
     def _dotool(self, commands):
         if self.dry_run:
             return
-        # `sg input -c dotool` fallback mirrors safe_dotool (dictee:221).
-        # Note: this fallback only covers FileNotFoundError (dotool not on PATH).
-        # Group-permission failures are expected to be prevented by the dictee
-        # shell wrapper, which runs the process under the 'input' group.
+        proc = self._dotool_proc()
         try:
-            subprocess.run(["dotool"], input=commands.encode(), check=False)
-        except FileNotFoundError:
-            subprocess.run(["sg", "input", "-c", "dotool"],
-                           input=commands.encode(), check=False)
+            proc.stdin.write(commands.encode())
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            # dotool died (e.g. uinput permission hiccup): respawn once and retry.
+            self._proc = None
+            proc = self._dotool_proc()
+            try:
+                proc.stdin.write(commands.encode())
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                sys.stderr.write("dictee-stream: dotool unavailable, dropping keystrokes\n")
+
+    def close(self):
+        """Flush and terminate the persistent dotool process."""
+        if self._proc is not None:
+            try:
+                self._proc.stdin.close()
+                self._proc.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                self._proc.kill()
+            self._proc = None
 
     def type_text(self, text):
         clean = self.sanitize(text)
@@ -352,6 +388,10 @@ def _main(argv):
     pp = _load_pp()
     seg = Segmenter(granularity=args.granularity)
     typist = Typist()
+    # Warm up the virtual keyboard now: uinput device registration by the
+    # compositor costs hundreds of ms, better paid during setup than on the
+    # first word.
+    typist._dotool("")
     client = StreamClient(args.socket, lang=args.lang)
 
     # Fix E: queue declared before the audio-thread closure that captures it.
@@ -495,6 +535,7 @@ def _main(argv):
     # Fix A (1): SIGUSR1 abort check — bail immediately after recorder teardown,
     # before draining, typing fragments, or rewriting anything.
     if aborted[0]:
+        typist.close()
         client.close()
         return 0
 
@@ -518,6 +559,7 @@ def _main(argv):
 
     # Fix A (3): re-check abort before feeding flush fragments / seg.flush() commits.
     if aborted[0]:
+        typist.close()
         client.close()
         return 0
 
@@ -559,6 +601,7 @@ def _main(argv):
                 typist.backspace(typist.typed_len)
                 typist.type_text(fixed)
 
+    typist.close()
     client.close()
     # Fix E: avoid zombie — wait instead of a second terminate().
     try:
