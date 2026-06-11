@@ -642,15 +642,25 @@ fn handle_stream(
 
     if sentinel {
         // Flush the engine's buffered tail: a trailing partial chunk (< 560 ms)
-        // is never processed on its own, so pad with silence until it fires.
-        // 2 chunks of zeros (2 × 8960 samples) guarantee the partial tail
-        // completes a chunk; silence decodes to no extra tokens (RNNT blanks).
+        // is never processed on its own, and tokens near the end of speech may
+        // need future context (the model's attention lookahead) to decode —
+        // speech cut right at key-up can hold back several words. Pad with
+        // silence chunks until the decoder runs dry (2 consecutive empty
+        // fragments), capped at 6 chunks (3.36 s of synthetic future context,
+        // beyond the model's maximum 2.4 s lookahead).
         // Write errors here are non-fatal: we must still reach nemo.reset().
         let silence = vec![0.0f32; 8960];
-        for _ in 0..2 {
+        let mut empty_in_a_row = 0;
+        for _ in 0..6 {
             match nemo.transcribe_chunk(&silence) {
                 Ok(fragment) => {
-                    if !fragment.is_empty() {
+                    if fragment.is_empty() {
+                        empty_in_a_row += 1;
+                        if empty_in_a_row >= 2 {
+                            break;
+                        }
+                    } else {
+                        empty_in_a_row = 0;
                         if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
                             eprintln!("[daemon] stream flush write error: {}", e);
                         } else if let Err(e) = writer.flush() {

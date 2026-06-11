@@ -194,11 +194,17 @@ class Typist:
                 sys.stderr.write("dictee-stream: dotool unavailable, dropping keystrokes\n")
 
     def close(self):
-        """Flush and terminate the persistent dotool process."""
+        """Flush and terminate the persistent dotool process.
+
+        Typing is asynchronous now: dotool may still be replaying queued
+        keystrokes (default pacing is ~10 ms per key). Killing it early
+        would swallow the end of the dictation, so wait generously — it
+        exits on its own at stdin EOF once everything is typed.
+        """
         if self._proc is not None:
             try:
                 self._proc.stdin.close()
-                self._proc.wait(timeout=2)
+                self._proc.wait(timeout=15)
             except (OSError, subprocess.TimeoutExpired):
                 self._proc.kill()
             self._proc = None
@@ -467,6 +473,17 @@ def _main(argv):
                 client.send_audio(data)
                 if _rms_s16(data) > rms_thresh:
                     last_voice[0] = time.monotonic()
+            # Key-up: the recorder pipe still holds the last captured audio
+            # (the words spoken right before the key release). Drain it fully
+            # before the sentinel or those words are lost. The finaliser
+            # terminates pw-record, so EOF arrives promptly; cap at ~10 s of
+            # audio as a safety bound.
+            if not mic_eof and not aborted[0]:
+                for _ in range(100):
+                    data = rec.stdout.read(3200)
+                    if not data:
+                        break
+                    client.send_audio(data)
         except OSError:
             pass
         # Put the marker BEFORE sending the sentinel so that it is impossible
