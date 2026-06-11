@@ -582,6 +582,26 @@ fn handle_stream(
         }
     }
 
+    // Flush the engine's buffered tail: a trailing partial chunk (< 560 ms)
+    // is never processed on its own, so pad with silence until it fires.
+    // 2 chunks of zeros (2 × 8960 samples) guarantee the partial tail
+    // completes a chunk; silence decodes to no extra tokens (RNNT blanks).
+    let silence = vec![0.0f32; 8960];
+    for _ in 0..2 {
+        match nemo.transcribe_chunk(&silence) {
+            Ok(fragment) => {
+                if !fragment.is_empty() {
+                    writer.write_all(&frame(fragment.as_bytes()))?;
+                    writer.flush()?;
+                }
+            }
+            Err(e) => {
+                eprintln!("[daemon] stream flush error: {}", e);
+                break;
+            }
+        }
+    }
+
     let final_text = nemo.get_transcript();
     writer.write_all(&frame(final_text.as_bytes()))?;
     writer.flush()?;
