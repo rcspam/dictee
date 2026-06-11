@@ -4,9 +4,9 @@ use parakeet_rs::{
 };
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::time::Duration;
 
@@ -376,46 +376,76 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // request line: without a read timeout it would block the
                 // single-threaded accept loop and hang the whole UI.
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-                let reader = BufReader::new(&stream);
-                if let Some(Ok(line)) = reader.lines().next() {
-                    let line = line.trim().to_string();
-                    let req = parse_request(&line);
-                    dbg_print!(debug, "[daemon] request: path={} mode={} context={} lang={:?}",
-                        req.path, req.mode, req.context.is_some(), req.target_lang);
+                // Use read_line (borrows &mut self) instead of .lines()
+                // (which consumes self) so we can pass the BufReader into
+                // handle_stream without losing any bytes it may have buffered
+                // after the handshake line.
+                let mut reader = BufReader::new(&stream);
+                let mut raw_line = String::new();
+                match reader.read_line(&mut raw_line) {
+                    Ok(0) | Err(_) => continue, // EOF or timeout before handshake
+                    Ok(_) => {}
+                }
+                let line = raw_line.trim().to_string();
 
-                    // Set decoder context if provided (Canary decodercontext)
-                    if let Some(ctx) = req.context {
-                        backend.set_context(&ctx);
-                    }
-
-                    // Set target language for Canary translation
-                    if let Some(ref lang) = req.target_lang {
-                        if let AsrBackend::Canary(ref mut canary) = backend {
-                            if let Err(e) = canary.set_target_lang(lang) {
-                                eprintln!("[daemon] invalid target lang '{}': {}", lang, e);
-                            }
+                // Stream mode: bidirectional persistent connection.
+                // Handshake line: "stream" (optionally "stream\tlang:fr").
+                // Pass the BufReader by value so any bytes it buffered
+                // beyond the handshake line are not lost.
+                if line == "stream" || line.starts_with("stream\t") {
+                    if let Some(lang) = line.strip_prefix("stream\t")
+                        .and_then(|s| s.strip_prefix("lang:"))
+                    {
+                        if let AsrBackend::Nemotron(ref mut n) = backend {
+                            let _ = n.set_target_lang(lang);
                         }
                     }
+                    if let Err(e) = handle_stream(&mut backend, reader, debug) {
+                        eprintln!("[daemon] stream error: {}", e);
+                    }
+                    continue;
+                }
 
-                    let has_ctx = backend.has_context();
-                    dbg_print!(debug, "[daemon] has_context={}", has_ctx);
+                // Batch mode: reader's borrow ends here; stream is free for
+                // writeln! below.
+                drop(reader);
 
-                    match transcribe_file(&mut backend, req.path, req.mode) {
-                        Ok(text) => {
-                            dbg_print!(debug, "[daemon] result: {} chars", text.len());
-                            let _ = writeln!(stream, "{}", text);
-                        }
-                        Err(e) => {
-                            eprintln!("[daemon] error: {}", e);
-                            let _ = writeln!(stream, "ERROR: {}", e);
+                let req = parse_request(&line);
+                dbg_print!(debug, "[daemon] request: path={} mode={} context={} lang={:?}",
+                    req.path, req.mode, req.context.is_some(), req.target_lang);
+
+                // Set decoder context if provided (Canary decodercontext)
+                if let Some(ctx) = req.context {
+                    backend.set_context(&ctx);
+                }
+
+                // Set target language for Canary translation
+                if let Some(ref lang) = req.target_lang {
+                    if let AsrBackend::Canary(ref mut canary) = backend {
+                        if let Err(e) = canary.set_target_lang(lang) {
+                            eprintln!("[daemon] invalid target lang '{}': {}", lang, e);
                         }
                     }
+                }
 
-                    // Reset target language back to source after translation request
-                    if req.target_lang.is_some() {
-                        if let AsrBackend::Canary(ref mut canary) = backend {
-                            let _ = canary.set_target_lang(&source_lang);
-                        }
+                let has_ctx = backend.has_context();
+                dbg_print!(debug, "[daemon] has_context={}", has_ctx);
+
+                match transcribe_file(&mut backend, req.path, req.mode) {
+                    Ok(text) => {
+                        dbg_print!(debug, "[daemon] result: {} chars", text.len());
+                        let _ = writeln!(stream, "{}", text);
+                    }
+                    Err(e) => {
+                        eprintln!("[daemon] error: {}", e);
+                        let _ = writeln!(stream, "ERROR: {}", e);
+                    }
+                }
+
+                // Reset target language back to source after translation request
+                if req.target_lang.is_some() {
+                    if let AsrBackend::Canary(ref mut canary) = backend {
+                        let _ = canary.set_target_lang(&source_lang);
                     }
                 }
             }
@@ -498,6 +528,65 @@ fn transcribe_file(
         }
         _ => Ok(result.text.trim().to_string()),
     }
+}
+
+/// Stream mode: read length-prefixed s16le audio frames, feed Nemotron's
+/// `transcribe_chunk`, write back length-prefixed UTF-8 text fragments.
+/// On the zero-length sentinel, send one final framed `get_transcript()`
+/// then `reset()`. Batch mode is unaffected.
+///
+/// The `reader` is passed in by value (rather than reconstructed from
+/// `&stream`) so that any bytes the BufReader already consumed past the
+/// handshake line are not silently dropped.
+fn handle_stream(
+    backend: &mut AsrBackend,
+    reader: BufReader<&UnixStream>,
+    debug: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use parakeet_rs::stream_proto::{frame, s16le_to_f32};
+
+    let nemo = match backend {
+        AsrBackend::Nemotron(n) => n,
+        _ => {
+            // Stream mode requires Nemotron; refuse gracefully.
+            let mut w = reader.get_ref().try_clone()?;
+            w.write_all(&frame(b"ERROR: stream mode requires the Nemotron backend"))?;
+            return Ok(());
+        }
+    };
+
+    // Clone the underlying stream reference for writing; the BufReader keeps
+    // the read side (including any bytes buffered after the handshake line).
+    let mut writer = reader.get_ref().try_clone()?;
+    let mut reader = reader;
+
+    loop {
+        let mut len_buf = [0u8; 4];
+        if let Err(e) = reader.read_exact(&mut len_buf) {
+            // EOF or 30s read timeout (dead client): finalise and bail.
+            dbg_print!(debug, "[daemon] stream read ended: {}", e);
+            break;
+        }
+        let n = u32::from_be_bytes(len_buf) as usize;
+        if n == 0 {
+            break; // end-of-stream sentinel
+        }
+        let mut payload = vec![0u8; n];
+        reader.read_exact(&mut payload)?;
+
+        let samples = s16le_to_f32(&payload);
+        let fragment = nemo.transcribe_chunk(&samples)?;
+        if !fragment.is_empty() {
+            writer.write_all(&frame(fragment.as_bytes()))?;
+            writer.flush()?;
+        }
+    }
+
+    let final_text = nemo.get_transcript();
+    writer.write_all(&frame(final_text.as_bytes()))?;
+    writer.flush()?;
+    nemo.reset();
+    Ok(())
 }
 
 #[cfg(test)]
