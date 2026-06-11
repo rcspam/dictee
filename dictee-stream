@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""dictee-stream — streaming dictation orchestrator.
+
+Spawned by the dictee shell at key-down (F9). Captures the microphone via
+pw-record, streams raw s16le PCM to the Nemotron daemon in stream mode,
+segments the append-only text into words or sentences, applies local
+post-processing in-process, types incrementally via dotool, and finalises
+on SIGTERM (key-up).
+
+Signals:
+  SIGTERM / SIGINT  — key-up: drain, optional final pass, type, exit.
+  SIGUSR1           — cancel: stop immediately, type NOTHING more.
+
+Settings read from environment (set by the dictee shell wrapper):
+  DICTEE_STREAMING_GRANULARITY  sentence (default) | word
+  DICTEE_STREAMING_FINAL_PASS   true | false
+  DICTEE_STREAMING_PAUSE_MS     default 700
+  DICTEE_SILENCE_RMS            default 0.03
+  DICTEE_TRANSLATE              true | false
+"""
+
+import re
+
+# Terminal punctuation that closes a sentence (Nemotron punctuates natively).
+_SENT_END = re.compile(r"[.!?…]")
+
+
+class Segmenter:
+    """Splits the append-only ASR text stream into commit units.
+
+    The ASR is monotone (append-only), so a word is 'stable' as soon as a
+    following character arrives. Fragments already contain SentencePiece
+    leading spaces, so we never inject spaces here.
+    """
+
+    def __init__(self, granularity="sentence"):
+        self.granularity = granularity
+        self._buf = ""
+
+    def feed(self, fragment):
+        """Append a fragment, return the list of newly-complete units."""
+        self._buf += fragment
+        if self.granularity == "word":
+            return self._emit_words()
+        return self._emit_sentences()
+
+    def _emit_words(self):
+        parts = self._buf.split(" ")
+        complete, self._buf = parts[:-1], parts[-1]
+        return [w for w in complete if w]
+
+    def _emit_sentences(self):
+        out = []
+        while True:
+            m = _SENT_END.search(self._buf)
+            if not m:
+                break
+            sentence = self._buf[:m.end()].strip()
+            self._buf = self._buf[m.end():]
+            if sentence:
+                out.append(sentence)
+        return out
+
+    def flush(self):
+        """Return any remaining buffered unit (soft boundary / key-up)."""
+        rest = self._buf.strip()
+        self._buf = ""
+        return [rest] if rest else []
+
+
+def _main(argv):
+    raise SystemExit("dictee-stream: orchestrator not yet wired")
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(_main(sys.argv[1:]))
