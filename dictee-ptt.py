@@ -95,7 +95,7 @@ def read_state_with_cleanup():
     Mirror of the dictee shell stale-state cleanup — needed here too because
     PTT short-circuits before invoking the shell when state == transcribing."""
     state = read_state()
-    if state in ("recording", "transcribing"):
+    if state in ("recording", "transcribing", "streaming"):
         if not os.path.isfile(PIDFILE) and not _transcribe_client_running():
             try:
                 with open(STATE_FILE, "w") as f:
@@ -359,7 +359,7 @@ class PttState:
         # ESC : annuler
         if code == KEY_ESC and value == KEY_DOWN:
             state = read_state()
-            if self.recording or self.recording_translate or state in ("recording", "preparing", "diarize-ready", "diarizing"):
+            if self.recording or self.recording_translate or state in ("recording", "streaming", "preparing", "diarize-ready", "diarizing"):
                 print(f"[ptt] ESC: state={state}, recording={self.recording} — sending cancel")
                 run_dictee_async("--cancel")
                 self.recording = False
