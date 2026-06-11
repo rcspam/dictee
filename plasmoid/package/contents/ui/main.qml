@@ -19,7 +19,7 @@ PlasmoidItem {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
     Kirigami.Theme.inherit: false
 
-    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
+    // State: "offline", "idle", "recording", "transcribing", "streaming", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
     property string state: "offline"
 
     // ASR daemon execution provider — écrit par le daemon dans /dev/shm/.dictee_provider.
@@ -58,6 +58,8 @@ PlasmoidItem {
             return Kirigami.Theme.highlightColor
         case "transcribing":
             return Kirigami.Theme.positiveTextColor
+        case "streaming":
+            return "#00BCD4"
         case "offline":
             return Kirigami.Theme.negativeTextColor
         case "idle":
@@ -84,6 +86,8 @@ PlasmoidItem {
             return i18n("Recording…") + keySuffix
         case "transcribing":
             return i18n("Transcribing…")
+        case "streaming":
+            return i18n("Dictating (live)…")
         case "switching":
             return i18n("Switching backend…")
         case "preparing":
@@ -121,7 +125,7 @@ PlasmoidItem {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "streaming" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
                         console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
@@ -350,7 +354,7 @@ PlasmoidItem {
     Timer {
         id: audioTimer
         interval: 80
-        running: root.effectiveState === "recording" || root.expanded
+        running: root.effectiveState === "recording" || root.effectiveState === "streaming" || root.expanded
         repeat: true
         onTriggered: {
             if (!root.audioReadPending) {
@@ -592,6 +596,7 @@ PlasmoidItem {
         // Stop all safety timers on any transition
         transcribingTimer.stop()
         recordingTimer.stop()
+        streamingTimer.stop()
         diarizingTimer.stop()
         switchingTimer.stop()
         preparingTimer.stop()
@@ -612,6 +617,9 @@ PlasmoidItem {
             break
         case "transcribing":
             transcribingTimer.restart()
+            break
+        case "streaming":
+            streamingTimer.restart()
             break
         case "diarizing":
             diarizingTimer.restart()
@@ -750,6 +758,20 @@ PlasmoidItem {
         }
     }
 
+    // Timer de sécurité pour streaming (3600s max — session live oubliée)
+    Timer {
+        id: streamingTimer
+        interval: 3600000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "streaming") {
+                _dbg("TIMEOUT: streaming 3600s — forcing idle")
+                root.state = "idle"
+            }
+        }
+    }
+
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
         // barColor calculated locally in the compact using its
@@ -786,12 +808,12 @@ PlasmoidItem {
             // + KeyboardMode.NONE and never steals it. Reverted to the
             // pre-62016a4 explicit close. Proper focus-restore (KWin Scripting
             // on Wayland + xdotool on X11) deferred to v1.4.
-            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+            if ((root.state === "recording" || root.state === "streaming") && !Plasmoid.configuration.pinPopup)
                 root.expanded = false
             executable.run(root.activeButton === "diarize" ? "dictee --diarize" : "dictee")
             break
         case "dictate-translate":
-            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+            if ((root.state === "recording" || root.state === "streaming") && !Plasmoid.configuration.pinPopup)
                 root.expanded = false
             executable.run("dictee --translate")
             break
@@ -881,13 +903,13 @@ PlasmoidItem {
         if (expanded) {
             refreshBackends()
             preStartAudioDaemon()
-        } else if (root.effectiveState !== "recording" && root.effectiveState !== "transcribing") {
+        } else if (root.effectiveState !== "recording" && root.effectiveState !== "transcribing" && root.effectiveState !== "streaming") {
             executable.run("dictee-plasmoid-level stop")
         }
     }
 
     onEffectiveStateChanged: {
-        if (effectiveState === "recording" || effectiveState === "transcribing") {
+        if (effectiveState === "recording" || effectiveState === "transcribing" || effectiveState === "streaming") {
             preStartAudioDaemon()
         } else if (!root.expanded) {
             executable.run("dictee-plasmoid-level stop")
