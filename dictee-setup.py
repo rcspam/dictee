@@ -405,6 +405,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
+                streaming=False,
+                streaming_final_pass=False,
+                streaming_granularity="sentence",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -446,6 +449,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
+        "DICTEE_STREAMING": "true" if streaming else "false",
+        "DICTEE_STREAMING_FINAL_PASS": "true" if streaming_final_pass else "false",
+        "DICTEE_STREAMING_GRANULARITY": _s(streaming_granularity) if streaming_granularity in ("sentence", "word") else "sentence",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
     # (Finish button or classic Apply). At wizard checks-page entry (page 6→7
@@ -9594,6 +9600,56 @@ class DicteeSetupDialog(QDialog):
             "button": btn, "btn_delete": btn_del,
             "btn_cancel": btn_cancel, "progress": progress, "model": NEMOTRON_MODEL,
         }
+
+        # --- Streaming settings (Nemotron only) ---
+        stream_box = QGroupBox(_("Streaming"))
+        stream_lay = QVBoxLayout(stream_box)
+        stream_lay.setContentsMargins(12, 12, 12, 10)
+        stream_lay.setSpacing(6)
+
+        self.chk_streaming = ToggleSwitch(
+            _("Real-time streaming (text appears as you speak)"))
+        self.chk_streaming.setChecked(
+            self.conf.get("DICTEE_STREAMING", "false") == "true")
+        self.chk_streaming.toggled.connect(self._mark_dirty)
+        stream_lay.addWidget(self.chk_streaming)
+
+        self.chk_streaming_final_pass = ToggleSwitch(
+            _("Final corrective pass on release (applies LLM/translation)"))
+        self.chk_streaming_final_pass.setChecked(
+            self.conf.get("DICTEE_STREAMING_FINAL_PASS", "false") == "true")
+        self.chk_streaming_final_pass.toggled.connect(self._mark_dirty)
+        stream_lay.addWidget(self.chk_streaming_final_pass)
+
+        row_gran = QHBoxLayout()
+        row_gran.setContentsMargins(
+            ToggleSwitch._TRACK_W + ToggleSwitch._TEXT_SPACING, 0, 0, 0)
+        lbl_gran = QLabel(_("Granularity:"))
+        self.cmb_streaming_granularity = QComboBox()
+        self.cmb_streaming_granularity.addItem(
+            _("Sentence (clean, ~1 sentence latency)"), "sentence")
+        self.cmb_streaming_granularity.addItem(
+            _("Word (ultra-live, re-corrected per sentence)"), "word")
+        _gran = self.conf.get("DICTEE_STREAMING_GRANULARITY", "sentence")
+        _gran_idx = self.cmb_streaming_granularity.findData(_gran)
+        self.cmb_streaming_granularity.setCurrentIndex(
+            _gran_idx if _gran_idx >= 0 else 0)
+        self.cmb_streaming_granularity.currentIndexChanged.connect(
+            self._mark_dirty)
+        row_gran.addWidget(lbl_gran)
+        row_gran.addWidget(self.cmb_streaming_granularity)
+        row_gran.addStretch()
+        stream_lay.addLayout(row_gran)
+
+        # Enable sub-widgets only when streaming is on
+        def _sync_streaming_sub(checked):
+            self.chk_streaming_final_pass.setEnabled(checked)
+            lbl_gran.setEnabled(checked)
+            self.cmb_streaming_granularity.setEnabled(checked)
+        _sync_streaming_sub(self.chk_streaming.isChecked())
+        self.chk_streaming.toggled.connect(_sync_streaming_sub)
+
+        nemotron_outer.addWidget(stream_box)
 
         self.w_nemotron_options.setVisible(False)
         parent_layout.addWidget(self.w_nemotron_options)
@@ -18814,6 +18870,15 @@ class DicteeSetupDialog(QDialog):
                     hw_tier=(
                         self.cmb_whisper_hw_tier.currentData()
                         if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
+                    streaming=(
+                        self.chk_streaming.isChecked()
+                        if hasattr(self, 'chk_streaming') else False),
+                    streaming_final_pass=(
+                        self.chk_streaming_final_pass.isChecked()
+                        if hasattr(self, 'chk_streaming_final_pass') else False),
+                    streaming_granularity=(
+                        self.cmb_streaming_granularity.currentData()
+                        if hasattr(self, 'cmb_streaming_granularity') else "sentence"),
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.
