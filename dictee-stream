@@ -122,6 +122,7 @@ class Typist:
         self.dry_run = dry_run
         self.typed = ""
         self._proc = None  # persistent dotool process (lazy)
+        self._last_cmds = None  # last command batch (dry_run test capture)
 
     @property
     def typed_len(self):
@@ -176,6 +177,7 @@ class Typist:
 
     def _dotool(self, commands):
         if self.dry_run:
+            self._last_cmds = commands  # captured for tests
             return
         proc = self._dotool_proc()
         try:
@@ -214,6 +216,36 @@ class Typist:
             return
         self._dotool("key backspace\n" * n)
         self.typed = self.typed[:-n] if n <= len(self.typed) else ""
+
+    @staticmethod
+    def _common_prefix_len(a, b):
+        n = min(len(a), len(b))
+        i = 0
+        while i < n and a[i] == b[i]:
+            i += 1
+        return i
+
+    def rewrite(self, new_text):
+        """Replace the typed text with new_text, minimally and fast.
+
+        Keeps the common prefix (unchanged text never flickers), erases the
+        differing tail and retypes the new one in a single zero-delay burst
+        (dotool defaults are 2 ms delay + 8 ms hold PER KEY — a naive
+        char-by-char rewrite of a long dictation takes seconds), then
+        restores the default pacing for subsequent live typing.
+        """
+        clean = self.sanitize(new_text)
+        keep = self._common_prefix_len(self.typed, clean)
+        n_del = len(self.typed) - keep
+        tail = clean[keep:]
+        if n_del == 0 and not tail:
+            return
+        cmds = ["keydelay 0", "keyhold 0", "typedelay 0", "typehold 0"]
+        cmds += ["key backspace"] * n_del
+        cmds += self.build_commands(tail)
+        cmds += ["keydelay 2", "keyhold 8", "typedelay 2", "typehold 8"]
+        self._dotool("\n".join(cmds) + "\n")
+        self.typed = self.typed[:keep] + tail
 
 
 # ---------------------------------------------------------------------------
@@ -486,8 +518,11 @@ def _main(argv):
         raw = typist.typed[-raw_len:]
         processed = pp.run_pipeline(raw.strip(), local_only=True)
         if processed and processed != raw.strip():
-            typist.backspace(raw_len)
-            typist.type_text((" " if typist.typed_len else "") + processed)
+            # rewrite() diffs against the common prefix, so only the part of
+            # the sentence the PP actually changed gets erased and retyped.
+            prefix = typist.typed[:-raw_len]
+            sep = " " if prefix else ""
+            typist.rewrite(prefix + sep + processed)
 
     def _feed(frag):
         if args.granularity == "word":
@@ -582,8 +617,7 @@ def _main(argv):
         full = typist.sanitize(full)
         if full != typist.typed:
             if _active_window() == start_window:
-                typist.backspace(typist.typed_len)
-                typist.type_text(full)
+                typist.rewrite(full)
             else:
                 sys.stderr.write("dictee-stream: focus changed, skipping final rewrite\n")
     elif typist.typed.strip():
@@ -598,8 +632,7 @@ def _main(argv):
             fixed = pp.fix_short_text(typist.typed, keepcaps=_kc, extended=_ext)
             fixed = typist.sanitize(fixed)
             if fixed != typist.typed and _active_window() == start_window:
-                typist.backspace(typist.typed_len)
-                typist.type_text(fixed)
+                typist.rewrite(fixed)
 
     typist.close()
     client.close()

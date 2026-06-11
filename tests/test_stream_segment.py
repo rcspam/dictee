@@ -91,3 +91,23 @@ def test_typist_backspace_more_than_typed():
 def test_typist_sanitize_strips_batch_markers():
     t = ds.Typist(dry_run=True)
     assert t.sanitize("a\x02b\x03c\x04d") == "abcd"
+
+
+def test_rewrite_keeps_common_prefix():
+    t = ds.Typist(dry_run=True)
+    t.type_text("Bonjour le monde entier")
+    t.rewrite("Bonjour le monde corrigé")
+    assert t.typed == "Bonjour le monde corrigé"
+    # only the differing tail is erased: "entier" -> 6 backspaces
+    assert t._last_cmds.count("key backspace") == len("entier")
+    # the burst is bracketed by zero-delay then default-delay restore
+    assert "keydelay 0" in t._last_cmds and "keydelay 2" in t._last_cmds
+
+
+def test_rewrite_noop_when_identical():
+    t = ds.Typist(dry_run=True)
+    t.type_text("Texte.")
+    t._last_cmds = None
+    t.rewrite("Texte.")
+    assert t._last_cmds is None
+    assert t.typed == "Texte."
