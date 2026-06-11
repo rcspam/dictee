@@ -423,8 +423,12 @@ def _main(argv):
                 _commit(unit)
 
     stop.set()
-    audio_t.join(timeout=2)
+    # Terminate the recorder BEFORE joining the audio thread: the thread may
+    # be blocked in rec.stdout.read() (stalled audio device); killing
+    # pw-record closes the pipe, the read returns EOF, and the thread can
+    # send the end-of-stream sentinel within the join window.
     rec.terminate()
+    audio_t.join(timeout=2)
 
     if aborted[0]:
         client.close()
