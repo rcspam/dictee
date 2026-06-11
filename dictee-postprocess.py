@@ -1217,9 +1217,10 @@ def run_pipeline(text, local_only=False):
         _before = text
         text = apply_rules(text, rules)
         _trace("Rules", _before, text)
-    # Clean leading spaces (hesitations/annotations removed)
-    # but preserve trailing \n (voice commands)
-    text = text.lstrip(' \t').rstrip(' \t')
+    # Clean leading/trailing spaces (hesitations/annotations removed) but
+    # preserve \n AND \t (voice commands: "à la ligne", "tabulation" may sit
+    # at either end of the utterance).
+    text = text.lstrip(' ').rstrip(' ')
 
     # 5b. Bad language rejection (after rules, which may have converted known commands)
     if LANG and not local_only:

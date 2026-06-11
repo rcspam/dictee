@@ -54,3 +54,13 @@ def test_run_pipeline_local_skips_short_text():
     finally:
         os.environ.pop("DICTEE_PP_SHORT_TEXT", None)
         os.environ.pop("DICTEE_PP_CAPITALIZATION", None)
+
+def test_run_pipeline_preserves_trailing_tab():
+    # the "tabulation" voice command emits \t — a trailing tab (command at
+    # the end of the utterance) must survive like a trailing \n does
+    os.environ["DICTEE_PP_RULES"] = "false"
+    try:
+        out = pp.run_pipeline("texte\t", local_only=True)
+    finally:
+        os.environ.pop("DICTEE_PP_RULES", None)
+    assert out.endswith("\t")

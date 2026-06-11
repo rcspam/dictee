@@ -168,7 +168,9 @@ class LiveComposer:
         self.raw_tail += fragment
         vol = self._render_tail()
         if vol:
-            clean = "".join(c for c in vol if c not in self._MARKERS).rstrip()
+            # Strip markers and spaces only — a trailing \n IS a terminator
+            # ("à la ligne") and must stay visible to the freeze test.
+            clean = "".join(c for c in vol if c not in self._MARKERS).rstrip(" ")
             if clean and clean[-1] in self._FREEZE_END:
                 self.stable = self._join(self.stable, vol)
                 self.raw_tail = ""
@@ -335,10 +337,16 @@ class Typist:
         tail = clean[keep:]
         if n_del == 0 and not tail:
             return
-        cmds = ["keydelay 0", "keyhold 0", "typedelay 0", "typehold 0"]
+        # Zero-delay is safe for backspaces only (plain key, no keymap
+        # change). Typing at 0 ms scrambles accented characters: dotool
+        # remaps its virtual keyboard for chars absent from the layout and
+        # the compositor applies that keymap asynchronously — observed as
+        # "contrôle" rendering like "ôcontrle". The retype therefore runs
+        # at default pacing; the prefix diff keeps it short.
+        cmds = ["keydelay 0", "keyhold 0"]
         cmds += ["key backspace"] * n_del
+        cmds += ["keydelay 2", "keyhold 8"]
         cmds += self.build_commands(tail)
-        cmds += ["keydelay 2", "keyhold 8", "typedelay 2", "typehold 8"]
         self._dotool("\n".join(cmds) + "\n")
         self.typed = self.typed[:keep] + tail
 

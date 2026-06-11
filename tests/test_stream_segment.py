@@ -174,3 +174,26 @@ def test_live_composer_no_double_space_after_rule_trailing_space():
     c.feed(" la fin point finale")
     out = c.feed(" et ensuite")
     assert "  " not in out.replace("\x02", "")
+
+
+def test_live_composer_freezes_on_trailing_newline():
+    # "à la ligne" emits \n: the tail must freeze on it
+    c = ds.LiveComposer(lambda t: t + "\n" if "ligne" in t else t)
+    c.feed(" texte à la ligne")
+    assert c.stable != ""
+
+
+def test_rewrite_types_at_default_pacing():
+    # zero-delay is safe for backspaces only; typing accented chars at 0 ms
+    # races the compositor keymap sync (dotool remaps for non-layout chars)
+    t = ds.Typist(dry_run=True)
+    t.type_text("Bonjour le monde entier")
+    t.rewrite("Bonjour le monde contrôlé")
+    cmds = t._last_cmds.splitlines()
+    bs_idx = [i for i, c in enumerate(cmds) if c == "key backspace"]
+    type_idx = [i for i, c in enumerate(cmds) if c.startswith("type ")]
+    restore_idx = cmds.index("keydelay 2")
+    # all backspaces inside the zero-delay bracket, all typing after restore
+    assert all(i < restore_idx for i in bs_idx)
+    assert all(i > restore_idx for i in type_idx)
+    assert "typedelay 0" not in t._last_cmds
