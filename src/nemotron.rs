@@ -652,6 +652,96 @@ impl Nemotron {
         Ok(result)
     }
 
+    /// Flush the remaining buffered audio as the FINAL chunks of the stream.
+    ///
+    /// Mirrors what `transcribe_audio` does for its last iteration: the last
+    /// partial chunk is encoded with its TRUE (shorter) length, which is the
+    /// explicit end-of-sequence signal that makes the model emit the final
+    /// punctuation token. Padding with silence never achieves this — the
+    /// model just sees speech followed by silence and holds the period back.
+    /// Returns the newly decoded text fragment (may be empty).
+    pub fn finalize_transcript(&mut self) -> Result<String> {
+        let total_audio = self.audio_buffer.len();
+        if total_audio < WIN_LENGTH {
+            return Ok(String::new());
+        }
+        let full_mel = self.compute_mel_spectrogram(&self.audio_buffer);
+        let total_mel_frames = full_mel.shape()[1];
+        let expected_size = PRE_ENCODE_CACHE + CHUNK_SIZE;
+        let mut new_tokens: Vec<usize> = Vec::new();
+
+        loop {
+            let processed_mel_frames = self.audio_processed / HOP_LENGTH;
+            let available = total_mel_frames.saturating_sub(processed_mel_frames);
+            if available == 0 {
+                break;
+            }
+            let main_len = available.min(CHUNK_SIZE);
+            let main_start = processed_mel_frames;
+            let mut chunk_data = vec![0.0f32; N_MELS * expected_size];
+
+            if self.chunk_idx == 0 {
+                // First chunk: zero-pad for pre-encode cache (main_start == 0).
+                for f in 0..main_len {
+                    for m in 0..N_MELS {
+                        chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] =
+                            full_mel[[m, f]];
+                    }
+                }
+            } else {
+                // Subsequent chunks: include pre-encode cache from previous frames.
+                let cache_start = main_start.saturating_sub(PRE_ENCODE_CACHE);
+                let cache_frames = main_start - cache_start;
+                let cache_offset = PRE_ENCODE_CACHE - cache_frames;
+                for f in 0..cache_frames {
+                    for m in 0..N_MELS {
+                        chunk_data[m * expected_size + cache_offset + f] =
+                            full_mel[[m, cache_start + f]];
+                    }
+                }
+                for f in 0..main_len {
+                    for m in 0..N_MELS {
+                        chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] =
+                            full_mel[[m, main_start + f]];
+                    }
+                }
+            }
+
+            let mel_chunk = Array3::from_shape_vec((1, N_MELS, expected_size), chunk_data)
+                .map_err(|e| Error::Model(format!("Failed to create mel chunk: {e}")))?;
+
+            // True length: tells the encoder where the valid frames stop —
+            // for the last partial chunk this signals end-of-sequence.
+            let chunk_length = (PRE_ENCODE_CACHE + main_len) as i64;
+            let (encoded, enc_len, new_cache) = self.model.run_encoder(
+                &mel_chunk,
+                chunk_length,
+                &self.encoder_cache,
+                self.prompt_index,
+            )?;
+            self.encoder_cache = new_cache;
+
+            let tokens = self.decode_chunk(&encoded, enc_len as usize)?;
+            self.accumulated_tokens.extend(&tokens);
+            new_tokens.extend(tokens);
+
+            self.audio_processed += main_len * HOP_LENGTH;
+            self.chunk_idx += 1;
+
+            if main_len < CHUNK_SIZE {
+                break; // that was the final partial chunk
+            }
+        }
+
+        let mut result = String::new();
+        for &t in &new_tokens {
+            if t < self.vocab_size && !self.lang_tag_ids.contains(&t) {
+                result.push_str(&self.vocab.decode_single(t));
+            }
+        }
+        Ok(result)
+    }
+
     fn decode_chunk(&mut self, encoder_out: &Array3<f32>, enc_frames: usize) -> Result<Vec<usize>> {
         let mut tokens = Vec::new();
         let hidden_dim = encoder_out.shape()[1];

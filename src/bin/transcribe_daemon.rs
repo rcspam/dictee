@@ -641,37 +641,25 @@ fn handle_stream(
     }
 
     if sentinel {
-        // Flush the engine's buffered tail: a trailing partial chunk (< 560 ms)
-        // is never processed on its own, and tokens near the end of speech may
-        // need future context (the model's attention lookahead) to decode —
-        // speech cut right at key-up can hold back several words. Pad with
-        // silence chunks until the decoder runs dry (2 consecutive empty
-        // fragments), capped at 6 chunks (3.36 s of synthetic future context,
-        // beyond the model's maximum 2.4 s lookahead).
+        // Flush the engine's buffered tail exactly like transcribe_audio
+        // handles its last iteration: the final partial chunk is encoded
+        // with its TRUE length — the explicit end-of-sequence that makes
+        // the model decode the held-back tail tokens AND emit the final
+        // punctuation. (Silence padding did neither reliably: the model
+        // saw speech followed by silence, not an end of sequence.)
         // Write errors here are non-fatal: we must still reach nemo.reset().
-        let silence = vec![0.0f32; 8960];
-        let mut empty_in_a_row = 0;
-        for _ in 0..6 {
-            match nemo.transcribe_chunk(&silence) {
-                Ok(fragment) => {
-                    if fragment.is_empty() {
-                        empty_in_a_row += 1;
-                        if empty_in_a_row >= 2 {
-                            break;
-                        }
-                    } else {
-                        empty_in_a_row = 0;
-                        if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
-                            eprintln!("[daemon] stream flush write error: {}", e);
-                        } else if let Err(e) = writer.flush() {
-                            eprintln!("[daemon] stream flush error: {}", e);
-                        }
+        match nemo.finalize_transcript() {
+            Ok(fragment) => {
+                if !fragment.is_empty() {
+                    if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
+                        eprintln!("[daemon] stream flush write error: {}", e);
+                    } else if let Err(e) = writer.flush() {
+                        eprintln!("[daemon] stream flush error: {}", e);
                     }
                 }
-                Err(e) => {
-                    eprintln!("[daemon] stream flush error: {}", e);
-                    break;
-                }
+            }
+            Err(e) => {
+                eprintln!("[daemon] stream finalize error: {}", e);
             }
         }
 

@@ -110,6 +110,9 @@ fn stream_ref_fr_matches_reference() {
     let _ = std::fs::remove_file(sock);
 
     let got = last.to_lowercase();
-    assert!(got.contains("transcription") && got.contains("français"),
+    // "français." WITH the final period: finalize_transcript() encodes the
+    // last partial chunk with its true length (end-of-sequence), which is
+    // what makes the model emit the final punctuation — parity with batch.
+    assert!(got.contains("transcription") && got.contains("français."),
         "unexpected transcript: {last:?}");
 }
