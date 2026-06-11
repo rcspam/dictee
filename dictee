@@ -123,6 +123,7 @@ TRANSLATE_BACKEND_FILE="/tmp/translate_dictee_backend${_UID_SUFFIX}"
 TRANSLATE_FLAG_FILE="/tmp/dictee_translate${_UID_SUFFIX}"
 DIARIZE_FLAG_FILE="/tmp/dictee_diarize${_UID_SUFFIX}"
 LAST_WORD_FILE="/dev/shm/.dictee_last_word${_UID_SUFFIX}"
+STREAM_FLAG_FILE="/dev/shm/.dictee_streaming${_UID_SUFFIX}"
 
 # Audio context buffer
 BUFFER_FILE="/dev/shm/.dictee_buffer${_UID_SUFFIX}.wav"
@@ -190,6 +191,23 @@ stop_recording() {
 cleanup_session() {
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$DIARIZE_FLAG_FILE"  # ID_TMP_FILE kept for legacy cleanup
     rm -f "$COMBINED_FILE" "$SILENCE_FILE"
+}
+
+# Decide whether to use the live streaming path (Nemotron only).
+# Streaming requires: master switch ON, backend=nemotron, no diarize, AND
+# (final-pass ON  OR  no heavy PP active) — otherwise fall back to batch.
+use_streaming() {
+    [ "${DICTEE_STREAMING:-false}" = "true" ] || return 1
+    [ "${DICTEE_ASR_BACKEND:-parakeet}" = "nemotron" ] || return 1
+    [ "$DIARIZE" = "true" ] && return 1
+    if [ "${DICTEE_STREAMING_FINAL_PASS:-false}" = "true" ]; then
+        return 0
+    fi
+    # No final pass: only stream if no heavy PP (LLM/translation) is active.
+    # $TRANSLATE is the per-run variable (set by args/flag), not just conf.
+    [ "${DICTEE_LLM_POSTPROCESS:-false}" = "true" ] && return 1
+    [ "$TRANSLATE" = true ] && return 1
+    return 0
 }
 
 # Text post-processing (regex rules + dictionary + optional LLM)
@@ -1211,6 +1229,19 @@ if [ "$CANCEL" = true ]; then
             dictee-switch-backend diarize false 2>/dev/null || true
             notify_dictee 0 audio-chat-none-symbolic "Diarisation annulée"
             ;;
+        streaming)
+            # Live streaming dictation — abort the orchestrator (types nothing)
+            _spid=$(cat "$PIDFILE" 2>/dev/null)
+            kill -USR1 "$_spid" 2>/dev/null
+            sleep 0.3
+            kill -KILL "$_spid" 2>/dev/null || true
+            stop_animation quit
+            restore_audio
+            rm -f "$PIDFILE" "${PIDFILE}.lock" "$STREAM_FLAG_FILE"
+            cleanup_session
+            notify_dictee 0 audio-chat-none-symbolic "Dictée annulée"
+            write_state "idle"
+            ;;
         recording)
             # Active recording — stop it
             stop_animation quit
@@ -1251,7 +1282,7 @@ if [ -f "$PIDFILE" ]; then
     if [ -z "$_stale_pid" ] || ! kill -0 "$_stale_pid" 2>/dev/null; then
         _dbg "stale PIDFILE: pid=$_stale_pid (dead), cleaning up"
         close_notification
-        rm -f "$PIDFILE" "${PIDFILE}.lock" "$MUT_FILE"
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$MUT_FILE" "$STREAM_FLAG_FILE"
         cleanup_session
         write_state "idle"
     fi
@@ -1266,7 +1297,7 @@ fi
 if [ ! -f "$PIDFILE" ]; then
     _stale_state=$(cat "$STATE_FILE" 2>/dev/null || true)
     case "$_stale_state" in
-        transcribing|recording)
+        transcribing|recording|streaming)
             # pgrep -x matches /proc/<pid>/comm which is truncated to 15 chars
             # by the kernel (TASK_COMM_LEN). transcribe-client (17 chars) shows
             # up as "transcribe-clie".
@@ -1279,6 +1310,28 @@ if [ ! -f "$PIDFILE" ]; then
 fi
 
 if [ -f "$PIDFILE" ]; then
+    if [ -f "$STREAM_FLAG_FILE" ]; then
+        # === STOP STREAMING === (key-up of a live dictation)
+        _spid=$(cat "$PIDFILE" 2>/dev/null)
+        trap - ERR
+        _dbg "stop-streaming: pid=$_spid"
+        stop_animation
+        restore_audio
+        write_state "transcribing"   # finalisation/final pass in progress
+        kill -TERM "$_spid" 2>/dev/null
+        # Not our child — poll until the orchestrator finished typing
+        # (final pass with LLM can take a while -> 60s cap).
+        for _i in $(seq 1 600); do
+            kill -0 "$_spid" 2>/dev/null || break
+            sleep 0.1
+        done
+        kill -KILL "$_spid" 2>/dev/null || true
+        rm -f "$PIDFILE" "${PIDFILE}.lock" "$STREAM_FLAG_FILE"
+        cleanup_session
+        write_state "idle"
+        exit 0
+    fi
+
     # === STOP RECORDING ===
     _dbg "stop-recording: pid=$(cat "$PIDFILE" 2>/dev/null) translate=$TRANSLATE diarize=$DIARIZE"
     # Disable trap ERR during this section (too many external commands
@@ -1771,6 +1824,35 @@ else
         notify_dictee_async 0 audio-chat-symbolic "Enregistrement $LANG_LABEL ($_rec_trans_label) (${DICTEE_ASR_BACKEND:-parakeet})"
     else
         notify_dictee_async 0 audio-chat-symbolic "Enregistrement démarré (${DICTEE_ASR_BACKEND:-parakeet})"
+    fi
+
+    # Streaming path: spawn the live orchestrator instead of the batch recorder.
+    # audio-context is incompatible with streaming -> simply not used here.
+    if use_streaming; then
+        rm -f "$LAST_WORD_FILE"   # in-memory continuation replaces it for this push
+        touch "$STREAM_FLAG_FILE"
+        _stream_args=(--socket "$(_daemon_socket)" --granularity "${DICTEE_STREAMING_GRANULARITY:-sentence}")
+        # Mirror the daemon's startup semantics (DICTEE_LANG_SOURCE): "auto"
+        # or empty means no per-session lang override on the stream handshake.
+        if [ -n "${LANG_SOURCE:-}" ] && [ "$LANG_SOURCE" != "auto" ]; then
+            _stream_args+=(--lang "$LANG_SOURCE")
+        fi
+        [ -n "$AUDIO_SOURCE" ] && _stream_args+=(--source "$AUDIO_SOURCE")
+        dictee-stream "${_stream_args[@]}" &
+        echo $! >"$PIDFILE"
+        sleep 0.05
+        if ! kill -0 $! 2>/dev/null; then
+            _dbg "start-streaming: FAILED — dictee-stream died immediately"
+            close_notification
+            restore_audio
+            rm -f "$PIDFILE" "${PIDFILE}.lock" "$STREAM_FLAG_FILE"
+            cleanup_session
+            write_state "idle"
+            exit 1
+        fi
+        write_state "streaming"
+        _dbg "start-streaming: OK pid=$(cat "$PIDFILE" 2>/dev/null)"
+        exit 0
     fi
 
     # Start recording
