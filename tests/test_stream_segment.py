@@ -97,8 +97,6 @@ def test_rewrite_keeps_common_prefix():
     assert t.typed == "Bonjour le monde corrigé"
     # only the differing tail is erased: "entier" -> 6 backspaces
     assert t._last_cmds.count("key backspace") == len("entier")
-    # the burst is bracketed by zero-delay then default-delay restore
-    assert "keydelay 0" in t._last_cmds and "keydelay 2" in t._last_cmds
 
 
 def test_rewrite_noop_when_identical():
@@ -183,17 +181,12 @@ def test_live_composer_freezes_on_trailing_newline():
     assert c.stable != ""
 
 
-def test_rewrite_types_at_default_pacing():
-    # zero-delay is safe for backspaces only; typing accented chars at 0 ms
-    # races the compositor keymap sync (dotool remaps for non-layout chars)
+def test_rewrite_never_overrides_key_pacing():
+    # zero-delay bursts proved unreliable (scrambled accents, dropped
+    # backspaces): rewrites must never override dotool's default pacing
     t = ds.Typist(dry_run=True)
     t.type_text("Bonjour le monde entier")
     t.rewrite("Bonjour le monde contrôlé")
-    cmds = t._last_cmds.splitlines()
-    bs_idx = [i for i, c in enumerate(cmds) if c == "key backspace"]
-    type_idx = [i for i, c in enumerate(cmds) if c.startswith("type ")]
-    restore_idx = cmds.index("keydelay 2")
-    # all backspaces inside the zero-delay bracket, all typing after restore
-    assert all(i < restore_idx for i in bs_idx)
-    assert all(i > restore_idx for i in type_idx)
-    assert "typedelay 0" not in t._last_cmds
+    assert "keydelay" not in t._last_cmds
+    assert "typedelay" not in t._last_cmds
+    assert t._last_cmds.count("key backspace") == len("entier")
