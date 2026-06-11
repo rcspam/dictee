@@ -1377,7 +1377,7 @@ class DicteeTrayQt:
             else:
                 subprocess.Popen(["dictee"])
         elif reason == self.QSystemTrayIcon.ActivationReason.MiddleClick:
-            if self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
+            if self.state in ("recording", "streaming", "transcribing", "diarizing", "preparing", "diarize-ready"):
                 self._cancel()
 
     def _on_asr_selected(self, action):
