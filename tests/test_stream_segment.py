@@ -229,3 +229,53 @@ def test_live_composer_lead_and_continuation_init():
     out = c.feed(" la suite")
     # cross-push continuation: leading space, first letter NOT capitalized
     assert out == " la suite"
+
+
+def _kw():
+    return ds._build_keyword_matchers("minuscule, miniscule")
+
+
+def test_keyword_full_match_consumed():
+    full, prefix = _kw()
+    m = full.match("minuscule et la suite")
+    assert m and m.end() == len("minuscule ")
+    m2 = full.match("minuscules, et la suite")  # plural + comma tolerated
+    assert m2
+
+
+def test_keyword_prefix_hold():
+    full, prefix = _kw()
+    assert prefix("minus") is True       # could still become the keyword
+    assert prefix("minuscule") is True   # complete but may grow (s, punct)
+    assert prefix("minute") is False     # diverged
+    assert prefix("bonjour") is False
+
+
+def test_live_composer_keyword_forces_continuation():
+    seen = []
+    c = ds.LiveComposer(lambda t: t[:1].upper() + t[1:] if t else t,
+                        lead=" ", keyword="minuscule",
+                        on_keyword=lambda: seen.append(True))
+    out1 = c.feed(" minus")          # possible keyword prefix: hold
+    assert out1 == ""
+    out2 = c.feed("cule et la suite")
+    assert seen == [True]            # callback fired (marker backspaces)
+    assert out2 == " et la suite"    # prefix consumed, lowercase, lead kept
+
+
+def test_live_composer_keyword_divergence_types_normally():
+    c = ds.LiveComposer(lambda t: t[:1].upper() + t[1:] if t else t,
+                        keyword="minuscule")
+    assert c.feed(" minu") == ""             # held
+    out = c.feed("te de silence")            # diverged: "minute..."
+    assert out == "Minute de silence"
+
+
+def test_indicator_decision_closed_class():
+    # ".1:le" -> erase 1 keystroke, type the indicator, marker H<len>_
+    d = ds._indicator_decision(".1:le", {"le", "de"}, ">>")
+    assert d == (1, ">>", "H2_:le")
+    # normal word: no indicator
+    assert ds._indicator_decision(".1:monde", {"le"}, ">>") is None
+    # mid-sentence closed-class: indicator, nothing to erase
+    assert ds._indicator_decision("_:le", {"le"}, ">>") == (0, ">>", "H2_:le")

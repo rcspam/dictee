@@ -117,7 +117,8 @@ class LiveComposer:
     erased/retyped, and only where the PP actually changed it.
     """
 
-    def __init__(self, pp_fn, lead="", continuation=False):
+    def __init__(self, pp_fn, lead="", continuation=False,
+                 keyword=None, on_keyword=None):
         self.pp = pp_fn          # text -> locally post-processed text
         self.stable = ""         # frozen, final text (completed sentences)
         self.raw_tail = ""       # raw ASR text of the in-progress sentence
@@ -129,6 +130,16 @@ class LiveComposer:
         # cross-push continuation): the next rendered text continues that
         # sentence and must not be capitalized.
         self.open_continuation = continuation
+        # Continuation voice keyword ("minuscule…"): when the push STARTS
+        # with it, the previous push's punctuation is erased and the text
+        # continues lowercase. The keyword arrives fragment by fragment, so
+        # rendering is HELD while the tail is still a possible prefix of it.
+        if keyword:
+            self._kw_full, self._kw_prefix = _build_keyword_matchers(keyword)
+        else:
+            self._kw_full, self._kw_prefix = None, None
+        self._kw_active = bool(keyword)
+        self._on_keyword = on_keyword
 
     # No separator space before these when joining stable + next unit:
     # closing punctuation produced by voice commands ("point final" -> ".")
@@ -173,6 +184,23 @@ class LiveComposer:
         handles multi-sentence blocks natively, exactly like a batch push.
         """
         self.raw_tail += fragment
+        if self._kw_active and not self.stable:
+            tail = self.raw_tail.strip()
+            if tail:
+                m = self._kw_full.match(tail)
+                if m:
+                    # Keyword spoken at push start: drop it, force the
+                    # continuation casing, let the caller erase the previous
+                    # push's punctuation.
+                    self.raw_tail = tail[m.end():]
+                    self.open_continuation = True
+                    self._kw_active = False
+                    if self._on_keyword:
+                        self._on_keyword()
+                elif self._kw_prefix(tail):
+                    return self.stable  # hold: could still become the keyword
+                else:
+                    self._kw_active = False
         vol = self._render_tail()
         if vol:
             # Strip markers and spaces only — a trailing \n IS a terminator
@@ -473,6 +501,68 @@ def _rms_s16(data: bytes):
 _LAST_WORD_FILE = f"/dev/shm/.dictee_last_word-{os.getuid()}"
 
 
+def _build_keyword_matchers(aliases_str):
+    """Build (full_match_regex, prefix_possible_fn) for the continuation
+    voice keyword ("minuscule", aliases comma-separated — mirror of the
+    bash _CONT_KEYWORD_REGEXES build, dictee:384-403: spaces/hyphens become
+    [- ]?, an ASR plural 's' and a trailing [.,] are tolerated)."""
+    aliases = [a.strip().lower() for a in aliases_str.split(",") if a.strip()]
+    parts = []
+    for a in aliases:
+        kw = re.escape(a).replace(r"\ ", "[- ]?").replace(r"\-", "[- ]?")
+        parts.append(kw)
+    full = re.compile(r"^(?:" + "|".join(parts) + r")s?[.,]?\s*", re.IGNORECASE)
+
+    def prefix_possible(text):
+        t = text.lower()
+        for a in aliases:
+            if a.startswith(t) or t == a or t == a + "s":
+                return True
+        return False
+
+    return full, prefix_possible
+
+
+def _resolve_keyword(lang, pp_mod):
+    """Resolve the continuation keyword aliases like the bash does
+    (dictee:368-380): [keyword:LANG] then [keyword], user file first then
+    system file, default 'minuscule'."""
+    files = [pp_mod.USER_CONT] + list(pp_mod.SYSTEM_CONT_CANDIDATES)
+    for tag in (f"[keyword:{lang}]", "[keyword]"):
+        for path in files:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith(tag):
+                            return line[len(tag):].strip() or "minuscule"
+            except OSError:
+                continue
+    return "minuscule"
+
+
+def _indicator_decision(entry, closed_class_words, indicator):
+    """Decide whether to show the continuation indicator at push end.
+
+    Mirror of the bash save_last_word tail (dictee:666-694): when the push
+    ends on '.N' or '_' with a closed-class last word, the displayed
+    punctuation is erased (N keystrokes) and the indicator is typed in its
+    place; the saved marker becomes H<len>_ so the next push erases the
+    indicator. Returns (erase_n, indicator, new_entry) or None."""
+    marker, _, last_word = entry.partition(":")
+    if not indicator or last_word.lower() not in closed_class_words:
+        return None
+    if marker.startswith("."):
+        try:
+            erase = int(marker[1:] or "1")
+        except ValueError:
+            erase = 1
+        return (erase, indicator, f"H{len(indicator)}_:{last_word}")
+    if marker == "_":
+        return (0, indicator, f"H{len(indicator)}_:{last_word}")
+    return None
+
+
 def _parse_continuation_marker(saved, closed_class_words):
     """Decode a LAST_WORD_FILE entry ("marker:last_word") into the actions
     for the start of this push: (pre_backspaces, lead, lowercase_first).
@@ -589,19 +679,45 @@ def _main(argv):
     # ended in LAST_WORD_FILE; honor it (leading space, lowercase start,
     # possibly erase the previous period after a closed-class word) and
     # write our own entry at the end so the NEXT push continues correctly.
+    closed_words = {w.lower() for w in pp.load_continuation()}
     cont_pre_bs, cont_lead, cont_lower = 0, "", False
+    saved_entry = ""
     try:
         with open(_LAST_WORD_FILE, encoding="utf-8") as f:
-            saved = f.read().strip()
-        if saved:
+            saved_entry = f.read().strip()
+        if saved_entry:
             cont_pre_bs, cont_lead, cont_lower = _parse_continuation_marker(
-                saved, {w.lower() for w in pp.load_continuation()})
+                saved_entry, closed_words)
     except OSError:
         pass
     pending_pre_bs = [cont_pre_bs]
 
+    lang2 = (args.lang or os.environ.get("DICTEE_LANG_SOURCE", "") or "fr")[:2]
+
+    def _on_keyword():
+        """The push starts with the continuation keyword: erase the previous
+        push's punctuation/indicator regardless of the closed-class check
+        (mirror of the bash keyword branch, dictee:473-491)."""
+        marker = saved_entry.partition(":")[0]
+        m = re.match(r"^H(\d+)(.*)$", marker)
+        hold = int(m.group(1)) if m else 0
+        base = m.group(2) if m else marker
+        if base.startswith("."):
+            try:
+                bs = int(base[1:] or "1")
+            except ValueError:
+                bs = 1
+        elif base in (",", "F"):
+            bs = 1
+        else:
+            bs = 0
+        pending_pre_bs[0] = hold + bs  # replaces the normal-path decision
+
     composer = (LiveComposer(lambda t: pp.run_pipeline(t, local_only=True),
-                             lead=cont_lead, continuation=cont_lower)
+                             lead=cont_lead, continuation=cont_lower,
+                             keyword=(_resolve_keyword(lang2, pp)
+                                      if saved_entry else None),
+                             on_keyword=_on_keyword)
                 if args.granularity == "live" else None)
     typist = Typist()
     # Warm up the virtual keyboard now: uinput device registration by the
@@ -795,9 +911,13 @@ def _main(argv):
     for frag in msgs[:-1]:
         _feed(frag)
     if composer is not None:
-        # The volatile tail is already rendered by the last _feed; nothing
-        # to flush — the composer always keeps the screen in sync.
-        pass
+        # Force a last render: if the whole push was held as a possible
+        # keyword prefix (user said just "minus…"), type it now.
+        composer._kw_active = False
+        target = composer.target()
+        if target:
+            _consume_pre_backspaces()
+            typist.rewrite(target)
     else:
         for unit in seg.flush():
             _commit(unit)
@@ -833,8 +953,25 @@ def _main(argv):
     # Record how this push ended so the NEXT push (batch or streaming)
     # continues correctly (same file/format as the bash save_last_word).
     if typist.typed.strip():
-        entry = _continuation_marker_for(
-            typist.typed, (args.lang or os.environ.get("DICTEE_LANG_SOURCE", ""))[:2])
+        entry = _continuation_marker_for(typist.typed, lang2)
+        # \x02 = explicit end-of-sentence ("point final" voice command):
+        # marker becomes F and the indicator is suppressed (mirror of the
+        # bash force_end). The marker byte survives in the composer's text
+        # (it is only stripped at typing time).
+        force_end = composer is not None and "\x02" in (
+            composer.stable + composer.raw_tail)
+        if entry and force_end:
+            entry = "F:" + entry.partition(":")[2]
+        elif entry:
+            d = _indicator_decision(
+                entry, closed_words,
+                os.environ.get("DICTEE_CONTINUATION_INDICATOR", ">>"))
+            if d:
+                erase_n, indicator, entry = d
+                # Replace the displayed punctuation with the indicator so
+                # the user SEES the pending continuation (bash parity).
+                typist.backspace(erase_n)
+                typist.type_text(indicator)
         try:
             if entry:
                 with open(_LAST_WORD_FILE, "w", encoding="utf-8") as f:
