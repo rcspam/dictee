@@ -24,3 +24,26 @@ def test_flush_returns_remainder():
     seg = ds.Segmenter(granularity="sentence")
     seg.feed("texte sans ponctuation")
     assert seg.flush() == ["texte sans ponctuation"]
+
+# ---------------------------------------------------------------------------
+# Task 3.2 — Typist tests
+# ---------------------------------------------------------------------------
+
+def test_typist_sanitize_strips_unsupported():
+    t = ds.Typist(dry_run=True)
+    # String contains NBSP (U+00A0) and narrow NBSP (U+202F) alongside ASCII.
+    out = t.sanitize("a b …—")  # NBSP, narrow NBSP, …, em-dash
+    assert " " not in out and " " not in out
+    assert "…" not in out and "—" not in out
+
+def test_typist_tracks_typed_length_for_rewrite():
+    t = ds.Typist(dry_run=True)
+    t.type_text("Bonjour")
+    assert t.typed_len == len("Bonjour")
+    t.backspace(3)
+    assert t.typed_len == len("Bonjour") - 3
+
+def test_typist_control_chars_become_key_segments():
+    t = ds.Typist(dry_run=True)
+    cmds = t.build_commands(t.sanitize("a\nb\tc\x01d"))
+    assert cmds == ["type a", "key enter", "type b", "key tab", "type c", "key ctrl+j", "type d"]

@@ -20,9 +20,25 @@ Settings read from environment (set by the dictee shell wrapper):
 """
 
 import re
+import subprocess
 
 # Terminal punctuation that closes a sentence (Nemotron punctuates natively).
 _SENT_END = re.compile(r"[.!?…]")
+
+# ---------------------------------------------------------------------------
+# Typist
+# ---------------------------------------------------------------------------
+
+# dotool cannot type these; map to safe equivalents (mirror of dictee:246-256).
+_DOTOOL_SUBST = {
+    " ": " ",   # NBSP (U+00A0) -> space
+    " ": " ",   # narrow NBSP (U+202F) -> space
+    "…": "...",
+    "—": "-",
+    "–": "-",
+}
+# Control chars that map to key presses (mirror of dictee:265 awk: enter/tab/ctrl+j).
+_KEY_SEGMENTS = {"\n": "key enter", "\t": "key tab", "\x01": "key ctrl+j"}
 
 
 class Segmenter:
@@ -66,6 +82,73 @@ class Segmenter:
         rest = self._buf.strip()
         self._buf = ""
         return [rest] if rest else []
+
+
+class Typist:
+    """Incremental, append-only typing via dotool, with backspace support.
+
+    Tracks the exact string typed since start so the final pass can rewrite
+    it (backspace typed_len + retype). dry_run skips the dotool subprocess
+    (tests).
+    """
+
+    def __init__(self, dry_run=False):
+        self.dry_run = dry_run
+        self.typed = ""
+
+    @property
+    def typed_len(self):
+        return len(self.typed)
+
+    @staticmethod
+    def sanitize(text):
+        for bad, good in _DOTOOL_SUBST.items():
+            text = text.replace(bad, good)
+        # Keep the control chars that map to keys (\n, \t, \x01 = ctrl+j);
+        # strip the rest. \x02 (end-of-sentence), \x03 (keepcaps), \x04
+        # (audio-context reset) are batch-path bookkeeping read by
+        # save_last_word — meaningless in streaming, dropped on purpose.
+        return "".join(c for c in text if c in "\n\t\x01" or ord(c) >= 0x20)
+
+    @staticmethod
+    def build_commands(clean):
+        """Convert sanitized text to dotool command lines."""
+        cmds, buf = [], ""
+        for c in clean:
+            if c in _KEY_SEGMENTS:
+                if buf:
+                    cmds.append(f"type {buf}")
+                    buf = ""
+                cmds.append(_KEY_SEGMENTS[c])
+            else:
+                buf += c
+        if buf:
+            cmds.append(f"type {buf}")
+        return cmds
+
+    def _dotool(self, commands):
+        if self.dry_run:
+            return
+        # `sg input -c dotool` fallback mirrors safe_dotool (dictee:221).
+        try:
+            subprocess.run(["dotool"], input=commands.encode(), check=False)
+        except FileNotFoundError:
+            subprocess.run(["sg", "input", "-c", "dotool"],
+                           input=commands.encode(), check=False)
+
+    def type_text(self, text):
+        clean = self.sanitize(text)
+        if not clean:
+            return
+        cmds = self.build_commands(clean)
+        self._dotool("\n".join(cmds) + "\n")
+        self.typed += clean
+
+    def backspace(self, n):
+        if n <= 0:
+            return
+        self._dotool("key backspace\n" * n)
+        self.typed = self.typed[:-n] if n <= len(self.typed) else ""
 
 
 def _main(argv):
