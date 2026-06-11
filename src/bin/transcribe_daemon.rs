@@ -4,7 +4,7 @@ use parakeet_rs::{
 };
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
@@ -341,7 +341,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // Capture the language that will actually be pinned at startup for the
+    // Nemotron multilingual backend. Used to restore after a per-session
+    // lang: override (see Fix 3 in handle_stream).  None means the model
+    // keeps its default "auto" prompt (no set_target_lang call at startup).
+    let nemotron_startup_lang: Option<String>;
+
     let mut backend = if use_canary {
+        nemotron_startup_lang = None;
         AsrBackend::Canary(Canary::from_pretrained(
             &model_dir,
             Some(config),
@@ -356,11 +363,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if source_lang != "auto" && !source_lang.is_empty() {
                 if let Err(e) = n.set_target_lang(&source_lang) {
                     eprintln!("[daemon] nemotron lang '{}' rejected, using auto: {}", source_lang, e);
+                    nemotron_startup_lang = None;
+                } else {
+                    nemotron_startup_lang = Some(source_lang.clone());
                 }
+            } else {
+                nemotron_startup_lang = None; // stays on "auto"
             }
+        } else {
+            nemotron_startup_lang = None; // English-only variant: no lang pin
         }
         AsrBackend::Nemotron(n)
     } else {
+        nemotron_startup_lang = None;
         AsrBackend::Parakeet(ParakeetTDT::from_pretrained(&model_dir, Some(config))?)
     };
 
@@ -376,6 +391,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // request line: without a read timeout it would block the
                 // single-threaded accept loop and hang the whole UI.
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
+                // Guard against a live-but-stalled client that stops draining
+                // replies: once the socket send buffer fills, write_all would
+                // block forever, freezing the single-threaded daemon.
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
                 // Use read_line (borrows &mut self) instead of .lines()
                 // (which consumes self) so we can pass the BufReader into
                 // handle_stream without losing any bytes it may have buffered
@@ -397,11 +416,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .and_then(|s| s.strip_prefix("lang:"))
                     {
                         if let AsrBackend::Nemotron(ref mut n) = backend {
-                            let _ = n.set_target_lang(lang);
+                            if let Err(e) = n.set_target_lang(lang) {
+                                eprintln!("[daemon] stream: invalid lang '{}': {}", lang, e);
+                            }
                         }
                     }
                     if let Err(e) = handle_stream(&mut backend, reader, debug) {
                         eprintln!("[daemon] stream error: {}", e);
+                    }
+                    // Restore the startup language so subsequent batch requests
+                    // and lang-less stream sessions are not pinned to this
+                    // session's lang: override.
+                    if let AsrBackend::Nemotron(ref mut n) = backend {
+                        let restore = nemotron_startup_lang.as_deref().unwrap_or("auto");
+                        if let Err(e) = n.set_target_lang(restore) {
+                            eprintln!("[daemon] lang restore '{}' failed: {}", restore, e);
+                        }
                     }
                     continue;
                 }
@@ -532,8 +562,20 @@ fn transcribe_file(
 
 /// Stream mode: read length-prefixed s16le audio frames, feed Nemotron's
 /// `transcribe_chunk`, write back length-prefixed UTF-8 text fragments.
-/// On the zero-length sentinel, send one final framed `get_transcript()`
-/// then `reset()`. Batch mode is unaffected.
+///
+/// # Protocol contract
+///
+/// After sending the zero-length sentinel the client **must** read until EOF.
+/// Zero or more flush fragment frames may arrive, and the **last** frame before
+/// EOF is the full transcript (`get_transcript()`).  If the connection closes
+/// before the client has sent the sentinel — or if an error occurs mid-stream —
+/// the server closes without sending a final frame; the resulting EOF without a
+/// preceding sentinel signals an aborted session to the client.
+///
+/// The client must pace audio frames so that each frame covers at most 560 ms
+/// of audio (the engine processes at most one internal chunk per call; the
+/// silence flush only covers a partial tail, not a backlog). `MAX_FRAME_LEN`
+/// caps the largest accepted frame at ≈32 s regardless.
 ///
 /// The `reader` is passed in by value (rather than reconstructed from
 /// `&stream`) so that any bytes the BufReader already consumed past the
@@ -543,7 +585,7 @@ fn handle_stream(
     reader: BufReader<&UnixStream>,
     debug: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use parakeet_rs::stream_proto::{frame, s16le_to_f32};
+    use parakeet_rs::stream_proto::{frame, read_frame, s16le_to_f32};
 
     let nemo = match backend {
         AsrBackend::Nemotron(n) => n,
@@ -560,73 +602,79 @@ fn handle_stream(
     let mut writer = reader.get_ref().try_clone()?;
     let mut reader = reader;
 
+    // Whether the loop ended on a proper sentinel (true) or abnormally (false).
+    // Only a sentinel exit gets the silence flush + final transcript frame.
+    let mut sentinel = false;
+
     loop {
-        let mut len_buf = [0u8; 4];
-        if let Err(e) = reader.read_exact(&mut len_buf) {
-            // EOF or 30s read timeout (dead client): finalise and bail.
-            dbg_print!(debug, "[daemon] stream read ended: {}", e);
-            break;
-        }
-        let n = u32::from_be_bytes(len_buf) as usize;
-        if n == 0 {
-            break; // end-of-stream sentinel
-        }
-        let mut payload = vec![0u8; n];
-        if let Err(e) = reader.read_exact(&mut payload) {
-            eprintln!("[daemon] stream payload read error: {}", e);
-            break;
-        }
-
-        let samples = s16le_to_f32(&payload);
-        let fragment = match nemo.transcribe_chunk(&samples) {
-            Ok(f) => f,
+        match read_frame(&mut reader) {
+            Ok(None) => {
+                sentinel = true;
+                break; // clean end-of-stream sentinel
+            }
             Err(e) => {
-                eprintln!("[daemon] stream transcribe_chunk error: {}", e);
-                break;
+                // EOF, 30 s read timeout, or oversized frame (protocol error).
+                dbg_print!(debug, "[daemon] stream read ended: {}", e);
+                break; // abnormal exit — no final frame
             }
-        };
-        if !fragment.is_empty() {
-            if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
-                eprintln!("[daemon] stream write error: {}", e);
-                break;
-            }
-            if let Err(e) = writer.flush() {
-                eprintln!("[daemon] stream flush error: {}", e);
-                break;
-            }
-        }
-    }
-
-    // Flush the engine's buffered tail: a trailing partial chunk (< 560 ms)
-    // is never processed on its own, so pad with silence until it fires.
-    // 2 chunks of zeros (2 × 8960 samples) guarantee the partial tail
-    // completes a chunk; silence decodes to no extra tokens (RNNT blanks).
-    // Write errors here are non-fatal: we must still reach nemo.reset().
-    let silence = vec![0.0f32; 8960];
-    for _ in 0..2 {
-        match nemo.transcribe_chunk(&silence) {
-            Ok(fragment) => {
+            Ok(Some(payload)) => {
+                let samples = s16le_to_f32(&payload);
+                let fragment = match nemo.transcribe_chunk(&samples) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("[daemon] stream transcribe_chunk error: {}", e);
+                        break; // abnormal exit — no final frame
+                    }
+                };
                 if !fragment.is_empty() {
                     if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
-                        eprintln!("[daemon] stream flush write error: {}", e);
-                    } else if let Err(e) = writer.flush() {
+                        eprintln!("[daemon] stream write error: {}", e);
+                        break; // abnormal exit — no final frame
+                    }
+                    if let Err(e) = writer.flush() {
                         eprintln!("[daemon] stream flush error: {}", e);
+                        break; // abnormal exit — no final frame
                     }
                 }
             }
-            Err(e) => {
-                eprintln!("[daemon] stream flush error: {}", e);
-                break;
-            }
         }
     }
 
-    let final_text = nemo.get_transcript();
-    if let Err(e) = writer.write_all(&frame(final_text.as_bytes())) {
-        eprintln!("[daemon] stream final write error: {}", e);
-    } else if let Err(e) = writer.flush() {
-        eprintln!("[daemon] stream final flush error: {}", e);
+    if sentinel {
+        // Flush the engine's buffered tail: a trailing partial chunk (< 560 ms)
+        // is never processed on its own, so pad with silence until it fires.
+        // 2 chunks of zeros (2 × 8960 samples) guarantee the partial tail
+        // completes a chunk; silence decodes to no extra tokens (RNNT blanks).
+        // Write errors here are non-fatal: we must still reach nemo.reset().
+        let silence = vec![0.0f32; 8960];
+        for _ in 0..2 {
+            match nemo.transcribe_chunk(&silence) {
+                Ok(fragment) => {
+                    if !fragment.is_empty() {
+                        if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
+                            eprintln!("[daemon] stream flush write error: {}", e);
+                        } else if let Err(e) = writer.flush() {
+                            eprintln!("[daemon] stream flush error: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[daemon] stream flush error: {}", e);
+                    break;
+                }
+            }
+        }
+
+        let final_text = nemo.get_transcript();
+        if let Err(e) = writer.write_all(&frame(final_text.as_bytes())) {
+            eprintln!("[daemon] stream final write error: {}", e);
+        } else if let Err(e) = writer.flush() {
+            eprintln!("[daemon] stream final flush error: {}", e);
+        }
     }
+    // On abnormal exit: close without sending a final frame. The resulting EOF
+    // signals the aborted session to the client (no duplicate text risk).
+
     nemo.reset();
     Ok(())
 }
