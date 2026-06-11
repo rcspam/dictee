@@ -190,3 +190,42 @@ def test_rewrite_never_overrides_key_pacing():
     assert "keydelay" not in t._last_cmds
     assert "typedelay" not in t._last_cmds
     assert t._last_cmds.count("key backspace") == len("entier")
+
+
+def test_read_continuation_period_closed_class_word():
+    # ".1:le" — previous push ended ". " after a closed-class word: the next
+    # push erases the period (1 backspace) and continues lowercase
+    pre, lead, lower = ds._parse_continuation_marker(".1:le", {"le", "la", "de"})
+    assert (pre, lead, lower) == (1, " ", True)
+
+
+def test_read_continuation_period_normal_word():
+    pre, lead, lower = ds._parse_continuation_marker(".1:fonctionne", {"le"})
+    assert (pre, lead, lower) == (0, " ", False)
+
+
+def test_read_continuation_no_punct():
+    pre, lead, lower = ds._parse_continuation_marker("_:pourquoi", set())
+    assert (pre, lead, lower) == (0, " ", True)
+
+
+def test_read_continuation_hourglass():
+    # H2_ = indicator of 2 chars appended by the batch path: erase it
+    pre, lead, lower = ds._parse_continuation_marker("H2_:le", set())
+    assert (pre, lead, lower) == (2, " ", True)
+
+
+def test_save_continuation_marker_format():
+    assert ds._continuation_marker_for("Bonjour tout le monde.", "fr") == ".1:monde"
+    assert ds._continuation_marker_for("on continue comme ça", "fr") == "_:ça"
+    assert ds._continuation_marker_for("vraiment ?", "fr") == ".2:vraiment"
+    assert ds._continuation_marker_for("c'est parles-tu.", "fr") == ".1:tu"
+    assert ds._continuation_marker_for("avec un retour\nligne", "fr") is None
+
+
+def test_live_composer_lead_and_continuation_init():
+    c = ds.LiveComposer(lambda t: t[:1].upper() + t[1:] if t else t,
+                        lead=" ", continuation=True)
+    out = c.feed(" la suite")
+    # cross-push continuation: leading space, first letter NOT capitalized
+    assert out == " la suite"

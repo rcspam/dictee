@@ -117,13 +117,18 @@ class LiveComposer:
     erased/retyped, and only where the PP actually changed it.
     """
 
-    def __init__(self, pp_fn):
+    def __init__(self, pp_fn, lead="", continuation=False):
         self.pp = pp_fn          # text -> locally post-processed text
         self.stable = ""         # frozen, final text (completed sentences)
         self.raw_tail = ""       # raw ASR text of the in-progress sentence
-        # True when `stable` ends mid-sentence (pause promotion): the next
-        # rendered text continues that sentence and must not be capitalized.
-        self.open_continuation = False
+        # Cross-push continuation (read from LAST_WORD_FILE): `lead` is
+        # typed before the first unit (separates us from the previous
+        # push's text), `continuation` starts the session mid-sentence.
+        self.lead = lead
+        # True when `stable` ends mid-sentence (pause promotion or
+        # cross-push continuation): the next rendered text continues that
+        # sentence and must not be capitalized.
+        self.open_continuation = continuation
 
     # No separator space before these when joining stable + next unit:
     # closing punctuation produced by voice commands ("point final" -> ".")
@@ -141,10 +146,12 @@ class LiveComposer:
         return s
 
     def _join(self, left, right):
-        if not left:
-            return right
         if right and right[0] in self._NO_SPACE_BEFORE:
+            # Punctuation glues leftward — even across pushes (a dictated
+            # "point final" at push start attaches to the previous text).
             return left + right
+        if not left:
+            return self.lead + right
         return left + " " + right
 
     def _render_tail(self):
@@ -463,6 +470,86 @@ def _rms_s16(data: bytes):
     return math.sqrt(sum(x * x for x in a) / len(a)) / 32768.0
 
 
+_LAST_WORD_FILE = f"/dev/shm/.dictee_last_word-{os.getuid()}"
+
+
+def _parse_continuation_marker(saved, closed_class_words):
+    """Decode a LAST_WORD_FILE entry ("marker:last_word") into the actions
+    for the start of this push: (pre_backspaces, lead, lowercase_first).
+
+    Mirror of the bash apply_continuation marker semantics (dictee:396+):
+      ","  -> space + lowercase
+      ".N" -> if the previous push's last word is closed-class, erase the
+              period (N backspaces) and continue lowercase; else space +
+              keep case (new sentence)
+      "F"  -> space + keep case (sentence ended with ! ? ; : » ...)
+      "_"  -> space + lowercase (mid-sentence)
+      "H<n>" prefix: a continuation indicator of n chars was typed by the
+      batch path — erase it first.
+    (Refinements not mirrored: keepcaps vocative exception, the "minuscule"
+    voice-command keyword — batch-only for now.)
+    """
+    pre_bs = 0
+    marker, _, last_word = saved.partition(":")
+    m = re.match(r"^H(\d+)(.*)$", marker)
+    if m:
+        pre_bs += int(m.group(1))
+        marker = m.group(2)
+    if marker == ",":
+        return (pre_bs, " ", True)
+    if marker.startswith("."):
+        if last_word.lower() in closed_class_words:
+            try:
+                pre_bs += int(marker[1:] or "1")
+            except ValueError:
+                pre_bs += 1
+            return (pre_bs, " ", True)
+        return (pre_bs, " ", False)
+    if marker == "F":
+        return (pre_bs, " ", False)
+    # "_" or anything unknown: mid-sentence continuation
+    return (pre_bs, " ", True)
+
+
+def _continuation_marker_for(text, lang):
+    """Encode the end of this push as a LAST_WORD_FILE entry, mirroring the
+    bash save_last_word format (dictee:594+). Returns "marker:last_word" or
+    None (text containing a newline: pushes stay independent).
+    text is the post-sanitize typed text (what is on screen)."""
+    if "\n" in text:
+        return None
+    trimmed = text.rstrip(" ")
+    if not trimmed:
+        return None
+    if trimmed.endswith("..."):
+        marker, stripped = ".3", trimmed[:-3]
+    elif trimmed.endswith(".."):
+        marker, stripped = ".2", trimmed[:-2]
+    else:
+        last_char, stripped = trimmed[-1], trimmed[:-1]
+        if last_char == ".":
+            marker = ".1"
+        elif last_char == ",":
+            marker = ","
+        elif last_char == "?":
+            # French typography types an (N)NBSP before ? -> 2 backspaces
+            marker = ".2" if lang == "fr" else ".1"
+        elif last_char == "!":
+            marker = ".2" if lang == "fr" else "F"
+        elif last_char in ";:»)":
+            marker = "F"
+        else:
+            marker, stripped = "_", trimmed
+    if marker != "_":
+        stripped = stripped.rstrip(" ")
+    last_word = stripped.rsplit(" ", 1)[-1] if stripped else ""
+    if "-" in last_word:
+        last_word = last_word.rsplit("-", 1)[-1]
+    if last_word or marker != "_":
+        return f"{marker}:{last_word}"
+    return None
+
+
 def _translate_via_dictee(text):
     """Final-pass translation reuses dictee's translate() via a thin subcommand."""
     try:
@@ -497,7 +584,24 @@ def _main(argv):
 
     pp = _load_pp()
     seg = Segmenter(granularity=args.granularity)
-    composer = (LiveComposer(lambda t: pp.run_pipeline(t, local_only=True))
+
+    # Cross-push continuation: the batch path records how the previous push
+    # ended in LAST_WORD_FILE; honor it (leading space, lowercase start,
+    # possibly erase the previous period after a closed-class word) and
+    # write our own entry at the end so the NEXT push continues correctly.
+    cont_pre_bs, cont_lead, cont_lower = 0, "", False
+    try:
+        with open(_LAST_WORD_FILE, encoding="utf-8") as f:
+            saved = f.read().strip()
+        if saved:
+            cont_pre_bs, cont_lead, cont_lower = _parse_continuation_marker(
+                saved, {w.lower() for w in pp.load_continuation()})
+    except OSError:
+        pass
+    pending_pre_bs = [cont_pre_bs]
+
+    composer = (LiveComposer(lambda t: pp.run_pipeline(t, local_only=True),
+                             lead=cont_lead, continuation=cont_lower)
                 if args.granularity == "live" else None)
     typist = Typist()
     # Warm up the virtual keyboard now: uinput device registration by the
@@ -513,8 +617,16 @@ def _main(argv):
     aborted = [False]
     last_voice = [time.monotonic()]
     last_text = [time.monotonic()]  # text-side activity (live pause boundary)
-    sentence_start = [True]
+    sentence_start = [not cont_lower]
     start_window = _active_window()
+
+    def _consume_pre_backspaces():
+        """Erase the previous push's trailing punctuation/indicator (raw
+        keystrokes, outside `typed` accounting — that text belongs to the
+        previous push). Runs once, just before the first real typing."""
+        if pending_pre_bs[0] > 0:
+            typist._dotool("key backspace\n" * pending_pre_bs[0])
+            pending_pre_bs[0] = 0
 
     def _on_term(_sig, _frame):
         stop.set()
@@ -597,14 +709,18 @@ def _main(argv):
             return
         if not sentence_start[0]:
             processed = processed[:1].lower() + processed[1:]
-        typist.type_text((" " if typist.typed_len else "") + processed)
+        _consume_pre_backspaces()
+        typist.type_text((" " if typist.typed_len else cont_lead) + processed)
         sentence_start[0] = bool(_SENT_END.search(processed[-1:]))
 
     def _feed(frag):
         if composer is not None:
             # Live: the composer owns the full target text; rewrite() only
             # touches what actually changed (frozen sentences never flicker).
-            typist.rewrite(composer.feed(frag))
+            target = composer.feed(frag)
+            if target:
+                _consume_pre_backspaces()
+                typist.rewrite(target)
         else:
             for sentence in seg.feed(frag):
                 _commit(sentence)
@@ -713,6 +829,20 @@ def _main(argv):
             fixed = typist.sanitize(fixed)
             if fixed != typist.typed and _active_window() == start_window:
                 typist.rewrite(fixed)
+
+    # Record how this push ended so the NEXT push (batch or streaming)
+    # continues correctly (same file/format as the bash save_last_word).
+    if typist.typed.strip():
+        entry = _continuation_marker_for(
+            typist.typed, (args.lang or os.environ.get("DICTEE_LANG_SOURCE", ""))[:2])
+        try:
+            if entry:
+                with open(_LAST_WORD_FILE, "w", encoding="utf-8") as f:
+                    f.write(entry + "\n")
+            elif os.path.exists(_LAST_WORD_FILE):
+                os.unlink(_LAST_WORD_FILE)  # \n in text: pushes independent
+        except OSError:
+            pass
 
     typist.close()
     client.close()

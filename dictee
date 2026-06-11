@@ -1845,7 +1845,9 @@ else
     # Streaming path: spawn the live orchestrator instead of the batch recorder.
     # audio-context is incompatible with streaming -> simply not used here.
     if use_streaming; then
-        rm -f "$LAST_WORD_FILE"   # in-memory continuation replaces it for this push
+        # LAST_WORD_FILE is kept: dictee-stream reads it at startup for the
+        # cross-push continuation (space/lowercase/period-erase) and writes
+        # its own entry at the end, mirroring the batch save_last_word.
         touch "$STREAM_FLAG_FILE"
         _stream_args=(--socket "$(_daemon_socket)" --granularity "${DICTEE_STREAMING_GRANULARITY:-live}")
         # Mirror the daemon's startup semantics (DICTEE_LANG_SOURCE): "auto"
