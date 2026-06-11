@@ -19,10 +19,20 @@ Settings read from environment (set by the dictee shell wrapper):
   DICTEE_TRANSLATE              true | false
 """
 
+import argparse
+import array
+import importlib.util
+import math
+import os
+import queue
 import re
+import signal
 import socket
 import struct
 import subprocess
+import sys
+import threading
+import time
 
 # Terminal punctuation that closes a sentence (Nemotron punctuates natively).
 _SENT_END = re.compile(r"[.!?…]")
@@ -210,10 +220,239 @@ class StreamClient:
         self.sock.close()
 
 
+# ---------------------------------------------------------------------------
+# Main loop helpers
+# ---------------------------------------------------------------------------
+
+
+def _env_true(var):
+    return os.environ.get(var, "false").lower() in ("1", "true", "yes")
+
+
+def _load_pp():
+    """Import dictee-postprocess in-process (NEVER a subprocess per unit)."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for cand in (os.path.join(here, "dictee_postprocess.py"),
+                 "/usr/bin/dictee-postprocess"):
+        if os.path.exists(cand):
+            spec = importlib.util.spec_from_file_location("dictee_postprocess", cand)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    raise SystemExit("dictee-stream: cannot locate dictee-postprocess")
+
+
+def _active_window():
+    """Best-effort focused-window id for the rewrite focus-guard."""
+    for cmd in (["kdotool", "getactivewindow"], ["xdotool", "getactivewindow"]):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=1)
+            if out.returncode == 0:
+                return out.stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
+def _rms_s16(data: bytes):
+    a = array.array("h")
+    a.frombytes(data[: len(data) // 2 * 2])
+    if not a:
+        return 0.0
+    return math.sqrt(sum(x * x for x in a) / len(a)) / 32768.0
+
+
+def _current_sentence_raw_len(typist):
+    """Length of the raw text typed since the last sentence terminator."""
+    tail = typist.typed
+    idx = max((tail.rfind(c) for c in ".!?…"), default=-1)
+    return len(tail) - (idx + 1) if idx >= 0 else len(tail)
+
+
+def _translate_via_dictee(text):
+    """Final-pass translation reuses dictee's translate() via a thin subcommand."""
+    out = subprocess.run(["dictee", "--pp-translate"], input=text.encode(),
+                         capture_output=True)
+    return out.stdout.decode("utf-8", "replace").rstrip("\n") or text
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
 def _main(argv):
-    raise SystemExit("dictee-stream: orchestrator not yet wired")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--socket", required=True)
+    ap.add_argument("--lang", default=None)
+    ap.add_argument("--source", default=None,
+                    help="pw-record --target (mic node or app-capture node id)")
+    ap.add_argument("--granularity",
+                    default=os.environ.get("DICTEE_STREAMING_GRANULARITY", "sentence"))
+    ap.add_argument("--final-pass", action="store_true",
+                    default=_env_true("DICTEE_STREAMING_FINAL_PASS"))
+    ap.add_argument("--pause-ms", type=int,
+                    default=int(os.environ.get("DICTEE_STREAMING_PAUSE_MS", "700")))
+    args = ap.parse_args(argv)
+
+    pp = _load_pp()
+    seg = Segmenter(granularity=args.granularity)
+    typist = Typist()
+    client = StreamClient(args.socket, lang=args.lang)
+
+    stop = threading.Event()
+    aborted = [False]
+    last_voice = [time.monotonic()]
+    sentence_start = [True]
+    start_window = _active_window()
+
+    def _on_term(_sig, _frame):
+        stop.set()
+
+    def _on_abort(_sig, _frame):
+        aborted[0] = True
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _on_term)
+    signal.signal(signal.SIGINT, _on_term)
+    signal.signal(signal.SIGUSR1, _on_abort)
+
+    rec_cmd = ["pw-record", "--rate=16000", "--channels=1", "--format=s16"]
+    if args.source:
+        rec_cmd += ["--target", args.source]
+    rec_cmd.append("-")
+    rec = subprocess.Popen(rec_cmd, stdout=subprocess.PIPE)
+
+    def _feed_audio():
+        rms_thresh = float(os.environ.get("DICTEE_SILENCE_RMS", "0.03"))
+        try:
+            while not stop.is_set():
+                data = rec.stdout.read(3200)  # 100 ms @16k mono s16
+                if not data:
+                    break
+                client.send_audio(data)
+                if _rms_s16(data) > rms_thresh:
+                    last_voice[0] = time.monotonic()
+        except OSError:
+            pass
+        try:
+            client.send_sentinel()
+        except OSError:
+            pass
+
+    audio_t = threading.Thread(target=_feed_audio, daemon=True)
+    audio_t.start()
+
+    frag_q = queue.Queue()
+
+    def _read_loop():
+        while True:
+            frag = client.read_fragment()
+            frag_q.put(frag)
+            if frag is None:
+                break
+
+    reader_t = threading.Thread(target=_read_loop, daemon=True)
+    reader_t.start()
+
+    def _commit(unit):
+        if args.granularity == "word":
+            typist.type_text((" " if typist.typed_len else "") + unit)
+            return
+        processed = pp.run_pipeline(unit, local_only=True)
+        if not processed:
+            return
+        if not sentence_start[0]:
+            processed = processed[:1].lower() + processed[1:]
+        typist.type_text((" " if typist.typed_len else "") + processed)
+        sentence_start[0] = bool(_SENT_END.search(processed[-1:]))
+
+    def _resentence():
+        raw_len = _current_sentence_raw_len(typist)
+        if raw_len <= 0:
+            return
+        raw = typist.typed[-raw_len:]
+        processed = pp.run_pipeline(raw.strip(), local_only=True)
+        if processed and processed != raw.strip():
+            typist.backspace(raw_len)
+            typist.type_text((" " if typist.typed_len else "") + processed)
+
+    def _feed(frag):
+        if args.granularity == "word":
+            for w in seg.feed(frag):
+                _commit(w)
+            if _SENT_END.search(frag):
+                _resentence()
+        else:
+            for sentence in seg.feed(frag):
+                _commit(sentence)
+
+    eof = False
+    while not stop.is_set():
+        try:
+            frag = frag_q.get(timeout=0.1)
+        except queue.Empty:
+            frag = ""
+        if frag is None:
+            eof = True
+            break
+        if frag:
+            _feed(frag)
+        if (time.monotonic() - last_voice[0]) * 1000 > args.pause_ms:
+            for unit in seg.flush():
+                _commit(unit)
+
+    stop.set()
+    audio_t.join(timeout=2)
+    rec.terminate()
+
+    if aborted[0]:
+        client.close()
+        return 0
+
+    msgs = []
+    while not eof:
+        try:
+            m = frag_q.get(timeout=5)
+        except queue.Empty:
+            break
+        if m is None:
+            break
+        msgs.append(m)
+    final_text = msgs[-1] if msgs else ""
+    for frag in msgs[:-1]:
+        _feed(frag)
+    for unit in seg.flush():
+        _commit(unit)
+    if args.granularity == "word":
+        _resentence()
+
+    if args.final_pass and final_text.strip():
+        full = pp.run_pipeline(final_text, local_only=False)
+        if _env_true("DICTEE_TRANSLATE"):
+            full = _translate_via_dictee(full)
+        full = typist.sanitize(full)
+        if full != typist.typed:
+            if _active_window() == start_window:
+                typist.backspace(typist.typed_len)
+                typist.type_text(full)
+            else:
+                sys.stderr.write("dictee-stream: focus changed, skipping final rewrite\n")
+    elif typist.typed.strip():
+        if pp._env_bool("DICTEE_PP_SHORT_TEXT"):
+            _kc_on = pp._env_bool("DICTEE_PP_KEEPCAPS")
+            _kc = pp.load_keepcaps() if _kc_on else None
+            _ext = pp._env_bool("DICTEE_PP_KEEPCAPS_EXTENDED") if _kc_on else False
+            fixed = pp.fix_short_text(typist.typed, keepcaps=_kc, extended=_ext)
+            fixed = typist.sanitize(fixed)
+            if fixed != typist.typed and _active_window() == start_window:
+                typist.backspace(typist.typed_len)
+                typist.type_text(fixed)
+
+    client.close()
+    rec.terminate()
+    return 0
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(_main(sys.argv[1:]))
