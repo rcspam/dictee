@@ -360,3 +360,43 @@ def test_native_final_punctuation_kept_when_no_prior_punctuation():
     c.stable = "rien n'est terminé"
     out = c.feed(".")
     assert out == "rien n'est terminé."
+
+
+def test_rewrite_island_keeps_common_suffix():
+    # a correction in the MIDDLE must not erase/retype the whole tail:
+    # navigate left over the common suffix, edit the island, come back
+    t = ds.Typist(dry_run=True)
+    tail = " et la suite continue encore longtemps après cela"
+    t.type_text("le projet rense bien" + tail)
+    t.rewrite("le projet avance bien" + tail)
+    cmds = t._last_cmds.splitlines()
+    # the common suffix includes the shared trailing "e" of rense/avance
+    s = len("e bien" + tail)
+    assert cmds.count("key left") == s
+    assert cmds.count("key right") == s
+    assert cmds.count("key backspace") == len("rens")
+    assert "type avanc" in t._last_cmds
+    assert t.typed == "le projet avance bien" + tail
+
+
+def test_rewrite_tail_method_when_island_not_cheaper():
+    # change at the very end: no suffix to preserve, plain tail rewrite
+    t = ds.Typist(dry_run=True)
+    t.type_text("abc")
+    t.rewrite("abd")
+    cmds = t._last_cmds.splitlines()
+    assert "key left" not in cmds and "key right" not in cmds
+    assert cmds.count("key backspace") == 1
+
+
+def test_rewrite_island_insertion_only():
+    # pure insertion in the middle (missing word added by the final pass)
+    t = ds.Typist(dry_run=True)
+    tail = " la fin de la phrase reste identique ici"
+    t.type_text("il faut" + tail)
+    t.rewrite("il me faut" + tail)
+    assert t.typed == "il me faut" + tail
+    cmds = t._last_cmds.splitlines()
+    # common prefix is "il " (the space is shared), suffix is "faut" + tail
+    assert cmds.count("key left") == len("faut" + tail)
+    assert cmds.count("key right") == len("faut" + tail)

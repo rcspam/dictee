@@ -411,28 +411,58 @@ class Typist:
             i += 1
         return i
 
+    @staticmethod
+    def _common_suffix_len(a, b):
+        n = min(len(a), len(b))
+        i = 0
+        while i < n and a[len(a) - 1 - i] == b[len(b) - 1 - i]:
+            i += 1
+        return i
+
     def rewrite(self, new_text):
         """Replace the typed text with new_text, minimally.
 
-        Keeps the common prefix (unchanged text never flickers) and only
-        erases/retypes the differing tail. Everything runs at dotool's
-        default pacing: zero-delay bursts proved unreliable on this
-        desktop — typed characters scrambled ("contrôle" → "ôcontrle",
-        keymap-remap race for non-layout chars) AND backspaces were
-        dropped (4 sent, 2 applied: zero-hold press/release pairs get
-        coalesced). The prefix diff is what keeps rewrites fast — they
-        usually touch a handful of characters.
+        Diffs against BOTH ends: the common prefix never flickers, and when
+        the change is an island in the middle (the dominant final-pass
+        case: a few corrected words inside a long dictation), the common
+        suffix is preserved too — navigate left over it, edit only the
+        island, come back. The cheaper of the two strategies (tail rewrite
+        vs island edit) is chosen by keystroke count.
+
+        Everything runs at dotool's default pacing: zero-delay bursts
+        proved unreliable on this desktop — typed characters scrambled
+        ("contrôle" → "ôcontrle", keymap-remap race for non-layout chars)
+        AND backspaces were dropped (zero-hold press/release pairs get
+        coalesced). Minimal diffs are what keep rewrites fast.
         """
         clean = self.sanitize(new_text)
-        keep = self._common_prefix_len(self.typed, clean)
-        n_del = len(self.typed) - keep
-        tail = clean[keep:]
-        if n_del == 0 and not tail:
+        if clean == self.typed:
             return
-        cmds = ["key backspace"] * n_del
-        cmds += self.build_commands(tail)
+        keep = self._common_prefix_len(self.typed, clean)
+        old_rest = self.typed[keep:]
+        new_rest = clean[keep:]
+        suf = self._common_suffix_len(old_rest, new_rest)
+        old_mid = old_rest[:len(old_rest) - suf]
+        new_mid = new_rest[:len(new_rest) - suf]
+        # Keystroke counts are mathematically EQUAL (2×suffix both ways:
+        # traverse+return vs erase+retype), so the island edit wins on other
+        # grounds: the preserved suffix never flickers, and arrows/backspace
+        # are plain keys that a faster calibrated pacing can drive safely,
+        # while retyping text (dead-key accents) must stay at safe pacing.
+        cost_tail = len(old_rest) + len(new_rest)
+        cost_island = suf + len(old_mid) + len(new_mid) + suf
+        if suf and cost_island <= cost_tail:
+            cmds = ["key left"] * suf
+            cmds += ["key backspace"] * len(old_mid)
+            cmds += self.build_commands(new_mid)
+            cmds += ["key right"] * suf
+        else:
+            cmds = ["key backspace"] * len(old_rest)
+            cmds += self.build_commands(new_rest)
+        if not cmds:
+            return
         self._dotool("\n".join(cmds) + "\n")
-        self.typed = self.typed[:keep] + tail
+        self.typed = clean
 
 
 # ---------------------------------------------------------------------------
