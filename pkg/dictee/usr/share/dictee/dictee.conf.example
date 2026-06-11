@@ -25,6 +25,11 @@ DICTEE_WHISPER_MODEL=small
 # Whisper transcription language (empty = use DICTEE_LANG_SOURCE)
 #DICTEE_WHISPER_LANG=
 
+# Whisper performance profile (HardwareProfile pattern) — controls beam_size:
+# auto (detected from cores+RAM+VRAM) | ultra (beam=5) | high (beam=3) |
+# medium (beam=2) | low (beam=1). Higher = more accurate, slower.
+#DICTEE_HW_TIER=auto
+
 # ── Vosk ─────────────────────────────────────────────────────────────────────
 # Vosk model: language code (fr, en, de, es, it, pt, ru, zh, ja)
 # The daemon automatically resolves to vosk-model-small-<lang>-x.xx
@@ -33,6 +38,20 @@ DICTEE_VOSK_MODEL=fr
 # ── Audio source ─────────────────────────────────────────────────────────────
 # Audio source: empty = default microphone, or app:<name> (e.g. app:firefox)
 #DICTEE_AUDIO_SOURCE=
+
+# ============================================================================
+# Live meetings
+# ============================================================================
+
+# Audio source for live meetings: empty = default microphone, a microphone
+# device name, "<sink>.monitor" = system audio, "app:<name>" = capture ONE
+# application in isolation (e.g. app:firefox) without grabbing other apps or
+# disrupting playback, or "mix" = microphone + system audio.
+#DICTEE_MEETING_AUDIO_SOURCE=
+#
+# Add your microphone on top of the captured application/system audio
+# (the "Add microphone" checkbox in the meeting window). true or false.
+#DICTEE_MEETING_INCLUDE_MIC=false
 
 # ============================================================================
 # Translation
@@ -67,6 +86,14 @@ DICTEE_PTT_KEY=67
 
 # Translation modifier: alt | ctrl | shift (with same PTT key)
 #DICTEE_PTT_MOD_TRANSLATE=
+
+# Extra input devices to listen to (push-to-talk via virtual keyboards).
+# By default, dictee-ptt excludes devices whose name contains "virtual",
+# "uinput", "dotool" or "dictee-ptt" to avoid feedback loops. If you remap
+# mouse buttons or keys via logiops, keyd, evsieve, kmonad, etc., add the
+# device name substring(s) here (comma-separated, case-insensitive).
+# Find your device name with: cat /proc/bus/input/devices
+#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
 
 # ============================================================================
 # Display and feedback

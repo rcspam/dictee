@@ -1,10 +1,23 @@
 #!/bin/bash
 # dictee-audio-sources — Liste les sources audio disponibles pour le plasmoid
 # Format: value|icon|label (une ligne par source)
+
+# Filter permanently-silent noise streams (speech-dispatcher…)? Controlled by
+# DICTEE_FILTER_NOISE_SOURCES in ~/.config/dictee.conf (toggle in dictee-setup).
+# Default: on.
+FILTER_NOISE="true"
+_conf="$HOME/.config/dictee.conf"
+if [ -f "$_conf" ]; then
+    _v=$(grep -E '^DICTEE_FILTER_NOISE_SOURCES=' "$_conf" | tail -1 | cut -d= -f2- | tr -d "\"' ")
+    [ -n "$_v" ] && FILTER_NOISE="$_v"
+fi
+export FILTER_NOISE
+
 echo "|audio-input-microphone|System default"
 pw-dump 2>/dev/null | python3 -c "
-import json, sys
+import json, sys, os
 nodes = json.loads(sys.stdin.read())
+FILTER_NOISE = os.environ.get('FILTER_NOISE', 'true').lower() not in ('false', '0', 'no')
 
 # Map app names to system icon names
 APP_ICONS = {
@@ -38,15 +51,36 @@ for n in nodes:
         print(nn + '|audio-speakers|Monitor: ' + p.get('node.description', nn))
     elif mc == 'Stream/Output/Audio':
         a = p.get('application.name', '?')
-        m = p.get('media.name', '')
+        # An empty/whitespace application.name would make a.split()[0] raise
+        # IndexError below — which aborts this whole loop and truncates the
+        # entire source list. Skip such streams (nothing to match on).
+        if not a.strip():
+            continue
+        binary = (p.get('application.process.binary') or '').lower()
+        # Skip permanent-but-silent noise streams (TTS/screen-reader daemons,
+        # dummy/idle outputs) that only clutter the source list.
+        NOISE = ('sd_dummy', 'speech-dispatcher')
+        if FILTER_NOISE and any(x in a.lower() or x in binary for x in NOISE):
+            continue
+        m = p.get('media.name', '') or ''
+        app_id = p.get('application.id', '') or ''
+        # Friendlier base label for generic process names: KDE plasmoids (a
+        # radio/media widget, etc.) all run inside plasmashell.
+        base = a
+        if a.lower() == 'plasmashell' or app_id.startswith('org.kde.plasma'):
+            base = 'Plasma (widget)'
         # Find matching icon
         icon = 'applications-multimedia'
         for key, val in APP_ICONS.items():
             if key in a.lower():
                 icon = val
                 break
-        label = a
-        if m and m != a:
+        # Append media.name only when it's a meaningful title (a track / browser
+        # tab), not a generic Qt/auto-generated stream name.
+        JUNK = ('qtmpulsestream', 'playback', 'audio-stream', 'audiostream',
+                'recording', 'capture')
+        label = base
+        if m and m != a and not any(m.lower().startswith(j) for j in JUNK):
             label += ' — ' + m[:50]
         # Sauvegarder app:nom au lieu de l'ID numérique — les IDs changent
         # après sleep/hibernation ou redémarrage de l'app

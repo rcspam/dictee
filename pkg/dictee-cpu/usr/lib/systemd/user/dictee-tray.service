@@ -1,0 +1,13 @@
+[Unit]
+Description=Dictée Tray Icon
+After=dictee.service dictee-vosk.service dictee-whisper.service dictee-canary.service
+BindsTo=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/dictee-tray
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=graphical-session.target

@@ -70,6 +70,43 @@ def read_state():
         return "offline"
 
 
+def _transcribe_client_running():
+    """True if a transcribe-client process is alive for the current user.
+    pgrep -x matches /proc/<pid>/comm which the kernel truncates to 15
+    chars (TASK_COMM_LEN), so transcribe-client (17 chars) shows up as
+    transcribe-clie."""
+    try:
+        return subprocess.run(
+            ["pgrep", "-u", str(os.getuid()), "-x", "transcribe-clie"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+def read_state_with_cleanup():
+    """Read state file, with stale-state self-healing.
+
+    If state is in an active phase (recording/transcribing) but no PIDFILE
+    exists and no transcribe-client is alive, the previous F9 cycle exited
+    without resetting state (daemon killed mid-flight, OOM, signal). Reset
+    to idle so callers don't get blocked indefinitely on a stale value.
+    Mirror of the dictee shell stale-state cleanup — needed here too because
+    PTT short-circuits before invoking the shell when state == transcribing."""
+    state = read_state()
+    if state in ("recording", "transcribing", "streaming"):
+        if not os.path.isfile(PIDFILE) and not _transcribe_client_running():
+            try:
+                with open(STATE_FILE, "w") as f:
+                    f.write("idle\n")
+                print(f"[ptt] stale state cleanup: {state} -> idle")
+            except OSError:
+                pass
+            return "idle"
+    return state
+
+
 DICTEE_BIN = None  # auto-detect
 _UID_SUFFIX = f"-{os.getuid()}"
 PIDFILE = f"/tmp/recording_dictee_pid{_UID_SUFFIX}"
@@ -77,6 +114,8 @@ OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
 
 
 EV_KEY = 1
+EV_REL = 2   # relative axes = mouse movement (never grab a pointer device)
+EV_ABS = 3   # absolute axes = touchpad / touchscreen / tablet
 KEY_DOWN = 1
 KEY_UP = 0
 KEY_REPEAT = 2
@@ -104,6 +143,15 @@ PIDFILE_TIMEOUT = 3.0  # attente max PIDFILE au key-up
 MIN_HOLD_DURATION = 0.3  # 300ms — en dessous, cancel au lieu de transcrire
 RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 
+# Whitelist de sous-chaînes (lowercase) à autoriser en plus du filtre par défaut.
+# Peuplée dans main() depuis DICTEE_PTT_EXTRA_DEVICES. Permet aux outils de
+# remapping clavier (logiops, keyd, evsieve, kmonad, etc.) de servir de PTT.
+EXTRA_KEYBOARDS = []
+
+# Verbose diagnostic logs (e.g. slow keyboard rescan, issue #8). Enabled in
+# main() from DICTEE_DEBUG ("Debug mode" checkbox in dictee-setup / dictee.conf).
+DEBUG = False
+
 
 def load_config():
     """Charge dictee.conf et retourne un dict."""
@@ -127,10 +175,18 @@ def find_keyboards_evdev():
         except (PermissionError, OSError):
             continue
         caps = dev.capabilities(verbose=False)
-        # EV_KEY présent et au moins les touches alphanumériques
-        if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
+        # EV_KEY present with the full key set, AND no pointer axes. A real
+        # keyboard never reports EV_REL/EV_ABS. Some mice and combined
+        # keyboard+mouse HID receivers expose a node with >30 keys that ALSO
+        # carries pointer movement; EVIOCGRAB-ing such a node freezes the
+        # system mouse (forum report: dictee 1.3.4, AMD/Wayland). Excluding
+        # EV_REL/EV_ABS keeps us from ever grabbing a pointer device.
+        if (EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30
+                and EV_REL not in caps and EV_ABS not in caps):
             name = dev.name.lower()
-            if not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
+            if any(x in name for x in EXTRA_KEYBOARDS):
+                devs.append(dev)
+            elif not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
                 devs.append(dev)
             else:
                 dev.close()
@@ -150,14 +206,31 @@ def find_keyboards_raw():
 
     for block in content.split("\n\n"):
         lines = block.strip().splitlines()
-        name_line = handlers_line = ""
+        name_line = handlers_line = ev_line = ""
         for line in lines:
             if line.startswith("N:"):
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-        if "kbd" in handlers_line:
-            if not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE):
+            elif line.startswith("B: EV="):
+                ev_line = line
+        # Reject nodes that also drive a pointer — grabbing a combined
+        # keyboard+pointer HID node freezes it. Parse the EV capability bitmask
+        # and skip the node if it exposes relative (mouse) OR absolute
+        # (touchpad/touchscreen/tablet) axes. Mirrors the EV_REL/EV_ABS
+        # exclusion in find_keyboards_evdev — the H: "mouse" handler check alone
+        # misses abs-only pointers.
+        has_pointer = False
+        m_ev = re.search(r"B: EV=([0-9a-fA-F]+)", ev_line)
+        if m_ev:
+            ev_caps = int(m_ev.group(1), 16)
+            has_pointer = bool(ev_caps & (1 << EV_REL)) or bool(ev_caps & (1 << EV_ABS))
+        # Require the kbd handler but reject pointer devices.
+        if "kbd" in handlers_line and "mouse" not in handlers_line and not has_pointer:
+            name_lower = name_line.lower()
+            allowed = any(x in name_lower for x in EXTRA_KEYBOARDS) or \
+                not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)
+            if allowed:
                 m = re.search(r"event\d+", handlers_line)
                 if m:
                     devs.append(f"/dev/input/{m.group()}")
@@ -286,7 +359,7 @@ class PttState:
         # ESC : annuler
         if code == KEY_ESC and value == KEY_DOWN:
             state = read_state()
-            if self.recording or self.recording_translate or state in ("recording", "preparing", "diarize-ready", "diarizing"):
+            if self.recording or self.recording_translate or state in ("recording", "streaming", "preparing", "diarize-ready", "diarizing"):
                 print(f"[ptt] ESC: state={state}, recording={self.recording} — sending cancel")
                 run_dictee_async("--cancel")
                 self.recording = False
@@ -387,7 +460,7 @@ class PttState:
             if value == KEY_DOWN and not self.recording:
                 if not self._check_debounce(now):
                     return
-                _st = read_state()
+                _st = read_state_with_cleanup()
                 if _st == "offline":
                     pass  # let dictee handle the error notification
                 elif _st == "transcribing":
@@ -427,7 +500,7 @@ class PttState:
                     return
                 # Block if daemon offline or still transcribing
                 if not self.recording:
-                    _st = read_state()
+                    _st = read_state_with_cleanup()
                     if _st == "offline":
                         pass  # let dictee handle the error notification
                     elif _st == "transcribing":
@@ -449,7 +522,7 @@ class PttState:
             if value == KEY_DOWN and not self.recording_translate:
                 if not self._check_debounce(now):
                     return
-                _st = read_state()
+                _st = read_state_with_cleanup()
                 if _st == "offline":
                     pass  # let dictee handle the error notification
                 elif _st == "transcribing":
@@ -488,7 +561,7 @@ class PttState:
                     return
                 # Block if daemon offline or still transcribing
                 if not self.recording_translate:
-                    _st = read_state()
+                    _st = read_state_with_cleanup()
                     if _st == "offline":
                         pass  # let dictee handle the error notification
                     elif _st == "transcribing":
@@ -508,6 +581,33 @@ class PttState:
 
 # ─── Backend evdev (grab + uinput) ─────────────────────────────────
 
+def _rescan_keyboards(devices):
+    """Detect and grab newly plugged keyboards (hotplug).
+
+    Opens every /dev/input/event* (expensive: ~30 ms/keyboard). Call ONLY
+    when the event loop is idle — otherwise the scan freezes key handling,
+    and a KEY_UP delivered late makes the compositor believe the key is held
+    down → spurious auto-repeat (issue #8). Mutates `devices` in place. Logs
+    the duration when abnormal (DEBUG mode / DICTEE_DEBUG only).
+    """
+    t0 = time.monotonic()
+    known_paths = {d.path for d in devices}
+    for new_dev in find_keyboards_evdev():
+        if new_dev.path not in known_paths:
+            try:
+                new_dev.grab()
+                devices.append(new_dev)
+                print(f"[ptt] hotplug grab: {new_dev.name}")
+            except OSError:
+                new_dev.close()
+        else:
+            new_dev.close()
+    dt = time.monotonic() - t0
+    if DEBUG and dt > 0.05:
+        print(f"[ptt] WARNING slow keyboard rescan: {dt * 1000:.0f}ms "
+              f"({len(devices)} keyboards) [issue #8]")
+
+
 def run_evdev(ptt):
     """Boucle principale avec evdev : grab claviers, filtre la touche PTT, ré-émet le reste."""
     devices = find_keyboards_evdev()
@@ -517,26 +617,11 @@ def run_evdev(ptt):
 
     print(f"[ptt] claviers: {[d.path for d in devices]}")
 
-    # Créer le clavier virtuel pour ré-émettre les événements non-PTT
-    ui = UInput(name="dictee-ptt-passthrough")
-    print(f"[ptt] uinput: {ui.device.path}")
-
-    # Grab tous les claviers
-    for dev in devices:
-        try:
-            dev.grab()
-            print(f"[ptt] grab: {dev.name}")
-        except OSError as e:
-            print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
-
-    # Vider les événements en buffer (évite de traiter des KEY_DOWN périmés au démarrage)
-    for dev in devices:
-        try:
-            while dev.read_one() is not None:
-                pass
-        except (OSError, BlockingIOError):
-            pass
-
+    # Install signal handlers BEFORE UInput / grab so a SIGTERM during
+    # setup (e.g. `systemctl --user stop dictee-ptt` racing with startup)
+    # triggers the finally cleanup instead of the kernel's default action.
+    # Without this, an early kill leaves the keyboards grabbed and the
+    # user has to reboot — keys never reach any app.
     running = True
     last_rescan = time.monotonic()
 
@@ -547,31 +632,39 @@ def run_evdev(ptt):
     signal.signal(signal.SIGTERM, on_signal)
     signal.signal(signal.SIGINT, on_signal)
 
-    print("[ptt] en écoute (evdev grab)...")
-
-    # Grace period : ignorer les événements pendant 500ms après le démarrage
-    # pour éviter de traiter des KEY_DOWN empilés dans le noyau
-    startup_time = time.monotonic()
-    STARTUP_GRACE = 0.5
+    # ui declared before the try so the finally can close it even when
+    # UInput() itself raises.
+    ui = None
 
     try:
-        while running:
-            # Hotplug : rescanner périodiquement
-            now_mono = time.monotonic()
-            if now_mono - last_rescan > RESCAN_INTERVAL:
-                last_rescan = now_mono
-                known_paths = {d.path for d in devices}
-                for new_dev in find_keyboards_evdev():
-                    if new_dev.path not in known_paths:
-                        try:
-                            new_dev.grab()
-                            devices.append(new_dev)
-                            print(f"[ptt] hotplug grab: {new_dev.name}")
-                        except OSError:
-                            new_dev.close()
-                    else:
-                        new_dev.close()
+        # Créer le clavier virtuel pour ré-émettre les événements non-PTT
+        ui = UInput(name="dictee-ptt-passthrough")
+        print(f"[ptt] uinput: {ui.device.path}")
 
+        # Grab tous les claviers
+        for dev in devices:
+            try:
+                dev.grab()
+                print(f"[ptt] grab: {dev.name}")
+            except OSError as e:
+                print(f"[ptt] grab échoué {dev.name}: {e}", file=sys.stderr)
+
+        # Vider les événements en buffer (évite KEY_DOWN périmés au démarrage)
+        for dev in devices:
+            try:
+                while dev.read_one() is not None:
+                    pass
+            except (OSError, BlockingIOError):
+                pass
+
+        print("[ptt] en écoute (evdev grab)...")
+
+        # Grace period : ignorer les événements pendant 500ms après le démarrage
+        # pour éviter de traiter des KEY_DOWN empilés dans le noyau
+        startup_time = time.monotonic()
+        STARTUP_GRACE = 0.5
+
+        while running:
             # Nettoyer les devices morts
             dead = []
             for dev in devices:
@@ -584,8 +677,12 @@ def run_evdev(ptt):
                 devices.remove(dev)
 
             if not devices:
-                time.sleep(1)
-                last_rescan = 0
+                # Plus aucun clavier : rescan immédiat pour récupérer
+                # (aucune frappe en cours, donc pas de risque de stutter).
+                _rescan_keyboards(devices)
+                last_rescan = time.monotonic()
+                if not devices:
+                    time.sleep(1)
                 continue
 
             # select sur les fd evdev
@@ -608,6 +705,16 @@ def run_evdev(ptt):
                     devices.remove(dev)
                 continue
 
+            if not r:
+                # Timeout select : aucune frappe en attente → moment sûr pour
+                # le hotplug. Rescanner ici (pas en haut de boucle) évite de
+                # figer la saisie, donc l'auto-répétition parasite (issue #8).
+                now_mono = time.monotonic()
+                if now_mono - last_rescan > RESCAN_INTERVAL:
+                    last_rescan = now_mono
+                    _rescan_keyboards(devices)
+                continue
+
             for dev in r:
                 try:
                     for event in dev.read():
@@ -621,6 +728,11 @@ def run_evdev(ptt):
 
                         if event.type != EV_KEY:
                             # Ré-émettre les événements non-clavier (SYN, MSC, etc.)
+                            ui.write_event(event)
+                            continue
+
+                        # Meeting live UI active (open or recording): forward keys, don't consume
+                        if read_state() in ("meeting-recording", "meeting-ui-open"):
                             ui.write_event(event)
                             continue
 
@@ -644,7 +756,8 @@ def run_evdev(ptt):
                         pass
                     devices.remove(dev)
     finally:
-        # Ungrab + fermer proprement
+        # Ungrab + fermer proprement. Reachable even if UInput() raised
+        # (ui is None then) or if SIGTERM arrived during the grab loop.
         for dev in devices:
             try:
                 dev.ungrab()
@@ -654,7 +767,11 @@ def run_evdev(ptt):
                 dev.close()
             except OSError:
                 pass
-        ui.close()
+        if ui is not None:
+            try:
+                ui.close()
+            except Exception as _e:
+                print(f"[ptt] uinput close error: {_e!r}", file=sys.stderr)
 
 
 # ─── Backend raw (fallback sans evdev) ──────────────────────────────
@@ -772,7 +889,7 @@ def run_raw(ptt):
 # ─── Main ───────────────────────────────────────────────────────────
 
 def main():
-    global DICTEE_BIN
+    global DICTEE_BIN, EXTRA_KEYBOARDS, DEBUG
 
     mode = "toggle"
     key_dictee = 67   # F9
@@ -780,6 +897,13 @@ def main():
     mod_translate = ""    # modificateur traduction (alt, ctrl, shift)
     mod_cheatsheet = ""   # modificateur cheatsheet toggle (alt, ctrl, shift, super)
     conf = load_config()
+
+    DEBUG = conf.get("DICTEE_DEBUG", "false") == "true"
+
+    extra_raw = conf.get("DICTEE_PTT_EXTRA_DEVICES", "")
+    EXTRA_KEYBOARDS = [x.strip().lower() for x in extra_raw.split(",") if x.strip()]
+    if EXTRA_KEYBOARDS:
+        print(f"[ptt] extra keyboards whitelist: {EXTRA_KEYBOARDS}")
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
 

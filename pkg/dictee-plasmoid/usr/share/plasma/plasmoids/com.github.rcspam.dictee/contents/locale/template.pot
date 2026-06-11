@@ -534,3 +534,11 @@ msgstr ""
 #: package/contents/ui/main.qml:75
 msgid "Switching backend…"
 msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml
+msgid "Parakeet (more precise)"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml
+msgid "Parakeet (faster)"
+msgstr ""

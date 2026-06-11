@@ -193,6 +193,7 @@ asr_service() {
         vosk)     echo "dictee-vosk" ;;
         whisper)  echo "dictee-whisper" ;;
         canary)   echo "dictee-canary" ;;
+        nemotron) echo "dictee-nemotron" ;;
         *)        echo "dictee" ;;
     esac
 }

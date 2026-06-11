@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""
+transcribe-daemon-whisper — Serveur de transcription via socket Unix
+Utilise faster-whisper (CTranslate2) comme backend ASR.
+Même protocole que transcribe-daemon (Rust/Parakeet) :
+  le client envoie un chemin WAV, le daemon répond avec le texte transcrit.
+"""
+
+import sys, os, socket, signal, traceback
+
+# — Injection du venv faster-whisper dans sys.path —
+VENV_SITE = os.path.expanduser("~/.local/share/dictee/whisper-env/lib")
+for d in os.listdir(VENV_SITE) if os.path.isdir(VENV_SITE) else []:
+    sp = os.path.join(VENV_SITE, d, "site-packages")
+    if os.path.isdir(sp) and sp not in sys.path:
+        sys.path.insert(0, sp)
+
+import ctranslate2  # noqa: E402
+import subprocess  # noqa: E402
+from faster_whisper import WhisperModel  # noqa: E402
+
+
+# Mapping tier → beam_size (Meetily pattern #4, 2026-05-21).
+# Higher beam_size = better accuracy, slower transcription.
+# temperature reste celle anti-halluc (voir commit 353462b) — le tier
+# ne touche que beam_size.
+TIER_BEAM_SIZE = {
+    "ultra":  5,
+    "high":   3,
+    "medium": 2,
+    "low":    1,
+}
+
+
+def _detect_hw_tier():
+    """Auto-detect performance tier from cores + RAM + VRAM.
+
+    Returns one of: 'ultra' / 'high' / 'medium' / 'low'.
+    Linux-only (uses /proc/meminfo and nvidia-smi).
+    """
+    cpu_cores = os.cpu_count() or 4
+
+    ram_gb = 8  # fallback
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    ram_gb = int(line.split()[1]) // (1024 * 1024)
+                    break
+    except OSError:
+        pass
+
+    vram_gb = 0
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total",
+             "--format=csv,noheader,nounits"],
+            timeout=2, text=True,
+        )
+        vram_gb = int(out.strip().split("\n")[0]) // 1024
+    except (FileNotFoundError, subprocess.TimeoutExpired,
+            subprocess.CalledProcessError, ValueError):
+        pass
+
+    if vram_gb >= 8 and ram_gb >= 16 and cpu_cores >= 8:
+        return "ultra"
+    if vram_gb >= 4 and ram_gb >= 8:
+        return "high"
+    if cpu_cores >= 8 and ram_gb >= 16:
+        return "medium"
+    return "low"
+
+
+def socket_path():
+    """Socket path. An explicit DICTEE_TRANSCRIBE_SOCKET (set by an isolated
+    ad-hoc daemon) wins; otherwise the per-user default (same as the Rust
+    daemon)."""
+    explicit = os.environ.get("DICTEE_TRANSCRIBE_SOCKET")
+    if explicit:
+        return explicit
+    xdg = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg:
+        return os.path.join(xdg, "transcribe.sock")
+    return f"/tmp/transcribe-{os.getuid()}.sock"
+
+
+def main():
+    sock_path = socket_path()
+
+    # — Paramètres via variables d'environnement —
+    model_size = os.environ.get("DICTEE_WHISPER_MODEL", "small")
+    language = os.environ.get("DICTEE_WHISPER_LANG") or os.environ.get("DICTEE_LANG_SOURCE") or None
+
+    # — Suppression d'un socket résiduel —
+    if os.path.exists(sock_path):
+        os.remove(sock_path)
+
+    # — Sélection device + compute_type (bench 2026-05-20, large-v3 sur 4070 8GB) —
+    # CPU : int8_float32 (RTF 0.50, ≈ int8 en perf, activations FP32 préservent WER)
+    # GPU : int8_float16 (RTF 0.064, tient sur 4 GB VRAM, ≡ float16 perf sur Tensor Cores)
+    # float32 GPU INFAISABLE sur ≤ 8 GB VRAM (poids 6.2 GB + workspace OOM)
+    force_cpu = os.environ.get("DICTEE_FORCE_CPU", "0").lower() in ("1", "true", "yes")
+    has_gpu = ctranslate2.get_cuda_device_count() > 0
+    if force_cpu or not has_gpu:
+        device, compute_type = "cpu", "int8_float32"
+    else:
+        device, compute_type = "cuda", "int8_float16"
+
+    # — Profil hardware → beam_size (Meetily pattern #4) —
+    tier_env = os.environ.get("DICTEE_HW_TIER", "auto").lower()
+    if tier_env in TIER_BEAM_SIZE:
+        tier = tier_env
+    else:
+        tier = _detect_hw_tier()
+    beam_size = TIER_BEAM_SIZE[tier]
+
+    # — Chargement du modèle (une seule fois) —
+    print(
+        f"Chargement du modèle faster-whisper '{model_size}' "
+        f"[device={device}, compute={compute_type}, tier={tier}, "
+        f"beam_size={beam_size}]…",
+        file=sys.stderr,
+    )
+    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+
+    # — Écrit le provider effectif dans /dev/shm/.dictee_provider —
+    # Consommé par plasmoid (badge), tray (menu), dictee-setup (status).
+    # Valeurs : cuda / cpu / cpu-forced / cpu-only (cf daemon Rust).
+    # faster-whisper/CT2 ne fait pas de fallback silencieux comme ORT :
+    # la valeur que nous lui avons demandée = celle qui sera utilisée.
+    if force_cpu:
+        _provider_status = "cpu-forced"
+    elif device == "cuda":
+        _provider_status = "cuda"
+    elif has_gpu:
+        # GPU détecté mais on tombe sur CPU pour une raison non DICTEE_FORCE_CPU
+        # (ne devrait pas arriver vu la logique ci-dessus, garde-fou).
+        _provider_status = "cpu"
+    else:
+        _provider_status = "cpu-only"
+    # Only the F9 daemon owns the shared badge file. An isolated ad-hoc daemon
+    # (spawned by dictee-transcribe for a one-off model) sets
+    # DICTEE_DAEMON_NO_PROVIDER=1 so it never clobbers the F9 badge.
+    if os.environ.get("DICTEE_DAEMON_NO_PROVIDER") != "1":
+        try:
+            with open("/dev/shm/.dictee_provider", "w") as _f:
+                _f.write(_provider_status)
+        except OSError:
+            pass  # Best-effort, don't crash the daemon
+
+    print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
+
+    # — Création du socket Unix —
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(sock_path)
+    os.chmod(sock_path, 0o600)
+    server.listen(1)
+
+    # — Arrêt propre sur SIGTERM/SIGINT —
+    def cleanup(signum, frame):
+        print("\nArrêt du daemon.", file=sys.stderr)
+        server.close()
+        if os.path.exists(sock_path):
+            os.remove(sock_path)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, cleanup)
+    signal.signal(signal.SIGINT, cleanup)
+
+    # — Boucle principale : une connexion à la fois —
+    while True:
+        conn, _ = server.accept()
+        try:
+            conn.settimeout(30)  # Client must send data within 30s
+            # Le client envoie un chemin de fichier audio (une ligne)
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+
+            line = data.decode("utf-8").strip()
+            if not line:
+                conn.sendall(b"ERROR: chemin vide\n")
+                continue
+
+            # Parse: <wav_path>\ttimestamps | <wav_path>\tdiarize | <wav_path>
+            # "timestamps" → word-level timestamps. "diarize" → sentence-level
+            # timestamps (one line per segment), consumed by dictee-transcribe's
+            # phase-2 worker to attribute sentences to diarized speakers.
+            timestamps_mode = False
+            diarize_mode = False
+            if "\t" in line:
+                wav_path, params = line.split("\t", 1)
+                _p = params.strip()
+                if _p == "timestamps":
+                    timestamps_mode = True
+                elif _p == "diarize":
+                    diarize_mode = True
+            else:
+                wav_path = line
+
+            if not os.path.isfile(wav_path):
+                conn.sendall(f"ERROR: fichier introuvable: {wav_path}\n".encode())
+                continue
+
+            # — Transcription —
+            # Anti-hallucination params (Meetily pattern #1, 2026-05-21) :
+            # - condition_on_previous_text=False : reco OpenAI officielle,
+            #   évite les failure loops répétitifs et la contamination
+            #   cross-segment quand un segment foire.
+            # - temperature=[0.0, 0.2, 0.4] : raccourcit le fallback (défaut
+            #   6 niveaux jusqu'à 1.0) → évite la génération aléatoire qui
+            #   escalade sur audio ambigu.
+            # no_speech_threshold non touché (défaut 0.6) : redondant avec
+            # notre filtre RMS amont dans `dictee:1297-1324`.
+            segments, _info = model.transcribe(
+                wav_path,
+                language=language,
+                beam_size=beam_size,
+                vad_filter=True,
+                word_timestamps=timestamps_mode,
+                condition_on_previous_text=False,
+                temperature=[0.0, 0.2, 0.4],
+            )
+            if timestamps_mode:
+                lines = []
+                for seg in segments:
+                    if seg.words:
+                        for w in seg.words:
+                            lines.append(f"[{w.start:.2f}s - {w.end:.2f}s] {w.word.strip()}")
+                    else:
+                        lines.append(f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}")
+                text = "\n".join(lines)
+            elif diarize_mode:
+                # Sentence-level timestamps (one line per segment) for the
+                # phase-2 diarization matcher in dictee-transcribe.
+                text = "\n".join(
+                    f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}"
+                    for seg in segments)
+            else:
+                text = " ".join(seg.text.strip() for seg in segments).strip()
+            conn.sendall((text + "\n").encode("utf-8"))
+
+        except Exception:
+            err = traceback.format_exc().replace("\n", " ")
+            try:
+                conn.sendall(f"ERROR: {err}\n".encode("utf-8"))
+            except OSError:
+                pass
+        finally:
+            conn.close()
+
+
+if __name__ == "__main__":
+    main()

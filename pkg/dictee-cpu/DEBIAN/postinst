@@ -1,0 +1,377 @@
+#!/bin/bash
+set -e
+
+MODEL_DIR="/usr/share/dictee"
+TDT_DIR="$MODEL_DIR/tdt"
+DIAR_DIR="$MODEL_DIR/sortformer"
+NEMOTRON_DIR="$MODEL_DIR/nemotron"
+
+HF_TDT="https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
+HF_DIAR="https://huggingface.co/altunenes/parakeet-rs/resolve/main"
+HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
+
+TDT_FILES=(
+    "encoder-model.onnx"
+    "encoder-model.onnx.data"
+    "decoder_joint-model.onnx"
+    "vocab.txt"
+)
+
+DIAR_FILES=(
+    "diar_streaming_sortformer_4spk-v2.1.onnx"
+)
+
+NEMOTRON_FILES=(
+    "encoder.onnx"
+    "encoder.onnx.data"
+    "decoder_joint.onnx"
+    "tokenizer.model"
+)
+
+download_file() {
+    local url="$1"
+    local dest="$2"
+    if [ ! -f "$dest" ]; then
+        echo "Downloading $(basename "$dest")..."
+        curl -L --progress-bar -o "$dest" "$url"
+    else
+        echo "$(basename "$dest") already present."
+    fi
+}
+
+download_tdt() {
+    echo ""
+    echo "=== TDT model (multilingual transcription, ~2.5 GB) ==="
+    mkdir -p "$TDT_DIR"
+    for file in "${TDT_FILES[@]}"; do
+        download_file "$HF_TDT/$file" "$TDT_DIR/$file"
+    done
+}
+
+download_sortformer() {
+    echo ""
+    echo "=== Sortformer model (diarization, ~50 MB) ==="
+    mkdir -p "$DIAR_DIR"
+    for file in "${DIAR_FILES[@]}"; do
+        download_file "$HF_DIAR/$file" "$DIAR_DIR/$file"
+    done
+}
+
+download_nemotron() {
+    echo ""
+    echo "=== Nemotron model (multilingual streaming, ~2.5 GB) ==="
+    mkdir -p "$NEMOTRON_DIR"
+    for file in "${NEMOTRON_FILES[@]}"; do
+        download_file "$HF_NEMOTRON/$file" "$NEMOTRON_DIR/$file"
+    done
+}
+
+# Check if models already exist
+echo ""
+echo "=== Model check ==="
+echo ""
+
+if [ -f "$TDT_DIR/encoder-model.onnx" ]; then
+    echo "✓ TDT model present"
+else
+    echo "⚠ TDT model missing — required for transcription"
+fi
+
+if [ -f "$DIAR_DIR/diar_streaming_sortformer_4spk-v2.1.onnx" ]; then
+    echo "✓ Sortformer model present"
+else
+    echo "  Sortformer model missing (optional, diarization)"
+fi
+
+if [ -f "$NEMOTRON_DIR/encoder.onnx" ]; then
+    echo "✓ Nemotron model present"
+else
+    echo "  Nemotron model missing (optional, multilingual streaming)"
+fi
+
+if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
+    echo ""
+    echo "Run 'dictee-setup' to download the models."
+fi
+
+# Refresh dynamic linker cache (needed for CUDA libs in /usr/lib/dictee)
+if [ -f /etc/ld.so.conf.d/dictee.conf ]; then
+    ldconfig 2>/dev/null || true
+fi
+
+# Models directory — writable for dictee-setup (user)
+echo ""
+echo "=== Models directory ==="
+CANARY_DIR="$MODEL_DIR/canary"
+for d in "$MODEL_DIR" "$TDT_DIR" "$DIAR_DIR" "$NEMOTRON_DIR" "$CANARY_DIR"; do
+    mkdir -p "$d"
+    chmod 777 "$d"
+done
+echo "Directory $MODEL_DIR ready (world-writable)"
+
+# Copy translations from internal directory (fix dpkg -r removing them)
+echo ""
+echo "=== Installing translations ==="
+for lang in fr de es it uk pt; do
+    src="/usr/share/dictee/locale/$lang/LC_MESSAGES/dictee.mo"
+    dest="/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
+    if [ -f "$src" ]; then
+        mkdir -p "$(dirname "$dest")"
+        cp -f "$src" "$dest"
+    fi
+done
+echo "Translations installed"
+
+# Add logged-in users to required groups
+echo ""
+echo "=== User groups ==="
+GROUPS_CHANGED=false
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    if ! id -nG "$user" | grep -qw input; then
+        usermod -aG input "$user"
+        GROUPS_CHANGED=true
+        echo "✓ $user added to 'input' group (keyboard shortcuts)"
+    else
+        echo "✓ $user already in 'input' group"
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        # Start and enable Docker daemon if not running
+        if ! systemctl is-active --quiet docker 2>/dev/null; then
+            systemctl enable docker 2>/dev/null || true
+            if systemctl start docker 2>/dev/null; then
+                echo "✓ Docker started and enabled"
+            else
+                echo "⚠ Docker install OK but start failed (VM without nested-virt?) — non-blocking"
+            fi
+        else
+            echo "✓ Docker already running"
+        fi
+        if ! id -nG "$user" | grep -qw docker; then
+            usermod -aG docker "$user"
+            GROUPS_CHANGED=true
+            echo "✓ $user added to 'docker' group (LibreTranslate)"
+        else
+            echo "✓ $user already in 'docker' group"
+        fi
+    fi
+done
+if [ "$GROUPS_CHANGED" = "true" ]; then
+    echo ""
+    echo "⚠ Group(s) added — please reboot to activate keyboard shortcuts."
+    # Notification desktop pour les installations graphiques
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            notify-send -a "dictee" -i "dialog-information" \
+            "dictee installed" \
+            "Please reboot to activate keyboard shortcuts." 2>/dev/null || true
+    done
+fi
+
+# Enable GNOME AppIndicator extension for tray icon
+echo ""
+echo "=== GNOME AppIndicator extension ==="
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    [ "$user" = "root" ] && continue
+    [ -d "/run/user/$uid" ] || continue
+    sudo -u "$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null && \
+        echo "✓ AppIndicator enabled for $user" || true
+done
+
+# Install plasmoid if KDE Plasma 6 is available
+echo ""
+echo "=== KDE Plasma plasmoid ==="
+if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
+        echo "✓ Plasmoid installed for $user"
+    done
+else
+    echo "KDE Plasma 6 not detected or plasmoid missing — skipped"
+fi
+
+# Refresh icon cache (needed on GNOME)
+echo ""
+echo "=== Icon cache ==="
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true
+    echo "Icon cache updated"
+fi
+
+# Fix dotool udev rule (0620 → 0660, dpkg doesn't replace conffiles)
+echo ""
+echo "=== udev configuration ==="
+UDEV_RULE="/etc/udev/rules.d/80-dotool.rules"
+if [ -f "$UDEV_RULE" ] && grep -q 'MODE="0620"' "$UDEV_RULE"; then
+    sed -i 's/MODE="0620"/MODE="0660"/' "$UDEV_RULE"
+    echo "✓ udev rule fixed (0620 → 0660)"
+fi
+# Load uinput immediately (Fedora/RHEL don't do it by default, and
+# /etc/modules-load.d/dictee-uinput.conf only applies on next boot).
+modprobe uinput 2>/dev/null || true
+udevadm control --reload-rules 2>/dev/null || true
+udevadm trigger /dev/uinput 2>/dev/null || true
+echo "udev rules reloaded (dotool/uinput)"
+
+# Reload systemd services for logged-in users
+echo ""
+echo "=== Service reload ==="
+for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+    user=$(id -nu "$uid" 2>/dev/null) || continue
+    if [ -d "/run/user/$uid" ]; then
+        echo "→ Reloading for $user (uid $uid)"
+        _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+        $_run systemctl --user daemon-reload 2>/dev/null || true
+        # Apply presets (auto-enable on first install)
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        # Enable essential services (excluding ASR — handled by backend)
+        $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+        # Start/restart services
+        $_run systemctl --user restart dotoold 2>/dev/null || true
+        echo "  ↳ dotoold started"
+        $_run systemctl --user restart dictee-ptt 2>/dev/null || true
+        echo "  ↳ dictee-ptt started"
+        _user_home=$(getent passwd "$user" | cut -d: -f6)
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            $_run systemctl --user restart dictee-tray 2>/dev/null || true
+            echo "  ↳ dictee-tray started"
+        else
+            echo "  ↳ dictee-tray: waiting for configuration (dictee-setup)"
+        fi
+        # Start the right ASR daemon based on user config
+        _asr_backend="parakeet"
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$_user_home/.config/dictee.conf" | cut -d= -f2)
+        fi
+        case "$_asr_backend" in
+            vosk)     _asr_svc="dictee-vosk" ;;
+            whisper)  _asr_svc="dictee-whisper" ;;
+            canary)   _asr_svc="dictee-canary" ;;
+            nemotron) _asr_svc="dictee-nemotron" ;;
+            *)        _asr_svc="dictee" ;;
+        esac
+        # Stop all ASR daemons, enable+start the configured one
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+        $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
+        $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
+        echo "  ↳ $_asr_svc started (backend: $_asr_backend)"
+    fi
+done
+
+echo ""
+echo "=== CUDA venv (NVIDIA libraries via pip, portable across distros) ==="
+# Only for the dictee-cuda package (CPU package doesn't ship the CUDA
+# provider .so). Creates /opt/dictee/cuda-venv and pip installs
+# nvidia-*-cu12 wheels, then symlinks their .so files into
+# /usr/lib/dictee/ so ldconfig + ORT_DYLIB_PATH pick them up.
+#
+# Skip the ~1.5 GB download if no NVIDIA GPU is detected — the runtime
+# fallback (v1.3.1) will pick CPU automatically. Users who plug a GPU
+# later can re-run the pip install manually (instructions printed below).
+if [ ! -d /proc/driver/nvidia ] && [ ! -e /dev/nvidia0 ]; then
+    if [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ]; then
+        echo "→ No NVIDIA GPU detected — skipping CUDA libraries download (~1.5 GB)."
+        echo "  The runtime falls back to CPU automatically (v1.3.1 fallback)."
+        echo "  To enable CUDA later after installing an NVIDIA driver:"
+        echo "    sudo python3 -m venv /opt/dictee/cuda-venv"
+        echo "    sudo /opt/dictee/cuda-venv/bin/pip install nvidia-cuda-runtime-cu12 \\"
+        echo "         nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 \\"
+        echo "         nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12"
+        echo "    sudo ldconfig"
+    fi
+elif [ -f /usr/lib/dictee/libonnxruntime_providers_cuda.so ] \
+        && command -v python3 >/dev/null 2>&1; then
+    CUDA_VENV="/opt/dictee/cuda-venv"
+    mkdir -p /opt/dictee
+    if [ ! -x "$CUDA_VENV/bin/pip" ]; then
+        if python3 -m venv "$CUDA_VENV" 2>/dev/null; then
+            "$CUDA_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        else
+            echo "⚠ python3 -m venv failed — is python3-venv installed?"
+        fi
+    fi
+    if [ -x "$CUDA_VENV/bin/pip" ]; then
+        echo "→ Downloading NVIDIA CUDA libraries (~1.5 GB, may take several minutes)..."
+        echo "  pip will show per-package progress; do not interrupt."
+        if "$CUDA_VENV/bin/pip" install --upgrade \
+                nvidia-cuda-runtime-cu12 \
+                nvidia-cublas-cu12 \
+                nvidia-cudnn-cu12 \
+                nvidia-cufft-cu12 \
+                nvidia-curand-cu12 \
+                nvidia-cuda-nvrtc-cu12 2>/dev/null; then
+            # Symlinks .so venv → /usr/lib/dictee/ (ldconfig picks them up)
+            _py_ver=$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
+            if [ -n "$_py_ver" ]; then
+                _nvidia_root="$CUDA_VENV/lib/$_py_ver/site-packages/nvidia"
+                _count=0
+                for _sub in "$_nvidia_root"/*/lib; do
+                    [ -d "$_sub" ] || continue
+                    for _so in "$_sub"/lib*.so*; do
+                        [ -f "$_so" ] || continue
+                        ln -sf "$_so" "/usr/lib/dictee/$(basename "$_so")"
+                        _count=$((_count + 1))
+                    done
+                done
+                echo "✓ $_count NVIDIA libraries linked into /usr/lib/dictee/"
+            fi
+        else
+            echo "⚠ pip install of NVIDIA libraries failed (no internet? disk full?)"
+            echo "  Re-run manually: sudo $CUDA_VENV/bin/pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cufft-cu12 nvidia-curand-cu12 nvidia-cuda-nvrtc-cu12"
+            echo "  Then: sudo ldconfig"
+        fi
+    fi
+fi
+
+echo ""
+echo "=== Postprocess Python venv (text2num — number conversion) ==="
+PP_VENV="/usr/share/dictee/postprocess-env"
+if command -v python3 >/dev/null 2>&1; then
+    if [ ! -d "$PP_VENV" ]; then
+        if python3 -m venv "$PP_VENV" 2>/dev/null; then
+            # Upgrade pip first (ensurepip often ships an old version)
+            "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+            if "$PP_VENV/bin/pip" install --quiet text2num 2>/dev/null; then
+                echo "✓ Postprocess venv created with text2num"
+            else
+                echo "⚠ Venv created but pip install text2num failed (no internet?)"
+            fi
+        else
+            echo "⚠ python3 -m venv failed — is python3-venv installed?"
+        fi
+    else
+        # Venv already exists (reinstall/upgrade): upgrade pip + text2num
+        "$PP_VENV/bin/pip" install --quiet --upgrade pip 2>/dev/null || true
+        "$PP_VENV/bin/pip" install --quiet --upgrade text2num 2>/dev/null
+        echo "✓ Postprocess venv already present"
+    fi
+fi
+
+echo ""
+echo "=== dictee installed ==="
+echo ""
+echo "Services will be activated automatically on next login."
+echo "To enable/disable them, use: dictee --setup"
+echo ""
+echo "Configure the keyboard shortcut and options:"
+echo "  dictee --setup"
+echo ""
+echo "Available commands:"
+echo "  transcribe               - Simple transcription (TDT, multilingual)"
+echo "  transcribe-daemon        - Daemon with preloaded model"
+echo "  transcribe-client        - Client for the daemon"
+echo "  transcribe-diarize       - Transcription + diarization (TDT)"
+echo "  transcribe-stream-diarize - Streaming + diarization (Nemotron, English only)"
+echo "  dictee                   - Push-to-talk (voice dictation)"
+echo ""
+
+exit 0

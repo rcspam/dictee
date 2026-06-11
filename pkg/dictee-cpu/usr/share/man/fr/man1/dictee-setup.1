@@ -1,0 +1,73 @@
+.TH DICTEE-SETUP 1 "Mars 2025" "dictee 1.3.0" "Commandes utilisateur"
+.SH NOM
+dictee-setup \- configuration graphique pour la dictée vocale
+.SH SYNOPSIS
+.B dictee-setup
+.br
+.B dictee \-\-setup
+.SH DESCRIPTION
+.B dictee-setup
+est une interface graphique GTK3 pour configurer
+.BR dictee (1).
+Elle permet de régler :
+.TP
+\(bu
+.B Raccourci clavier
+\(em capture une combinaison de touches et l'enregistre comme raccourci global
+pour
+.BR dictee (1).
+L'enregistrement automatique est supporté sur KDE Plasma (via kwriteconfig6)
+et GNOME/Unity/Cinnamon (via gsettings). Les autres environnements de bureau
+affichent des instructions pour une configuration manuelle.
+.TP
+\(bu
+.B Traduction
+\(em activer ou désactiver la traduction, choisir le backend
+.RB ( trans
+ou
+.BR ollama ),
+et sélectionner les langues source et cible parmi 13 langues supportées.
+.TP
+\(bu
+.B Animation
+\(em vérifier si
+.B animation-speech
+est installé, et optionnellement le télécharger et l'installer depuis les releases GitHub
+(nécessite
+.BR gh (1)).
+.PP
+Tous les paramètres sont sauvegardés dans
+.IR ~/.config/dictee.conf ,
+un fichier sourçable par le shell lu par
+.BR dictee (1)
+au démarrage. Les options de la ligne de commande de dictee priment sur ces paramètres.
+.SH SUPPORT DES ENVIRONNEMENTS DE BUREAU
+.TP
+.B KDE Plasma
+Crée un fichier
+.I dictee.desktop
+dans
+.IR ~/.local/share/applications/
+et enregistre le raccourci via
+.BR kwriteconfig6 (1).
+Détecte les conflits avec les raccourcis globaux existants.
+.TP
+.B GNOME / Unity / Cinnamon
+Enregistre un raccourci clavier personnalisé via
+.BR gsettings (1).
+.TP
+.B Autre
+Affiche des instructions pour une configuration manuelle du raccourci.
+.SH FICHIERS
+.TP
+.I ~/.config/dictee.conf
+Fichier de configuration. Contient :
+.BR DICTEE_TRANSLATE ,
+.BR DICTEE_TRANSLATE_BACKEND ,
+.BR DICTEE_LANG_SOURCE ,
+.BR DICTEE_LANG_TARGET .
+.SH VOIR AUSSI
+.BR dictee (1),
+.BR dictee\-tray (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

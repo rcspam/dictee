@@ -18,6 +18,7 @@ Item {
         switch (state) {
         case "recording":    return Kirigami.Theme.highlightColor
         case "transcribing": return Kirigami.Theme.positiveTextColor
+        case "streaming":    return "#00BCD4"
         case "offline":      return Kirigami.Theme.negativeTextColor
         default:             return Kirigami.Theme.textColor
         }
@@ -29,7 +30,11 @@ Item {
     // clicking opens the popup explaining why it's inactive.
     property bool isActive: true
 
-    readonly property bool animActive: state === "recording" || state === "transcribing"
+    // ASR provider effectif (depuis /dev/shm/.dictee_provider via main.qml).
+    // Badge "G" rouge affiché si "cpu" = fallback silencieux détecté.
+    property string provider: ""
+
+    readonly property bool animActive: state === "recording" || state === "transcribing" || state === "streaming"
 
     Layout.preferredWidth: {
         var style = Plasmoid.configuration.animationStyle || "bars"
@@ -197,6 +202,24 @@ Item {
             font.bold: true
             color: Kirigami.Theme.negativeTextColor
         }
+    }
+
+    // Provider status marker: lettre colorée SANS cercle.
+    //   G vert  = GPU (cuda) ; G rouge = GPU panne (cpu = libs CUDA cassées) ;
+    //   C bleu  = CPU voulu (cpu-forced / cpu-only / cpu-int8).
+    // La lettre dit GPU(G)/CPU(C), la couleur dit l'état. Caché si l'instance
+    // est passive (⊘ a la priorité) ou si provider vide (daemon pas démarré).
+    Text {
+        visible: compact.isActive && compact.provider !== ""
+        z: 99
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        text: (compact.provider === "cuda" || compact.provider === "cpu") ? "G" : "C"
+        font.pixelSize: Math.max(8, Math.min(parent.width, parent.height) * 0.45)
+        font.bold: true
+        color: compact.provider === "cuda" ? "#27ae60"
+             : compact.provider === "cpu"  ? "#c0392b"
+             : "#3498db"
     }
 
     // Global dim when passive so the active instance stays the visually

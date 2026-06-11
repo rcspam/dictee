@@ -73,6 +73,23 @@ def find_canary_models():
     return models
 
 
+def find_nemotron_models():
+    """Find Nemotron 3.5 ASR ONNX models."""
+    models = []
+    for base, location in [(SYS_DIR, "system"), (DICTEE_DATA, "user")]:
+        nemotron_dir = os.path.join(base, "nemotron")
+        if os.path.isfile(os.path.join(nemotron_dir, "encoder.onnx")):
+            size = _dir_size_mb(nemotron_dir)
+            models.append({
+                "backend": "nemotron",
+                "name": "nemotron-3.5-asr-streaming-0.6b",
+                "path": nemotron_dir,
+                "location": location,
+                "size_mb": round(size),
+            })
+    return models
+
+
 def find_sortformer_models():
     """Find Sortformer diarization ONNX models."""
     models = []
@@ -214,6 +231,7 @@ def find_all_models():
     all_models = []
     all_models.extend(find_parakeet_models())
     all_models.extend(find_canary_models())
+    all_models.extend(find_nemotron_models())
     all_models.extend(find_sortformer_models())
     all_models.extend(find_vosk_models())
     all_models.extend(find_whisper_models())
@@ -245,7 +263,7 @@ def print_table(models):
         size_str = f"{m['size_mb']} MB" if m["size_mb"] < 1024 else f"{m['size_mb']/1024:.1f} GB"
         # Mark active model
         active = ""
-        if m["backend"] == active_backend and m["backend"] in ("parakeet", "canary", "sortformer"):
+        if m["backend"] == active_backend and m["backend"] in ("parakeet", "canary", "nemotron", "sortformer"):
             active = "▶ "
         elif m["backend"] == "whisper" and active_backend == "whisper":
             # Match active whisper model
