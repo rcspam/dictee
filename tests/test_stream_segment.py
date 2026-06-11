@@ -338,3 +338,25 @@ def test_join_french_typography_before_high_punctuation():
     # sans le flag : collage simple (comportement antérieur)
     c2 = ds.LiveComposer(lambda t: t)
     assert c2._join("magnifique", "!") == "magnifique!"
+
+
+def test_native_final_punctuation_not_duplicated():
+    # finalize_transcript emits the model's native end punctuation AFTER the
+    # dictated command was already converted and frozen: swallow it
+    c = ds.LiveComposer(lambda t: "." if t == "." else t)
+    c.stable = "C'est confirmé.\x02"
+    out = c.feed(".")
+    assert out == "C'est confirmé.\x02"
+    assert c.raw_tail == ""
+    # "?." case (dictated ? then native .)
+    c2 = ds.LiveComposer(lambda t: t)
+    c2.stable = "vraiment ?"
+    assert c2.feed(" .") == "vraiment ?"
+
+
+def test_native_final_punctuation_kept_when_no_prior_punctuation():
+    # no dictated punctuation: the native period is welcome
+    c = ds.LiveComposer(lambda t: t)
+    c.stable = "rien n'est terminé"
+    out = c.feed(".")
+    assert out == "rien n'est terminé."

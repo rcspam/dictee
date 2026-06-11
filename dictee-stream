@@ -228,6 +228,23 @@ class LiveComposer:
                     return self.stable  # hold: could still become the keyword
                 else:
                     self._kw_active = False
+        # The model emits its native end-of-sequence punctuation when the
+        # daemon finalizes; if the user already dictated the punctuation
+        # ("point final" -> '.' frozen in stable), that native mark is a
+        # duplicate ('confirmé..', 'vraiment ?.') — swallow it. A batch push
+        # never shows this because the command rule eats adjacent [,.\s]*
+        # within one text. Kept when stable has no trailing punctuation
+        # (the native period is then a welcome bonus).
+        if self.stable and self.raw_tail:
+            tail_clean = "".join(
+                c for c in self.raw_tail if c not in self._MARKERS).strip()
+            stable_clean = "".join(
+                c for c in self.stable if c not in self._MARKERS).rstrip()
+            if (tail_clean and all(c in ".!?…" for c in tail_clean)
+                    and stable_clean and stable_clean[-1] in ".!?…\n"):
+                self.raw_tail = ""
+                return self.stable
+
         vol = self._render_tail()
         if vol:
             # Strip markers and spaces only — a trailing \n IS a terminator
@@ -787,15 +804,36 @@ def _main(argv):
     last_voice = [time.monotonic()]
     last_text = [time.monotonic()]  # text-side activity (live pause boundary)
     sentence_start = [not cont_lower]
-    start_window = _active_window()
+    # Focus guard reference: captured at the FIRST keystroke, not at process
+    # start — during startup the OSD/notification may briefly hold the
+    # (X)focus, which made the end-of-push rewrites silently skip.
+    start_window = [None]
+    first_typing_done = [False]
 
     def _consume_pre_backspaces():
         """Erase the previous push's trailing punctuation/indicator (raw
         keystrokes, outside `typed` accounting — that text belongs to the
         previous push). Runs once, just before the first real typing."""
+        if not first_typing_done[0]:
+            first_typing_done[0] = True
+            start_window[0] = _active_window()
         if pending_pre_bs[0] > 0:
             typist._dotool("key backspace\n" * pending_pre_bs[0])
             pending_pre_bs[0] = 0
+
+    def _focus_unchanged(context):
+        """Focus guard for end-of-push rewrites: best effort, permissive on
+        missing data (no tool, or no reference captured), and LOUD when it
+        actually blocks — a silently skipped rewrite looks like a PP bug."""
+        if start_window[0] is None:
+            return True
+        now = _active_window()
+        if now is None or now == start_window[0]:
+            return True
+        sys.stderr.write(
+            f"dictee-stream: focus changed ({start_window[0]} -> {now}), "
+            f"skipping {context}\n")
+        return False
 
     def _on_term(_sig, _frame):
         stop.set()
@@ -984,11 +1022,8 @@ def _main(argv):
         if _env_true("DICTEE_TRANSLATE"):
             full = _translate_via_dictee(full)
         full = _with_lead_of(typist.typed, typist.sanitize(full))
-        if full != typist.typed:
-            if _active_window() == start_window:
-                typist.rewrite(full)
-            else:
-                sys.stderr.write("dictee-stream: focus changed, skipping final rewrite\n")
+        if full != typist.typed and _focus_unchanged("final rewrite"):
+            typist.rewrite(full)
     elif typist.typed.strip():
         # Fix A (5): re-check abort before short_text fixup rewrite block.
         if aborted[0]:
@@ -1000,7 +1035,7 @@ def _main(argv):
             _ext = pp._env_bool("DICTEE_PP_KEEPCAPS_EXTENDED") if _kc_on else False
             fixed = pp.fix_short_text(typist.typed, keepcaps=_kc, extended=_ext)
             fixed = _with_lead_of(typist.typed, typist.sanitize(fixed))
-            if fixed != typist.typed and _active_window() == start_window:
+            if fixed != typist.typed and _focus_unchanged("short-text fixup"):
                 typist.rewrite(fixed)
 
     # Record how this push ended so the NEXT push (batch or streaming)

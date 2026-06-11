@@ -122,6 +122,17 @@ for text in CORPUS:
     # être fusionnée — tradeoff assumé du mode live, pas un échec.
     frags2 = [" " + " ".join(text.split()[i:i+2]) for i in range(0, len(text.split()), 2)]
     pause_out = live_final(text, frags2, promote_between=True)
+    # Passe « ponctuation native » : à la finalisation, le modèle émet sa
+    # ponctuation de fin de séquence comme un fragment supplémentaire ; le
+    # batch la reçoit DANS son texte. Les deux doivent converger.
+    ref_nat = batch_final(text + ".")
+    got_nat = live_final(text, [" " + text, "."])
+    # Deux références acceptables : celle avec le point natif intégré, ou
+    # celle sans (le live avale un doublon de ponctuation terminale — le
+    # batch garderait "!." sur ce cas synthétique, le live fait mieux).
+    if got_nat not in (ref_nat, ref):
+        seen["natif+."] = got_nat
+        ref = (ref, ref_nat)
     # invariant 1: toutes les fragmentations donnent le même résultat
     uniq = set(seen.values())
     # invariant 2: égal au batch
