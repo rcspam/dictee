@@ -58,3 +58,36 @@ def test_frame_length_prefix_matches_rust():
     assert framed[:4] == (len(payload)).to_bytes(4, "big")
     assert framed[4:] == payload
     assert ds.frame(b"") == (0).to_bytes(4, "big")
+
+# ---------------------------------------------------------------------------
+# Fix B — Segmenter + _current_sentence_raw_len tests (write BEFORE fix)
+# ---------------------------------------------------------------------------
+
+def test_sentence_segmenter_multiple_terminators_in_one_fragment():
+    seg = ds.Segmenter(granularity="sentence")
+    assert seg.feed("Oui. Non. Et") == ["Oui.", "Non."]
+
+def test_sentence_segmenter_ellipsis_terminator():
+    seg = ds.Segmenter(granularity="sentence")
+    assert seg.feed("Bon… alors") == ["Bon…"]
+
+def test_current_sentence_raw_len_trailing_terminator():
+    t = ds.Typist(dry_run=True)
+    t.type_text("Bonjour. il fait beau.")
+    # trailing '.' closes the sentence to rewrite: " il fait beau."
+    assert ds._current_sentence_raw_len(t) == len(" il fait beau.")
+
+def test_current_sentence_raw_len_no_terminator():
+    t = ds.Typist(dry_run=True)
+    t.type_text("il fait beau")
+    assert ds._current_sentence_raw_len(t) == len("il fait beau")
+
+def test_typist_backspace_more_than_typed():
+    t = ds.Typist(dry_run=True)
+    t.type_text("abc")
+    t.backspace(10)
+    assert t.typed == ""
+
+def test_typist_sanitize_strips_batch_markers():
+    t = ds.Typist(dry_run=True)
+    assert t.sanitize("a\x02b\x03c\x04d") == "abcd"

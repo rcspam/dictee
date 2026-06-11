@@ -65,6 +65,10 @@ class Segmenter:
     The ASR is monotone (append-only), so a word is 'stable' as soon as a
     following character arrives. Fragments already contain SentencePiece
     leading spaces, so we never inject spaces here.
+
+    Note: the sentence split is intentionally naive (decimals like "3.14" and
+    abbreviations will split early). This is acceptable because the final pass
+    and the batch path correct it.
     """
 
     def __init__(self, granularity="sentence"):
@@ -108,6 +112,9 @@ class Typist:
     Tracks the exact string typed since start so the final pass can rewrite
     it (backspace typed_len + retype). dry_run skips the dotool subprocess
     (tests).
+
+    Invariant: `typed` holds exactly the post-sanitize text dotool emitted,
+    so backspace counts are 1:1 with len(typed).
     """
 
     def __init__(self, dry_run=False):
@@ -148,6 +155,9 @@ class Typist:
         if self.dry_run:
             return
         # `sg input -c dotool` fallback mirrors safe_dotool (dictee:221).
+        # Note: this fallback only covers FileNotFoundError (dotool not on PATH).
+        # Group-permission failures are expected to be prevented by the dictee
+        # shell wrapper, which runs the process under the 'input' group.
         try:
             subprocess.run(["dotool"], input=commands.encode(), check=False)
         except FileNotFoundError:
@@ -188,7 +198,12 @@ class StreamClient:
 
     def __init__(self, sock_path, lang=None):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self.sock.connect(sock_path)
+        try:
+            self.sock.connect(sock_path)
+        except OSError as e:
+            raise SystemExit(
+                f"dictee-stream: cannot connect to daemon socket {sock_path}: {e}"
+            )
         handshake = "stream" if not lang else f"stream\tlang:{lang}"
         self.sock.sendall((handshake + "\n").encode())
 
@@ -269,17 +284,35 @@ def _rms_s16(data: bytes):
 
 
 def _current_sentence_raw_len(typist):
-    """Length of the raw text typed since the last sentence terminator."""
+    """Length of the raw text typed since the last sentence terminator.
+
+    If typed ends with a terminator, treat it as part of the current sentence
+    being rewritten (search for the PREVIOUS terminator in typed[:-1]).
+    This way _resentence() at end-of-stream rewrites the whole last sentence.
+
+    Note: '…' is already normalised to '...' by sanitize(), so the terminator
+    set only needs '.', '!', '?' (no need for the ellipsis char itself).
+    """
     tail = typist.typed
-    idx = max((tail.rfind(c) for c in ".!?…"), default=-1)
+    if not tail:
+        return 0
+    # If the last char is a terminator, look for the previous boundary.
+    if tail[-1] in ".!?":
+        search_in = tail[:-1]
+        idx = max((search_in.rfind(c) for c in ".!?"), default=-1)
+        return len(tail) - (idx + 1)
+    idx = max((tail.rfind(c) for c in ".!?"), default=-1)
     return len(tail) - (idx + 1) if idx >= 0 else len(tail)
 
 
 def _translate_via_dictee(text):
     """Final-pass translation reuses dictee's translate() via a thin subcommand."""
-    out = subprocess.run(["dictee", "--pp-translate"], input=text.encode(),
-                         capture_output=True)
-    return out.stdout.decode("utf-8", "replace").rstrip("\n") or text
+    try:
+        out = subprocess.run(["dictee", "--pp-translate"], input=text.encode(),
+                             capture_output=True, timeout=30)
+        return out.stdout.decode("utf-8", "replace").rstrip("\n") or text
+    except (OSError, subprocess.TimeoutExpired):
+        return text
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +327,7 @@ def _main(argv):
     ap.add_argument("--source", default=None,
                     help="pw-record --target (mic node or app-capture node id)")
     ap.add_argument("--granularity",
+                    choices=("sentence", "word"),
                     default=os.environ.get("DICTEE_STREAMING_GRANULARITY", "sentence"))
     ap.add_argument("--final-pass", action="store_true",
                     default=_env_true("DICTEE_STREAMING_FINAL_PASS"))
@@ -305,6 +339,9 @@ def _main(argv):
     seg = Segmenter(granularity=args.granularity)
     typist = Typist()
     client = StreamClient(args.socket, lang=args.lang)
+
+    # Fix E: queue declared before the audio-thread closure that captures it.
+    frag_q = queue.Queue()
 
     stop = threading.Event()
     aborted = [False]
@@ -327,7 +364,10 @@ def _main(argv):
     if args.source:
         rec_cmd += ["--target", args.source]
     rec_cmd.append("-")
-    rec = subprocess.Popen(rec_cmd, stdout=subprocess.PIPE)
+    try:
+        rec = subprocess.Popen(rec_cmd, stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        raise SystemExit("dictee-stream: pw-record not found (pipewire required)")
 
     def _feed_audio():
         rms_thresh = float(os.environ.get("DICTEE_SILENCE_RMS", "0.03"))
@@ -355,17 +395,20 @@ def _main(argv):
         if mic_eof and not stop.is_set():
             stop.set()
 
-    frag_q = queue.Queue()
-
     audio_t = threading.Thread(target=_feed_audio, daemon=True)
     audio_t.start()
 
     def _read_loop():
-        while True:
-            frag = client.read_fragment()
-            frag_q.put(frag)
-            if frag is None:
-                break
+        # Fix C: guard against daemon crash / socket close mid-session so the
+        # main loop is woken promptly instead of spinning or producing traceback.
+        try:
+            while True:
+                frag = client.read_fragment()
+                frag_q.put(frag)
+                if frag is None:
+                    break
+        except OSError:
+            frag_q.put(None)
 
     reader_t = threading.Thread(target=_read_loop, daemon=True)
     reader_t.start()
@@ -394,9 +437,14 @@ def _main(argv):
 
     def _feed(frag):
         if args.granularity == "word":
+            last_word = None
             for w in seg.feed(frag):
                 _commit(w)
-            if _SENT_END.search(frag):
+                last_word = w
+            # Fix B: trigger _resentence() after committing a word that ends
+            # with a terminator — the terminator is now in typed (not still in
+            # the segmenter buffer), so the sentence is complete for rewriting.
+            if last_word and _SENT_END.search(last_word[-1:]):
                 _resentence()
         else:
             for sentence in seg.feed(frag):
@@ -430,12 +478,18 @@ def _main(argv):
     rec.terminate()
     audio_t.join(timeout=2)
 
+    # Fix A (1): SIGUSR1 abort check — bail immediately after recorder teardown,
+    # before draining, typing fragments, or rewriting anything.
     if aborted[0]:
         client.close()
         return 0
 
     msgs = []
     while not eof:
+        # Fix A (2): re-check abort at the top of each drain-loop iteration.
+        if aborted[0]:
+            client.close()
+            return 0
         try:
             m = frag_q.get(timeout=5)
         except queue.Empty:
@@ -447,6 +501,12 @@ def _main(argv):
         if m is None:
             break
         msgs.append(m)
+
+    # Fix A (3): re-check abort before feeding flush fragments / seg.flush() commits.
+    if aborted[0]:
+        client.close()
+        return 0
+
     final_text = msgs[-1] if msgs else ""
     for frag in msgs[:-1]:
         _feed(frag)
@@ -456,6 +516,10 @@ def _main(argv):
         _resentence()
 
     if args.final_pass and final_text.strip():
+        # Fix A (4): re-check abort before final-pass rewrite block.
+        if aborted[0]:
+            client.close()
+            return 0
         full = pp.run_pipeline(final_text, local_only=False)
         if _env_true("DICTEE_TRANSLATE"):
             full = _translate_via_dictee(full)
@@ -467,6 +531,10 @@ def _main(argv):
             else:
                 sys.stderr.write("dictee-stream: focus changed, skipping final rewrite\n")
     elif typist.typed.strip():
+        # Fix A (5): re-check abort before short_text fixup rewrite block.
+        if aborted[0]:
+            client.close()
+            return 0
         if pp._env_bool("DICTEE_PP_SHORT_TEXT"):
             _kc_on = pp._env_bool("DICTEE_PP_KEEPCAPS")
             _kc = pp.load_keepcaps() if _kc_on else None
@@ -478,7 +546,11 @@ def _main(argv):
                 typist.type_text(fixed)
 
     client.close()
-    rec.terminate()
+    # Fix E: avoid zombie — wait instead of a second terminate().
+    try:
+        rec.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        rec.kill()
     return 0
 
 
