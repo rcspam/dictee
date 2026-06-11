@@ -118,7 +118,8 @@ class LiveComposer:
     """
 
     def __init__(self, pp_fn, lead="", continuation=False,
-                 keyword=None, on_keyword=None):
+                 keyword=None, on_keyword=None, closed_words=frozenset(),
+                 fr_typography=False):
         self.pp = pp_fn          # text -> locally post-processed text
         self.stable = ""         # frozen, final text (completed sentences)
         self.raw_tail = ""       # raw ASR text of the in-progress sentence
@@ -140,6 +141,13 @@ class LiveComposer:
             self._kw_full, self._kw_prefix = None, None
         self._kw_active = bool(keyword)
         self._on_keyword = on_keyword
+        # Closed-class words: a period right after one of these is probably
+        # spurious (fix_continuation removes it once the next words arrive),
+        # so the tail must NOT freeze on it.
+        self._closed_words = closed_words
+        # French typography: join high punctuation with the (narrow)
+        # no-break space, like fix_french_typography would inside a block.
+        self.fr_typography = fr_typography
 
     # No separator space before these when joining stable + next unit:
     # closing punctuation produced by voice commands ("point final" -> ".")
@@ -153,16 +161,35 @@ class LiveComposer:
 
     def _casing(self, s):
         if self.open_continuation and s:
+            # Never de-capitalize an acronym (dictionary entries like "API"):
+            # if the second letter is uppercase too, the word is a sigle.
+            if s[1:2].isupper():
+                return s
             return s[:1].lower() + s[1:]
         return s
 
     def _join(self, left, right):
         if right and right[0] in self._NO_SPACE_BEFORE:
-            # Punctuation glues leftward — even across pushes (a dictated
-            # "point final" at push start attaches to the previous text).
+            # French typography: a (narrow) no-break space before high
+            # punctuation when it joins from a separate fragment — what
+            # fix_french_typography does inside a block, and what the bash
+            # apply_continuation does across pushes (dictee:514-520).
+            if self.fr_typography and left and not left.endswith(" "):
+                if right[0] in "!?;":
+                    return left + " " + right
+                if right[0] == ":":
+                    return left + " " + right
+            # Other punctuation glues leftward — even across pushes (a
+            # dictated "point final" at push start attaches to the previous
+            # text).
             return left + right
         if not left:
             return self.lead + right
+        if left.endswith(("\n", "\t", "\x01", "\x04")):
+            # No separator after a line break / tab / ctrl+j / reset marker:
+            # the next text starts the new line or field directly (a space
+            # there would indent the new line).
+            return left + right
         return left + " " + right
 
     def _render_tail(self):
@@ -206,6 +233,16 @@ class LiveComposer:
             # Strip markers and spaces only — a trailing \n IS a terminator
             # ("à la ligne") and must stay visible to the freeze test.
             clean = "".join(c for c in vol if c not in self._MARKERS).rstrip(" ")
+            if clean and clean[-1] == "." and self._closed_words:
+                # Period right after a closed-class word ("je vais le."):
+                # probably spurious — fix_continuation removes it once the
+                # next words arrive. Keep the tail volatile so the block
+                # re-PP can do that.
+                last = clean[:-1].rstrip().rsplit(" ", 1)[-1]
+                if "-" in last:
+                    last = last.rsplit("-", 1)[-1]
+                if last.lower() in self._closed_words:
+                    return self.target(vol)
             if clean and clean[-1] in self._FREEZE_END:
                 self.stable = self._join(self.stable, vol)
                 self.raw_tail = ""
@@ -730,7 +767,10 @@ def _main(argv):
                              lead=cont_lead, continuation=cont_lower,
                              keyword=(_resolve_keyword(lang2, pp)
                                       if saved_entry else None),
-                             on_keyword=_on_keyword)
+                             on_keyword=_on_keyword,
+                             closed_words=closed_words,
+                             fr_typography=(lang2 == "fr" and pp._env_bool(
+                                 "DICTEE_PP_TYPOGRAPHY")))
                 if args.granularity == "live" else None)
     typist = Typist()
     # Warm up the virtual keyboard now: uinput device registration by the

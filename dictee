@@ -635,7 +635,7 @@ save_last_word() {
                 if [ "${LANG_SOURCE:-}" = "fr" ]; then marker=".2"; else marker=".1"; fi ;;
             '!')  # Same NNBSP logic for !
                 if [ "${LANG_SOURCE:-}" = "fr" ]; then marker=".2"; else marker="F"; fi ;;
-            ';'|':'|$'\xbb')  marker="F" ;;
+            ';'|':'|'»')  marker="F" ;;  # » as UTF-8 literal ($'\xbb' never matched: bash slices characters, not bytes
             ')')  marker="F" ;;
             *)  marker="_" ; stripped="$trimmed" ;;
         esac

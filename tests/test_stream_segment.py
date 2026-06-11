@@ -289,3 +289,52 @@ def test_with_lead_of_preserves_cross_push_space():
     assert ds._with_lead_of("Une cuisine", "une cuisine") == "une cuisine"
     # new text already carries a lead: keep as-is
     assert ds._with_lead_of(" Une cuisine", " une cuisine") == " une cuisine"
+
+
+def test_join_no_space_after_newline_tab_ctrlj():
+    c = ds.LiveComposer(lambda t: t)
+    c.stable = "Premier.\n"
+    assert c._join(c.stable, "Deuxième") == "Premier.\nDeuxième"
+    c.stable = "avant\x01"
+    assert c._join(c.stable, "après") == "avant\x01après"
+    c.stable = "colonne\t"
+    assert c._join(c.stable, "valeur") == "colonne\tvaleur"
+
+
+def test_no_freeze_on_period_after_closed_class_word():
+    # "je vais le." must stay volatile: fix_continuation removes the spurious
+    # period once the continuation arrives ("je vais le faire")
+    def pp_fn(t):
+        out = t[:1].upper() + t[1:]
+        return out.replace("le. f", "le f")  # mimic fix_continuation
+    c = ds.LiveComposer(pp_fn, closed_words={"le", "la", "de"})
+    c.feed(" je vais le.")
+    assert c.stable == ""          # NOT frozen (closed-class before period)
+    out = c.feed(" faire demain")
+    assert out == "Je vais le faire demain"
+    # but a normal word before the period freezes as usual
+    c2 = ds.LiveComposer(pp_fn, closed_words={"le"})
+    c2.feed(" je vais souvent.")
+    assert c2.stable != ""
+
+
+def test_casing_preserves_acronyms_after_pause():
+    c = ds.LiveComposer(lambda t: t)
+    c.open_continuation = True
+    assert c._casing("API de ce site") == "API de ce site"  # sigle intact
+    assert c._casing("Bonjour") == "bonjour"
+
+
+def test_join_no_space_after_reset_marker():
+    c = ds.LiveComposer(lambda t: t)
+    assert c._join("\x04", "on repart") == "\x04on repart"
+
+
+def test_join_french_typography_before_high_punctuation():
+    c = ds.LiveComposer(lambda t: t, fr_typography=True)
+    assert c._join("magnifique", "!") == "magnifique !"
+    assert c._join("vraiment", "?") == "vraiment ?"
+    assert c._join("la liste", ":") == "la liste :"
+    # sans le flag : collage simple (comportement antérieur)
+    c2 = ds.LiveComposer(lambda t: t)
+    assert c2._join("magnifique", "!") == "magnifique!"
