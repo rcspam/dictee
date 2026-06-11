@@ -11,7 +11,9 @@ to the running instance and exit.
 import argparse
 import locale
 import os
+import subprocess
 import sys
+import tempfile
 from functools import partial
 from pathlib import Path
 
@@ -621,6 +623,47 @@ def _write_state_file(value: str) -> None:
         STATE_FILE.write_text(value + "\n")
     except OSError:
         pass
+
+
+def _kwin_keep_above() -> None:
+    """Best-effort: ask KWin to keep the card above other windows.
+
+    On Wayland, Qt cannot forward WindowStaysOnTopHint (xdg-shell has no
+    such concept), so the flag set on the widget only works on X11. KWin
+    exposes a scripting D-Bus API: load a one-shot script that flips
+    keepAbove for our app_id, run it, unload it. Silently does nothing
+    outside KDE (qdbus6/KWin absent) — X11 honors the Qt hint anyway.
+    """
+    script = (
+        'for (const w of workspace.windowList()) {\n'
+        '    if (w.resourceClass == "dictee-cheatsheet") { w.keepAbove = true; }\n'
+        '}\n'
+    )
+    path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                "w", suffix=".js", prefix="dictee-cheatsheet-", delete=False) as f:
+            f.write(script)
+            path = f.name
+        out = subprocess.run(
+            ["qdbus6", "org.kde.KWin", "/Scripting",
+             "org.kde.kwin.Scripting.loadScript", path],
+            capture_output=True, text=True, timeout=3)
+        sid = out.stdout.strip()
+        if out.returncode == 0 and sid.lstrip("-").isdigit() and int(sid) >= 0:
+            for method in ("run", "stop"):
+                subprocess.run(
+                    ["qdbus6", "org.kde.KWin", f"/Scripting/Script{sid}",
+                     f"org.kde.kwin.Script.{method}"],
+                    capture_output=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        pass
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
 
 def _parse_args(argv):
@@ -1358,6 +1401,11 @@ class CheatsheetCard(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         _write_state_file("1")
+        # Qt's WindowStaysOnTopHint is not forwarded over xdg-shell, so on
+        # a Wayland session KWin ignores it and the card sinks below other
+        # windows. Ask KWin directly (one-shot scripting API), after a short
+        # delay so the surface is mapped when the script looks for it.
+        QTimer.singleShot(200, _kwin_keep_above)
 
     def handle_command(self, command):
         """Route an IPC command to the appropriate window action."""
