@@ -372,8 +372,9 @@ def fix_short_text(text, keepcaps=None, extended=False):
     # Skip voice commands: pure punctuation/whitespace/newlines
     if not stripped or not any(c.isalnum() for c in stripped):
         return text
-    # Text with newlines (voice command "à la ligne") is never "short text"
-    if '\n' in text:
+    # Text with newlines or tabs (voice commands "à la ligne",
+    # "tabulation") is never "short text"
+    if '\n' in text or '\t' in text:
         return text
 
     words = stripped.split()
