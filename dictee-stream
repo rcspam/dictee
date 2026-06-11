@@ -20,6 +20,8 @@ Settings read from environment (set by the dictee shell wrapper):
 """
 
 import re
+import socket
+import struct
 import subprocess
 
 # Terminal punctuation that closes a sentence (Nemotron punctuates natively).
@@ -149,6 +151,63 @@ class Typist:
             return
         self._dotool("key backspace\n" * n)
         self.typed = self.typed[:-n] if n <= len(self.typed) else ""
+
+
+# ---------------------------------------------------------------------------
+# StreamClient
+# ---------------------------------------------------------------------------
+
+
+def frame(payload: bytes) -> bytes:
+    """4-byte big-endian length prefix + payload (matches src/stream_proto.rs)."""
+    return struct.pack(">I", len(payload)) + payload
+
+
+class StreamClient:
+    """Connection to the daemon `stream` mode. Mirror of the Rust protocol
+    in src/stream_proto.rs: framed audio out, framed text fragments in.
+    After send_sentinel(), read until EOF; the last frame is the full
+    transcript; EOF without frames after the sentinel = aborted session.
+    """
+
+    def __init__(self, sock_path, lang=None):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(sock_path)
+        handshake = "stream" if not lang else f"stream\tlang:{lang}"
+        self.sock.sendall((handshake + "\n").encode())
+
+    def send_audio(self, s16_bytes: bytes):
+        self.sock.sendall(frame(s16_bytes))
+
+    def send_sentinel(self):
+        self.sock.sendall(frame(b""))
+
+    def _read_exact(self, n):
+        buf = b""
+        while len(buf) < n:
+            chunk = self.sock.recv(n - len(buf))
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
+
+    def read_fragment(self):
+        """Return the next text fragment, or None on EOF (blocking)."""
+        head = self._read_exact(4)
+        if head is None:
+            return None
+        n = struct.unpack(">I", head)[0]
+        body = self._read_exact(n) if n else b""
+        if body is None:
+            return None
+        return body.decode("utf-8", "replace")
+
+    def close(self):
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.sock.close()
 
 
 def _main(argv):

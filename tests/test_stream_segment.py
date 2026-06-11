@@ -47,3 +47,14 @@ def test_typist_control_chars_become_key_segments():
     t = ds.Typist(dry_run=True)
     cmds = t.build_commands(t.sanitize("a\nb\tc\x01d"))
     assert cmds == ["type a", "key enter", "type b", "key tab", "type c", "key ctrl+j", "type d"]
+
+# ---------------------------------------------------------------------------
+# Task 3.3 — StreamClient frame test
+# ---------------------------------------------------------------------------
+
+def test_frame_length_prefix_matches_rust():
+    payload = b"\x01\x00\x02\x00"
+    framed = ds.frame(payload)
+    assert framed[:4] == (len(payload)).to_bytes(4, "big")
+    assert framed[4:] == payload
+    assert ds.frame(b"") == (0).to_bytes(4, "big")
