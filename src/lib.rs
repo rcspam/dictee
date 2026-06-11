@@ -62,6 +62,7 @@ mod parakeet_eou;
 mod parakeet_tdt;
 #[cfg(feature = "sortformer")]
 pub mod sortformer;
+pub mod stream_proto;
 mod timestamps;
 mod transcriber;
 mod vocab;
