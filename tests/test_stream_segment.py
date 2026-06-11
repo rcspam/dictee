@@ -181,14 +181,16 @@ def test_live_composer_freezes_on_trailing_newline():
     assert c.stable != ""
 
 
-def test_rewrite_never_overrides_key_pacing():
-    # zero-delay bursts proved unreliable (scrambled accents, dropped
-    # backspaces): rewrites must never override dotool's default pacing
+def test_rewrite_uses_calibrated_edit_pacing():
+    # calibrated 2026-06-11 (Qt sandbox + Konsole TUI): plain keys are
+    # reliable at 1/2 ms; ZERO ms is forbidden (drops/scramble measured)
     t = ds.Typist(dry_run=True)
     t.type_text("Bonjour le monde entier")
     t.rewrite("Bonjour le monde contrôlé")
-    assert "keydelay" not in t._last_cmds
-    assert "typedelay" not in t._last_cmds
+    assert "keydelay 1" in t._last_cmds      # fast edit pacing on
+    assert "keydelay 2" in t._last_cmds      # restored after
+    assert "keydelay 0" not in t._last_cmds  # zero stays forbidden
+    assert "typedelay 0" not in t._last_cmds
     assert t._last_cmds.count("key backspace") == len("entier")
 
 

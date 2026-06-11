@@ -59,6 +59,15 @@ _DOTOOL_SUBST = {
 # Control chars that map to key presses (mirror of dictee:265 awk: enter/tab/ctrl+j).
 _KEY_SEGMENTS = {"\n": "key enter", "\t": "key tab", "\x01": "key ctrl+j"}
 
+# Key pacings, calibrated 2026-06-11 on this machine (Qt sandbox + Konsole
+# TUI, automated probe/verify): plain keys (backspace, arrows) are reliable
+# down to 1-2 ms; text typing breaks at 0 ms (dead-key/keymap-remap race,
+# "ôôcontrle" measured) but holds at 2/4. ZERO delays stay forbidden —
+# drops and scrambling were measured there in both environments.
+_PACE_EDIT_ON = "keydelay 1\nkeyhold 2"
+_PACE_EDIT_OFF = "keydelay 2\nkeyhold 8"
+_PACE_INIT = "typedelay 2\ntypehold 4\nkeydelay 2\nkeyhold 8"
+
 
 class Segmenter:
     """Splits the append-only ASR text stream into commit units.
@@ -353,6 +362,12 @@ class Typist:
             except FileNotFoundError:
                 self._proc = subprocess.Popen(["sg", "input", "-c", "dotool"],
                                               stdin=subprocess.PIPE)
+            # Calibrated session pacing (text at 2/4 instead of 2/8).
+            try:
+                self._proc.stdin.write((_PACE_INIT + "\n").encode())
+                self._proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
         return self._proc
 
     def _dotool(self, commands):
@@ -400,7 +415,9 @@ class Typist:
     def backspace(self, n):
         if n <= 0:
             return
-        self._dotool("key backspace\n" * n)
+        self._dotool(_PACE_EDIT_ON + "\n"
+                     + "key backspace\n" * n
+                     + _PACE_EDIT_OFF + "\n")
         self.typed = self.typed[:-n] if n <= len(self.typed) else ""
 
     @staticmethod
@@ -452,12 +469,18 @@ class Typist:
         cost_tail = len(old_rest) + len(new_rest)
         cost_island = suf + len(old_mid) + len(new_mid) + suf
         if suf and cost_island <= cost_tail:
-            cmds = ["key left"] * suf
+            cmds = [_PACE_EDIT_ON]
+            cmds += ["key left"] * suf
             cmds += ["key backspace"] * len(old_mid)
+            cmds += [_PACE_EDIT_OFF]
             cmds += self.build_commands(new_mid)
+            cmds += [_PACE_EDIT_ON]
             cmds += ["key right"] * suf
+            cmds += [_PACE_EDIT_OFF]
         else:
-            cmds = ["key backspace"] * len(old_rest)
+            cmds = [_PACE_EDIT_ON]
+            cmds += ["key backspace"] * len(old_rest)
+            cmds += [_PACE_EDIT_OFF]
             cmds += self.build_commands(new_rest)
         if not cmds:
             return
