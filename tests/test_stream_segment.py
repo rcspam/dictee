@@ -279,3 +279,13 @@ def test_indicator_decision_closed_class():
     assert ds._indicator_decision(".1:monde", {"le"}, ">>") is None
     # mid-sentence closed-class: indicator, nothing to erase
     assert ds._indicator_decision("_:le", {"le"}, ">>") == (0, ">>", "H2_:le")
+
+
+def test_with_lead_of_preserves_cross_push_space():
+    # the short-text fixup strips the leading separator space: the final
+    # rewrite must put it back or the short push glues to the previous text
+    assert ds._with_lead_of(" Une cuisine", "une cuisine") == " une cuisine"
+    # no lead typed: nothing to preserve
+    assert ds._with_lead_of("Une cuisine", "une cuisine") == "une cuisine"
+    # new text already carries a lead: keep as-is
+    assert ds._with_lead_of(" Une cuisine", " une cuisine") == " une cuisine"

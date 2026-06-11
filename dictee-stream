@@ -640,6 +640,19 @@ def _continuation_marker_for(text, lang):
     return None
 
 
+def _with_lead_of(typed, new_text):
+    """Re-apply the cross-push leading whitespace to a final rewrite.
+
+    The end-of-push transforms (fix_short_text, the full final pass) work
+    on stripped text, but `typed` may start with the separator space that
+    detaches us from the previous push — losing it glues the rewritten
+    text to the previous sentence."""
+    lead_ws = typed[:len(typed) - len(typed.lstrip(" "))]
+    if lead_ws and not new_text.startswith(" "):
+        return lead_ws + new_text
+    return new_text
+
+
 def _translate_via_dictee(text):
     """Final-pass translation reuses dictee's translate() via a thin subcommand."""
     try:
@@ -930,7 +943,7 @@ def _main(argv):
         full = pp.run_pipeline(final_text, local_only=False)
         if _env_true("DICTEE_TRANSLATE"):
             full = _translate_via_dictee(full)
-        full = typist.sanitize(full)
+        full = _with_lead_of(typist.typed, typist.sanitize(full))
         if full != typist.typed:
             if _active_window() == start_window:
                 typist.rewrite(full)
@@ -946,7 +959,7 @@ def _main(argv):
             _kc = pp.load_keepcaps() if _kc_on else None
             _ext = pp._env_bool("DICTEE_PP_KEEPCAPS_EXTENDED") if _kc_on else False
             fixed = pp.fix_short_text(typist.typed, keepcaps=_kc, extended=_ext)
-            fixed = typist.sanitize(fixed)
+            fixed = _with_lead_of(typist.typed, typist.sanitize(fixed))
             if fixed != typist.typed and _active_window() == start_window:
                 typist.rewrite(fixed)
 
