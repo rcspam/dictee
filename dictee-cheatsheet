@@ -16,7 +16,7 @@ from functools import partial
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QEvent, QFileSystemWatcher, QRect, QSettings, QTimer
-from PyQt6.QtGui import QColor, QGuiApplication, QKeySequence, QPainter, QShortcut
+from PyQt6.QtGui import QColor, QGuiApplication, QIcon, QKeySequence, QPainter, QShortcut
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtWidgets import (
     QApplication,
@@ -1425,8 +1425,18 @@ def main(argv=None):
 
     # Need a QApplication for the server-side path.
     app = QApplication(sys.argv)
+    app.setApplicationName("dictee-cheatsheet")
+    # Taskbar icon under Plasma 6 Wayland: setting the icon on the
+    # QApplication instance propagates via the xdg-toplevel-icon protocol
+    # (same pattern as dictee-transcribe — without it the taskbar shows
+    # the generic Wayland icon).
+    _icon = QIcon.fromTheme("dictee")
+    if not _icon.isNull():
+        app.setWindowIcon(_icon)
 
     card = CheatsheetCard()
+    if not _icon.isNull():
+        card.setWindowIcon(_icon)
     server = _setup_ipc_server(card)
     if server is None:
         # Race lost — try forwarding once more, otherwise just give up.
