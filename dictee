@@ -190,7 +190,7 @@ stop_recording() {
 # Remove all session temp files
 cleanup_session() {
     rm -f "$ID_TMP_FILE" "$RECORDING_FILE" "$TRANSLATE_BACKEND_FILE" "$TRANSLATE_FLAG_FILE" "$DIARIZE_FLAG_FILE"  # ID_TMP_FILE kept for legacy cleanup
-    rm -f "$COMBINED_FILE" "$SILENCE_FILE"
+    rm -f "$COMBINED_FILE" "$SILENCE_FILE" "$STREAM_FLAG_FILE"
 }
 
 # Decide whether to use the live streaming path (Nemotron only).
@@ -1187,6 +1187,9 @@ PYEOF
 # translation). TRANSLATE_BACKEND is already resolved from the conf
 # (DICTEE_TRANSLATE_BACKEND, default "trans") — same resolution as batch.
 if [ "${1:-}" = "--pp-translate" ]; then
+    # Helper invocation from dictee-stream: never run cleanup traps here —
+    # they would kill the orchestrator (our parent) via the shared PIDFILE.
+    trap '' INT TERM HUP QUIT ERR
     _in=$(cat)
     translate "$_in" "$TRANSLATE_BACKEND"
     exit $?
@@ -1242,7 +1245,10 @@ if [ "$CANCEL" = true ]; then
             # Live streaming dictation — abort the orchestrator (types nothing)
             _spid=$(cat "$PIDFILE" 2>/dev/null)
             kill -USR1 "$_spid" 2>/dev/null
-            sleep 0.3
+            for _i in $(seq 1 20); do
+                kill -0 "$_spid" 2>/dev/null || break
+                sleep 0.1
+            done
             kill -KILL "$_spid" 2>/dev/null || true
             stop_animation quit
             restore_audio
@@ -1335,6 +1341,7 @@ if [ -f "$PIDFILE" ]; then
             sleep 0.1
         done
         kill -KILL "$_spid" 2>/dev/null || true
+        close_notification
         rm -f "$PIDFILE" "${PIDFILE}.lock" "$STREAM_FLAG_FILE"
         cleanup_session
         write_state "idle"
@@ -1847,7 +1854,7 @@ else
             _stream_args+=(--lang "$LANG_SOURCE")
         fi
         [ -n "$AUDIO_SOURCE" ] && _stream_args+=(--source "$AUDIO_SOURCE")
-        dictee-stream "${_stream_args[@]}" &
+        DICTEE_TRANSLATE="${TRANSLATE:-false}" dictee-stream "${_stream_args[@]}" &
         echo $! >"$PIDFILE"
         sleep 0.05
         if ! kill -0 $! 2>/dev/null; then
@@ -1863,6 +1870,9 @@ else
         _dbg "start-streaming: OK pid=$(cat "$PIDFILE" 2>/dev/null)"
         exit 0
     fi
+
+    # Belt-and-braces: ensure a stale streaming flag never corrupts a batch run
+    rm -f "$STREAM_FLAG_FILE"
 
     # Start recording
     if [ -n "$AUDIO_SOURCE" ]; then
