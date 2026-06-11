@@ -21,6 +21,7 @@ Settings read from environment (set by the dictee shell wrapper):
 
 import argparse
 import array
+import atexit
 import importlib.machinery
 import importlib.util
 import math
@@ -34,6 +35,7 @@ import subprocess
 import sys
 import threading
 import time
+import wave
 
 # Terminal punctuation that closes a sentence (Nemotron punctuates natively).
 _SENT_END = re.compile(r"[.!?…]")
@@ -760,6 +762,32 @@ def _with_lead_of(typed, new_text):
     return new_text
 
 
+def _batch_retranscribe(sock_path, wav_path, timeout=55):
+    """Re-transcribe the whole session audio through the daemon's BATCH
+    protocol (path -> one line) for full-context quality: the streaming
+    decode has limited future context (fixed 560 ms chunks) and loses on
+    homophones; the batch pass sees the entire audio. Returns the raw
+    transcript or None on any failure (callers fall back gracefully)."""
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(sock_path)
+        s.sendall((wav_path + "\n").encode())
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        s.close()
+        text = data.decode("utf-8", "replace").strip()
+        if text.startswith("ERROR:") or not text:
+            return None
+        return text
+    except OSError:
+        return None
+
+
 def _translate_via_dictee(text):
     """Final-pass translation reuses dictee's translate() via a thin subcommand."""
     try:
@@ -908,6 +936,26 @@ def _main(argv):
     except FileNotFoundError:
         raise SystemExit("dictee-stream: pw-record not found (pipewire required)")
 
+    # Session WAV tap for the optional batch re-transcription on release
+    # (DICTEE_STREAMING_RETRANSCRIBE): the streaming decode has limited
+    # future context; re-transcribing the full audio in batch mode at
+    # key-up recovers the batch-level accuracy.
+    retranscribe = _env_true("DICTEE_STREAMING_RETRANSCRIBE")
+    session_wav = None
+    wav_writer = None
+    if retranscribe:
+        run_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        session_wav = os.path.join(run_dir, f"dictee-stream-{os.getpid()}.wav")
+        atexit.register(lambda: os.path.exists(session_wav)
+                        and os.unlink(session_wav))
+        try:
+            wav_writer = wave.open(session_wav, "wb")
+            wav_writer.setnchannels(1)
+            wav_writer.setsampwidth(2)
+            wav_writer.setframerate(16000)
+        except OSError:
+            wav_writer = None
+
     def _feed_audio():
         rms_thresh = float(os.environ.get("DICTEE_SILENCE_RMS", "0.03"))
         mic_eof = False
@@ -918,6 +966,8 @@ def _main(argv):
                     mic_eof = True
                     break
                 client.send_audio(data)
+                if wav_writer:
+                    wav_writer.writeframes(data)
                 if _rms_s16(data) > rms_thresh:
                     last_voice[0] = time.monotonic()
             # Key-up: the recorder pipe still holds the last captured audio
@@ -931,8 +981,15 @@ def _main(argv):
                     if not data:
                         break
                     client.send_audio(data)
+                    if wav_writer:
+                        wav_writer.writeframes(data)
         except OSError:
             pass
+        if wav_writer:
+            try:
+                wav_writer.close()
+            except OSError:
+                pass
         # Put the marker BEFORE sending the sentinel so that it is impossible
         # for any post-sentinel network frame (flush fragment or final
         # transcript) to appear in the queue before this marker.
@@ -1066,7 +1123,48 @@ def _main(argv):
         for unit in seg.flush():
             _commit(unit)
 
-    if args.final_pass and final_text.strip():
+    # Option C: batch re-transcription on release. The streaming decode has
+    # limited future context (fixed 560 ms chunks) and loses on homophones;
+    # re-transcribing the WHOLE audio through the daemon's batch protocol
+    # recovers batch-level accuracy, applied as a minimal-diff rewrite.
+    retranscribed = False
+    if (retranscribe and session_wav and typist.typed.strip()
+            and not aborted[0] and os.path.exists(session_wav)):
+        try:
+            with wave.open(session_wav, "rb") as wr:
+                duration = wr.getnframes() / 16000.0
+        except (OSError, wave.Error):
+            duration = 0.0
+        if 0.5 < duration <= 120.0:
+            batch_text = _batch_retranscribe(args.socket, session_wav)
+            if batch_text:
+                full = pp.run_pipeline(batch_text, local_only=False)
+                if _env_true("DICTEE_TRANSLATE"):
+                    full = _translate_via_dictee(full)
+                # Cross-push continuation casing (same rule as the composer:
+                # never de-capitalize an acronym).
+                if cont_lower and full and not full[1:2].isupper():
+                    full = full[:1].lower() + full[1:]
+                full = _with_lead_of(typist.typed, typist.sanitize(full))
+                if full != typist.typed and _focus_unchanged(
+                        "batch re-transcription rewrite"):
+                    typist.rewrite(full)
+                    sys.stderr.write(
+                        "dictee-stream: batch re-transcription applied "
+                        f"({duration:.1f}s audio)\n")
+                retranscribed = True
+            else:
+                sys.stderr.write(
+                    "dictee-stream: batch re-transcription failed, "
+                    "falling back to the streaming transcript\n")
+        elif duration > 120.0:
+            sys.stderr.write(
+                "dictee-stream: audio too long for re-transcription "
+                f"({duration:.0f}s > 120s), skipping\n")
+
+    if retranscribed:
+        pass  # full pipeline already applied to the batch transcript
+    elif args.final_pass and final_text.strip():
         # Fix A (4): re-check abort before final-pass rewrite block.
         if aborted[0]:
             client.close()

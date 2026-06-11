@@ -407,6 +407,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 hw_tier="auto",
                 streaming=False,
                 streaming_final_pass=False,
+                streaming_retranscribe=False,
                 streaming_granularity="live",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
@@ -451,6 +452,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
         "DICTEE_STREAMING": "true" if streaming else "false",
         "DICTEE_STREAMING_FINAL_PASS": "true" if streaming_final_pass else "false",
+        "DICTEE_STREAMING_RETRANSCRIBE": "true" if streaming_retranscribe else "false",
         "DICTEE_STREAMING_GRANULARITY": _s(streaming_granularity) if streaming_granularity in ("live", "sentence") else "live",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
@@ -9621,6 +9623,13 @@ class DicteeSetupDialog(QDialog):
         self.chk_streaming_final_pass.toggled.connect(self._mark_dirty)
         stream_lay.addWidget(self.chk_streaming_final_pass)
 
+        self.chk_streaming_retranscribe = ToggleSwitch(
+            _("Re-transcribe on release (batch accuracy, costs a short wait)"))
+        self.chk_streaming_retranscribe.setChecked(
+            self.conf.get("DICTEE_STREAMING_RETRANSCRIBE", "false") == "true")
+        self.chk_streaming_retranscribe.toggled.connect(self._mark_dirty)
+        stream_lay.addWidget(self.chk_streaming_retranscribe)
+
         row_gran = QHBoxLayout()
         row_gran.setContentsMargins(
             ToggleSwitch._TRACK_W + ToggleSwitch._TEXT_SPACING, 0, 0, 0)
@@ -9646,6 +9655,7 @@ class DicteeSetupDialog(QDialog):
         # Enable sub-widgets only when streaming is on
         def _sync_streaming_sub(checked):
             self.chk_streaming_final_pass.setEnabled(checked)
+            self.chk_streaming_retranscribe.setEnabled(checked)
             lbl_gran.setEnabled(checked)
             self.cmb_streaming_granularity.setEnabled(checked)
         _sync_streaming_sub(self.chk_streaming.isChecked())
@@ -18878,6 +18888,9 @@ class DicteeSetupDialog(QDialog):
                     streaming_final_pass=(
                         self.chk_streaming_final_pass.isChecked()
                         if hasattr(self, 'chk_streaming_final_pass') else False),
+                    streaming_retranscribe=(
+                        self.chk_streaming_retranscribe.isChecked()
+                        if hasattr(self, 'chk_streaming_retranscribe') else False),
                     streaming_granularity=(
                         self.cmb_streaming_granularity.currentData()
                         if hasattr(self, 'cmb_streaming_granularity') else "live"),
