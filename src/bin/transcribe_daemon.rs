@@ -572,13 +572,28 @@ fn handle_stream(
             break; // end-of-stream sentinel
         }
         let mut payload = vec![0u8; n];
-        reader.read_exact(&mut payload)?;
+        if let Err(e) = reader.read_exact(&mut payload) {
+            eprintln!("[daemon] stream payload read error: {}", e);
+            break;
+        }
 
         let samples = s16le_to_f32(&payload);
-        let fragment = nemo.transcribe_chunk(&samples)?;
+        let fragment = match nemo.transcribe_chunk(&samples) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("[daemon] stream transcribe_chunk error: {}", e);
+                break;
+            }
+        };
         if !fragment.is_empty() {
-            writer.write_all(&frame(fragment.as_bytes()))?;
-            writer.flush()?;
+            if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
+                eprintln!("[daemon] stream write error: {}", e);
+                break;
+            }
+            if let Err(e) = writer.flush() {
+                eprintln!("[daemon] stream flush error: {}", e);
+                break;
+            }
         }
     }
 
@@ -586,13 +601,17 @@ fn handle_stream(
     // is never processed on its own, so pad with silence until it fires.
     // 2 chunks of zeros (2 × 8960 samples) guarantee the partial tail
     // completes a chunk; silence decodes to no extra tokens (RNNT blanks).
+    // Write errors here are non-fatal: we must still reach nemo.reset().
     let silence = vec![0.0f32; 8960];
     for _ in 0..2 {
         match nemo.transcribe_chunk(&silence) {
             Ok(fragment) => {
                 if !fragment.is_empty() {
-                    writer.write_all(&frame(fragment.as_bytes()))?;
-                    writer.flush()?;
+                    if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
+                        eprintln!("[daemon] stream flush write error: {}", e);
+                    } else if let Err(e) = writer.flush() {
+                        eprintln!("[daemon] stream flush error: {}", e);
+                    }
                 }
             }
             Err(e) => {
@@ -603,8 +622,11 @@ fn handle_stream(
     }
 
     let final_text = nemo.get_transcript();
-    writer.write_all(&frame(final_text.as_bytes()))?;
-    writer.flush()?;
+    if let Err(e) = writer.write_all(&frame(final_text.as_bytes())) {
+        eprintln!("[daemon] stream final write error: {}", e);
+    } else if let Err(e) = writer.flush() {
+        eprintln!("[daemon] stream final flush error: {}", e);
+    }
     nemo.reset();
     Ok(())
 }
