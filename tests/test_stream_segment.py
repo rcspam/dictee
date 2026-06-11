@@ -71,11 +71,13 @@ def test_sentence_segmenter_ellipsis_terminator():
     seg = ds.Segmenter(granularity="sentence")
     assert seg.feed("Bon… alors") == ["Bon…"]
 
-def test_live_composer_multiple_sentences_in_one_fragment():
-    c = ds.LiveComposer(lambda t: t[:1].upper() + t[1:] if t else t)
+def test_live_composer_mid_block_terminator_stays_volatile():
+    c = ds.LiveComposer(_pp_cap)
     out = c.feed(" oui. non. et")
-    assert c.stable == "Oui. Non."
-    assert out == "Oui. Non. Et"
+    # internal terminators do not freeze (raw<->pp mapping is unknowable);
+    # the block stays volatile until a clean end or a pause
+    assert c.stable == ""
+    assert out == "Oui. non. et"
 
 def test_typist_backspace_more_than_typed():
     t = ds.Typist(dry_run=True)
@@ -119,13 +121,33 @@ def test_live_composer_volatile_tail_renders_partial():
     assert c.feed(" monde") == "Bonjour le monde"
 
 
-def test_live_composer_commits_completed_sentences():
+def test_live_composer_freezes_on_clean_sentence_end():
     c = ds.LiveComposer(_pp_cap)
     c.feed(" bonjour le monde")
-    out = c.feed(". et la suite")
-    # "bonjour le monde." committed (frozen), "et la suite" is the new tail
-    assert out == "Bonjour le monde. Et la suite"
+    assert c.stable == ""
+    out = c.feed(".")
+    # the PP'd tail ends with a terminator -> the whole tail freezes
+    assert out == "Bonjour le monde."
     assert c.stable == "Bonjour le monde."
+
+
+def test_live_composer_voice_command_punctuation_no_space():
+    # PP mock: the voice command "point final" becomes "." (rules.conf:89)
+    c = ds.LiveComposer(lambda t: "." if t == "point final" else t)
+    c.feed(" ceci est la fin")
+    c.promote()  # pause froze the tail mid-sentence
+    out = c.feed(" point final")
+    # no space between the last word and the dot; sentence freezes
+    assert out == "ceci est la fin."
+    assert c.stable == "ceci est la fin."
+    assert c.open_continuation is False
+
+
+def test_live_composer_marker_bytes_dont_block_freeze():
+    # rules emit ".\x02 " (end-of-sentence marker): freeze must still fire
+    c = ds.LiveComposer(lambda t: "la fin.\x02 " if "point" in t else t)
+    out = c.feed(" la fin point finale")
+    assert c.stable != ""
 
 
 def test_live_composer_pause_promotion_continues_sentence():
@@ -143,3 +165,12 @@ def test_live_composer_target_stable_only_when_no_tail():
     c.feed(" une phrase.")
     assert c.target() == "Une phrase."
     assert c.feed("") == "Une phrase."
+
+
+def test_live_composer_no_double_space_after_rule_trailing_space():
+    # rules emit ". " (trailing space): joining the next sentence must not
+    # produce a double space
+    c = ds.LiveComposer(lambda t: "la fin.\x02 " if "point" in t else t)
+    c.feed(" la fin point finale")
+    out = c.feed(" et ensuite")
+    assert "  " not in out.replace("\x02", "")

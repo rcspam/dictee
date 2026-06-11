@@ -125,48 +125,73 @@ class LiveComposer:
         # rendered text continues that sentence and must not be capitalized.
         self.open_continuation = False
 
+    # No separator space before these when joining stable + next unit:
+    # closing punctuation produced by voice commands ("point final" -> ".")
+    # and rule-emitted newlines ("à la ligne" -> "\n").
+    _NO_SPACE_BEFORE = ".,;:!?…\n"
+    # The PP'd tail freezes when it ends with one of these.
+    _FREEZE_END = ".!?…\n"
+    # Marker bytes the rules may emit (\x02 end-of-sentence, etc.); ignored
+    # when testing for a terminator (Typist.sanitize strips them anyway).
+    _MARKERS = "\x01\x02\x03\x04"
+
     def _casing(self, s):
         if self.open_continuation and s:
             return s[:1].lower() + s[1:]
         return s
 
-    def _append_stable(self, unit):
-        sep = " " if self.stable else ""
-        self.stable += sep + unit
+    def _join(self, left, right):
+        if not left:
+            return right
+        if right and right[0] in self._NO_SPACE_BEFORE:
+            return left + right
+        return left + " " + right
 
-    def feed(self, fragment):
-        """Absorb a fragment, commit any completed sentences, return the
-        full target text (stable + re-PP'd volatile tail)."""
-        self.raw_tail += fragment
-        while True:
-            m = _SENT_END.search(self.raw_tail)
-            if not m:
-                break
-            sentence = self.raw_tail[:m.end()].strip()
-            self.raw_tail = self.raw_tail[m.end():]
-            if sentence:
-                done = self._casing(self.pp(sentence) or sentence)
-                self._append_stable(done)
-                self.open_continuation = False
-        return self.target()
-
-    def target(self):
-        """Full text to display right now."""
+    def _render_tail(self):
         tail = self.raw_tail.strip()
         if not tail:
+            return ""
+        # Strip trailing spaces (rules like "point final" emit ". " with a
+        # trailing space) but keep a trailing newline ("à la ligne").
+        return self._casing(self.pp(tail) or tail).rstrip(" ")
+
+    def feed(self, fragment):
+        """Absorb a fragment, return the full target text.
+
+        Sentence freezing happens on the POST-PROCESSED text, not the raw
+        ASR text: a dictated voice command ("point final") only becomes a
+        terminator after the rules ran. The whole tail freezes when its
+        PP'd form ends with a terminator; internal terminators stay
+        volatile (the raw<->pp position mapping is unknowable) — the PP
+        handles multi-sentence blocks natively, exactly like a batch push.
+        """
+        self.raw_tail += fragment
+        vol = self._render_tail()
+        if vol:
+            clean = "".join(c for c in vol if c not in self._MARKERS).rstrip()
+            if clean and clean[-1] in self._FREEZE_END:
+                self.stable = self._join(self.stable, vol)
+                self.raw_tail = ""
+                self.open_continuation = False
+                return self.stable
+        return self.target(vol)
+
+    def target(self, vol=None):
+        """Full text to display right now."""
+        if vol is None:
+            vol = self._render_tail()
+        if not vol:
             return self.stable
-        vol = self._casing(self.pp(tail) or tail)
-        sep = " " if self.stable else ""
-        return self.stable + sep + vol
+        return self._join(self.stable, vol)
 
     def promote(self):
         """Pause boundary: freeze the current volatile tail as already
         rendered; the sentence stays open (continuation casing applies to
         what follows). Costs no typing — the text is already on screen."""
-        tail = self.raw_tail.strip()
-        if not tail:
+        vol = self._render_tail()
+        if not vol:
             return
-        self._append_stable(self._casing(self.pp(tail) or tail))
+        self.stable = self._join(self.stable, vol)
         self.raw_tail = ""
         self.open_continuation = True
 
