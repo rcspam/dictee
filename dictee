@@ -1183,6 +1183,15 @@ PYEOF
 
 # === MAIN ===
 
+# Translate stdin and exit (used by dictee-stream for the final-pass
+# translation). TRANSLATE_BACKEND is already resolved from the conf
+# (DICTEE_TRANSLATE_BACKEND, default "trans") — same resolution as batch.
+if [ "${1:-}" = "--pp-translate" ]; then
+    _in=$(cat)
+    translate "$_in" "$TRANSLATE_BACKEND"
+    exit $?
+fi
+
 check_dependencies
 trap 'cleanup_on_error $LINENO' INT TERM HUP QUIT ERR
 # Extra safety: always release keyboard modifiers on any exit path
