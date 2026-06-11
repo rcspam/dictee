@@ -37,6 +37,12 @@ import time
 # Terminal punctuation that closes a sentence (Nemotron punctuates natively).
 _SENT_END = re.compile(r"[.!?…]")
 
+# Queue sentinel: marks the point at which the audio sentinel was sent to the
+# daemon.  Any network frame arriving after this marker is post-sentinel
+# (flush fragment or full final transcript) and must NOT be fed to the
+# segmenter inside the main loop.
+_SENTINEL_SENT = object()
+
 # ---------------------------------------------------------------------------
 # Typist
 # ---------------------------------------------------------------------------
@@ -325,25 +331,34 @@ def _main(argv):
 
     def _feed_audio():
         rms_thresh = float(os.environ.get("DICTEE_SILENCE_RMS", "0.03"))
+        mic_eof = False
         try:
             while not stop.is_set():
                 data = rec.stdout.read(3200)  # 100 ms @16k mono s16
                 if not data:
+                    mic_eof = True
                     break
                 client.send_audio(data)
                 if _rms_s16(data) > rms_thresh:
                     last_voice[0] = time.monotonic()
         except OSError:
             pass
+        # Put the marker BEFORE sending the sentinel so that it is impossible
+        # for any post-sentinel network frame (flush fragment or final
+        # transcript) to appear in the queue before this marker.
+        frag_q.put(_SENTINEL_SENT)
         try:
             client.send_sentinel()
         except OSError:
             pass
+        # Wake the main loop promptly on mic-EOF (e.g. fake mic file ending).
+        if mic_eof and not stop.is_set():
+            stop.set()
+
+    frag_q = queue.Queue()
 
     audio_t = threading.Thread(target=_feed_audio, daemon=True)
     audio_t.start()
-
-    frag_q = queue.Queue()
 
     def _read_loop():
         while True:
@@ -393,6 +408,11 @@ def _main(argv):
             frag = frag_q.get(timeout=0.1)
         except queue.Empty:
             frag = ""
+        if frag is _SENTINEL_SENT:
+            # Audio sentinel was sent; everything remaining in the queue is
+            # post-sentinel (flush fragments + final transcript).  Stop feeding
+            # and let the finalisation drain handle them.
+            break
         if frag is None:
             eof = True
             break
@@ -416,6 +436,10 @@ def _main(argv):
             m = frag_q.get(timeout=5)
         except queue.Empty:
             break
+        if m is _SENTINEL_SENT:
+            # Marker arrived here instead of in the main loop (SIGTERM fired
+            # before the audio thread enqueued it).  Skip it and keep draining.
+            continue
         if m is None:
             break
         msgs.append(m)
