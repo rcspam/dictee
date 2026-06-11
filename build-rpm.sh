@@ -80,6 +80,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/dictee-reset" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-audio-sources" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-stream" "$buildroot/usr/bin/"
     chmod 755 "$buildroot/usr/bin/"*
     # Shared libraries
     mkdir -p "$buildroot/usr/lib/dictee"
@@ -106,7 +107,8 @@ prepare_buildroot() {
         "$buildroot/usr/bin/dictee-plasmoid-level" \
         "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \
         "$buildroot/usr/bin/dictee-plasmoid-level-fft" \
-        "$buildroot/usr/bin/dictee-cheatsheet"
+        "$buildroot/usr/bin/dictee-cheatsheet" \
+        "$buildroot/usr/bin/dictee-stream"
 
     # Udev
     mkdir -p "$buildroot/etc/udev/rules.d"

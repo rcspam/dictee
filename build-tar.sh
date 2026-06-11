@@ -161,7 +161,7 @@ done
 for f in dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
          dictee-diarize-llm dictee-switch-backend dictee-test-rules \
          dictee-transcribe dictee-meeting-live dictee-cheatsheet dictee-reset \
-         dictee-translate-langs dictee-audio-sources \
+         dictee-translate-langs dictee-audio-sources dictee-stream \
          dictee-plasmoid-level dictee-plasmoid-level-daemon \
          dictee-plasmoid-level-fft; do
     [ -f "$PKG_DIR/usr/bin/$f" ] && cp "$PKG_DIR/usr/bin/$f" "$TARBALL_DIR/usr/bin/"

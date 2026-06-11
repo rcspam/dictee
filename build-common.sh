@@ -36,6 +36,7 @@ dict_prepare_pkg_dir() {
     cp ./dictee-translate-langs  "$PKG_DIR/usr/bin/dictee-translate-langs"
     cp ./dictee-audio-sources    "$PKG_DIR/usr/bin/dictee-audio-sources"
     cp ./dictee-cheatsheet       "$PKG_DIR/usr/bin/dictee-cheatsheet"
+    cp ./dictee-stream           "$PKG_DIR/usr/bin/dictee-stream"
     cp ./dictee-common.sh        "$PKG_DIR/usr/lib/dictee/dictee-common.sh"
     cp ./dictee_models.py        "$PKG_DIR/usr/lib/dictee/dictee_models.py"
 
@@ -53,7 +54,8 @@ dict_prepare_pkg_dir() {
         "$PKG_DIR/usr/bin/dictee-reset" \
         "$PKG_DIR/usr/bin/dictee-translate-langs" \
         "$PKG_DIR/usr/bin/dictee-audio-sources" \
-        "$PKG_DIR/usr/bin/dictee-cheatsheet"
+        "$PKG_DIR/usr/bin/dictee-cheatsheet" \
+        "$PKG_DIR/usr/bin/dictee-stream"
 
     # Default config files (post-processing / dictionary / continuation /
     # short-text keepcaps / dictee.conf example).
