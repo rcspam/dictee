@@ -1847,7 +1847,7 @@ else
     if use_streaming; then
         rm -f "$LAST_WORD_FILE"   # in-memory continuation replaces it for this push
         touch "$STREAM_FLAG_FILE"
-        _stream_args=(--socket "$(_daemon_socket)" --granularity "${DICTEE_STREAMING_GRANULARITY:-sentence}")
+        _stream_args=(--socket "$(_daemon_socket)" --granularity "${DICTEE_STREAMING_GRANULARITY:-live}")
         # Mirror the daemon's startup semantics (DICTEE_LANG_SOURCE): "auto"
         # or empty means no per-session lang override on the stream handshake.
         if [ -n "${LANG_SOURCE:-}" ] && [ "$LANG_SOURCE" != "auto" ]; then

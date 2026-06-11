@@ -71,16 +71,11 @@ def test_sentence_segmenter_ellipsis_terminator():
     seg = ds.Segmenter(granularity="sentence")
     assert seg.feed("Bon… alors") == ["Bon…"]
 
-def test_current_sentence_raw_len_trailing_terminator():
-    t = ds.Typist(dry_run=True)
-    t.type_text("Bonjour. il fait beau.")
-    # trailing '.' closes the sentence to rewrite: " il fait beau."
-    assert ds._current_sentence_raw_len(t) == len(" il fait beau.")
-
-def test_current_sentence_raw_len_no_terminator():
-    t = ds.Typist(dry_run=True)
-    t.type_text("il fait beau")
-    assert ds._current_sentence_raw_len(t) == len("il fait beau")
+def test_live_composer_multiple_sentences_in_one_fragment():
+    c = ds.LiveComposer(lambda t: t[:1].upper() + t[1:] if t else t)
+    out = c.feed(" oui. non. et")
+    assert c.stable == "Oui. Non."
+    assert out == "Oui. Non. Et"
 
 def test_typist_backspace_more_than_typed():
     t = ds.Typist(dry_run=True)
@@ -111,3 +106,40 @@ def test_rewrite_noop_when_identical():
     t.rewrite("Texte.")
     assert t._last_cmds is None
     assert t.typed == "Texte."
+
+
+def _pp_cap(t):
+    """Test PP: capitalize first letter (stands in for run_pipeline local)."""
+    return t[:1].upper() + t[1:] if t else t
+
+
+def test_live_composer_volatile_tail_renders_partial():
+    c = ds.LiveComposer(_pp_cap)
+    assert c.feed(" bonjour le") == "Bonjour le"
+    assert c.feed(" monde") == "Bonjour le monde"
+
+
+def test_live_composer_commits_completed_sentences():
+    c = ds.LiveComposer(_pp_cap)
+    c.feed(" bonjour le monde")
+    out = c.feed(". et la suite")
+    # "bonjour le monde." committed (frozen), "et la suite" is the new tail
+    assert out == "Bonjour le monde. Et la suite"
+    assert c.stable == "Bonjour le monde."
+
+
+def test_live_composer_pause_promotion_continues_sentence():
+    c = ds.LiveComposer(_pp_cap)
+    c.feed(" il fait")
+    c.promote()  # pause boundary: freeze tail, sentence stays open
+    out = c.feed(" beau aujourd'hui.")
+    # the continuation is NOT re-capitalized
+    assert out == "Il fait beau aujourd'hui."
+    assert c.stable == "Il fait beau aujourd'hui."
+
+
+def test_live_composer_target_stable_only_when_no_tail():
+    c = ds.LiveComposer(_pp_cap)
+    c.feed(" une phrase.")
+    assert c.target() == "Une phrase."
+    assert c.feed("") == "Une phrase."

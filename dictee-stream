@@ -107,6 +107,70 @@ class Segmenter:
         return [rest] if rest else []
 
 
+class LiveComposer:
+    """Live granularity: completed sentences are frozen, the in-progress
+    sentence is re-post-processed and re-rendered on every fragment.
+
+    The composer owns the FULL target text; the caller renders it with
+    Typist.rewrite(), whose common-prefix diff guarantees the frozen part
+    never flickers — only the volatile tail (the current sentence) gets
+    erased/retyped, and only where the PP actually changed it.
+    """
+
+    def __init__(self, pp_fn):
+        self.pp = pp_fn          # text -> locally post-processed text
+        self.stable = ""         # frozen, final text (completed sentences)
+        self.raw_tail = ""       # raw ASR text of the in-progress sentence
+        # True when `stable` ends mid-sentence (pause promotion): the next
+        # rendered text continues that sentence and must not be capitalized.
+        self.open_continuation = False
+
+    def _casing(self, s):
+        if self.open_continuation and s:
+            return s[:1].lower() + s[1:]
+        return s
+
+    def _append_stable(self, unit):
+        sep = " " if self.stable else ""
+        self.stable += sep + unit
+
+    def feed(self, fragment):
+        """Absorb a fragment, commit any completed sentences, return the
+        full target text (stable + re-PP'd volatile tail)."""
+        self.raw_tail += fragment
+        while True:
+            m = _SENT_END.search(self.raw_tail)
+            if not m:
+                break
+            sentence = self.raw_tail[:m.end()].strip()
+            self.raw_tail = self.raw_tail[m.end():]
+            if sentence:
+                done = self._casing(self.pp(sentence) or sentence)
+                self._append_stable(done)
+                self.open_continuation = False
+        return self.target()
+
+    def target(self):
+        """Full text to display right now."""
+        tail = self.raw_tail.strip()
+        if not tail:
+            return self.stable
+        vol = self._casing(self.pp(tail) or tail)
+        sep = " " if self.stable else ""
+        return self.stable + sep + vol
+
+    def promote(self):
+        """Pause boundary: freeze the current volatile tail as already
+        rendered; the sentence stays open (continuation casing applies to
+        what follows). Costs no typing — the text is already on screen."""
+        tail = self.raw_tail.strip()
+        if not tail:
+            return
+        self._append_stable(self._casing(self.pp(tail) or tail))
+        self.raw_tail = ""
+        self.open_continuation = True
+
+
 class Typist:
     """Incremental, append-only typing via dotool, with backspace support.
 
@@ -371,28 +435,6 @@ def _rms_s16(data: bytes):
     return math.sqrt(sum(x * x for x in a) / len(a)) / 32768.0
 
 
-def _current_sentence_raw_len(typist):
-    """Length of the raw text typed since the last sentence terminator.
-
-    If typed ends with a terminator, treat it as part of the current sentence
-    being rewritten (search for the PREVIOUS terminator in typed[:-1]).
-    This way _resentence() at end-of-stream rewrites the whole last sentence.
-
-    Note: '…' is already normalised to '...' by sanitize(), so the terminator
-    set only needs '.', '!', '?' (no need for the ellipsis char itself).
-    """
-    tail = typist.typed
-    if not tail:
-        return 0
-    # If the last char is a terminator, look for the previous boundary.
-    if tail[-1] in ".!?":
-        search_in = tail[:-1]
-        idx = max((search_in.rfind(c) for c in ".!?"), default=-1)
-        return len(tail) - (idx + 1)
-    idx = max((tail.rfind(c) for c in ".!?"), default=-1)
-    return len(tail) - (idx + 1) if idx >= 0 else len(tail)
-
-
 def _translate_via_dictee(text):
     """Final-pass translation reuses dictee's translate() via a thin subcommand."""
     try:
@@ -415,16 +457,20 @@ def _main(argv):
     ap.add_argument("--source", default=None,
                     help="pw-record --target (mic node or app-capture node id)")
     ap.add_argument("--granularity",
-                    choices=("sentence", "word"),
-                    default=os.environ.get("DICTEE_STREAMING_GRANULARITY", "sentence"))
+                    choices=("sentence", "word", "live"),
+                    default=os.environ.get("DICTEE_STREAMING_GRANULARITY", "live"))
     ap.add_argument("--final-pass", action="store_true",
                     default=_env_true("DICTEE_STREAMING_FINAL_PASS"))
     ap.add_argument("--pause-ms", type=int,
                     default=int(os.environ.get("DICTEE_STREAMING_PAUSE_MS", "700")))
     args = ap.parse_args(argv)
+    if args.granularity == "word":
+        args.granularity = "live"  # legacy conf value: word mode became live
 
     pp = _load_pp()
     seg = Segmenter(granularity=args.granularity)
+    composer = (LiveComposer(lambda t: pp.run_pipeline(t, local_only=True))
+                if args.granularity == "live" else None)
     typist = Typist()
     # Warm up the virtual keyboard now: uinput device registration by the
     # compositor costs hundreds of ms, better paid during setup than on the
@@ -438,6 +484,7 @@ def _main(argv):
     stop = threading.Event()
     aborted = [False]
     last_voice = [time.monotonic()]
+    last_text = [time.monotonic()]  # text-side activity (live pause boundary)
     sentence_start = [True]
     start_window = _active_window()
 
@@ -517,9 +564,6 @@ def _main(argv):
     reader_t.start()
 
     def _commit(unit):
-        if args.granularity == "word":
-            typist.type_text((" " if typist.typed_len else "") + unit)
-            return
         processed = pp.run_pipeline(unit, local_only=True)
         if not processed:
             return
@@ -528,30 +572,11 @@ def _main(argv):
         typist.type_text((" " if typist.typed_len else "") + processed)
         sentence_start[0] = bool(_SENT_END.search(processed[-1:]))
 
-    def _resentence():
-        raw_len = _current_sentence_raw_len(typist)
-        if raw_len <= 0:
-            return
-        raw = typist.typed[-raw_len:]
-        processed = pp.run_pipeline(raw.strip(), local_only=True)
-        if processed and processed != raw.strip():
-            # rewrite() diffs against the common prefix, so only the part of
-            # the sentence the PP actually changed gets erased and retyped.
-            prefix = typist.typed[:-raw_len]
-            sep = " " if prefix else ""
-            typist.rewrite(prefix + sep + processed)
-
     def _feed(frag):
-        if args.granularity == "word":
-            last_word = None
-            for w in seg.feed(frag):
-                _commit(w)
-                last_word = w
-            # Fix B: trigger _resentence() after committing a word that ends
-            # with a terminator — the terminator is now in typed (not still in
-            # the segmenter buffer), so the sentence is complete for rewriting.
-            if last_word and _SENT_END.search(last_word[-1:]):
-                _resentence()
+        if composer is not None:
+            # Live: the composer owns the full target text; rewrite() only
+            # touches what actually changed (frozen sentences never flicker).
+            typist.rewrite(composer.feed(frag))
         else:
             for sentence in seg.feed(frag):
                 _commit(sentence)
@@ -572,7 +597,14 @@ def _main(argv):
             break
         if frag:
             _feed(frag)
-        if (time.monotonic() - last_voice[0]) * 1000 > args.pause_ms:
+            last_text[0] = time.monotonic()
+        if composer is not None:
+            # Live pause boundary is TEXT-side (no new ASR output for a
+            # while): freezing the tail costs no typing and shrinks the
+            # rewrite window. Mic RMS would race the ASR latency.
+            if (time.monotonic() - last_text[0]) * 1000 > args.pause_ms:
+                composer.promote()
+        elif (time.monotonic() - last_voice[0]) * 1000 > args.pause_ms:
             for unit in seg.flush():
                 _commit(unit)
 
@@ -618,10 +650,13 @@ def _main(argv):
     final_text = msgs[-1] if msgs else ""
     for frag in msgs[:-1]:
         _feed(frag)
-    for unit in seg.flush():
-        _commit(unit)
-    if args.granularity == "word":
-        _resentence()
+    if composer is not None:
+        # The volatile tail is already rendered by the last _feed; nothing
+        # to flush — the composer always keeps the screen in sync.
+        pass
+    else:
+        for unit in seg.flush():
+            _commit(unit)
 
     if args.final_pass and final_text.strip():
         # Fix A (4): re-check abort before final-pass rewrite block.

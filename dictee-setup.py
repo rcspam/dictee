@@ -407,7 +407,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 hw_tier="auto",
                 streaming=False,
                 streaming_final_pass=False,
-                streaming_granularity="sentence",
+                streaming_granularity="live",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -451,7 +451,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
         "DICTEE_STREAMING": "true" if streaming else "false",
         "DICTEE_STREAMING_FINAL_PASS": "true" if streaming_final_pass else "false",
-        "DICTEE_STREAMING_GRANULARITY": _s(streaming_granularity) if streaming_granularity in ("sentence", "word") else "sentence",
+        "DICTEE_STREAMING_GRANULARITY": _s(streaming_granularity) if streaming_granularity in ("live", "sentence") else "live",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
     # (Finish button or classic Apply). At wizard checks-page entry (page 6→7
@@ -9627,10 +9627,12 @@ class DicteeSetupDialog(QDialog):
         lbl_gran = QLabel(_("Granularity:"))
         self.cmb_streaming_granularity = QComboBox()
         self.cmb_streaming_granularity.addItem(
-            _("Sentence (clean, ~1 sentence latency)"), "sentence")
+            _("Live (words appear and self-correct as you speak)"), "live")
         self.cmb_streaming_granularity.addItem(
-            _("Word (ultra-live, re-corrected per sentence)"), "word")
-        _gran = self.conf.get("DICTEE_STREAMING_GRANULARITY", "sentence")
+            _("Sentence (no rewrites, ~1 sentence latency)"), "sentence")
+        _gran = self.conf.get("DICTEE_STREAMING_GRANULARITY", "live")
+        if _gran == "word":
+            _gran = "live"  # legacy value: word mode became live
         _gran_idx = self.cmb_streaming_granularity.findData(_gran)
         self.cmb_streaming_granularity.setCurrentIndex(
             _gran_idx if _gran_idx >= 0 else 0)
@@ -18878,7 +18880,7 @@ class DicteeSetupDialog(QDialog):
                         if hasattr(self, 'chk_streaming_final_pass') else False),
                     streaming_granularity=(
                         self.cmb_streaming_granularity.currentData()
-                        if hasattr(self, 'cmb_streaming_granularity') else "sentence"),
+                        if hasattr(self, 'cmb_streaming_granularity') else "live"),
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.
