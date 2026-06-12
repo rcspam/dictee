@@ -673,12 +673,17 @@ class _DiarizeTranscribeWorker(QThread):
     finished = Signal(str)         # final output text
     error = Signal(str)            # error message
 
-    def __init__(self, audio_path, diarize_output, sock_path, parent=None, socket_timeout=None):
+    def __init__(self, audio_path, diarize_output, sock_path, parent=None,
+                 socket_timeout=None, per_segment=False):
         super().__init__(parent)
         self._audio_path = audio_path
         self._diarize_output = diarize_output
         self._sock_path = sock_path
         self._socket_timeout = socket_timeout
+        # Timestamp-less backends (nemotron): a full-audio '\tdiarize' request
+        # returns an empty body (the daemon formats word tokens, and nemotron
+        # has none) — transcribe each diarized segment separately instead.
+        self._per_segment = per_segment
         self._cancelled = False
         self._sock = None  # current open socket, if any (for cancel)
 
@@ -775,6 +780,10 @@ class _DiarizeTranscribeWorker(QThread):
         if self._cancelled:
             return
 
+        if self._per_segment:
+            self._run_per_segment(daemon_path, speaker_segments)
+            return
+
         # Transcribe full audio via daemon with timestamps (diarize mode)
         _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}")
         full_text = ""
@@ -850,6 +859,79 @@ class _DiarizeTranscribeWorker(QThread):
                 f"[{sent['start']:.2f}s - {sent['end']:.2f}s] {speaker}: {sent['text']}")
 
         self.progress.emit(3, 3)  # done
+        self.finished.emit("\n".join(results))
+
+    def _run_per_segment(self, daemon_path, speaker_segments):
+        """Per-segment phase 2 for timestamp-less backends (nemotron): cut the
+        audio on the diarized segments (stdlib wave — NOT sox) and send one
+        PLAIN request per segment. Speaker attribution is exact by
+        construction; output format is the same '[a s - b s] Speaker N: text'
+        lines as the overlap-matching path."""
+        import socket as sock_mod
+        import tempfile
+        import wave
+
+        results = []
+        total = len(speaker_segments)
+        try:
+            with wave.open(daemon_path, "rb") as wf:
+                rate = wf.getframerate()
+                width = wf.getsampwidth()
+                channels = wf.getnchannels()
+                nframes = wf.getnframes()
+                for done, seg in enumerate(speaker_segments, start=1):
+                    if self._cancelled:
+                        return
+                    start = max(0.0, seg["start"])
+                    end = min(seg["end"], nframes / rate)
+                    if end - start < 0.3:   # too short to transcribe (noise)
+                        self.progress.emit(done, total)
+                        continue
+                    wf.setpos(int(start * rate))
+                    frames = wf.readframes(int((end - start) * rate))
+                    tmp = tempfile.NamedTemporaryFile(
+                        prefix="dictee-seg-", suffix=".wav", delete=False)
+                    try:
+                        with wave.open(tmp, "wb") as out:
+                            out.setnchannels(channels)
+                            out.setsampwidth(width)
+                            out.setframerate(rate)
+                            out.writeframes(frames)
+                        tmp.close()
+                        self._sock = sock_mod.socket(sock_mod.AF_UNIX,
+                                                     sock_mod.SOCK_STREAM)
+                        self._sock.settimeout(120)
+                        self._sock.connect(self._sock_path)
+                        self._sock.sendall((tmp.name + "\n").encode())
+                        data = b""
+                        while True:
+                            chunk = self._sock.recv(4096)
+                            if not chunk:
+                                break
+                            data += chunk
+                        self._sock.close()
+                        self._sock = None
+                        text = data.decode("utf-8", errors="replace").strip()
+                    finally:
+                        try:
+                            os.unlink(tmp.name)
+                        except OSError:
+                            pass
+                    self.progress.emit(done, total)
+                    if not text or text.startswith("ERROR:"):
+                        continue
+                    results.append(
+                        f"[{start:.2f}s - {end:.2f}s]"
+                        f" {_('Speaker')} {seg['speaker']}: {text}")
+        except Exception as e:
+            if self._cancelled:
+                return
+            self.error.emit(f"Daemon transcription failed: {e}")
+            return
+
+        if not results:
+            self.error.emit(_("Empty transcription from daemon"))
+            return
         self.finished.emit("\n".join(results))
 
 
@@ -4095,6 +4177,7 @@ class TranscribeWindow(QDialog):
             self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
+            _per_segment = self._isolated_recipe["backend"] == "nemotron"
         else:
             # Restart daemon
             self._daemon_was_active = False
@@ -4106,12 +4189,17 @@ class TranscribeWindow(QDialog):
             sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
                          else f"/tmp/transcribe-{os.getuid()}.sock")
             _worker_timeout = None
+            # The F9 daemon itself may run a timestamp-less backend: a
+            # '\tdiarize' request to nemotron returns an empty body.
+            _per_segment = (_read_conf().get("DICTEE_ASR_BACKEND", "parakeet")
+                            == "nemotron")
 
         self._lbl_status.setText(_("Waiting for daemon..."))
 
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
-            audio_path, diarize_output, sock_path, self, socket_timeout=_worker_timeout)
+            audio_path, diarize_output, sock_path, self,
+            socket_timeout=_worker_timeout, per_segment=_per_segment)
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)
         self._diarize_worker.error.connect(self._on_diarize_error)
