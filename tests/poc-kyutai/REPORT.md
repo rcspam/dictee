@@ -163,3 +163,13 @@ Mesures faites serveur CPU idle à 8 % (vérifié), machine au repos sinon.
 ⚠️ Limite majeure découverte : **CPU pas temps réel (RTF 3,2)** → si Kyutai devient le
 moteur live, les installs `dictee-cpu` gardent Nemotron (RTF 0,33) ou restent en batch.
 Piste : quantisation q8 maison (le loader candle supporte les .gguf, main.rs:135-147).
+
+## VERDICT FINAL — test micro user (2026-06-12 soir)
+
+**« Kyutai est très bon en français ! » — GO.** Les 4 critères sont au vert :
+qualité FR sur la voix du user ✓ (subjectif fort ; bench formel 4 moteurs optionnel),
+latence live non critiquée ✓, daemon résident faisable ✓, licence CC-BY-4.0 ✓.
+Réserve actée : **GPU-only** (CPU RTF 2,1-3,2 même quantisé — le live CPU reste
+Nemotron). → Prochain chantier : intégration moteur live GPU (daemon résident
+candle/moshi, socket dédié, pattern transcribe-daemon, branché sur l'orchestrateur
+streaming F9 via le protocole StreamClient existant).
