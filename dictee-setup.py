@@ -199,6 +199,7 @@ ASR_LANGUAGES = {
     "whisper": None,   # None = all languages
     "canary": CANARY_LANGUAGES,
     "nemotron": None,  # None = all languages (multilingual)
+    "kyutai": {"en", "fr"},  # Kyutai stt-1b-en_fr is English/French only
 }
 
 # Languages supported by each translation backend (pour filtrer la langue cible)
@@ -1972,6 +1973,7 @@ class _RuleTranscribeThread(QThread):
 
 
 NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
+KYUTAI_HF = "https://huggingface.co/kyutai/stt-1b-en_fr-candle/resolve/main"
 
 ASR_MODELS = [
     {
@@ -2058,9 +2060,31 @@ ASR_MODELS = [
         ],
         "required": False,
     },
+    {
+        "id": "kyutai",
+        "name": "Kyutai STT 1B (fr/en)",
+        "desc": _("French/English streaming ASR — NVIDIA GPU only (~2.2 GB)"),
+        "help": _(
+            "<b>Kyutai STT 1B (en/fr)</b><br><br>"
+            "Streaming speech-to-text, French and English, with native "
+            "punctuation and word-level timestamps.<br><br>"
+            "<b>Requires an NVIDIA GPU</b> (CUDA) — no CPU mode.<br>"
+            "Used by: <code>dictee</code> (F9 streaming and batch)."
+        ),
+        "dir": os.path.join(MODEL_DIR, "kyutai"),
+        "check_file": "model.safetensors",
+        "files": [
+            (f"{KYUTAI_HF}/model.safetensors", "model.safetensors"),
+            (f"{KYUTAI_HF}/mimi-pytorch-e351c8d8@125.safetensors", "mimi-pytorch-e351c8d8@125.safetensors"),
+            (f"{KYUTAI_HF}/tokenizer_en_fr_audio_8000.model", "tokenizer_en_fr_audio_8000.model"),
+            (f"{KYUTAI_HF}/config.json", "config.json"),
+        ],
+        "required": False,
+    },
 ]
 
 NEMOTRON_MODEL = next(m for m in ASR_MODELS if m["id"] == "nemotron")
+KYUTAI_MODEL = next(m for m in ASR_MODELS if m["id"] == "kyutai")
 
 
 def model_is_installed(model):
@@ -2161,6 +2185,11 @@ LIBRETRANSLATE_PORT = 5000
 def docker_is_installed():
     """Vérifie si docker est installé et accessible."""
     return shutil.which("docker") is not None
+
+
+def _kyutai_available():
+    """Kyutai backend is offered only when its binary is installed (CUDA package)."""
+    return shutil.which("transcribe-daemon-kyutai") is not None
 
 
 def _detect_docker_sg_needed():
@@ -6410,6 +6439,8 @@ class DicteeSetupDialog(QDialog):
         self.cmb_asr_backend.addItem("Vosk", "vosk")
         self.cmb_asr_backend.addItem("faster-whisper", "whisper")
         self.cmb_asr_backend.addItem("Nemotron 3.5 (multilingual)", "nemotron")
+        if _kyutai_available():
+            self.cmb_asr_backend.addItem(_("Kyutai (fr/en, GPU)"), "kyutai")
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
@@ -6431,6 +6462,8 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
         self._build_nemotron_options(glay)
+        if _kyutai_available():
+            self._build_kyutai_options(glay)
         self._build_canary_options(glay)
 
         def _on_asr_changed():
@@ -6439,6 +6472,8 @@ class DicteeSetupDialog(QDialog):
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
             self.w_nemotron_options.setVisible(backend == "nemotron")
+            if hasattr(self, 'w_kyutai_options'):
+                self.w_kyutai_options.setVisible(backend == "kyutai")
             self.w_canary_options.setVisible(backend == "canary")
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
@@ -7504,6 +7539,13 @@ class DicteeSetupDialog(QDialog):
                 _("CPU + GPU"),
             ], "2.5 Go | CPU/GPU"),
         ]
+        if _kyutai_available():
+            backends.append(
+                ("kyutai", "Kyutai STT 1B", [
+                    _("French and English streaming"),
+                    _("Native punctuation, word-level timestamps"),
+                    _("100% local, requires NVIDIA GPU"),
+                ], "2.2 Go | GPU only"))
         if gpu_total > 0:
             backends.append(
                 ("canary", "Canary 1B v2", [
@@ -7575,6 +7617,8 @@ class DicteeSetupDialog(QDialog):
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
         self.w_nemotron_options.setVisible(asr == "nemotron")
+        if hasattr(self, 'w_kyutai_options'):
+            self.w_kyutai_options.setVisible(asr == "kyutai")
         self.w_canary_options.setVisible(asr == "canary")
 
     def _on_card_click(self, backend_id):
@@ -7708,6 +7752,8 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(lay_sub)
         self._build_whisper_options(lay_sub)
         self._build_nemotron_options(lay_sub)
+        if _kyutai_available():
+            self._build_kyutai_options(lay_sub)
         self._build_canary_options(lay_sub)
 
         lay.addWidget(self.w_wizard_asr_sub)
@@ -8203,6 +8249,8 @@ class DicteeSetupDialog(QDialog):
             return self._canary_model_installed()
         if backend_id == "nemotron":
             return model_is_installed(NEMOTRON_MODEL)
+        if backend_id == "kyutai":
+            return model_is_installed(KYUTAI_MODEL)
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -9665,6 +9713,63 @@ class DicteeSetupDialog(QDialog):
 
         self.w_nemotron_options.setVisible(False)
         parent_layout.addWidget(self.w_nemotron_options)
+
+    def _build_kyutai_options(self, parent_layout):
+        """Build Kyutai STT 1B model download UI (group box with install/delete
+        row). Only rendered when the Kyutai daemon binary is installed."""
+        self.w_kyutai_options = QWidget()
+        kyutai_outer = QVBoxLayout(self.w_kyutai_options)
+        kyutai_outer.setContentsMargins(0, 4, 0, 0)
+        kyutai_outer.setSpacing(6)
+
+        box = QGroupBox(_("Kyutai STT 1B"))
+        box_lay = QVBoxLayout(box)
+        box_lay.setContentsMargins(12, 12, 12, 10)
+        box_lay.setSpacing(6)
+
+        installed = model_is_installed(KYUTAI_MODEL)
+
+        lbl_desc = QLabel(KYUTAI_MODEL["desc"])
+        lbl_desc.setWordWrap(True)
+        box_lay.addWidget(lbl_desc)
+
+        row = QHBoxLayout()
+        btn = QPushButton()
+        self._update_venv_button(btn, KYUTAI_MODEL["name"], installed)
+        btn.clicked.connect(lambda checked, m=KYUTAI_MODEL: self._on_model_download(m))
+
+        btn_del = QPushButton()
+        btn_del.setIcon(QIcon.fromTheme("edit-delete"))
+        btn_del.setFixedWidth(28)
+        btn_del.setToolTip(_("Delete model"))
+        btn_del.setVisible(installed)
+        btn_del.clicked.connect(lambda checked, m=KYUTAI_MODEL: self._on_model_delete(m))
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.setFixedWidth(80)
+        btn_cancel.setVisible(False)
+        btn_cancel.clicked.connect(lambda checked: self._on_model_cancel(KYUTAI_MODEL["id"]))
+
+        row.addWidget(btn, 1)
+        row.addWidget(btn_del)
+        row.addWidget(btn_cancel)
+        box_lay.addLayout(row)
+
+        progress = QProgressBar()
+        progress.setRange(0, 100)
+        progress.setVisible(False)
+        box_lay.addWidget(progress)
+
+        kyutai_outer.addWidget(box)
+
+        self._model_widgets[KYUTAI_MODEL["id"]] = {
+            "label": None, "desc_label": lbl_desc, "container": box,
+            "button": btn, "btn_delete": btn_del,
+            "btn_cancel": btn_cancel, "progress": progress, "model": KYUTAI_MODEL,
+        }
+
+        self.w_kyutai_options.setVisible(False)
+        parent_layout.addWidget(self.w_kyutai_options)
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
