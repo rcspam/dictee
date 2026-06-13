@@ -113,6 +113,10 @@ impl KyutaiModel {
     /// Transcribe a full buffer of 24 kHz mono f32 samples. Returns plain text.
     /// Resets state so the daemon can reuse the model.
     pub fn transcribe_samples(&mut self, mut pcm: Vec<f32>) -> Result<String> {
+        // Defensive reset: start every request from clean state, regardless of
+        // how the previous one ended (a `?` failure below would otherwise leave
+        // the moshi State polluted for the next batch request).
+        self.state.reset()?;
         if self.config.stt_config.audio_silence_prefix_seconds > 0.0 {
             let s = (self.config.stt_config.audio_silence_prefix_seconds * 24000.0) as usize;
             pcm.splice(0..0, vec![0.0; s]);
