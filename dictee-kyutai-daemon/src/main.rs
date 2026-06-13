@@ -150,7 +150,16 @@ fn stream_session(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>
     }
     if sentinel {
         let tail = model.flush()?;
-        full.push_str(&tail); // tail carries its own leading spaces
+        if !tail.is_empty() {
+            full.push_str(&tail); // tail carries its own leading spaces
+            // Emit the flushed tail as a LIVE fragment too (not only inside the
+            // final-transcript frame), mirroring the Nemotron daemon's
+            // finalize_transcript fragment. dictee-stream types live fragments
+            // even when re-transcribe is off; without this the last words held
+            // back by the model's ASR delay would never be typed (end cut off).
+            writer.write_all(&frame(tail.as_bytes()))?;
+            writer.flush()?;
+        }
         // Last frame = the full transcript.
         writer.write_all(&frame(full.trim().as_bytes()))?;
         writer.flush()?;
