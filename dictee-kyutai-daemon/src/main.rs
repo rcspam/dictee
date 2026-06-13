@@ -115,6 +115,15 @@ fn model_dir_candidates() -> Vec<PathBuf> {
 /// full transcript once the zero-length sentinel arrives. Mirrors the contract
 /// of `transcribe_daemon.rs` stream mode (length-prefixed, fragments + final).
 fn handle_stream(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>) -> Result<()> {
+    let result = stream_session(model, reader);
+    // ALWAYS reset, even if the session errored mid-stream — best-effort. Leaving
+    // the streaming buffers / resampler FFT state / moshi state dirty would corrupt
+    // the leading output of the NEXT stream session reusing this same model.
+    let _ = model.reset_stream();
+    result
+}
+
+fn stream_session(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>) -> Result<()> {
     use stream_proto::{frame, read_frame, s16le_to_f32};
     let mut writer = reader.get_ref().try_clone()?;
     let mut reader = reader;
@@ -152,6 +161,5 @@ fn handle_stream(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>)
         writer.write_all(&frame(full.trim().as_bytes()))?;
         writer.flush()?;
     }
-    model.reset_stream()?;
     Ok(())
 }
