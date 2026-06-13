@@ -294,6 +294,7 @@ dependencies = [
  "kaudio",
  "libc",
  "moshi",
+ "rubato",
  "sentencepiece",
  "serde",
  "serde_json",

@@ -15,6 +15,10 @@ candle-transformers = "0.9.1"
 moshi = "0.6.1"
 sentencepiece = "0.11.3"
 kaudio = "0.2.1"
+# Direct dep for the persistent streaming resampler (Task 5). Already pulled
+# transitively via kaudio; pin the same resolved version (0.15) so the streaming
+# resampler shares kaudio's FFT-resampler implementation.
+rubato = "0.15"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 hound = "3.5"

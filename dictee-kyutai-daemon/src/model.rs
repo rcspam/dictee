@@ -1,6 +1,13 @@
 use anyhow::{Context, Result};
 use candle::{Device, Tensor};
+use rubato::{FftFixedInOut, Resampler};
 use std::path::Path;
+
+/// Streaming resampler chunk size (input frames). Same value kaudio's one-shot
+/// `resample` passes to `FftFixedInOut::new` (kaudio 0.2.1 lib.rs:190).
+const RESAMPLER_CHUNK_IN: usize = 1024;
+/// moshi consumes 24 kHz PCM in fixed 1920-sample steps (80 ms @ 24 kHz).
+const STEP_PCM: usize = 1920;
 
 #[derive(Debug, serde::Deserialize)]
 struct SttConfig {
@@ -69,9 +76,17 @@ pub struct KyutaiModel {
     text_tokenizer: sentencepiece::SentencePieceProcessor,
     config: Config,
     dev: Device,
-    /// Carry-over buffer for streaming (Task 5).
-    #[allow(dead_code)]
+    /// Persistent 16 kHz input accumulation buffer for streaming. Holds raw
+    /// samples not yet consumed by the resampler (leftover < one chunk).
+    in_16k: Vec<f32>,
+    /// Persistent 24 kHz output carry buffer for streaming. Holds resampled
+    /// samples not yet drained in whole 1920-sample steps into the model.
     carry_24k: Vec<f32>,
+    /// ONE persistent resampler for the whole streaming session, so FFT state
+    /// (overlap/edges) is continuous across frame boundaries. Recreating it per
+    /// frame (as kaudio's one-shot `resample` does) would inject block-quantized
+    /// padding and FFT discontinuities mid-stream. Reset only via reset_stream.
+    resampler: FftFixedInOut<f32>,
 }
 
 impl KyutaiModel {
@@ -101,12 +116,16 @@ impl KyutaiModel {
         let asr_delay_in_tokens = (config.stt_config.audio_delay_seconds * 12.5) as usize;
         let state = moshi::asr::State::new(1, asr_delay_in_tokens, 0., audio_tokenizer, lm)?;
 
+        let resampler = FftFixedInOut::<f32>::new(16_000, 24_000, RESAMPLER_CHUNK_IN, 1)?;
+
         Ok(KyutaiModel {
             state,
             text_tokenizer,
             config,
             dev: dev.clone(),
+            in_16k: Vec::new(),
             carry_24k: Vec::new(),
+            resampler,
         })
     }
 
@@ -135,6 +154,105 @@ impl KyutaiModel {
         }
         self.state.reset()?;
         Ok(words.join(" "))
+    }
+
+    /// Decode one 24 kHz PCM chunk through the moshi state, collecting the text
+    /// of any finalized words. Same logic as the batch loop body.
+    fn step_chunk(&mut self, chunk: &[f32]) -> Result<Vec<String>> {
+        let t = Tensor::new(chunk, &self.dev)?.reshape((1, 1, ()))?;
+        let mut words = Vec::new();
+        for msg in self.state.step_pcm(t, None, &().into(), |_, _, _| ())?.iter() {
+            if let moshi::asr::AsrMsg::Word { tokens, .. } = msg {
+                words.push(self.text_tokenizer.decode_piece_ids(tokens).unwrap_or_default());
+            }
+        }
+        Ok(words)
+    }
+
+    /// Drain `self.carry_24k` in whole 1920-sample steps into the model, leaving
+    /// any sub-step remainder buffered. Returns the newly finalized words.
+    fn drain_carry(&mut self) -> Result<Vec<String>> {
+        let mut words = Vec::new();
+        let mut consumed = 0;
+        while self.carry_24k.len() - consumed >= STEP_PCM {
+            let chunk: Vec<f32> = self.carry_24k[consumed..consumed + STEP_PCM].to_vec();
+            words.extend(self.step_chunk(&chunk)?);
+            consumed += STEP_PCM;
+        }
+        if consumed > 0 {
+            self.carry_24k.drain(0..consumed);
+        }
+        Ok(words)
+    }
+
+    /// Streaming: feed one frame of raw 16 kHz mono f32 samples. Appends to the
+    /// persistent input buffer, resamples whole chunks to 24 kHz through the
+    /// PERSISTENT resampler (continuous FFT state), then drains the 24 kHz carry
+    /// in 1920-sample model steps. Returns the newly finalized words joined by
+    /// spaces (may be empty). Does NOT reset state between frames.
+    pub fn step_16k(&mut self, frame_16k: &[f32]) -> Result<String> {
+        self.in_16k.extend_from_slice(frame_16k);
+
+        let need = self.resampler.input_frames_next();
+        let out_max = self.resampler.output_frames_max();
+        let mut out_buf = vec![vec![0.0f32; out_max]];
+        let mut pos = 0;
+        while self.in_16k.len() - pos >= need {
+            let (in_len, out_len) = self.resampler.process_into_buffer(
+                &[&self.in_16k[pos..pos + need]],
+                &mut out_buf,
+                None,
+            )?;
+            self.carry_24k.extend_from_slice(&out_buf[0][..out_len]);
+            pos += in_len;
+        }
+        if pos > 0 {
+            self.in_16k.drain(0..pos);
+        }
+
+        let words = self.drain_carry()?;
+        Ok(words.join(" "))
+    }
+
+    /// Streaming: end of audio. Flush the leftover 16 kHz input through the
+    /// resampler (partial, zero-padded), then append the model delay + ~1 s of
+    /// 24 kHz silence (mirrors the batch tail) so the last words get emitted,
+    /// and drain ALL of the 24 kHz carry. Returns the final words joined.
+    pub fn flush(&mut self) -> Result<String> {
+        let out_max = self.resampler.output_frames_max();
+        let mut out_buf = vec![vec![0.0f32; out_max]];
+
+        if !self.in_16k.is_empty() {
+            let leftover = std::mem::take(&mut self.in_16k);
+            let (_in_len, out_len) =
+                self.resampler
+                    .process_partial_into_buffer(Some(&[&leftover[..]]), &mut out_buf, None)?;
+            self.carry_24k.extend_from_slice(&out_buf[0][..out_len]);
+        }
+
+        // Mirror the batch tail: model delay + 1 s of 24 kHz silence so the last
+        // word(s) clear the ASR delay and get finalized.
+        let suffix = (self.config.stt_config.audio_delay_seconds * 24000.0) as usize;
+        self.carry_24k.resize(self.carry_24k.len() + suffix + 24000, 0.0);
+
+        // Drain everything, padding the final partial step to a full 1920 chunk.
+        let mut words = self.drain_carry()?;
+        if !self.carry_24k.is_empty() {
+            let mut last = std::mem::take(&mut self.carry_24k);
+            last.resize(STEP_PCM, 0.0);
+            words.extend(self.step_chunk(&last)?);
+        }
+        Ok(words.join(" "))
+    }
+
+    /// Streaming: reset for the next session. Clears the input/carry buffers,
+    /// recreates a FRESH resampler (clean FFT state), and resets the moshi state.
+    pub fn reset_stream(&mut self) -> Result<()> {
+        self.in_16k.clear();
+        self.carry_24k.clear();
+        self.resampler = FftFixedInOut::<f32>::new(16_000, 24_000, RESAMPLER_CHUNK_IN, 1)?;
+        self.state.reset()?;
+        Ok(())
     }
 }
 

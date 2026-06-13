@@ -1,7 +1,6 @@
 mod model;
 #[allow(dead_code)]
 mod resample;
-#[allow(dead_code)]
 mod stream_proto;
 
 use anyhow::Result;
@@ -111,7 +110,48 @@ fn model_dir_candidates() -> Vec<PathBuf> {
     v
 }
 
-// Temporary stub until Task 5 implements it.
-fn handle_stream(_m: &mut model::KyutaiModel, _r: BufReader<&UnixStream>) -> Result<()> {
+/// Streaming mode: read length-prefixed s16le 16 kHz mono frames, emit a frame
+/// of newly-finalized words after each input frame, and a final frame with the
+/// full transcript once the zero-length sentinel arrives. Mirrors the contract
+/// of `transcribe_daemon.rs` stream mode (length-prefixed, fragments + final).
+fn handle_stream(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>) -> Result<()> {
+    use stream_proto::{frame, read_frame, s16le_to_f32};
+    let mut writer = reader.get_ref().try_clone()?;
+    let mut reader = reader;
+    let mut full = String::new();
+    let mut sentinel = false;
+    loop {
+        match read_frame(&mut reader) {
+            Ok(None) => {
+                sentinel = true;
+                break;
+            }
+            Err(_) => break, // EOF/timeout/oversized = abnormal end
+            Ok(Some(payload)) => {
+                let frag = model.step_16k(&s16le_to_f32(&payload))?;
+                if !frag.is_empty() {
+                    if !full.is_empty() {
+                        full.push(' ');
+                    }
+                    full.push_str(&frag);
+                    writer.write_all(&frame(frag.as_bytes()))?;
+                    writer.flush()?;
+                }
+            }
+        }
+    }
+    if sentinel {
+        let tail = model.flush()?;
+        if !tail.is_empty() {
+            if !full.is_empty() {
+                full.push(' ');
+            }
+            full.push_str(&tail);
+        }
+        // Last frame = the full transcript.
+        writer.write_all(&frame(full.trim().as_bytes()))?;
+        writer.flush()?;
+    }
+    model.reset_stream()?;
     Ok(())
 }
