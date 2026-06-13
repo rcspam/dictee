@@ -91,6 +91,17 @@ if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
     exit 1
 fi
 
+# Kyutai daemon — separate candle crate (CUDA-only, needs nvcc). The universal
+# tarball is CUDA-only, so it always ships kyutai. Reuses the CUDA runtime libs
+# bundled in /usr/lib/dictee; no extra libs. CUDA_LOCAL defaults to the POC-local
+# CUDA 12.8 toolchain; release/CI machines must have nvcc (override CUDA_LOCAL).
+echo ""
+echo "=== [TAR.GZ] Cargo build Kyutai daemon (CUDA) ==="
+CUDA_LOCAL="${CUDA_LOCAL:-$PWD/tests/poc-kyutai/cuda-12.8-local/usr/local/cuda-12.8}"
+CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
+    PATH="$CUDA_LOCAL/bin:$PATH" CUDA_ROOT="$CUDA_LOCAL" \
+    cargo build --release --features cuda --manifest-path dictee-kyutai-daemon/Cargo.toml
+
 # 4. Find libonnxruntime.so. With load-dynamic, ort doesn't bundle the
 #    main shared lib in target/release/ — we have to source it from the
 #    ONNX Runtime GPU tarball (downloaded by build-deb.sh's first run,
@@ -157,6 +168,9 @@ for bin in transcribe transcribe-daemon transcribe-client \
     cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
 done
 
+# Kyutai daemon (CUDA-only) — separate candle crate, lives in its own target/.
+cp dictee-kyutai-daemon/target/release/transcribe-daemon-kyutai "$TARBALL_DIR/usr/bin/"
+
 # Wrappers + scripts (from $PKG_DIR populated by dict_prepare_pkg_dir)
 for f in dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
          dictee-diarize-llm dictee-switch-backend dictee-test-rules \
@@ -196,6 +210,9 @@ echo "/usr/lib/dictee" > "$TARBALL_DIR/etc/ld.so.conf.d/dictee.conf"
 [ -f "$PKG_DIR/etc/modules-load.d/dictee-uinput.conf" ] && \
     cp "$PKG_DIR/etc/modules-load.d/dictee-uinput.conf" "$TARBALL_DIR/etc/modules-load.d/"
 cp "$PKG_DIR/usr/lib/systemd/user/"*.service               "$TARBALL_DIR/usr/lib/systemd/user/"        2>/dev/null || true
+# Kyutai service lives at repo root (CUDA-only — never in pkg/dictee). Tarball is
+# CUDA-only, so it always ships here. Explicit copy (not covered by the glob above).
+cp dictee-kyutai.service                                    "$TARBALL_DIR/usr/lib/systemd/user/dictee-kyutai.service"
 cp "$PKG_DIR/usr/lib/systemd/user-preset/"*.preset         "$TARBALL_DIR/usr/lib/systemd/user-preset/" 2>/dev/null || true
 cp "$PKG_DIR/usr/share/man/man1/"*.1                        "$TARBALL_DIR/usr/share/man/man1/"          2>/dev/null || true
 cp "$PKG_DIR/usr/share/man/fr/man1/"*.1                     "$TARBALL_DIR/usr/share/man/fr/man1/"       2>/dev/null || true

@@ -3,6 +3,7 @@ disable dictee-vosk.service
 disable dictee-whisper.service
 disable dictee-canary.service
 disable dictee-nemotron.service
+disable dictee-kyutai.service
 disable dictee-tray.service
 disable dictee-ptt.service
 disable dotoold.service

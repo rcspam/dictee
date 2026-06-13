@@ -128,6 +128,16 @@ build() {
         return 1
     fi
 
+    # Kyutai daemon — separate candle crate (CUDA-only, needs nvcc / CUDA 12.x).
+    # Builds into dictee-kyutai-daemon/target/ (its own crate). Reuses the CUDA
+    # runtime libs symlinked into /usr/lib/dictee by the install hook — no extra
+    # libs bundled. On a clean Arch build host nvcc comes from the `cuda` package;
+    # CUDA_LOCAL lets a dev override the toolchain path (defaults to the POC one).
+    CUDA_LOCAL="${CUDA_LOCAL:-/opt/cuda}"
+    CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
+        PATH="$CUDA_LOCAL/bin:$PATH" CUDA_ROOT="$CUDA_LOCAL" \
+        cargo build --release --features cuda --manifest-path dictee-kyutai-daemon/Cargo.toml
+
     # Compile locales from .po sources
     for lang in fr de es it pt uk; do
         if [ -f "po/$lang.po" ]; then
@@ -153,6 +163,10 @@ package() {
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
     install -Dm755 target/release/dictee-app-capture "$pkgdir/usr/bin/dictee-app-capture"
+
+    # Kyutai daemon (CUDA-only) — separate candle crate, built in build().
+    install -Dm755 dictee-kyutai-daemon/target/release/transcribe-daemon-kyutai \
+        "$pkgdir/usr/bin/transcribe-daemon-kyutai"
 
     # ONNX Runtime libs (load-dynamic: libonnxruntime.so not in target/release)
     install -d "$pkgdir/usr/lib/dictee"
@@ -230,6 +244,8 @@ package() {
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-canary.service "$pkgdir/usr/lib/systemd/user/dictee-canary.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-nemotron.service "$pkgdir/usr/lib/systemd/user/dictee-nemotron.service"
+    # Kyutai service lives at repo root (CUDA-only by design — never in pkg/dictee).
+    install -Dm644 dictee-kyutai.service "$pkgdir/usr/lib/systemd/user/dictee-kyutai.service"
     # Note: dotoold.service is shipped by the AUR `dotool` package (declared in depends).
     # Shipping it here causes a pacman file conflict. See GitHub issue #4.
     install -Dm644 pkg/dictee/usr/lib/systemd/user-preset/90-dictee.preset "$pkgdir/usr/lib/systemd/user-preset/90-dictee.preset"

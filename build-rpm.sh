@@ -211,8 +211,25 @@ build_rpm_cuda() {
         exit 1
     fi
 
+    # Kyutai daemon — separate candle crate (CUDA-only, needs nvcc). Reuses the
+    # CUDA runtime libs already symlinked into /usr/lib/dictee at %post; no extra
+    # libs bundled here. CUDA_LOCAL defaults to the POC-local CUDA 12.8 toolchain;
+    # release/CI machines must have nvcc on PATH (override CUDA_LOCAL if needed).
+    CUDA_LOCAL="${CUDA_LOCAL:-$PWD/tests/poc-kyutai/cuda-12.8-local/usr/local/cuda-12.8}"
+    CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
+        PATH="$CUDA_LOCAL/bin:$PATH" CUDA_ROOT="$CUDA_LOCAL" \
+        cargo build --release --features cuda --manifest-path dictee-kyutai-daemon/Cargo.toml
+
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cuda-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
+
+    # Kyutai binary + service — installed ONLY in the cuda buildroot (after
+    # prepare_buildroot, which is shared with the CPU spec). The cuda %files
+    # globs /usr/bin/* and /usr/lib/systemd/user/*.service so both are picked
+    # up automatically. Never goes through prepare_buildroot → never in CPU.
+    cp dictee-kyutai-daemon/target/release/transcribe-daemon-kyutai "$buildroot/usr/bin/"
+    chmod 755 "$buildroot/usr/bin/transcribe-daemon-kyutai"
+    cp dictee-kyutai.service "$buildroot/usr/lib/systemd/user/dictee-kyutai.service"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "Copying CUDA ONNX Runtime libs..."
@@ -390,7 +407,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     # Only restart tray if user has a config (avoid starting unconfigured tray)
@@ -408,10 +425,11 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
         whisper)  _asr_svc="dictee-whisper" ;;
         canary)   _asr_svc="dictee-canary" ;;
         nemotron) _asr_svc="dictee-nemotron" ;;
+        kyutai)   _asr_svc="dictee-kyutai" ;;
         *)        _asr_svc="dictee" ;;
     esac
-    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
-    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
     \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
@@ -497,8 +515,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     # Clean locales
