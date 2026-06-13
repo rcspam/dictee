@@ -1483,8 +1483,8 @@ if [ -f "$PIDFILE" ]; then
                 _dbg "audio-context: whisper model '${DICTEE_WHISPER_MODEL:-small}' has unreliable timestamps, skipping context"
                 used_context=false
                 rm -f "$COMBINED_FILE"
-            elif [ "$_backend" = "canary" ] || [ "$_backend" = "nemotron" ]; then
-                # Canary/Nemotron: no word timestamps → dual transcription mode
+            elif [ "$_backend" = "canary" ] || [ "$_backend" = "nemotron" ] || [ "$_backend" = "kyutai" ]; then
+                # Canary/Nemotron/Kyutai: no word timestamps → dual transcription mode
                 # 1. Transcribe combined (buffer+silence+new) → context-aware result
                 # 2. Transcribe recording alone → safe fallback
                 # 3. Extract the new part from the combined using the solo as reference
