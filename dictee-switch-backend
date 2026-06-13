@@ -229,7 +229,7 @@ diarize)
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         # Stop all daemons and wait for VRAM release
         _dbg "diarize: stopping all daemons for VRAM"
-        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron 2>/dev/null
+        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null
         # Wait until GPU processes are gone (5s timeout)
         for i in $(seq 1 10); do
             if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
@@ -406,6 +406,7 @@ force_cpu)
         vosk)     svc="dictee-vosk.service" ;;
         whisper)  svc="dictee-whisper.service" ;;
         nemotron) svc="dictee-nemotron.service" ;;
+        kyutai)   svc="dictee-kyutai.service" ;;
         *)        svc="dictee.service" ;;
     esac
     systemctl --user restart "$svc" 2>/dev/null || true
