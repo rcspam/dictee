@@ -1,10 +1,9 @@
 use anyhow::{Context, Result};
-use candle::Device;
+use candle::{Device, Tensor};
 use std::path::Path;
 
 #[derive(Debug, serde::Deserialize)]
 struct SttConfig {
-    #[allow(dead_code)]
     audio_silence_prefix_seconds: f64,
     audio_delay_seconds: f64,
 }
@@ -65,12 +64,13 @@ impl Config {
     }
 }
 
-#[allow(dead_code)]
 pub struct KyutaiModel {
     state: moshi::asr::State,
     text_tokenizer: sentencepiece::SentencePieceProcessor,
     config: Config,
     dev: Device,
+    /// Carry-over buffer for streaming (Task 5).
+    #[allow(dead_code)]
     carry_24k: Vec<f32>,
 }
 
@@ -109,4 +109,53 @@ impl KyutaiModel {
             carry_24k: Vec::new(),
         })
     }
+
+    /// Transcribe a full buffer of 24 kHz mono f32 samples. Returns plain text.
+    /// Resets state so the daemon can reuse the model.
+    pub fn transcribe_samples(&mut self, mut pcm: Vec<f32>) -> Result<String> {
+        if self.config.stt_config.audio_silence_prefix_seconds > 0.0 {
+            let s = (self.config.stt_config.audio_silence_prefix_seconds * 24000.0) as usize;
+            pcm.splice(0..0, vec![0.0; s]);
+        }
+        let suffix = (self.config.stt_config.audio_delay_seconds * 24000.0) as usize;
+        pcm.resize(pcm.len() + suffix + 24000, 0.0);
+
+        let mut words: Vec<String> = Vec::new();
+        for chunk in pcm.chunks(1920) {
+            let t = Tensor::new(chunk, &self.dev)?.reshape((1, 1, ()))?;
+            for msg in self.state.step_pcm(t, None, &().into(), |_, _, _| ())?.iter() {
+                if let moshi::asr::AsrMsg::Word { tokens, .. } = msg {
+                    words.push(self.text_tokenizer.decode_piece_ids(tokens).unwrap_or_default());
+                }
+            }
+        }
+        self.state.reset()?;
+        Ok(words.join(" "))
+    }
+}
+
+/// Decode a WAV to 24 kHz mono f32 (downmix + resample as needed).
+pub fn wav_to_24k_mono(path: &str) -> Result<Vec<f32>> {
+    let mut r = hound::WavReader::open(path)?;
+    let spec = r.spec();
+    let raw: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => r.samples::<f32>().collect::<Result<_, _>>()?,
+        hound::SampleFormat::Int => r
+            .samples::<i16>()
+            .map(|s| s.map(|s| s as f32 / 32768.0))
+            .collect::<Result<_, _>>()?,
+    };
+    let mono: Vec<f32> = if spec.channels > 1 {
+        raw.chunks(spec.channels as usize)
+            .map(|c| c.iter().sum::<f32>() / spec.channels as f32)
+            .collect()
+    } else {
+        raw
+    };
+    let out = if spec.sample_rate == 24_000 {
+        mono
+    } else {
+        kaudio::resample(&mono, spec.sample_rate as usize, 24_000)?
+    };
+    Ok(out)
 }
