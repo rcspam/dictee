@@ -6465,6 +6465,7 @@ class DicteeSetupDialog(QDialog):
         if _kyutai_available():
             self._build_kyutai_options(glay)
         self._build_canary_options(glay)
+        self._build_streaming_options(glay)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
@@ -6475,6 +6476,8 @@ class DicteeSetupDialog(QDialog):
             if hasattr(self, 'w_kyutai_options'):
                 self.w_kyutai_options.setVisible(backend == "kyutai")
             self.w_canary_options.setVisible(backend == "canary")
+            if hasattr(self, 'w_streaming_options'):
+                self.w_streaming_options.setVisible(backend in ("nemotron", "kyutai"))
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
@@ -7620,6 +7623,8 @@ class DicteeSetupDialog(QDialog):
         if hasattr(self, 'w_kyutai_options'):
             self.w_kyutai_options.setVisible(asr == "kyutai")
         self.w_canary_options.setVisible(asr == "canary")
+        if hasattr(self, 'w_streaming_options'):
+            self.w_streaming_options.setVisible(asr in ("nemotron", "kyutai"))
 
     def _on_card_click(self, backend_id):
         """Handle card click: single=select, rapid double=select+next."""
@@ -7755,6 +7760,7 @@ class DicteeSetupDialog(QDialog):
         if _kyutai_available():
             self._build_kyutai_options(lay_sub)
         self._build_canary_options(lay_sub)
+        self._build_streaming_options(lay_sub)
 
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
@@ -9651,7 +9657,19 @@ class DicteeSetupDialog(QDialog):
             "btn_cancel": btn_cancel, "progress": progress, "model": NEMOTRON_MODEL,
         }
 
-        # --- Streaming settings (Nemotron only) ---
+        self.w_nemotron_options.setVisible(False)
+        parent_layout.addWidget(self.w_nemotron_options)
+
+    def _build_streaming_options(self, parent_layout):
+        """Build the shared real-time streaming settings box. The streaming
+        config keys are global and the orchestrator (dictee-stream) is backend
+        agnostic, so this box is shown for any streaming-capable backend
+        (Nemotron, Kyutai) — see use_streaming() in dictee."""
+        self.w_streaming_options = QWidget()
+        stream_outer = QVBoxLayout(self.w_streaming_options)
+        stream_outer.setContentsMargins(0, 4, 0, 0)
+        stream_outer.setSpacing(6)
+
         stream_box = QGroupBox(_("Streaming"))
         stream_lay = QVBoxLayout(stream_box)
         stream_lay.setContentsMargins(12, 12, 12, 10)
@@ -9709,10 +9727,9 @@ class DicteeSetupDialog(QDialog):
         _sync_streaming_sub(self.chk_streaming.isChecked())
         self.chk_streaming.toggled.connect(_sync_streaming_sub)
 
-        nemotron_outer.addWidget(stream_box)
-
-        self.w_nemotron_options.setVisible(False)
-        parent_layout.addWidget(self.w_nemotron_options)
+        stream_outer.addWidget(stream_box)
+        self.w_streaming_options.setVisible(False)
+        parent_layout.addWidget(self.w_streaming_options)
 
     def _build_kyutai_options(self, parent_layout):
         """Build Kyutai STT 1B model download UI (group box with install/delete
