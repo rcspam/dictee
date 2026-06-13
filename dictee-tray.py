@@ -146,7 +146,7 @@ STATE_FILE = "/dev/shm/.dictee_state"
 PROVIDER_FILE = "/dev/shm/.dictee_provider"
 TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary", "dictee-nemotron")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary", "dictee-nemotron", "dictee-kyutai")
 CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
@@ -211,6 +211,7 @@ ASR_BACKENDS = [
     ("vosk",          "Vosk",                    "vosk",     None),
     ("whisper",       "Whisper",                 "whisper",  None),
     ("nemotron",      "Nemotron",                "nemotron", None),
+    ("kyutai",        "Kyutai (fr/en)",          "kyutai",   None),
 ]
 
 TRANSLATE_BACKENDS = [
@@ -275,6 +276,14 @@ def _force_cpu_constraint(backend, parakeet_quant, vram_gb):
             tooltip = _("Canary requires NVIDIA GPU (encoder too heavy for CPU)")
         else:
             tooltip = _("Canary requires NVIDIA GPU — none detected, transcription will fail")
+        return {"sensitive": False, "forced": "gpu", "tooltip": tooltip}
+
+    # Kyutai requires GPU regardless of GPU availability (no CPU mode)
+    if backend == "kyutai":
+        if has_gpu:
+            tooltip = _("Kyutai requires NVIDIA GPU (no CPU mode)")
+        else:
+            tooltip = _("Kyutai requires NVIDIA GPU — none detected, transcription will fail")
         return {"sensitive": False, "forced": "gpu", "tooltip": tooltip}
 
     # Vosk is CPU only by design
@@ -395,6 +404,12 @@ def _asr_service_exists(key):
             return False
         return os.path.isdir("/usr/share/dictee/nemotron") or \
             os.path.isfile(os.path.join(data_dir, "nemotron", "encoder.onnx"))
+    if key == "kyutai":
+        # Kyutai uses a dedicated Rust daemon (transcribe-daemon-kyutai), GPU-only.
+        if not shutil.which("transcribe-daemon-kyutai"):
+            return False
+        return os.path.isdir("/usr/share/dictee/kyutai") or \
+            os.path.isfile(os.path.join(data_dir, "kyutai", "model.safetensors"))
     # Vosk/Whisper: check venv
     venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)
@@ -498,7 +513,7 @@ def _conf_asr_service():
     """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
     mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
                "whisper": "dictee-whisper", "canary": "dictee-canary",
-               "nemotron": "dictee-nemotron"}
+               "nemotron": "dictee-nemotron", "kyutai": "dictee-kyutai"}
     try:
         with open(CONF_PATH) as f:
             for line in f:
