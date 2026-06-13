@@ -193,12 +193,12 @@ cleanup_session() {
     rm -f "$COMBINED_FILE" "$SILENCE_FILE" "$STREAM_FLAG_FILE"
 }
 
-# Decide whether to use the live streaming path (Nemotron only).
-# Streaming requires: master switch ON, backend=nemotron, no diarize, AND
+# Decide whether to use the live streaming path (Nemotron or Kyutai).
+# Streaming requires: master switch ON, backend=nemotron|kyutai, no diarize, AND
 # (final-pass ON  OR  no heavy PP active) — otherwise fall back to batch.
 use_streaming() {
     [ "${DICTEE_STREAMING:-false}" = "true" ] || return 1
-    [ "${DICTEE_ASR_BACKEND:-parakeet}" = "nemotron" ] || return 1
+    case "${DICTEE_ASR_BACKEND:-parakeet}" in nemotron|kyutai) ;; *) return 1 ;; esac
     [ "$DIARIZE" = "true" ] && return 1
     if [ "${DICTEE_STREAMING_FINAL_PASS:-false}" = "true" ]; then
         return 0

@@ -194,6 +194,7 @@ asr_service() {
         whisper)  echo "dictee-whisper" ;;
         canary)   echo "dictee-canary" ;;
         nemotron) echo "dictee-nemotron" ;;
+        kyutai)   echo "dictee-kyutai" ;;
         *)        echo "dictee" ;;
     esac
 }
