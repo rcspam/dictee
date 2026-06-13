@@ -15898,7 +15898,7 @@ class DicteeSetupDialog(QDialog):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk",
                "whisper": "dictee-whisper", "nemotron": "dictee-nemotron",
-               "canary": "dictee-canary"}.get(asr, "dictee")
+               "canary": "dictee-canary", "kyutai": "dictee-kyutai"}.get(asr, "dictee")
         # True first-run wizard (no prior dictee.conf): the service hasn't been
         # started yet (will be at Finish). Fallback to "is the unit installed".
         # Reconfig wizard or settings: check live state.
@@ -18540,7 +18540,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-nemotron.service", "dictee-canary.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-nemotron.service", "dictee-canary.service", "dictee-kyutai.service"]
         active = False
         for svc in services:
             try:
@@ -18561,7 +18561,7 @@ class DicteeSetupDialog(QDialog):
                 backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
                 svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
                            "whisper": "dictee-whisper.service", "nemotron": "dictee-nemotron.service",
-                           "canary": "dictee-canary.service"}
+                           "canary": "dictee-canary.service", "kyutai": "dictee-kyutai.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
             else:
@@ -19079,7 +19079,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR (active service: synchronous for error reporting)
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "nemotron": "dictee-nemotron", "canary": "dictee-canary"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "nemotron": "dictee-nemotron", "canary": "dictee-canary", "kyutai": "dictee-kyutai"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
         # Disable inactive services + enable/restart tray/ptt in background
