@@ -211,7 +211,10 @@ impl KyutaiModel {
         }
 
         let words = self.drain_carry()?;
-        Ok(words.join(" "))
+        // Streaming fragments must carry a leading space per word: dictee-stream
+        // injects no spacing of its own (it relies on ASR word-boundary spaces,
+        // like Nemotron's). Without this, consecutive fragments glue together.
+        Ok(words.iter().filter(|w| !w.is_empty()).map(|w| format!(" {w}")).collect())
     }
 
     /// Streaming: end of audio. Flush the leftover 16 kHz input through the
@@ -242,7 +245,9 @@ impl KyutaiModel {
             last.resize(STEP_PCM, 0.0);
             words.extend(self.step_chunk(&last)?);
         }
-        Ok(words.join(" "))
+        // Leading space per word (see step_16k) so live fragments and the final
+        // transcript frame concatenate with correct spacing.
+        Ok(words.iter().filter(|w| !w.is_empty()).map(|w| format!(" {w}")).collect())
     }
 
     /// Streaming: reset for the next session. Clears the input/carry buffers,

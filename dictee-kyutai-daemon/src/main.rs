@@ -139,9 +139,8 @@ fn stream_session(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>
             Ok(Some(payload)) => {
                 let frag = model.step_16k(&s16le_to_f32(&payload))?;
                 if !frag.is_empty() {
-                    if !full.is_empty() {
-                        full.push(' ');
-                    }
+                    // frag already carries a leading space per word; concatenate
+                    // as-is (no extra separator) for the final-transcript frame.
                     full.push_str(&frag);
                     writer.write_all(&frame(frag.as_bytes()))?;
                     writer.flush()?;
@@ -151,12 +150,7 @@ fn stream_session(model: &mut model::KyutaiModel, reader: BufReader<&UnixStream>
     }
     if sentinel {
         let tail = model.flush()?;
-        if !tail.is_empty() {
-            if !full.is_empty() {
-                full.push(' ');
-            }
-            full.push_str(&tail);
-        }
+        full.push_str(&tail); // tail carries its own leading spaces
         // Last frame = the full transcript.
         writer.write_all(&frame(full.trim().as_bytes()))?;
         writer.flush()?;
