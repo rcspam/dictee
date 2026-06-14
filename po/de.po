@@ -293,6 +293,8 @@ msgid ""
 "Multilingual transcription (25 languages, ~2.5 GB) — best accuracy, "
 "recommended for GPU"
 msgstr ""
+"Mehrsprachige Transkription (25 Sprachen, ~2,5 GB) — beste Genauigkeit, "
+"empfohlen für GPU"
 
 #: dictee-setup.py:1984
 msgid ""
@@ -305,22 +307,39 @@ msgid ""
 "<code>transcribe-daemon</code>, <code>transcribe-diarize</code>, "
 "<code>dictee</code>"
 msgstr ""
+"<b>Parakeet-TDT 0.6B v3 — FP32</b><br><br>Variante des Haupt-"
+"Transkriptionsmodells mit voller Genauigkeit.<br>FastConformer-Encoder + "
+"Token-and-Duration Transducer (TDT)-Decoder.<br>Unterstützt <b>25 Sprachen</"
+"b> einschließlich Französisch, Englisch, Spanisch, Deutsch usw.<br>Native "
+"Zeichensetzung und Großschreibung (keine Nachbearbeitung nötig)."
+"<br><br>Empfohlen für <b>GPU mit ≥ 4 GB VRAM</b> — am schnellsten auf CUDA "
+"Tensor Cores.<br>Verwendet von: <code>transcribe</code>, <code>transcribe-"
+"daemon</code>, <code>transcribe-diarize</code>, <code>dictee</code>"
 
 #: dictee-setup.py:2007
 msgid "Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"
 msgstr ""
+"Quantisierte Variante (~670 MB) — empfohlen für CPU und GPU mit wenig VRAM"
 
 #: dictee-setup.py:2009
-#, python-format
+#, no-python-format
 msgid ""
 "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>Same architecture as "
 "FP32 with 8-bit quantized weights.<br><br><b>~3.6× smaller</b>: 670 MB on "
 "disk / RAM (vs 2.4 GB FP32).<br><b>~38% faster on CPU</b> with AVX-VNNI "
-"(Intel Cascade Lake+ / AMD Zen 2+).<br><b>WER loss negligible</b> (~0-1 "
-"% depending on audio).<br><br>Recommended for: <b>CPU-only systems</b> or "
+"(Intel Cascade Lake+ / AMD Zen 2+).<br><b>WER loss negligible</b> (~0-1 % "
+"depending on audio).<br><br>Recommended for: <b>CPU-only systems</b> or "
 "<b>GPU with &lt; 4 GB VRAM</b>.<br>Note: on GPU with abundant VRAM, FP32 is "
 "faster (CUDA int8 EP is slow)."
 msgstr ""
+"<b>Parakeet-TDT 0.6B v3 — int8 quantisiert</b><br><br>Gleiche Architektur "
+"wie FP32 mit 8-Bit-quantisierten Gewichten.<br><br><b>~3,6× kleiner</b>: 670 "
+"MB auf Festplatte / RAM (vs. 2,4 GB FP32).<br><b>auf CPU ~38 % flotter</b> "
+"mit AVX-VNNI (Intel Cascade Lake+ / AMD Zen 2+).<br><b>WER-Verlust "
+"vernachlässigbar</b> (~0-1 % der Fälle, je nach Audio).<br><br>Empfohlen "
+"für: <b>reine CPU-Systeme</b> oder <b>GPU mit &lt; 4 GB VRAM</b>."
+"<br>Hinweis: auf GPUs mit viel VRAM ist FP32 schneller (CUDA-int8-EP ist "
+"langsam)."
 
 #: dictee-setup.py:2030
 msgid "Speaker diarization (4 speakers max, ~50 MB)"
@@ -349,6 +368,8 @@ msgid ""
 "<b>Nemotron 3.5 0.6B</b> — multilingual streaming RNNT. Robust French, runs "
 "on CPU and GPU."
 msgstr ""
+"<b>Nemotron 3.5 0.6B</b> — mehrsprachiges Streaming-RNNT. Robust bei "
+"Französisch, läuft auf CPU und GPU."
 
 #: dictee-setup.py:2066
 msgid "French/English streaming ASR — NVIDIA GPU only (~2.2 GB)"
@@ -361,6 +382,10 @@ msgid ""
 "<br><br><b>Requires an NVIDIA GPU</b> (CUDA) — no CPU mode.<br>Used by: "
 "<code>dictee</code> (F9 streaming and batch)."
 msgstr ""
+"<b>Kyutai STT 1B (en/fr)</b><br><br>Streaming-Spracherkennung, Französisch "
+"und Englisch, mit nativer Zeichensetzung und Zeitstempeln auf Wortebene."
+"<br><br><b>Erfordert eine NVIDIA-GPU</b> (CUDA) — kein CPU-Modus."
+"<br>Verwendet von: <code>dictee</code> (F9-Streaming und Batch)."
 
 #: dictee-setup.py:2135 dictee-setup.py:2539
 #, python-brace-format
@@ -531,7 +556,7 @@ msgstr "Tastenkombination: {label}"
 
 #: dictee-setup.py:3298
 msgid "install the 'translate-shell' package"
-msgstr ""
+msgstr "das Paket „translate-shell“ installieren"
 
 #: dictee-setup.py:3300
 #, python-brace-format
@@ -539,6 +564,8 @@ msgid ""
 "translate-shell is not installed. Install it with:\n"
 "  {hint}"
 msgstr ""
+"translate-shell ist nicht installiert. Installieren Sie es mit:\n"
+"  {hint}"
 
 #: dictee-setup.py:3351 dictee-setup.py:3356 dictee-setup.py:3368
 #: dictee-setup.py:3377 dictee-setup.py:3396 dictee-setup.py:3400
@@ -556,6 +583,8 @@ msgid ""
 "Could not start the transcribe daemon. Make sure the model is downloaded and "
 "try again."
 msgstr ""
+"Der Transkriptions-Daemon konnte nicht gestartet werden. Stellen Sie sicher, "
+"dass das Modell heruntergeladen ist, und versuchen Sie es erneut."
 
 #: dictee-setup.py:3381
 msgid "No translation result."
@@ -954,6 +983,9 @@ msgid ""
 "speaker / unlabelled audio). The profile will then appear in the dialog only "
 "when the active tab matches this type."
 msgstr ""
+"Wählen Sie „Reiner Text“ für Transkripte ohne Sprechertrennung (einzelner "
+"Sprecher / Audio ohne Beschriftung). Das Profil erscheint im Dialog dann "
+"nur, wenn der aktive Tab zu diesem Typ passt."
 
 #: dictee-setup.py:4827
 msgid "Transcript type:"
@@ -1179,7 +1211,7 @@ msgstr "LLM"
 
 #: dictee-setup.py:5820 dictee-setup.py:6005
 msgid "Live meeting"
-msgstr ""
+msgstr "Live-Meeting"
 
 #: dictee-setup.py:5821
 msgid "LLM Diarization"
@@ -1198,10 +1230,12 @@ msgid ""
 "Live meeting captures audio continuously and hands it off to the dictation "
 "window for transcription + diarization + LLM analysis when you stop it."
 msgstr ""
+"Live-Meeting nimmt Audio fortlaufend auf und übergibt es beim Stoppen an das "
+"Diktatfenster zur Transkription + Sprechertrennung + LLM-Analyse."
 
 #: dictee-setup.py:6015
 msgid "Save folder:"
-msgstr ""
+msgstr "Speicherordner:"
 
 #: dictee-setup.py:6023
 msgid "Browse..."
@@ -1209,23 +1243,23 @@ msgstr "Durchsuchen..."
 
 #: dictee-setup.py:6032
 msgid "Live preview chunk duration:"
-msgstr ""
+msgstr "Chunk-Dauer der Live-Vorschau:"
 
 #: dictee-setup.py:6047
 msgid "Window behavior"
-msgstr ""
+msgstr "Fensterverhalten"
 
 #: dictee-setup.py:6049
 msgid "Always keep window on top"
-msgstr ""
+msgstr "Fenster immer im Vordergrund halten"
 
 #: dictee-setup.py:6055
 msgid "Show window on all virtual desktops"
-msgstr ""
+msgstr "Fenster auf allen virtuellen Arbeitsflächen anzeigen"
 
 #: dictee-setup.py:6071
 msgid "Select meeting save folder"
-msgstr ""
+msgstr "Speicherordner für Meetings auswählen"
 
 #: dictee-setup.py:6135
 msgid "Source tree / git checkout"
@@ -1233,7 +1267,7 @@ msgstr "Quellbaum / git checkout"
 
 #: dictee-setup.py:6142
 msgid "Tarball install"
-msgstr ""
+msgstr "Tarball-Installation"
 
 #: dictee-setup.py:6144
 msgid "Unknown install type"
@@ -1254,6 +1288,8 @@ msgid ""
 "Arch install: <code>git pull &amp;&amp; makepkg -si</code> from the dictee "
 "PKGBUILD directory, or <code>{cmd}</code>."
 msgstr ""
+"Arch-Installation: <code>git pull &amp;&amp; makepkg -si</code> aus dem "
+"dictee-PKGBUILD-Verzeichnis oder <code>{cmd}</code>."
 
 #: dictee-setup.py:6262
 #, python-brace-format
@@ -1330,6 +1366,8 @@ msgid ""
 "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can prevent the "
 "transcript from being typed into some Electron apps."
 msgstr ""
+"⚠ Unter Wayland mit wl-clipboard < 2.3.0 kann das Aktivieren verhindern, "
+"dass das Transkript in manche Electron-Apps eingegeben wird."
 
 #: dictee-setup.py:6520
 msgid "Audio context buffer"
@@ -1345,7 +1383,7 @@ msgstr ""
 
 #: dictee-setup.py:6529
 msgid "Context duration:"
-msgstr ""
+msgstr "Kontextdauer:"
 
 #: dictee-setup.py:6530
 msgid ""
@@ -1358,7 +1396,7 @@ msgstr ""
 
 #: dictee-setup.py:6535
 msgid "seconds"
-msgstr ""
+msgstr "Sekunden"
 
 #: dictee-setup.py:6549
 msgid "Debug mode (log to /tmp)"
@@ -1401,6 +1439,8 @@ msgid ""
 "One-click setup: ASR + tray + shortcut, no translation. You can enable "
 "translation later from the setup."
 msgstr ""
+"Ein-Klick-Einrichtung: ASR + Infobereich + Tastenkürzel, keine Übersetzung. "
+"Sie können die Übersetzung später in der Einrichtung aktivieren."
 
 #: dictee-setup.py:6739 dictee-setup.py:6775 dictee-setup.py:12516
 #: dictee-setup.py:13291
@@ -1430,32 +1470,33 @@ msgstr "LibreTranslate (lokal)"
 
 #: dictee-setup.py:6861
 msgid "Ollama (local LLM)"
-msgstr ""
+msgstr "Ollama (lokales LLM)"
 
 #: dictee-setup.py:6862
 msgid "Google (cloud — sends text to Google)"
-msgstr ""
+msgstr "Google (Cloud — sendet Text an Google)"
 
 #: dictee-setup.py:6863
 msgid "Bing (cloud — sends text to Microsoft)"
-msgstr ""
+msgstr "Bing (Cloud — sendet Text an Microsoft)"
 
 #: dictee-setup.py:6866
 #, python-brace-format
 msgid "Translation: {backend}"
-msgstr ""
+msgstr "Übersetzung: {backend}"
 
 #: dictee-setup.py:6868
 msgid "Translation: disabled — click Configure to enable"
-msgstr ""
+msgstr "Übersetzung: deaktiviert — auf „Konfigurieren“ klicken zum Aktivieren"
 
 #: dictee-setup.py:6876 dictee-setup.py:6884
 msgid "Test available after Finish (Vosk/Whisper require system daemon)"
 msgstr ""
+"Test nach Fertigstellen verfügbar (Vosk/Whisper benötigen den System-Daemon)"
 
 #: dictee-setup.py:6886
 msgid "No translation backend selected"
-msgstr ""
+msgstr "Kein Übersetzungs-Backend ausgewählt"
 
 #: dictee-setup.py:6926 dictee-setup.py:6940
 msgid "Model required"
@@ -1508,7 +1549,7 @@ msgstr ""
 
 #: dictee-setup.py:6988
 msgid "Docker required"
-msgstr ""
+msgstr "Docker erforderlich"
 
 #: dictee-setup.py:6989
 msgid ""
@@ -1519,10 +1560,16 @@ msgid ""
 "  Fedora: sudo dnf install moby-engine\n"
 "  Arch: sudo pacman -S docker"
 msgstr ""
+"LibreTranslate benötigt Docker, das nicht installiert ist.\n"
+"\n"
+"Installieren über:\n"
+"  Debian/Ubuntu: sudo apt install docker.io\n"
+"  Fedora: sudo dnf install moby-engine\n"
+"  Arch: sudo pacman -S docker"
 
 #: dictee-setup.py:6996
 msgid "Docker permissions required"
-msgstr ""
+msgstr "Docker-Berechtigungen erforderlich"
 
 #: dictee-setup.py:6997
 msgid ""
@@ -1531,10 +1578,15 @@ msgid ""
 "the 'docker' group. Use the 'Fix permissions' button\n"
 "on this page if available."
 msgstr ""
+"Docker ist installiert, aber nicht erreichbar. Stellen Sie sicher, dass\n"
+"der Docker-Dienst läuft und dass Ihr Benutzer in der Gruppe\n"
+"„docker“ ist. Verwenden Sie ggf. die Schaltfläche „Berechtigungen "
+"reparieren“\n"
+"auf dieser Seite."
 
 #: dictee-setup.py:7004
 msgid "Ollama required"
-msgstr ""
+msgstr "Ollama erforderlich"
 
 #: dictee-setup.py:7005
 msgid ""
@@ -1542,21 +1594,24 @@ msgid ""
 "\n"
 "  curl -fsSL https://ollama.com/install.sh | sh"
 msgstr ""
+"Ollama ist nicht installiert. Installieren über:\n"
+"\n"
+"  curl -fsSL https://ollama.com/install.sh | sh"
 
 #: dictee-setup.py:7017
 msgid "Disable translation and continue"
-msgstr ""
+msgstr "Übersetzung deaktivieren und fortfahren"
 
 #: dictee-setup.py:7019
 msgid "Go back"
-msgstr ""
+msgstr "Zurück"
 
 #: dictee-setup.py:7131
 msgid "Speak freely, type instantly"
 msgstr "Frei sprechen, sofort tippen"
 
 #: dictee-setup.py:7137
-#, python-format
+#, no-python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
@@ -1566,88 +1621,89 @@ msgstr ""
 
 #: dictee-setup.py:7183
 msgid "with CUDA"
-msgstr ""
+msgstr "mit CUDA"
 
 #: dictee-setup.py:7185
 msgid "(CPU mode)"
-msgstr ""
+msgstr "(CPU-Modus)"
 
 #: dictee-setup.py:7204
 #, python-brace-format
 msgid "NVIDIA GPU detected: {name} ({vram:.1f} GB VRAM)"
-msgstr ""
+msgstr "NVIDIA-GPU erkannt: {name} ({vram:.1f} GB VRAM)"
 
 #: dictee-setup.py:7205
 msgid "GPU"
-msgstr ""
+msgstr "GPU"
 
 #: dictee-setup.py:7207
 msgid "No NVIDIA GPU detected — CPU mode"
-msgstr ""
+msgstr "Keine NVIDIA-GPU erkannt — CPU-Modus"
 
 #: dictee-setup.py:7208
 #, python-brace-format
 msgid "RAM: {ram:.1f} GB"
-msgstr ""
+msgstr "RAM: {ram:.1f} GB"
 
 #: dictee-setup.py:7209
 #, python-brace-format
 msgid "Desktop: {de}"
-msgstr ""
+msgstr "Desktop: {de}"
 
 #: dictee-setup.py:7210
 #, python-brace-format
 msgid "System language: {lang}"
-msgstr ""
+msgstr "Systemsprache: {lang}"
 
 #: dictee-setup.py:7213
 msgid "ASR backend:"
-msgstr ""
+msgstr "ASR-Backend:"
 
 #: dictee-setup.py:7215
 msgid "KDE plasmoid widget enabled"
-msgstr ""
+msgstr "KDE-Plasmoid-Widget aktiviert"
 
 #: dictee-setup.py:7217
 msgid "System tray (no plasmoid on this desktop)"
-msgstr ""
+msgstr "Infobereich (kein Plasmoid auf diesem Desktop)"
 
 #: dictee-setup.py:7218
 msgid "Push-to-talk on F9 (change later if needed)"
-msgstr ""
+msgstr "Push-to-Talk auf F9 (bei Bedarf später ändern)"
 
 #: dictee-setup.py:7220
 #, python-brace-format
 msgid "Translation: LibreTranslate ({src} → EN, fully local)"
-msgstr ""
+msgstr "Übersetzung: LibreTranslate ({src} → EN, vollständig lokal)"
 
 #: dictee-setup.py:7222
 #, python-brace-format
 msgid "Translation: Ollama ({src} → EN, local LLM)"
-msgstr ""
+msgstr "Übersetzung: Ollama ({src} → EN, lokales LLM)"
 
 #: dictee-setup.py:7224
 msgid "Translation: off — install Docker or Ollama for local translation"
 msgstr ""
+"Übersetzung: aus — Docker oder Ollama für lokale Übersetzung installieren"
 
 #: dictee-setup.py:7226
 msgid "Translation: off (you can enable later)"
-msgstr ""
+msgstr "Übersetzung: aus (Sie können sie später aktivieren)"
 
 #: dictee-setup.py:7258
 msgid "Detected on your machine:"
-msgstr ""
+msgstr "Auf Ihrem Rechner erkannt:"
 
 #: dictee-setup.py:7272
 msgid "Recommended setup:"
-msgstr ""
+msgstr "Empfohlene Einrichtung:"
 
 #: dictee-setup.py:7335
 msgid "No local translation backend installed"
-msgstr ""
+msgstr "Kein lokales Übersetzungs-Backend installiert"
 
 #: dictee-setup.py:7336
-#, python-format
+#, no-python-format
 msgid ""
 "dictee aims to keep everything 100% local.\n"
 "\n"
@@ -1668,6 +1724,25 @@ msgid ""
 "Continuing without translation — you can enable it later from\n"
 "the dictee setup wizard."
 msgstr ""
+"dictee ist darauf ausgelegt, alles zu 100 % lokal zu halten.\n"
+"\n"
+"Um Ihr Diktat lokal zu übersetzen, installieren Sie eines von:\n"
+"\n"
+"  • LibreTranslate (Docker) — beste Qualität, ~20 Sprachen\n"
+"      sudo apt install docker.io\n"
+"      (Fedora: sudo dnf install moby-engine — Arch: sudo pacman -S docker)\n"
+"\n"
+"  • Ollama (lokales LLM) — verwendet jedes installierte Modell\n"
+"      curl -fsSL https://ollama.com/install.sh | sh\n"
+"\n"
+"Google- und Bing-Übersetzung funktionieren ebenfalls, senden Ihren Text\n"
+"jedoch an entfernte Server. Sie sind im Assistenten manuell verfügbar, wenn\n"
+"Sie diesen Kompromiss akzeptieren, aber die empfohlene Einrichtung "
+"aktiviert\n"
+"sie nicht automatisch.\n"
+"\n"
+"Fortsetzung ohne Übersetzung — Sie können sie später im\n"
+"dictee-Einrichtungsassistenten aktivieren."
 
 #: dictee-setup.py:7392
 msgid "GPU detected"
@@ -1710,7 +1785,7 @@ msgid "Speaker diarization with Sortformer add-on"
 msgstr "Sprecherdiarisierung mit Sortformer-Erweiterung"
 
 #: dictee-setup.py:7523 dictee-setup.py:7537
-#, python-format
+#, no-python-format
 msgid "100% local, no internet needed"
 msgstr "100% lokal, kein Internet nötig"
 
@@ -1731,7 +1806,7 @@ msgid "Ideal for older or low-resource machines"
 msgstr "Ideal für ältere oder ressourcenarme Rechner"
 
 #: dictee-setup.py:7530
-#, python-format
+#, no-python-format
 msgid "100% local, CPU only"
 msgstr "100% lokal, nur CPU"
 
@@ -1790,7 +1865,7 @@ msgid "Excellent accuracy, comparable to Parakeet"
 msgstr "Hervorragende Genauigkeit, vergleichbar mit Parakeet"
 
 #: dictee-setup.py:7559
-#, python-format
+#, no-python-format
 msgid "100% local, requires NVIDIA GPU (6+ Go VRAM)"
 msgstr "100% lokal, erfordert NVIDIA GPU (6+ GB VRAM)"
 
@@ -1819,7 +1894,7 @@ msgid "Configure the keyboard shortcuts for voice dictation."
 msgstr "Konfigurieren Sie die Tastenkombinationen für die Sprachdiktierung."
 
 #: dictee-setup.py:7800 dictee-setup.py:7810
-#, python-format
+#, no-python-format
 msgid "100% local, no data sent to the internet"
 msgstr "100% lokal, keine Daten werden ins Internet gesendet"
 
@@ -1917,7 +1992,7 @@ msgstr "Direkt: transcribe-client | trans -b :en"
 
 #: dictee-setup.py:7880 dictee-setup.py:10056
 msgid "No translation (configure later if needed)"
-msgstr ""
+msgstr "Keine Übersetzung (bei Bedarf später konfigurieren)"
 
 #: dictee-setup.py:7891
 msgid "Built-in translation (25 languages to/from English)"
@@ -1987,11 +2062,11 @@ msgstr "dotool"
 
 #: dictee-setup.py:8202
 msgid "Configure translation"
-msgstr ""
+msgstr "Übersetzung konfigurieren"
 
 #: dictee-setup.py:8203
 msgid "Go back to the translation page to change settings"
-msgstr ""
+msgstr "Zur Übersetzungsseite zurückkehren, um Einstellungen zu ändern"
 
 #: dictee-setup.py:8209
 msgid "Dictation test"
@@ -2132,19 +2207,22 @@ msgstr "Sprachbefehle-Übersicht"
 
 #: dictee-setup.py:8543 dictee-setup.py:16511
 msgid "Super + same key"
-msgstr ""
+msgstr "Super + dieselbe Taste"
 
 #: dictee-setup.py:8593
 msgid ""
 "Full precision. 25 languages with native punctuation and capitalization."
 msgstr ""
+"Volle Genauigkeit. 25 Sprachen mit nativer Zeichensetzung und Großschreibung."
 
 #: dictee-setup.py:8594
-#, python-format
+#, no-python-format
 msgid ""
 "Quantized variant. ~3.6× smaller, ~34 % faster on CPU. Best for CPU-only or "
 "low-VRAM GPU."
 msgstr ""
+"Quantisierte Variante. ~3,6× kleiner, auf CPU ~34 % flotter. Am besten für "
+"reine CPU oder GPU mit wenig VRAM."
 
 #: dictee-setup.py:8596
 msgid ""
@@ -2156,41 +2234,50 @@ msgstr ""
 
 #: dictee-setup.py:8626
 msgid "Recommended for your hardware"
-msgstr ""
+msgstr "Empfohlen für Ihre Hardware"
 
 #: dictee-setup.py:8653
 msgid ""
 "CPU mode forced — losing GPU acceleration ({:.1f} GB VRAM available). "
 "Parakeet FP32 will be ~6× slower."
 msgstr ""
+"CPU-Modus erzwungen — GPU-Beschleunigung geht verloren ({:.1f} GB VRAM "
+"verfügbar). Parakeet FP32 wird ~6× langsamer."
 
 #: dictee-setup.py:8658
 msgid ""
 "CPU mode forced — GPU has only {:.1f} GB VRAM, FP32 likely OOM anyway. INT8 "
 "on CPU is a reasonable fallback."
 msgstr ""
+"CPU-Modus erzwungen — GPU hat nur {:.1f} GB VRAM, FP32 würde ohnehin "
+"wahrscheinlich OOM. INT8 auf CPU ist ein sinnvoller Ausweg."
 
 #: dictee-setup.py:8663
 msgid "No GPU detected — CPU is the only option (this toggle is a no-op)."
 msgstr ""
+"Keine GPU erkannt — CPU ist die einzige Option (dieser Schalter hat keine "
+"Wirkung)."
 
 #: dictee-setup.py:8669
 msgid "GPU acceleration enabled ({:.1f} GB VRAM detected)."
-msgstr ""
+msgstr "GPU-Beschleunigung aktiviert ({:.1f} GB VRAM erkannt)."
 
 #: dictee-setup.py:8673
 msgid ""
 "GPU has only {:.1f} GB VRAM — Parakeet FP32 may OOM at load. Consider "
 "toggling CPU or using INT8."
 msgstr ""
+"GPU hat nur {:.1f} GB VRAM — Parakeet FP32 kann beim Laden OOM verursachen. "
+"Erwägen Sie CPU oder INT8."
 
 #: dictee-setup.py:8678
 msgid "No GPU detected — running on CPU regardless of this toggle."
-msgstr ""
+msgstr "Keine GPU erkannt — Ausführung auf CPU unabhängig von diesem Schalter."
 
 #: dictee-setup.py:8850
 msgid "Requires Parakeet-TDT 0.6B v3 (FP32 or int8) to be installed first"
 msgstr ""
+"Erfordert, dass zuerst Parakeet-TDT 0.6B v3 (FP32 oder int8) installiert ist"
 
 #: dictee-setup.py:8855 dictee-setup.py:9034 dictee-setup.py:9288
 #: dictee-setup.py:9590 dictee-setup.py:9633 dictee-setup.py:9761
@@ -2200,28 +2287,28 @@ msgstr "Modell löschen"
 
 #: dictee-setup.py:8888
 msgid "Parakeet TDT"
-msgstr ""
+msgstr "Parakeet TDT"
 
 #: dictee-setup.py:8932
 msgid "GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA"
-msgstr ""
+msgstr "GPU mit {:.1f} GB VRAM erkannt — FP32 ist am schnellsten auf CUDA"
 
 #: dictee-setup.py:8934
 msgid "GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits"
-msgstr ""
+msgstr "GPU mit nur {:.1f} GB VRAM — FP32 kann OOM verursachen, int8 passt"
 
 #: dictee-setup.py:8936
-#, python-format
+#, no-python-format
 msgid "No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)"
-msgstr ""
+msgstr "Keine GPU erkannt — int8 ist auf CPU ~34 % flotter (AVX-VNNI)"
 
 #: dictee-setup.py:8947
 msgid "Performance"
-msgstr ""
+msgstr "Leistung"
 
 #: dictee-setup.py:8987
 msgid "Sortformer"
-msgstr ""
+msgstr "Sortformer"
 
 #: dictee-setup.py:9027 dictee-setup.py:9172 dictee-setup.py:9243
 #: dictee-setup.py:9281 dictee-setup.py:9484 dictee-setup.py:10203
@@ -2273,27 +2360,27 @@ msgstr "Whisper-Engine deinstallieren"
 
 #: dictee-setup.py:9377
 msgid "Performance profile:"
-msgstr ""
+msgstr "Leistungsprofil:"
 
 #: dictee-setup.py:9381
 msgid "Auto (detected)"
-msgstr ""
+msgstr "Auto (erkannt)"
 
 #: dictee-setup.py:9382
 msgid "Ultra (beam=5)"
-msgstr ""
+msgstr "Ultra (beam=5)"
 
 #: dictee-setup.py:9383
 msgid "High (beam=3)"
-msgstr ""
+msgstr "Hoch (beam=3)"
 
 #: dictee-setup.py:9384
 msgid "Medium (beam=2)"
-msgstr ""
+msgstr "Mittel (beam=2)"
 
 #: dictee-setup.py:9385
 msgid "Low (beam=1)"
-msgstr ""
+msgstr "Niedrig (beam=1)"
 
 #: dictee-setup.py:9401
 msgid ""
@@ -2307,17 +2394,31 @@ msgid ""
 "Override Auto only when needed — e.g. force Low to save battery, or High on "
 "a shared machine where Auto under-counts your hardware."
 msgstr ""
+"Passt das Genauigkeits-Geschwindigkeits-Verhältnis von Whisper an Ihre "
+"Hardware an.\n"
+"\n"
+"• Auto (empfohlen): erkennt CPU, RAM und GPU und wählt das beste Profil.\n"
+"• Ultra / Hoch: genauer, langsamer (GPU oder starke CPU nötig).\n"
+"• Mittel / Niedrig: schneller, geringere Genauigkeit (kleine oder ältere "
+"Rechner).\n"
+"\n"
+"Auto nur bei Bedarf überschreiben — z. B. Niedrig erzwingen, um Akku zu "
+"sparen, oder Hoch auf einem gemeinsam genutzten Rechner, bei dem Auto Ihre "
+"Hardware unterschätzt."
 
 #: dictee-setup.py:9413
 #, python-brace-format
 msgid "Detected: {tier} — {cores} cores, {ram} GB RAM, {vram} GB VRAM"
-msgstr ""
+msgstr "Erkannt: {tier} — {cores} Kerne, {ram} GB RAM, {vram} GB VRAM"
 
 #: dictee-setup.py:9417
 msgid ""
 "Hardware automatically detected. Auto mode picks the profile shown here. "
 "Selecting a different profile in the combo overrides this detection."
 msgstr ""
+"Hardware automatisch erkannt. Der Auto-Modus wählt das hier angezeigte "
+"Profil. Die Auswahl eines anderen Profils im Kombinationsfeld überschreibt "
+"diese Erkennung."
 
 #: dictee-setup.py:9483
 msgid "Select a model and click Download"
@@ -2345,11 +2446,13 @@ msgstr "Echtzeit-Streaming (Text erscheint, während Sie sprechen)"
 
 #: dictee-setup.py:9686
 msgid "Final corrective pass on release (applies LLM/translation)"
-msgstr "Abschließender Korrekturdurchlauf beim Loslassen (wendet LLM/Übersetzung an)"
+msgstr ""
+"Abschließender Korrekturdurchlauf beim Loslassen (wendet LLM/Übersetzung an)"
 
 #: dictee-setup.py:9693
 msgid "Re-transcribe on release (batch accuracy, costs a short wait)"
-msgstr "Beim Loslassen neu transkribieren (Batch-Genauigkeit, kostet kurze Wartezeit)"
+msgstr ""
+"Beim Loslassen neu transkribieren (Batch-Genauigkeit, kostet kurze Wartezeit)"
 
 #: dictee-setup.py:9702
 msgid "Granularity:"
@@ -2784,17 +2887,20 @@ msgstr "Installierte Ollama-Modelle erneut scannen"
 
 #: dictee-setup.py:11649
 msgid "Disable reasoning (faster on qwen3, deepseek-r1, etc.)"
-msgstr ""
+msgstr "Reasoning deaktivieren (schneller bei qwen3, deepseek-r1 usw.)"
 
 #: dictee-setup.py:11653
 msgid ""
 "Reasoning models emit a long <think>...</think> block before the answer. "
 "Disable for push-to-talk dictation where latency matters more than nuance."
 msgstr ""
+"Reasoning-Modelle geben vor der Antwort einen langen <think>...</think>-"
+"Block aus. Bei Push-to-Talk-Diktat deaktivieren, wo Latenz wichtiger ist als "
+"Nuancen."
 
 #: dictee-setup.py:11660
 msgid "Default (model)"
-msgstr ""
+msgstr "Standard (Modell)"
 
 #: dictee-setup.py:11671
 msgid ""
@@ -2802,6 +2908,9 @@ msgid ""
 "(usually 2048-4096). Raise for long transcripts. Higher values use more VRAM/"
 "RAM."
 msgstr ""
+"Überschreibt die Größe des LLM-Kontextfensters. Standard = Modellvorgabe "
+"verwenden (meist 2048-4096). Für lange Transkripte erhöhen. Höhere Werte "
+"benötigen mehr VRAM/RAM."
 
 #: dictee-setup.py:11678
 msgid "Default"
@@ -3509,7 +3618,7 @@ msgstr "Installiert"
 
 #: dictee-setup.py:15861
 msgid "will be activated on Finish"
-msgstr ""
+msgstr "wird beim Fertigstellen aktiviert"
 
 #: dictee-setup.py:15866
 msgid "Not found"
@@ -3544,6 +3653,8 @@ msgid ""
 "Key '{key}' is not supported. Use a function key (F1-F24), the backtick (`) "
 "or a special key (Home, End, Insert, etc.)."
 msgstr ""
+"Die Taste „{key}“ wird nicht unterstützt. Verwenden Sie eine Funktionstaste "
+"(F1-F24), den Backtick (`) oder eine Sondertaste (Pos1, Ende, Einfg usw.)."
 
 #: dictee-setup.py:16388
 #, python-brace-format
@@ -3579,6 +3690,8 @@ msgid ""
 "This key is used for typing. Prefer a function key (F1-F24), the backtick "
 "(`) or a special key (Home, End, Insert, etc.)."
 msgstr ""
+"Diese Taste wird zum Tippen verwendet. Bevorzugen Sie eine Funktionstaste "
+"(F1-F24), den Backtick (`) oder eine Sondertaste (Pos1, Ende, Einfg usw.)."
 
 #: dictee-setup.py:16484
 msgid "Escape is used to cancel dictation. Choose another key."
@@ -3763,6 +3876,9 @@ msgid ""
 "Now pick a Whisper model (tiny / small / medium) and click Download — "
 "Whisper cannot transcribe until at least one model is downloaded."
 msgstr ""
+"Wählen Sie nun ein Whisper-Modell (tiny / small / medium) und klicken Sie "
+"auf Herunterladen — Whisper kann erst transkribieren, wenn mindestens ein "
+"Modell heruntergeladen ist."
 
 #: dictee-setup.py:17366
 #, python-brace-format
@@ -3846,6 +3962,10 @@ msgid ""
 "\n"
 "Pick a Whisper model (tiny / small / medium) and click Download."
 msgstr ""
+"Whisper ist installiert, aber es wurde kein Modell heruntergeladen.\n"
+"\n"
+"Wählen Sie ein Whisper-Modell (tiny / small / medium) und klicken Sie auf "
+"Herunterladen."
 
 #: dictee-setup.py:17424
 #, python-brace-format
@@ -4135,35 +4255,37 @@ msgstr "Server mit {n} Sprachen starten ({langs})?"
 
 #: dictee-tray.py:250
 msgid "Force CPU (loses GPU acceleration)"
-msgstr ""
+msgstr "CPU erzwingen (verliert GPU-Beschleunigung)"
 
 #: dictee-tray.py:252
 msgid "Force CPU"
-msgstr ""
+msgstr "CPU erzwingen"
 
 #: dictee-tray.py:253
 msgid "Force CPU (no GPU anyway)"
-msgstr ""
+msgstr "CPU erzwingen (ohnehin keine GPU)"
 
 #: dictee-tray.py:255
 msgid "GPU active"
-msgstr ""
+msgstr "GPU aktiv"
 
 #: dictee-tray.py:257
 msgid "GPU active (low VRAM)"
-msgstr ""
+msgstr "GPU aktiv (wenig VRAM)"
 
 #: dictee-tray.py:258
 msgid "No GPU detected"
-msgstr ""
+msgstr "Keine GPU erkannt"
 
 #: dictee-tray.py:276
 msgid "Canary requires NVIDIA GPU (encoder too heavy for CPU)"
-msgstr ""
+msgstr "Canary erfordert eine NVIDIA-GPU (Encoder zu schwer für CPU)"
 
 #: dictee-tray.py:278
 msgid "Canary requires NVIDIA GPU — none detected, transcription will fail"
 msgstr ""
+"Canary erfordert eine NVIDIA-GPU — keine erkannt, die Transkription wird "
+"fehlschlagen"
 
 #: dictee-tray.py:284
 msgid "Kyutai requires NVIDIA GPU (no CPU mode)"
@@ -4171,19 +4293,21 @@ msgstr "Kyutai benötigt eine NVIDIA-GPU (kein CPU-Modus)"
 
 #: dictee-tray.py:286
 msgid "Kyutai requires NVIDIA GPU — none detected, transcription will fail"
-msgstr "Kyutai benötigt eine NVIDIA-GPU — keine erkannt, die Transkription wird fehlschlagen"
+msgstr ""
+"Kyutai benötigt eine NVIDIA-GPU — keine erkannt, die Transkription wird "
+"fehlschlagen"
 
 #: dictee-tray.py:292
 msgid "Vosk runs on CPU by design"
-msgstr ""
+msgstr "Vosk läuft konzeptbedingt auf der CPU"
 
 #: dictee-tray.py:297
 msgid "Parakeet INT8 is CPU-optimized (GPU is 5× slower)"
-msgstr ""
+msgstr "Parakeet INT8 ist CPU-optimiert (GPU ist 5× langsamer)"
 
 #: dictee-tray.py:302
 msgid "No NVIDIA GPU detected"
-msgstr ""
+msgstr "Keine NVIDIA-GPU erkannt"
 
 # === dictee-tray ===
 #: dictee-tray.py:735 dictee-tray.py:1015 dictee-tray.py:1216
@@ -4232,7 +4356,7 @@ msgstr ""
 
 #: dictee-tray.py:828 dictee-tray.py:1300
 msgid "Force CPU (no GPU)"
-msgstr ""
+msgstr "CPU erzwingen (keine GPU)"
 
 #: dictee-tray.py:851 dictee-tray.py:1319
 msgid "Configure Dictée"
@@ -4293,6 +4417,7 @@ msgstr "Diktat — offline"
 #: dictee-tray.py:1266
 msgid "Open live meeting capture (record, then send to diarization)"
 msgstr ""
+"Live-Meeting-Aufnahme öffnen (aufnehmen, dann zur Sprechertrennung senden)"
 
 #: dictee-tray.py:1379
 #, python-brace-format

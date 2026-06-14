@@ -283,7 +283,7 @@ msgid "Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"
 msgstr ""
 
 #: dictee-setup.py:2009
-#, python-format
+#, no-python-format
 msgid ""
 "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>Same architecture as "
 "FP32 with 8-bit quantized weights.<br><br><b>~3.6× smaller</b>: 670 MB on "
@@ -1446,7 +1446,7 @@ msgid "Speak freely, type instantly"
 msgstr ""
 
 #: dictee-setup.py:7137
-#, python-format
+#, no-python-format
 msgid ""
 "100% local voice dictation for Linux with 25+ languages, translation, and "
 "real-time visual feedback."
@@ -1535,7 +1535,7 @@ msgid "No local translation backend installed"
 msgstr ""
 
 #: dictee-setup.py:7336
-#, python-format
+#, no-python-format
 msgid ""
 "dictee aims to keep everything 100% local.\n"
 "\n"
@@ -1598,7 +1598,7 @@ msgid "Speaker diarization with Sortformer add-on"
 msgstr ""
 
 #: dictee-setup.py:7523 dictee-setup.py:7537
-#, python-format
+#, no-python-format
 msgid "100% local, no internet needed"
 msgstr ""
 
@@ -1619,7 +1619,7 @@ msgid "Ideal for older or low-resource machines"
 msgstr ""
 
 #: dictee-setup.py:7530
-#, python-format
+#, no-python-format
 msgid "100% local, CPU only"
 msgstr ""
 
@@ -1677,7 +1677,7 @@ msgid "Excellent accuracy, comparable to Parakeet"
 msgstr ""
 
 #: dictee-setup.py:7559
-#, python-format
+#, no-python-format
 msgid "100% local, requires NVIDIA GPU (6+ Go VRAM)"
 msgstr ""
 
@@ -1702,7 +1702,7 @@ msgid "Configure the keyboard shortcuts for voice dictation."
 msgstr ""
 
 #: dictee-setup.py:7800 dictee-setup.py:7810
-#, python-format
+#, no-python-format
 msgid "100% local, no data sent to the internet"
 msgstr ""
 
@@ -2003,7 +2003,7 @@ msgid ""
 msgstr ""
 
 #: dictee-setup.py:8594
-#, python-format
+#, no-python-format
 msgid ""
 "Quantized variant. ~3.6× smaller, ~34 % faster on CPU. Best for CPU-only or "
 "low-VRAM GPU."
@@ -2072,7 +2072,7 @@ msgid "GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits"
 msgstr ""
 
 #: dictee-setup.py:8936
-#, python-format
+#, no-python-format
 msgid "No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)"
 msgstr ""
 
