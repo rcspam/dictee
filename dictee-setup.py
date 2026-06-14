@@ -1623,9 +1623,14 @@ class VenvInstallThread(QThread):
         try:
             self.progress.emit(_("Creating virtual environment…"))
             os.makedirs(self.venv_path, exist_ok=True)
+            # Run every child from the venv dir (just created, always exists).
+            # The GUI's own CWD may be gone — e.g. launched by install.sh from a
+            # temp dir the installer removes right after — which makes pip's
+            # os.getcwd() raise FileNotFoundError (issue #18, Fedora 44 KDE).
             result = subprocess.run(
                 ["python3", "-m", "venv", self.venv_path],
                 capture_output=True, text=True, timeout=60,
+                cwd=self.venv_path,
             )
             if result.returncode != 0:
                 self.done.emit(False, result.stderr.strip())
@@ -1644,6 +1649,7 @@ class VenvInstallThread(QThread):
             r_pip = subprocess.run(
                 pip_cmd + ["install", "--upgrade", "pip"],
                 capture_output=True, text=True, timeout=300,
+                cwd=self.venv_path,
             )
             if r_pip.returncode != 0:
                 self.done.emit(False,
@@ -1654,6 +1660,7 @@ class VenvInstallThread(QThread):
             result = subprocess.run(
                 pip_cmd + ["install", "--upgrade", self.pip_package],
                 capture_output=True, text=True, timeout=600,
+                cwd=self.venv_path,
             )
             if result.returncode != 0:
                 self.done.emit(False, result.stderr.strip()[-500:])
