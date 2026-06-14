@@ -664,3 +664,11 @@ msgstr "Перемикання backend…"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Попередній перегляд (тест мікрофона)"
+
+#: plasmoid/package/contents/ui/main.qml:448
+msgid "Kyutai requires NVIDIA GPU (no CPU mode)"
+msgstr "Kyutai потребує графічного процесора NVIDIA (без режиму CPU)"
+
+#: plasmoid/package/contents/ui/main.qml:449
+msgid "Kyutai requires NVIDIA GPU — none detected, transcription will fail"
+msgstr "Kyutai потребує графічного процесора NVIDIA — не виявлено жодного, транскрипція не вдасться"

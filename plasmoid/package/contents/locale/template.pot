@@ -542,3 +542,11 @@ msgstr ""
 #: package/contents/ui/FullRepresentation.qml
 msgid "Parakeet (faster)"
 msgstr ""
+
+#: plasmoid/package/contents/ui/main.qml:448
+msgid "Kyutai requires NVIDIA GPU (no CPU mode)"
+msgstr ""
+
+#: plasmoid/package/contents/ui/main.qml:449
+msgid "Kyutai requires NVIDIA GPU — none detected, transcription will fail"
+msgstr ""

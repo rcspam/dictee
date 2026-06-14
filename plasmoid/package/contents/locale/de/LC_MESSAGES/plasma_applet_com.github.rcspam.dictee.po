@@ -667,3 +667,11 @@ msgstr "Backend wird gewechselt…"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Vorschau (Mikrofontest)"
+
+#: plasmoid/package/contents/ui/main.qml:448
+msgid "Kyutai requires NVIDIA GPU (no CPU mode)"
+msgstr "Kyutai benötigt eine NVIDIA-GPU (kein CPU-Modus)"
+
+#: plasmoid/package/contents/ui/main.qml:449
+msgid "Kyutai requires NVIDIA GPU — none detected, transcription will fail"
+msgstr "Kyutai benötigt eine NVIDIA-GPU — keine erkannt, die Transkription wird fehlschlagen"
