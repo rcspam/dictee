@@ -114,6 +114,12 @@ launch_wizard() {
     esac
 
     info "Launching dictee-setup..."
+    # Launch from a directory that still exists after this installer exits.
+    # We currently sit in the temp dir that the EXIT trap removes moments later;
+    # a child inheriting that deleted CWD makes "python -m pip" fail with
+    # FileNotFoundError on os.getcwd() when the user later installs Vosk/Whisper
+    # from the setup window (observed on Fedora 44 KDE, issue #18).
+    cd / 2>/dev/null || true
     if [[ -n "$sudo_env" ]]; then
         nohup $sudo_env dictee-setup >/dev/null 2>&1 &
     else
