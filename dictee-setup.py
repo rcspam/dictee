@@ -3043,24 +3043,37 @@ class TestTranslateThread(QThread):
         if not self._wizard_env:
             return None
         backend = self._wizard_env.get("DICTEE_ASR_BACKEND", "parakeet")
-        if backend not in ("parakeet", "canary"):
+        # Map each backend to its daemon binary. Parakeet/Canary share the Rust
+        # transcribe-daemon (--socket arg); Vosk/Whisper are separate Python
+        # daemons that bind $DICTEE_TRANSCRIBE_SOCKET (set in env below).
+        daemon_bin = {
+            "parakeet": "transcribe-daemon",
+            "canary": "transcribe-daemon",
+            "vosk": "transcribe-daemon-vosk",
+            "whisper": "transcribe-daemon-whisper",
+        }.get(backend)
+        if not daemon_bin:
             return None
         sock = os.path.join(
             tempfile.gettempdir(),
             f"dictee-test-{os.getpid()}-{id(self)}.sock")
-        env = {**os.environ, **self._wizard_env}
-        # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
-        # without it the daemon can't dlopen libonnxruntime.so and fails to
-        # start (CPU builds link ORT statically and don't need it). The systemd
-        # service sets it via Environment=; this ad-hoc test daemon must too.
-        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
-        if os.path.isfile(ort_lib):
-            env["ORT_DYLIB_PATH"] = ort_lib
-        cmd = ["transcribe-daemon", "--socket", sock]
-        if self._model_dir:
-            cmd.append(self._model_dir)
-        if backend == "canary":
-            cmd.append("--canary")
+        env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        if backend in ("parakeet", "canary"):
+            # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
+            # without it the daemon can't dlopen libonnxruntime.so and fails to
+            # start (CPU builds link ORT statically and don't need it). The systemd
+            # service sets it via Environment=; this ad-hoc test daemon must too.
+            ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+            if os.path.isfile(ort_lib):
+                env["ORT_DYLIB_PATH"] = ort_lib
+            cmd = [daemon_bin, "--socket", sock]
+            if self._model_dir:
+                cmd.append(self._model_dir)
+            if backend == "canary":
+                cmd.append("--canary")
+        else:
+            # Vosk/Whisper read the socket path from the env above.
+            cmd = [daemon_bin]
         try:
             self._daemon_proc = subprocess.Popen(
                 cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -3357,26 +3370,37 @@ class TestDicteeThread(QThread):
         if not self._wizard_env:
             return None
         backend = self._wizard_env.get("DICTEE_ASR_BACKEND", "parakeet")
-        # Only Parakeet/Canary use transcribe-daemon. Vosk/Whisper have their
-        # own daemons (transcribe-daemon-vosk/whisper) — out of scope here.
-        if backend not in ("parakeet", "canary"):
+        # Map each backend to its daemon binary. Parakeet/Canary share the Rust
+        # transcribe-daemon (--socket arg); Vosk/Whisper are separate Python
+        # daemons that bind $DICTEE_TRANSCRIBE_SOCKET (set in env below).
+        daemon_bin = {
+            "parakeet": "transcribe-daemon",
+            "canary": "transcribe-daemon",
+            "vosk": "transcribe-daemon-vosk",
+            "whisper": "transcribe-daemon-whisper",
+        }.get(backend)
+        if not daemon_bin:
             return None
         sock = os.path.join(
             tempfile.gettempdir(),
             f"dictee-test-{os.getpid()}-{id(self)}.sock")
-        env = {**os.environ, **self._wizard_env}
-        # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
-        # without it the daemon can't dlopen libonnxruntime.so and fails to
-        # start (CPU builds link ORT statically and don't need it). The systemd
-        # service sets it via Environment=; this ad-hoc test daemon must too.
-        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
-        if os.path.isfile(ort_lib):
-            env["ORT_DYLIB_PATH"] = ort_lib
-        cmd = ["transcribe-daemon", "--socket", sock]
-        if self._model_dir:
-            cmd.append(self._model_dir)
-        if backend == "canary":
-            cmd.append("--canary")
+        env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        if backend in ("parakeet", "canary"):
+            # ORT_DYLIB_PATH must be set for CUDA dictee builds (load-dynamic):
+            # without it the daemon can't dlopen libonnxruntime.so and fails to
+            # start (CPU builds link ORT statically and don't need it). The systemd
+            # service sets it via Environment=; this ad-hoc test daemon must too.
+            ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+            if os.path.isfile(ort_lib):
+                env["ORT_DYLIB_PATH"] = ort_lib
+            cmd = [daemon_bin, "--socket", sock]
+            if self._model_dir:
+                cmd.append(self._model_dir)
+            if backend == "canary":
+                cmd.append("--canary")
+        else:
+            # Vosk/Whisper read the socket path from the env above.
+            cmd = [daemon_bin]
         try:
             self._daemon_proc = subprocess.Popen(
                 cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

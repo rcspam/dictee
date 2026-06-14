@@ -25,6 +25,11 @@ from vosk import Model, KaldiRecognizer, SetLogLevel
 
 def socket_path():
     """Chemin du socket par utilisateur (même logique que le daemon Rust)."""
+    # Honor an explicit override (dictee-setup wizard tests point an ad-hoc
+    # daemon at a private socket). Mirrors the Rust daemon/client.
+    override = os.environ.get("DICTEE_TRANSCRIBE_SOCKET")
+    if override:
+        return override
     xdg = os.environ.get("XDG_RUNTIME_DIR")
     if xdg:
         return os.path.join(xdg, "transcribe.sock")
