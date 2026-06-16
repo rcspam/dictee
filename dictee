@@ -104,13 +104,15 @@ case "$AUDIO_SOURCE" in
     *)               _PA_SOURCE="@DEFAULT_SOURCE@"; _IS_APP_SOURCE=true ;;
 esac
 
-# Keyboard layout detection for dotool (localectl > setxkbmap > us)
-if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
-    DOTOOL_XKB_LAYOUT=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
-    [ -z "$DOTOOL_XKB_LAYOUT" ] && DOTOOL_XKB_LAYOUT=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
-    DOTOOL_XKB_LAYOUT="${DOTOOL_XKB_LAYOUT:-us}"
-fi
-export DOTOOL_XKB_LAYOUT
+# Keyboard layout for dotool: match the compositor's ACTIVE layout+variant.
+# resolve_active_layout (dictee-common.sh) queries KDE (DBus) / GNOME (gsettings)
+# and falls back to the static system config. An explicit DOTOOL_XKB_LAYOUT in
+# dictee.conf wins (sway/Hyprland and other compositors without a queryable API
+# should set DOTOOL_XKB_LAYOUT [+ DOTOOL_XKB_VARIANT] there).
+_DOTOOL_LV=$(resolve_active_layout)
+DOTOOL_XKB_LAYOUT="${_DOTOOL_LV%%|*}"
+DOTOOL_XKB_VARIANT="${_DOTOOL_LV#*|}"
+export DOTOOL_XKB_LAYOUT DOTOOL_XKB_VARIANT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
 # Ensure the cache directory exists (minimal profiles, containers, fresh users)

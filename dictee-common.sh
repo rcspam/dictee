@@ -67,6 +67,60 @@ _dbg() {
 
 # === SHARED FUNCTIONS ===
 
+# Resolve the keyboard layout+variant that dotool must assume. dotool emits
+# evdev keycodes that the X server / Wayland compositor decodes with its ACTIVE
+# layout, so we must match it. There is no universal API for the active layout,
+# so query per desktop (KDE via DBus + kxkbrc, GNOME via gsettings), then fall
+# back to the static system config. Echoes "layout|variant".
+# An explicit DOTOOL_XKB_LAYOUT (env / dictee.conf) always wins — this is also
+# how users on sway/Hyprland/other compositors (no queryable API) pin theirs.
+resolve_active_layout() {
+    if [ -n "${DOTOOL_XKB_LAYOUT:-}" ]; then
+        printf '%s|%s' "$DOTOOL_XKB_LAYOUT" "${DOTOOL_XKB_VARIANT:-}"
+        return 0
+    fi
+
+    local layout="" variant="" _qdbus=""
+    local _b
+    for _b in qdbus6 qdbus-qt6 qdbus; do
+        command -v "$_b" >/dev/null 2>&1 && { _qdbus="$_b"; break; }
+    done
+
+    # KDE Plasma (X11 + Wayland): active index via DBus, codes via kxkbrc
+    # (the DBus interface does not expose the variant, only the layout list).
+    if [ -n "$_qdbus" ]; then
+        local _idx
+        _idx=$("$_qdbus" org.kde.keyboard /Layouts getLayout 2>/dev/null)
+        if [ -n "$_idx" ] && [ "$_idx" -ge 0 ] 2>/dev/null; then
+            local _kxkb="${XDG_CONFIG_HOME:-$HOME/.config}/kxkbrc" _i=$((_idx + 1))
+            if [ -f "$_kxkb" ]; then
+                layout=$(awk -F= -v i="$_i" '/^LayoutList=/{split($2,a,",")} END{gsub(/[\r ]/,"",a[i]); print a[i]}' "$_kxkb")
+                variant=$(awk -F= -v i="$_i" '/^VariantList=/{split($2,a,",")} END{gsub(/[\r ]/,"",a[i]); print a[i]}' "$_kxkb")
+            fi
+        fi
+    fi
+
+    # GNOME (X11 + Wayland): first entry of mru-sources is the active source.
+    # Format: [('xkb', 'us+altgr-intl'), ...]; xkb id is "layout+variant" or
+    # just "layout". The 'current' key is deprecated and ignored upstream.
+    if [ -z "$layout" ] && command -v gsettings >/dev/null 2>&1; then
+        local _src _id
+        _src=$(gsettings get org.gnome.desktop.input-sources mru-sources 2>/dev/null)
+        if printf '%s' "$_src" | grep -q "^\[('xkb'"; then
+            _id=$(printf '%s' "$_src" | sed -E "s/^\[\('xkb', *'([^']*)'\).*/\1/")
+            layout="${_id%%+*}"
+            [ "$_id" != "$layout" ] && variant="${_id#*+}"
+        fi
+    fi
+
+    # Static fallback: freedesktop localed, then setxkbmap, then us.
+    if [ -z "$layout" ]; then
+        layout=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
+        [ -z "$layout" ] && layout=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
+    fi
+    printf '%s|%s' "${layout:-us}" "$variant"
+}
+
 # Write state atomically (flock-protected)
 # Never overwrite "offline" with "idle" (user explicitly stopped the daemon)
 write_state() {
