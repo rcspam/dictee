@@ -100,17 +100,23 @@ resolve_active_layout() {
         fi
     fi
 
-    # GNOME (X11 + Wayland): first entry of mru-sources is the active source.
-    # Format: [('xkb', 'us+altgr-intl'), ...]; xkb id is "layout+variant" or
-    # just "layout". The 'current' key is deprecated and ignored upstream.
+    # GNOME (X11 + Wayland): mru-sources[0] is the active source once the user
+    # has switched layouts; with a single layout that was never switched it is
+    # empty (@a(ss) []), so fall back to sources[0] -- otherwise we'd lose a
+    # non-default layout/variant (e.g. a permanent us+altgr-intl) and drop its
+    # accents. Format: [('xkb', 'us+altgr-intl'), ...]; the xkb id is
+    # "layout+variant" or just "layout". ('current' is deprecated upstream.)
     if [ -z "$layout" ] && command -v gsettings >/dev/null 2>&1; then
-        local _src _id
-        _src=$(gsettings get org.gnome.desktop.input-sources mru-sources 2>/dev/null)
-        if printf '%s' "$_src" | grep -q "^\[('xkb'"; then
-            _id=$(printf '%s' "$_src" | sed -E "s/^\[\('xkb', *'([^']*)'\).*/\1/")
-            layout="${_id%%+*}"
-            [ "$_id" != "$layout" ] && variant="${_id#*+}"
-        fi
+        local _src _id _key
+        for _key in mru-sources sources; do
+            _src=$(gsettings get org.gnome.desktop.input-sources "$_key" 2>/dev/null)
+            if printf '%s' "$_src" | grep -q "^\[('xkb'"; then
+                _id=$(printf '%s' "$_src" | sed -E "s/^\[\('xkb', *'([^']*)'\).*/\1/")
+                layout="${_id%%+*}"
+                [ "$_id" != "$layout" ] && variant="${_id#*+}"
+                break
+            fi
+        done
     fi
 
     # Static fallback: freedesktop localed, then setxkbmap, then us.
