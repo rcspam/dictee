@@ -374,7 +374,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
-                ptt_mod_translate="", ptt_extra_devices="",
+                ptt_mod_translate="", ptt_extra_devices="", ptt_exclude_devices="",
                 postprocess=True, pp_translate=True,
                 pp_elisions=True, pp_elisions_it=True,
                 pp_spanish=True, pp_portuguese=True, pp_german=True,
@@ -468,6 +468,10 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
     # an empty string — otherwise the previous list would remain forever.
     # Quoted because device names contain spaces (e.g. "LogiOps Virtual Input").
     values["DICTEE_PTT_EXTRA_DEVICES"] = f'"{_sanitize_extra_devices(ptt_extra_devices or "")}"'
+    # Exclude list (issue #20): EXACT device names dictee-ptt must NOT grab, so
+    # another exclusive grabber (e.g. input-remapper) keeps them. Same quoting /
+    # sanitization as the whitelist; always written so the UI can clear it.
+    values["DICTEE_PTT_EXCLUDE_DEVICES"] = f'"{_sanitize_extra_devices(ptt_exclude_devices or "")}"'
     # Translation backend-specific
     if backend == "trans":
         values["DICTEE_TRANS_ENGINE"] = trans_engine
@@ -8363,6 +8367,39 @@ class DicteeSetupDialog(QDialog):
         lbl_extra_help.setStyleSheet("color: #888; font-size: 11px;")
         lay_sc.addWidget(lbl_extra_help)
 
+        lay_sc.addSpacing(8)
+        lbl_exclude = QLabel(_("Exclude input devices") + " :")
+        lay_sc.addWidget(lbl_exclude)
+
+        row_exclude = QHBoxLayout()
+        self.txt_ptt_exclude_devices = QLineEdit()
+        self.txt_ptt_exclude_devices.setPlaceholderText(
+            _("e.g. Logitech USB Receiver"))
+        self.txt_ptt_exclude_devices.setText(
+            self.conf.get("DICTEE_PTT_EXCLUDE_DEVICES", ""))
+        self.txt_ptt_exclude_devices.setToolTip(_tt(_(
+            "Comma-separated EXACT device names that push-to-talk must NOT grab, "
+            "so another tool can keep them (e.g. input-remapper grabbing your "
+            "physical keyboard). dictee then listens to that tool's forwarded "
+            "device instead. Match is exact, not substring. Most users leave "
+            "this empty.")))
+        row_exclude.addWidget(self.txt_ptt_exclude_devices, 1)
+
+        btn_detect_exclude = QPushButton(_("Detect…"))
+        btn_detect_exclude.setToolTip(_tt(_(
+            "Scan input devices and pick the physical keyboard to exclude")))
+        btn_detect_exclude.setFixedWidth(120)
+        btn_detect_exclude.clicked.connect(self._on_detect_exclude_devices)
+        row_exclude.addWidget(btn_detect_exclude)
+        lay_sc.addLayout(row_exclude)
+
+        lbl_exclude_help = QLabel(_(
+            "Only needed if a tool such as input-remapper grabs your keyboard "
+            "and push-to-talk stops working. Most users don't need this."))
+        lbl_exclude_help.setWordWrap(True)
+        lbl_exclude_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_sc.addWidget(lbl_exclude_help)
+
         # Voice commands cheatsheet — handled directly by dictee-ptt.
         # The "Same key + Mod" modes route Mod+PTT to dictee-cheatsheet
         # --toggle through dictee-ptt (same path as Alt+key for translate),
@@ -15957,7 +15994,16 @@ class DicteeSetupDialog(QDialog):
                 _("Key '{key}' not supported").format(key=key_str))
 
     def _on_detect_extra_devices(self):
-        """Dialog listing input devices; user checks virtual keyboards to whitelist."""
+        self._detect_devices_dialog("whitelist")
+
+    def _on_detect_exclude_devices(self):
+        self._detect_devices_dialog("exclude")
+
+    def _detect_devices_dialog(self, mode):
+        """Dialog listing input keyboards. mode='whitelist' lets the user check
+        VIRTUAL devices to listen to (DICTEE_PTT_EXTRA_DEVICES); mode='exclude'
+        lets the user check PHYSICAL devices to leave to another exclusive
+        grabber such as input-remapper (DICTEE_PTT_EXCLUDE_DEVICES, issue #20)."""
         try:
             with open("/proc/bus/input/devices") as f:
                 content = f.read()
@@ -15969,6 +16015,12 @@ class DicteeSetupDialog(QDialog):
         # (kept in sync — feedback loop protection).
         FILTER_PAT = re.compile(r"virtual|uinput", re.IGNORECASE)
         ALWAYS_BLOCKED = re.compile(r"dotool|dictee-ptt", re.IGNORECASE)
+        # UI-only heuristic (exclude mode): devices created by remapping tools
+        # carry the keystrokes dictee-ptt must LISTEN to (the "forwarded" output).
+        # Don't let the user exclude them by mistake. Does NOT affect dictee-ptt's
+        # grab filter — only which rows are checkable in the exclude picker.
+        FORWARDED_PAT = re.compile(r"input-remapper|forwarded|xremap|keyd|kanata",
+                                   re.IGNORECASE)
 
         devices = []  # (name, status) where status in {'whitelistable', 'physical', 'blocked'}
         for block in content.split("\n\n"):
@@ -15987,30 +16039,55 @@ class DicteeSetupDialog(QDialog):
             else:
                 devices.append((name, "physical"))
 
+        if mode == "exclude":
+            field = self.txt_ptt_exclude_devices
+            checkable = "physical"
+            intro = _("Keyboards detected on your system. Check the PHYSICAL "
+                      "keyboard that another tool grabs exclusively (e.g. "
+                      "input-remapper): dictee push-to-talk will leave it alone "
+                      "and listen to that tool's forwarded device instead.")
+        else:
+            field = self.txt_ptt_extra_devices
+            checkable = "whitelistable"
+            intro = _("Keyboards detected on your system. Check the virtual ones "
+                      "you want dictee to listen to (e.g. devices created by "
+                      "logiops, keyd, kanata, xremap or input-remapper).")
+
         dlg = QDialog(self)
         dlg.setWindowTitle(_("Detect input devices"))
-        dlg.setMinimumSize(580, 400)
+        dlg.setMinimumSize(440, 420)
         layout = QVBoxLayout(dlg)
-        layout.addWidget(QLabel(_(
-            "Keyboards detected on your system. Check the virtual ones you "
-            "want dictee to listen to (e.g. devices created by logiops, keyd, "
-            "kanata, xremap or input-remapper).")))
+        _lbl_intro = QLabel(intro)
+        _lbl_intro.setWordWrap(True)
+        layout.addWidget(_lbl_intro)
 
         list_widget = QListWidget()
-        current = {s.strip() for s in self.txt_ptt_extra_devices.text().split(",") if s.strip()}
+        current = {s.strip() for s in field.text().split(",") if s.strip()}
         for name, status in devices:
-            if status == "whitelistable":
+            # In exclude mode, only a TRUE physical keyboard is checkable: never a
+            # remapper's forwarded/output device (dictee-ptt must keep listening
+            # to those). In whitelist mode, only virtual devices are checkable.
+            is_forwarded = bool(FORWARDED_PAT.search(name))
+            if mode == "exclude":
+                checkable_here = (status == "physical") and not is_forwarded
+            else:
+                checkable_here = (status == "whitelistable")
+            if checkable_here:
                 label = name
+            elif status == "blocked":
+                label = _("{name}  [internal — always blocked]").format(name=name)
+            elif mode == "exclude" and is_forwarded:
+                label = _("{name}  [forwarded — dictee listens here, keep]").format(name=name)
             elif status == "physical":
                 label = _("{name}  [physical — listened by default]").format(name=name)
-            else:  # blocked
-                label = _("{name}  [internal — always blocked]").format(name=name)
+            else:  # virtual
+                label = _("{name}  [virtual]").format(name=name)
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            checked = name in current
-            item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
-            if status != "whitelistable":
+            item.setCheckState(Qt.CheckState.Checked if name in current
+                               else Qt.CheckState.Unchecked)
+            if not checkable_here:
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             list_widget.addItem(item)
         layout.addWidget(list_widget)
@@ -16028,7 +16105,7 @@ class DicteeSetupDialog(QDialog):
                 if (item.checkState() == Qt.CheckState.Checked
                         and item.flags() & Qt.ItemFlag.ItemIsEnabled):
                     selected.append(item.data(Qt.ItemDataRole.UserRole))
-            self.txt_ptt_extra_devices.setText(",".join(selected))
+            field.setText(",".join(selected))
             self._dirty = True
 
     def _check_ptt_warning(self, code, lbl):
@@ -18406,6 +18483,8 @@ class DicteeSetupDialog(QDialog):
         ptt_mod_translate = ""
         ptt_extra_devices = (self.txt_ptt_extra_devices.text().strip()
                              if hasattr(self, 'txt_ptt_extra_devices') else "")
+        ptt_exclude_devices = (self.txt_ptt_exclude_devices.text().strip()
+                               if hasattr(self, 'txt_ptt_exclude_devices') else "")
 
         translate_mode = self.cmb_translate_mode.currentData() if hasattr(self, 'cmb_translate_mode') else "disabled"
         if translate_mode == "same_alt":
@@ -18512,6 +18591,7 @@ class DicteeSetupDialog(QDialog):
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
                     ptt_extra_devices=ptt_extra_devices,
+                    ptt_exclude_devices=ptt_exclude_devices,
                     cheatsheet_mod=cheatsheet_mode,
                     cheatsheet_key_seq=cheatsheet_seq_str,
                     postprocess=postprocess,
@@ -18655,6 +18735,7 @@ class DicteeSetupDialog(QDialog):
             "DICTEE_PTT_KEY_TRANSLATE": str(ptt_key_translate) if ptt_key_translate else "",
             "DICTEE_PTT_MOD_TRANSLATE": ptt_mod_translate or "",
             "DICTEE_PTT_EXTRA_DEVICES": ptt_extra_devices or "",
+            "DICTEE_PTT_EXCLUDE_DEVICES": ptt_exclude_devices or "",
             # dictee-ptt now also handles the cheatsheet shortcut (Mod+key →
             # toggle dictee-cheatsheet). Changing DICTEE_CHEATSHEET_MOD must
             # therefore restart the daemon so it picks up the new modifier.
