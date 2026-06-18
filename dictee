@@ -230,18 +230,21 @@ safe_dotool() {
 
 # Release all keyboard modifiers — called from trap and before ctrl+* commands
 # to guarantee we never leave a modifier stuck if dotool is interrupted mid-stream.
+# dotool keyup/keydown need the full key names (leftctrl/leftshift/leftalt/leftmeta);
+# the bare ctrl/shift/alt/super are chord-modifier prefixes only and are rejected as
+# keys ("impossible key for layout"), which silently turned this release into a no-op.
 release_modifiers() {
     if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | sg input -c 'dotool' 2>/dev/null || true
+        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | sg input -c 'dotool' 2>/dev/null || true
     else
-        printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | dotool 2>/dev/null || true
+        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | dotool 2>/dev/null || true
     fi
 }
 
 # Safe wrapper for modifier-using key commands — releases modifiers before and after
 safe_dotool_key_ctrl() {
     local combo="$1"  # e.g. "ctrl+V", "ctrl+j"
-    printf 'keyup ctrl\nkey %s\nkeyup ctrl\n' "$combo" | safe_dotool
+    printf 'keyup leftctrl\nkey %s\nkeyup leftctrl\n' "$combo" | safe_dotool
 }
 
 # Type text via dotool, with line break handling and sanitization
