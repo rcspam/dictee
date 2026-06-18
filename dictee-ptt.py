@@ -148,6 +148,15 @@ RESCAN_INTERVAL = 10   # secondes entre rescans claviers (hotplug)
 # remapping clavier (logiops, keyd, evsieve, kmonad, etc.) de servir de PTT.
 EXTRA_KEYBOARDS = []
 
+# Blacklist de noms EXACTS (lowercase) à NE JAMAIS grabber. Peuplée dans main()
+# depuis DICTEE_PTT_EXCLUDE_DEVICES. Laisse un périphérique à un autre outil qui le
+# grabbe en exclusif (ex. input-remapper sur le clavier physique) : dictee-ptt
+# l'ignore et grabbe à la place le device "forwarded". Match EXACT (pas sous-chaîne)
+# car le device forwarded d'input-remapper EMBARQUE le nom du physique
+# ("input-remapper <physique> forwarded") : une sous-chaîne exclurait aussi le
+# forwarded qu'on veut garder. Prioritaire sur la whitelist. Cf issue #20.
+EXCLUDE_KEYBOARDS = []
+
 # Verbose diagnostic logs (e.g. slow keyboard rescan, issue #8). Enabled in
 # main() from DICTEE_DEBUG ("Debug mode" checkbox in dictee-setup / dictee.conf).
 DEBUG = False
@@ -184,7 +193,9 @@ def find_keyboards_evdev():
         if (EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30
                 and EV_REL not in caps and EV_ABS not in caps):
             name = dev.name.lower()
-            if any(x in name for x in EXTRA_KEYBOARDS):
+            if name in EXCLUDE_KEYBOARDS:
+                dev.close()
+            elif any(x in name for x in EXTRA_KEYBOARDS):
                 devs.append(dev)
             elif not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
                 devs.append(dev)
@@ -228,8 +239,11 @@ def find_keyboards_raw():
         # Require the kbd handler but reject pointer devices.
         if "kbd" in handlers_line and "mouse" not in handlers_line and not has_pointer:
             name_lower = name_line.lower()
-            allowed = any(x in name_lower for x in EXTRA_KEYBOARDS) or \
-                not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)
+            _m_name = re.search(r'name="([^"]*)"', name_lower)
+            excluded = (_m_name.group(1) if _m_name else "") in EXCLUDE_KEYBOARDS
+            allowed = (not excluded) and (
+                any(x in name_lower for x in EXTRA_KEYBOARDS) or
+                not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE))
             if allowed:
                 m = re.search(r"event\d+", handlers_line)
                 if m:
@@ -639,7 +653,12 @@ def run_evdev(ptt):
     try:
         # Créer le clavier virtuel pour ré-émettre les événements non-PTT
         ui = UInput(name="dictee-ptt-passthrough")
-        print(f"[ptt] uinput: {ui.device.path}")
+        # ui.device is evdev's read-back InputDevice; it can be None when the
+        # device node can't be resolved (e.g. another tool such as input-remapper
+        # is creating/destroying devices at the same moment). It's only used for
+        # this debug line, so guard it — re-emission uses `ui` directly. Without
+        # the guard, ui.device.path raised AttributeError and crashed the daemon.
+        print(f"[ptt] uinput: {ui.device.path if ui.device else '(unresolved)'}")
 
         # Grab tous les claviers
         for dev in devices:
@@ -889,7 +908,7 @@ def run_raw(ptt):
 # ─── Main ───────────────────────────────────────────────────────────
 
 def main():
-    global DICTEE_BIN, EXTRA_KEYBOARDS, DEBUG
+    global DICTEE_BIN, EXTRA_KEYBOARDS, EXCLUDE_KEYBOARDS, DEBUG
 
     mode = "toggle"
     key_dictee = 67   # F9
@@ -904,6 +923,11 @@ def main():
     EXTRA_KEYBOARDS = [x.strip().lower() for x in extra_raw.split(",") if x.strip()]
     if EXTRA_KEYBOARDS:
         print(f"[ptt] extra keyboards whitelist: {EXTRA_KEYBOARDS}")
+
+    exclude_raw = conf.get("DICTEE_PTT_EXCLUDE_DEVICES", "")
+    EXCLUDE_KEYBOARDS = [x.strip().lower() for x in exclude_raw.split(",") if x.strip()]
+    if EXCLUDE_KEYBOARDS:
+        print(f"[ptt] exclude keyboards blacklist: {EXCLUDE_KEYBOARDS}")
 
     mode = conf.get("DICTEE_PTT_MODE", mode)
 
