@@ -219,12 +219,20 @@ else
     _DOTOOL_NEEDS_SG=1
 fi
 
-# Safe dotool wrapper for trap ERR
+# Safe dotool wrapper for trap ERR.
+# DICTEE_DOTOOL_SETTLE (seconds, default 0 = off) delays the keystrokes after
+# dotool has created its uinput device, giving a slow compositor time to bind
+# the new device before keys are emitted. Needed on setups where input-remapper's
+# udev autoload rule fires on every dotool device and pushes the bind past
+# dotool's built-in ~600 ms settle, dropping the typed text (GH #19). dotool
+# creates the device at startup, before reading stdin, so sleeping before `cat`
+# delays only the keystrokes, not the device creation.
 safe_dotool() {
+    local settle="${DICTEE_DOTOOL_SETTLE:-0}"
     if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        sg input -c 'dotool' 2>/dev/null || true
+        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | sg input -c 'dotool' 2>/dev/null || true
     else
-        if dotool 2>/dev/null; then true; fi
+        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | dotool 2>/dev/null || true
     fi
 }
 
