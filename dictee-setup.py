@@ -46,7 +46,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
     QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
     QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-    QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
+    QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox, QDoubleSpinBox,
     QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
     QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
     QGraphicsOpacityEffect,
@@ -370,6 +370,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
                 ptt_mod_translate="", ptt_extra_devices="", ptt_exclude_devices="",
+                dotool_settle="0",
                 postprocess=True, pp_translate=True,
                 pp_elisions=True, pp_elisions_it=True,
                 pp_spanish=True, pp_portuguese=True, pp_german=True,
@@ -467,6 +468,13 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
     # another exclusive grabber (e.g. input-remapper) keeps them. Same quoting /
     # sanitization as the whitelist; always written so the UI can clear it.
     values["DICTEE_PTT_EXCLUDE_DEVICES"] = f'"{_sanitize_extra_devices(ptt_exclude_devices or "")}"'
+    # Typing settle delay (GH #19). Always written so the UI can reset it to 0.
+    # Coerced to a plain non-negative number; dictee feeds it to `sleep`.
+    try:
+        _settle = max(0.0, float(dotool_settle or 0))
+    except (TypeError, ValueError):
+        _settle = 0.0
+    values["DICTEE_DOTOOL_SETTLE"] = f"{_settle:g}"
     # Translation backend-specific
     if backend == "trans":
         values["DICTEE_TRANS_ENGINE"] = trans_engine
@@ -8405,6 +8413,45 @@ class DicteeSetupDialog(QDialog):
         lbl_exclude_help.setWordWrap(True)
         lbl_exclude_help.setStyleSheet("color: #888; font-size: 11px;")
         lay_sc.addWidget(lbl_exclude_help)
+
+        # Typing settle delay (advanced) — works around dropped text on Wayland
+        # setups where a tool like input-remapper installs a udev rule that runs
+        # on every newly created input device, including the virtual keyboard
+        # dictee creates for each dictation. That delays the compositor binding
+        # past dotool's built-in settle, so the keystrokes are emitted before
+        # anything is listening and the text is lost (GH #19). A small delay
+        # gives the compositor time to bind the device. 0 = disabled (default).
+        lay_sc.addSpacing(8)
+        lbl_settle = QLabel(_("Typing delay") + " :")
+        lay_sc.addWidget(lbl_settle)
+
+        row_settle = QHBoxLayout()
+        self.spin_dotool_settle = QDoubleSpinBox()
+        self.spin_dotool_settle.setRange(0.0, 10.0)
+        self.spin_dotool_settle.setSingleStep(0.5)
+        self.spin_dotool_settle.setDecimals(1)
+        self.spin_dotool_settle.setSuffix(" s")
+        try:
+            self.spin_dotool_settle.setValue(
+                float(self.conf.get("DICTEE_DOTOOL_SETTLE", "0") or "0"))
+        except ValueError:
+            self.spin_dotool_settle.setValue(0.0)
+        self.spin_dotool_settle.setFixedWidth(120)
+        self.spin_dotool_settle.setToolTip(_tt(_(
+            "Delay before the dictated text is typed, in seconds. Leave at 0 "
+            "unless dictation types nothing on Wayland. Tools like "
+            "input-remapper can delay the virtual keyboard binding so the text "
+            "is sent too early and lost; a delay of 1-2 s fixes it. 0 = off.")))
+        row_settle.addWidget(self.spin_dotool_settle)
+        row_settle.addStretch(1)
+        lay_sc.addLayout(row_settle)
+
+        lbl_settle_help = QLabel(_(
+            "Set 1-2 s only if dictation types nothing on Wayland (e.g. with "
+            "input-remapper). 0 = off. Most users don't need this."))
+        lbl_settle_help.setWordWrap(True)
+        lbl_settle_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_sc.addWidget(lbl_settle_help)
 
         # Voice commands cheatsheet — handled directly by dictee-ptt.
         # The "Same key + Mod" modes route Mod+PTT to dictee-cheatsheet
@@ -18612,6 +18659,8 @@ class DicteeSetupDialog(QDialog):
                     ptt_mod_translate=ptt_mod_translate,
                     ptt_extra_devices=ptt_extra_devices,
                     ptt_exclude_devices=ptt_exclude_devices,
+                    dotool_settle=(self.spin_dotool_settle.value()
+                                   if hasattr(self, 'spin_dotool_settle') else 0),
                     cheatsheet_mod=cheatsheet_mode,
                     cheatsheet_key_seq=cheatsheet_seq_str,
                     postprocess=postprocess,
