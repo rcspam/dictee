@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 # Packaging deps manifest audit — see build-deb.sh for rationale.
 python3 packaging/audit-deps.py
 
-VERSION="1.3.5"
+VERSION="1.3.6"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 
@@ -266,7 +266,7 @@ build_rpm_cuda() {
     cat > "$RPMBUILD_DIR/SPECS/dictee-cuda.spec" << EOF
 Name:           dictee-cuda
 Version:        $VERSION
-Release:        2
+Release:        1
 Summary:        Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
 License:        GPL-3.0-or-later
 URL:            https://github.com/rcspam/dictee
@@ -493,7 +493,7 @@ build_rpm_cpu() {
     cat > "$RPMBUILD_DIR/SPECS/dictee-cpu.spec" << EOF
 Name:           dictee-cpu
 Version:        $VERSION
-Release:        2
+Release:        1
 Summary:        Fast speech-to-text with NVIDIA Parakeet (CPU version)
 License:        GPL-3.0-or-later
 URL:            https://github.com/rcspam/dictee
@@ -697,7 +697,7 @@ build_rpm_plasmoid() {
     cat > "$RPMBUILD_DIR/SPECS/dictee-plasmoid.spec" << EOF
 Name:           dictee-plasmoid
 Version:        $VERSION
-Release:        2
+Release:        1
 Summary:        KDE Plasma 6 widget for dictee voice dictation
 License:        GPL-3.0-or-later
 URL:            https://github.com/rcspam/dictee
