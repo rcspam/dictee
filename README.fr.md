@@ -247,7 +247,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Épingler une version précise
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.5
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.6
 
 # Non interactif
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -260,22 +260,22 @@ Téléchargez depuis [Releases](../../releases).
 **Ubuntu / Debian (CPU) :**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.5_amd64.deb
+sudo apt install ./dictee-cpu_1.3.6-1_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU) :** nécessite le dépôt APT CUDA NVIDIA — voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) pour la configuration unique, puis :
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.5_amd64.deb
+sudo apt install ./dictee-cuda_1.3.6-1_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU) :**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.5-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.6-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.5-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU) :** ajoutez d'abord le dépôt CUDA (voir [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), puis `dictee-cuda-1.3.6-1.x86_64.rpm`.
 
 **Arch Linux (AUR) :** `PKGBUILD` à la racine du dépôt (x86_64 + aarch64). Clonez + `makepkg -si`.
 
@@ -284,8 +284,8 @@ sudo dnf install ./dictee-cpu-1.3.5-1.x86_64.rpm
 **Autres distros (tarball) :**
 
 ```bash
-tar xzf dictee-1.3.5_amd64.tar.gz
-cd dictee-1.3.5
+tar xzf dictee-1.3.6_amd64.tar.gz
+cd dictee-1.3.6
 sudo ./install.sh
 ```
 
