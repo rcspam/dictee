@@ -11,6 +11,11 @@ edition = "2021"
 whisper-rs = "0.16"
 hound = "3.5"
 
+[features]
+# GPU backends for whisper.cpp. Build with: cargo run --release --features cuda
+cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
+
 [[bin]]
 name = "poc"
 path = "src/main.rs"
