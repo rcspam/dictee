@@ -13,6 +13,22 @@ use whisper_rs::{
 };
 
 fn main() {
+    // `--devices`: prove vendor-agnostic VRAM detection via whisper-rs Vulkan API.
+    // Enumerates every Vulkan GPU (NVIDIA/AMD/Intel) with free+total VRAM, no model load.
+    #[cfg(feature = "vulkan")]
+    if std::env::args().nth(1).as_deref() == Some("--devices") {
+        for d in whisper_rs::vulkan::list_devices() {
+            println!(
+                "device {}: {} | VRAM total {:.2} GiB, free {:.2} GiB",
+                d.id,
+                d.name,
+                d.vram.total as f64 / (1024.0 * 1024.0 * 1024.0),
+                d.vram.free as f64 / (1024.0 * 1024.0 * 1024.0),
+            );
+        }
+        return;
+    }
+
     let mut args = std::env::args().skip(1);
     let model_path = args.next().expect("usage: poc <model.bin> <audio.wav> [lang]");
     let wav_path = args.next().expect("usage: poc <model.bin> <audio.wav> [lang]");
