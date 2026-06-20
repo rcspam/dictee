@@ -407,7 +407,22 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 
 ## Feuille de route
 
-**v1.3.5 (actuelle)** — **Modèle Parakeet Int8 + corrections + fiabilité** :
+**v1.4+ (prévu)**
+- **Hotword boosting** — biaiser le décodage ASR vers des noms personnalisés (shallow fusion sur les logits TDT, Parakeet uniquement)
+- **Whisper translate** — traduction multi-cible via `task="translate"` (EN uniquement, hors ligne)
+- **Backend Moonshine** CPU
+- **CLI speech-to-text** — piper de l'audio, récupérer du texte
+- **VAD** — dictée mains libres sans push-to-talk
+- **Transcription streaming** avec affichage en direct
+- **Overlay intégré** — remplacer `animation-speech` externe
+- Packaging **AppImage / Flatpak**
+- Applets **COSMIC / GNOME Shell** (contributions bienvenues !)
+
+**v1.3.6 (actuelle)** : **compatibilité input-remapper + correction de la disposition clavier** :
+- **Fonctionne avec input-remapper** ([#19](https://github.com/rcspam/dictee/issues/19), [#20](https://github.com/rcspam/dictee/issues/20)) : la dictée ne perd plus de texte et le push-to-talk ne casse plus quand input-remapper est installé. Deux nouvelles options avancées (délai de frappe, exclusion de périphériques) sur la page Extra options.
+- **Caractères corrects sur toutes les dispositions clavier** : dictee détecte désormais votre disposition active (KDE/GNOME) pour que le texte tapé y corresponde, corrigeant les accents perdus et les lettres permutées sur les claviers non-US.
+
+**v1.3.5** — **Modèle Parakeet Int8 + corrections + fiabilité** :
 - **Nouveau modèle Parakeet Int8 — plus réactif sur CPU** — meilleures performances par défaut, et le modèle Parakeet compact tourne désormais là où il est le plus rapide.
 - **Bascule GPU/CPU plus claire** — le sélecteur GPU/CPU des réglages se grise et affiche CPU dès que le GPU n'est pas réellement utilisable (pas de carte NVIDIA, build CPU, ou le modèle int8), pour toujours refléter ce qui tourne vraiment.
 - **Changement de modèle plus fluide** — la bascule int8 / FP32 devient disponible dès que les deux variantes sont installées, avec une notification confirmant chaque changement.
@@ -438,17 +453,6 @@ Pour les rapports de bugs et contournements, voir [Troubleshooting](https://gith
 - **Fallback automatique CUDA → CPU au runtime** + override `DICTEE_FORCE_CPU=1` (v1.3.2).
 - **Cohérence du packaging cross-distro** — hooks de groupes `.install` Arch, `python-evdev` en dépendance dure, wrappers `sg docker` / `sg input`, règle udev `0660` directe (v1.3.3, clôture [#5](https://github.com/rcspam/dictee/issues/5) + [#6](https://github.com/rcspam/dictee/issues/6)).
 - **Exceptions keepcaps short-text** (7 langues), mode de correspondance étendu, dictée des numéros de version, sûreté multi-utilisateur, toggles cross-process du plasmoid, 682 tests postprocess + 148 tests pipeline (v1.3.0).
-
-**v1.4+ (prévu)**
-- **Hotword boosting** — biaiser le décodage ASR vers des noms personnalisés (shallow fusion sur les logits TDT, Parakeet uniquement)
-- **Whisper translate** — traduction multi-cible via `task="translate"` (EN uniquement, hors ligne)
-- **Backend Moonshine** CPU
-- **CLI speech-to-text** — piper de l'audio, récupérer du texte
-- **VAD** — dictée mains libres sans push-to-talk
-- **Transcription streaming** avec affichage en direct
-- **Overlay intégré** — remplacer `animation-speech` externe
-- Packaging **AppImage / Flatpak**
-- Applets **COSMIC / GNOME Shell** (contributions bienvenues !)
 
 → Historique complet : [Wiki Changelog](https://github.com/rcspam/dictee/wiki/Changelog)
 
