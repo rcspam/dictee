@@ -104,13 +104,15 @@ case "$AUDIO_SOURCE" in
     *)               _PA_SOURCE="@DEFAULT_SOURCE@"; _IS_APP_SOURCE=true ;;
 esac
 
-# Keyboard layout detection for dotool (localectl > setxkbmap > us)
-if [ -z "$DOTOOL_XKB_LAYOUT" ]; then
-    DOTOOL_XKB_LAYOUT=$(localectl status 2>/dev/null | awk '/X11 Layout/{print $3}')
-    [ -z "$DOTOOL_XKB_LAYOUT" ] && DOTOOL_XKB_LAYOUT=$(setxkbmap -query 2>/dev/null | awk '/layout/{print $2}')
-    DOTOOL_XKB_LAYOUT="${DOTOOL_XKB_LAYOUT:-us}"
-fi
-export DOTOOL_XKB_LAYOUT
+# Keyboard layout for dotool: match the compositor's ACTIVE layout+variant.
+# resolve_active_layout (dictee-common.sh) queries KDE (DBus) / GNOME (gsettings)
+# and falls back to the static system config. An explicit DOTOOL_XKB_LAYOUT in
+# dictee.conf wins (sway/Hyprland and other compositors without a queryable API
+# should set DOTOOL_XKB_LAYOUT [+ DOTOOL_XKB_VARIANT] there).
+_DOTOOL_LV=$(resolve_active_layout)
+DOTOOL_XKB_LAYOUT="${_DOTOOL_LV%%|*}"
+DOTOOL_XKB_VARIANT="${_DOTOOL_LV#*|}"
+export DOTOOL_XKB_LAYOUT DOTOOL_XKB_VARIANT
 
 RECORDING_FILE="$HOME/.cache/tmp_recording_dictee.wav"
 # Ensure the cache directory exists (minimal profiles, containers, fresh users)
@@ -217,29 +219,40 @@ else
     _DOTOOL_NEEDS_SG=1
 fi
 
-# Safe dotool wrapper for trap ERR
+# Safe dotool wrapper for trap ERR.
+# DICTEE_DOTOOL_SETTLE (seconds, default 0 = off) delays the keystrokes after
+# dotool has created its uinput device, giving a slow compositor time to bind
+# the new device before keys are emitted. Needed on setups where input-remapper's
+# udev autoload rule fires on every dotool device and pushes the bind past
+# dotool's built-in ~600 ms settle, dropping the typed text (GH #19). dotool
+# creates the device at startup, before reading stdin, so sleeping before `cat`
+# delays only the keystrokes, not the device creation.
 safe_dotool() {
+    local settle="${DICTEE_DOTOOL_SETTLE:-0}"
     if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        sg input -c 'dotool' 2>/dev/null || true
+        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | sg input -c 'dotool' 2>/dev/null || true
     else
-        if dotool 2>/dev/null; then true; fi
+        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | dotool 2>/dev/null || true
     fi
 }
 
 # Release all keyboard modifiers — called from trap and before ctrl+* commands
 # to guarantee we never leave a modifier stuck if dotool is interrupted mid-stream.
+# dotool keyup/keydown need the full key names (leftctrl/leftshift/leftalt/leftmeta);
+# the bare ctrl/shift/alt/super are chord-modifier prefixes only and are rejected as
+# keys ("impossible key for layout"), which silently turned this release into a no-op.
 release_modifiers() {
     if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | sg input -c 'dotool' 2>/dev/null || true
+        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | sg input -c 'dotool' 2>/dev/null || true
     else
-        printf 'keyup ctrl\nkeyup shift\nkeyup alt\nkeyup super\n' | dotool 2>/dev/null || true
+        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | dotool 2>/dev/null || true
     fi
 }
 
 # Safe wrapper for modifier-using key commands — releases modifiers before and after
 safe_dotool_key_ctrl() {
     local combo="$1"  # e.g. "ctrl+V", "ctrl+j"
-    printf 'keyup ctrl\nkey %s\nkeyup ctrl\n' "$combo" | safe_dotool
+    printf 'keyup leftctrl\nkey %s\nkeyup leftctrl\n' "$combo" | safe_dotool
 }
 
 # Type text via dotool, with line break handling and sanitization
@@ -973,6 +986,13 @@ fi
 
 copy_to_clipboard() {
     [ "$CLIPBOARD" = true ] || return 0
+    force_copy_to_clipboard "$1"
+}
+
+# Populate the clipboard regardless of the DICTEE_CLIPBOARD preference. The
+# non-Latin paste path needs the text on the clipboard even when clipboard
+# mode is off, otherwise Ctrl+V pastes whatever was there before.
+force_copy_to_clipboard() {
     if command -v wl-copy >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then
         echo -n "$1" | wl-copy
     elif command -v xclip >/dev/null 2>&1; then
@@ -1631,6 +1651,10 @@ if [ -f "$PIDFILE" ]; then
             # Use paste for non-Latin scripts (Cyrillic, Arabic, CJK, etc.)
             # dotool "type" cannot handle these characters, use clipboard paste
             if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
+                # Paste needs the text on the clipboard even when clipboard
+                # mode is off (default since 1.3.5), so force it here. Proper
+                # clipboard save/restore is deferred to 1.4.
+                force_copy_to_clipboard "$translated"
                 sleep 0.1
                 # lowercase v: "ctrl+V" would be Ctrl+Shift+v (dotool has no uppercase
                 # key → V = Shift+v), colliding with app shortcuts such as Awesome
@@ -1778,6 +1802,9 @@ else
     if ! kill -0 $! 2>/dev/null; then
         _dbg "start-recording: FAILED — pw-record died immediately"
         close_notification
+        # Re-mute the mic if we unmuted it and unmute the output sink if we
+        # muted it — otherwise this early exit leaves the audio state altered.
+        restore_audio
         rm -f "$PIDFILE" "${PIDFILE}.lock" "$RECORDING_FILE"
         cleanup_session
         write_state "idle"

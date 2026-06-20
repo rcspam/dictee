@@ -76,6 +76,14 @@ DICTEE_PTT_KEY=67
 # Find your device name with: cat /proc/bus/input/devices
 #DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
 
+# Typing settle delay, in seconds (default 0 = off). dictee types the
+# transcript through a virtual keyboard it creates for each dictation. On some
+# Wayland setups a tool like input-remapper installs a udev rule that runs on
+# every new input device, delaying the compositor binding past the built-in
+# settle, so the keystrokes are emitted before anything listens and the text is
+# lost. Set 1-2 s to give the compositor time to bind. Most users leave this 0.
+#DICTEE_DOTOOL_SETTLE=0
+
 # ============================================================================
 # Display and feedback
 # ============================================================================

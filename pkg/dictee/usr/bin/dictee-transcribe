@@ -2192,6 +2192,11 @@ class TranscribeWindow(QDialog):
         self._file_input = QLineEdit()
         self._file_input.setPlaceholderText(_("Select an audio file..."))
         self._file_input.setToolTip(_("Path to the audio file to transcribe"))
+        # Decline drops on the line edit itself: QLineEdit's default handler
+        # inserts the raw "file://..." URI text. Letting drops bubble up to the
+        # window's dropEvent (which uses QUrl.toLocalFile()) yields a clean
+        # local path every time, regardless of where the file is dropped.
+        self._file_input.setAcceptDrops(False)
         lay_file.addWidget(self._file_input, 1)
 
         self._btn_browse = QPushButton(_("Browse..."))
@@ -3912,8 +3917,12 @@ class TranscribeWindow(QDialog):
         self._diarize_worker = None
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
+        self._lbl_status.setVisible(True)
         self._transcription_in_progress = False
         self._update_transcribe_btn()
+        # Stop the tab spinner — otherwise it keeps spinning forever on an
+        # empty/failed diarization (e.g. "Empty transcription from daemon").
+        self._stop_all_spinners()
 
     # === Chunked long-file pipeline slots ===
 
@@ -3934,8 +3943,17 @@ class TranscribeWindow(QDialog):
     def _on_chunked_done(self, raw_output):
         """Final output ready: forward to the common _finish_transcription path."""
         _dbg(f"_on_chunked_done: output_len={len(raw_output)}")
+        worker = self._chunked_worker
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
+        # self._was_diarized is a shared flag that _on_tab_changed overwrites
+        # with the visible tab's value; a tab switch during the (minutes-long)
+        # chunked run can flip it, making _finish_transcription skip DIARIZE_RE
+        # parsing — no grouping, rename panel, slider markers or speaker count,
+        # and dictee-postprocess then mangles the raw "Speaker N:" labels.
+        # Re-affirm from this run's worker, mirroring _on_diarize_done.
+        if worker is not None:
+            self._was_diarized = worker._diarize
         self._restart_daemon_if_stopped()
         self._finish_transcription(raw_output)
 
@@ -3989,6 +4007,7 @@ class TranscribeWindow(QDialog):
             self._segments = []
             self._refresh_rename_panel_for_target()
             self._update_translate_btn()
+            self._stop_all_spinners()
             return
 
         self._retry_done = False
@@ -4013,7 +4032,12 @@ class TranscribeWindow(QDialog):
         self._text_edit._raw_text = raw_output
         self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
-        self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+        # Fresh transcription: no speaker renames to inherit. Reset the shared
+        # map (a mid-run tab switch may have populated it from another tab via
+        # _on_tab_changed) and the per-tab copy, so the new tab never shows
+        # another tab's speaker names.
+        self._speaker_name_map = {}
+        self._text_edit._speaker_name_map = {}
 
         # Rebuild the rename panel for the new speakers — only when the
         # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
@@ -4138,6 +4162,7 @@ class TranscribeWindow(QDialog):
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
+            self._stop_all_spinners()
             return
 
         if not raw_output:
@@ -4149,6 +4174,7 @@ class TranscribeWindow(QDialog):
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
+            self._stop_all_spinners()
             return
 
         # Reset retry flag on success
@@ -4175,7 +4201,12 @@ class TranscribeWindow(QDialog):
         self._text_edit._raw_text = raw_output
         self._text_edit._was_diarized = self._was_diarized
         self._text_edit._diarize_segments = list(self._segments)
-        self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+        # Fresh transcription: no speaker renames to inherit. Reset the shared
+        # map (a mid-run tab switch may have populated it from another tab via
+        # _on_tab_changed) and the per-tab copy, so the new tab never shows
+        # another tab's speaker names.
+        self._speaker_name_map = {}
+        self._text_edit._speaker_name_map = {}
 
         # Rebuild (or hide) the speaker rename panel — only when the target
         # tab is visible (cf. _refresh_rename_panel_for_target docstring).
@@ -4529,6 +4560,10 @@ class TranscribeWindow(QDialog):
         # Remember the format used to render this tab so _on_tab_changed
         # can sync the combo back to it on switch.
         editor._format = fmt
+        # Snapshot the rendered text so _do_export can tell a real edit
+        # (content differs from this baseline) from an untouched tab, and
+        # export the edited text verbatim when the export format matches.
+        editor._rendered_baseline = editor.toPlainText()
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
@@ -5143,14 +5178,27 @@ class TranscribeWindow(QDialog):
                 # Locate the tab widget to fetch segments + per-tab name map
                 segments = None
                 name_map = None
+                displayed_fmt = None
+                edited = False
                 for i in range(self._tabs.count()):
                     if self._tabs.tabText(i) == tab_name:
                         w = self._tabs.widget(i)
                         segments = getattr(w, '_diarize_segments', None)
                         name_map = getattr(w, '_speaker_name_map', None)
+                        displayed_fmt = getattr(w, '_format', None)
+                        baseline = getattr(w, '_rendered_baseline', None)
+                        edited = baseline is not None and w.toPlainText() != baseline
                         break
 
-                if fmt == "text" and segments:
+                if edited and fmt == displayed_fmt:
+                    # The editor already holds this exact format with the
+                    # user's edits (WYSIWYG) — export it verbatim instead of
+                    # re-rendering from segments, which would drop the edits.
+                    # Cross-format export still re-renders (edited timestamp-
+                    # less text can't be remapped onto segments); the format-
+                    # locking UX that prevents that case is deferred to 1.4.
+                    content = text
+                elif fmt == "text" and segments:
                     # Re-render text format with renamed speakers so the
                     # exported file reflects the current display map even
                     # if the editor was never refreshed.

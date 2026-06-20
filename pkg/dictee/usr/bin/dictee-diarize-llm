@@ -588,7 +588,7 @@ def _provider_call_anthropic(cfg, model, system, prompt, timeout,
     url = cfg["url"].rstrip("/") + "/v1/messages"
     payload = {
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": int(cfg.get("max_tokens", 8192)),
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
     }

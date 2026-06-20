@@ -759,10 +759,14 @@ class DicteeTrayAppIndicator:
         # Menu dictée / traduction
         is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
+        # "Stop" only while actively recording/processing. When meeting mode is
+        # merely armed (diarize-ready) or switching backend (preparing), the
+        # action still STARTS the recording → it must read "Start dictation"
+        # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
+        _recording = self.state in ("recording", "transcribing", "diarizing")
         self.item_dictee.set_label(
-            _("Stop translation") if is_translating
-            else _("Stop dictation") if is_busy
-            else _("Start diarization") if self.state == "diarize-ready"
+            _("Stop translation") if (_recording and is_translating)
+            else _("Stop dictation") if _recording
             else _("Start dictation"))
         self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing"))
         self.item_translate.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
@@ -1242,10 +1246,14 @@ class DicteeTrayQt:
 
         is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
+        # "Stop" only while actively recording/processing. When meeting mode is
+        # merely armed (diarize-ready) or switching backend (preparing), the
+        # action still STARTS the recording → it must read "Start dictation"
+        # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
+        _recording = self.state in ("recording", "transcribing", "diarizing")
         self.action_dictee.setText(
-            _("Stop translation") if is_translating
-            else _("Stop dictation") if is_busy
-            else _("Start diarization") if self.state == "diarize-ready"
+            _("Stop translation") if (_recording and is_translating)
+            else _("Stop dictation") if _recording
             else _("Start dictation"))
         self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing"))
         self.action_translate.setText(_("Start translation"))
