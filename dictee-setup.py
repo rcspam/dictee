@@ -6439,6 +6439,113 @@ class DicteeSetupDialog(QDialog):
         lay_opt.addWidget(self.chk_debug)
         lay.addWidget(grp_options)
 
+        # Input devices (advanced) — push-to-talk device whitelist/blacklist and
+        # the dotool typing settle delay. Moved here from the shortcut page so
+        # the shortcut page stays focused on the keys themselves. Most users
+        # leave all three empty/zero.
+        grp_dev = QGroupBox(_("Input devices (advanced)"))
+        lay_dev = QVBoxLayout(grp_dev)
+        lay_dev.setSpacing(6)
+        lay_dev.setContentsMargins(16, 16, 16, 12)
+
+        lbl_extra = QLabel(_("Extra input devices") + " :")
+        lay_dev.addWidget(lbl_extra)
+
+        row_extra = QHBoxLayout()
+        self.txt_ptt_extra_devices = QLineEdit()
+        self.txt_ptt_extra_devices.setPlaceholderText(
+            _("e.g. LogiOps Virtual Input, keyd virtual keyboard"))
+        self.txt_ptt_extra_devices.setText(
+            conf.get("DICTEE_PTT_EXTRA_DEVICES", ""))
+        self.txt_ptt_extra_devices.setToolTip(_tt(_(
+            "Comma-separated names (case-insensitive, substring match). "
+            "Use this if you trigger dictation via a mouse button or key "
+            "remapped through tools like logiops, keyd, kanata, xremap or "
+            "input-remapper. Most users leave this empty.")))
+        row_extra.addWidget(self.txt_ptt_extra_devices, 1)
+
+        btn_detect_devices = QPushButton(_("Detect…"))
+        btn_detect_devices.setToolTip(_tt(_(
+            "Scan input devices and pick virtual keyboards to whitelist")))
+        btn_detect_devices.setFixedWidth(120)
+        btn_detect_devices.clicked.connect(self._on_detect_extra_devices)
+        row_extra.addWidget(btn_detect_devices)
+        lay_dev.addLayout(row_extra)
+
+        lbl_extra_help = QLabel(_(
+            "For mouse buttons or keys remapped via logiops, keyd, etc. "
+            "Most users don't need this."))
+        lbl_extra_help.setWordWrap(True)
+        lbl_extra_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_dev.addWidget(lbl_extra_help)
+
+        lay_dev.addSpacing(8)
+        lbl_exclude = QLabel(_("Exclude input devices") + " :")
+        lay_dev.addWidget(lbl_exclude)
+
+        row_exclude = QHBoxLayout()
+        self.txt_ptt_exclude_devices = QLineEdit()
+        self.txt_ptt_exclude_devices.setPlaceholderText(
+            _("e.g. Logitech USB Receiver"))
+        self.txt_ptt_exclude_devices.setText(
+            conf.get("DICTEE_PTT_EXCLUDE_DEVICES", ""))
+        self.txt_ptt_exclude_devices.setToolTip(_tt(_(
+            "Comma-separated EXACT device names that push-to-talk must NOT grab, "
+            "so another tool can keep them (e.g. input-remapper grabbing your "
+            "physical keyboard). dictee then listens to that tool's forwarded "
+            "device instead. Match is exact, not substring. Most users leave "
+            "this empty.")))
+        row_exclude.addWidget(self.txt_ptt_exclude_devices, 1)
+
+        btn_detect_exclude = QPushButton(_("Detect…"))
+        btn_detect_exclude.setToolTip(_tt(_(
+            "Scan input devices and pick the physical keyboard to exclude")))
+        btn_detect_exclude.setFixedWidth(120)
+        btn_detect_exclude.clicked.connect(self._on_detect_exclude_devices)
+        row_exclude.addWidget(btn_detect_exclude)
+        lay_dev.addLayout(row_exclude)
+
+        lbl_exclude_help = QLabel(_(
+            "Only needed if a tool such as input-remapper grabs your keyboard "
+            "and push-to-talk stops working. Most users don't need this."))
+        lbl_exclude_help.setWordWrap(True)
+        lbl_exclude_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_dev.addWidget(lbl_exclude_help)
+
+        lay_dev.addSpacing(8)
+        lbl_settle = QLabel(_("Typing delay") + " :")
+        lay_dev.addWidget(lbl_settle)
+
+        row_settle = QHBoxLayout()
+        self.spin_dotool_settle = QDoubleSpinBox()
+        self.spin_dotool_settle.setRange(0.0, 10.0)
+        self.spin_dotool_settle.setSingleStep(0.1)
+        self.spin_dotool_settle.setDecimals(1)
+        self.spin_dotool_settle.setSuffix(" s")
+        try:
+            self.spin_dotool_settle.setValue(
+                float(conf.get("DICTEE_DOTOOL_SETTLE", "0") or "0"))
+        except ValueError:
+            self.spin_dotool_settle.setValue(0.0)
+        self.spin_dotool_settle.setFixedWidth(120)
+        self.spin_dotool_settle.setToolTip(_tt(_(
+            "Delay before the dictated text is typed, in seconds. Leave at 0 "
+            "unless dictation types nothing on Wayland. Tools like "
+            "input-remapper can delay the virtual keyboard binding so the text "
+            "is sent too early and lost; a delay of 1-2 s fixes it. 0 = off.")))
+        row_settle.addWidget(self.spin_dotool_settle)
+        row_settle.addStretch(1)
+        lay_dev.addLayout(row_settle)
+
+        lbl_settle_help = QLabel(_(
+            "Set 1-2 s only if dictation types nothing on Wayland (e.g. with "
+            "input-remapper). 0 = off. Most users don't need this."))
+        lbl_settle_help.setWordWrap(True)
+        lbl_settle_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_dev.addWidget(lbl_settle_help)
+
+        lay.addWidget(grp_dev)
+
     def _build_subpage_notifications(self, lay, conf):
         grp_notif = QGroupBox(_("Notifications"))
         lay_notif = QVBoxLayout(grp_notif)
@@ -8338,114 +8445,6 @@ class DicteeSetupDialog(QDialog):
             row_input.addWidget(btn_fix_input)
             row_input.addStretch()
             lay_sc.addLayout(row_input)
-
-        # Extra input devices (advanced) — for mouse buttons or keys remapped
-        # via logiops, keyd, kanata, xremap, input-remapper, etc. These tools
-        # create virtual keyboards that dictee-ptt filters out by default to
-        # avoid feedback loops; this field whitelists them by name substring.
-        lay_sc.addSpacing(8)
-        lbl_extra = QLabel(_("Extra input devices") + " :")
-        lay_sc.addWidget(lbl_extra)
-
-        row_extra = QHBoxLayout()
-        self.txt_ptt_extra_devices = QLineEdit()
-        self.txt_ptt_extra_devices.setPlaceholderText(
-            _("e.g. LogiOps Virtual Input, keyd virtual keyboard"))
-        self.txt_ptt_extra_devices.setText(
-            self.conf.get("DICTEE_PTT_EXTRA_DEVICES", ""))
-        self.txt_ptt_extra_devices.setToolTip(_tt(_(
-            "Comma-separated names (case-insensitive, substring match). "
-            "Use this if you trigger dictation via a mouse button or key "
-            "remapped through tools like logiops, keyd, kanata, xremap or "
-            "input-remapper. Most users leave this empty.")))
-        row_extra.addWidget(self.txt_ptt_extra_devices, 1)
-
-        btn_detect_devices = QPushButton(_("Detect…"))
-        btn_detect_devices.setToolTip(_tt(_(
-            "Scan input devices and pick virtual keyboards to whitelist")))
-        btn_detect_devices.setFixedWidth(120)
-        btn_detect_devices.clicked.connect(self._on_detect_extra_devices)
-        row_extra.addWidget(btn_detect_devices)
-        lay_sc.addLayout(row_extra)
-
-        lbl_extra_help = QLabel(_(
-            "For mouse buttons or keys remapped via logiops, keyd, etc. "
-            "Most users don't need this."))
-        lbl_extra_help.setWordWrap(True)
-        lbl_extra_help.setStyleSheet("color: #888; font-size: 11px;")
-        lay_sc.addWidget(lbl_extra_help)
-
-        lay_sc.addSpacing(8)
-        lbl_exclude = QLabel(_("Exclude input devices") + " :")
-        lay_sc.addWidget(lbl_exclude)
-
-        row_exclude = QHBoxLayout()
-        self.txt_ptt_exclude_devices = QLineEdit()
-        self.txt_ptt_exclude_devices.setPlaceholderText(
-            _("e.g. Logitech USB Receiver"))
-        self.txt_ptt_exclude_devices.setText(
-            self.conf.get("DICTEE_PTT_EXCLUDE_DEVICES", ""))
-        self.txt_ptt_exclude_devices.setToolTip(_tt(_(
-            "Comma-separated EXACT device names that push-to-talk must NOT grab, "
-            "so another tool can keep them (e.g. input-remapper grabbing your "
-            "physical keyboard). dictee then listens to that tool's forwarded "
-            "device instead. Match is exact, not substring. Most users leave "
-            "this empty.")))
-        row_exclude.addWidget(self.txt_ptt_exclude_devices, 1)
-
-        btn_detect_exclude = QPushButton(_("Detect…"))
-        btn_detect_exclude.setToolTip(_tt(_(
-            "Scan input devices and pick the physical keyboard to exclude")))
-        btn_detect_exclude.setFixedWidth(120)
-        btn_detect_exclude.clicked.connect(self._on_detect_exclude_devices)
-        row_exclude.addWidget(btn_detect_exclude)
-        lay_sc.addLayout(row_exclude)
-
-        lbl_exclude_help = QLabel(_(
-            "Only needed if a tool such as input-remapper grabs your keyboard "
-            "and push-to-talk stops working. Most users don't need this."))
-        lbl_exclude_help.setWordWrap(True)
-        lbl_exclude_help.setStyleSheet("color: #888; font-size: 11px;")
-        lay_sc.addWidget(lbl_exclude_help)
-
-        # Typing settle delay (advanced) — works around dropped text on Wayland
-        # setups where a tool like input-remapper installs a udev rule that runs
-        # on every newly created input device, including the virtual keyboard
-        # dictee creates for each dictation. That delays the compositor binding
-        # past dotool's built-in settle, so the keystrokes are emitted before
-        # anything is listening and the text is lost (GH #19). A small delay
-        # gives the compositor time to bind the device. 0 = disabled (default).
-        lay_sc.addSpacing(8)
-        lbl_settle = QLabel(_("Typing delay") + " :")
-        lay_sc.addWidget(lbl_settle)
-
-        row_settle = QHBoxLayout()
-        self.spin_dotool_settle = QDoubleSpinBox()
-        self.spin_dotool_settle.setRange(0.0, 10.0)
-        self.spin_dotool_settle.setSingleStep(0.5)
-        self.spin_dotool_settle.setDecimals(1)
-        self.spin_dotool_settle.setSuffix(" s")
-        try:
-            self.spin_dotool_settle.setValue(
-                float(self.conf.get("DICTEE_DOTOOL_SETTLE", "0") or "0"))
-        except ValueError:
-            self.spin_dotool_settle.setValue(0.0)
-        self.spin_dotool_settle.setFixedWidth(120)
-        self.spin_dotool_settle.setToolTip(_tt(_(
-            "Delay before the dictated text is typed, in seconds. Leave at 0 "
-            "unless dictation types nothing on Wayland. Tools like "
-            "input-remapper can delay the virtual keyboard binding so the text "
-            "is sent too early and lost; a delay of 1-2 s fixes it. 0 = off.")))
-        row_settle.addWidget(self.spin_dotool_settle)
-        row_settle.addStretch(1)
-        lay_sc.addLayout(row_settle)
-
-        lbl_settle_help = QLabel(_(
-            "Set 1-2 s only if dictation types nothing on Wayland (e.g. with "
-            "input-remapper). 0 = off. Most users don't need this."))
-        lbl_settle_help.setWordWrap(True)
-        lbl_settle_help.setStyleSheet("color: #888; font-size: 11px;")
-        lay_sc.addWidget(lbl_settle_help)
 
         # Voice commands cheatsheet — handled directly by dictee-ptt.
         # The "Same key + Mod" modes route Mod+PTT to dictee-cheatsheet
@@ -18528,10 +18527,15 @@ class DicteeSetupDialog(QDialog):
         ptt_mode = self.cmb_ptt_mode.currentData() if hasattr(self, 'cmb_ptt_mode') else "toggle"
         ptt_key = getattr(self, '_ptt_key', 67)
         ptt_mod_translate = ""
+        # These three live on the Extra-options page, which the wizard does not
+        # build. When the widget is absent (wizard), fall back to the existing
+        # conf value instead of "" / 0 so a wizard re-run never clobbers them.
         ptt_extra_devices = (self.txt_ptt_extra_devices.text().strip()
-                             if hasattr(self, 'txt_ptt_extra_devices') else "")
+                             if hasattr(self, 'txt_ptt_extra_devices')
+                             else self.conf.get("DICTEE_PTT_EXTRA_DEVICES", ""))
         ptt_exclude_devices = (self.txt_ptt_exclude_devices.text().strip()
-                               if hasattr(self, 'txt_ptt_exclude_devices') else "")
+                               if hasattr(self, 'txt_ptt_exclude_devices')
+                               else self.conf.get("DICTEE_PTT_EXCLUDE_DEVICES", ""))
 
         translate_mode = self.cmb_translate_mode.currentData() if hasattr(self, 'cmb_translate_mode') else "disabled"
         if translate_mode == "same_alt":
@@ -18640,7 +18644,8 @@ class DicteeSetupDialog(QDialog):
                     ptt_extra_devices=ptt_extra_devices,
                     ptt_exclude_devices=ptt_exclude_devices,
                     dotool_settle=(self.spin_dotool_settle.value()
-                                   if hasattr(self, 'spin_dotool_settle') else 0),
+                                   if hasattr(self, 'spin_dotool_settle')
+                                   else self.conf.get("DICTEE_DOTOOL_SETTLE", "0")),
                     cheatsheet_mod=cheatsheet_mode,
                     cheatsheet_key_seq=cheatsheet_seq_str,
                     postprocess=postprocess,
