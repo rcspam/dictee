@@ -51,30 +51,39 @@ fn main() {
     let mut state = ctx.create_state().expect("failed to create state");
     println!("model loaded in {:.1}s: {}", t.elapsed().as_secs_f64(), model_path);
 
-    // --- Params ---
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
-    if lang == "auto" {
-        params.set_detect_language(true);
-    } else {
-        params.set_language(Some(&lang));
-    }
+    // --- Params (rebuilt each pass: FullParams is consumed by full()) ---
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) as i32;
-    params.set_n_threads(threads);
-    params.set_token_timestamps(true);
-    params.set_print_special(false);
-    params.set_print_progress(false);
-    params.set_print_realtime(false);
-    params.set_print_timestamps(false);
+    let make_params = || {
+        let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
+        if lang == "auto" {
+            params.set_detect_language(true);
+        } else {
+            params.set_language(Some(&lang));
+        }
+        params.set_n_threads(threads);
+        params.set_token_timestamps(true);
+        params.set_print_special(false);
+        params.set_print_progress(false);
+        params.set_print_realtime(false);
+        params.set_print_timestamps(false);
+        params
+    };
 
-    // --- Transcribe ---
-    let t = Instant::now();
-    state.full(params, &audio).expect("transcription failed");
-    let elapsed = t.elapsed().as_secs_f64();
-    let rtf = elapsed / dur_s;
-    println!(
-        "transcribed in {:.1}s with {} threads (RTF {:.2})\n--- transcript ---",
-        elapsed, threads, rtf
-    );
+    // --- Transcribe several times on the SAME state ---
+    // Pass 1 = cold (kernel/shader warmup included); passes 2+ = warm,
+    // i.e. the resident-daemon regime where the model stays loaded.
+    let passes: usize = std::env::var("POC_PASSES").ok().and_then(|s| s.parse().ok()).unwrap_or(3);
+    for p in 1..=passes {
+        let t = Instant::now();
+        state.full(make_params(), &audio).expect("transcription failed");
+        let elapsed = t.elapsed().as_secs_f64();
+        let tag = if p == 1 { "cold" } else { "warm" };
+        println!(
+            "pass {}/{} [{}]: {:.2}s with {} threads (RTF {:.3})",
+            p, passes, tag, elapsed, threads, elapsed / dur_s
+        );
+    }
+    println!("--- transcript (last pass) ---");
 
     let n = state.full_n_segments();
     let mut full = String::new();
