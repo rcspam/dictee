@@ -82,3 +82,6 @@ pub use model_nemotron::{NemotronEncoderCache, NemotronModel, NemotronModelConfi
 pub use nemotron::{Nemotron, SentencePieceVocab};
 pub use parakeet_eou::ParakeetEOU;
 pub use canary::Canary;
+
+#[cfg(feature = "whisper")]
+pub mod whisper;
