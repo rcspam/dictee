@@ -295,7 +295,7 @@ Recommends:     xclip
 Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
-Recommends:     moby-engine
+Suggests:       moby-engine
 Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
@@ -514,7 +514,7 @@ Recommends:     xclip
 Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
-Recommends:     moby-engine
+Suggests:       moby-engine
 Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
