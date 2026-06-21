@@ -5,6 +5,8 @@ use crate::decoder::{TimedToken, TranscriptionResult};
 use crate::timestamps::TimestampMode;
 use crate::transcriber::Transcriber;
 use eyre::{eyre, Result as EyreResult};
+use std::collections::HashSet;
+use std::ffi::CStr;
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
 };
@@ -15,25 +17,62 @@ pub fn vulkan_device_count() -> i32 {
     whisper_rs::vulkan::list_devices().len() as i32
 }
 
-/// Pick the best Vulkan device: prefer a dedicated GPU. An integrated GPU (uma)
-/// reports system RAM as its VRAM, so we heuristically skip any device whose
-/// total VRAM is implausibly large (> 24 GiB ≈ desktop/server dGPU ceiling for
-/// laptops; an iGPU on a 32-64 GB machine reports way more). Falls back to the
-/// device with the most *plausible* VRAM. Returns None if no device at all.
+/// Pick the best Vulkan device by reading the driver-reported device type, not
+/// by guessing from VRAM size. The ggml generic backend API exposes each device's
+/// real type (`GGML_BACKEND_DEVICE_TYPE_GPU` = 1 for dedicated, `_IGPU` = 2 for
+/// integrated). We build a set of names/descriptions of all devices the driver
+/// reports as dedicated GPU, then keep only those Vulkan devices whose name is in
+/// that set, and among them pick the one with the most free VRAM.
+///
+/// Returns `None` if there are no Vulkan devices, or if none are dedicated GPUs
+/// (an iGPU at RTF ~4.5 is unusable for Whisper large-v3; no fallback is provided).
 pub fn select_vulkan_device() -> Option<i32> {
+    use whisper_rs::whisper_rs_sys::{
+        ggml_backend_dev_count, ggml_backend_dev_get, ggml_backend_dev_get_props,
+        ggml_backend_dev_props, ggml_backend_dev_type as ggml_dev_type_fn,
+        ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU,
+    };
+
     let devs = whisper_rs::vulkan::list_devices();
     if devs.is_empty() {
         return None;
     }
-    const IGPU_VRAM_CEILING: usize = 24 * 1024 * 1024 * 1024; // 24 GiB
-    // Prefer plausible-dedicated devices (total <= ceiling), largest total wins.
-    let dedicated = devs
-        .iter()
-        .filter(|d| d.vram.total <= IGPU_VRAM_CEILING)
-        .max_by_key(|d| d.vram.total);
-    // Fallback: if everything looks like an iGPU, take the largest anyway.
-    let chosen = dedicated.or_else(|| devs.iter().max_by_key(|d| d.vram.total))?;
-    Some(chosen.id)
+
+    // Build a set of all names/descriptions reported as dedicated GPU by the ggml
+    // generic backend API (type == GGML_BACKEND_DEVICE_TYPE_GPU == 1).
+    let mut dedicated_names: HashSet<String> = HashSet::new();
+    // SAFETY: all ggml_backend_dev_* functions are safe to call after library
+    // init; they read internal ggml state set up by whisper_rs during load.
+    unsafe {
+        let count = ggml_backend_dev_count();
+        for i in 0..count {
+            let dev = ggml_backend_dev_get(i);
+            if dev.is_null() {
+                continue;
+            }
+            let dev_type = ggml_dev_type_fn(dev);
+            if dev_type != ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_GPU {
+                continue;
+            }
+            // Zero-initialise props; ggml_backend_dev_get_props fills it in.
+            let mut props: ggml_backend_dev_props = std::mem::zeroed();
+            ggml_backend_dev_get_props(dev, &mut props);
+            if !props.name.is_null() {
+                dedicated_names
+                    .insert(CStr::from_ptr(props.name).to_string_lossy().into_owned());
+            }
+            if !props.description.is_null() {
+                dedicated_names
+                    .insert(CStr::from_ptr(props.description).to_string_lossy().into_owned());
+            }
+        }
+    }
+
+    // Among Vulkan devices whose name matches a dedicated GPU, pick highest free VRAM.
+    devs.iter()
+        .filter(|d| dedicated_names.contains(&d.name))
+        .max_by_key(|d| d.vram.free)
+        .map(|d| d.id)
 }
 
 pub struct WhisperBackend {
@@ -115,6 +154,40 @@ mod tests {
         match select_vulkan_device() {
             Some(idx) => assert!(idx >= 0 && idx < n, "idx {idx} out of 0..{n}"),
             None => assert_eq!(n, 0, "got None but {n} devices exist"),
+        }
+    }
+
+    /// Verify that `select_vulkan_device` picks the dedicated NVIDIA GPU and not
+    /// the Intel iGPU on this dev box (Intel iGPU = device 0, RTX 4070 = device 1).
+    /// Run with:
+    ///   cargo test --features whisper whisper::tests::selects_dedicated_gpu_not_igpu \
+    ///     -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn selects_dedicated_gpu_not_igpu() {
+        let devs = whisper_rs::vulkan::list_devices();
+        let chosen_id = select_vulkan_device();
+        println!("Vulkan devices:");
+        for d in &devs {
+            println!("  id={} name={:?} vram_free={} MiB", d.id, d.name, d.vram.free / (1024 * 1024));
+        }
+        if let Some(id) = chosen_id {
+            let chosen = devs.iter().find(|d| d.id == id).expect("chosen id not in list");
+            println!("Selected: id={} name={:?}", chosen.id, chosen.name);
+            assert!(
+                !chosen.name.to_lowercase().contains("intel"),
+                "selected an Intel iGPU: {:?}",
+                chosen.name
+            );
+            assert!(
+                chosen.name.to_lowercase().contains("nvidia")
+                    || chosen.name.to_lowercase().contains("rtx")
+                    || chosen.name.to_lowercase().contains("geforce"),
+                "expected NVIDIA RTX 4070, got: {:?}",
+                chosen.name
+            );
+        } else {
+            println!("select_vulkan_device() returned None — no dedicated GPU found (expected on headless CI)");
         }
     }
 
