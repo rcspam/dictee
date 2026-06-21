@@ -91,7 +91,7 @@ status)
 
 asr)
     if [ $# -lt 2 ]; then usage; fi
-    case "$2" in parakeet|canary|vosk|whisper) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
+    case "$2" in parakeet|canary|vosk|whisper|whisper-rust) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
     svc=$(asr_service "$2")
 
     # Check that the service exists
@@ -131,7 +131,7 @@ asr)
     _dbg "asr: switching to $2 (svc=$svc)"
 
     # Stop all daemons, start the right one
-    for s in dictee dictee-canary dictee-vosk dictee-whisper; do
+    for s in dictee dictee-canary dictee-vosk dictee-whisper dictee-whisper-rust; do
         if [ "$s" != "$svc" ]; then
             systemctl --user stop "${s}.service" 2>/dev/null || true
             systemctl --user disable "${s}.service" 2>/dev/null || true

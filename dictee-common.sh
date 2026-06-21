@@ -253,6 +253,7 @@ asr_service() {
         vosk)     echo "dictee-vosk" ;;
         whisper)  echo "dictee-whisper" ;;
         canary)   echo "dictee-canary" ;;
+        whisper-rust) echo "dictee-whisper-rust" ;;
         *)        echo "dictee" ;;
     esac
 }

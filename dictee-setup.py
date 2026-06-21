@@ -6340,6 +6340,8 @@ class DicteeSetupDialog(QDialog):
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
+            if self._is_backend_installed("whisper-rust"):
+                self.cmb_asr_backend.addItem("Whisper-Rust large-v3 (GPU)", "whisper-rust")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         glay.addWidget(self.cmb_asr_backend)
 
@@ -8215,6 +8217,9 @@ class DicteeSetupDialog(QDialog):
             return venv_is_installed(WHISPER_VENV)
         if backend_id == "canary":
             return self._canary_model_installed()
+        if backend_id == "whisper-rust":
+            return os.path.exists(os.path.expanduser(
+                "~/.local/share/voxtype/models/ggml-large-v3.bin"))
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
