@@ -36,6 +36,8 @@ fn socket_path() -> String {
 struct DaemonArgs {
     help: bool,
     canary: bool,
+    #[cfg(feature = "whisper")]
+    whisper: bool,
     /// Explicit socket path (`--socket <path>`); overrides socket_path().
     socket: Option<String>,
     /// Optional positional model directory.
@@ -55,6 +57,8 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
         match args[i].as_str() {
             "--help" | "-h" => out.help = true,
             "--canary" => out.canary = true,
+            #[cfg(feature = "whisper")]
+            "--whisper" => out.whisper = true,
             "--socket" => {
                 let path = args
                     .get(i + 1)
@@ -77,10 +81,12 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
     Ok(out)
 }
 
-/// Unified ASR backend: Parakeet TDT or Canary AED
+/// Unified ASR backend: Parakeet TDT, Canary AED, or Whisper (GPU-only)
 enum AsrBackend {
     Parakeet(ParakeetTDT),
     Canary(Canary),
+    #[cfg(feature = "whisper")]
+    Whisper(parakeet_rs::whisper::WhisperBackend),
 }
 
 impl AsrBackend {
@@ -94,6 +100,8 @@ impl AsrBackend {
         match self {
             AsrBackend::Parakeet(p) => p.transcribe_samples(audio, sample_rate, channels, mode),
             AsrBackend::Canary(c) => c.transcribe_samples(audio, sample_rate, channels, mode),
+            #[cfg(feature = "whisper")]
+            AsrBackend::Whisper(w) => w.transcribe_samples(audio, sample_rate, channels, mode),
         }
     }
 
@@ -109,6 +117,8 @@ impl AsrBackend {
         match self {
             AsrBackend::Canary(c) => c.last_token_ids().is_some(),
             AsrBackend::Parakeet(_) => false,
+            #[cfg(feature = "whisper")]
+            AsrBackend::Whisper(_) => false,
         }
     }
 }
@@ -216,6 +226,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Detect backend
+    #[cfg(feature = "whisper")]
+    let use_whisper = env::var("DICTEE_ASR_BACKEND")
+        .map(|v| v == "whisper")
+        .unwrap_or(false)
+        || parsed.whisper;
     let use_canary = env::var("DICTEE_ASR_BACKEND")
         .map(|v| v == "canary")
         .unwrap_or(false)
@@ -254,6 +269,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Remove existing socket
     if Path::new(&socket_path).exists() {
         fs::remove_file(&socket_path)?;
+    }
+
+    // Whisper is GPU-only via Vulkan; it bypasses the ORT config entirely.
+    #[cfg(feature = "whisper")]
+    if use_whisper {
+        let dev = parakeet_rs::whisper::select_vulkan_device()
+            .ok_or("Whisper backend requires a usable Vulkan GPU — none found (no CPU fallback)")?;
+        let ggml = env::var("DICTEE_WHISPER_GGML")
+            .map_err(|_| "DICTEE_WHISPER_GGML not set (path to ggml-*.bin)")?;
+        let _ = std::fs::write("/dev/shm/.dictee_provider", "vulkan");
+        eprintln!("Loading Whisper model from {} (Vulkan device {})...", ggml, dev);
+        let backend = AsrBackend::Whisper(
+            parakeet_rs::whisper::WhisperBackend::from_ggml(&ggml, dev)?,
+        );
+        eprintln!("Model loaded. Listening on {}", socket_path);
+        let listener = UnixListener::bind(&socket_path)?;
+        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
+        return run_socket_loop(backend, listener, source_lang, debug);
     }
 
     // Parakeet int8 is forced to CPU: the ORT CUDA EP doesn't optimize int8
@@ -306,7 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let mut backend = if use_canary {
+    let backend = if use_canary {
         AsrBackend::Canary(Canary::from_pretrained(
             &model_dir,
             Some(config),
@@ -322,6 +355,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = UnixListener::bind(&socket_path)?;
     fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
 
+    run_socket_loop(backend, listener, source_lang, debug)
+}
+
+fn run_socket_loop(
+    mut backend: AsrBackend,
+    listener: UnixListener,
+    source_lang: String,
+    debug: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
