@@ -15,6 +15,27 @@ pub fn vulkan_device_count() -> i32 {
     whisper_rs::vulkan::list_devices().len() as i32
 }
 
+/// Pick the best Vulkan device: prefer a dedicated GPU. An integrated GPU (uma)
+/// reports system RAM as its VRAM, so we heuristically skip any device whose
+/// total VRAM is implausibly large (> 24 GiB ≈ desktop/server dGPU ceiling for
+/// laptops; an iGPU on a 32-64 GB machine reports way more). Falls back to the
+/// device with the most *plausible* VRAM. Returns None if no device at all.
+pub fn select_vulkan_device() -> Option<i32> {
+    let devs = whisper_rs::vulkan::list_devices();
+    if devs.is_empty() {
+        return None;
+    }
+    const IGPU_VRAM_CEILING: usize = 24 * 1024 * 1024 * 1024; // 24 GiB
+    // Prefer plausible-dedicated devices (total <= ceiling), largest total wins.
+    let dedicated = devs
+        .iter()
+        .filter(|d| d.vram.total <= IGPU_VRAM_CEILING)
+        .max_by_key(|d| d.vram.total);
+    // Fallback: if everything looks like an iGPU, take the largest anyway.
+    let chosen = dedicated.or_else(|| devs.iter().max_by_key(|d| d.vram.total))?;
+    Some(chosen.id)
+}
+
 pub struct WhisperBackend {
     _ctx: WhisperContext,
     state: WhisperState,
@@ -87,6 +108,15 @@ mod tests {
     use super::*;
     use crate::transcriber::Transcriber;
     use crate::timestamps::TimestampMode;
+
+    #[test]
+    fn device_selection_never_panics_and_is_in_range() {
+        let n = vulkan_device_count();
+        match select_vulkan_device() {
+            Some(idx) => assert!(idx >= 0 && idx < n, "idx {idx} out of 0..{n}"),
+            None => assert_eq!(n, 0, "got None but {n} devices exist"),
+        }
+    }
 
     // Gated: needs the 3 GB ggml on disk. Run with: cargo test --features whisper -- --ignored
     #[test]
