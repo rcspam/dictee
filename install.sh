@@ -37,14 +37,17 @@ err()  { echo "${C_RED}✗${C_OFF} $*" >&2; }
 die()  { err "$@"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
 
-# Parse a package manager's dry-run output and echo the packages it would
-# REMOVE (manager-specific). Empty output = nothing would be removed.
+# Parse a package manager's dry-run output and echo the THIRD-PARTY packages it
+# would REMOVE (manager-specific). Empty output = nothing of yours removed.
+# dictee's own packages are filtered out: dictee-cuda Conflicts dictee-cpu (and
+# vice-versa), so switching CPU<->GPU legitimately replaces one with the other
+# and must not trip the guard.
 _removed_by() {
     case "$1" in
         apt)    awk '/^Remv /{print $2}' ;;
         dnf)    awk '/^(Removing|Erasing)/{f=1;next} /^[[:space:]]*$/{f=0} f&&NF{print $1}' ;;
         zypper) awk '/going to be REMOVED/{f=1;next} f&&/^  /{print $1} f&&/^[^ ]/{f=0}' ;;
-    esac | tr '\n' ' '
+    esac | grep -vE '^dictee([-_.]|$)' | tr '\n' ' '
 }
 
 # Install a local .deb/.rpm WITHOUT ever letting the package manager uninstall
