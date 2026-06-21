@@ -37,6 +37,70 @@ err()  { echo "${C_RED}✗${C_OFF} $*" >&2; }
 die()  { err "$@"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
 
+# Parse a package manager's dry-run output and echo the packages it would
+# REMOVE (manager-specific). Empty output = nothing would be removed.
+_removed_by() {
+    case "$1" in
+        apt)    awk '/^Remv /{print $2}' ;;
+        dnf)    awk '/^(Removing|Erasing)/{f=1;next} /^[[:space:]]*$/{f=0} f&&NF{print $1}' ;;
+        zypper) awk '/going to be REMOVED/{f=1;next} f&&/^  /{print $1} f&&/^[^ ]/{f=0}' ;;
+    esac | tr '\n' ' '
+}
+
+# Install a local .deb/.rpm WITHOUT ever letting the package manager uninstall
+# the user's existing software to resolve a conflict (#21). Three levels:
+#   1. nothing would be removed → normal install (with recommendations);
+#   2. else retry WITHOUT optional (weak) dependencies — keeps dictee
+#      installable while PRESERVING the conflicting package (this was the #21
+#      case: docker.io was only a Recommends);
+#   3. else (a hard Depends conflict) → abort cleanly, change nothing.
+safe_install() {
+    local mgr="$1" pkg="$2" norec="" remv
+    case "$mgr" in
+        apt)    norec="--no-install-recommends" ;;
+        dnf)    norec="--setopt=install_weak_deps=False" ;;
+        zypper) norec="--no-recommends" ;;
+    esac
+
+    # Simulate; $1 = extra flag (e.g. the no-weak-deps flag). Echoes removals.
+    _dry() {
+        case "$mgr" in
+            apt)    sudo apt-get install -s $1 "./${pkg}" 2>/dev/null | _removed_by apt ;;
+            dnf)    sudo dnf install --assumeno $1 "./${pkg}" 2>&1 | _removed_by dnf ;;
+            zypper) sudo zypper --non-interactive install --dry-run $1 --allow-unsigned-rpm "./${pkg}" 2>/dev/null | _removed_by zypper ;;
+        esac
+    }
+    # Real install; $1 = extra flag.
+    _run() {
+        case "$mgr" in
+            apt)    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y $1 "./${pkg}" || die "Install failed" ;;
+            dnf)    sudo dnf install -y $1 "./${pkg}" || die "Install failed" ;;
+            zypper) sudo zypper --non-interactive install $1 --allow-unsigned-rpm "./${pkg}" || die "Install failed" ;;
+        esac
+    }
+
+    # 1. No removals → normal install.
+    remv=$(_dry "")
+    if [[ -z "${remv// }" ]]; then _run ""; return; fi
+
+    # 2. Removals → retry without optional (weak) deps to preserve them.
+    warn "Installing dictee would REMOVE existing packages: ${remv}"
+    warn "Retrying without optional (recommended) packages to keep yours..."
+    remv=$(_dry "$norec")
+    if [[ -z "${remv// }" ]]; then
+        warn "Installing dictee WITHOUT optional extras to avoid the conflict."
+        warn "Your packages are preserved; you can add the optional extras later."
+        _run "$norec"
+        return
+    fi
+
+    # 3. Still removing → hard (mandatory) dependency conflict → abort.
+    err "Cannot install dictee without removing: ${remv}"
+    err "This is a mandatory-dependency conflict. Resolve it manually, then re-run."
+    err "dictee did not change anything on your system."
+    exit 1
+}
+
 # Offer to launch dictee-setup when a graphical session is available.
 # Usage: launch_wizard [user]  (user = optional; defaults to current user)
 auto_reset_services() {
@@ -324,7 +388,7 @@ mode_online() {
         # DEBIAN_FRONTEND=noninteractive: under curl|bash, stdin is the pipe (not
         # a tty), so a debconf prompt from any pulled-in dependency would hang the
         # install with no way to answer (#16). Force the non-interactive frontend.
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "./${deb_file}" || die "Install failed"
+        safe_install apt "${deb_file}"
 
         # The GNOME AppIndicator extension ships as a Suggests, not a Recommends:
         # as a Recommends it dragged gnome-shell + gdm3 onto non-GNOME systems
@@ -359,7 +423,7 @@ mode_online() {
         ok "Downloaded"
 
         info "Installing..."
-        sudo dnf install -y "./${rpm_file}" || die "Install failed"
+        safe_install dnf "${rpm_file}"
 
         # GNOME-only: the AppIndicator extension is a Suggests now (it used to be a
         # weak dep that pulled gnome-shell onto KDE Fedora — #16). Install it only
@@ -394,8 +458,7 @@ mode_online() {
         ok "Downloaded"
 
         info "Installing (zypper)..."
-        sudo zypper --non-interactive install --allow-unsigned-rpm "./${rpm_file}" \
-            || die "Install failed"
+        safe_install zypper "${rpm_file}"
     }
 
     # Detect orphan files from a previous install.sh tarball mode that
