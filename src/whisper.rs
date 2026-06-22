@@ -114,8 +114,30 @@ impl Transcriber for WhisperBackend {
             )));
         }
         let mut params =
-            FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
+            FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: 1.0 });
         params.set_language(Some(&self.lang));
+
+        // Anti-hallucination (β / Meetily strategy, verified against whisper.cpp defaults).
+        // temperature is 0.3 and temperature_inc is left at its 0.2 default so the
+        // temperature fallback still recovers hard passages in long meeting audio;
+        // clean_repetitive_text() (below) is the safety net against repetition loops.
+        params.set_temperature(0.3);
+        params.set_suppress_blank(true);
+        params.set_suppress_nst(true); // drop non-speech tokens ([music], "thank you"...)
+        params.set_no_context(true); // clean prompt per request (no cross-request bleed)
+        params.set_entropy_thold(2.4);
+        params.set_logprob_thold(-1.0);
+        params.set_no_speech_thold(0.55);
+        // no_timestamps(true)+token_timestamps(true): avoids whisper.cpp chunk-skip that
+        // discards valid text (verified behavior in the Meetily whisper engine).
+        params.set_no_timestamps(true);
+        params.set_token_timestamps(true);
+
+        let n_threads = std::thread::available_parallelism()
+            .map(|n| n.get() as i32)
+            .unwrap_or(4);
+        params.set_n_threads(n_threads);
+
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
