@@ -281,7 +281,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::write("/dev/shm/.dictee_provider", "vulkan");
         eprintln!("Loading Whisper model from {} (Vulkan device {})...", ggml, dev);
         let backend = AsrBackend::Whisper(
-            parakeet_rs::whisper::WhisperBackend::from_ggml(&ggml, dev)?,
+            parakeet_rs::whisper::WhisperBackend::from_ggml(&ggml, dev, &source_lang)?,
         );
         eprintln!("Model loaded. Listening on {}", socket_path);
         let listener = UnixListener::bind(&socket_path)?;

@@ -78,12 +78,13 @@ pub fn select_vulkan_device() -> Option<i32> {
 pub struct WhisperBackend {
     _ctx: WhisperContext,
     state: WhisperState,
+    lang: String,
 }
 
 impl WhisperBackend {
     /// Load a ggml model onto the chosen Vulkan device. GPU-only: errors if the
     /// device index is negative (caller must have a usable Vulkan device).
-    pub fn from_ggml(ggml_path: &str, gpu_device: i32) -> EyreResult<Self> {
+    pub fn from_ggml(ggml_path: &str, gpu_device: i32, lang: &str) -> EyreResult<Self> {
         if gpu_device < 0 {
             return Err(eyre!("Whisper is GPU-only: no usable Vulkan device"));
         }
@@ -94,7 +95,8 @@ impl WhisperBackend {
         // SAFETY of lifetimes: store ctx alongside state; state borrows from ctx
         // via the crate's own self-referential handling (create_state takes &ctx).
         let state = ctx.create_state().map_err(|e| eyre!("create_state: {e:?}"))?;
-        Ok(Self { _ctx: ctx, state })
+        let lang = if lang.is_empty() { "auto".to_string() } else { lang.to_string() };
+        Ok(Self { _ctx: ctx, state, lang })
     }
 }
 
@@ -113,7 +115,7 @@ impl Transcriber for WhisperBackend {
         }
         let mut params =
             FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
-        params.set_language(Some("auto"));
+        params.set_language(Some(&self.lang));
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -203,7 +205,7 @@ mod tests {
             .map(|s| s.unwrap() as f32 / 32768.0)
             .collect();
 
-        let mut be = WhisperBackend::from_ggml(ggml, 1).expect("load ggml");
+        let mut be = WhisperBackend::from_ggml(ggml, 1, "fr").expect("load ggml");
         let res = be
             .transcribe_samples(audio, spec.sample_rate, spec.channels, Some(TimestampMode::Sentences))
             .unwrap();
