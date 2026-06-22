@@ -7,7 +7,7 @@ Conflicts=dictee.service dictee-vosk.service dictee-canary.service dictee-whispe
 Type=simple
 EnvironmentFile=-%h/.config/dictee.conf
 Environment=ORT_DYLIB_PATH=/usr/lib/dictee/libonnxruntime.so
-Environment=DICTEE_WHISPER_GGML=%h/.local/share/voxtype/models/ggml-large-v3.bin
+Environment=DICTEE_WHISPER_GGML=%h/.local/share/dictee/whisper-rust/ggml-large-v3-q5_0.bin
 Environment=XDG_RUNTIME_DIR=/run/user/%U
 ExecStart=/usr/bin/transcribe-daemon --whisper
 ExecStartPost=/bin/bash -c 'echo idle > /dev/shm/.dictee_state'
