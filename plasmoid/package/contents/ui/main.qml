@@ -461,6 +461,9 @@ PlasmoidItem {
         "  && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
+        // Whisper-Rust: shared transcribe-daemon (--whisper) + at least one ggml
+        // model on disk (system or user dir). No venv — it's the Rust daemon.
+        "{ ls /usr/share/dictee/whisper-rust/ggml-*.bin >/dev/null 2>&1 || ls \"$dd/whisper-rust\"/ggml-*.bin >/dev/null 2>&1; } && command -v transcribe-daemon >/dev/null 2>&1 && echo whisper-rust; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +

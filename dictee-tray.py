@@ -394,6 +394,18 @@ def _asr_service_exists(key):
         if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
             return False
         return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
+    # Whisper-Rust: shared transcribe-daemon (--whisper) + a ggml model on disk
+    # (system or user dir). No venv — it's the Rust daemon, not a Python engine.
+    if key == "whisper-rust":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        for d in ("/usr/share/dictee/whisper-rust",
+                  os.path.join(data_dir, "whisper-rust")):
+            if os.path.isdir(d) and any(
+                f.startswith("ggml-") and f.endswith(".bin") for f in os.listdir(d)
+            ):
+                return True
+        return False
     # Vosk/Whisper: check venv
     venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)
