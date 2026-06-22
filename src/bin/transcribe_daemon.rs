@@ -274,10 +274,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Whisper is GPU-only via Vulkan; it bypasses the ORT config entirely.
     #[cfg(feature = "whisper")]
     if use_whisper {
+        // FMA3 guard: whisper.cpp/Vulkan SIGILLs on x86 CPUs without FMA3 (Handy #537).
+        // GPU-only with no CPU fallback — refuse with a clear message.
+        #[cfg(target_arch = "x86_64")]
+        if !std::arch::is_x86_feature_detected!("fma") {
+            return Err("Whisper requires an x86 CPU with FMA3 (this CPU lacks it). \
+                        Whisper is GPU-only with no CPU fallback — use Parakeet instead."
+                .into());
+        }
         let dev = parakeet_rs::whisper::select_vulkan_device()
             .ok_or("Whisper backend requires a usable Vulkan GPU — none found (no CPU fallback)")?;
         let ggml = env::var("DICTEE_WHISPER_GGML")
             .map_err(|_| "DICTEE_WHISPER_GGML not set (path to ggml-*.bin)")?;
+        // VRAM fit guard: ggml file size + ~0.75 GiB compute-buffer margin (spec §6)
+        // must fit the chosen device's free VRAM. Refuse cleanly — never CPU.
+        let need = fs::metadata(&ggml).map(|m| m.len() as usize).unwrap_or(0)
+            + 768 * 1024 * 1024;
+        if let Some(free) = parakeet_rs::whisper::device_free_vram(dev) {
+            if need > free {
+                return Err(format!(
+                    "Whisper model {} needs ~{} MiB but Vulkan device {} has only {} MiB free \
+                     — pick a smaller/quantized model or free VRAM (GPU-only, no CPU fallback).",
+                    ggml, need / (1024 * 1024), dev, free / (1024 * 1024)
+                )
+                .into());
+            }
+        }
         let _ = std::fs::write("/dev/shm/.dictee_provider", "vulkan");
         eprintln!("Loading Whisper model from {} (Vulkan device {})...", ggml, dev);
         let backend = AsrBackend::Whisper(

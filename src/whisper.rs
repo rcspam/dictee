@@ -75,6 +75,16 @@ pub fn select_vulkan_device() -> Option<i32> {
         .map(|d| d.id)
 }
 
+/// Free VRAM (bytes) reported by the Vulkan driver for the given device id, or
+/// `None` if that id is not among the enumerated devices. Used as a startup
+/// guard so the daemon can refuse with a clear message instead of OOM-ing.
+pub fn device_free_vram(gpu_device: i32) -> Option<usize> {
+    whisper_rs::vulkan::list_devices()
+        .into_iter()
+        .find(|d| d.id == gpu_device)
+        .map(|d| d.vram.free)
+}
+
 pub struct WhisperBackend {
     _ctx: WhisperContext,
     state: WhisperState,
@@ -268,6 +278,12 @@ mod tests {
     #[test]
     fn audio_ctx_never_exceeds_1500() {
         assert_eq!(audio_ctx_for(27.9), Some(1495)); // 27.9*50=1395 +100=1495
+    }
+
+    #[test]
+    fn device_free_vram_is_none_for_bogus_id() {
+        // A device id that cannot exist must return None, never panic.
+        assert_eq!(device_free_vram(-999), None);
     }
 
     #[test]
