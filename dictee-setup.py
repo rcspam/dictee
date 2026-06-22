@@ -6354,8 +6354,7 @@ class DicteeSetupDialog(QDialog):
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
-            if self._is_backend_installed("whisper-rust"):
-                self.cmb_asr_backend.addItem("Whisper-Rust large-v3 (GPU)", "whisper-rust")
+            self.cmb_asr_backend.addItem("Whisper-Rust large-v3 (GPU)", "whisper-rust")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         glay.addWidget(self.cmb_asr_backend)
 
@@ -6374,6 +6373,7 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
         self._build_canary_options(glay)
+        self._build_whisper_rust_options(glay)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
@@ -6381,6 +6381,7 @@ class DicteeSetupDialog(QDialog):
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
             self.w_canary_options.setVisible(backend == "canary")
+            self.w_whisper_rust_options.setVisible(backend == "whisper-rust")
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
@@ -7616,6 +7617,7 @@ class DicteeSetupDialog(QDialog):
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
         self.w_canary_options.setVisible(asr == "canary")
+        self.w_whisper_rust_options.setVisible(asr == "whisper-rust")
 
     def _on_card_click(self, backend_id):
         """Handle card click: single=select, rapid double=select+next."""
@@ -7739,6 +7741,7 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(lay_sub)
         self._build_whisper_options(lay_sub)
         self._build_canary_options(lay_sub)
+        self._build_whisper_rust_options(lay_sub)
 
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
@@ -9509,6 +9512,40 @@ class DicteeSetupDialog(QDialog):
                 break
         self._update_whisper_status()
 
+    def _build_whisper_rust_options(self, parent_layout):
+        """Build Whisper-Rust large-v3 sub-options (GPU only, ggml Q5_0 download)."""
+        self.w_whisper_rust_options = QWidget()
+        lay = QVBoxLayout(self.w_whisper_rust_options)
+        lay.setContentsMargins(0, 4, 0, 0)
+        lay.setSpacing(6)
+
+        installed = self._whisper_rust_model_installed()
+
+        row = QHBoxLayout()
+        self.btn_install_whisper_rust = QPushButton()
+        self.btn_install_whisper_rust.clicked.connect(self._download_whisper_rust_model)
+        self._update_venv_button(self.btn_install_whisper_rust, "Whisper-Rust", installed)
+
+        self.btn_delete_whisper_rust = QPushButton()
+        self.btn_delete_whisper_rust.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_delete_whisper_rust.setFixedWidth(28)
+        self.btn_delete_whisper_rust.setToolTip(_("Delete model"))
+        self.btn_delete_whisper_rust.clicked.connect(self._delete_whisper_rust_model)
+        self.btn_delete_whisper_rust.setVisible(installed)
+
+        self.btn_cancel_whisper_rust = QPushButton(_("Cancel"))
+        self.btn_cancel_whisper_rust.setFixedWidth(80)
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self.btn_cancel_whisper_rust.clicked.connect(self._cancel_whisper_rust_download)
+
+        row.addWidget(self.btn_install_whisper_rust, 1)
+        row.addWidget(self.btn_delete_whisper_rust)
+        row.addWidget(self.btn_cancel_whisper_rust)
+        lay.addLayout(row)
+
+        self.w_whisper_rust_options.setVisible(False)
+        parent_layout.addWidget(self.w_whisper_rust_options)
+
     def _build_canary_options(self, parent_layout):
         """Build Canary 1B v2 sub-options (GPU only, model download)."""
         self.w_canary_options = QWidget()
@@ -9547,6 +9584,48 @@ class DicteeSetupDialog(QDialog):
     def _whisper_rust_model_installed(self):
         """True if the Whisper-Rust ggml is present (user dir first, then system)."""
         return model_is_installed(WHISPER_RUST_MODEL)
+
+    def _update_whisper_rust_model_status(self):
+        installed = self._whisper_rust_model_installed()
+        self._update_venv_button(self.btn_install_whisper_rust, "Whisper-Rust", installed)
+        self.btn_delete_whisper_rust.setVisible(installed)
+
+    def _cancel_whisper_rust_download(self):
+        thread = self._venv_threads.get("whisper-rust")
+        if thread and thread.isRunning():
+            thread.cancel()
+
+    def _download_whisper_rust_model(self):
+        self.btn_install_whisper_rust.setEnabled(False)
+        self.btn_install_whisper_rust.setText(_("Downloading..."))
+        self.btn_install_whisper_rust.setStyleSheet(
+            "QPushButton { color: white; background-color: #c84; font-weight: bold; }")
+        self.btn_delete_whisper_rust.setVisible(False)
+        self.btn_cancel_whisper_rust.setVisible(True)
+
+        thread = ModelDownloadThread(WHISPER_RUST_MODEL)
+        thread.done.connect(self._on_whisper_rust_download_done)
+        thread.progress.connect(lambda msg: self.btn_install_whisper_rust.setText(msg))
+        self._venv_threads["whisper-rust"] = thread
+        thread.start()
+
+    def _on_whisper_rust_download_done(self, ok, msg):
+        self.btn_install_whisper_rust.setEnabled(True)
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self._update_whisper_rust_model_status()
+        if not ok and msg != _("Cancelled"):
+            QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _delete_whisper_rust_model(self):
+        for base in (WHISPER_RUST_MODEL["dir"],
+                     WHISPER_RUST_MODEL["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)):
+            f = os.path.join(base, WHISPER_RUST_MODEL["check_file"])
+            try:
+                if os.path.isfile(f):
+                    os.remove(f)
+            except OSError:
+                pass
+        self._update_whisper_rust_model_status()
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
