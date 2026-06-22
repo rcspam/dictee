@@ -284,8 +284,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let dev = parakeet_rs::whisper::select_vulkan_device()
             .ok_or("Whisper backend requires a usable Vulkan GPU — none found (no CPU fallback)")?;
-        let ggml = env::var("DICTEE_WHISPER_GGML")
-            .map_err(|_| "DICTEE_WHISPER_GGML not set (path to ggml-*.bin)")?;
+        // Primary var is DICTEE_WHISPER_RUST_GGML (namespaced like the other
+        // whisper-rust knobs); fall back to the legacy DICTEE_WHISPER_GGML so an
+        // older conf keeps working during the transition.
+        let ggml = env::var("DICTEE_WHISPER_RUST_GGML")
+            .or_else(|_| env::var("DICTEE_WHISPER_GGML"))
+            .map_err(|_| "DICTEE_WHISPER_RUST_GGML not set (path to ggml-*.bin)")?;
         // VRAM fit guard: ggml file size + ~0.75 GiB compute-buffer margin (spec §6)
         // must fit the chosen device's free VRAM. Refuse cleanly — never CPU.
         let need = fs::metadata(&ggml).map(|m| m.len() as usize).unwrap_or(0)

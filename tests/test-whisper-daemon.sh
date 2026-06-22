@@ -6,7 +6,7 @@ SOCK=/tmp/test-whisper-daemon.sock
 GGML=/home/rapha/.local/share/voxtype/models/ggml-large-v3.bin
 WAV="$PWD/tests/poc-kyutai/ref-fr.wav"
 rm -f "$SOCK"
-DICTEE_WHISPER_GGML=$GGML DICTEE_TRANSCRIBE_SOCKET=$SOCK ./target/release/transcribe-daemon --whisper --socket "$SOCK" >/tmp/test-whisper-daemon.log 2>&1 &
+DICTEE_WHISPER_RUST_GGML=$GGML DICTEE_TRANSCRIBE_SOCKET=$SOCK ./target/release/transcribe-daemon --whisper --socket "$SOCK" >/tmp/test-whisper-daemon.log 2>&1 &
 DPID=$!
 until [ -S "$SOCK" ]; do sleep 1; done
 sleep 2

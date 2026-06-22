@@ -85,10 +85,64 @@ pub fn device_free_vram(gpu_device: i32) -> Option<usize> {
         .map(|d| d.vram.free)
 }
 
+/// Per-backend decoding knobs, all overridable via `DICTEE_WHISPER_RUST_*`
+/// environment variables (read once at backend construction = daemon startup).
+/// Defaults reproduce the committed β / Meetily strategy exactly, so an unset
+/// environment changes nothing. The `DICTEE_WHISPER_RUST_` prefix keeps these
+/// distinct from faster-whisper's `DICTEE_WHISPER_*` (Python) variables.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WhisperTuning {
+    temperature: f32,
+    /// α/β switch: `-1` disables the temperature fallback (α: deterministic, no
+    /// fallback loops); the whisper.cpp default `0.2` keeps it (β: recovers hard
+    /// passages in long audio).
+    temperature_inc: f32,
+    beam_size: i32,
+    no_speech_thold: f32,
+    entropy_thold: f32,
+    logprob_thold: f32,
+    /// audio_ctx override: `None` = adaptive (`audio_ctx_for`); `Some(0)` = full
+    /// context (no cap); `Some(n>0)` = fixed value.
+    audio_ctx: Option<i32>,
+}
+
+impl WhisperTuning {
+    fn from_env() -> Self {
+        WhisperTuning {
+            temperature: env_f32("DICTEE_WHISPER_RUST_TEMPERATURE", 0.3),
+            temperature_inc: env_f32("DICTEE_WHISPER_RUST_TEMPERATURE_INC", 0.2),
+            beam_size: env_i32("DICTEE_WHISPER_RUST_BEAM_SIZE", 5).max(1),
+            no_speech_thold: env_f32("DICTEE_WHISPER_RUST_NO_SPEECH_THOLD", 0.55),
+            entropy_thold: env_f32("DICTEE_WHISPER_RUST_ENTROPY_THOLD", 2.4),
+            logprob_thold: env_f32("DICTEE_WHISPER_RUST_LOGPROB_THOLD", -1.0),
+            audio_ctx: std::env::var("DICTEE_WHISPER_RUST_AUDIO_CTX")
+                .ok()
+                .and_then(|v| v.trim().parse::<i32>().ok()),
+        }
+    }
+}
+
+/// Parse an env var as f32, falling back to `default` if unset or unparseable.
+fn env_f32(key: &str, default: f32) -> f32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<f32>().ok())
+        .unwrap_or(default)
+}
+
+/// Parse an env var as i32, falling back to `default` if unset or unparseable.
+fn env_i32(key: &str, default: i32) -> i32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<i32>().ok())
+        .unwrap_or(default)
+}
+
 pub struct WhisperBackend {
     _ctx: WhisperContext,
     state: WhisperState,
     lang: String,
+    tuning: WhisperTuning,
 }
 
 impl WhisperBackend {
@@ -106,7 +160,7 @@ impl WhisperBackend {
         // via the crate's own self-referential handling (create_state takes &ctx).
         let state = ctx.create_state().map_err(|e| eyre!("create_state: {e:?}"))?;
         let lang = if lang.is_empty() { "auto".to_string() } else { lang.to_string() };
-        Ok(Self { _ctx: ctx, state, lang })
+        Ok(Self { _ctx: ctx, state, lang, tuning: WhisperTuning::from_env() })
     }
 }
 
@@ -123,32 +177,49 @@ impl Transcriber for WhisperBackend {
                 "Whisper expects 16 kHz mono, got {sample_rate} Hz / {channels} ch"
             )));
         }
+        let t = self.tuning;
         let mut params =
-            FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: 1.0 });
+            FullParams::new(SamplingStrategy::BeamSearch { beam_size: t.beam_size, patience: 1.0 });
         params.set_language(Some(&self.lang));
 
-        // Anti-hallucination (β / Meetily strategy, verified against whisper.cpp defaults).
-        // temperature is 0.3 and temperature_inc is left at its 0.2 default so the
-        // temperature fallback still recovers hard passages in long meeting audio;
-        // clean_repetitive_text() (below) is the safety net against repetition loops.
-        params.set_temperature(0.3);
+        // Anti-hallucination (β / Meetily strategy by default, verified against
+        // whisper.cpp defaults). All knobs below are overridable per use-case via
+        // DICTEE_WHISPER_RUST_* env vars (see WhisperTuning). The default
+        // temperature_inc 0.2 keeps the temperature fallback so hard passages in
+        // long meeting audio still recover; set it to -1 (α) for deterministic,
+        // fallback-free dictation. clean_repetitive_text() (below) is the safety
+        // net against repetition loops regardless of these settings.
+        params.set_temperature(t.temperature);
+        params.set_temperature_inc(t.temperature_inc);
         params.set_suppress_blank(true);
         params.set_suppress_nst(true); // drop non-speech tokens ([music], "thank you"...)
         params.set_no_context(true); // clean prompt per request (no cross-request bleed)
-        params.set_entropy_thold(2.4);
-        params.set_logprob_thold(-1.0);
-        params.set_no_speech_thold(0.55);
+        params.set_entropy_thold(t.entropy_thold);
+        params.set_logprob_thold(t.logprob_thold);
+        params.set_no_speech_thold(t.no_speech_thold);
         // no_timestamps(true)+token_timestamps(true): avoids whisper.cpp chunk-skip that
         // discards valid text (verified behavior in the Meetily whisper engine).
         params.set_no_timestamps(true);
         params.set_token_timestamps(true);
 
-        // Cap the encoder context to the real clip length on short dictation: the
-        // decoder then can't hallucinate over the 30 s silence padding, and it's
-        // faster. Long audio keeps the full context.
+        // audio_ctx: cap the encoder context to the real clip length on short
+        // dictation (less silence for the decoder to hallucinate over, lower
+        // latency — but never below the floor, see audio_ctx_for). Overridable:
+        // env Some(0) = full context, Some(n>0) = fixed, unset = adaptive.
         let dur_s = audio.len() as f32 / 16000.0;
-        if let Some(ctx) = audio_ctx_for(dur_s) {
-            params.set_audio_ctx(ctx);
+        match t.audio_ctx {
+            None => {
+                if let Some(ctx) = audio_ctx_for(dur_s) {
+                    params.set_audio_ctx(ctx);
+                }
+            }
+            Some(0) => {} // full context: leave whisper.cpp's default (1500)
+            Some(n) if n > 0 => params.set_audio_ctx(n.min(1500)),
+            Some(_) => {
+                if let Some(ctx) = audio_ctx_for(dur_s) {
+                    params.set_audio_ctx(ctx);
+                }
+            }
         }
 
         let n_threads = std::thread::available_parallelism()
@@ -196,37 +267,71 @@ fn audio_ctx_for(dur_s: f32) -> Option<i32> {
         return None;
     }
     let ctx = (dur_s * 50.0).ceil() as i32 + 100; // +100 positions ≈ 2 s margin
-    Some(ctx.min(1500))
+    Some(ctx.clamp(MIN_AUDIO_CTX, 1500))
 }
 
-/// Collapse pathological consecutive word repetition that large-v3 occasionally
-/// emits even with beam search + temperature fallback. A run of the SAME word
-/// repeated 3+ times in a row is collapsed to a single occurrence; a single
-/// doubling (legitimate emphasis like "très très") is left alone. Whitespace is
-/// normalized to single spaces. Pure function — no model state.
+/// Floor on the capped audio_ctx. whisper.cpp (Vulkan) is pathologically slow
+/// when audio_ctx is very small: a 0.7–2 s clip maps to ctx ≈ 137–200 and the
+/// daemon stalls ~9.5 s, while the same audio padded past ~3 s (ctx ≥ ~250)
+/// decodes in ~0.17 s. We keep the cap (it lowers latency and leaves less silence
+/// for the decoder to hallucinate over on mid-length clips) but never go below
+/// this floor, which restores fast decoding on short dictation. Verified
+/// empirically on RTX 4070 Vulkan: ctx 200 → 9.5 s, ctx ≥ ~300 → 0.17 s.
+const MIN_AUDIO_CTX: i32 = 320;
+
+/// Absolute ceiling (in words) on the repeating block we try to collapse — a
+/// perf bound only. The effective bound at each position is min(this, (n-i)/3),
+/// since a block needs ≥3 consecutive repeats to be a loop. Real large-v3(-turbo)
+/// loops are short phrases (seen up to ~10 words); 32 leaves a wide margin while
+/// keeping the scan near-linear and genuine long verbatim repeats (rare) safe.
+const MAX_REPEAT_BLOCK: usize = 32;
+
+/// Collapse pathological consecutive repetition that large-v3(-turbo) emits even
+/// with beam search + temperature fallback. Handles both single-word runs
+/// ("chat chat chat") AND multi-word phrase loops ("du plasmoïda du plasmoïda …",
+/// "et de la et de la …") that the single-word pass misses because the words
+/// alternate. A block (1..=MAX_REPEAT_BLOCK words) repeated 3+ times in a row is
+/// collapsed to one occurrence; a single doubling (legitimate emphasis like
+/// "très très" or a phrase said twice) is left alone. Whitespace is normalized
+/// to single spaces. Pure function — no model state.
 fn clean_repetitive_text(text: &str) -> String {
     let words: Vec<&str> = text.split_whitespace().collect();
-    if words.is_empty() {
+    let n = words.len();
+    if n == 0 {
         return String::new();
     }
-    let mut out: Vec<&str> = Vec::with_capacity(words.len());
+    let mut out: Vec<&str> = Vec::with_capacity(n);
     let mut i = 0;
-    while i < words.len() {
-        // Count how many times the current word repeats consecutively.
-        let mut j = i + 1;
-        while j < words.len() && words[j] == words[i] {
-            j += 1;
-        }
-        let run = j - i;
-        // run >= 3 → keep one; run == 1 or 2 → keep as-is (emphasis allowed).
-        if run >= 3 {
-            out.push(words[i]);
-        } else {
-            for w in &words[i..j] {
-                out.push(w);
+    while i < n {
+        // At position i, find the block length k whose consecutive repetition
+        // covers the most words (reps*k), among blocks repeated 3+ times.
+        // Prefer the smallest k on ties so "a a a a" collapses as a single word,
+        // not as the 2-word block "a a".
+        // A block of length k can repeat ≥3× only if 3k ≤ remaining, so cap at
+        // (n-i)/3; never search beyond the perf ceiling.
+        let max_k = MAX_REPEAT_BLOCK.min((n - i) / 3);
+        let mut best_k = 0;
+        let mut best_reps = 0;
+        for k in 1..=max_k {
+            let mut reps = 1;
+            while i + (reps + 1) * k <= n && words[i + reps * k..i + (reps + 1) * k] == words[i..i + k] {
+                reps += 1;
+            }
+            if reps >= 3 && reps * k > best_reps * best_k {
+                best_k = k;
+                best_reps = reps;
             }
         }
-        i = j;
+        if best_k > 0 {
+            // Keep one copy of the block, skip all its repetitions.
+            for w in &words[i..i + best_k] {
+                out.push(w);
+            }
+            i += best_reps * best_k;
+        } else {
+            out.push(words[i]);
+            i += 1;
+        }
     }
     out.join(" ")
 }
@@ -257,14 +362,102 @@ mod tests {
     }
 
     #[test]
+    fn collapses_two_word_phrase_loop() {
+        // Real large-v3-turbo hallucination captured from a 1.36 s clip:
+        // a 2-word phrase looped 25× ("du plasmoïda du plasmoïda ...").
+        // Words alternate so the single-word collapse misses it entirely.
+        let out = clean_repetitive_text("du plasmoïda du plasmoïda du plasmoïda du plasmoïda");
+        assert_eq!(out, "du plasmoïda");
+    }
+
+    #[test]
+    fn collapses_three_word_phrase_loop() {
+        let out = clean_repetitive_text("et de la et de la et de la et de la");
+        assert_eq!(out, "et de la");
+    }
+
+    #[test]
+    fn keeps_phrase_repeated_once() {
+        // A phrase said twice is legitimate emphasis (run == 2) — keep it.
+        let s = "c'est bien c'est bien";
+        assert_eq!(clean_repetitive_text(s), s);
+    }
+
+    #[test]
+    fn collapses_loop_with_clean_prefix() {
+        let out = clean_repetitive_text("bonjour du plasmoïda du plasmoïda du plasmoïda");
+        assert_eq!(out, "bonjour du plasmoïda");
+    }
+
+    #[test]
+    fn collapses_nine_word_phrase_loop() {
+        // Real large-v3-turbo loop captured live: a 9-word phrase repeated.
+        // The 8-word cap missed this; the block bound is now (n-i)/3.
+        let p = "j'aimerais bien savoir ce qui s'est passé quand même.";
+        let looped = format!("{p} {p} {p} {p} {p}");
+        assert_eq!(clean_repetitive_text(&looped), p);
+    }
+
+    #[test]
+    fn collapses_long_phrase_loop_with_lowercase_prefix() {
+        // Mirrors the captured transcript: "Bon," + a first lowercase copy that
+        // differs from the capitalized loop body, then the loop.
+        let body = "J'aimerais bien savoir ce qui s'est passé quand même.";
+        let looped = format!(
+            "Bon, j'aimerais bien savoir ce qui s'est passé quand même. {body} {body} {body} {body}"
+        );
+        let out = clean_repetitive_text(&looped);
+        // Loop collapsed: the capitalized block appears exactly once at the end.
+        assert_eq!(out.matches(body).count(), 1);
+        assert!(out.starts_with("Bon, j'aimerais"));
+    }
+
+    #[test]
     fn empty_stays_empty() {
         assert_eq!(clean_repetitive_text(""), "");
     }
 
     #[test]
     fn audio_ctx_caps_short_clips() {
-        assert_eq!(audio_ctx_for(4.0), Some(300)); // 4*50 + 100 margin
-        assert_eq!(audio_ctx_for(1.0), Some(150));
+        // 6 s → 6*50+100 = 400, above the floor → kept as-is.
+        assert_eq!(audio_ctx_for(6.0), Some(400));
+        // 10 s → 600.
+        assert_eq!(audio_ctx_for(10.0), Some(600));
+    }
+
+    #[test]
+    fn env_helpers_parse_and_fall_back() {
+        // Unique keys so parallel tests can't interfere.
+        std::env::set_var("DICTEE_TEST_F32", " 0.42 ");
+        assert_eq!(env_f32("DICTEE_TEST_F32", 9.9), 0.42);
+        assert_eq!(env_f32("DICTEE_TEST_F32_UNSET", 9.9), 9.9);
+        std::env::set_var("DICTEE_TEST_F32_BAD", "notanumber");
+        assert_eq!(env_f32("DICTEE_TEST_F32_BAD", 9.9), 9.9);
+        std::env::set_var("DICTEE_TEST_I32", "7");
+        assert_eq!(env_i32("DICTEE_TEST_I32", 3), 7);
+        assert_eq!(env_i32("DICTEE_TEST_I32_UNSET", 3), 3);
+    }
+
+    #[test]
+    fn tuning_defaults_match_committed_beta_strategy() {
+        // With no DICTEE_WHISPER_RUST_* set, defaults reproduce the β strategy.
+        let t = WhisperTuning::from_env();
+        assert_eq!(t.temperature, 0.3);
+        assert_eq!(t.temperature_inc, 0.2);
+        assert_eq!(t.beam_size, 5);
+        assert_eq!(t.no_speech_thold, 0.55);
+        assert_eq!(t.entropy_thold, 2.4);
+        assert_eq!(t.logprob_thold, -1.0);
+        assert_eq!(t.audio_ctx, None);
+    }
+
+    #[test]
+    fn audio_ctx_floors_very_short_clips() {
+        // Very short clips would map to a tiny ctx (137–200) that stalls
+        // whisper.cpp ~9.5 s; the floor keeps them fast.
+        assert_eq!(audio_ctx_for(0.7), Some(MIN_AUDIO_CTX)); // would be 135
+        assert_eq!(audio_ctx_for(2.0), Some(MIN_AUDIO_CTX)); // would be 200
+        assert!(audio_ctx_for(0.7).unwrap() >= MIN_AUDIO_CTX);
     }
 
     #[test]

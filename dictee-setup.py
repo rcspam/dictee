@@ -431,9 +431,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_VOSK_MODEL": _s(vosk_code),
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
         # Whisper-Rust (whisper.cpp/Vulkan) selected model id + resolved ggml path
-        # (the dictee-whisper-rust.service reads DICTEE_WHISPER_GGML from here).
+        # (the dictee-whisper-rust.service reads DICTEE_WHISPER_RUST_GGML from here).
         "DICTEE_WHISPER_RUST_MODEL": _s(whisper_rust_model),
-        "DICTEE_WHISPER_GGML": _s(whisper_rust_ggml),
+        "DICTEE_WHISPER_RUST_GGML": _s(whisper_rust_ggml),
         # Parakeet quantization variant (int8 | fp32). None = leave dictee.conf
         # untouched (preserve existing user value or comment).
         **({"DICTEE_PARAKEET_QUANT": parakeet_quant}
@@ -1574,7 +1574,7 @@ CANARY_MODEL_FILES = [
 # Whisper-Rust (whisper.cpp/Vulkan GPU) ggml models — multilingual, quantized.
 # Quant per HF availability (verified): tiny/base/small = q5_1, medium/large* = q5_0.
 # Downloaded on demand to the dictee user dir; the selected model's path is written
-# to dictee.conf (DICTEE_WHISPER_GGML), which the service reads.
+# to dictee.conf (DICTEE_WHISPER_RUST_GGML), which the service reads.
 _WHISPER_RUST_DIR = os.path.join(MODEL_DIR, "whisper-rust")
 _WHISPER_RUST_BASE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
 WHISPER_RUST_MODELS = [
@@ -18607,7 +18607,7 @@ class DicteeSetupDialog(QDialog):
         _old_ptt = {}
         _old_asr = {}
         _ASR_KEYS = ("DICTEE_ASR_BACKEND", "DICTEE_WHISPER_MODEL",
-                     "DICTEE_WHISPER_RUST_MODEL", "DICTEE_WHISPER_GGML",
+                     "DICTEE_WHISPER_RUST_MODEL", "DICTEE_WHISPER_RUST_GGML",
                      "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
                      "DICTEE_AUDIO_SOURCE", "DICTEE_PARAKEET_QUANT",
                      "DICTEE_FORCE_CPU")
@@ -19032,7 +19032,7 @@ class DicteeSetupDialog(QDialog):
             "DICTEE_ASR_BACKEND": asr_backend,
             "DICTEE_WHISPER_MODEL": whisper_model,
             "DICTEE_WHISPER_RUST_MODEL": whisper_rust_model,
-            "DICTEE_WHISPER_GGML": whisper_rust_ggml,
+            "DICTEE_WHISPER_RUST_GGML": whisper_rust_ggml,
             "DICTEE_WHISPER_LANG": whisper_lang,
             "DICTEE_VOSK_MODEL": vosk_model,
             "DICTEE_AUDIO_SOURCE": str(audio_source),
