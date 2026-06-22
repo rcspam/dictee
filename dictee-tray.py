@@ -1333,6 +1333,25 @@ class DicteeTrayQt:
         p.end()
         return self.QIcon(pix)
 
+    def _letter_icon(self, letter, color):
+        """Painted colored-letter icon (V/G/C) for the menu — QMenu can't colour
+        item text, but it renders an icon, so we paint the letter into a pixmap
+        (same technique as _dot_icon). Mirrors the plasmoid compact badge."""
+        from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
+        pix = QPixmap(16, 16)
+        pix.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        f = QFont()
+        f.setBold(True)
+        f.setPixelSize(14)
+        p.setFont(f)
+        p.setPen(QColor(color))
+        p.drawText(pix.rect(), self.Qt.AlignmentFlag.AlignCenter, letter)
+        p.end()
+        return self.QIcon(pix)
+
     def _on_menu_triggered(self, action):
         if action == self.action_dictee:
             subprocess.Popen(["dictee"])
@@ -1562,7 +1581,7 @@ class DicteeTrayQt:
         # Suffixe provider (' (sur GPU)' / ' (sur CPU)' / ''). N'appara\u00eet
         # que sur les \u00e9tats "actifs" du daemon \u2014 pas de sens quand offline
         # ou diarize-ready.
-        psfx = self._provider_suffix() if self.state not in ("offline", "diarize") else ""
+        # provider badge is a painted colored-letter icon now (see else branch)
         if self.state == "diarize":
             self.action_daemon.setText(f"  {_('Diarization ready')}{pad}▶")
             self.action_daemon.setIcon(self._dot_icon("#9B59B6"))
@@ -1578,10 +1597,14 @@ class DicteeTrayQt:
                       "preparing": _("Preparing diarization…"),
                       "diarize-ready": _("Ready for diarization")}
             self.action_daemon.setText(
-                f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■{psfx}")
+                f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■")
             violet_states = ("diarizing", "preparing", "diarize-ready")
-            self.action_daemon.setIcon(
-                self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
+            _pl = self._provider_letter()
+            if _pl and self.state not in violet_states:
+                self.action_daemon.setIcon(self._letter_icon(_pl[0], _pl[1]))
+            else:
+                self.action_daemon.setIcon(
+                    self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
             self.action_daemon_hint.setText(f" {_('click to stop')}")
 
         is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
@@ -1620,23 +1643,23 @@ class DicteeTrayQt:
         if path and os.path.isfile(path) and path not in (self._watcher.files() or []):
             self._watcher.addPath(path)
 
-    def _provider_suffix(self):
-        """Retourne un badge unicode coloré ajouté au label daemon :
-        🟣 GPU Vulkan (whisper-rust) | 🟢 GPU (cuda) |
-        🔴 panne CPU (cpu = libs CUDA cassées) |
-        🔵 CPU voulu (cpu-forced / cpu-only / cpu-int8). '' si inconnu.
-        Le menu Qt n'affiche pas de lettre colorée → on garde des cercles
-        (cohérent en COULEUR avec le badge plasmoid).
+    def _provider_letter(self):
+        """(letter, color) badge for the current provider, or None. Painted as a
+        colored-letter icon by _letter_icon (QMenu can't colour item text).
+        Mirrors the plasmoid compact badge — same letters AND colours:
+        V violet = GPU Vulkan (whisper-rust) | G vert = GPU (cuda) |
+        G rouge = panne CPU (libs CUDA cassées) | C bleu = CPU voulu
+        (cpu-forced / cpu-only / cpu-int8). None si inconnu.
         """
         if self.provider == "vulkan":
-            return " \U0001F7E3"  # 🟣 GPU Vulkan (whisper-rust)
+            return ("V", "#8e44ad")
         if self.provider == "cuda":
-            return " \U0001F7E2"  # 🟢 GPU (cuda)
+            return ("G", "#27ae60")
         if self.provider == "cpu":
-            return " \U0001F534"  # 🔴 panne (GPU indisponible)
+            return ("G", "#c0392b")
         if self.provider in ("cpu-forced", "cpu-only", "cpu-int8"):
-            return " \U0001F535"  # 🔵 CPU voulu
-        return ""
+            return ("C", "#3498db")
+        return None
 
     def _apply_provider(self):
         if self.provider == self._prev_provider:
