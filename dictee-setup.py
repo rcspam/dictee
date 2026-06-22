@@ -372,6 +372,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 anim_speech=True, anim_plasmoid=False,
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
+                whisper_rust_model="large-v3", whisper_rust_ggml="",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
                 ptt_mod_translate="", ptt_extra_devices="", ptt_exclude_devices="",
@@ -429,6 +430,10 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
+        # Whisper-Rust (whisper.cpp/Vulkan) selected model id + resolved ggml path
+        # (the dictee-whisper-rust.service reads DICTEE_WHISPER_GGML from here).
+        "DICTEE_WHISPER_RUST_MODEL": _s(whisper_rust_model),
+        "DICTEE_WHISPER_GGML": _s(whisper_rust_ggml),
         # Parakeet quantization variant (int8 | fp32). None = leave dictee.conf
         # untouched (preserve existing user value or comment).
         **({"DICTEE_PARAKEET_QUANT": parakeet_quant}
@@ -17282,6 +17287,15 @@ class DicteeSetupDialog(QDialog):
                     "Click Download next to it, or choose a model that is already "
                     "available.").format(model=whisper_model)
             return True, ""
+        if backend == "whisper-rust":
+            if get_gpu_vram_gb()[0] <= 0:
+                return False, _(
+                    "Whisper-Rust requires a Vulkan GPU (none detected).")
+            if not self._any_whisper_rust_model_installed():
+                return False, _(
+                    "No Whisper-Rust model is downloaded.\n\n"
+                    "Pick a model in the combo and click Download.")
+            return True, ""
         return True, ""
 
     def _any_model_installed(self, name):
@@ -18593,6 +18607,7 @@ class DicteeSetupDialog(QDialog):
         _old_ptt = {}
         _old_asr = {}
         _ASR_KEYS = ("DICTEE_ASR_BACKEND", "DICTEE_WHISPER_MODEL",
+                     "DICTEE_WHISPER_RUST_MODEL", "DICTEE_WHISPER_GGML",
                      "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
                      "DICTEE_AUDIO_SOURCE", "DICTEE_PARAKEET_QUANT",
                      "DICTEE_FORCE_CPU")
@@ -18670,6 +18685,11 @@ class DicteeSetupDialog(QDialog):
             asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
 
         whisper_model = self.cmb_whisper_model.currentData() or "small"
+        whisper_rust_model = (self.cmb_whisper_rust_model.currentData()
+                              if hasattr(self, "cmb_whisper_rust_model") else None) or "large-v3"
+        _wr = _whisper_rust_model_dict(whisper_rust_model)
+        whisper_rust_ggml = os.path.join(
+            DICTEE_DATA_DIR, "whisper-rust", _wr["check_file"]) if _wr else ""
         whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
@@ -18801,7 +18821,8 @@ class DicteeSetupDialog(QDialog):
         save_config(backend, lang_src, lang_tgt, clipboard,
                     anim_speech, anim_plasmoid,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
-                    asr_backend, whisper_model, whisper_lang, vosk_model,
+                    asr_backend, whisper_model, whisper_rust_model, whisper_rust_ggml,
+                    whisper_lang, vosk_model,
                     audio_source=str(audio_source),
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
                     ptt_key_translate=ptt_key_translate,
@@ -19002,6 +19023,8 @@ class DicteeSetupDialog(QDialog):
         _new_asr = {
             "DICTEE_ASR_BACKEND": asr_backend,
             "DICTEE_WHISPER_MODEL": whisper_model,
+            "DICTEE_WHISPER_RUST_MODEL": whisper_rust_model,
+            "DICTEE_WHISPER_GGML": whisper_rust_ggml,
             "DICTEE_WHISPER_LANG": whisper_lang,
             "DICTEE_VOSK_MODEL": vosk_model,
             "DICTEE_AUDIO_SOURCE": str(audio_source),
