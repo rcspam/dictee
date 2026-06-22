@@ -162,8 +162,40 @@ impl Transcriber for WhisperBackend {
             });
             text.push_str(&s);
         }
-        Ok(TranscriptionResult { text: text.trim().to_string(), tokens })
+        Ok(TranscriptionResult { text: clean_repetitive_text(text.trim()), tokens })
     }
+}
+
+/// Collapse pathological consecutive word repetition that large-v3 occasionally
+/// emits even with beam search + temperature fallback. A run of the SAME word
+/// repeated 3+ times in a row is collapsed to a single occurrence; a single
+/// doubling (legitimate emphasis like "très très") is left alone. Whitespace is
+/// normalized to single spaces. Pure function — no model state.
+fn clean_repetitive_text(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return String::new();
+    }
+    let mut out: Vec<&str> = Vec::with_capacity(words.len());
+    let mut i = 0;
+    while i < words.len() {
+        // Count how many times the current word repeats consecutively.
+        let mut j = i + 1;
+        while j < words.len() && words[j] == words[i] {
+            j += 1;
+        }
+        let run = j - i;
+        // run >= 3 → keep one; run == 1 or 2 → keep as-is (emphasis allowed).
+        if run >= 3 {
+            out.push(words[i]);
+        } else {
+            for w in &words[i..j] {
+                out.push(w);
+            }
+        }
+        i = j;
+    }
+    out.join(" ")
 }
 
 #[cfg(test)]
@@ -171,6 +203,30 @@ mod tests {
     use super::*;
     use crate::transcriber::Transcriber;
     use crate::timestamps::TimestampMode;
+
+    #[test]
+    fn collapses_consecutive_word_repetition() {
+        let out = clean_repetitive_text("le chat chat chat chat dort");
+        assert_eq!(out, "le chat dort");
+    }
+
+    #[test]
+    fn leaves_normal_text_untouched() {
+        let s = "Bonjour, ceci est un test de transcription.";
+        assert_eq!(clean_repetitive_text(s), s);
+    }
+
+    #[test]
+    fn allows_legitimate_double_word() {
+        // "très très" (one repeat) is legitimate emphasis — keep both.
+        let s = "c'est très très bien";
+        assert_eq!(clean_repetitive_text(s), s);
+    }
+
+    #[test]
+    fn empty_stays_empty() {
+        assert_eq!(clean_repetitive_text(""), "");
+    }
 
     #[test]
     fn device_selection_never_panics_and_is_in_range() {
