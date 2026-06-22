@@ -183,6 +183,10 @@ depends:
   - canonical: docker
     variants: [cpu, cuda]
     kind: optional
+    # deb/rpm: shipped as `Suggests:` since #21 (must NOT auto-install) → omit from
+    # the audited Recommends. Arch keeps it in optdepends, so kind: optional holds there.
+    deb_kind: omit
+    rpm_kind: omit
     deb: docker.io
     rpm: moby-engine
     arch: docker
