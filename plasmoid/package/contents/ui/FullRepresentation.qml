@@ -575,6 +575,7 @@ RowLayout {
                     append({ "text": "Canary",   "value": "canary",  "quant": "" })
                     append({ "text": "Vosk",     "value": "vosk",    "quant": "" })
                     append({ "text": "Whisper",  "value": "whisper", "quant": "" })
+                    append({ "text": "Whisper-Rust", "value": "whisper-rust", "quant": "" })
                 }
             }
             textRole: "text"
