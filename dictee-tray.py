@@ -276,6 +276,11 @@ def _force_cpu_constraint(backend, parakeet_quant, vram_gb):
             tooltip = _("Canary requires NVIDIA GPU — none detected, transcription will fail")
         return {"sensitive": False, "forced": "gpu", "tooltip": tooltip}
 
+    # Whisper-Rust (whisper.cpp/Vulkan) is GPU only — no CPU fallback by design
+    if backend == "whisper-rust":
+        return {"sensitive": False, "forced": "gpu",
+                "tooltip": _("Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)")}
+
     # Vosk is CPU only by design
     if backend == "vosk":
         return {"sensitive": False, "forced": "cpu",
@@ -1608,8 +1613,8 @@ class DicteeTrayQt:
         Le menu Qt n'affiche pas de lettre colorée → on garde des cercles
         (cohérent en COULEUR avec le badge plasmoid).
         """
-        if self.provider == "cuda":
-            return " \U0001F7E2"  # 🟢 GPU
+        if self.provider in ("cuda", "vulkan"):
+            return " \U0001F7E2"  # 🟢 GPU (cuda or whisper-rust Vulkan)
         if self.provider == "cpu":
             return " \U0001F534"  # 🔴 panne (GPU indisponible)
         if self.provider in ("cpu-forced", "cpu-only", "cpu-int8"):

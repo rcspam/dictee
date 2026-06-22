@@ -421,6 +421,10 @@ PlasmoidItem {
                     : i18n("Canary requires NVIDIA GPU — none detected, transcription will fail")
             }
         }
+        if (b === "whisper-rust") {
+            return { sensitive: false, forced: "gpu",
+                     tooltip: i18n("Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)") }
+        }
         if (b === "vosk") {
             return { sensitive: false, forced: "cpu",
                      tooltip: i18n("Vosk runs on CPU by design") }
