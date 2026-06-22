@@ -1622,13 +1622,16 @@ class DicteeTrayQt:
 
     def _provider_suffix(self):
         """Retourne un badge unicode coloré ajouté au label daemon :
-        🟢 GPU (cuda) | 🔴 panne CPU (cpu = libs CUDA cassées) |
+        🟣 GPU Vulkan (whisper-rust) | 🟢 GPU (cuda) |
+        🔴 panne CPU (cpu = libs CUDA cassées) |
         🔵 CPU voulu (cpu-forced / cpu-only / cpu-int8). '' si inconnu.
         Le menu Qt n'affiche pas de lettre colorée → on garde des cercles
         (cohérent en COULEUR avec le badge plasmoid).
         """
-        if self.provider in ("cuda", "vulkan"):
-            return " \U0001F7E2"  # 🟢 GPU (cuda or whisper-rust Vulkan)
+        if self.provider == "vulkan":
+            return " \U0001F7E3"  # 🟣 GPU Vulkan (whisper-rust)
+        if self.provider == "cuda":
+            return " \U0001F7E2"  # 🟢 GPU (cuda)
         if self.provider == "cpu":
             return " \U0001F534"  # 🔴 panne (GPU indisponible)
         if self.provider in ("cpu-forced", "cpu-only", "cpu-int8"):

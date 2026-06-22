@@ -204,7 +204,7 @@ Item {
     }
 
     // Provider status marker: lettre colorée SANS cercle.
-    //   V vert  = GPU Vulkan (whisper-rust, pas de fallback CPU) ;
+    //   V violet = GPU Vulkan (whisper-rust, pas de fallback CPU) ;
     //   G vert  = GPU (cuda) ; G rouge = GPU panne (cpu = libs CUDA cassées) ;
     //   C bleu  = CPU voulu (cpu-forced / cpu-only / cpu-int8).
     // La lettre dit Vulkan(V)/GPU(G)/CPU(C), la couleur dit l'état. Caché si
@@ -219,7 +219,7 @@ Item {
             : "C"
         font.pixelSize: Math.max(8, Math.min(parent.width, parent.height) * 0.45)
         font.bold: true
-        color: compact.provider === "vulkan" ? "#27ae60"
+        color: compact.provider === "vulkan" ? "#8e44ad"
              : compact.provider === "cuda" ? "#27ae60"
              : compact.provider === "cpu"  ? "#c0392b"
              : "#3498db"
