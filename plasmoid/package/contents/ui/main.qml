@@ -359,7 +359,7 @@ PlasmoidItem {
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
-    property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
+    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
@@ -791,7 +791,7 @@ PlasmoidItem {
                 "svc=dictee; " +
                 "if [ -f \"$conf\" ]; then " +
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
-                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
+                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; whisper-rust) svc=dictee-whisper-rust;; canary) svc=dictee-canary;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
@@ -799,7 +799,7 @@ PlasmoidItem {
             executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
-            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
             root.activeButton = ""
