@@ -133,6 +133,14 @@ impl Transcriber for WhisperBackend {
         params.set_no_timestamps(true);
         params.set_token_timestamps(true);
 
+        // Cap the encoder context to the real clip length on short dictation: the
+        // decoder then can't hallucinate over the 30 s silence padding, and it's
+        // faster. Long audio keeps the full context.
+        let dur_s = audio.len() as f32 / 16000.0;
+        if let Some(ctx) = audio_ctx_for(dur_s) {
+            params.set_audio_ctx(ctx);
+        }
+
         let n_threads = std::thread::available_parallelism()
             .map(|n| n.get() as i32)
             .unwrap_or(4);
@@ -164,6 +172,21 @@ impl Transcriber for WhisperBackend {
         }
         Ok(TranscriptionResult { text: clean_repetitive_text(text.trim()), tokens })
     }
+}
+
+/// Map a clip duration (seconds) to a whisper `audio_ctx` cap, or `None` to keep
+/// the full 1500-position context. whisper.cpp always pads input to a 30 s window
+/// = 1500 encoder positions (1 position = 20 ms, verified whisper.cpp:6279). On a
+/// short clip the remainder is silence the decoder can hallucinate over; capping
+/// audio_ctx to the real length (+ ~2 s margin) removes that and lowers latency.
+/// Applied only for clips clearly under the 30 s window; longer audio keeps full
+/// context (whisper segments long audio into full 30 s windows internally).
+fn audio_ctx_for(dur_s: f32) -> Option<i32> {
+    if dur_s <= 0.0 || dur_s >= 28.0 {
+        return None;
+    }
+    let ctx = (dur_s * 50.0).ceil() as i32 + 100; // +100 positions ≈ 2 s margin
+    Some(ctx.min(1500))
 }
 
 /// Collapse pathological consecutive word repetition that large-v3 occasionally
@@ -226,6 +249,25 @@ mod tests {
     #[test]
     fn empty_stays_empty() {
         assert_eq!(clean_repetitive_text(""), "");
+    }
+
+    #[test]
+    fn audio_ctx_caps_short_clips() {
+        assert_eq!(audio_ctx_for(4.0), Some(300)); // 4*50 + 100 margin
+        assert_eq!(audio_ctx_for(1.0), Some(150));
+    }
+
+    #[test]
+    fn audio_ctx_none_for_long_or_invalid() {
+        assert_eq!(audio_ctx_for(30.0), None); // >= 30 s window: keep full
+        assert_eq!(audio_ctx_for(28.0), None); // threshold
+        assert_eq!(audio_ctx_for(0.0), None);
+        assert_eq!(audio_ctx_for(-2.0), None);
+    }
+
+    #[test]
+    fn audio_ctx_never_exceeds_1500() {
+        assert_eq!(audio_ctx_for(27.9), Some(1495)); // 27.9*50=1395 +100=1495
     }
 
     #[test]
