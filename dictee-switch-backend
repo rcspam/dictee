@@ -25,7 +25,7 @@ usage() {
     echo "  quant [fp32|int8|toggle]  Switch Parakeet model variant (restarts daemon)"
     echo "  force_cpu [true|false|toggle]   Force CPU mode for all ASR backends"
     echo ""
-    echo "ASR backends:      parakeet, canary, vosk, whisper"
+    echo "ASR backends:      parakeet, canary, vosk, whisper, whisper-rust"
     echo "Translate backends: google, bing, ollama, libretranslate"
     exit 1
 }
@@ -221,7 +221,7 @@ diarize)
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         # Stop all daemons and wait for VRAM release
         _dbg "diarize: stopping all daemons for VRAM"
-        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
+        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null
         # Wait until GPU processes are gone (5s timeout)
         for i in $(seq 1 10); do
             if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
@@ -397,6 +397,7 @@ force_cpu)
         canary)   svc="dictee-canary.service" ;;
         vosk)     svc="dictee-vosk.service" ;;
         whisper)  svc="dictee-whisper.service" ;;
+        whisper-rust) svc="dictee-whisper-rust.service" ;;
         *)        svc="dictee.service" ;;
     esac
     systemctl --user restart "$svc" 2>/dev/null || true

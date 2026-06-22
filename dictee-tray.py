@@ -146,7 +146,7 @@ STATE_FILE = "/dev/shm/.dictee_state"
 PROVIDER_FILE = "/dev/shm/.dictee_provider"
 TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-whisper-rust", "dictee-canary")
 CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
@@ -199,7 +199,7 @@ def _ptt_label():
 # - menu_id is unique per menu entry (Parakeet appears twice — one entry
 #   per quantization variant).
 # - label_msgid is the English string passed through _() at menu build time.
-# - backend_key is what dictee-switch-backend expects (parakeet/canary/vosk/whisper).
+# - backend_key is what dictee-switch-backend expects (parakeet/canary/vosk/whisper/whisper-rust).
 # - quant is "fp32" or "int8" for Parakeet variants, None otherwise. When set,
 #   selecting this entry also triggers `dictee-switch-backend quant <quant>`.
 # Note: label_msgid is NOT pre-translated at module load (gettext may not be
@@ -210,6 +210,7 @@ ASR_BACKENDS = [
     ("canary",        "Canary",                  "canary",   None),
     ("vosk",          "Vosk",                    "vosk",     None),
     ("whisper",       "Whisper",                 "whisper",  None),
+    ("whisper-rust",  "Whisper-Rust",            "whisper-rust", None),
 ]
 
 TRANSLATE_BACKENDS = [
@@ -507,7 +508,8 @@ def daemon_is_active():
 def _conf_asr_service():
     """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
     mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
-               "whisper": "dictee-whisper", "canary": "dictee-canary"}
+               "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
+               "canary": "dictee-canary"}
     try:
         with open(CONF_PATH) as f:
             for line in f:

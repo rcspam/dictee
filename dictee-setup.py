@@ -15777,7 +15777,7 @@ class DicteeSetupDialog(QDialog):
                 return False
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
         sock = os.path.join(runtime_dir, "transcribe.sock")
-        needs_socket = asr in ("parakeet", "canary")
+        needs_socket = asr in ("parakeet", "canary", "whisper-rust")
         deadline = time.monotonic() + 6.0
         last_state = "?"
         while time.monotonic() < deadline:
