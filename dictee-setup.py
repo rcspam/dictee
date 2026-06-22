@@ -1566,19 +1566,33 @@ CANARY_MODEL_FILES = [
     "vocab.txt", "config.json",
 ]
 
-# Whisper-Rust (whisper.cpp/Vulkan GPU) ggml model — large-v3 Q5_0 (bench-verified:
-# quality == fp16, ~15% faster, 1/3 the size). Downloaded on demand to the dictee
-# user dir; the dictee-whisper-rust.service points DICTEE_WHISPER_GGML here.
-WHISPER_RUST_MODEL = {
-    "id": "whisper-rust-ggml",
-    "name": "Whisper large-v3 Q5_0 (ggml)",
-    "dir": os.path.join(MODEL_DIR, "whisper-rust"),
-    "check_file": "ggml-large-v3-q5_0.bin",
-    "files": [
-        ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
-         "ggml-large-v3-q5_0.bin"),
-    ],
-}
+# Whisper-Rust (whisper.cpp/Vulkan GPU) ggml models — multilingual, quantized.
+# Quant per HF availability (verified): tiny/base/small = q5_1, medium/large* = q5_0.
+# Downloaded on demand to the dictee user dir; the selected model's path is written
+# to dictee.conf (DICTEE_WHISPER_GGML), which the service reads.
+_WHISPER_RUST_DIR = os.path.join(MODEL_DIR, "whisper-rust")
+_WHISPER_RUST_BASE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+WHISPER_RUST_MODELS = [
+    ("tiny", "ggml-tiny-q5_1.bin", "tiny — 31 MB, fastest, lowest quality"),
+    ("base", "ggml-base-q5_1.bin", "base — 57 MB"),
+    ("small", "ggml-small-q5_1.bin", "small — 181 MB"),
+    ("medium", "ggml-medium-q5_0.bin", "medium — 514 MB, good balance"),
+    ("large-v3-turbo", "ggml-large-v3-turbo-q5_0.bin", "large-v3-turbo — 547 MB, fast, near large-v3 quality"),
+    ("large-v3", "ggml-large-v3-q5_0.bin", "large-v3 — 1.0 GB, best quality"),
+]
+
+
+def _whisper_rust_model_dict(model_id):
+    """Build a ModelDownloadThread/model_is_installed-compatible dict for a model id."""
+    for mid, fname, _label in WHISPER_RUST_MODELS:
+        if mid == model_id:
+            return {
+                "id": f"whisper-rust-{mid}",
+                "dir": _WHISPER_RUST_DIR,
+                "check_file": fname,
+                "files": [(f"{_WHISPER_RUST_BASE}/{fname}", fname)],
+            }
+    return None
 
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
@@ -8235,7 +8249,7 @@ class DicteeSetupDialog(QDialog):
         if backend_id == "canary":
             return self._canary_model_installed()
         if backend_id == "whisper-rust":
-            return self._whisper_rust_model_installed()
+            return self._any_whisper_rust_model_installed()
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -9513,36 +9527,48 @@ class DicteeSetupDialog(QDialog):
         self._update_whisper_status()
 
     def _build_whisper_rust_options(self, parent_layout):
-        """Build Whisper-Rust large-v3 sub-options (GPU only, ggml Q5_0 download)."""
+        """Whisper-Rust model picker (GPU Vulkan; all ggml models)."""
         self.w_whisper_rust_options = QWidget()
-        lay = QVBoxLayout(self.w_whisper_rust_options)
-        lay.setContentsMargins(0, 4, 0, 0)
-        lay.setSpacing(6)
-
-        installed = self._whisper_rust_model_installed()
+        outer = QVBoxLayout(self.w_whisper_rust_options)
+        outer.setContentsMargins(0, 4, 0, 0)
+        outer.setSpacing(4)
 
         row = QHBoxLayout()
-        self.btn_install_whisper_rust = QPushButton()
-        self.btn_install_whisper_rust.clicked.connect(self._download_whisper_rust_model)
-        self._update_venv_button(self.btn_install_whisper_rust, "Whisper-Rust", installed)
+        row.addWidget(QLabel(_("Model:")))
+        self.cmb_whisper_rust_model = _CheckMarkComboBox()
+        self.cmb_whisper_rust_model.setMinimumWidth(420)
+        self._populate_whisper_rust_combo()
+        cur = self.conf.get("DICTEE_WHISPER_RUST_MODEL", "large-v3")
+        for i in range(self.cmb_whisper_rust_model.count()):
+            if self.cmb_whisper_rust_model.itemData(i) == cur:
+                self.cmb_whisper_rust_model.setCurrentIndex(i)
+                break
+        self.cmb_whisper_rust_model.currentIndexChanged.connect(self._update_whisper_rust_status)
+        row.addWidget(self.cmb_whisper_rust_model, 1)
 
-        self.btn_delete_whisper_rust = QPushButton()
-        self.btn_delete_whisper_rust.setIcon(QIcon.fromTheme("edit-delete"))
-        self.btn_delete_whisper_rust.setFixedWidth(28)
-        self.btn_delete_whisper_rust.setToolTip(_("Delete model"))
-        self.btn_delete_whisper_rust.clicked.connect(self._delete_whisper_rust_model)
-        self.btn_delete_whisper_rust.setVisible(installed)
+        self.btn_download_whisper_rust = QPushButton(_("Download"))
+        self.btn_download_whisper_rust.setFixedWidth(150)
+        self.btn_download_whisper_rust.clicked.connect(self._on_whisper_rust_model_download)
+        row.addWidget(self.btn_download_whisper_rust)
+
+        self.btn_del_whisper_rust_model = QPushButton()
+        self.btn_del_whisper_rust_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_rust_model.setFixedWidth(28)
+        self.btn_del_whisper_rust_model.setToolTip(_("Delete model"))
+        self.btn_del_whisper_rust_model.clicked.connect(self._on_whisper_rust_model_delete)
+        row.addWidget(self.btn_del_whisper_rust_model)
 
         self.btn_cancel_whisper_rust = QPushButton(_("Cancel"))
         self.btn_cancel_whisper_rust.setFixedWidth(80)
         self.btn_cancel_whisper_rust.setVisible(False)
         self.btn_cancel_whisper_rust.clicked.connect(self._cancel_whisper_rust_download)
-
-        row.addWidget(self.btn_install_whisper_rust, 1)
-        row.addWidget(self.btn_delete_whisper_rust)
         row.addWidget(self.btn_cancel_whisper_rust)
-        lay.addLayout(row)
+        outer.addLayout(row)
 
+        self._lbl_whisper_rust_status = QLabel("")
+        outer.addWidget(self._lbl_whisper_rust_status)
+
+        self._update_whisper_rust_status()
         self.w_whisper_rust_options.setVisible(False)
         parent_layout.addWidget(self.w_whisper_rust_options)
 
@@ -9581,51 +9607,89 @@ class DicteeSetupDialog(QDialog):
         self.w_canary_options.setVisible(False)
         parent_layout.addWidget(self.w_canary_options)
 
-    def _whisper_rust_model_installed(self):
-        """True if the Whisper-Rust ggml is present (user dir first, then system)."""
-        return model_is_installed(WHISPER_RUST_MODEL)
+    def _whisper_rust_model_installed(self, model_id):
+        """True if the given Whisper-Rust ggml is present (user dir first, then system)."""
+        d = _whisper_rust_model_dict(model_id)
+        return bool(d) and model_is_installed(d)
 
-    def _update_whisper_rust_model_status(self):
-        installed = self._whisper_rust_model_installed()
-        self._update_venv_button(self.btn_install_whisper_rust, "Whisper-Rust", installed)
-        self.btn_delete_whisper_rust.setVisible(installed)
+    def _any_whisper_rust_model_installed(self):
+        return any(self._whisper_rust_model_installed(m[0]) for m in WHISPER_RUST_MODELS)
+
+    def _populate_whisper_rust_combo(self):
+        self.cmb_whisper_rust_model.clear()
+        for mid, _fname, label in WHISPER_RUST_MODELS:
+            cached = self._whisper_rust_model_installed(mid)
+            self.cmb_whisper_rust_model.addItem(("✓ " if cached else "   ") + label, mid)
+            if cached:
+                self.cmb_whisper_rust_model.setItemData(
+                    self.cmb_whisper_rust_model.count() - 1, True, Qt.ItemDataRole.UserRole + 1)
+
+    def _update_whisper_rust_status(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        if not mid:
+            return
+        cached = self._whisper_rust_model_installed(mid)
+        self._lbl_whisper_rust_status.setText(
+            '<span style="color: green;">✓</span> ' + _("Model downloaded and ready")
+            if cached else _("Select a model and click Download"))
+        self.btn_download_whisper_rust.setText(_("Download"))
+        self.btn_download_whisper_rust.setVisible(not cached)
+        self.btn_del_whisper_rust_model.setVisible(cached)
+
+    def _on_whisper_rust_model_download(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        d = _whisper_rust_model_dict(mid)
+        if not d:
+            return
+        self.btn_download_whisper_rust.setEnabled(False)
+        self.btn_download_whisper_rust.setText(_("Downloading…"))
+        self.btn_cancel_whisper_rust.setVisible(True)
+        thread = ModelDownloadThread(d)
+        thread.progress.connect(lambda msg: self.btn_download_whisper_rust.setText(msg))
+        thread.done.connect(self._on_whisper_rust_download_done)
+        self._venv_threads["whisper-rust"] = thread
+        thread.start()
 
     def _cancel_whisper_rust_download(self):
         thread = self._venv_threads.get("whisper-rust")
         if thread and thread.isRunning():
             thread.cancel()
-
-    def _download_whisper_rust_model(self):
-        self.btn_install_whisper_rust.setEnabled(False)
-        self.btn_install_whisper_rust.setText(_("Downloading..."))
-        self.btn_install_whisper_rust.setStyleSheet(
-            "QPushButton { color: white; background-color: #c84; font-weight: bold; }")
-        self.btn_delete_whisper_rust.setVisible(False)
-        self.btn_cancel_whisper_rust.setVisible(True)
-
-        thread = ModelDownloadThread(WHISPER_RUST_MODEL)
-        thread.done.connect(self._on_whisper_rust_download_done)
-        thread.progress.connect(lambda msg: self.btn_install_whisper_rust.setText(msg))
-        self._venv_threads["whisper-rust"] = thread
-        thread.start()
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self._refresh_whisper_rust_after_change()
 
     def _on_whisper_rust_download_done(self, ok, msg):
-        self.btn_install_whisper_rust.setEnabled(True)
         self.btn_cancel_whisper_rust.setVisible(False)
-        self._update_whisper_rust_model_status()
+        self._refresh_whisper_rust_after_change()
         if not ok and msg != _("Cancelled"):
             QMessageBox.warning(self, _("Download failed"), msg)
 
-    def _delete_whisper_rust_model(self):
-        for base in (WHISPER_RUST_MODEL["dir"],
-                     WHISPER_RUST_MODEL["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)):
-            f = os.path.join(base, WHISPER_RUST_MODEL["check_file"])
+    def _on_whisper_rust_model_delete(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        if not mid or not self._whisper_rust_model_installed(mid):
+            return
+        if QMessageBox.question(self, _("Delete"), _("Delete model '{}'?").format(mid),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) \
+                != QMessageBox.StandardButton.Yes:
+            return
+        d = _whisper_rust_model_dict(mid)
+        for base in (d["dir"], d["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)):
+            f = os.path.join(base, d["check_file"])
             try:
                 if os.path.isfile(f):
                     os.remove(f)
             except OSError:
                 pass
-        self._update_whisper_rust_model_status()
+        self._refresh_whisper_rust_after_change()
+
+    def _refresh_whisper_rust_after_change(self):
+        self.btn_download_whisper_rust.setEnabled(True)
+        cur = self.cmb_whisper_rust_model.currentData()
+        self._populate_whisper_rust_combo()
+        for i in range(self.cmb_whisper_rust_model.count()):
+            if self.cmb_whisper_rust_model.itemData(i) == cur:
+                self.cmb_whisper_rust_model.setCurrentIndex(i)
+                break
+        self._update_whisper_rust_status()
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
