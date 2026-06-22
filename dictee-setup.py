@@ -1566,6 +1566,20 @@ CANARY_MODEL_FILES = [
     "vocab.txt", "config.json",
 ]
 
+# Whisper-Rust (whisper.cpp/Vulkan GPU) ggml model — large-v3 Q5_0 (bench-verified:
+# quality == fp16, ~15% faster, 1/3 the size). Downloaded on demand to the dictee
+# user dir; the dictee-whisper-rust.service points DICTEE_WHISPER_GGML here.
+WHISPER_RUST_MODEL = {
+    "id": "whisper-rust-ggml",
+    "name": "Whisper large-v3 Q5_0 (ggml)",
+    "dir": os.path.join(MODEL_DIR, "whisper-rust"),
+    "check_file": "ggml-large-v3-q5_0.bin",
+    "files": [
+        ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin",
+         "ggml-large-v3-q5_0.bin"),
+    ],
+}
+
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
     "en": "vosk-model-small-en-us-0.15",
@@ -8218,8 +8232,7 @@ class DicteeSetupDialog(QDialog):
         if backend_id == "canary":
             return self._canary_model_installed()
         if backend_id == "whisper-rust":
-            return os.path.exists(os.path.expanduser(
-                "~/.local/share/voxtype/models/ggml-large-v3.bin"))
+            return self._whisper_rust_model_installed()
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -9530,6 +9543,10 @@ class DicteeSetupDialog(QDialog):
 
         self.w_canary_options.setVisible(False)
         parent_layout.addWidget(self.w_canary_options)
+
+    def _whisper_rust_model_installed(self):
+        """True if the Whisper-Rust ggml is present (user dir first, then system)."""
+        return model_is_installed(WHISPER_RUST_MODEL)
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
