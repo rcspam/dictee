@@ -18688,8 +18688,16 @@ class DicteeSetupDialog(QDialog):
         whisper_rust_model = (self.cmb_whisper_rust_model.currentData()
                               if hasattr(self, "cmb_whisper_rust_model") else None) or "large-v3"
         _wr = _whisper_rust_model_dict(whisper_rust_model)
-        whisper_rust_ggml = os.path.join(
-            DICTEE_DATA_DIR, "whisper-rust", _wr["check_file"]) if _wr else ""
+        whisper_rust_ggml = ""
+        if _wr:
+            # Resolve where the ggml ACTUALLY is: system dir (MODEL_DIR) first, then
+            # the user dir — matching model_is_installed + ModelDownloadThread's
+            # PermissionError fallback (MODEL_DIR may be user-writable on dev boxes,
+            # root-owned on real installs). Default to the user dir if not found.
+            _wr_sys = os.path.join(_WHISPER_RUST_DIR, _wr["check_file"])
+            _wr_usr = os.path.join(DICTEE_DATA_DIR, "whisper-rust", _wr["check_file"])
+            whisper_rust_ggml = (_wr_sys if os.path.isfile(_wr_sys)
+                                 else _wr_usr)
         whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
