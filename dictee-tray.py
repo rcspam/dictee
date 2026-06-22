@@ -1652,7 +1652,7 @@ class DicteeTrayQt:
         (cpu-forced / cpu-only / cpu-int8). None si inconnu.
         """
         if self.provider == "vulkan":
-            return ("V", "#8e44ad")
+            return ("V", "#a569bd")
         if self.provider == "cuda":
             return ("G", "#27ae60")
         if self.provider == "cpu":

@@ -219,7 +219,7 @@ Item {
             : "C"
         font.pixelSize: Math.max(8, Math.min(parent.width, parent.height) * 0.45)
         font.bold: true
-        color: compact.provider === "vulkan" ? "#8e44ad"
+        color: compact.provider === "vulkan" ? "#a569bd"
              : compact.provider === "cuda" ? "#27ae60"
              : compact.provider === "cpu"  ? "#c0392b"
              : "#3498db"

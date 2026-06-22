@@ -272,11 +272,11 @@ RowLayout {
                     width: Kirigami.Units.smallSpacing * 3
                     height: width
                     radius: width / 2
-                    color: fullRep.provider === "vulkan" ? "#8e44ad"
+                    color: fullRep.provider === "vulkan" ? "#a569bd"
                          : fullRep.provider === "cuda" ? "#27ae60"
                          : fullRep.provider === "cpu"  ? "#c0392b"
                          : "#3498db"
-                    border.color: fullRep.provider === "vulkan" ? "#6c3483"
+                    border.color: fullRep.provider === "vulkan" ? "#8e44ad"
                                 : fullRep.provider === "cuda" ? "#1e8449"
                                 : fullRep.provider === "cpu"  ? "#922b21"
                                 : "#21618c"
