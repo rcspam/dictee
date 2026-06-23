@@ -1489,6 +1489,17 @@ if [ -f "$PIDFILE" ]; then
                 # 2. Transcribe recording alone → safe fallback
                 # 3. Extract the new part from the combined using the solo as reference
                 _dbg "audio-context: $_backend dual-transcription mode"
+                # FIXME(#5b): this block is in the script's MAIN BODY, not a
+                # function, so the `local` below errors ("can only be used in a
+                # function") and leaves the vars EMPTY → the redirect targets an
+                # empty filename and dual-transcription silently falls back to
+                # solo. Audio context never applies for timestamp-less backends.
+                # Fix = drop `local` (use plain global assignments).
+                # ALSO port the companion fix to extract_new_from_combined():
+                # it matched in normalized-word space but sliced raw split()
+                # tokens, leaking a punctuation char ('?','—') into the output
+                # once this path runs. Both fixes on feat/whisper-cpp-rust-port:
+                # commit 50971ca (this block) + 0b6a3c6 (extract_new_from_combined).
                 local _canary_id="${$}_${RANDOM}"
                 local _canary_solo="/dev/shm/.dictee_solo_${_canary_id}"
                 local _canary_comb="/dev/shm/.dictee_comb_${_canary_id}"
