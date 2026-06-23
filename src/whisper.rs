@@ -101,8 +101,9 @@ struct WhisperTuning {
     no_speech_thold: f32,
     entropy_thold: f32,
     logprob_thold: f32,
-    /// audio_ctx override: `None` = adaptive (`audio_ctx_for`); `Some(0)` = full
-    /// context (no cap); `Some(n>0)` = fixed value.
+    /// audio_ctx override: `None`/`Some(0)` = full context (default, no cap);
+    /// `Some(n>0)` = fixed cap (advanced — a cap below the clip length truncates
+    /// speech). whisper.cpp itself treats audio_ctx 0 as "use full 1500".
     audio_ctx: Option<i32>,
 }
 
@@ -202,23 +203,17 @@ impl Transcriber for WhisperBackend {
         params.set_no_timestamps(true);
         params.set_token_timestamps(true);
 
-        // audio_ctx: cap the encoder context to the real clip length on short
-        // dictation (less silence for the decoder to hallucinate over, lower
-        // latency — but never below the floor, see audio_ctx_for). Overridable:
-        // env Some(0) = full context, Some(n>0) = fixed, unset = adaptive.
-        let dur_s = audio.len() as f32 / 16000.0;
-        match t.audio_ctx {
-            None => {
-                if let Some(ctx) = audio_ctx_for(dur_s) {
-                    params.set_audio_ctx(ctx);
-                }
-            }
-            Some(0) => {} // full context: leave whisper.cpp's default (1500)
-            Some(n) if n > 0 => params.set_audio_ctx(n.min(1500)),
-            Some(_) => {
-                if let Some(ctx) = audio_ctx_for(dur_s) {
-                    params.set_audio_ctx(ctx);
-                }
+        // audio_ctx: default = full context (whisper.cpp's 1500-position / 30 s
+        // window), matching the whisper.cpp ecosystem on GPU (Handy, Hyprnote,
+        // Meetily, vocalinux; dsnote truncates only on CPU). Truncating the encoder
+        // context below ~512 makes whisper.cpp repeat/double its output
+        // (ggerganov, whisper.cpp#137) and is actually SLOWER on Vulkan (measured
+        // 2026-06-23), so we never cap by default. Advanced override via env
+        // DICTEE_WHISPER_RUST_AUDIO_CTX: 0 / unset → full; n>0 → fixed cap (a cap
+        // below the clip length silently truncates speech — verified — so use care).
+        if let Some(n) = t.audio_ctx {
+            if n > 0 {
+                params.set_audio_ctx(n.min(1500));
             }
         }
 
@@ -254,30 +249,6 @@ impl Transcriber for WhisperBackend {
         Ok(TranscriptionResult { text: clean_repetitive_text(text.trim()), tokens })
     }
 }
-
-/// Map a clip duration (seconds) to a whisper `audio_ctx` cap, or `None` to keep
-/// the full 1500-position context. whisper.cpp always pads input to a 30 s window
-/// = 1500 encoder positions (1 position = 20 ms, verified whisper.cpp:6279). On a
-/// short clip the remainder is silence the decoder can hallucinate over; capping
-/// audio_ctx to the real length (+ ~2 s margin) removes that and lowers latency.
-/// Applied only for clips clearly under the 30 s window; longer audio keeps full
-/// context (whisper segments long audio into full 30 s windows internally).
-fn audio_ctx_for(dur_s: f32) -> Option<i32> {
-    if dur_s <= 0.0 || dur_s >= 28.0 {
-        return None;
-    }
-    let ctx = (dur_s * 50.0).ceil() as i32 + 100; // +100 positions ≈ 2 s margin
-    Some(ctx.clamp(MIN_AUDIO_CTX, 1500))
-}
-
-/// Floor on the capped audio_ctx. whisper.cpp (Vulkan) is pathologically slow
-/// when audio_ctx is very small: a 0.7–2 s clip maps to ctx ≈ 137–200 and the
-/// daemon stalls ~9.5 s, while the same audio padded past ~3 s (ctx ≥ ~250)
-/// decodes in ~0.17 s. We keep the cap (it lowers latency and leaves less silence
-/// for the decoder to hallucinate over on mid-length clips) but never go below
-/// this floor, which restores fast decoding on short dictation. Verified
-/// empirically on RTX 4070 Vulkan: ctx 200 → 9.5 s, ctx ≥ ~300 → 0.17 s.
-const MIN_AUDIO_CTX: i32 = 320;
 
 /// Absolute ceiling (in words) on the repeating block we try to collapse — a
 /// perf bound only. The effective bound at each position is min(this, (n-i)/3),
@@ -418,14 +389,6 @@ mod tests {
     }
 
     #[test]
-    fn audio_ctx_caps_short_clips() {
-        // 6 s → 6*50+100 = 400, above the floor → kept as-is.
-        assert_eq!(audio_ctx_for(6.0), Some(400));
-        // 10 s → 600.
-        assert_eq!(audio_ctx_for(10.0), Some(600));
-    }
-
-    #[test]
     fn env_helpers_parse_and_fall_back() {
         // Unique keys so parallel tests can't interfere.
         std::env::set_var("DICTEE_TEST_F32", " 0.42 ");
@@ -449,28 +412,6 @@ mod tests {
         assert_eq!(t.entropy_thold, 2.4);
         assert_eq!(t.logprob_thold, -1.0);
         assert_eq!(t.audio_ctx, None);
-    }
-
-    #[test]
-    fn audio_ctx_floors_very_short_clips() {
-        // Very short clips would map to a tiny ctx (137–200) that stalls
-        // whisper.cpp ~9.5 s; the floor keeps them fast.
-        assert_eq!(audio_ctx_for(0.7), Some(MIN_AUDIO_CTX)); // would be 135
-        assert_eq!(audio_ctx_for(2.0), Some(MIN_AUDIO_CTX)); // would be 200
-        assert!(audio_ctx_for(0.7).unwrap() >= MIN_AUDIO_CTX);
-    }
-
-    #[test]
-    fn audio_ctx_none_for_long_or_invalid() {
-        assert_eq!(audio_ctx_for(30.0), None); // >= 30 s window: keep full
-        assert_eq!(audio_ctx_for(28.0), None); // threshold
-        assert_eq!(audio_ctx_for(0.0), None);
-        assert_eq!(audio_ctx_for(-2.0), None);
-    }
-
-    #[test]
-    fn audio_ctx_never_exceeds_1500() {
-        assert_eq!(audio_ctx_for(27.9), Some(1495)); // 27.9*50=1395 +100=1495
     }
 
     #[test]
