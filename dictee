@@ -844,10 +844,21 @@ extract_new_from_combined() {
 import re, sys
 combined = sys.argv[1]
 solo = sys.argv[2]
-def norm(s):
-    return re.sub(r'[^\w\s]', '', s.lower()).split()
-cw = norm(combined)
-sw = norm(solo)
+def norm_word(w):
+    return re.sub(r'[^\w]', '', w.lower())
+# Keep raw tokens aligned with their normalized form: match in normalized
+# space but slice in raw space. Punctuation-only tokens ('?', '—', '…')
+# normalize to empty and must NOT shift the slice index, otherwise they leak
+# into the typed output (see #5b).
+raw = combined.split()
+cw = []          # normalized words of combined
+cidx = []        # raw-token index of each normalized word
+for k, w in enumerate(raw):
+    nw = norm_word(w)
+    if nw:
+        cw.append(nw)
+        cidx.append(k)
+sw = [nw for w in solo.split() if (nw := norm_word(w))]
 if not sw or not cw:
     print(solo)
     sys.exit()
@@ -864,9 +875,8 @@ if best_pos < 0:
     # No match found — solo text not found in combined, use solo (safe)
     print(solo)
 else:
-    # Return from best_pos onwards in original combined text
-    words = combined.split()
-    result = ' '.join(words[best_pos:]).strip()
+    # Slice the ORIGINAL combined at the RAW index of the matched word
+    result = ' '.join(raw[cidx[best_pos]:]).strip()
     # Sanity: result should be roughly similar length to solo (±50%)
     if len(result) < len(solo) * 0.5 or len(result) > len(solo) * 1.8:
         print(solo)  # something went wrong, use safe fallback
