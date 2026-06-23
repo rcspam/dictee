@@ -1436,11 +1436,15 @@ if [ -f "$PIDFILE" ]; then
                 # 2. Transcribe recording alone → safe fallback
                 # 3. Extract the new part from the combined using the solo as reference
                 _dbg "audio-context: $_backend dual-transcription mode"
-                local _canary_id="${$}_${RANDOM}"
-                local _canary_solo="/dev/shm/.dictee_solo_${_canary_id}"
-                local _canary_comb="/dev/shm/.dictee_comb_${_canary_id}"
-                local solo_text=""
-                local combined_text=""
+                # NOTE: this block runs in the script's main body, NOT a function,
+                # so `local` would error ("can only be used in a function") and
+                # leave the vars empty — silently disabling dual-transcription.
+                # Use plain (global) assignments here.
+                _canary_id="${$}_${RANDOM}"
+                _canary_solo="/dev/shm/.dictee_solo_${_canary_id}"
+                _canary_comb="/dev/shm/.dictee_comb_${_canary_id}"
+                solo_text=""
+                combined_text=""
                 if eval transcribe-client "$RECORDING_FILE" > "$_canary_solo" 2>/dev/null; then
                     solo_text=$(cat "$_canary_solo")
                 fi
