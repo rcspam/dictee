@@ -106,6 +106,10 @@ build_cuda() {
         --bin transcribe-diarize-batch \
         --bin diarize-only
 
+    # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
+    # --bin transcribe-daemon-whisper-rust, so the main daemon stays vulkan-free.
+    ./build-whisper-rust.sh cuda
+
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
@@ -115,7 +119,7 @@ Priority: optional
 Architecture: amd64
 Depends: python3, python3-venv, python3-pip, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
 Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
-Suggests: gnome-shell-extension-appindicator, docker.io
+Suggests: gnome-shell-extension-appindicator, docker.io, libvulkan1
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -139,6 +143,7 @@ EOF
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp target/release/transcribe-daemon-whisper-rust "$PKG_DIR/usr/bin/"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "=== Copying CUDA ONNX Runtime libs ==="
@@ -242,6 +247,10 @@ build_cpu() {
         --bin transcribe-diarize-batch \
         --bin diarize-only
 
+    # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build time.
+    # Separate wrapper so the main daemon stays vulkan-free.
+    ./build-whisper-rust.sh vulkan
+
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
@@ -251,7 +260,7 @@ Priority: optional
 Architecture: amd64
 Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
 Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
-Suggests: gnome-shell-extension-appindicator, docker.io
+Suggests: gnome-shell-extension-appindicator, docker.io, libvulkan1
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -274,6 +283,7 @@ EOF
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp target/release/transcribe-daemon-whisper-rust "$PKG_DIR/usr/bin/"
 
     chmod 755 "$PKG_DIR/usr/bin/"*
 
