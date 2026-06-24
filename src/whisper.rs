@@ -1,4 +1,4 @@
-//! Whisper backend (whisper.cpp via whisper-rs, Vulkan GPU-only).
+//! Whisper backend (whisper.cpp via whisper-rs, GPU-only — Vulkan or CUDA per feature).
 //! GPU-only by design: no CPU fallback (large-v3 on CPU is unusable; CPU is Parakeet's job).
 
 use crate::decoder::{TimedToken, TranscriptionResult};
