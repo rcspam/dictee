@@ -5,18 +5,33 @@ use crate::decoder::{TimedToken, TranscriptionResult};
 use crate::timestamps::TimestampMode;
 use crate::transcriber::Transcriber;
 use eyre::{eyre, Result as EyreResult};
+#[cfg(feature = "whisper-vulkan")]
 use std::collections::HashSet;
+#[cfg(feature = "whisper-vulkan")]
 use std::ffi::CStr;
 use whisper_rs::{
     FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
 };
 
+// Vulkan device enumeration helpers — only available when whisper-rs is built
+// with the Vulkan backend. The CUDA build omits these symbols and falls back to
+// a dummy device id of 0 (whisper.cpp's default GPU in CUDA mode).
+
+#[cfg(feature = "whisper-vulkan")]
 /// Number of Vulkan devices ggml can see. Used at startup to decide whether
 /// the Whisper backend is available at all (0 ⇒ unavailable, never CPU).
 pub fn vulkan_device_count() -> i32 {
     whisper_rs::vulkan::list_devices().len() as i32
 }
 
+#[cfg(not(feature = "whisper-vulkan"))]
+/// CUDA build: Vulkan enumeration is unavailable; return 1 so the daemon
+/// treats the CUDA device as present (device selection is CUDA-managed).
+pub fn vulkan_device_count() -> i32 {
+    1
+}
+
+#[cfg(feature = "whisper-vulkan")]
 /// Pick the best Vulkan device by reading the driver-reported device type, not
 /// by guessing from VRAM size. The ggml generic backend API exposes each device's
 /// real type (`GGML_BACKEND_DEVICE_TYPE_GPU` = 1 for dedicated, `_IGPU` = 2 for
@@ -75,6 +90,14 @@ pub fn select_vulkan_device() -> Option<i32> {
         .map(|d| d.id)
 }
 
+#[cfg(not(feature = "whisper-vulkan"))]
+/// CUDA build: Vulkan enumeration is unavailable; return device 0 (whisper.cpp
+/// picks the CUDA device by itself in this mode).
+pub fn select_vulkan_device() -> Option<i32> {
+    Some(0)
+}
+
+#[cfg(feature = "whisper-vulkan")]
 /// Free VRAM (bytes) reported by the Vulkan driver for the given device id, or
 /// `None` if that id is not among the enumerated devices. Used as a startup
 /// guard so the daemon can refuse with a clear message instead of OOM-ing.
@@ -83,6 +106,13 @@ pub fn device_free_vram(gpu_device: i32) -> Option<usize> {
         .into_iter()
         .find(|d| d.id == gpu_device)
         .map(|d| d.vram.free)
+}
+
+#[cfg(not(feature = "whisper-vulkan"))]
+/// CUDA build: Vulkan VRAM query is unavailable; return `None` so the daemon
+/// skips the VRAM fit guard (CUDA OOM handling is left to whisper.cpp).
+pub fn device_free_vram(_gpu_device: i32) -> Option<usize> {
+    None
 }
 
 /// Per-backend decoding knobs, all overridable via `DICTEE_WHISPER_RUST_*`
@@ -432,8 +462,9 @@ mod tests {
     /// Verify that `select_vulkan_device` picks the dedicated NVIDIA GPU and not
     /// the Intel iGPU on this dev box (Intel iGPU = device 0, RTX 4070 = device 1).
     /// Run with:
-    ///   cargo test --features whisper whisper::tests::selects_dedicated_gpu_not_igpu \
+    ///   cargo test --features whisper-vulkan whisper::tests::selects_dedicated_gpu_not_igpu \
     ///     -- --ignored --nocapture
+    #[cfg(feature = "whisper-vulkan")]
     #[test]
     #[ignore]
     fn selects_dedicated_gpu_not_igpu() {
