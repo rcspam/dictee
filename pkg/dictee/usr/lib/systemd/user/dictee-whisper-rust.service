@@ -15,3 +15,6 @@ ExecStartPost=/bin/bash -c 'echo idle > /dev/shm/.dictee_state'
 ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
 Restart=on-failure
 RestartSec=5
+
+[Install]
+WantedBy=default.target
