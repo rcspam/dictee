@@ -114,8 +114,8 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Depends: python3, python3-venv, python3-pip, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
-Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
-Suggests: gnome-shell-extension-appindicator
+Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
+Suggests: gnome-shell-extension-appindicator, docker.io
 Conflicts: dictee-cpu
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
@@ -250,8 +250,8 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire | alsa-utils, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
-Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, docker.io, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
-Suggests: gnome-shell-extension-appindicator
+Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
+Suggests: gnome-shell-extension-appindicator, docker.io
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>
