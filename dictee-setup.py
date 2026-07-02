@@ -254,6 +254,10 @@ QT_TO_LINUX_KEYCODE = {
     # Backtick / grave accent — KEY_GRAVE=41. Useful as PTT key on
     # AZERTY/QWERTY layouts (rarely-used dedicated key).
     0x60: 41,         # ` (backtick / grave)
+    # ² (superscript two) sits on the same physical key as the backtick, so
+    # on AZERTY layouts it also maps to KEY_GRAVE=41. Lets AZERTY users pick
+    # the top-left key for dictation from the GUI (issue #22).
+    0xb2: 41,         # ² (twosuperior, AZERTY)
 }
 
 LINUX_KEYCODE_NAMES = {
@@ -263,7 +267,7 @@ LINUX_KEYCODE_NAMES = {
     189: "F19", 190: "F20", 191: "F21", 192: "F22", 193: "F23", 194: "F24",
     1: "Escape", 110: "Home", 107: "End", 119: "Delete", 118: "Insert",
     104: "Pause", 210: "Print",
-    41: "`",
+    41: "` / ²",
 }
 
 
