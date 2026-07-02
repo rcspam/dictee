@@ -70,7 +70,11 @@ DICTEE_PTT_KEY=67
 # Translation PTT key (0 = disabled)
 #DICTEE_PTT_KEY_TRANSLATE=0
 
-# Translation modifier: alt | ctrl | shift (with same PTT key)
+# Translation modifier: alt | ctrl | shift (with same PTT key).
+# Use the bare modifier name only. Do NOT use a "same_" prefix here (e.g.
+# "same_ctrl"): that is an internal dictee-setup UI encoding, not a valid
+# config value. dictee-ptt silently ignores an unrecognized modifier, so
+# translation would never fire. Write "ctrl", not "same_ctrl".
 #DICTEE_PTT_MOD_TRANSLATE=
 
 # Extra input devices to listen to (push-to-talk via virtual keyboards).
