@@ -312,7 +312,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _provider = "cuda";
         #[cfg(not(feature = "whisper-cuda"))]
         let _provider = "vulkan";
-        let _ = std::fs::write("/dev/shm/.dictee_provider", _provider);
+        // Same gate as the ORT path below: an ad-hoc daemon (spawned with
+        // DICTEE_DAEMON_NO_PROVIDER=1) must never clobber the F9 badge.
+        if env::var("DICTEE_DAEMON_NO_PROVIDER").as_deref() != Ok("1") {
+            let _ = std::fs::write("/dev/shm/.dictee_provider", _provider);
+        }
         eprintln!("Loading Whisper model from {} ({} device {})...", ggml, _provider, dev);
         let backend = AsrBackend::Whisper(
             parakeet_rs::whisper::WhisperBackend::from_ggml(&ggml, dev, &source_lang)?,

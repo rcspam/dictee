@@ -42,7 +42,20 @@ def test_default_returns_none():
     assert dt.asr_spec_to_daemon("f9") is None
 
 
+def test_whisper_rust_turbo():
+    assert dt.asr_spec_to_daemon("whisper-rust-large-v3-turbo") == {
+        "backend": "whisper-rust",
+        "env": {"DICTEE_WHISPER_RUST_MODEL": "large-v3-turbo"},
+    }
+
+
+def test_whisper_rust_small():
+    assert dt.asr_spec_to_daemon("whisper-rust-small")["backend"] == "whisper-rust"
+
+
 def test_unknown_raises():
     import pytest
     with pytest.raises(ValueError):
         dt.asr_spec_to_daemon("whisper-large")   # large intentionally excluded
+    with pytest.raises(ValueError):
+        dt.asr_spec_to_daemon("whisper-rust-large")  # not a shipped GGML size

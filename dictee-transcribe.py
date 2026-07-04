@@ -58,8 +58,12 @@ except ImportError:
 # ASR model spec helpers
 # ---------------------------------------------------------------------------
 
+_WHISPER_RUST_SIZES = ("tiny", "base", "small", "medium",
+                       "large-v3-turbo", "large-v3")
+
 ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
-             "whisper-tiny", "whisper-small", "whisper-medium")
+             "whisper-tiny", "whisper-small", "whisper-medium") + tuple(
+             f"whisper-rust-{s}" for s in _WHISPER_RUST_SIZES)
 
 
 def asr_spec_to_daemon(spec):
@@ -72,6 +76,13 @@ def asr_spec_to_daemon(spec):
                 "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"}}
     if spec == "parakeet-fp32":
         return {"backend": "parakeet", "env": {"DICTEE_PARAKEET_QUANT": "fp32"}}
+    # whisper-rust before plain whisper: both share the "whisper-" prefix.
+    if spec.startswith("whisper-rust-"):
+        size = spec[len("whisper-rust-"):]
+        if size in _WHISPER_RUST_SIZES:
+            return {"backend": "whisper-rust",
+                    "env": {"DICTEE_WHISPER_RUST_MODEL": size}}
+        raise ValueError(f"unknown asr spec: {spec}")
     if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
