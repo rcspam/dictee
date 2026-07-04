@@ -304,8 +304,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .into());
             }
         }
-        let _ = std::fs::write("/dev/shm/.dictee_provider", "vulkan");
-        eprintln!("Loading Whisper model from {} (Vulkan device {})...", ggml, dev);
+        // Report the actual GPU backend so the UI badge distinguishes the two
+        // whisper-rust variants the user picks in dictee-setup:
+        //   whisper-cuda   → "cuda"   → green "G"
+        //   whisper-vulkan → "vulkan" → violet "V"
+        #[cfg(feature = "whisper-cuda")]
+        let _provider = "cuda";
+        #[cfg(not(feature = "whisper-cuda"))]
+        let _provider = "vulkan";
+        let _ = std::fs::write("/dev/shm/.dictee_provider", _provider);
+        eprintln!("Loading Whisper model from {} ({} device {})...", ggml, _provider, dev);
         let backend = AsrBackend::Whisper(
             parakeet_rs::whisper::WhisperBackend::from_ggml(&ggml, dev, &source_lang)?,
         );

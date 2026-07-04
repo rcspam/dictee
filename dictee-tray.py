@@ -587,6 +587,8 @@ def read_provider():
 
     Valeurs possibles (cf. execution::provider_status() côté Rust) :
     - 'cuda' : GPU NVIDIA actif (paquet cuda + libs OK)
+    - 'vulkan' : whisper-rust build Vulkan (paquet dictee-cpu) → badge V violet
+      (le build CUDA, paquet dictee-cuda, reporte 'cuda' → badge G vert)
     - 'cpu' : fallback silencieux (paquet cuda + GPU détecté + libs manquantes
       → l'utilisateur croit être en GPU mais tourne en CPU)
     - 'cpu-forced' : DICTEE_FORCE_CPU=1 explicite
