@@ -16071,9 +16071,12 @@ class DicteeSetupDialog(QDialog):
 
     def _detect_devices_dialog(self, mode):
         """Dialog listing input keyboards. mode='whitelist' lets the user check
-        VIRTUAL devices to listen to (DICTEE_PTT_EXTRA_DEVICES); mode='exclude'
-        lets the user check PHYSICAL devices to leave to another exclusive
-        grabber such as input-remapper (DICTEE_PTT_EXCLUDE_DEVICES, issue #20)."""
+        devices to listen to (DICTEE_PTT_EXTRA_DEVICES): virtual keyboards
+        created by remapping tools, and keyboards carrying pointer axes that
+        dictee-ptt ignores by default (issue #23, e.g. Logitech Craft).
+        mode='exclude' lets the user check PHYSICAL devices to leave to another
+        exclusive grabber such as input-remapper (DICTEE_PTT_EXCLUDE_DEVICES,
+        issue #20)."""
         try:
             with open("/proc/bus/input/devices") as f:
                 content = f.read()
@@ -16092,36 +16095,52 @@ class DicteeSetupDialog(QDialog):
         FORWARDED_PAT = re.compile(r"input-remapper|forwarded|xremap|keyd|kanata",
                                    re.IGNORECASE)
 
-        devices = []  # (name, status) where status in {'whitelistable', 'physical', 'blocked'}
+        devices = []  # (name, status) with status in
+        #             {'whitelistable', 'pointer', 'physical', 'blocked'}
         for block in content.split("\n\n"):
-            name = handlers = ""
+            name = handlers = ev_mask = ""
             for line in block.strip().splitlines():
                 if line.startswith("N: Name="):
                     name = line[8:].strip().strip('"')
                 elif line.startswith("H: Handlers="):
                     handlers = line[12:].strip()
+                elif line.startswith("B: EV="):
+                    ev_mask = line[6:].strip()
             if not name or "kbd" not in handlers:
                 continue
+            # Pointer detection mirrors dictee-ptt.find_keyboards_raw: EV_REL
+            # (bit 2) or EV_ABS (bit 3) in the EV bitmask, or a "mouse"
+            # handler. Such keyboards (e.g. Logitech Craft — its Crown dial
+            # adds pointer axes to the keyboard node) are ignored by
+            # dictee-ptt unless whitelisted (issue #23).
+            has_pointer = "mouse" in handlers
+            try:
+                ev_caps = int(ev_mask, 16)
+                has_pointer = has_pointer or bool(ev_caps & (1 << 2)) or bool(ev_caps & (1 << 3))
+            except ValueError:
+                pass
             if ALWAYS_BLOCKED.search(name):
                 devices.append((name, "blocked"))
             elif FILTER_PAT.search(name):
                 devices.append((name, "whitelistable"))
+            elif has_pointer:
+                devices.append((name, "pointer"))
             else:
                 devices.append((name, "physical"))
 
         if mode == "exclude":
             field = self.txt_ptt_exclude_devices
-            checkable = "physical"
             intro = _("Keyboards detected on your system. Check the PHYSICAL "
                       "keyboard that another tool grabs exclusively (e.g. "
                       "input-remapper): dictee push-to-talk will leave it alone "
                       "and listen to that tool's forwarded device instead.")
         else:
             field = self.txt_ptt_extra_devices
-            checkable = "whitelistable"
-            intro = _("Keyboards detected on your system. Check the virtual ones "
-                      "you want dictee to listen to (e.g. devices created by "
-                      "logiops, keyd, kanata, xremap or input-remapper).")
+            intro = _("Keyboards detected on your system. Check the ones you "
+                      "want dictee to listen to: devices created by remapping "
+                      "tools (logiops, keyd, kanata, xremap, input-remapper), "
+                      "or keyboards with pointer axes that dictee ignores by "
+                      "default (e.g. Logitech Craft and its Crown dial).")
 
         dlg = QDialog(self)
         dlg.setWindowTitle(_("Detect input devices"))
@@ -16136,13 +16155,18 @@ class DicteeSetupDialog(QDialog):
         for name, status in devices:
             # In exclude mode, only a TRUE physical keyboard is checkable: never a
             # remapper's forwarded/output device (dictee-ptt must keep listening
-            # to those). In whitelist mode, only virtual devices are checkable.
+            # to those). In whitelist mode, virtual devices and pointer-axis
+            # keyboards (ignored by default, issue #23) are checkable.
             is_forwarded = bool(FORWARDED_PAT.search(name))
             if mode == "exclude":
                 checkable_here = (status == "physical") and not is_forwarded
             else:
-                checkable_here = (status == "whitelistable")
-            if checkable_here:
+                checkable_here = status in ("whitelistable", "pointer")
+            if status == "pointer":
+                # Keep the hint even when checkable: the user must understand
+                # this keyboard is NOT listened to until whitelisted.
+                label = _("{name}  [pointer axes — ignored unless whitelisted]").format(name=name)
+            elif checkable_here:
                 label = name
             elif status == "blocked":
                 label = _("{name}  [internal — always blocked]").format(name=name)

@@ -3175,11 +3175,12 @@ msgid ""
 "it alone and listen to that tool's forwarded device instead."
 msgstr ""
 
-#: dictee-setup.py:16118
+#: dictee-setup.py:16139
 msgid ""
-"Keyboards detected on your system. Check the virtual ones you want dictee to "
-"listen to (e.g. devices created by logiops, keyd, kanata, xremap or input-"
-"remapper)."
+"Keyboards detected on your system. Check the ones you want dictee to listen "
+"to: devices created by remapping tools (logiops, keyd, kanata, xremap, "
+"input-remapper), or keyboards with pointer axes that dictee ignores by "
+"default (e.g. Logitech Craft and its Crown dial)."
 msgstr ""
 
 #: dictee-setup.py:16123
@@ -3199,6 +3200,11 @@ msgstr ""
 #: dictee-setup.py:16148
 #, python-brace-format
 msgid "{name}  [physical — listened by default]"
+msgstr ""
+
+#: dictee-setup.py:16168
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
 msgstr ""
 
 #: dictee-setup.py:16150
