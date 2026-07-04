@@ -83,6 +83,11 @@ cargo build --release --no-default-features \
     --bin transcribe-diarize-batch \
     --bin diarize-only
 
+# whisper-rust daemon (CUDA variant — the tarball is the CUDA flavour).
+# Wrapper builds ONLY --bin transcribe-daemon-whisper-rust and sets the
+# nvcc env itself, so the main daemon stays vulkan-free.
+./build-whisper-rust.sh cuda
+
 # Hard guard: only the load-dynamic CUDA build emits this provider lib.
 # Without it the binaries would silently fall back to CPU at runtime.
 if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
@@ -151,7 +156,8 @@ done
 # never invokes a CPU build).
 for bin in transcribe transcribe-daemon transcribe-client \
            transcribe-diarize transcribe-stream-diarize \
-           transcribe-diarize-batch diarize-only; do
+           transcribe-diarize-batch diarize-only \
+           transcribe-daemon-whisper-rust; do
     cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
 done
 

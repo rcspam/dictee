@@ -1,6 +1,6 @@
 [Unit]
 Description=Dictée Tray Icon
-After=dictee.service dictee-vosk.service dictee-whisper.service dictee-canary.service
+After=dictee.service dictee-vosk.service dictee-whisper.service dictee-whisper-rust.service dictee-canary.service
 BindsTo=graphical-session.target
 
 [Service]

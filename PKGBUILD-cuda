@@ -49,7 +49,9 @@ optdepends=(
 )
 provides=('dictee')
 conflicts=('dictee' 'dictee-cpu')
-makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang' 'unzip' 'zip')
+# cuda provides nvcc, needed to compile the whisper.cpp CUDA kernels
+# (whisper-rust daemon, CUDA variant — built via build-whisper-rust.sh).
+makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang' 'unzip' 'zip' 'cuda')
 # Disable LTO. /etc/makepkg.conf enables it globally on Arch, but linking
 # a Rust binary against the non-LTO libonig.a static archive (built by
 # the onig_sys crate) under LTO triggers `undefined reference to onig_*`
@@ -107,6 +109,10 @@ build() {
         --bin transcribe-diarize-batch \
         --bin diarize-only
 
+    # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
+    # --bin transcribe-daemon-whisper-rust and sets the nvcc env itself.
+    ./build-whisper-rust.sh cuda
+
     # Hard guard: only the load-dynamic CUDA build emits this provider
     # lib. If it's missing, the build silently fell back to a CPU-only
     # configuration — abort rather than ship a CUDA package that runs
@@ -151,6 +157,7 @@ package() {
     install -Dm755 target/release/transcribe-stream-diarize "$pkgdir/usr/bin/transcribe-stream-diarize"
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
+    install -Dm755 target/release/transcribe-daemon-whisper-rust "$pkgdir/usr/bin/transcribe-daemon-whisper-rust"
 
     # ONNX Runtime libs (load-dynamic: libonnxruntime.so not in target/release)
     install -d "$pkgdir/usr/lib/dictee"
@@ -225,6 +232,7 @@ package() {
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-ptt.service "$pkgdir/usr/lib/systemd/user/dictee-ptt.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-vosk.service "$pkgdir/usr/lib/systemd/user/dictee-vosk.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
+    install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper-rust.service "$pkgdir/usr/lib/systemd/user/dictee-whisper-rust.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-canary.service "$pkgdir/usr/lib/systemd/user/dictee-canary.service"
     # Note: dotoold.service is shipped by the AUR `dotool` package (declared in depends).
     # Shipping it here causes a pacman file conflict. See GitHub issue #4.

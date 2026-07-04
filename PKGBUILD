@@ -42,10 +42,15 @@ optdepends=(
     'polkit: pkexec for root ops in dictee-setup (package install, usermod)'
     'kconfig: kwriteconfig6 for KDE Plasma 6 keyboard shortcuts'
     'wireplumber: wpctl for mic volume control in dictee-setup'
+    'vulkan-icd-loader: GPU acceleration for the Whisper (whisper.cpp) backend'
     'dictee-cuda: NVIDIA GPU acceleration (mutually exclusive)'
 )
 conflicts=('dictee-cuda')
-makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang' 'unzip' 'zip')
+# shaderc provides glslc, needed to compile the whisper.cpp Vulkan shaders
+# (whisper-rust daemon, Vulkan variant). vulkan-headers + vulkan-icd-loader
+# satisfy whisper.cpp's find_package(Vulkan) at build/link time.
+makedepends=('rust' 'cargo' 'gettext' 'git' 'cmake' 'clang' 'unzip' 'zip'
+             'shaderc' 'vulkan-headers' 'vulkan-icd-loader')
 # Disable LTO — see PKGBUILD-cuda for the rationale (libonig.a + LTO
 # break the link with `undefined reference to onig_*` errors).
 # Disable debug — Rust release binaries are already stripped, so the
@@ -91,6 +96,10 @@ build() {
         --bin transcribe-diarize-batch \
         --bin diarize-only
 
+    # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build
+    # time. Separate wrapper so the main daemon stays vulkan-free.
+    ./build-whisper-rust.sh vulkan
+
     # Compile locales from .po sources
     for lang in fr de es it pt uk; do
         if [ -f "po/$lang.po" ]; then
@@ -115,6 +124,7 @@ package() {
     install -Dm755 target/release/transcribe-stream-diarize "$pkgdir/usr/bin/transcribe-stream-diarize"
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
+    install -Dm755 target/release/transcribe-daemon-whisper-rust "$pkgdir/usr/bin/transcribe-daemon-whisper-rust"
 
     # Scripts
     install -Dm755 dictee "$pkgdir/usr/bin/dictee"
@@ -143,6 +153,7 @@ package() {
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-ptt.service "$pkgdir/usr/lib/systemd/user/dictee-ptt.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-vosk.service "$pkgdir/usr/lib/systemd/user/dictee-vosk.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
+    install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper-rust.service "$pkgdir/usr/lib/systemd/user/dictee-whisper-rust.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-canary.service "$pkgdir/usr/lib/systemd/user/dictee-canary.service"
     # Note: dotoold.service is shipped by the AUR `dotool` package (declared in depends).
     # Shipping it here causes a pacman file conflict. See GitHub issue #4.

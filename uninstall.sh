@@ -143,7 +143,7 @@ REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
 
 info "Stopping user services..."
-for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do
     if [[ -n "${SUDO_USER:-}" ]]; then
         su "$REAL_USER" -c "systemctl --user stop $svc 2>/dev/null || true"
         su "$REAL_USER" -c "systemctl --user disable $svc 2>/dev/null || true"
@@ -190,6 +190,7 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
                dictee-test-rules dictee-transcribe dictee-reset \
                dictee-translate-langs dictee-audio-sources \
                transcribe-daemon-vosk transcribe-daemon-whisper \
+               transcribe-daemon-whisper-rust \
                dictee-plasmoid-level dictee-plasmoid-level-daemon dictee-plasmoid-level-fft \
                dotool dotoold; do
         sudo rm -f "$PREFIX/bin/$bin"
@@ -212,7 +213,7 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
                "$PREFIX/share/applications/dictee-tray.desktop"
 
     # systemd user units
-    for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+    for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do
         rm -f "$REAL_HOME/.config/systemd/user/$svc.service"
     done
     [[ -n "${SUDO_USER:-}" ]] && su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"

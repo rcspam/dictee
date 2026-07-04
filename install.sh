@@ -479,6 +479,7 @@ mode_online() {
             /usr/lib/systemd/user/dictee-ptt.service
             /usr/lib/systemd/user/dictee-vosk.service
             /usr/lib/systemd/user/dictee-whisper.service
+            /usr/lib/systemd/user/dictee-whisper-rust.service
             /usr/lib/systemd/user/dictee-canary.service
             /usr/lib/systemd/user-preset/90-dictee.preset
             /usr/share/applications/dictee-setup.desktop
@@ -740,6 +741,11 @@ mode_tarball() {
     # We just print the list. If something is missing, dictee-setup will
     # die with `ImportError: No module named PyQt6` (or similar) and the
     # user has at least seen this message.
+    #
+    # No vulkan loader hint here on purpose: the tarball ships the CUDA
+    # variant of transcribe-daemon-whisper-rust (see build-tar.sh), not
+    # the Vulkan one — the deb/rpm/Arch CPU packages carry the weak
+    # libvulkan1 / vulkan-loader / vulkan-icd-loader hint instead.
     cat <<EOF
 
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_OFF}
@@ -770,6 +776,7 @@ EOF
         transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt
         dictee-postprocess dictee-diarize-llm dictee-switch-backend dictee-test-rules
         dictee-transcribe transcribe-daemon-vosk transcribe-daemon-whisper
+        transcribe-daemon-whisper-rust
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
         dictee-translate-langs dictee-audio-sources dictee-meeting-live
@@ -1021,7 +1028,7 @@ EOF
     if [[ -d "/run/user/$REAL_UID" ]]; then
         local _run="sudo -u $REAL_USER XDG_RUNTIME_DIR=/run/user/$REAL_UID DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
-        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
         $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
         $_run systemctl --user restart dotoold 2>/dev/null || true
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
@@ -1036,11 +1043,12 @@ EOF
         case "$_asr_backend" in
             vosk)    _asr_svc="dictee-vosk" ;;
             whisper) _asr_svc="dictee-whisper" ;;
+            whisper-rust) _asr_svc="dictee-whisper-rust" ;;
             canary)  _asr_svc="dictee-canary" ;;
             *)       _asr_svc="dictee" ;;
         esac
-        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
         $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
         $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
         ok "ASR daemon: ${_asr_svc} (backend: ${_asr_backend})"

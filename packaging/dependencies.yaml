@@ -192,6 +192,20 @@ depends:
     arch: docker
     why: LibreTranslate offline via container Docker
 
+  - canonical: vulkan-loader
+    variants: [cpu]
+    kind: optional
+    # Weak runtime hint for the whisper.cpp Vulkan backend of the whisper-rust
+    # daemon (CPU package only — the CUDA package ships the CUDA variant).
+    # deb/rpm: shipped as `Suggests:` (must NOT auto-install) → omit from the
+    # audited Recommends. Arch keeps it in optdepends, so kind: optional holds there.
+    deb_kind: omit
+    rpm_kind: omit
+    deb: libvulkan1
+    rpm: vulkan-loader
+    arch: vulkan-icd-loader
+    why: GPU acceleration (Vulkan) for the Whisper (whisper.cpp) backend
+
   - canonical: ayatana-appindicator
     variants: [cpu, cuda]
     kind: optional

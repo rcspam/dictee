@@ -56,7 +56,7 @@ prepare_buildroot() {
 
     # Binaires
     mkdir -p "$buildroot/usr/bin"
-    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only; do
+    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only transcribe-daemon-whisper-rust; do
         cp "target/release/$bin" "$buildroot/usr/bin/"
     done
     cp "$PKG_DIR/usr/bin/dictee" "$buildroot/usr/bin/"
@@ -201,6 +201,11 @@ build_rpm_cuda() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only
+
+    # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
+    # --bin transcribe-daemon-whisper-rust, so the main daemon stays vulkan-free.
+    ./build-whisper-rust.sh cuda
+
     # Hard guard: if the CUDA provider lib isn't there after the
     # build, abort rather than silently shipping CPU binaries.
     if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
@@ -286,7 +291,9 @@ Requires:       (ffmpeg-free or ffmpeg)
 # or the CUDA runtime libs they depend on — those come from pip wheels
 # installed into /opt/dictee/cuda-venv at %post time, not from system
 # packages. Keeping Provides enabled so other packages can depend on us.
-%global __requires_exclude ^lib(onnxruntime|cublas|cublasLt|cudart|cudnn|cufft|curand|nvrtc|nvJitLink|nvblas|cufftw)\\.so.*$
+# `cuda` also covers libcuda.so.1 (NVIDIA driver lib) linked by the
+# whisper-rust CUDA daemon — must stay a soft dep (CPU fallback works).
+%global __requires_exclude ^lib(onnxruntime|cublas|cublasLt|cudart|cudnn|cufft|curand|nvrtc|nvJitLink|nvblas|cufftw|cuda)\\.so.*$
 Recommends:     python3-qt6-PyQt6-Multimedia
 Recommends:     python3-qt6-PyQt6-sip
 Recommends:     nvidia-gpu-firmware
@@ -387,7 +394,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     # Only restart tray if user has a config (avoid starting unconfigured tray)
@@ -403,11 +410,12 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     case "\$_asr_backend" in
         vosk)    _asr_svc="dictee-vosk" ;;
         whisper) _asr_svc="dictee-whisper" ;;
+        whisper-rust) _asr_svc="dictee-whisper-rust" ;;
         canary)  _asr_svc="dictee-canary" ;;
         *)       _asr_svc="dictee" ;;
     esac
-    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
     \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
@@ -493,8 +501,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     # Clean locales
@@ -530,6 +538,10 @@ build_rpm_cpu() {
         --bin transcribe-diarize-batch \
         --bin diarize-only
 
+    # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build time.
+    # Separate wrapper so the main daemon stays vulkan-free.
+    ./build-whisper-rust.sh vulkan
+
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cpu-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"
 
@@ -558,6 +570,13 @@ Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
 Suggests:       moby-engine
+# Weak hint (mirrors deb Suggests: libvulkan1): the whisper-rust daemon in the
+# CPU package uses the whisper.cpp Vulkan backend for optional GPU acceleration.
+Suggests:       vulkan-loader
+# Keep the vulkan loader a weak dep: the vulkan-built whisper-rust daemon
+# links libvulkan.so.1, and rpm auto-requires would otherwise promote it
+# to a hard Requires (deb parity = Suggests only).
+%global __requires_exclude ^libvulkan\\.so.*$
 Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)
@@ -644,7 +663,7 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     # Reload and enable systemd user services
     \$_run systemctl --user daemon-reload 2>/dev/null || true
     \$_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
     \$_run systemctl --user restart dotoold 2>/dev/null || true
     \$_run systemctl --user restart dictee-ptt 2>/dev/null || true
     # Only restart tray if user has a config (avoid starting unconfigured tray)
@@ -660,11 +679,12 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
     case "\$_asr_backend" in
         vosk)    _asr_svc="dictee-vosk" ;;
         whisper) _asr_svc="dictee-whisper" ;;
+        whisper-rust) _asr_svc="dictee-whisper-rust" ;;
         canary)  _asr_svc="dictee-canary" ;;
         *)       _asr_svc="dictee" ;;
     esac
-    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+    \$_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
+    \$_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
     \$_run systemctl --user enable "\$_asr_svc" 2>/dev/null || true
     \$_run systemctl --user start "\$_asr_svc" 2>/dev/null || true
 done
@@ -693,8 +713,8 @@ if [ "\$1" -eq 0 ]; then
         [ "\$user" = "root" ] && continue
         [ -d "/run/user/\$uid" ] || continue
         _run="sudo -u \$user XDG_RUNTIME_DIR=/run/user/\$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/\$uid/bus"
-        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
-        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        \$_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
+        \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
     for lang in fr de es it uk pt; do

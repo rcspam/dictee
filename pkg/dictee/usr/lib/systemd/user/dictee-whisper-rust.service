@@ -1,5 +1,5 @@
 [Unit]
-Description=Whisper-Rust Transcription Daemon (ASR, whisper.cpp/Vulkan GPU)
+Description=Whisper-Rust Transcription Daemon (ASR, whisper.cpp GPU)
 After=network.target
 Conflicts=dictee.service dictee-vosk.service dictee-canary.service dictee-whisper.service
 
