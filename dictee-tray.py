@@ -146,7 +146,7 @@ STATE_FILE = "/dev/shm/.dictee_state"
 PROVIDER_FILE = "/dev/shm/.dictee_provider"
 TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-whisper-rust", "dictee-canary")
 CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
@@ -199,7 +199,7 @@ def _ptt_label():
 # - menu_id is unique per menu entry (Parakeet appears twice — one entry
 #   per quantization variant).
 # - label_msgid is the English string passed through _() at menu build time.
-# - backend_key is what dictee-switch-backend expects (parakeet/canary/vosk/whisper).
+# - backend_key is what dictee-switch-backend expects (parakeet/canary/vosk/whisper/whisper-rust).
 # - quant is "fp32" or "int8" for Parakeet variants, None otherwise. When set,
 #   selecting this entry also triggers `dictee-switch-backend quant <quant>`.
 # Note: label_msgid is NOT pre-translated at module load (gettext may not be
@@ -210,6 +210,7 @@ ASR_BACKENDS = [
     ("canary",        "Canary",                  "canary",   None),
     ("vosk",          "Vosk",                    "vosk",     None),
     ("whisper",       "Whisper",                 "whisper",  None),
+    ("whisper-rust",  "Whisper-Rust",            "whisper-rust", None),
 ]
 
 TRANSLATE_BACKENDS = [
@@ -275,6 +276,11 @@ def _force_cpu_constraint(backend, parakeet_quant, vram_gb):
         else:
             tooltip = _("Canary requires NVIDIA GPU — none detected, transcription will fail")
         return {"sensitive": False, "forced": "gpu", "tooltip": tooltip}
+
+    # Whisper-Rust (whisper.cpp/Vulkan) is GPU only — no CPU fallback by design
+    if backend == "whisper-rust":
+        return {"sensitive": False, "forced": "gpu",
+                "tooltip": _("Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)")}
 
     # Vosk is CPU only by design
     if backend == "vosk":
@@ -389,6 +395,18 @@ def _asr_service_exists(key):
         if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
             return False
         return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
+    # Whisper-Rust: shared transcribe-daemon (--whisper) + a ggml model on disk
+    # (system or user dir). No venv — it's the Rust daemon, not a Python engine.
+    if key == "whisper-rust":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        for d in ("/usr/share/dictee/whisper-rust",
+                  os.path.join(data_dir, "whisper-rust")):
+            if os.path.isdir(d) and any(
+                f.startswith("ggml-") and f.endswith(".bin") for f in os.listdir(d)
+            ):
+                return True
+        return False
     # Vosk/Whisper: check venv
     venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)
@@ -490,7 +508,8 @@ def daemon_is_active():
 def _conf_asr_service():
     """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
     mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
-               "whisper": "dictee-whisper", "canary": "dictee-canary"}
+               "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
+               "canary": "dictee-canary"}
     try:
         with open(CONF_PATH) as f:
             for line in f:
@@ -568,6 +587,8 @@ def read_provider():
 
     Valeurs possibles (cf. execution::provider_status() côté Rust) :
     - 'cuda' : GPU NVIDIA actif (paquet cuda + libs OK)
+    - 'vulkan' : whisper-rust build Vulkan (paquet dictee-cpu) → badge V violet
+      (le build CUDA, paquet dictee-cuda, reporte 'cuda' → badge G vert)
     - 'cpu' : fallback silencieux (paquet cuda + GPU détecté + libs manquantes
       → l'utilisateur croit être en GPU mais tourne en CPU)
     - 'cpu-forced' : DICTEE_FORCE_CPU=1 explicite
@@ -1314,6 +1335,25 @@ class DicteeTrayQt:
         p.end()
         return self.QIcon(pix)
 
+    def _letter_icon(self, letter, color):
+        """Painted colored-letter icon (V/G/C) for the menu — QMenu can't colour
+        item text, but it renders an icon, so we paint the letter into a pixmap
+        (same technique as _dot_icon). Mirrors the plasmoid compact badge."""
+        from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
+        pix = QPixmap(16, 16)
+        pix.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        f = QFont()
+        f.setBold(True)
+        f.setPixelSize(14)
+        p.setFont(f)
+        p.setPen(QColor(color))
+        p.drawText(pix.rect(), self.Qt.AlignmentFlag.AlignCenter, letter)
+        p.end()
+        return self.QIcon(pix)
+
     def _on_menu_triggered(self, action):
         if action == self.action_dictee:
             subprocess.Popen(["dictee"])
@@ -1543,7 +1583,7 @@ class DicteeTrayQt:
         # Suffixe provider (' (sur GPU)' / ' (sur CPU)' / ''). N'appara\u00eet
         # que sur les \u00e9tats "actifs" du daemon \u2014 pas de sens quand offline
         # ou diarize-ready.
-        psfx = self._provider_suffix() if self.state not in ("offline", "diarize") else ""
+        # provider badge is a painted colored-letter icon now (see else branch)
         if self.state == "diarize":
             self.action_daemon.setText(f"  {_('Diarization ready')}{pad}▶")
             self.action_daemon.setIcon(self._dot_icon("#9B59B6"))
@@ -1559,10 +1599,14 @@ class DicteeTrayQt:
                       "preparing": _("Preparing diarization…"),
                       "diarize-ready": _("Ready for diarization")}
             self.action_daemon.setText(
-                f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■{psfx}")
+                f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■")
             violet_states = ("diarizing", "preparing", "diarize-ready")
-            self.action_daemon.setIcon(
-                self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
+            _pl = self._provider_letter()
+            if _pl and self.state not in violet_states:
+                self.action_daemon.setIcon(self._letter_icon(_pl[0], _pl[1]))
+            else:
+                self.action_daemon.setIcon(
+                    self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
             self.action_daemon_hint.setText(f" {_('click to stop')}")
 
         is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
@@ -1601,20 +1645,23 @@ class DicteeTrayQt:
         if path and os.path.isfile(path) and path not in (self._watcher.files() or []):
             self._watcher.addPath(path)
 
-    def _provider_suffix(self):
-        """Retourne un badge unicode coloré ajouté au label daemon :
-        🟢 GPU (cuda) | 🔴 panne CPU (cpu = libs CUDA cassées) |
-        🔵 CPU voulu (cpu-forced / cpu-only / cpu-int8). '' si inconnu.
-        Le menu Qt n'affiche pas de lettre colorée → on garde des cercles
-        (cohérent en COULEUR avec le badge plasmoid).
+    def _provider_letter(self):
+        """(letter, color) badge for the current provider, or None. Painted as a
+        colored-letter icon by _letter_icon (QMenu can't colour item text).
+        Mirrors the plasmoid compact badge — same letters AND colours:
+        V violet = GPU Vulkan (whisper-rust) | G vert = GPU (cuda) |
+        G rouge = panne CPU (libs CUDA cassées) | C bleu = CPU voulu
+        (cpu-forced / cpu-only / cpu-int8). None si inconnu.
         """
+        if self.provider == "vulkan":
+            return ("V", "#a569bd")
         if self.provider == "cuda":
-            return " \U0001F7E2"  # 🟢 GPU
+            return ("G", "#27ae60")
         if self.provider == "cpu":
-            return " \U0001F534"  # 🔴 panne (GPU indisponible)
+            return ("G", "#c0392b")
         if self.provider in ("cpu-forced", "cpu-only", "cpu-int8"):
-            return " \U0001F535"  # 🔵 CPU voulu
-        return ""
+            return ("C", "#3498db")
+        return None
 
     def _apply_provider(self):
         if self.provider == self._prev_provider:

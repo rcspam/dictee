@@ -1437,17 +1437,19 @@ if [ -f "$PIDFILE" ]; then
                 _dbg "audio-context: whisper model '${DICTEE_WHISPER_MODEL:-small}' has unreliable timestamps, skipping context"
                 used_context=false
                 rm -f "$COMBINED_FILE"
-            elif [ "$_backend" = "canary" ]; then
-                # Canary: dual transcription mode
+            elif [ "$_backend" = "canary" ] || [ "$_backend" = "whisper-rust" ]; then
+                # Canary/Whisper-Rust: no word timestamps → dual transcription mode.
+                # whisper-rust (whisper.cpp, no_timestamps) returns a single
+                # [0-30s] segment, so the timestamp-split branch drops everything
+                # and fails every other push. Same fix as nemotron/kyutai.
                 # 1. Transcribe combined (buffer+silence+new) → context-aware result
                 # 2. Transcribe recording alone → safe fallback
                 # 3. Extract the new part from the combined using the solo as reference
-                _dbg "audio-context: canary dual-transcription mode"
+                _dbg "audio-context: $_backend dual-transcription mode"
                 # NOTE: this block runs in the script's main body, NOT a function,
                 # so `local` would error ("can only be used in a function") and
-                # leave the vars empty — silently disabling dual-transcription
-                # (canary audio-context fell back to solo). Use plain (global)
-                # assignments here.
+                # leave the vars empty — silently disabling dual-transcription.
+                # Use plain (global) assignments here.
                 _canary_id="${$}_${RANDOM}"
                 _canary_solo="/dev/shm/.dictee_solo_${_canary_id}"
                 _canary_comb="/dev/shm/.dictee_comb_${_canary_id}"

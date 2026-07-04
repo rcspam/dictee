@@ -1,0 +1,20 @@
+[Unit]
+Description=Whisper-Rust Transcription Daemon (ASR, whisper.cpp GPU)
+After=network.target
+Conflicts=dictee.service dictee-vosk.service dictee-canary.service dictee-whisper.service
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/dictee.conf
+Environment=ORT_DYLIB_PATH=/usr/lib/dictee/libonnxruntime.so
+# DICTEE_WHISPER_RUST_GGML is provided by dictee.conf (EnvironmentFile above): dictee-setup
+# writes the selected model's ggml path there. The daemon errors clearly if unset.
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+ExecStart=/usr/bin/transcribe-daemon-whisper-rust --whisper
+ExecStartPost=/bin/bash -c 'echo idle > /dev/shm/.dictee_state'
+ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

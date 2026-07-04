@@ -2790,7 +2790,9 @@ class TranscribeWindow(QDialog):
             # Restart daemon if we stopped it for VRAM
             asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
             svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
-                       "whisper": "dictee-whisper", "canary": "dictee-canary"}
+                       "whisper": "dictee-whisper",
+                       "whisper-rust": "dictee-whisper-rust",
+                       "canary": "dictee-canary"}
             subprocess.Popen(["systemctl", "--user", "enable", "--now", svc_map.get(asr, "dictee")])
         # Restaurer l'état idle pour le plasmoid
         _state_file = "/dev/shm/.dictee_state"
@@ -3706,7 +3708,8 @@ class TranscribeWindow(QDialog):
                         self._daemon_was_active = True
                         subprocess.run(
                             ["systemctl", "--user", "stop",
-                             "dictee", "dictee-vosk", "dictee-whisper", "dictee-canary"],
+                             "dictee", "dictee-vosk", "dictee-whisper",
+                             "dictee-whisper-rust", "dictee-canary"],
                             timeout=10)
                         _time.sleep(1)
                     # Still tight? Unload ollama too
@@ -3862,7 +3865,9 @@ class TranscribeWindow(QDialog):
         conf = _read_conf()
         asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
         svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
-                   "whisper": "dictee-whisper", "canary": "dictee-canary"}
+                   "whisper": "dictee-whisper",
+                   "whisper-rust": "dictee-whisper-rust",
+                   "canary": "dictee-canary"}
         svc = svc_map.get(asr, "dictee")
         subprocess.Popen(["systemctl", "--user", "start", svc])
         return svc

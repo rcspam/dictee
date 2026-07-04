@@ -664,3 +664,11 @@ msgstr "Перемикання backend…"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Попередній перегляд (тест мікрофона)"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:286
+msgid "Daemon running on GPU (Vulkan)"
+msgstr "Демон працює на GPU (Vulkan)"
+
+#: plasmoid/package/contents/ui/main.qml:426
+msgid "Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)"
+msgstr "Whisper-Rust працює лише на GPU (Vulkan, без відкату на CPU)"

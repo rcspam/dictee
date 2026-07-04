@@ -1,0 +1,21 @@
+[package]
+name = "poc-whisper-rs"
+version = "0.1.0"
+edition = "2021"
+
+# Standalone POC crate — NOT part of the dictee workspace.
+# Goal: prove ggml large-v3 via whisper.cpp restores punctuation + capitalization
+# + complete onset (the things our faster-whisper/ctranslate2 large-v3 drops).
+
+[dependencies]
+whisper-rs = "0.16"
+hound = "3.5"
+
+[features]
+# GPU backends for whisper.cpp. Build with: cargo run --release --features cuda
+cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
+
+[[bin]]
+name = "poc"
+path = "src/main.rs"

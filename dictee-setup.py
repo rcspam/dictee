@@ -376,6 +376,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 anim_speech=True, anim_plasmoid=False,
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
+                whisper_rust_model="large-v3", whisper_rust_ggml="",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
                 ptt_mod_translate="", ptt_extra_devices="", ptt_exclude_devices="",
@@ -433,6 +434,10 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
+        # Whisper-Rust (whisper.cpp/Vulkan) selected model id + resolved ggml path
+        # (the dictee-whisper-rust.service reads DICTEE_WHISPER_RUST_GGML from here).
+        "DICTEE_WHISPER_RUST_MODEL": _s(whisper_rust_model),
+        "DICTEE_WHISPER_RUST_GGML": _s(whisper_rust_ggml),
         # Parakeet quantization variant (int8 | fp32). None = leave dictee.conf
         # untouched (preserve existing user value or comment).
         **({"DICTEE_PARAKEET_QUANT": parakeet_quant}
@@ -1569,6 +1574,34 @@ CANARY_MODEL_FILES = [
     "encoder-model.onnx", "encoder-model.onnx.data", "decoder-model.onnx",
     "vocab.txt", "config.json",
 ]
+
+# Whisper-Rust (whisper.cpp/Vulkan GPU) ggml models — multilingual, quantized.
+# Quant per HF availability (verified): tiny/base/small = q5_1, medium/large* = q5_0.
+# Downloaded on demand to the dictee user dir; the selected model's path is written
+# to dictee.conf (DICTEE_WHISPER_RUST_GGML), which the service reads.
+_WHISPER_RUST_DIR = os.path.join(MODEL_DIR, "whisper-rust")
+_WHISPER_RUST_BASE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+WHISPER_RUST_MODELS = [
+    ("tiny", "ggml-tiny-q5_1.bin", "tiny — 31 MB, fastest, lowest quality"),
+    ("base", "ggml-base-q5_1.bin", "base — 57 MB"),
+    ("small", "ggml-small-q5_1.bin", "small — 181 MB"),
+    ("medium", "ggml-medium-q5_0.bin", "medium — 514 MB, good balance"),
+    ("large-v3-turbo", "ggml-large-v3-turbo-q5_0.bin", "large-v3-turbo — 547 MB, fast, near large-v3 quality"),
+    ("large-v3", "ggml-large-v3-q5_0.bin", "large-v3 — 1.0 GB, best quality"),
+]
+
+
+def _whisper_rust_model_dict(model_id):
+    """Build a ModelDownloadThread/model_is_installed-compatible dict for a model id."""
+    for mid, fname, _label in WHISPER_RUST_MODELS:
+        if mid == model_id:
+            return {
+                "id": f"whisper-rust-{mid}",
+                "dir": _WHISPER_RUST_DIR,
+                "check_file": fname,
+                "files": [(f"{_WHISPER_RUST_BASE}/{fname}", fname)],
+            }
+    return None
 
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
@@ -6344,6 +6377,7 @@ class DicteeSetupDialog(QDialog):
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
+            self.cmb_asr_backend.addItem("Whisper-Rust large-v3 (GPU)", "whisper-rust")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         glay.addWidget(self.cmb_asr_backend)
 
@@ -6362,6 +6396,7 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
         self._build_canary_options(glay)
+        self._build_whisper_rust_options(glay)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
@@ -6369,9 +6404,14 @@ class DicteeSetupDialog(QDialog):
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
             self.w_canary_options.setVisible(backend == "canary")
+            self.w_whisper_rust_options.setVisible(backend == "whisper-rust")
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
+            # GPU-only backends (canary/whisper-rust) and CPU-only Vosk pin the
+            # Force CPU toggle — refresh it whenever the backend changes.
+            if hasattr(self, 'tgl_force_cpu'):
+                self._refresh_force_cpu_toggle_state()
         self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
         _on_asr_changed()
 
@@ -7604,6 +7644,7 @@ class DicteeSetupDialog(QDialog):
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
         self.w_canary_options.setVisible(asr == "canary")
+        self.w_whisper_rust_options.setVisible(asr == "whisper-rust")
 
     def _on_card_click(self, backend_id):
         """Handle card click: single=select, rapid double=select+next."""
@@ -7727,6 +7768,7 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(lay_sub)
         self._build_whisper_options(lay_sub)
         self._build_canary_options(lay_sub)
+        self._build_whisper_rust_options(lay_sub)
 
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
@@ -8219,6 +8261,8 @@ class DicteeSetupDialog(QDialog):
             return venv_is_installed(WHISPER_VENV)
         if backend_id == "canary":
             return self._canary_model_installed()
+        if backend_id == "whisper-rust":
+            return self._any_whisper_rust_model_installed()
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -8624,22 +8668,44 @@ class DicteeSetupDialog(QDialog):
         runs on CPU). Cosmetic only: the stored preference (_force_cpu_pref)
         is preserved, so other backends (Whisper/Canary) keep their GPU
         setting and switching back to FP32 restores the toggle. Called at
-        build time and whenever the int8/FP32 toggle flips."""
+        build time, whenever the int8/FP32 toggle flips, and whenever the
+        ASR backend changes."""
         if not hasattr(self, 'tgl_force_cpu'):
             return
         total_vram, _free = get_gpu_vram_gb()
         cuda_pkg = os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so")
         gpu_present = total_vram > 0 and cuda_pkg
         int8_active = hasattr(self, 'tgl_quant') and self.tgl_quant.isChecked()
-        locked = (not gpu_present) or int8_active
+        backend = (self.cmb_asr_backend.currentData()
+                   if hasattr(self, 'cmb_asr_backend') else "parakeet") or "parakeet"
+
+        # Mirror dictee-tray._force_cpu_constraint: some backends pin the
+        # GPU/CPU position regardless of the user's preference.
+        #   forced = "gpu" → GPU-only backend (Force CPU off + disabled)
+        #   forced = "cpu" → CPU-only situation (Force CPU on + disabled)
+        #   forced = None  → user-controlled (FP32 Parakeet with a usable GPU)
+        forced = None
+        if backend in ("canary", "whisper-rust"):
+            forced = "gpu"
+        elif backend == "vosk":
+            forced = "cpu"
+        elif backend == "parakeet" and int8_active:
+            forced = "cpu"
+        elif not gpu_present:
+            forced = "cpu"
+        locked = forced is not None
+
         self.tgl_force_cpu.blockSignals(True)
-        self.tgl_force_cpu.setChecked(True if locked else self._force_cpu_pref)
+        if locked:
+            self.tgl_force_cpu.setChecked(forced == "cpu")
+        else:
+            self.tgl_force_cpu.setChecked(self._force_cpu_pref)
         self.tgl_force_cpu.setEnabled(not locked)
         self.tgl_force_cpu.blockSignals(False)
-        if int8_active and gpu_present:
-            # GPU exists but int8 always runs on CPU: the VRAM/FP32-centric
-            # warning would be misleading, so clear it. The int8/FP32 toggle
-            # just above already conveys the variant choice.
+
+        if forced == "gpu" or (int8_active and gpu_present):
+            # GPU-only backend, or int8 (which always runs on CPU): the
+            # VRAM/FP32-centric warning would be misleading, so clear it.
             if hasattr(self, '_lbl_force_cpu_warning'):
                 self._lbl_force_cpu_warning.setText("")
         else:
@@ -9495,6 +9561,52 @@ class DicteeSetupDialog(QDialog):
                 break
         self._update_whisper_status()
 
+    def _build_whisper_rust_options(self, parent_layout):
+        """Whisper-Rust model picker (GPU Vulkan; all ggml models)."""
+        self.w_whisper_rust_options = QWidget()
+        outer = QVBoxLayout(self.w_whisper_rust_options)
+        outer.setContentsMargins(0, 4, 0, 0)
+        outer.setSpacing(4)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_("Model:")))
+        self.cmb_whisper_rust_model = _CheckMarkComboBox()
+        self.cmb_whisper_rust_model.setMinimumWidth(420)
+        self._populate_whisper_rust_combo()
+        cur = self.conf.get("DICTEE_WHISPER_RUST_MODEL", "large-v3")
+        for i in range(self.cmb_whisper_rust_model.count()):
+            if self.cmb_whisper_rust_model.itemData(i) == cur:
+                self.cmb_whisper_rust_model.setCurrentIndex(i)
+                break
+        self.cmb_whisper_rust_model.currentIndexChanged.connect(self._update_whisper_rust_status)
+        row.addWidget(self.cmb_whisper_rust_model, 1)
+
+        self.btn_download_whisper_rust = QPushButton(_("Download"))
+        self.btn_download_whisper_rust.setFixedWidth(150)
+        self.btn_download_whisper_rust.clicked.connect(self._on_whisper_rust_model_download)
+        row.addWidget(self.btn_download_whisper_rust)
+
+        self.btn_del_whisper_rust_model = QPushButton()
+        self.btn_del_whisper_rust_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_rust_model.setFixedWidth(28)
+        self.btn_del_whisper_rust_model.setToolTip(_("Delete model"))
+        self.btn_del_whisper_rust_model.clicked.connect(self._on_whisper_rust_model_delete)
+        row.addWidget(self.btn_del_whisper_rust_model)
+
+        self.btn_cancel_whisper_rust = QPushButton(_("Cancel"))
+        self.btn_cancel_whisper_rust.setFixedWidth(80)
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self.btn_cancel_whisper_rust.clicked.connect(self._cancel_whisper_rust_download)
+        row.addWidget(self.btn_cancel_whisper_rust)
+        outer.addLayout(row)
+
+        self._lbl_whisper_rust_status = QLabel("")
+        outer.addWidget(self._lbl_whisper_rust_status)
+
+        self._update_whisper_rust_status()
+        self.w_whisper_rust_options.setVisible(False)
+        parent_layout.addWidget(self.w_whisper_rust_options)
+
     def _build_canary_options(self, parent_layout):
         """Build Canary 1B v2 sub-options (GPU only, model download)."""
         self.w_canary_options = QWidget()
@@ -9529,6 +9641,90 @@ class DicteeSetupDialog(QDialog):
 
         self.w_canary_options.setVisible(False)
         parent_layout.addWidget(self.w_canary_options)
+
+    def _whisper_rust_model_installed(self, model_id):
+        """True if the given Whisper-Rust ggml is present (user dir first, then system)."""
+        d = _whisper_rust_model_dict(model_id)
+        return bool(d) and model_is_installed(d)
+
+    def _any_whisper_rust_model_installed(self):
+        return any(self._whisper_rust_model_installed(m[0]) for m in WHISPER_RUST_MODELS)
+
+    def _populate_whisper_rust_combo(self):
+        self.cmb_whisper_rust_model.clear()
+        for mid, _fname, label in WHISPER_RUST_MODELS:
+            cached = self._whisper_rust_model_installed(mid)
+            self.cmb_whisper_rust_model.addItem(("✓ " if cached else "   ") + label, mid)
+            if cached:
+                self.cmb_whisper_rust_model.setItemData(
+                    self.cmb_whisper_rust_model.count() - 1, True, Qt.ItemDataRole.UserRole + 1)
+
+    def _update_whisper_rust_status(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        if not mid:
+            return
+        cached = self._whisper_rust_model_installed(mid)
+        self._lbl_whisper_rust_status.setText(
+            '<span style="color: green;">✓</span> ' + _("Model downloaded and ready")
+            if cached else _("Select a model and click Download"))
+        self.btn_download_whisper_rust.setText(_("Download"))
+        self.btn_download_whisper_rust.setVisible(not cached)
+        self.btn_del_whisper_rust_model.setVisible(cached)
+
+    def _on_whisper_rust_model_download(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        d = _whisper_rust_model_dict(mid)
+        if not d:
+            return
+        self.btn_download_whisper_rust.setEnabled(False)
+        self.btn_download_whisper_rust.setText(_("Downloading…"))
+        self.btn_cancel_whisper_rust.setVisible(True)
+        thread = ModelDownloadThread(d)
+        thread.progress.connect(lambda msg: self.btn_download_whisper_rust.setText(msg))
+        thread.done.connect(self._on_whisper_rust_download_done)
+        self._venv_threads["whisper-rust"] = thread
+        thread.start()
+
+    def _cancel_whisper_rust_download(self):
+        thread = self._venv_threads.get("whisper-rust")
+        if thread and thread.isRunning():
+            thread.cancel()
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self._refresh_whisper_rust_after_change()
+
+    def _on_whisper_rust_download_done(self, ok, msg):
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self._refresh_whisper_rust_after_change()
+        if not ok and msg != _("Cancelled"):
+            QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _on_whisper_rust_model_delete(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        if not mid or not self._whisper_rust_model_installed(mid):
+            return
+        if QMessageBox.question(self, _("Delete"), _("Delete model '{}'?").format(mid),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) \
+                != QMessageBox.StandardButton.Yes:
+            return
+        d = _whisper_rust_model_dict(mid)
+        for base in (d["dir"], d["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)):
+            f = os.path.join(base, d["check_file"])
+            try:
+                if os.path.isfile(f):
+                    os.remove(f)
+            except OSError:
+                pass
+        self._refresh_whisper_rust_after_change()
+
+    def _refresh_whisper_rust_after_change(self):
+        self.btn_download_whisper_rust.setEnabled(True)
+        cur = self.cmb_whisper_rust_model.currentData()
+        self._populate_whisper_rust_combo()
+        for i in range(self.cmb_whisper_rust_model.count()):
+            if self.cmb_whisper_rust_model.itemData(i) == cur:
+                self.cmb_whisper_rust_model.setCurrentIndex(i)
+                break
+        self._update_whisper_rust_status()
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
@@ -15592,7 +15788,8 @@ class DicteeSetupDialog(QDialog):
         """
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk",
-               "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
+               "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
+               "canary": "dictee-canary"}.get(asr, "dictee")
         # True first-run wizard (no prior dictee.conf): the service hasn't been
         # started yet (will be at Finish). Fallback to "is the unit installed".
         # Reconfig wizard or settings: check live state.
@@ -15610,7 +15807,7 @@ class DicteeSetupDialog(QDialog):
                 return False
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
         sock = os.path.join(runtime_dir, "transcribe.sock")
-        needs_socket = asr in ("parakeet", "canary")
+        needs_socket = asr in ("parakeet", "canary", "whisper-rust")
         deadline = time.monotonic() + 6.0
         last_state = "?"
         while time.monotonic() < deadline:
@@ -17068,7 +17265,8 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 
-    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None):
+    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None,
+                           whisper_rust_model=None):
         """Return (ok, error_message) for the given ASR backend.
         Checks that the engine is actually installed AND that at least one
         language/model for it is available. Parakeet is always considered
@@ -17120,6 +17318,20 @@ class DicteeSetupDialog(QDialog):
                     "The Whisper model « {model} » is not downloaded yet.\n\n"
                     "Click Download next to it, or choose a model that is already "
                     "available.").format(model=whisper_model)
+            return True, ""
+        if backend == "whisper-rust":
+            if get_gpu_vram_gb()[0] <= 0:
+                return False, _(
+                    "Whisper-Rust requires a Vulkan GPU (none detected).")
+            if not self._any_whisper_rust_model_installed():
+                return False, _(
+                    "No Whisper-Rust model is downloaded.\n\n"
+                    "Pick a model in the combo and click Download.")
+            if whisper_rust_model and not self._whisper_rust_model_installed(whisper_rust_model):
+                return False, _(
+                    "The Whisper-Rust model « {model} » is not downloaded yet.\n\n"
+                    "Click Download next to it, or choose a model that is already "
+                    "available.").format(model=whisper_rust_model)
             return True, ""
         return True, ""
 
@@ -18236,7 +18448,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-canary.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-whisper-rust.service", "dictee-canary.service"]
         active = False
         for svc in services:
             try:
@@ -18256,7 +18468,9 @@ class DicteeSetupDialog(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
                 svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
-                           "whisper": "dictee-whisper.service", "canary": "dictee-canary.service"}
+                           "whisper": "dictee-whisper.service",
+                           "whisper-rust": "dictee-whisper-rust.service",
+                           "canary": "dictee-canary.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
             else:
@@ -18432,6 +18646,7 @@ class DicteeSetupDialog(QDialog):
         _old_ptt = {}
         _old_asr = {}
         _ASR_KEYS = ("DICTEE_ASR_BACKEND", "DICTEE_WHISPER_MODEL",
+                     "DICTEE_WHISPER_RUST_MODEL", "DICTEE_WHISPER_RUST_GGML",
                      "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
                      "DICTEE_AUDIO_SOURCE", "DICTEE_PARAKEET_QUANT",
                      "DICTEE_FORCE_CPU")
@@ -18509,6 +18724,19 @@ class DicteeSetupDialog(QDialog):
             asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
 
         whisper_model = self.cmb_whisper_model.currentData() or "small"
+        whisper_rust_model = (self.cmb_whisper_rust_model.currentData()
+                              if hasattr(self, "cmb_whisper_rust_model") else None) or "large-v3"
+        _wr = _whisper_rust_model_dict(whisper_rust_model)
+        whisper_rust_ggml = ""
+        if _wr:
+            # Resolve where the ggml ACTUALLY is: system dir (MODEL_DIR) first, then
+            # the user dir — matching model_is_installed + ModelDownloadThread's
+            # PermissionError fallback (MODEL_DIR may be user-writable on dev boxes,
+            # root-owned on real installs). Default to the user dir if not found.
+            _wr_sys = os.path.join(_WHISPER_RUST_DIR, _wr["check_file"])
+            _wr_usr = os.path.join(DICTEE_DATA_DIR, "whisper-rust", _wr["check_file"])
+            whisper_rust_ggml = (_wr_sys if os.path.isfile(_wr_sys)
+                                 else _wr_usr)
         whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
@@ -18517,7 +18745,8 @@ class DicteeSetupDialog(QDialog):
         # and end up with DICTEE_ASR_BACKEND set in dictee.conf pointing to
         # an engine that can't start → transcription silently fails on F9.
         _ready_ok, _ready_msg = self._asr_backend_ready(
-            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model)
+            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model,
+            whisper_rust_model=whisper_rust_model)
         if not _ready_ok:
             QMessageBox.warning(self, _("ASR backend not ready"), _ready_msg)
             return False
@@ -18640,7 +18869,8 @@ class DicteeSetupDialog(QDialog):
         save_config(backend, lang_src, lang_tgt, clipboard,
                     anim_speech, anim_plasmoid,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
-                    asr_backend, whisper_model, whisper_lang, vosk_model,
+                    asr_backend, whisper_model, whisper_rust_model, whisper_rust_ggml,
+                    whisper_lang, vosk_model,
                     audio_source=str(audio_source),
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
                     ptt_key_translate=ptt_key_translate,
@@ -18773,7 +19003,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR (active service: synchronous for error reporting)
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
         # Disable inactive services + enable/restart tray/ptt in background
@@ -18841,6 +19071,8 @@ class DicteeSetupDialog(QDialog):
         _new_asr = {
             "DICTEE_ASR_BACKEND": asr_backend,
             "DICTEE_WHISPER_MODEL": whisper_model,
+            "DICTEE_WHISPER_RUST_MODEL": whisper_rust_model,
+            "DICTEE_WHISPER_RUST_GGML": whisper_rust_ggml,
             "DICTEE_WHISPER_LANG": whisper_lang,
             "DICTEE_VOSK_MODEL": vosk_model,
             "DICTEE_AUDIO_SOURCE": str(audio_source),
