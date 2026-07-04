@@ -3604,15 +3604,17 @@ msgstr ""
 "інструмент захоплює ексклюзивно (напр. input-remapper): push-to-talk dictee "
 "не чіпатиме її, а слухатиме переспрямований пристрій цього інструмента."
 
-#: dictee-setup.py:16118
+#: dictee-setup.py:16139
 msgid ""
-"Keyboards detected on your system. Check the virtual ones you want dictee to "
-"listen to (e.g. devices created by logiops, keyd, kanata, xremap or input-"
-"remapper)."
+"Keyboards detected on your system. Check the ones you want dictee to listen "
+"to: devices created by remapping tools (logiops, keyd, kanata, xremap, "
+"input-remapper), or keyboards with pointer axes that dictee ignores by "
+"default (e.g. Logitech Craft and its Crown dial)."
 msgstr ""
-"Клавіатури, виявлені на вашій системі. Позначте віртуальні, які dictee має "
-"слухати (наприклад, пристрої, створені logiops, keyd, kanata, xremap або "
-"input-remapper)."
+"Клавіатури, виявлені у вашій системі. Позначте ті, які dictee має слухати: "
+"пристрої, створені інструментами перепризначення (logiops, keyd, kanata, "
+"xremap, input-remapper), або клавіатури з осями вказівника, які dictee "
+"типово ігнорує (напр. Logitech Craft та її коліщатко Crown)."
 
 #: dictee-setup.py:16123
 msgid "Detect input devices"
@@ -3632,6 +3634,11 @@ msgstr "{name}  [переспрямований: dictee слухає тут, з�
 #, python-brace-format
 msgid "{name}  [physical — listened by default]"
 msgstr "{name}  [фізична — слухається за замовчуванням]"
+
+#: dictee-setup.py:16168
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
+msgstr "{name}  [осі вказівника — ігнорується, якщо не в білому списку]"
 
 #: dictee-setup.py:16150
 #, python-brace-format
