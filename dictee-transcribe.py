@@ -1053,9 +1053,17 @@ class _ChunkedPipelineWorker(QThread):
         # pattern. Avoids double processing.
         cmd = ["transcribe-diarize-batch", "--no-diarize",
                "--no-postprocess", "--stdin"]
+        # The batch's stderr carries the engine diagnostics (execution
+        # provider, model variant, per-chunk timings): keep it in the
+        # transcribe log when debugging instead of dropping it — "is this
+        # really running on CUDA?" is otherwise unanswerable from logs.
+        if DEBUG:
+            _stderr_sink = open("/tmp/dictee-transcribe.log", "a", encoding="utf-8")
+        else:
+            _stderr_sink = subprocess.DEVNULL
         self._current_proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=_stderr_sink,
             env=self._subprocess_env,
         )
         stdin_data = ("\n".join(chunks_paths) + "\n").encode()
@@ -1068,6 +1076,8 @@ class _ChunkedPipelineWorker(QThread):
             return []
         finally:
             self._current_proc = None
+            if _stderr_sink is not subprocess.DEVNULL:
+                _stderr_sink.close()
 
         chunk_re = re.compile(r"^===CHUNK\s+(\d+)\s+(.+?)===$")
         token_re = re.compile(r"^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*(.+)$")
