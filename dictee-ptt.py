@@ -184,20 +184,22 @@ def find_keyboards_evdev():
         except (PermissionError, OSError):
             continue
         caps = dev.capabilities(verbose=False)
-        # EV_KEY present with the full key set, AND no pointer axes. A real
-        # keyboard never reports EV_REL/EV_ABS. Some mice and combined
-        # keyboard+mouse HID receivers expose a node with >30 keys that ALSO
-        # carries pointer movement; EVIOCGRAB-ing such a node freezes the
-        # system mouse (forum report: dictee 1.3.4, AMD/Wayland). Excluding
-        # EV_REL/EV_ABS keeps us from ever grabbing a pointer device.
-        if (EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30
-                and EV_REL not in caps and EV_ABS not in caps):
+        # EV_KEY present with the full key set. The default path additionally
+        # rejects pointer axes: a real keyboard never reports EV_REL/EV_ABS,
+        # and some mice and combined keyboard+mouse HID receivers expose a
+        # node with >30 keys that ALSO carries pointer movement; EVIOCGRAB-ing
+        # such a node freezes the system mouse (forum report: dictee 1.3.4,
+        # AMD/Wayland). The EXTRA_KEYBOARDS whitelist bypasses that guard
+        # (issue #23): some keyboards carry pointer axes on the keyboard node
+        # (e.g. Logitech Craft's Crown dial) and the user explicitly opted in.
+        if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
             name = dev.name.lower()
             if name in EXCLUDE_KEYBOARDS:
                 dev.close()
             elif any(x in name for x in EXTRA_KEYBOARDS):
                 devs.append(dev)
-            elif not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt")):
+            elif (EV_REL not in caps and EV_ABS not in caps
+                    and not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt"))):
                 devs.append(dev)
             else:
                 dev.close()
@@ -225,25 +227,28 @@ def find_keyboards_raw():
                 handlers_line = line
             elif line.startswith("B: EV="):
                 ev_line = line
-        # Reject nodes that also drive a pointer — grabbing a combined
-        # keyboard+pointer HID node freezes it. Parse the EV capability bitmask
-        # and skip the node if it exposes relative (mouse) OR absolute
-        # (touchpad/touchscreen/tablet) axes. Mirrors the EV_REL/EV_ABS
-        # exclusion in find_keyboards_evdev — the H: "mouse" handler check alone
-        # misses abs-only pointers.
+        # The default path rejects nodes that also drive a pointer — grabbing
+        # a combined keyboard+pointer HID node freezes it. Parse the EV
+        # capability bitmask and skip the node if it exposes relative (mouse)
+        # OR absolute (touchpad/touchscreen/tablet) axes. Mirrors the
+        # EV_REL/EV_ABS exclusion in find_keyboards_evdev — the H: "mouse"
+        # handler check alone misses abs-only pointers. The EXTRA_KEYBOARDS
+        # whitelist bypasses both pointer checks (issue #23), same as in
+        # find_keyboards_evdev.
         has_pointer = False
         m_ev = re.search(r"B: EV=([0-9a-fA-F]+)", ev_line)
         if m_ev:
             ev_caps = int(m_ev.group(1), 16)
             has_pointer = bool(ev_caps & (1 << EV_REL)) or bool(ev_caps & (1 << EV_ABS))
-        # Require the kbd handler but reject pointer devices.
-        if "kbd" in handlers_line and "mouse" not in handlers_line and not has_pointer:
+        # Require the kbd handler.
+        if "kbd" in handlers_line:
             name_lower = name_line.lower()
             _m_name = re.search(r'name="([^"]*)"', name_lower)
             excluded = (_m_name.group(1) if _m_name else "") in EXCLUDE_KEYBOARDS
             allowed = (not excluded) and (
                 any(x in name_lower for x in EXTRA_KEYBOARDS) or
-                not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE))
+                ("mouse" not in handlers_line and not has_pointer and
+                 not re.search(r"virtual|uinput|dotool|dictee-ptt", name_line, re.IGNORECASE)))
             if allowed:
                 m = re.search(r"event\d+", handlers_line)
                 if m:
@@ -595,7 +600,32 @@ class PttState:
 
 # ─── Backend evdev (grab + uinput) ─────────────────────────────────
 
-def _rescan_keyboards(devices):
+def _make_passthrough(devices):
+    """Create the re-emission uinput device, cloning the capabilities of the
+    grabbed keyboards. A bare UInput() only declares EV_KEY, so EV_REL/EV_ABS
+    events from a whitelisted pointer-axis keyboard (issue #23: Logitech
+    Craft's Crown dial) would be silently dropped by the kernel instead of
+    re-emitted. For pure keyboards the merged capabilities stay equivalent.
+    """
+    return UInput.from_device(*devices, name="dictee-ptt-passthrough")
+
+
+def _passthrough_covers(ui, dev):
+    """True if the passthrough already declares every event type of dev.
+
+    EV_SYN is implicit and EV_FF is never re-emitted (both are filtered out
+    by UInput.from_device). ui.device (the read-back node) can be None during
+    input-device churn (issue #20) — report non-coverage then, so the caller
+    recreates the passthrough rather than risk swallowing events.
+    """
+    if ui.device is None:
+        return False
+    have = set(ui.device.capabilities(verbose=False))
+    needed = set(dev.capabilities(verbose=False)) - {ecodes.EV_SYN, ecodes.EV_FF}
+    return needed <= have
+
+
+def _rescan_keyboards(devices, ui=None):
     """Detect and grab newly plugged keyboards (hotplug).
 
     Opens every /dev/input/event* (expensive: ~30 ms/keyboard). Call ONLY
@@ -603,23 +633,46 @@ def _rescan_keyboards(devices):
     and a KEY_UP delivered late makes the compositor believe the key is held
     down → spurious auto-repeat (issue #8). Mutates `devices` in place. Logs
     the duration when abnormal (DEBUG mode / DICTEE_DEBUG only).
+
+    Returns the passthrough uinput device, recreated when a hotplugged
+    keyboard carries event types the current one doesn't declare (whitelisted
+    pointer-axis keyboards, issue #23) so nothing gets swallowed.
     """
     t0 = time.monotonic()
     known_paths = {d.path for d in devices}
+    needs_recreate = False
     for new_dev in find_keyboards_evdev():
         if new_dev.path not in known_paths:
             try:
                 new_dev.grab()
                 devices.append(new_dev)
                 print(f"[ptt] hotplug grab: {new_dev.name}")
+                if ui is not None and not _passthrough_covers(ui, new_dev):
+                    needs_recreate = True
             except OSError:
                 new_dev.close()
         else:
             new_dev.close()
+    if needs_recreate:
+        try:
+            new_ui = _make_passthrough(devices)
+        except (OSError, evdev.UInputError) as e:
+            # Keep re-emitting through the old passthrough: keys still work,
+            # only the new device's extra axes stay silent until next rescan.
+            print(f"[ptt] passthrough recreate failed: {e}", file=sys.stderr)
+        else:
+            try:
+                ui.close()
+            except OSError:
+                pass
+            ui = new_ui
+            print(f"[ptt] passthrough recreated: "
+                  f"{ui.device.path if ui.device else '(unresolved)'}")
     dt = time.monotonic() - t0
     if DEBUG and dt > 0.05:
         print(f"[ptt] WARNING slow keyboard rescan: {dt * 1000:.0f}ms "
               f"({len(devices)} keyboards) [issue #8]")
+    return ui
 
 
 def run_evdev(ptt):
@@ -652,7 +705,7 @@ def run_evdev(ptt):
 
     try:
         # Créer le clavier virtuel pour ré-émettre les événements non-PTT
-        ui = UInput(name="dictee-ptt-passthrough")
+        ui = _make_passthrough(devices)
         # ui.device is evdev's read-back InputDevice; it can be None when the
         # device node can't be resolved (e.g. another tool such as input-remapper
         # is creating/destroying devices at the same moment). It's only used for
@@ -698,7 +751,7 @@ def run_evdev(ptt):
             if not devices:
                 # Plus aucun clavier : rescan immédiat pour récupérer
                 # (aucune frappe en cours, donc pas de risque de stutter).
-                _rescan_keyboards(devices)
+                ui = _rescan_keyboards(devices, ui)
                 last_rescan = time.monotonic()
                 if not devices:
                     time.sleep(1)
@@ -731,7 +784,7 @@ def run_evdev(ptt):
                 now_mono = time.monotonic()
                 if now_mono - last_rescan > RESCAN_INTERVAL:
                     last_rescan = now_mono
-                    _rescan_keyboards(devices)
+                    ui = _rescan_keyboards(devices, ui)
                 continue
 
             for dev in r:
