@@ -6404,6 +6404,10 @@ class DicteeSetupDialog(QDialog):
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
+            # GPU-only backends (canary/whisper-rust) and CPU-only Vosk pin the
+            # Force CPU toggle — refresh it whenever the backend changes.
+            if hasattr(self, 'tgl_force_cpu'):
+                self._refresh_force_cpu_toggle_state()
         self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
         _on_asr_changed()
 
@@ -8660,22 +8664,44 @@ class DicteeSetupDialog(QDialog):
         runs on CPU). Cosmetic only: the stored preference (_force_cpu_pref)
         is preserved, so other backends (Whisper/Canary) keep their GPU
         setting and switching back to FP32 restores the toggle. Called at
-        build time and whenever the int8/FP32 toggle flips."""
+        build time, whenever the int8/FP32 toggle flips, and whenever the
+        ASR backend changes."""
         if not hasattr(self, 'tgl_force_cpu'):
             return
         total_vram, _free = get_gpu_vram_gb()
         cuda_pkg = os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so")
         gpu_present = total_vram > 0 and cuda_pkg
         int8_active = hasattr(self, 'tgl_quant') and self.tgl_quant.isChecked()
-        locked = (not gpu_present) or int8_active
+        backend = (self.cmb_asr_backend.currentData()
+                   if hasattr(self, 'cmb_asr_backend') else "parakeet") or "parakeet"
+
+        # Mirror dictee-tray._force_cpu_constraint: some backends pin the
+        # GPU/CPU position regardless of the user's preference.
+        #   forced = "gpu" → GPU-only backend (Force CPU off + disabled)
+        #   forced = "cpu" → CPU-only situation (Force CPU on + disabled)
+        #   forced = None  → user-controlled (FP32 Parakeet with a usable GPU)
+        forced = None
+        if backend in ("canary", "whisper-rust"):
+            forced = "gpu"
+        elif backend == "vosk":
+            forced = "cpu"
+        elif backend == "parakeet" and int8_active:
+            forced = "cpu"
+        elif not gpu_present:
+            forced = "cpu"
+        locked = forced is not None
+
         self.tgl_force_cpu.blockSignals(True)
-        self.tgl_force_cpu.setChecked(True if locked else self._force_cpu_pref)
+        if locked:
+            self.tgl_force_cpu.setChecked(forced == "cpu")
+        else:
+            self.tgl_force_cpu.setChecked(self._force_cpu_pref)
         self.tgl_force_cpu.setEnabled(not locked)
         self.tgl_force_cpu.blockSignals(False)
-        if int8_active and gpu_present:
-            # GPU exists but int8 always runs on CPU: the VRAM/FP32-centric
-            # warning would be misleading, so clear it. The int8/FP32 toggle
-            # just above already conveys the variant choice.
+
+        if forced == "gpu" or (int8_active and gpu_present):
+            # GPU-only backend, or int8 (which always runs on CPU): the
+            # VRAM/FP32-centric warning would be misleading, so clear it.
             if hasattr(self, '_lbl_force_cpu_warning'):
                 self._lbl_force_cpu_warning.setText("")
         else:
@@ -17235,7 +17261,8 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 
-    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None):
+    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None,
+                           whisper_rust_model=None):
         """Return (ok, error_message) for the given ASR backend.
         Checks that the engine is actually installed AND that at least one
         language/model for it is available. Parakeet is always considered
@@ -17296,6 +17323,11 @@ class DicteeSetupDialog(QDialog):
                 return False, _(
                     "No Whisper-Rust model is downloaded.\n\n"
                     "Pick a model in the combo and click Download.")
+            if whisper_rust_model and not self._whisper_rust_model_installed(whisper_rust_model):
+                return False, _(
+                    "The Whisper-Rust model « {model} » is not downloaded yet.\n\n"
+                    "Click Download next to it, or choose a model that is already "
+                    "available.").format(model=whisper_rust_model)
             return True, ""
         return True, ""
 
@@ -18709,7 +18741,8 @@ class DicteeSetupDialog(QDialog):
         # and end up with DICTEE_ASR_BACKEND set in dictee.conf pointing to
         # an engine that can't start → transcription silently fails on F9.
         _ready_ok, _ready_msg = self._asr_backend_ready(
-            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model)
+            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model,
+            whisper_rust_model=whisper_rust_model)
         if not _ready_ok:
             QMessageBox.warning(self, _("ASR backend not ready"), _ready_msg)
             return False
