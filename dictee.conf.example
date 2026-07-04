@@ -123,13 +123,18 @@ DICTEE_PTT_KEY=67
 # translation would never fire. Write "ctrl", not "same_ctrl".
 #DICTEE_PTT_MOD_TRANSLATE=
 
-# Extra input devices to listen to (push-to-talk via virtual keyboards).
-# By default, dictee-ptt excludes devices whose name contains "virtual",
-# "uinput", "dotool" or "dictee-ptt" to avoid feedback loops. If you remap
-# mouse buttons or keys via logiops, keyd, evsieve, kmonad, etc., add the
-# device name substring(s) here (comma-separated, case-insensitive).
+# Extra input devices to listen to (comma-separated name substrings,
+# case-insensitive). Two situations need it:
+#   - virtual keyboards created by remapping tools (logiops, keyd, evsieve,
+#     kmonad, etc.): dictee-ptt excludes devices whose name contains
+#     "virtual", "uinput", "dotool" or "dictee-ptt" to avoid feedback loops;
+#   - keyboards carrying pointer axes on their keyboard node (e.g. Logitech
+#     Craft, whose Crown dial adds EV_REL/EV_ABS): dictee-ptt ignores them by
+#     default because grabbing a combined keyboard+mouse HID node can freeze
+#     the pointer. Whitelisting here overrides that safety filter; the dial
+#     keeps working while dictee-ptt runs (its events are re-emitted).
 # Find your device name with: cat /proc/bus/input/devices
-#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
+#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,logitech craft"
 
 # Typing settle delay, in seconds (default 0 = off). dictee types the
 # transcript through a virtual keyboard it creates for each dictation. On some
