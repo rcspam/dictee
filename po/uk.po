@@ -4723,3 +4723,8 @@ msgstr ""
 #~ msgstr ""
 #~ "GPU має лише {:.1f} ГБ VRAM: Parakeet FP32 може спричинити OOM під час "
 #~ "завантаження. Розгляньте перемикання на CPU або використання INT8."
+
+#: dictee-setup.py:17221
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
+msgstr "{name}  [осі вказівника — ігнорується, якщо не в білому списку]"

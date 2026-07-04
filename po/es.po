@@ -4771,3 +4771,8 @@ msgstr ""
 #~ msgstr ""
 #~ "La GPU solo tiene {:.1f} GB de VRAM: Parakeet FP32 puede agotar la "
 #~ "memoria al cargar. Considere activar la CPU o usar INT8."
+
+#: dictee-setup.py:17221
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
+msgstr "{name}  [ejes de puntero — ignorado salvo en lista blanca]"

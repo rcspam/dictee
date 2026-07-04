@@ -4755,3 +4755,8 @@ msgstr ""
 #~ msgstr ""
 #~ "La GPU ha solo {:.1f} GB di VRAM: Parakeet FP32 potrebbe andare in OOM al "
 #~ "caricamento. Valuta di passare alla CPU o di usare INT8."
+
+#: dictee-setup.py:17221
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
+msgstr "{name}  [assi del puntatore — ignorata se non in whitelist]"

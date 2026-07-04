@@ -4772,3 +4772,8 @@ msgstr ""
 #~ "Le GPU ne dispose que de {:.1f} Go de VRAM : Parakeet FP32 risque un "
 #~ "dépassement mémoire au chargement. Envisagez de basculer en CPU ou "
 #~ "d'utiliser INT8."
+
+#: dictee-setup.py:17221
+#, python-brace-format
+msgid "{name}  [pointer axes — ignored unless whitelisted]"
+msgstr "{name}  [axes de pointeur — ignoré sauf en liste blanche]"
