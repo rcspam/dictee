@@ -280,7 +280,8 @@ mode_online() {
                 [[ "$REPLY" =~ ^[Nn] ]] && BACKEND="cpu" || BACKEND="gpu"
             fi
         else
-            info "No NVIDIA GPU detected — using CPU version"
+            info "No NVIDIA GPU detected — using the CPU version"
+            info "(it includes Vulkan GPU support for the Whisper backend)"
             BACKEND="cpu"
         fi
     fi
@@ -663,12 +664,30 @@ mode_online() {
         # routinely Ctrl-C around minute 4-5 thinking the install hung.
         echo
         warn "About to build dictee from source via makepkg."
-        warn "Compilation: ~5-10 min on a 4-core CPU, ~3 GB of disk in /tmp."
+        if [[ "$BACKEND" == "gpu" ]]; then
+            warn "GPU build: the 'cuda' package (~4-5 GB installed) is pulled in"
+            warn "as a build/runtime dependency, and compiling the CUDA kernels"
+            warn "adds several minutes on top of the ~5-10 min base build."
+        else
+            warn "Compilation: ~5-10 min on a 4-core CPU, ~3 GB of disk in /tmp."
+        fi
         warn "Output will be terse — this is normal, please be patient."
         echo
 
-        info "Building via makepkg (this will compile from source)..."
-        makepkg -si --noconfirm || die "makepkg failed"
+        # BACKEND=gpu builds the CUDA variant (PKGBUILD-cuda, pkgname
+        # dictee-cuda); the default PKGBUILD is the CPU/Vulkan variant.
+        if [[ "$BACKEND" == "gpu" ]]; then
+            if [[ -f PKGBUILD-cuda ]]; then
+                info "Building the CUDA variant via makepkg (compiles from source)..."
+                makepkg -si --noconfirm -p PKGBUILD-cuda || die "makepkg failed"
+            else
+                warn "PKGBUILD-cuda not found in this release — building the CPU/Vulkan variant instead."
+                makepkg -si --noconfirm || die "makepkg failed"
+            fi
+        else
+            info "Building via makepkg (this will compile from source)..."
+            makepkg -si --noconfirm || die "makepkg failed"
+        fi
     }
 
     install_tarball_fallback() {
@@ -742,10 +761,11 @@ mode_tarball() {
     # die with `ImportError: No module named PyQt6` (or similar) and the
     # user has at least seen this message.
     #
-    # No vulkan loader hint here on purpose: the tarball ships the CUDA
+    # No vulkan loader here on purpose: the tarball ships the CUDA
     # variant of transcribe-daemon-whisper-rust (see build-tar.sh), not
-    # the Vulkan one — the deb/rpm/Arch CPU packages carry the weak
-    # libvulkan1 / vulkan-loader / vulkan-icd-loader hint instead.
+    # the Vulkan one — the deb/rpm/Arch CPU packages carry libvulkan1 /
+    # vulkan-loader / vulkan-icd-loader as a HARD dep instead (the vulkan
+    # daemon has libvulkan.so.1 in DT_NEEDED and cannot exec without it).
     cat <<EOF
 
 ${C_YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_OFF}
