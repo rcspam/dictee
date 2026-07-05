@@ -108,7 +108,9 @@ build_cuda() {
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
     # --bin transcribe-daemon-whisper-rust, so the main daemon stays vulkan-free.
-    ./build-whisper-rust.sh cuda
+    # The soname guard makes the build fail if the daemon does not link the
+    # CUDA 12 runtime the package provisions via pip (postinst cuda-venv).
+    DICTEE_REQUIRE_CUDART_SONAME=12 ./build-whisper-rust.sh cuda
 
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -258,9 +260,9 @@ Version: 1.4.0~beta
 Section: sound
 Priority: optional
 Architecture: amd64
-Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg
+Depends: python3, python3-venv, python3-evdev, pulseaudio-utils, pipewire, libnotify-bin, python3-pyqt6, python3-pyqt6.qtmultimedia, python3-pyqt6.qtsvg, sox, ffmpeg, libvulkan1
 Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, python3-gi, gir1.2-ayatanaappindicator3-0.1, qt6-gtk-platformtheme, pkexec, libkf6config-bin, wireplumber
-Suggests: gnome-shell-extension-appindicator, docker.io, libvulkan1
+Suggests: gnome-shell-extension-appindicator, docker.io
 Conflicts: dictee-cuda
 Provides: dictee
 Maintainer: rcspam <rcspams@gmail.com>

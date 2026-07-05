@@ -28,6 +28,9 @@ depends=(
     'qt6-svg'
     'sox'
     'ffmpeg'
+    # The vulkan-built whisper-rust daemon has libvulkan.so.1 in DT_NEEDED:
+    # without the loader it cannot exec, so this is a hard dep, not a hint.
+    'vulkan-icd-loader'
 )
 optdepends=(
     'wl-clipboard: clipboard copy (Wayland)'
@@ -42,7 +45,6 @@ optdepends=(
     'polkit: pkexec for root ops in dictee-setup (package install, usermod)'
     'kconfig: kwriteconfig6 for KDE Plasma 6 keyboard shortcuts'
     'wireplumber: wpctl for mic volume control in dictee-setup'
-    'vulkan-icd-loader: GPU acceleration for the Whisper (whisper.cpp) backend'
     'dictee-cuda: NVIDIA GPU acceleration (mutually exclusive)'
 )
 conflicts=('dictee-cuda')

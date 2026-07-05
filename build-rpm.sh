@@ -204,7 +204,9 @@ build_rpm_cuda() {
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
     # --bin transcribe-daemon-whisper-rust, so the main daemon stays vulkan-free.
-    ./build-whisper-rust.sh cuda
+    # The soname guard makes the build fail if the daemon does not link the
+    # CUDA 12 runtime the package provisions via pip (%post cuda-venv).
+    DICTEE_REQUIRE_CUDART_SONAME=12 ./build-whisper-rust.sh cuda
 
     # Hard guard: if the CUDA provider lib isn't there after the
     # build, abort rather than silently shipping CPU binaries.
@@ -570,13 +572,12 @@ Recommends:     curl
 Recommends:     translate-shell
 Recommends:     python3-numpy
 Suggests:       moby-engine
-# Weak hint (mirrors deb Suggests: libvulkan1): the whisper-rust daemon in the
-# CPU package uses the whisper.cpp Vulkan backend for optional GPU acceleration.
-Suggests:       vulkan-loader
-# Keep the vulkan loader a weak dep: the vulkan-built whisper-rust daemon
-# links libvulkan.so.1, and rpm auto-requires would otherwise promote it
-# to a hard Requires (deb parity = Suggests only).
-%global __requires_exclude ^libvulkan\\.so.*$
+# Hard requirement (mirrors deb Depends: libvulkan1): the vulkan-built
+# whisper-rust daemon has libvulkan.so.1 in DT_NEEDED — without the loader
+# the daemon cannot even exec, so this is not a hint. rpm's auto-requires
+# reaches the same conclusion; the explicit Requires keeps the manifest
+# audit (packaging/audit-deps.py) in sync.
+Requires:       vulkan-loader
 Recommends:     python3-gobject
 Recommends:     libayatana-appindicator-gtk3
 Recommends:     (gnome-shell-extension-appindicator if gnome-shell)

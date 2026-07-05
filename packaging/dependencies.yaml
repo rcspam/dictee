@@ -194,17 +194,15 @@ depends:
 
   - canonical: vulkan-loader
     variants: [cpu]
-    kind: optional
-    # Weak runtime hint for the whisper.cpp Vulkan backend of the whisper-rust
-    # daemon (CPU package only — the CUDA package ships the CUDA variant).
-    # deb/rpm: shipped as `Suggests:` (must NOT auto-install) → omit from the
-    # audited Recommends. Arch keeps it in optdepends, so kind: optional holds there.
-    deb_kind: omit
-    rpm_kind: omit
+    kind: hard
+    # HARD dep (promoted 2026-07-05): the vulkan-built whisper-rust daemon has
+    # libvulkan.so.1 in DT_NEEDED (proven with objdump) — without the loader
+    # the daemon cannot even exec. CPU package only: the CUDA package ships
+    # the CUDA variant of the daemon instead.
     deb: libvulkan1
     rpm: vulkan-loader
     arch: vulkan-icd-loader
-    why: GPU acceleration (Vulkan) for the Whisper (whisper.cpp) backend
+    why: the whisper-rust daemon (whisper.cpp Vulkan) hard-links libvulkan.so.1
 
   - canonical: ayatana-appindicator
     variants: [cpu, cuda]
@@ -294,6 +292,21 @@ depends:
     why: bindings sip pour PyQt6 (Fedora les sépare du paquet principal)
 
   # ---------- CUDA-only ----------
+  - canonical: cuda-system-toolkit
+    variants: [cuda]
+    kind: hard
+    # Arch-only hard dep: the whisper-rust daemon is compiled against the
+    # system /opt/cuda toolkit and hard-links its libcudart/libcublas sonames,
+    # so the cuda package must stay installed at runtime (makedepends alone
+    # would let an orphan sweep remove it). deb/rpm provision the CUDA runtime
+    # from pip nvidia-*-cu12 wheels instead (postinst cuda-venv → /usr/lib/dictee),
+    # which is why their whisper-rust daemon MUST be built with a CUDA 12.x
+    # toolkit (enforced by DICTEE_REQUIRE_CUDART_SONAME=12 in build-deb/rpm/tar).
+    deb: null
+    rpm: null
+    arch: cuda
+    why: whisper-rust daemon hard-links the system CUDA toolkit sonames on Arch
+
   - canonical: nvidia-gpu-firmware
     variants: [cuda]
     kind: optional

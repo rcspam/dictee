@@ -32,6 +32,11 @@ depends=(
     'qt6-svg'
     'sox'
     'ffmpeg'
+    # The whisper-rust daemon is compiled against the system CUDA toolkit
+    # (/opt/cuda) and hard-links its libcudart/libcublas sonames: the cuda
+    # package must stay installed at runtime, not only as a makedepend
+    # (an orphan sweep like `pacman -Rns $(pacman -Qtdq)` would break it).
+    'cuda'
 )
 optdepends=(
     'wl-clipboard: clipboard copy (Wayland)'

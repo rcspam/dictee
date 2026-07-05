@@ -86,7 +86,9 @@ cargo build --release --no-default-features \
 # whisper-rust daemon (CUDA variant — the tarball is the CUDA flavour).
 # Wrapper builds ONLY --bin transcribe-daemon-whisper-rust and sets the
 # nvcc env itself, so the main daemon stays vulkan-free.
-./build-whisper-rust.sh cuda
+# The soname guard makes the build fail if the daemon does not link the
+# CUDA 12 runtime install.sh provisions via pip (mode_tarball cuda-venv).
+DICTEE_REQUIRE_CUDART_SONAME=12 ./build-whisper-rust.sh cuda
 
 # Hard guard: only the load-dynamic CUDA build emits this provider lib.
 # Without it the binaries would silently fall back to CPU at runtime.
