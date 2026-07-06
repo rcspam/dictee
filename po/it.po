@@ -321,9 +321,12 @@ msgstr ""
 "diarize</code>, <code>dictee</code>"
 
 #: dictee-setup.py:2001
-msgid "Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"
+msgid ""
+"Quantized variant (~670 MB), runs on the CPU. For systems without a GPU or "
+"with too little VRAM for FP32."
 msgstr ""
-"Variante quantizzata (~670 MB) — consigliata per CPU e GPU con poca VRAM"
+"Variante quantizzata (~670 MB), gira sulla CPU. Per sistemi senza GPU o con "
+"VRAM insufficiente per FP32."
 
 #: dictee-setup.py:2003
 #, no-python-format
@@ -332,17 +335,18 @@ msgid ""
 "FP32 with 8-bit quantized weights.<br><br><b>~3.6× smaller</b>: 670 MB on "
 "disk / RAM (vs 2.4 GB FP32).<br><b>~38% faster on CPU</b> with AVX-VNNI "
 "(Intel Cascade Lake+ / AMD Zen 2+).<br><b>WER loss negligible</b> (~0-1 "
-"% depending on audio).<br><br>Recommended for: <b>CPU-only systems</b> or "
-"<b>GPU with &lt; 4 GB VRAM</b>.<br>Note: on GPU with abundant VRAM, FP32 is "
-"faster (CUDA int8 EP is slow)."
+"% depending on audio).<br><br><b>Always runs on the CPU</b>: int8 is not "
+"usable on the CUDA GPU runtime.<br>The right choice for CPU-only systems, "
+"or when the GPU has too little VRAM for FP32 (&lt; 4 GB)."
 msgstr ""
 "<b>Parakeet-TDT 0.6B v3 : quantizzato int8</b><br><br>Stessa architettura di "
 "FP32 con pesi quantizzati a 8 bit.<br><br><b>~3,6× più piccolo</b>: 670 MB "
 "su disco / RAM (contro 2,4 GB di FP32).<br><b>~38 % più veloce su CPU</b> "
 "con AVX-VNNI (Intel Cascade Lake+ / AMD Zen 2+).<br><b>Perdita di WER "
-"trascurabile</b> (~0-1 % a seconda dell'audio).<br><br>Consigliato per: "
-"<b>sistemi solo CPU</b> o <b>GPU con &lt; 4 GB di VRAM</b>.<br>Nota: su GPU "
-"con VRAM abbondante, FP32 è più veloce (l'EP int8 di CUDA è lento)."
+"trascurabile</b> (~0-1 % a seconda dell'audio).<br><br><b>Gira sempre "
+"sulla CPU</b>: int8 non è utilizzabile sul runtime GPU CUDA.<br>La scelta "
+"giusta per sistemi solo CPU o quando la GPU ha VRAM insufficiente per FP32 "
+"(&lt; 4 GB)."
 
 #: dictee-setup.py:2024
 msgid "Speaker diarization (4 speakers max, ~50 MB)"
@@ -2211,11 +2215,11 @@ msgstr "Precisione piena. 25 lingue con punteggiatura e maiuscole native."
 #: dictee-setup.py:8522
 #, no-python-format
 msgid ""
-"Quantized variant. ~3.6× smaller, ~34 % faster on CPU. Best for CPU-only or "
-"low-VRAM GPU."
+"Quantized variant. ~3.6× smaller, ~34 % faster on CPU. Always runs on the "
+"CPU: pick it when there is no GPU, or too little VRAM for FP32."
 msgstr ""
-"Variante quantizzata. ~3,6× più piccola, ~34 % più veloce su CPU. Ideale per "
-"sola CPU o GPU con poca VRAM."
+"Variante quantizzata. ~3,6× più piccola, ~34 % più veloce su CPU. Gira "
+"sempre sulla CPU: da scegliere senza GPU o con VRAM insufficiente per FP32."
 
 #: dictee-setup.py:8524
 msgid ""
@@ -2289,8 +2293,11 @@ msgid "GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA"
 msgstr "GPU con {:.1f} GB VRAM rilevata — FP32 è la più veloce su CUDA"
 
 #: dictee-setup.py:8867
-msgid "GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits"
-msgstr "GPU con solo {:.1f} GB VRAM — FP32 può andare in OOM, int8 ci sta"
+msgid ""
+"GPU with only {:.1f} GB VRAM — too little for FP32; int8 runs on the CPU "
+"instead"
+msgstr ""
+"GPU con solo {:.1f} GB VRAM: insufficiente per FP32; int8 gira sulla CPU"
 
 #: dictee-setup.py:8869
 #, no-python-format

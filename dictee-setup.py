@@ -1113,11 +1113,12 @@ def suggest_parakeet_quant():
     """Recommend Parakeet quantization variant based on detected hardware.
 
     Returns:
-      "int8" — for CPU-only systems or GPU with < 4 GB VRAM.
-              On CPU with AVX-VNNI, int8 is ~34 % faster than FP32 (measured
+      "int8" — for CPU-only systems or GPU with < 4 GB VRAM. int8 ALWAYS
+              executes on the CPU (the daemon forces it: the ORT CUDA EP is
+              broken/slow on int8, see execution.rs parakeet_provider). On
+              CPU with AVX-VNNI, int8 is ~34 % faster than FP32 (measured
               on i7-13700H, audio 16 s, 2026-05-15).
-      "fp32" — for GPU with ≥ 4 GB VRAM. On CUDA, FP32 is ~6× faster than
-              int8 (current ORT CUDA EP doesn't optimize int8 ops well).
+      "fp32" — for GPU with ≥ 4 GB VRAM; the only variant that uses the GPU.
 
     The user can always override via DICTEE_PARAKEET_QUANT env var or the
     "Active Parakeet variant" combobox in dictee-setup.
@@ -2073,15 +2074,17 @@ ASR_MODELS = [
     {
         "id": "tdt-int8",
         "name": "Parakeet-TDT 0.6B v3 (int8)",
-        "desc": _("Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"),
+        "desc": _("Quantized variant (~670 MB), runs on the CPU. For systems "
+                  "without a GPU or with too little VRAM for FP32."),
         "help": _(
             "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>"
             "Same architecture as FP32 with 8-bit quantized weights.<br><br>"
             "<b>~3.6× smaller</b>: 670 MB on disk / RAM (vs 2.4 GB FP32).<br>"
             "<b>~38% faster on CPU</b> with AVX-VNNI (Intel Cascade Lake+ / AMD Zen 2+).<br>"
             "<b>WER loss negligible</b> (~0-1 % depending on audio).<br><br>"
-            "Recommended for: <b>CPU-only systems</b> or <b>GPU with &lt; 4 GB VRAM</b>.<br>"
-            "Note: on GPU with abundant VRAM, FP32 is faster (CUDA int8 EP is slow)."
+            "<b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU "
+            "runtime.<br>The right choice for CPU-only systems, or when the GPU "
+            "has too little VRAM for FP32 (&lt; 4 GB)."
         ),
         "dir": os.path.join(MODEL_DIR, "tdt"),  # same dir as FP32, coexistence supported
         "check_file": "encoder-model.int8.onnx",
@@ -8595,7 +8598,8 @@ class DicteeSetupDialog(QDialog):
     _MODEL_DESCRIPTIONS = {
         "tdt": _("Full precision. 25 languages with native punctuation and capitalization."),
         "tdt-int8": _("Quantized variant. ~3.6× smaller, ~34 % faster on CPU. "
-                      "Best for CPU-only or low-VRAM GPU."),
+                      "Always runs on the CPU: pick it when there is no GPU, "
+                      "or too little VRAM for FP32."),
         "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
                         "in a recording. Optional — only needed for speaker identification."),
     }
@@ -8678,7 +8682,7 @@ class DicteeSetupDialog(QDialog):
             elif total_vram > 0:
                 msg = ("⚠ " + _("GPU has only {:.1f} GB VRAM — Parakeet FP32 "
                                 "may OOM at load. Consider toggling CPU "
-                                "or using INT8.").format(total_vram))
+                                "or using INT8 (runs on the CPU).").format(total_vram))
                 color = "#d8a000"
             else:
                 msg = ("ℹ " + _("No GPU detected — running on CPU regardless "
@@ -8939,7 +8943,8 @@ class DicteeSetupDialog(QDialog):
         if total_vram >= 4:
             reason = _("GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA").format(total_vram)
         elif total_vram > 0:
-            reason = _("GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits").format(total_vram)
+            reason = _("GPU with only {:.1f} GB VRAM — too little for FP32; "
+                       "int8 runs on the CPU instead").format(total_vram)
         else:
             reason = _("No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)")
         for model in ASR_MODELS:
