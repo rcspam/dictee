@@ -8,7 +8,7 @@
 # ASR (speech recognition)
 # ============================================================================
 
-# Active ASR backend: parakeet | canary | whisper | vosk
+# Active ASR backend: parakeet | canary | whisper | whisper-rust | vosk
 DICTEE_ASR_BACKEND=parakeet
 
 # Audio source language (ISO 639-1 code)
@@ -24,6 +24,43 @@ DICTEE_WHISPER_MODEL=small
 
 # Whisper transcription language (empty = use DICTEE_LANG_SOURCE)
 #DICTEE_WHISPER_LANG=
+
+# Whisper performance profile (HardwareProfile pattern) — controls beam_size:
+# auto (detected from cores+RAM+VRAM) | ultra (beam=5) | high (beam=3) |
+# medium (beam=2) | low (beam=1). Higher = more accurate, slower.
+#DICTEE_HW_TIER=auto
+
+# ── Whisper-Rust (whisper.cpp / Vulkan GPU) ──────────────────────────────────
+# Separate backend from faster-whisper above. Variables are prefixed
+# DICTEE_WHISPER_RUST_ so they never clash with the Python faster-whisper ones.
+# Model id + resolved ggml path are written here automatically by dictee-setup:
+#DICTEE_WHISPER_RUST_MODEL=large-v3
+#DICTEE_WHISPER_RUST_GGML=/usr/share/dictee/whisper-rust/ggml-large-v3-q5_0.bin
+#
+# Decoding knobs (all optional; defaults below = the committed β / Meetily
+# anti-hallucination strategy). Leave unset to keep defaults. The daemon reads
+# them at startup — restart dictee-whisper-rust.service after changing.
+#   DICTEE_WHISPER_RUST_TEMPERATURE_INC   0.2   α/β switch: -1 = α (no temperature
+#                                               fallback, deterministic, no loops);
+#                                               0.2 = β (fallback recovers hard audio)
+#   DICTEE_WHISPER_RUST_TEMPERATURE       0.3   base sampling temperature
+#   DICTEE_WHISPER_RUST_BEAM_SIZE         5     beam width (1 = greedy, fastest)
+#   DICTEE_WHISPER_RUST_NO_SPEECH_THOLD   0.55  silence detection threshold
+#   DICTEE_WHISPER_RUST_ENTROPY_THOLD     2.4   anti-loop entropy threshold
+#   DICTEE_WHISPER_RUST_LOGPROB_THOLD    -1.0   confidence threshold
+#   DICTEE_WHISPER_RUST_AUDIO_CTX               encoder context: unset = adaptive
+#                                               (capped per clip, floored); 0 = full
+#                                               (1500); N = fixed value
+#
+# Ready-made profiles — uncomment ONE block:
+#   • Dictation (short, low-latency, loop-proof — α):
+#DICTEE_WHISPER_RUST_TEMPERATURE_INC=-1
+#DICTEE_WHISPER_RUST_TEMPERATURE=0
+#DICTEE_WHISPER_RUST_BEAM_SIZE=1
+#   • Meeting (long audio, recover hard passages — β, the defaults):
+#DICTEE_WHISPER_RUST_TEMPERATURE_INC=0.2
+#DICTEE_WHISPER_RUST_TEMPERATURE=0.3
+#DICTEE_WHISPER_RUST_BEAM_SIZE=5
 
 # ── Vosk ─────────────────────────────────────────────────────────────────────
 # Vosk model: language code (fr, en, de, es, it, pt, ru, zh, ja)
@@ -65,8 +102,28 @@ DICTEE_PTT_KEY=67
 # Translation PTT key (0 = disabled)
 #DICTEE_PTT_KEY_TRANSLATE=0
 
-# Translation modifier: alt | ctrl | shift (with same PTT key)
+# Translation modifier: alt | ctrl | shift (with same PTT key).
+# Use the bare modifier name only. Do NOT use a "same_" prefix here (e.g.
+# "same_ctrl"): that is an internal dictee-setup UI encoding, not a valid
+# config value. dictee-ptt silently ignores an unrecognized modifier, so
+# translation would never fire. Write "ctrl", not "same_ctrl".
 #DICTEE_PTT_MOD_TRANSLATE=
+
+# Extra input devices to listen to (push-to-talk via virtual keyboards).
+# By default, dictee-ptt excludes devices whose name contains "virtual",
+# "uinput", "dotool" or "dictee-ptt" to avoid feedback loops. If you remap
+# mouse buttons or keys via logiops, keyd, evsieve, kmonad, etc., add the
+# device name substring(s) here (comma-separated, case-insensitive).
+# Find your device name with: cat /proc/bus/input/devices
+#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
+
+# Typing settle delay, in seconds (default 0 = off). dictee types the
+# transcript through a virtual keyboard it creates for each dictation. On some
+# Wayland setups a tool like input-remapper installs a udev rule that runs on
+# every new input device, delaying the compositor binding past the built-in
+# settle, so the keystrokes are emitted before anything listens and the text is
+# lost. Set 1-2 s to give the compositor time to bind. Most users leave this 0.
+#DICTEE_DOTOOL_SETTLE=0
 
 # ============================================================================
 # Display and feedback

@@ -29,6 +29,10 @@ Item {
     // clicking opens the popup explaining why it's inactive.
     property bool isActive: true
 
+    // ASR provider effectif (depuis /dev/shm/.dictee_provider via main.qml).
+    // Badge "G" rouge affiché si "cpu" = fallback silencieux détecté.
+    property string provider: ""
+
     readonly property bool animActive: state === "recording" || state === "transcribing"
 
     Layout.preferredWidth: {
@@ -197,6 +201,28 @@ Item {
             font.bold: true
             color: Kirigami.Theme.negativeTextColor
         }
+    }
+
+    // Provider status marker: lettre colorée SANS cercle.
+    //   V violet = GPU Vulkan (whisper-rust, pas de fallback CPU) ;
+    //   G vert  = GPU (cuda) ; G rouge = GPU panne (cpu = libs CUDA cassées) ;
+    //   C bleu  = CPU voulu (cpu-forced / cpu-only / cpu-int8).
+    // La lettre dit Vulkan(V)/GPU(G)/CPU(C), la couleur dit l'état. Caché si
+    // l'instance est passive (⊘ a la priorité) ou si provider vide (daemon pas démarré).
+    Text {
+        visible: compact.isActive && compact.provider !== ""
+        z: 99
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        text: compact.provider === "vulkan" ? "V"
+            : (compact.provider === "cuda" || compact.provider === "cpu") ? "G"
+            : "C"
+        font.pixelSize: Math.max(8, Math.min(parent.width, parent.height) * 0.45)
+        font.bold: true
+        color: compact.provider === "vulkan" ? "#a569bd"
+             : compact.provider === "cuda" ? "#27ae60"
+             : compact.provider === "cpu"  ? "#c0392b"
+             : "#3498db"
     }
 
     // Global dim when passive so the active instance stays the visually

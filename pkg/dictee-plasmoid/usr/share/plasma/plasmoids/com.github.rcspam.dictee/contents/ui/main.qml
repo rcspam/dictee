@@ -8,14 +8,25 @@ import org.kde.kirigami as Kirigami
 PlasmoidItem {
     id: root
 
+    // Pin popup: when checked in FullRepresentation.qml, prevent the popup
+    // from auto-closing on window deactivation. The setting persists in
+    // Plasmoid.configuration.pinPopup; this binding wires it to the popup.
+    hideOnWindowDeactivate: !Plasmoid.configuration.pinPopup
+
     // Le plasmoid hérite par défaut du color set du panel (souvent sombre).
     // Forcer View garantit que le popup (FullRepresentation) suit le thème des
     // applications — blanc en Breeze Light, sombre en Breeze Dark.
     Kirigami.Theme.colorSet: Kirigami.Theme.View
     Kirigami.Theme.inherit: false
 
-    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
+    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
     property string state: "offline"
+
+    // ASR daemon execution provider — écrit par le daemon dans /dev/shm/.dictee_provider.
+    // Valeurs : "cuda" (GPU actif) | "cpu" (fallback silencieux ! badge G rouge)
+    //        | "cpu-forced" (DICTEE_FORCE_CPU=1) | "cpu-only" (pas de GPU/CUDA)
+    //        | "" (daemon pas démarré)
+    property string provider: ""
 
     property bool dicteeInstalled: true
     property bool dicteeConfigured: false
@@ -110,7 +121,7 @@ PlasmoidItem {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
                         console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
@@ -123,6 +134,9 @@ PlasmoidItem {
                 if (stdout.length > 0) {
                     parseState(stdout)
                 }
+            } else if (source.indexOf("/dev/shm/.dictee_provider") !== -1) {
+                // Provider trim (le daemon écrit sans \n mais robustesse).
+                root.provider = stdout.trim()
             } else if (source === readConfCmd) {
                 var parts = stdout.trim().split("|")
                 if (parts.length >= 3) {
@@ -169,6 +183,20 @@ PlasmoidItem {
                 if (parts.length >= 13) {
                     var fc = (parts[12] || "0").toLowerCase()
                     root.forceCpuActive = (fc === "1" || fc === "true" || fc === "yes")
+                    // Auto-reset DICTEE_FORCE_CPU if the constraint forces a position
+                    // and the conf disagrees — but never while the daemon is busy.
+                    var _idleStates = ["idle", "offline"]
+                    // gpuVramGbReady : empêche l'auto-reset tant que nvidia-smi
+                    // n'a pas répondu (sinon hasGpu=false par défaut → décide
+                    // faussement "pas de GPU" → force CPU au boot du plasmoid).
+                    if (!root.forceCpuSensitive && _idleStates.indexOf(root.state) !== -1
+                            && root.gpuVramGbReady) {
+                        var _wantCpu = (root.forceCpuForcedPosition === "cpu")
+                        var _currentCpu = (fc === "1" || fc === "true" || fc === "yes")
+                        if (_wantCpu !== _currentCpu) {
+                            executable.run("dictee-switch-backend force_cpu " + (_wantCpu ? "1" : "0"))
+                        }
+                    }
                 }
             } else if (source === readGpuVramCmd) {
                 // Parse "nvidia-smi memory.total" output: a single integer in MB,
@@ -180,6 +208,9 @@ PlasmoidItem {
                     var mb = parseInt(raw, 10)
                     root.gpuVramGb = isNaN(mb) ? 0.0 : Math.round(mb / 1024 * 10) / 10
                 }
+                // Flag pour le bloc d'auto-reset DICTEE_FORCE_CPU plus haut :
+                // tant qu'on n'a pas vraiment lu nvidia-smi, on ne décide rien.
+                root.gpuVramGbReady = true
             } else if (source.indexOf("dictee-translate-langs") !== -1) {
                 var langs = stdout.trim()
                 var newList = langs.length > 0 ? langs.split(",") : []
@@ -323,12 +354,12 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
+    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
-    property var installedAsr: ["parakeet", "canary", "vosk", "whisper"]  // updated by checkInstalledCmd
+    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
@@ -367,6 +398,54 @@ PlasmoidItem {
     // right one of the 6 warning cases (same logic as dictee-setup.py
     // _refresh_force_cpu_warning and dictee-tray.py _force_cpu_warning).
     property real gpuVramGb: 0.0
+    // Flag : true dès que readGpuVramCmd a répondu. Empêche le code
+    // d'auto-reset DICTEE_FORCE_CPU de décider "pas de GPU" pendant la
+    // fenêtre où la conf est déjà lue mais nvidia-smi pas encore — sinon
+    // restart silencieux du daemon en CPU à chaque démarrage du plasmoid.
+    property bool gpuVramGbReady: false
+
+    // Compute Force CPU switch constraint from current backend + quant + GPU state.
+    // Returns { sensitive: bool, forced: "cpu"|"gpu"|null, tooltip: string|null }.
+    // Mirrors _force_cpu_constraint() in dictee-tray.py — keep in sync.
+    function _forceCpuConstraint(backend, quant, vram) {
+        var b = (backend || "parakeet").toLowerCase()
+        var q = (quant || "fp32").toLowerCase()
+        var hasGpu = (vram || 0) > 0
+
+        if (b === "canary") {
+            return {
+                sensitive: false,
+                forced: "gpu",
+                tooltip: hasGpu
+                    ? i18n("Canary requires NVIDIA GPU (encoder too heavy for CPU)")
+                    : i18n("Canary requires NVIDIA GPU — none detected, transcription will fail")
+            }
+        }
+        if (b === "whisper-rust") {
+            return { sensitive: false, forced: "gpu",
+                     tooltip: i18n("Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)") }
+        }
+        if (b === "vosk") {
+            return { sensitive: false, forced: "cpu",
+                     tooltip: i18n("Vosk runs on CPU by design") }
+        }
+        if (b === "parakeet" && q === "int8") {
+            return { sensitive: false, forced: "cpu",
+                     tooltip: i18n("Parakeet INT8 is CPU-optimized (GPU is 5× slower)") }
+        }
+        if (!hasGpu) {
+            return { sensitive: false, forced: "cpu",
+                     tooltip: i18n("No NVIDIA GPU detected") }
+        }
+        return { sensitive: true, forced: null, tooltip: null }
+    }
+
+    // Computed constraint — updates automatically when backend/quant/VRAM change.
+    readonly property var forceCpuConstraint: _forceCpuConstraint(root.currentAsrBackend, root.currentParakeetQuant, root.gpuVramGb)
+    // Convenience properties consumed by FullRepresentation.qml
+    readonly property bool forceCpuSensitive: forceCpuConstraint.sensitive
+    readonly property string forceCpuForcedPosition: forceCpuConstraint.forced || ""
+    readonly property string forceCpuConstrainedTooltip: forceCpuConstraint.tooltip || ""
     property string readGpuVramCmd: "bash -c \"nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' '\""
     property string currentAudioSource: ""
     property var audioSourceList: []
@@ -382,6 +461,9 @@ PlasmoidItem {
         "  && echo canary; " +
         "[ -d \"$dd/vosk-env/lib\" ] && echo vosk; " +
         "[ -d \"$dd/whisper-env/lib\" ] && echo whisper; " +
+        // Whisper-Rust: shared transcribe-daemon (--whisper) + at least one ggml
+        // model on disk (system or user dir). No venv — it's the Rust daemon.
+        "{ ls /usr/share/dictee/whisper-rust/ggml-*.bin >/dev/null 2>&1 || ls \"$dd/whisper-rust\"/ggml-*.bin >/dev/null 2>&1; } && command -v transcribe-daemon >/dev/null 2>&1 && echo whisper-rust; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
@@ -433,6 +515,14 @@ PlasmoidItem {
     readonly property var stateCmds: [
         "cat /dev/shm/.dictee_state 2>/dev/null #A",
         "cat /dev/shm/.dictee_state 2>/dev/null #B"
+    ]
+
+    // Provider polling — change rarement (1× au boot daemon), polled
+    // dans daemonPollTimer (lent). Ping-pong A/B pour bust le cache DataSource.
+    property int providerSlot: 0
+    readonly property var providerCmds: [
+        "cat /dev/shm/.dictee_provider 2>/dev/null #A",
+        "cat /dev/shm/.dictee_provider 2>/dev/null #B"
     ]
 
     // Debug — reads DICTEE_DEBUG from config, logs to journalctl --user -u plasma-plasmashell
@@ -532,7 +622,11 @@ PlasmoidItem {
         }
     }
 
-    // Timer rapide : lit /dev/shm/.dictee_state toutes les 150ms
+    // Fast timer: reads /dev/shm/.dictee_state every 150ms so the recording
+    // animation reacts immediately to F9. (The idle 1000ms throttle added by
+    // 578960b was reverted 2026-05-28: it lagged the animation start by ~1s and
+    // is unrelated to the real #8 stutter fix, which is the keyboard rescan moved
+    // off the hot path in dictee-ptt — a timing bug independent of CPU power.)
     Timer {
         id: fastPollTimer
         interval: 150
@@ -556,6 +650,9 @@ PlasmoidItem {
         repeat: true
         triggeredOnStart: true
         onTriggered: {
+            // Provider polling embarqué ici (changement rare, slow poll OK).
+            root.providerSlot = 1 - root.providerSlot
+            executable.run(root.providerCmds[root.providerSlot])
             executable.run(daemonCheckCmd)
             refreshBackends()
         }
@@ -652,10 +749,12 @@ PlasmoidItem {
         audioBands: root.audioBands
         sensitivity: root.activeSensitivity
         isActive: root.isActive
+        provider: root.provider
     }
 
     fullRepresentation: FullRepresentation {
         state: root.state
+        provider: root.provider
         dicteeInstalled: root.dicteeInstalled
         dicteeConfigured: root.dicteeConfigured
         barColor: root.barColor
@@ -699,20 +798,23 @@ PlasmoidItem {
                 "svc=dictee; " +
                 "if [ -f \"$conf\" ]; then " +
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
-                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; canary) svc=dictee-canary;; esac; " +
+                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; whisper-rust) svc=dictee-whisper-rust;; canary) svc=dictee-canary;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
         case "stop-daemon":
-            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
+            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
-            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary" }
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
             root.activeButton = ""
             break
         }
+        case "meeting-live":
+            executable.run("dictee-meeting-live")
+            break
         case "cheatsheet":
             executable.run("dictee-cheatsheet --toggle")
             break
@@ -764,16 +866,28 @@ PlasmoidItem {
     }
 
     // Refresh config when popup opens (catches changes from dictee-setup Apply)
+    // Lance le daemon level uniquement quand expanded ou recording (économise
+    // ~18% CPU baseline + parec capture continu sur CPU faible)
     onExpandedChanged: {
         if (expanded) {
             refreshBackends()
+            preStartAudioDaemon()
+        } else if (root.effectiveState !== "recording" && root.effectiveState !== "transcribing") {
+            executable.run("dictee-plasmoid-level stop")
         }
     }
 
-    // Load debug flag and start audio daemon
+    onEffectiveStateChanged: {
+        if (effectiveState === "recording" || effectiveState === "transcribing") {
+            preStartAudioDaemon()
+        } else if (!root.expanded) {
+            executable.run("dictee-plasmoid-level stop")
+        }
+    }
+
+    // Load debug flag — daemon level lancé à la demande via onExpandedChanged/onEffectiveStateChanged
     Component.onCompleted: {
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")
-        preStartAudioDaemon()
         refreshBackends()
     }
 

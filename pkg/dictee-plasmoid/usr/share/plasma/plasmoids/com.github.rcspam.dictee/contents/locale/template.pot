@@ -534,3 +534,19 @@ msgstr ""
 #: package/contents/ui/main.qml:75
 msgid "Switching backend…"
 msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml
+msgid "Parakeet (more precise)"
+msgstr ""
+
+#: package/contents/ui/FullRepresentation.qml
+msgid "Parakeet (faster)"
+msgstr ""
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:286
+msgid "Daemon running on GPU (Vulkan)"
+msgstr ""
+
+#: plasmoid/package/contents/ui/main.qml:426
+msgid "Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)"
+msgstr ""

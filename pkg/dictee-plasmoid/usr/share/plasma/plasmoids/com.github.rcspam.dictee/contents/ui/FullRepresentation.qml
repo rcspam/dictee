@@ -15,6 +15,9 @@ RowLayout {
     property bool dicteeConfigured: true
     property color barColor: Kirigami.Theme.textColor
     property string lastTranscription: ""
+    // ASR provider effectif depuis /dev/shm/.dictee_provider (via main.qml).
+    // 'cuda' = vert | 'cpu' = rouge (panne) | 'cpu-forced'/'cpu-only'/'cpu-int8' = bleu.
+    property string provider: ""
     // Singleton flag from main.qml — when false, this widget is a duplicate
     // instance; we overlay a passive banner and disable all actions to avoid
     // racing with the active master instance.
@@ -260,6 +263,34 @@ RowLayout {
                     }
                     onClicked: fullRep.actionRequested(fullRep.state === "offline" ? "start-daemon" : "stop-daemon")
                 }
+
+                // Provider badge (point) : vert=cuda | rouge=cpu (panne) | bleu=CPU voulu.
+                // Caché quand le daemon est offline ou provider inconnu.
+                Rectangle {
+                    visible: fullRep.provider !== ""
+                             && fullRep.state !== "offline"
+                    width: Kirigami.Units.smallSpacing * 3
+                    height: width
+                    radius: width / 2
+                    color: fullRep.provider === "vulkan" ? "#a569bd"
+                         : fullRep.provider === "cuda" ? "#27ae60"
+                         : fullRep.provider === "cpu"  ? "#c0392b"
+                         : "#3498db"
+                    border.color: fullRep.provider === "vulkan" ? "#8e44ad"
+                                : fullRep.provider === "cuda" ? "#1e8449"
+                                : fullRep.provider === "cpu"  ? "#922b21"
+                                : "#21618c"
+                    border.width: 1
+                    PlasmaComponents.ToolTip {
+                        text: fullRep.provider === "vulkan"
+                            ? i18n("Daemon running on GPU (Vulkan)")
+                            : fullRep.provider === "cuda"
+                            ? i18n("Daemon running on GPU")
+                            : fullRep.provider === "cpu"
+                            ? i18n("GPU unavailable — running on CPU")
+                            : i18n("Daemon running on CPU")
+                    }
+                }
             }
         }
 
@@ -443,89 +474,46 @@ RowLayout {
             }
         }
 
-        ThemedButton {
-            id: btnDiarize
+        Item {
             Layout.fillWidth: true
             Layout.preferredWidth: 0
+            implicitHeight: btnMeeting.implicitHeight
 
-            enabled: root.sortformerAvailable && (
-                fullRep.state === "idle" ||
-                fullRep.state === "preparing" ||
-                fullRep.state === "diarize-ready" ||
-                (fullRep.state === "recording" && root.activeButton === "diarize")
-            )
-
-            contentItem: RowLayout {
-                spacing: 4
-                Kirigami.Icon {
-                    source: "group"
-                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
-                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                }
-                PlasmaComponents.Label {
-                    text: {
-                        switch (fullRep.state) {
-                            case "preparing":     return i18n("Preparing… (click to cancel)")
-                            case "diarize-ready":  return i18n("Start meeting")
-                            case "diarizing":     return i18n("Meeting in progress…")
-                            default:
-                                if (fullRep.state === "recording" && root.activeButton === "diarize")
-                                    return i18n("Stop meeting")
-                                return i18n("Meeting")
-                        }
-                    }
-                    color: {
-                        if (fullRep.state === "diarize-ready") return Kirigami.Theme.positiveTextColor
-                        if (fullRep.state === "recording" && root.activeButton === "diarize") return Kirigami.Theme.negativeTextColor
-                        return Kirigami.Theme.textColor
-                    }
-                }
+            ThemedButton {
+                id: btnMeeting
+                anchors.fill: parent
+                text: i18n("Meeting")
+                icon.name: "meeting-attending"
+                enabled: fullRep.state !== "meeting-ui-open" && fullRep.state !== "meeting-recording"
+                onClicked: fullRep.actionRequested("meeting-live")
+                leftPadding: meetingDot.visible ? 20 : undefined
+                tooltipText: fullRep.state === "meeting-ui-open"
+                    ? i18n("Meeting window is open")
+                    : fullRep.state === "meeting-recording"
+                    ? i18n("Meeting recording in progress")
+                    : i18n("Open live meeting capture (record, then send to diarization)")
             }
 
-            onClicked: {
-                switch (fullRep.state) {
-                    case "idle":
-                        root.activeButton = "diarize"
-                        fullRep.actionRequested("diarize-prepare")
-                        break
-                    case "preparing":
-                        fullRep.actionRequested("cancel")
-                        break
-                    case "diarize-ready":
-                        fullRep.actionRequested("dictate")
-                        break
-                    case "recording":
-                        fullRep.actionRequested("dictate")
-                        break
+            Rectangle {
+                id: meetingDot
+                property bool active: fullRep.state === "meeting-recording"
+                visible: active
+                width: 10; height: 10; radius: 5
+                color: "#ff0000"
+                z: 100
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                onActiveChanged: {
+                    if (active) { meetingDotAnim.start() }
+                    else { meetingDotAnim.stop(); opacity = 1.0 }
                 }
             }
-
-            opacity: fullRep.state === "preparing" ? pulseAnim.pulseOpacity : 1.0
-
             SequentialAnimation {
-                id: pulseAnim
-                property real pulseOpacity: 1.0
-                running: fullRep.state === "preparing"
+                id: meetingDotAnim
                 loops: Animation.Infinite
-                NumberAnimation { target: pulseAnim; property: "pulseOpacity"; to: 0.4; duration: 600; easing.type: Easing.InOutSine }
-                NumberAnimation { target: pulseAnim; property: "pulseOpacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: meetingDot; property: "opacity"; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: meetingDot; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
             }
-
-            QQC2.ToolTip.text: {
-                if (!root.sortformerAvailable)
-                    return i18n("Sortformer model not installed. Configure in dictee-setup.")
-                switch (fullRep.state) {
-                    case "preparing": return i18n("Freeing GPU memory...")
-                    case "diarize-ready": return i18n("Click to start recording with speaker identification")
-                    case "recording": return root.activeButton === "diarize"
-                        ? i18n("Click to stop and identify speakers")
-                        : i18n("Record and identify speakers (max 4)")
-                    default: return i18n("Record and identify speakers (max 4)")
-                }
-            }
-
-            QQC2.ToolTip.visible: hovered
-            QQC2.ToolTip.delay: 500
         }
     }
 
@@ -591,6 +579,7 @@ RowLayout {
                     append({ "text": "Canary",   "value": "canary",  "quant": "" })
                     append({ "text": "Vosk",     "value": "vosk",    "quant": "" })
                     append({ "text": "Whisper",  "value": "whisper", "quant": "" })
+                    append({ "text": "Whisper-Rust", "value": "whisper-rust", "quant": "" })
                 }
             }
             textRole: "text"
@@ -629,10 +618,28 @@ RowLayout {
                     syncIndex()
                     return
                 }
-                // Switch backend; if Parakeet, also switch quantization
-                executable.run("dictee-switch-backend asr " + item.value)
-                if (item.value === "parakeet" && item.quant !== "" &&
-                        item.quant !== root.currentParakeetQuant) {
+                // Switch backend + quant. Pour éviter double load du daemon
+                // (asr restart avec l'ancien quant/FORCE_CPU, puis quant
+                // re-restart avec les bonnes valeurs), on chaîne `quant` AVANT
+                // `asr` quand les 2 sont nécessaires.
+                // - quant AVANT asr : set_conf int8+FORCE_CPU=1, pas de
+                //   restart car Whisper actif (wrapper skip si backend != parakeet)
+                // - puis asr parakeet : démarre direct avec int8+FORCE_CPU=1 → CPU
+                var needQuant = (item.value === "parakeet" && item.quant !== "" &&
+                                 item.quant !== root.currentParakeetQuant)
+                var needAsr = (item.value !== root.currentAsrBackend)
+                if (needQuant && needAsr) {
+                    // Plasma5Support.DataSource.run() ne passe PAS par un shell
+                    // automatique pour `&&` — wrap dans `bash -c` pour exécution
+                    // séquentielle. Sinon les 2 commandes tournent en parallèle
+                    // et le daemon peut démarrer avec un état conf transitoire
+                    // incohérent → spike VRAM (vérifié 2026-05-21).
+                    executable.run("bash -c 'dictee-switch-backend quant " +
+                                   item.quant + " && dictee-switch-backend asr " +
+                                   item.value + "'")
+                } else if (needAsr) {
+                    executable.run("dictee-switch-backend asr " + item.value)
+                } else if (needQuant) {
                     executable.run("dictee-switch-backend quant " + item.quant)
                 }
             }
@@ -861,16 +868,73 @@ RowLayout {
         QQC2.Switch {
             id: forceCpuSwitch
             visible: fullRep.dicteeConfigured
-            enabled: !cooldownTimer.running  // debounce: ~2 s after each click
-            checked: root.forceCpuActive
+            // Disabled when the constraint locks the position (Canary/Vosk/INT8/no-GPU),
+            // or during cooldown debounce, or when dictee is not configured.
+            enabled: root.forceCpuSensitive && !cooldownTimer.running && fullRep.dicteeConfigured
+            // CPU vs GPU n'est PAS un on/off — custom indicator avec couleur
+            // unique dans les 2 positions. Plasma 6 ignore palette.highlight
+            // et Kirigami.Theme.highlightColor pour le QQC2.Switch natif, on
+            // redessine track + knob nous-mêmes.
+            indicator: Rectangle {
+                implicitWidth: Kirigami.Units.gridUnit * 2.2
+                implicitHeight: Kirigami.Units.gridUnit * 1.1
+                x: forceCpuSwitch.leftPadding
+                y: forceCpuSwitch.height / 2 - height / 2
+                radius: height / 2
+                color: Kirigami.Theme.alternateBackgroundColor
+                border.color: Kirigami.Theme.disabledTextColor
+                border.width: 1
+                Rectangle {
+                    x: forceCpuSwitch.checked ? parent.width - width - 2 : 2
+                    y: 2
+                    width: parent.height - 4
+                    height: width
+                    radius: width / 2
+                    color: Kirigami.Theme.textColor
+                    Behavior on x { NumberAnimation { duration: 120; easing.type: Easing.InOutQuad } }
+                }
+            }
+            // Plasma 6 style ignore le visuel disabled sur QQC2.Switch → on
+            // force opacité + overlay gris pour signaler explicitement le
+            // verrou (Parakeet INT8 / Canary / Vosk / no-GPU). Sans ça, le
+            // switch est silencieusement non-cliquable mais visuellement
+            // normal — confusion utilisateur.
+            opacity: enabled ? 1.0 : 0.4
+            Rectangle {
+                visible: !forceCpuSwitch.enabled
+                anchors.fill: parent
+                color: Kirigami.Theme.disabledTextColor
+                opacity: 0.25
+                radius: 4
+                z: 10
+                // Bloquer le clic pour cohérence avec enabled:false
+                MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton }
+            }
+            // When constrained, show the forced position; otherwise follow conf.
+            checked: !root.forceCpuSensitive
+                ? (root.forceCpuForcedPosition === "cpu")
+                : root.forceCpuActive
             property bool syncing: false  // skip onToggled when syncing from main.qml
+            // Restaure le binding via Qt.binding() quand la contrainte change.
+            // Sans ça, un assignment direct à `checked` (via onToggled user OU
+            // les handlers ci-dessous) casse le binding QML initial : checked
+            // ne suit plus l'évolution de forceCpuConstraint. Bug observé
+            // 2026-05-21 : passer à Parakeet INT8 grisait le switch mais le
+            // laissait en position GPU au lieu de CPU.
+            function _rebindChecked() {
+                forceCpuSwitch.syncing = true
+                forceCpuSwitch.checked = Qt.binding(function() {
+                    return !root.forceCpuSensitive
+                        ? (root.forceCpuForcedPosition === "cpu")
+                        : root.forceCpuActive
+                })
+                forceCpuSwitch.syncing = false
+            }
             Connections {
                 target: root
-                function onForceCpuActiveChanged() {
-                    forceCpuSwitch.syncing = true
-                    forceCpuSwitch.checked = root.forceCpuActive
-                    forceCpuSwitch.syncing = false
-                }
+                function onForceCpuActiveChanged()         { forceCpuSwitch._rebindChecked() }
+                function onForceCpuSensitiveChanged()      { forceCpuSwitch._rebindChecked() }
+                function onForceCpuForcedPositionChanged() { forceCpuSwitch._rebindChecked() }
             }
             // Debounce: visually disable the toggle for 2 s after each user
             // click. The flock in dictee-switch-backend serialises any
@@ -883,13 +947,16 @@ RowLayout {
             }
             onToggled: {
                 if (syncing) return
+                if (!root.forceCpuSensitive) return  // constrained — ignore spurious toggles
                 executable.run("dictee-switch-backend force_cpu " + (checked ? "1" : "0"))
                 cooldownTimer.restart()
             }
-            // Short tooltip — same 6 cases as the tray's _force_cpu_warning,
-            // intentionally minimal. The detailed multi-line warning lives in
-            // dictee-setup, not here.
+            // Short tooltip — when constrained, return the constraint reason;
+            // otherwise the same 6 cases as the tray's _force_cpu_warning.
             function _forceCpuWarning() {
+                if (!root.forceCpuSensitive) {
+                    return root.forceCpuConstrainedTooltip
+                }
                 var vram = root.gpuVramGb
                 if (forceCpuSwitch.checked) {
                     if (vram >= 4)
