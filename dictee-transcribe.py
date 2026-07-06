@@ -434,11 +434,15 @@ def _update_conf_kv(updates):
     for k, v in updates.items():
         if k not in seen:
             lines.append(f"{k}={v}\n")
-    tmp = CONF_PATH + ".tmp"
-    os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
+    # CONF_PATH may be a symlink (dotfiles managers keep the real file in a
+    # versioned repo — #24): replace the resolved TARGET, not the link name,
+    # or the link would be clobbered by a regular file on every save.
+    target = os.path.realpath(CONF_PATH)
+    tmp = target + ".tmp"
+    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
     with open(tmp, "w", encoding="utf-8") as f:
         f.writelines(lines)
-    os.replace(tmp, CONF_PATH)
+    os.replace(tmp, target)
 
 
 def _read_conf():
