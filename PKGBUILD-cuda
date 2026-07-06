@@ -112,7 +112,8 @@ build() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
     # --bin transcribe-daemon-whisper-rust and sets the nvcc env itself.
@@ -163,6 +164,7 @@ package() {
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
     install -Dm755 target/release/transcribe-daemon-whisper-rust "$pkgdir/usr/bin/transcribe-daemon-whisper-rust"
+    install -Dm755 target/release/dictee-app-capture "$pkgdir/usr/bin/dictee-app-capture"
 
     # ONNX Runtime libs (load-dynamic: libonnxruntime.so not in target/release)
     install -d "$pkgdir/usr/lib/dictee"

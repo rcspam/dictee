@@ -1,7 +1,7 @@
 #!/bin/bash
 # dictee-reset — Reset the entire dictee system and restart the daemon
 # Usage: dictee-reset [service-name]
-#   service-name: dictee, dictee-vosk, dictee-whisper, dictee-canary (default: dictee)
+#   service-name: dictee, dictee-vosk, dictee-whisper, dictee-whisper-rust, dictee-canary (default: dictee)
 
 set +e
 
@@ -62,7 +62,7 @@ sed -i '/^DICTEE_PRE_DIARIZE_BACKEND=/d' "${XDG_CONFIG_HOME:-$HOME/.config}/dict
 sed -i '/^DICTEE_DIARIZE=/d' "${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf" 2>/dev/null || true
 
 # 8. Stop all ASR daemons
-for s in dictee dictee-vosk dictee-whisper dictee-canary; do
+for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do
     systemctl --user stop "$s" 2>/dev/null
 done
 

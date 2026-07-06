@@ -1086,12 +1086,24 @@ RowLayout {
             orientation: Qt.Vertical
             from: 0.0
             to: 0.6
-            stepSize: 0.0
+            stepSize: 0.05
+            wheelEnabled: true
             snapMode: QQC2.Slider.NoSnap
             value: root.micVolume
             onMoved: {
                 root.micVolume = value
                 executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+                // Wheel/keys don't fire onPressedChanged; hold the guard briefly
+                // so the 150 ms poll can't revert the change before wpctl applies.
+                root.micSliderActive = true
+                micSettleTimer.restart()
+            }
+            // Pause the live re-read while dragging so the poll doesn't fight us.
+            onPressedChanged: root.micSliderActive = pressed
+            Timer {
+                id: micSettleTimer
+                interval: 400
+                onTriggered: root.micSliderActive = micSlider.pressed
             }
             QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
             QQC2.ToolTip.visible: hovered

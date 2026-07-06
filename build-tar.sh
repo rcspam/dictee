@@ -81,7 +81,8 @@ cargo build --release --no-default-features \
     --bin transcribe-diarize \
     --bin transcribe-stream-diarize \
     --bin transcribe-diarize-batch \
-    --bin diarize-only
+    --bin diarize-only \
+    --bin dictee-app-capture
 
 # whisper-rust daemon (CUDA variant — the tarball is the CUDA flavour).
 # Wrapper builds ONLY --bin transcribe-daemon-whisper-rust and sets the
@@ -159,7 +160,8 @@ done
 for bin in transcribe transcribe-daemon transcribe-client \
            transcribe-diarize transcribe-stream-diarize \
            transcribe-diarize-batch diarize-only \
-           transcribe-daemon-whisper-rust; do
+           transcribe-daemon-whisper-rust \
+           dictee-app-capture; do
     cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
 done
 

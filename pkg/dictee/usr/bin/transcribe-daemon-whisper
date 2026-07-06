@@ -73,8 +73,8 @@ def _detect_hw_tier():
 
 def socket_path():
     """Chemin du socket par utilisateur (même logique que le daemon Rust)."""
-    # Honor an explicit override (dictee-setup wizard tests point an ad-hoc
-    # daemon at a private socket). Mirrors the Rust daemon/client.
+    # Honor an explicit override (dictee-setup wizard tests and isolated
+    # ad-hoc daemons point at a private socket). Mirrors the Rust daemon/client.
     override = os.environ.get("DICTEE_TRANSCRIBE_SOCKET")
     if override:
         return override
@@ -138,11 +138,15 @@ def main():
         _provider_status = "cpu"
     else:
         _provider_status = "cpu-only"
-    try:
-        with open("/dev/shm/.dictee_provider", "w") as _f:
-            _f.write(_provider_status)
-    except OSError:
-        pass  # Best-effort, ne pas faire planter le daemon
+    # Only the F9 daemon owns the shared badge file. An isolated ad-hoc daemon
+    # (spawned by dictee-transcribe for a one-off model) sets
+    # DICTEE_DAEMON_NO_PROVIDER=1 so it never clobbers the F9 badge.
+    if os.environ.get("DICTEE_DAEMON_NO_PROVIDER") != "1":
+        try:
+            with open("/dev/shm/.dictee_provider", "w") as _f:
+                _f.write(_provider_status)
+        except OSError:
+            pass  # Best-effort, don't crash the daemon
 
     print(f"Modèle chargé. Écoute sur {sock_path}", file=sys.stderr)
 
@@ -181,12 +185,19 @@ def main():
                 conn.sendall(b"ERROR: chemin vide\n")
                 continue
 
-            # Parse: <wav_path>\ttimestamps  or  <wav_path>
+            # Parse: <wav_path>\ttimestamps | <wav_path>\tdiarize | <wav_path>
+            # "timestamps" → word-level timestamps. "diarize" → sentence-level
+            # timestamps (one line per segment), consumed by dictee-transcribe's
+            # phase-2 worker to attribute sentences to diarized speakers.
             timestamps_mode = False
+            diarize_mode = False
             if "\t" in line:
                 wav_path, params = line.split("\t", 1)
-                if params.strip() == "timestamps":
+                _p = params.strip()
+                if _p == "timestamps":
                     timestamps_mode = True
+                elif _p == "diarize":
+                    diarize_mode = True
             else:
                 wav_path = line
 
@@ -222,6 +233,12 @@ def main():
                     else:
                         lines.append(f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}")
                 text = "\n".join(lines)
+            elif diarize_mode:
+                # Sentence-level timestamps (one line per segment) for the
+                # phase-2 diarization matcher in dictee-transcribe.
+                text = "\n".join(
+                    f"[{seg.start:.2f}s - {seg.end:.2f}s] {seg.text.strip()}"
+                    for seg in segments)
             else:
                 text = " ".join(seg.text.strip() for seg in segments).strip()
             conn.sendall((text + "\n").encode("utf-8"))

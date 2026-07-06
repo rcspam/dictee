@@ -41,6 +41,14 @@ DIARIZE_RE = re.compile(
 
 DEFAULT_TIMEOUT = 120  # seconds — LLM calls on long transcripts can take time
 
+# Keep in sync with dictee-transcribe.py LANG_NAMES_EN.
+LANG_NAME_MAP = {
+    "en": "English", "fr": "French", "de": "German", "es": "Spanish",
+    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "pl": "Polish",
+    "ru": "Russian", "uk": "Ukrainian", "ja": "Japanese", "zh": "Chinese",
+    "ko": "Korean", "ar": "Arabic", "tr": "Turkish",
+}
+
 # ── Built-in profiles ─────────────────────────────────────────────────
 #
 # Modes:
@@ -588,7 +596,7 @@ def _provider_call_anthropic(cfg, model, system, prompt, timeout,
     url = cfg["url"].rstrip("/") + "/v1/messages"
     payload = {
         "model": model,
-        "max_tokens": 4096,
+        "max_tokens": int(cfg.get("max_tokens", 8192)),
         "messages": [{"role": "user", "content": prompt}],
         "stream": True,
     }
@@ -1003,10 +1011,13 @@ def _cli_run(args):
         if i == n:
             print("", file=sys.stderr)
 
+    lang_name = LANG_NAME_MAP.get(args.lang.lower(), args.lang) if args.lang else ""
+
     try:
         result = analyze(segments, profile, cfg, model=args.model,
                          dictionary=args.dictionary or "",
                          timeout=args.timeout,
+                         lang_name=lang_name,
                          progress_cb=_progress if args.verbose else None)
     except ProviderError as e:
         print(f"LLM call failed: {e}", file=sys.stderr)
@@ -1027,6 +1038,8 @@ def main():
                    help="Input file with diarized text ('-' = stdin).")
     p.add_argument("--dictionary", default="",
                    help="Optional user dictionary (text).")
+    p.add_argument("--lang",
+                   help="Source language code (fr, en, de, …) — forces LLM output language.")
     p.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                    help=f"Per-call timeout in seconds (default {DEFAULT_TIMEOUT}).")
     p.add_argument("-v", "--verbose", action="store_true",

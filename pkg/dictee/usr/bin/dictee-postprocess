@@ -489,9 +489,19 @@ for _word, _elided in ELISION_WORDS.items():
 
 _SI_IL_RE = re.compile(r'\bsi\s+(ils?)\b', re.IGNORECASE)
 
+# Spurious space before an elision apostrophe ("j 'ai" -> "j'ai"). Happens when
+# the ASR splits the elision into two tokens (e.g. Whisper word-level
+# timestamps emit "j" then "'ai"). Proclitic-aware: only the words that actually
+# elide in French are glued, so an opening quote ("ce 'truc'") is left intact.
+_ELISION_SPACE_RE = re.compile(
+    r"\b(j|m|t|s|l|n|d|c|qu|lorsqu|puisqu|quoiqu|jusqu|presqu|quelqu|aujourd)"
+    r"\s+(['’])",
+    re.IGNORECASE,
+)
+
 
 def fix_elisions(text):
-    """Fixes missing elisions (je ai → j'ai) with aspirated h handling."""
+    """Fixes missing or mis-spaced elisions (je ai → j'ai, j 'ai → j'ai)."""
     for pattern, elided in _ELISION_PATTERNS:
         def _elide(m, e=elided):
             rest = m.group(1)
@@ -500,6 +510,8 @@ def fix_elisions(text):
             return e + rest.lower() if rest[0].isupper() and len(rest) > 1 and rest[1:] == rest[1:].lower() else e + rest
         text = pattern.sub(_elide, text)
     text = _SI_IL_RE.sub(r"s'\1", text)
+    # Glue an elision apostrophe that the ASR separated with a space
+    text = _ELISION_SPACE_RE.sub(r"\1\2", text)
     return text
 
 
@@ -562,6 +574,15 @@ _IT_PREP_CONTRACTIONS = [
 ]
 
 
+# Spurious space before an Italian elision apostrophe ("l 'aria" -> "l'aria").
+# Same ASR-split cause as French; stems are the elided proclitics (l', un', d',
+# c', quell', quest', bell', com', dov'). Leaves opening quotes intact.
+_IT_ELISION_SPACE_RE = re.compile(
+    r"\b(l|un|d|c|quell|quest|bell|com|dov)\s+(['’])",
+    re.IGNORECASE,
+)
+
+
 def _case_aware_replace(match, replacement):
     """Replaces while preserving the case of the original text."""
     original = match.group(0)
@@ -584,6 +605,8 @@ def fix_italian_elisions(text):
                 return e[0].upper() + e[1:] + rest
             return e + rest
         text = pattern.sub(_elide, text)
+    # Glue an elision apostrophe that the ASR separated with a space
+    text = _IT_ELISION_SPACE_RE.sub(r"\1\2", text)
     return text
 
 

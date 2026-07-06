@@ -25,7 +25,7 @@ usage() {
     echo "  quant [fp32|int8|toggle]  Switch Parakeet model variant (restarts daemon)"
     echo "  force_cpu [true|false|toggle]   Force CPU mode for all ASR backends"
     echo ""
-    echo "ASR backends:      parakeet, canary, vosk, whisper"
+    echo "ASR backends:      parakeet, canary, vosk, whisper, whisper-rust"
     echo "Translate backends: google, bing, ollama, libretranslate"
     exit 1
 }
@@ -91,7 +91,7 @@ status)
 
 asr)
     if [ $# -lt 2 ]; then usage; fi
-    case "$2" in parakeet|canary|vosk|whisper) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
+    case "$2" in parakeet|canary|vosk|whisper|whisper-rust) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
     svc=$(asr_service "$2")
 
     # Check that the service exists
@@ -103,11 +103,35 @@ asr)
 
     set_conf "DICTEE_ASR_BACKEND" "$2"
 
+    # Aligner DICTEE_FORCE_CPU avec la contrainte du nouveau backend, AVANT
+    # le restart du service. Sans ça, le daemon démarre avec l'ancien
+    # FORCE_CPU (héritage du backend précédent), charge le GPU pour rien,
+    # puis le plasmoid détecte l'incohérence et redémarre — d'où charge/
+    # décharge VRAM transitoire observée 2026-05-21 (whisper GPU →
+    # parakeet rapide). Cf. fix wrapper quant.
+    set +eu; source "$CONF"; set -eu
+    case "$2" in
+        parakeet)
+            # Parakeet int8 force CPU, fp32 libère la contrainte
+            if [ "${DICTEE_PARAKEET_QUANT:-fp32}" = "int8" ]; then
+                set_conf "DICTEE_FORCE_CPU" "1"
+            else
+                set_conf "DICTEE_FORCE_CPU" "0"
+            fi
+            ;;
+        canary)
+            # Canary requires GPU (encoder too heavy for CPU)
+            set_conf "DICTEE_FORCE_CPU" "0"
+            ;;
+        # vosk : CPU only by design, FORCE_CPU sans effet — ne pas toucher
+        # whisper : libre, ne pas toucher
+    esac
+
     write_state "switching"
     _dbg "asr: switching to $2 (svc=$svc)"
 
     # Stop all daemons, start the right one
-    for s in dictee dictee-canary dictee-vosk dictee-whisper; do
+    for s in dictee dictee-canary dictee-vosk dictee-whisper dictee-whisper-rust; do
         if [ "$s" != "$svc" ]; then
             systemctl --user stop "${s}.service" 2>/dev/null || true
             systemctl --user disable "${s}.service" 2>/dev/null || true
@@ -197,7 +221,7 @@ diarize)
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         # Stop all daemons and wait for VRAM release
         _dbg "diarize: stopping all daemons for VRAM"
-        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null
+        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null
         # Wait until GPU processes are gone (5s timeout)
         for i in $(seq 1 10); do
             if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
@@ -326,6 +350,16 @@ quant)
     esac
     set_conf "DICTEE_PARAKEET_QUANT" "$val"
     _dbg "quant: $val"
+    # Align DICTEE_FORCE_CPU avec la nouvelle contrainte du quant :
+    # - int8 force CPU (GPU 5× plus lent) → DICTEE_FORCE_CPU=1
+    # - fp32 libère la contrainte → DICTEE_FORCE_CPU=0 (GPU par défaut)
+    # Sans cette synchro, passer de int8 (force_cpu=1 hérité) à fp32 laisse
+    # le daemon en CPU malgré le quant qui veut le GPU. Bug signalé 2026-05-21.
+    if [ "$val" = "int8" ]; then
+        set_conf "DICTEE_FORCE_CPU" "1"
+    else
+        set_conf "DICTEE_FORCE_CPU" "0"
+    fi
     # Restart the Parakeet daemon if it's the active backend, so the new
     # model variant is actually loaded (env var alone isn't enough — the
     # daemon reads it only at startup).
@@ -363,6 +397,7 @@ force_cpu)
         canary)   svc="dictee-canary.service" ;;
         vosk)     svc="dictee-vosk.service" ;;
         whisper)  svc="dictee-whisper.service" ;;
+        whisper-rust) svc="dictee-whisper-rust.service" ;;
         *)        svc="dictee.service" ;;
     esac
     systemctl --user restart "$svc" 2>/dev/null || true

@@ -30,6 +30,14 @@ Chaque réunion crée un dossier :
 
 Les transcriptions, synthèses et exports sont produits par dictee-transcribe et enregistrés dans ce dossier.
 
+## Choisir la source audio
+
+Par défaut, une réunion enregistre votre microphone. Vous pouvez aussi choisir une autre source pour la réunion : un autre microphone, le son du système (tout ce que vous entendez) ou une seule application.
+
+Quand vous choisissez une seule application (par exemple votre navigateur ou votre application de réunion), seul le son de cette application est enregistré. Vous continuez à l'entendre normalement, et l'enregistrement continue de fonctionner même si vous changez de haut-parleurs ou branchez un casque pendant la réunion. Les autres applications et votre propre microphone ne sont pas touchés.
+
+Si vous voulez aussi enregistrer votre propre voix par-dessus l'application ou le son du système capturé, cochez **Ajouter le micro** dans la fenêtre de réunion.
+
 ## Aperçu en direct (optionnel)
 
 La fenêtre de capture dispose d'une section « Aperçu en direct » repliable. Dépliez-la pour voir la transcription s'afficher fragment par fragment (~40 s d'intervalle) pendant l'enregistrement. Il s'agit d'un aperçu bonus — la vraie transcription + diarisation est effectuée par la fenêtre de dictée qui s'ouvre à l'arrêt.

@@ -96,7 +96,8 @@ build() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build
     # time. Separate wrapper so the main daemon stays vulkan-free.
@@ -127,6 +128,7 @@ package() {
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
     install -Dm755 target/release/transcribe-daemon-whisper-rust "$pkgdir/usr/bin/transcribe-daemon-whisper-rust"
+    install -Dm755 target/release/dictee-app-capture "$pkgdir/usr/bin/dictee-app-capture"
 
     # Scripts
     install -Dm755 dictee "$pkgdir/usr/bin/dictee"

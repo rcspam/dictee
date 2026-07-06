@@ -43,9 +43,10 @@ try:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox,
+        QToolTip, QGridLayout, QTabWidget, QLineEdit, QLayout, QSpinBox, QDoubleSpinBox,
         QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
         QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
+        QGraphicsOpacityEffect,
     )
     from PyQt6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
 except ImportError:
@@ -60,9 +61,10 @@ except ImportError:
         QLabel, QPushButton, QRadioButton, QButtonGroup, QComboBox,
         QFormLayout, QProgressBar, QMessageBox, QSizePolicy, QCheckBox, QGridLayout,
         QFrame, QScrollArea, QWidget, QStackedWidget, QSlider, QTextEdit,
-        QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox,
+        QToolTip, QTabWidget, QLineEdit, QLayout, QSpinBox, QDoubleSpinBox,
         QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QStyleOptionComboBox,
         QListWidget, QListWidgetItem, QDialogButtonBox, QKeySequenceEdit,
+        QGraphicsOpacityEffect,
     )
     from PySide6.QtMultimedia import QAudioSource, QAudioFormat, QMediaDevices, QMediaPlayer, QAudioOutput
 
@@ -108,6 +110,18 @@ CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
 )
+
+
+def _conf_write_target():
+    """Real file to atomically replace when saving dictee.conf.
+
+    CONF_PATH may be a symlink (dotfiles managers like rcm keep the real
+    file in a versioned repo — #24): os.replace on the symlink NAME would
+    clobber the link with a regular file, so resolve it and replace the
+    TARGET instead. The temp file must live next to the target (same
+    filesystem) so the rename stays atomic.
+    """
+    return os.path.realpath(CONF_PATH)
 
 LANGUAGES = [
     ("fr", "Français"),
@@ -252,6 +266,10 @@ QT_TO_LINUX_KEYCODE = {
     # Backtick / grave accent — KEY_GRAVE=41. Useful as PTT key on
     # AZERTY/QWERTY layouts (rarely-used dedicated key).
     0x60: 41,         # ` (backtick / grave)
+    # ² (superscript two) sits on the same physical key as the backtick, so
+    # on AZERTY layouts it also maps to KEY_GRAVE=41. Lets AZERTY users pick
+    # the top-left key for dictation from the GUI (issue #22).
+    0xb2: 41,         # ² (twosuperior, AZERTY)
 }
 
 LINUX_KEYCODE_NAMES = {
@@ -261,7 +279,7 @@ LINUX_KEYCODE_NAMES = {
     189: "F19", 190: "F20", 191: "F21", 192: "F22", 193: "F23", 194: "F24",
     1: "Escape", 110: "Home", 107: "End", 119: "Delete", 118: "Insert",
     104: "Pause", 210: "Print",
-    41: "`",
+    41: "` / ²",
 }
 
 
@@ -275,8 +293,66 @@ def qt_key_to_linux_keycode(seq):
     return QT_TO_LINUX_KEYCODE.get(key_only, 0)
 
 
+# What the physical KEY_GRAVE=41 key (top-left, left of the 1) prints per XKB
+# layout. The evdev keycode is layout-independent (that is why the shortcut
+# works everywhere) but the legend on the keycap is not — show the user THEIR
+# character (issues #22/#25). Conservative list; unknown layouts fall back to
+# the two most common legends ("` / ²") rather than guessing wrong.
+_KEY41_GLYPHS = {
+    "us": "`", "gb": "`", "ie": "`", "pl": "`",
+    "fr": "²", "be": "²",
+    "de": "^", "at": "^",
+    "ch": "§", "se": "§", "fi": "§", "no": "§",
+    "dk": "½",
+    "es": "º", "latam": "|",
+    "pt": "\\", "it": "\\",
+    "br": "'",
+    "cz": ";", "sk": ";",
+    "hu": "0",
+    "tr": "é",
+    "ru": "ё",
+}
+_KEY41_CACHE = []
+
+
+def _key41_glyph():
+    """Character printed on the KEY_GRAVE=41 keycap for the ACTIVE layout,
+    or None when the layout is unknown. Reuses resolve_active_layout from
+    dictee-common.sh — the same 4-tier detection (conf override, KDE DBus,
+    GNOME gsettings, localectl/setxkbmap) that dotool typing relies on, so
+    label and typing always agree on the layout. Cached (one subprocess)."""
+    if _KEY41_CACHE:
+        return _KEY41_CACHE[0]
+    glyph = None
+    for p in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "dictee-common.sh"),
+              "/usr/lib/dictee/dictee-common.sh"):
+        if not os.path.isfile(p):
+            continue
+        try:
+            out = subprocess.run(
+                ["bash", "-c", 'source "$1" >/dev/null 2>&1; resolve_active_layout',
+                 "_", p],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+        except Exception:
+            out = ""
+        if out:
+            glyph = _KEY41_GLYPHS.get(out.split("|", 1)[0])
+        break
+    _KEY41_CACHE.append(glyph)
+    return glyph
+
+
+def _key41_label():
+    """Display label for keycode 41: the active layout's keycap glyph, or
+    the two most common legends when the layout is unknown."""
+    return _key41_glyph() or "` / ²"
+
+
 def linux_keycode_name(code):
     """Retourne le nom lisible d'un keycode Linux."""
+    if code == 41:
+        return _key41_label()
     return LINUX_KEYCODE_NAMES.get(code, f"Key {code}")
 ANIMATION_SPEECH_REPO = "rcspam/animation-speech"
 ANIMATION_SPEECH_BIN = "animation-speech-ctl"
@@ -286,15 +362,30 @@ ANIMATION_SPEECH_BIN = "animation-speech-ctl"
 
 def detect_desktop():
     """Retourne (nom_affiché, type) avec type = 'kde' | 'gnome' | 'unsupported'."""
-    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
-    if "KDE" in desktop:
+    raw = (os.environ.get("XDG_CURRENT_DESKTOP")
+           or os.environ.get("XDG_SESSION_DESKTOP")
+           or os.environ.get("DESKTOP_SESSION")
+           or os.environ.get("GDMSESSION")
+           or "")
+    # SSH/waypipe fallback: env stripped, query systemd user environment.
+    if not raw:
+        try:
+            out = subprocess.run(["systemctl", "--user", "show-environment"],
+                                 capture_output=True, text=True, timeout=2).stdout
+            for line in out.splitlines():
+                if line.startswith("XDG_CURRENT_DESKTOP="):
+                    raw = line.split("=", 1)[1]
+                    break
+        except Exception:
+            pass
+    desktop = raw.upper()
+    if "KDE" in desktop or "PLASMA" in desktop:
         return "KDE Plasma", "kde"
-    for name in ("GNOME", "UNITY", "CINNAMON"):
+    for name in ("GNOME", "UBUNTU", "UNITY", "CINNAMON"):
         if name in desktop:
-            label = desktop.replace(";", " / ").title()
+            label = raw.replace(":", " / ").replace(";", " / ").title()
             return label, "gnome"
-    raw = os.environ.get("XDG_CURRENT_DESKTOP", _("unknown"))
-    return raw, "unsupported"
+    return raw or _("unknown"), "unsupported"
 
 
 # === Config fichier ===
@@ -337,13 +428,30 @@ def _sanitize_conf_value(val):
     return re.sub(r'[\n\r`$"\'\\;|&<>{}!() \t]', '', str(val))
 
 
-def save_config(backend, lang_source, lang_target, clipboard=True,
+def _sanitize_extra_devices(val):
+    """Sanitize DICTEE_PTT_EXTRA_DEVICES (quoted in dictee.conf).
+
+    Device names contain spaces (e.g. 'LogiOps Virtual Input') and may
+    contain ':' '/' '(' ')' (e.g. 'UNIW0001:00 093A:0274', 'HDA NVidia
+    HDMI/DP'). A strict whitelist would drop those characters and silently
+    break the substring matching dictee-ptt does on device names. The value
+    is wrapped in double quotes when written, so we only strip what is
+    actually dangerous inside a double-quoted bash / systemd value:
+    '"' '`' '$' '\\' and newlines.
+    """
+    return re.sub(r'["`$\\\r\n]', '', str(val))
+
+
+def save_config(backend, lang_source, lang_target, clipboard=False,
                 anim_speech=True, anim_plasmoid=False,
                 ollama_model="translategemma", ollama_cpu=False, trans_engine="google",
                 lt_port=5000, lt_langs="", asr_backend="parakeet", whisper_model="small",
+                whisper_rust_model="large-v3", whisper_rust_ggml="",
                 whisper_lang="", vosk_model="fr", audio_source="",
                 ptt_mode="toggle", ptt_key=67, ptt_key_translate=0,
-                ptt_mod_translate="", postprocess=True, pp_translate=True,
+                ptt_mod_translate="", ptt_extra_devices="", ptt_exclude_devices="",
+                dotool_settle="0",
+                postprocess=True, pp_translate=True,
                 pp_elisions=True, pp_elisions_it=True,
                 pp_spanish=True, pp_portuguese=True, pp_german=True,
                 pp_dutch=True, pp_romanian=True,
@@ -364,7 +472,15 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False,
                 trpp_states=None, trpp_short_text_max=3,
-                cheatsheet_mod="", cheatsheet_key_seq=""):
+                cheatsheet_mod="", cheatsheet_key_seq="",
+                parakeet_quant=None,
+                force_cpu=None,
+                meeting_dir="",
+                meeting_chunk_s=40,
+                meeting_always_on_top=True,
+                meeting_all_desktops=False,
+                hw_tier="auto",
+                mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
     Reads the existing file (or the template on first run), then patches
@@ -388,6 +504,19 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
         "DICTEE_WHISPER_MODEL": _s(whisper_model),
+        # Whisper-Rust (whisper.cpp/Vulkan) selected model id + resolved ggml path
+        # (the dictee-whisper-rust.service reads DICTEE_WHISPER_RUST_GGML from here).
+        "DICTEE_WHISPER_RUST_MODEL": _s(whisper_rust_model),
+        "DICTEE_WHISPER_RUST_GGML": _s(whisper_rust_ggml),
+        # Parakeet quantization variant (int8 | fp32). None = leave dictee.conf
+        # untouched (preserve existing user value or comment).
+        **({"DICTEE_PARAKEET_QUANT": parakeet_quant}
+           if parakeet_quant in ("fp32", "int8") else {}),
+        # Force CPU mode (disables GPU acceleration for all ASR backends).
+        # We write "1" or "0" explicitly so the daemon restart detects the
+        # change. Rust side parses both truthy ("1"/"true"/"yes") and falsy.
+        **({"DICTEE_FORCE_CPU": "1" if force_cpu else "0"}
+           if force_cpu is not None else {}),
         "DICTEE_PTT_MODE": ptt_mode,
         "DICTEE_PTT_KEY": str(ptt_key),
         "DICTEE_POSTPROCESS": "true" if postprocess else "false",
@@ -395,8 +524,17 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
-        "DICTEE_SETUP_DONE": "true",
+        "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
     }
+    # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
+    # (Finish button or classic Apply). At wizard checks-page entry (page 6→7
+    # transition), we save the config so services can restart with the new
+    # values for the live checks, but we OMIT this key — the merge in this
+    # function preserves any existing DICTEE_SETUP_DONE=true line untouched
+    # (reconfig case stays as-is), while a true first-run leaves the key
+    # absent so the wizard re-launches if the user closes without Finish.
+    if mark_setup_done:
+        values["DICTEE_SETUP_DONE"] = "true"
     # Conditional values (only written when non-default)
     if whisper_lang:
         values["DICTEE_WHISPER_LANG"] = _s(whisper_lang)
@@ -406,6 +544,21 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         values["DICTEE_PTT_KEY_TRANSLATE"] = str(ptt_key_translate)
     if ptt_mod_translate:
         values["DICTEE_PTT_MOD_TRANSLATE"] = _s(ptt_mod_translate)
+    # Always write (even if empty) so the UI can clear the value by saving
+    # an empty string — otherwise the previous list would remain forever.
+    # Quoted because device names contain spaces (e.g. "LogiOps Virtual Input").
+    values["DICTEE_PTT_EXTRA_DEVICES"] = f'"{_sanitize_extra_devices(ptt_extra_devices or "")}"'
+    # Exclude list (issue #20): EXACT device names dictee-ptt must NOT grab, so
+    # another exclusive grabber (e.g. input-remapper) keeps them. Same quoting /
+    # sanitization as the whitelist; always written so the UI can clear it.
+    values["DICTEE_PTT_EXCLUDE_DEVICES"] = f'"{_sanitize_extra_devices(ptt_exclude_devices or "")}"'
+    # Typing settle delay (GH #19). Always written so the UI can reset it to 0.
+    # Coerced to a plain non-negative number; dictee feeds it to `sleep`.
+    try:
+        _settle = max(0.0, float(dotool_settle or 0))
+    except (TypeError, ValueError):
+        _settle = 0.0
+    values["DICTEE_DOTOOL_SETTLE"] = f"{_settle:g}"
     # Translation backend-specific
     if backend == "trans":
         values["DICTEE_TRANS_ENGINE"] = trans_engine
@@ -497,6 +650,12 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
         values["DICTEE_CHEATSHEET_MOD"] = _s(cheatsheet_mod)
     if cheatsheet_key_seq:
         values["DICTEE_CHEATSHEET_KEY_SEQ"] = _s(cheatsheet_key_seq)
+    # Live meeting settings
+    if meeting_dir:
+        values["DICTEE_MEETING_DIR"] = _s(meeting_dir)
+    values["DICTEE_MEETING_CHUNK_S"] = str(max(20, min(60, int(meeting_chunk_s))))
+    values["DICTEE_MEETING_ALWAYS_ON_TOP"] = "true" if meeting_always_on_top else "false"
+    values["DICTEE_MEETING_ALL_DESKTOPS"] = "true" if meeting_all_desktops else "false"
 
     # Keys that must be re-commented when absent from values.
     # Without this, a previously active key stays active forever.
@@ -578,14 +737,15 @@ def save_config(backend, lang_source, lang_target, clipboard=True,
             extra.append(f"{k}={v}\n")
         new_lines[insert_idx:insert_idx] = extra
 
-    # Atomic write
-    conf_dir = os.path.dirname(CONF_PATH) or "."
+    # Atomic write, through a possible symlink (see _conf_write_target)
+    _conf_target = _conf_write_target()
+    conf_dir = os.path.dirname(_conf_target) or "."
     os.makedirs(conf_dir, exist_ok=True)
     _tmp_fd, _tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
     try:
         with os.fdopen(_tmp_fd, "w") as f:
             f.writelines(new_lines)
-        os.replace(_tmp_path, CONF_PATH)
+        os.replace(_tmp_path, _conf_target)
     except BaseException:
         try:
             os.unlink(_tmp_path)
@@ -959,6 +1119,27 @@ def get_gpu_vram_gb():
     return 0, 0
 
 
+def suggest_parakeet_quant():
+    """Recommend Parakeet quantization variant based on detected hardware.
+
+    Returns:
+      "int8" — for CPU-only systems or GPU with < 4 GB VRAM. int8 ALWAYS
+              executes on the CPU (the daemon forces it: the ORT CUDA EP is
+              broken/slow on int8, see execution.rs parakeet_provider). On
+              CPU with AVX-VNNI, int8 is ~34 % faster than FP32 (measured
+              on i7-13700H, audio 16 s, 2026-05-15).
+      "fp32" — for GPU with ≥ 4 GB VRAM; the only variant that uses the GPU.
+
+    The user can always override via DICTEE_PARAKEET_QUANT env var or the
+    "Active Parakeet variant" combobox in dictee-setup.
+    """
+    total_gb, _free = get_gpu_vram_gb()
+    if total_gb < 4:
+        # CPU-only (0 GB) or low-VRAM GPU (< 4 GB → FP32 risks OOM)
+        return "int8"
+    return "fp32"
+
+
 def check_cuda_gpu_ready():
     """Check if CUDA GPU acceleration is usable (NVIDIA + cuDNN installed).
     Returns (gpu_detected, cudnn_ok, message).
@@ -1073,6 +1254,12 @@ class OllamaPullThread(QThread):
             self.done.emit(False, _("Download timed out (10 min)."))
         except Exception as e:
             self.done.emit(False, str(e))
+
+
+# Braille spinner frames — animation tick for "check in flight" icons on
+# the wizard's last page. Mirrors dictee-transcribe.py:4616 SPINNER_FRAMES
+# so the visual idiom is consistent across the suite.
+_CHECK_SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 # === ASR models ===
@@ -1460,6 +1647,34 @@ CANARY_MODEL_FILES = [
     "vocab.txt", "config.json",
 ]
 
+# Whisper-Rust (whisper.cpp/Vulkan GPU) ggml models — multilingual, quantized.
+# Quant per HF availability (verified): tiny/base/small = q5_1, medium/large* = q5_0.
+# Downloaded on demand to the dictee user dir; the selected model's path is written
+# to dictee.conf (DICTEE_WHISPER_RUST_GGML), which the service reads.
+_WHISPER_RUST_DIR = os.path.join(MODEL_DIR, "whisper-rust")
+_WHISPER_RUST_BASE = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
+WHISPER_RUST_MODELS = [
+    ("tiny", "ggml-tiny-q5_1.bin", "tiny — 31 MB, fastest, lowest quality"),
+    ("base", "ggml-base-q5_1.bin", "base — 57 MB"),
+    ("small", "ggml-small-q5_1.bin", "small — 181 MB"),
+    ("medium", "ggml-medium-q5_0.bin", "medium — 514 MB, good balance"),
+    ("large-v3-turbo", "ggml-large-v3-turbo-q5_0.bin", "large-v3-turbo — 547 MB, fast, near large-v3 quality"),
+    ("large-v3", "ggml-large-v3-q5_0.bin", "large-v3 — 1.0 GB, best quality"),
+]
+
+
+def _whisper_rust_model_dict(model_id):
+    """Build a ModelDownloadThread/model_is_installed-compatible dict for a model id."""
+    for mid, fname, _label in WHISPER_RUST_MODELS:
+        if mid == model_id:
+            return {
+                "id": f"whisper-rust-{mid}",
+                "dir": _WHISPER_RUST_DIR,
+                "check_file": fname,
+                "files": [(f"{_WHISPER_RUST_BASE}/{fname}", fname)],
+            }
+    return None
+
 VOSK_MODELS = {
     "fr": "vosk-model-small-fr-0.22",
     "en": "vosk-model-small-en-us-0.15",
@@ -1472,13 +1687,20 @@ VOSK_MODELS = {
     "ja": "vosk-model-small-ja-0.22",
 }
 
+# Curated list — only models that transcribe reliably in dictee's current
+# faster-whisper 1.2.1 / CTranslate2 stack. Excluded on purpose:
+#   - large-v3 AND large-v3-turbo: broken under faster-whisper inference
+#     (no punctuation/capitalization, drops the onset; reproduced on CPU AND
+#     GPU, all compute types; medium is fine with the same call). NOT a bad
+#     conversion (a fresh openai→ct2 4.7.1 reconversion reproduces it). They
+#     return once Whisper moves to a whisper.cpp/ggml backend, where large-v3
+#     transcribes correctly.
+#   - distil-large-v3: English-only, unsuited to multilingual dictation.
+# Do NOT re-add them here (regression of commit 10242f7).
 WHISPER_MODELS = [
     ("tiny", "tiny — 39M, fastest, lowest quality"),
     ("small", "small — 244M, good balance"),
     ("medium", "medium — 769M, better quality"),
-    ("large-v3-turbo", "large-v3-turbo — 809M, fast, multilingual"),
-    ("large-v3", "large-v3 — 1.5B, best quality, multilingual"),
-    ("Systran/faster-distil-whisper-large-v3", "distil-large-v3 — 756M, fast (English only)"),
 ]
 
 
@@ -1534,9 +1756,14 @@ class VenvInstallThread(QThread):
         try:
             self.progress.emit(_("Creating virtual environment…"))
             os.makedirs(self.venv_path, exist_ok=True)
+            # Run every child from the venv dir (just created, always exists).
+            # The GUI's own CWD may be gone — e.g. launched by install.sh from a
+            # temp dir the installer removes right after — which makes pip's
+            # os.getcwd() raise FileNotFoundError (issue #18, Fedora 44 KDE).
             result = subprocess.run(
                 ["python3", "-m", "venv", self.venv_path],
                 capture_output=True, text=True, timeout=60,
+                cwd=self.venv_path,
             )
             if result.returncode != 0:
                 self.done.emit(False, result.stderr.strip())
@@ -1555,6 +1782,7 @@ class VenvInstallThread(QThread):
             r_pip = subprocess.run(
                 pip_cmd + ["install", "--upgrade", "pip"],
                 capture_output=True, text=True, timeout=300,
+                cwd=self.venv_path,
             )
             if r_pip.returncode != 0:
                 self.done.emit(False,
@@ -1565,6 +1793,7 @@ class VenvInstallThread(QThread):
             result = subprocess.run(
                 pip_cmd + ["install", "--upgrade", self.pip_package],
                 capture_output=True, text=True, timeout=600,
+                cwd=self.venv_path,
             )
             if result.returncode != 0:
                 self.done.emit(False, result.stderr.strip()[-500:])
@@ -1608,34 +1837,43 @@ class _CanaryDownloadThread(QThread):
                     self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, fname)
-                if os.path.exists(dest):
-                    self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
-                    continue
-                self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
                 url = f"{base_url}/{fname}"
-                tmp = dest + ".part"
-                resp = urllib.request.urlopen(url, timeout=1800)
-                total_size = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                with open(tmp, "wb") as f:
-                    while True:
-                        if self._cancelled:
-                            f.close()
-                            os.remove(tmp)
-                            self.done.emit(False, _("Cancelled"))
-                            return
-                        chunk = resp.read(256 * 1024)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            pct = int(downloaded * 100 / total_size)
-                            size_mb = downloaded / (1024 * 1024)
-                            total_mb = total_size / (1024 * 1024)
-                            self.progress.emit(
-                                f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
-                os.rename(tmp, dest)
+                with urllib.request.urlopen(url, timeout=1800) as resp:
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    # Skip uniquement si le fichier local est COMPLET (taille ==
+                    # Content-Length). Un fichier tronqué d'un essai précédent est
+                    # ainsi re-téléchargé au lieu d'être pris pour valide.
+                    if os.path.exists(dest) and total_size > 0 and \
+                            os.path.getsize(dest) == total_size:
+                        self.progress.emit(f"{fname} ✓ ({i}/{len(self.files)})")
+                        continue
+                    self.progress.emit(f"{fname} ({i}/{len(self.files)})…")
+                    tmp = dest + ".part"
+                    downloaded = 0
+                    with open(tmp, "wb") as f:
+                        while True:
+                            if self._cancelled:
+                                f.close()
+                                os.remove(tmp)
+                                self.done.emit(False, _("Cancelled"))
+                                return
+                            chunk = resp.read(256 * 1024)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                pct = int(downloaded * 100 / total_size)
+                                size_mb = downloaded / (1024 * 1024)
+                                total_mb = total_size / (1024 * 1024)
+                                self.progress.emit(
+                                    f"{fname}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                    if total_size > 0 and downloaded != total_size:
+                        os.remove(tmp)
+                        raise IOError(
+                            f"{fname}: téléchargement incomplet "
+                            f"({downloaded}/{total_size} octets) — réessayez")
+                    os.rename(tmp, dest)
             # Generate tokenizer.json if missing (needed for decodercontext)
             tokenizer_path = os.path.join(model_dir, "tokenizer.json")
             if not os.path.exists(tokenizer_path):
@@ -1855,19 +2093,21 @@ class _RuleTranscribeThread(QThread):
 ASR_MODELS = [
     {
         "id": "tdt",
-        "name": "Parakeet-TDT 0.6B v3",
-        "desc": _("Multilingual transcription (25 languages, ~2.5 GB)"),
+        "name": "Parakeet-TDT 0.6B v3 (FP32)",
+        "desc": _("Multilingual transcription (25 languages, ~2.5 GB) — best accuracy, recommended for GPU"),
         "help": _(
-            "<b>Parakeet-TDT 0.6B v3</b> — Main transcription model<br><br>"
+            "<b>Parakeet-TDT 0.6B v3 — FP32</b><br><br>"
+            "Full-precision variant of the main transcription model.<br>"
             "FastConformer encoder + Token-and-Duration Transducer (TDT) decoder.<br>"
             "Supports <b>25 languages</b> including French, English, Spanish, German, etc.<br>"
             "Native punctuation and capitalization (no post-processing needed).<br><br>"
-            "<b>Required</b> for all transcription modes (dictation, batch, daemon).<br>"
+            "Recommended for <b>GPU with ≥ 4 GB VRAM</b> — fastest on CUDA Tensor Cores.<br>"
             "Used by: <code>transcribe</code>, <code>transcribe-daemon</code>, "
             "<code>transcribe-diarize</code>, <code>dictee</code>"
         ),
         "dir": os.path.join(MODEL_DIR, "tdt"),
         "check_file": "encoder-model.onnx",
+        "quant": "fp32",
         "files": [
             ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.onnx", "encoder-model.onnx"),
             ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.onnx.data", "encoder-model.onnx.data"),
@@ -1875,6 +2115,31 @@ ASR_MODELS = [
             ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt", "vocab.txt"),
         ],
         "required": True,
+    },
+    {
+        "id": "tdt-int8",
+        "name": "Parakeet-TDT 0.6B v3 (int8)",
+        "desc": _("Quantized variant (~670 MB), runs on the CPU. For systems "
+                  "without a GPU or with too little VRAM for FP32."),
+        "help": _(
+            "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>"
+            "Same architecture as FP32 with 8-bit quantized weights.<br><br>"
+            "<b>~3.6× smaller</b>: 670 MB on disk / RAM (vs 2.4 GB FP32).<br>"
+            "<b>~38% faster on CPU</b> with AVX-VNNI (Intel Cascade Lake+ / AMD Zen 2+).<br>"
+            "<b>WER loss negligible</b> (~0-1 % depending on audio).<br><br>"
+            "<b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU "
+            "runtime.<br>The right choice for CPU-only systems, or when the GPU "
+            "has too little VRAM for FP32 (&lt; 4 GB)."
+        ),
+        "dir": os.path.join(MODEL_DIR, "tdt"),  # same dir as FP32, coexistence supported
+        "check_file": "encoder-model.int8.onnx",
+        "quant": "int8",
+        "files": [
+            ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/encoder-model.int8.onnx", "encoder-model.int8.onnx"),
+            ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/decoder_joint-model.int8.onnx", "decoder_joint-model.int8.onnx"),
+            ("https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main/vocab.txt", "vocab.txt"),
+        ],
+        "required": False,
     },
     {
         "id": "sortformer",
@@ -1929,40 +2194,46 @@ class ModelDownloadThread(QThread):
                 model_dir = model_dir.replace(MODEL_DIR,
                     os.path.join(os.path.expanduser("~/.local/share/dictee")))
                 os.makedirs(model_dir, exist_ok=True)
-            total_files = len([f for f in self.model["files"]
-                               if not os.path.isfile(os.path.join(model_dir, f[1]))])
+            total_files = len(self.model["files"])
             done = 0
             for url, filename in self.model["files"]:
                 if self._cancelled:
                     self.done.emit(False, _("Cancelled"))
                     return
                 dest = os.path.join(model_dir, filename)
-                if os.path.isfile(dest):
-                    continue
-                self.progress.emit(_("Downloading {name}…").format(name=filename))
-                resp = urllib.request.urlopen(url, timeout=1800)
-                total_size = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                tmp = dest + ".part"
-                with open(tmp, "wb") as f:
-                    while True:
-                        if self._cancelled:
-                            f.close()
+                with urllib.request.urlopen(url, timeout=1800) as resp:
+                    total_size = int(resp.headers.get("Content-Length", 0))
+                    # Skip uniquement si le fichier local est COMPLET (cf. Canary).
+                    skip = (os.path.isfile(dest) and total_size > 0 and
+                            os.path.getsize(dest) == total_size)
+                    if not skip:
+                        self.progress.emit(_("Downloading {name}…").format(name=filename))
+                        downloaded = 0
+                        tmp = dest + ".part"
+                        with open(tmp, "wb") as f:
+                            while True:
+                                if self._cancelled:
+                                    f.close()
+                                    os.remove(tmp)
+                                    self.done.emit(False, _("Cancelled"))
+                                    return
+                                chunk = resp.read(256 * 1024)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0:
+                                    pct = int(downloaded * 100 / total_size)
+                                    size_mb = downloaded / (1024 * 1024)
+                                    total_mb = total_size / (1024 * 1024)
+                                    self.progress.emit(
+                                        f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
+                        if total_size > 0 and downloaded != total_size:
                             os.remove(tmp)
-                            self.done.emit(False, _("Cancelled"))
-                            return
-                        chunk = resp.read(256 * 1024)
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            pct = int(downloaded * 100 / total_size)
-                            size_mb = downloaded / (1024 * 1024)
-                            total_mb = total_size / (1024 * 1024)
-                            self.progress.emit(
-                                f"{filename}  {pct}%  ({size_mb:.0f}/{total_mb:.0f} Mo)")
-                os.rename(tmp, dest)
+                            raise IOError(
+                                f"{filename}: téléchargement incomplet "
+                                f"({downloaded}/{total_size} octets) — réessayez")
+                        os.rename(tmp, dest)
                 done += 1
                 if total_files > 1:
                     self.progress.emit(_("Downloaded {done}/{total}").format(
@@ -2847,6 +3118,51 @@ class AudioLevelMonitor:
             self._meter.setLevel(level)
 
 
+class _SourceVolumeWatcher(QThread):
+    """Emits source_changed whenever a PipeWire/Pulse *source* changes
+    (volume/mute), via 'pactl subscribe'. Lets the volume slider FOLLOW external
+    changes (plasmoid, meeting, system mixer) instead of only pushing them out.
+
+    'stdbuf -oL' forces pactl to line-buffer (a pipe is otherwise block-buffered
+    → delayed bursts); iter(readline) keeps delivery line-by-line in real time."""
+
+    source_changed = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.proc = None
+        self._stop = False
+
+    def run(self):
+        for cmd in (["stdbuf", "-oL", "pactl", "subscribe"],
+                    ["pactl", "subscribe"]):
+            try:
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    text=True, bufsize=1, env=dict(os.environ, LC_ALL="C"))
+                break
+            except (FileNotFoundError, OSError):
+                self.proc = None
+        if self.proc is None:
+            return
+        for line in iter(self.proc.stdout.readline, ""):
+            if self._stop:
+                break
+            # exclude 'source-output' ('on source-output #' never matches this)
+            if "'change'" in line and "on source #" in line:
+                self.source_changed.emit()
+
+    def stop(self):
+        self._stop = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.wait(2000)
+
+
 class TestTranslateThread(QThread):
     """Record mic, transcribe, then translate using the configured backend."""
     result = Signal(str)
@@ -2854,7 +3170,7 @@ class TestTranslateThread(QThread):
     def __init__(self, duration=5, asr_backend="parakeet", trans_backend="trans:google",
                  source_lang="fr", target_lang="en", trans_engine="google",
                  lt_port=5000, ollama_model="translategemma", postprocess=False,
-                 silence_threshold=None, parent=None):
+                 silence_threshold=None, wizard_env=None, model_dir=None, parent=None):
         super().__init__(parent)
         self._duration = duration
         self._asr_backend = asr_backend
@@ -2870,6 +3186,11 @@ class TestTranslateThread(QThread):
             else _read_silence_threshold_from_conf())
         self._rec_proc = None
         self._stopped = False
+        # Wizard pre-Finish: spawn ad-hoc daemon instead of using system socket.
+        self._wizard_env = wizard_env
+        self._model_dir = model_dir
+        self._daemon_proc = None
+        self._daemon_socket = None
 
     def stop(self):
         self._stopped = True
@@ -2879,6 +3200,70 @@ class TestTranslateThread(QThread):
                 self._rec_proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self._rec_proc.kill()
+        self._stop_ad_hoc_daemon()
+
+    def _start_ad_hoc_daemon(self):
+        """Same logic as TestDicteeThread — spawn isolated daemon for wizard
+        pre-Finish tests. Returns socket path or None."""
+        if not self._wizard_env:
+            return None
+        backend = self._wizard_env.get("DICTEE_ASR_BACKEND", "parakeet")
+        # Map each backend to its daemon binary. Parakeet/Canary share the Rust
+        # transcribe-daemon (--socket arg); Vosk/Whisper are separate Python
+        # daemons that bind $DICTEE_TRANSCRIBE_SOCKET (set in env below).
+        daemon_bin = {
+            "parakeet": "transcribe-daemon",
+            "canary": "transcribe-daemon",
+            "vosk": "transcribe-daemon-vosk",
+            "whisper": "transcribe-daemon-whisper",
+        }.get(backend)
+        if not daemon_bin:
+            return None
+        sock = os.path.join(
+            tempfile.gettempdir(),
+            f"dictee-test-{os.getpid()}-{id(self)}.sock")
+        env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        if backend in ("parakeet", "canary"):
+            cmd = [daemon_bin, "--socket", sock]
+            if self._model_dir:
+                cmd.append(self._model_dir)
+            if backend == "canary":
+                cmd.append("--canary")
+        else:
+            # Vosk/Whisper read the socket path from the env above.
+            cmd = [daemon_bin]
+        try:
+            self._daemon_proc = subprocess.Popen(
+                cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        except FileNotFoundError:
+            return None
+        for _ in range(300):
+            if os.path.exists(sock):
+                self._daemon_socket = sock
+                return sock
+            if self._daemon_proc.poll() is not None:
+                return None
+            if self._stopped:
+                self._stop_ad_hoc_daemon()
+                return None
+            time.sleep(0.1)
+        self._stop_ad_hoc_daemon()
+        return None
+
+    def _stop_ad_hoc_daemon(self):
+        if self._daemon_proc and self._daemon_proc.poll() is None:
+            self._daemon_proc.terminate()
+            try:
+                self._daemon_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._daemon_proc.kill()
+        self._daemon_proc = None
+        if self._daemon_socket:
+            try:
+                os.remove(self._daemon_socket)
+            except FileNotFoundError:
+                pass
+            self._daemon_socket = None
 
     def _unmute_mic(self):
         """Auto-unmute mic, return True if was muted."""
@@ -2927,10 +3312,13 @@ class TestTranslateThread(QThread):
         return True, ""
 
     def _transcribe(self, wav_path):
-        """Transcribe via transcribe-client."""
+        """Transcribe via transcribe-client (socket override if ad-hoc daemon)."""
+        env = os.environ.copy()
+        if self._daemon_socket:
+            env["DICTEE_TRANSCRIBE_SOCKET"] = self._daemon_socket
         r = subprocess.run(
             ["transcribe-client", wav_path],
-            capture_output=True, text=True, timeout=15)
+            capture_output=True, text=True, timeout=30, env=env)
         if r.returncode == 0 and r.stdout.strip():
             text = r.stdout.strip()
             if self._postprocess and shutil.which("dictee-postprocess"):
@@ -2943,10 +3331,13 @@ class TestTranslateThread(QThread):
         return ""
 
     def _translate_canary(self, wav_path):
-        """Send to Canary daemon with target language."""
+        """Send to Canary daemon with target language (ad-hoc socket if wizard)."""
         import socket as _socket
-        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
-        sock_path = os.path.join(runtime, "transcribe.sock") if runtime else f"/tmp/transcribe-{os.getuid()}.sock"
+        if self._daemon_socket:
+            sock_path = self._daemon_socket
+        else:
+            runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+            sock_path = os.path.join(runtime, "transcribe.sock") if runtime else f"/tmp/transcribe-{os.getuid()}.sock"
         sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         sock.settimeout(15)
         sock.connect(sock_path)
@@ -3054,6 +3445,14 @@ class TestTranslateThread(QThread):
                 self.result.emit(_silence_message(_rms, self._silence_thr))
                 return
 
+            # Spawn ad-hoc daemon if in wizard pre-Finish mode (no system socket).
+            ad_hoc_sock = self._start_ad_hoc_daemon()
+            if self._wizard_env and not ad_hoc_sock:
+                self.result.emit(_("Error: ") + _(
+                    "Could not start the transcribe daemon. "
+                    "Make sure the model is downloaded and try again."))
+                return
+
             if self._asr_backend == "canary":
                 # Canary: single-pass ASR + translation
                 translated = self._translate_canary(wav_path)
@@ -3082,13 +3481,22 @@ class TestTranslateThread(QThread):
             self.result.emit(_("Timeout ({duration}s)").format(duration=self._duration))
         except Exception as e:
             self.result.emit(_("Error: ") + str(e))
+        finally:
+            self._stop_ad_hoc_daemon()
 
 
 class TestDicteeThread(QThread):
-    """Enregistre le micro puis transcrit via transcribe-client <fichier>."""
+    """Enregistre le micro puis transcrit via transcribe-client <fichier>.
+
+    En mode wizard pré-Finish, `wizard_env` (dict d'env vars
+    DICTEE_ASR_BACKEND/LANG_SOURCE/...) déclenche le démarrage d'un daemon
+    transcribe-daemon ad-hoc sur un socket dédié — évite d'écrire dictee.conf
+    et de démarrer un service systemd avant que l'utilisateur valide.
+    """
     result = Signal(str)
 
-    def __init__(self, duration=5, postprocess=False, silence_threshold=None, parent=None):
+    def __init__(self, duration=5, postprocess=False, silence_threshold=None,
+                 wizard_env=None, model_dir=None, parent=None):
         super().__init__(parent)
         self._rec_proc = None
         self._duration = duration
@@ -3097,6 +3505,10 @@ class TestDicteeThread(QThread):
             silence_threshold if silence_threshold is not None
             else _read_silence_threshold_from_conf())
         self._stopped = False
+        self._wizard_env = wizard_env  # dict or None
+        self._model_dir = model_dir
+        self._daemon_proc = None
+        self._daemon_socket = None
 
     def stop(self):
         self._stopped = True
@@ -3106,6 +3518,74 @@ class TestDicteeThread(QThread):
                 self._rec_proc.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self._rec_proc.kill()
+        self._stop_ad_hoc_daemon()
+
+    def _start_ad_hoc_daemon(self):
+        """Spawn an isolated transcribe-daemon for wizard pre-Finish tests.
+        Returns the socket path on success, None if not in wizard_env mode
+        or on failure (caller falls back to system socket)."""
+        if not self._wizard_env:
+            return None
+        backend = self._wizard_env.get("DICTEE_ASR_BACKEND", "parakeet")
+        # Map each backend to its daemon binary. Parakeet/Canary share the Rust
+        # transcribe-daemon (--socket arg); Vosk/Whisper are separate Python
+        # daemons that bind $DICTEE_TRANSCRIBE_SOCKET (set in env below).
+        daemon_bin = {
+            "parakeet": "transcribe-daemon",
+            "canary": "transcribe-daemon",
+            "vosk": "transcribe-daemon-vosk",
+            "whisper": "transcribe-daemon-whisper",
+        }.get(backend)
+        if not daemon_bin:
+            return None
+        sock = os.path.join(
+            tempfile.gettempdir(),
+            f"dictee-test-{os.getpid()}-{id(self)}.sock")
+        env = {**os.environ, **self._wizard_env, "DICTEE_TRANSCRIBE_SOCKET": sock}
+        if backend in ("parakeet", "canary"):
+            cmd = [daemon_bin, "--socket", sock]
+            if self._model_dir:
+                cmd.append(self._model_dir)
+            if backend == "canary":
+                cmd.append("--canary")
+        else:
+            # Vosk/Whisper read the socket path from the env above.
+            cmd = [daemon_bin]
+        try:
+            self._daemon_proc = subprocess.Popen(
+                cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        except FileNotFoundError:
+            return None
+        # Wait up to 30s for socket file (model load can take time on cold start).
+        for _ in range(300):
+            if os.path.exists(sock):
+                self._daemon_socket = sock
+                return sock
+            if self._daemon_proc.poll() is not None:
+                # Daemon died early
+                return None
+            if self._stopped:
+                self._stop_ad_hoc_daemon()
+                return None
+            time.sleep(0.1)
+        # Timeout: kill and give up
+        self._stop_ad_hoc_daemon()
+        return None
+
+    def _stop_ad_hoc_daemon(self):
+        if self._daemon_proc and self._daemon_proc.poll() is None:
+            self._daemon_proc.terminate()
+            try:
+                self._daemon_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._daemon_proc.kill()
+        self._daemon_proc = None
+        if self._daemon_socket:
+            try:
+                os.remove(self._daemon_socket)
+            except FileNotFoundError:
+                pass
+            self._daemon_socket = None
 
     def run(self):
         wav_path = os.path.join(tempfile.gettempdir(), "dictee_test.wav")
@@ -3168,10 +3648,20 @@ class TestDicteeThread(QThread):
                 self.result.emit(_silence_message(_rms, self._silence_thr))
                 return
 
+            # Spawn ad-hoc daemon if in wizard pre-Finish mode (no system socket).
+            ad_hoc_sock = self._start_ad_hoc_daemon()
+            if self._wizard_env and not ad_hoc_sock:
+                self.result.emit(_("Error: ") + _(
+                    "Could not start the transcribe daemon. "
+                    "Make sure the model is downloaded and try again."))
+                return
+            client_env = os.environ.copy()
+            if ad_hoc_sock:
+                client_env["DICTEE_TRANSCRIBE_SOCKET"] = ad_hoc_sock
             # Transcrire via transcribe-client <fichier>
             r = subprocess.run(
                 ["transcribe-client", wav_path],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True, text=True, timeout=30, env=client_env,
             )
             if r.returncode == 0 and r.stdout.strip():
                 text = r.stdout.strip()
@@ -3193,6 +3683,7 @@ class TestDicteeThread(QThread):
         except FileNotFoundError as e:
             self.result.emit(_("Error: ") + str(e))
         finally:
+            self._stop_ad_hoc_daemon()
             try:
                 os.remove(wav_path)
             except OSError:
@@ -3990,14 +4481,20 @@ class LLMProviderEditDialog(QDialog):
         self._num_ctx_spin.setRange(512, 131072)
         self._num_ctx_spin.setSingleStep(2048)
         self._num_ctx_spin.setValue(int((provider or {}).get("num_ctx", 16384)))
-        self._num_ctx_spin.setSuffix(" " + _("tokens"))
         self._num_ctx_spin.setToolTip(_tt(_(
             "Context window passed to Ollama (num_ctx). Defaults to 2048 "
             "in Ollama itself — too small for full transcripts. 16384 "
             "covers a 30-min audio without hallucinating; raise if your "
             "transcripts are longer.")))
         self._lbl_num_ctx = QLabel(_("Context window:"))
-        form.addRow(self._lbl_num_ctx, self._num_ctx_spin)
+        _num_ctx_w = QWidget()
+        _num_ctx_lay = QHBoxLayout(_num_ctx_w)
+        _num_ctx_lay.setContentsMargins(0, 0, 0, 0)
+        _num_ctx_lay.setSpacing(6)
+        _num_ctx_lay.addWidget(self._num_ctx_spin)
+        _num_ctx_lay.addWidget(QLabel(_("tokens")))
+        _num_ctx_lay.addStretch()
+        form.addRow(self._lbl_num_ctx, _num_ctx_w)
 
         self._no_think_check = QCheckBox(
             _("Disable thinking (reasoning models)"))
@@ -4857,8 +5354,26 @@ class LLMProfilesDialog(QDialog):
         self.accept()
 
 
+class SourceComboBox(QComboBox):
+    """Audio-source combo that re-scans the system each time its dropdown opens,
+    so apps/sources that appeared after the page was shown turn up without a
+    manual refresh. `refresh` rebuilds the items while preserving the selection.
+    Mirrors the plasmoid and the meeting window (dictee-meeting-live)."""
+
+    def __init__(self, refresh):
+        super().__init__()
+        self._refresh = refresh
+
+    def showPopup(self):
+        try:
+            self._refresh()
+        except Exception:
+            pass
+        super().showPopup()
+
+
 class DicteeSetupDialog(QDialog):
-    def __init__(self, wizard=False, open_postprocess=False, open_translation=False):
+    def __init__(self, wizard=False, first_run=False, open_postprocess=False, open_translation=False):
         super().__init__()
         _conf_exists = os.path.exists(CONF_PATH)
         _setup_done = False
@@ -4866,6 +5381,7 @@ class DicteeSetupDialog(QDialog):
             _tmp = load_config()
             _setup_done = (_tmp.get("DICTEE_SETUP_DONE", "") == "true")
         self.wizard_mode = wizard or not _conf_exists or not _setup_done
+        self._force_first_run = first_run  # dev flag — simule l'expérience première fois
         self._wizard_finished = False
         self._conf_existed_before_wizard = _conf_exists
         self.setWindowTitle(_("Voice dictation configuration"))
@@ -4888,7 +5404,12 @@ class DicteeSetupDialog(QDialog):
             self._command_suffixes[code] = _tmp_conf.get(
                 f"DICTEE_COMMAND_SUFFIX_{code.upper()}",
                 _sfx_defaults.get(code, ""))
-        self._test_thread = None
+        # Two separate handles: a shared _test_thread was a tab-target bug —
+        # clicking "Test translation" while "Test dictation" was still running
+        # stopped the dictation thread, swapped the handle, and the late
+        # `result` signal of the original landed on the translation UI.
+        self._test_dictee_thread = None
+        self._test_translate_thread = None
         self._dirty = True  # config unsaved at start
         self._open_postprocess = open_postprocess
         self._open_translation = open_translation
@@ -4982,6 +5503,15 @@ class DicteeSetupDialog(QDialog):
         self._conf_resync_timer.setSingleShot(True)
         self._conf_resync_timer.setInterval(200)
         self._conf_resync_timer.timeout.connect(self._resync_external_toggles)
+
+        # In settings mode the UI was just loaded from the existing dictee.conf,
+        # so nothing is unsaved yet — clear the initial _dirty=True. Otherwise
+        # the first OK always re-ran _on_apply and popped the "Configuration
+        # saved" dialog even when the user changed nothing. Real edits set
+        # _dirty again via _mark_dirty. (Wizard/first-run keeps _dirty=True so
+        # Finish writes the defaults.)
+        if not self.wizard_mode:
+            self._dirty = False
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -5086,6 +5616,18 @@ class DicteeSetupDialog(QDialog):
             self._trpp_state["short_text"] = trpp_st
         if hasattr(self, "_refresh_pp_diagrams"):
             self._refresh_pp_diagrams()
+
+        # Keep the F9 dictation source combo in sync with DICTEE_AUDIO_SOURCE —
+        # the plasmoid writes the same key, so when it changes the source there,
+        # reflect it here too (and vice-versa via the plasmoid's config poll).
+        if hasattr(self, "cmb_audio_source"):
+            src = fresh.get("DICTEE_AUDIO_SOURCE", "") or ""
+            if self.cmb_audio_source.currentData() != src:
+                idx = self.cmb_audio_source.findData(src)
+                if idx >= 0:
+                    self.cmb_audio_source.blockSignals(True)
+                    self.cmb_audio_source.setCurrentIndex(idx)
+                    self.cmb_audio_source.blockSignals(False)
 
     @property
     def _pp_parent(self):
@@ -5317,7 +5859,11 @@ class DicteeSetupDialog(QDialog):
         _lld.addStretch()
         self._sidebar_stack.addWidget(self._llm_diarize_page)
 
-        # Section 10 : About (last) — lazy build (~120 ms for the logo
+        # Section 10 : Live meeting settings
+        self._meeting_page = self._build_page_meeting()
+        self._sidebar_stack.addWidget(self._meeting_page)
+
+        # Section 11 : About (last) — lazy build (~120 ms for the logo
         # pixmap + version probes). Never the initial page, so deferring
         # to a QTimer.singleShot keeps the window paint off the critical
         # path. Eager build is invoked from _on_item_changed if the user
@@ -5365,8 +5911,9 @@ class DicteeSetupDialog(QDialog):
         _add(pp_root, _("Dictionary"), 8, 3)
         _add(pp_root, _("LLM"), 8, 4)
         pp_root.setExpanded(True)
+        _add(tree, _("Live meeting"), 10)
         _add(tree, _("LLM Diarization"), 9)
-        _add(tree, _("About"), 10)
+        _add(tree, _("About"), 11)
 
         def _on_item_changed(current, previous):
             if current is None:
@@ -5543,6 +6090,84 @@ class DicteeSetupDialog(QDialog):
         inner = self._build_section_about()
         self._about_inner_layout.addWidget(inner)
 
+    def _build_page_meeting(self):
+        """Build the Live meeting configuration page."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+        layout.addWidget(QLabel("<h2>" + _("Live meeting") + "</h2>"))
+
+        layout.addSpacing(8)
+        layout.addWidget(QLabel(
+            _("Live meeting captures audio continuously and hands it off to the "
+              "dictation window for transcription + diarization + LLM analysis "
+              "when you stop it.")
+        ))
+
+        layout.addSpacing(12)
+        layout.addWidget(QLabel(_("Save folder:")))
+        lay_dir = QHBoxLayout()
+        lay_dir.setSpacing(8)
+        self.led_meeting_dir = QLineEdit(
+            self.conf.get("DICTEE_MEETING_DIR",
+                          os.path.join(os.path.expanduser("~"),
+                                       ".local", "share", "dictee", "meetings"))
+        )
+        btn_browse_meeting_dir = QPushButton(_("Browse..."))
+        btn_browse_meeting_dir.clicked.connect(self._browse_meeting_dir)
+        lay_dir.addWidget(self.led_meeting_dir, 1)
+        lay_dir.addWidget(btn_browse_meeting_dir)
+        layout.addLayout(lay_dir)
+
+        layout.addSpacing(12)
+        lay_chunk = QHBoxLayout()
+        lay_chunk.setSpacing(8)
+        lay_chunk.addWidget(QLabel(_("Live preview chunk duration:")))
+        self.sld_chunk = QSlider(Qt.Orientation.Horizontal)
+        self.sld_chunk.setMinimum(20)
+        self.sld_chunk.setMaximum(60)
+        try:
+            self.sld_chunk.setValue(int(self.conf.get("DICTEE_MEETING_CHUNK_S", "40")))
+        except ValueError:
+            self.sld_chunk.setValue(40)
+        self.lbl_chunk = QLabel(f"{self.sld_chunk.value()} s")
+        self.sld_chunk.valueChanged.connect(lambda v: self.lbl_chunk.setText(f"{v} s"))
+        lay_chunk.addWidget(self.sld_chunk, 1)
+        lay_chunk.addWidget(self.lbl_chunk)
+        layout.addLayout(lay_chunk)
+
+        layout.addSpacing(12)
+        layout.addWidget(QLabel("<b>" + _("Window behavior") + "</b>"))
+
+        self.chk_meeting_on_top = ToggleSwitch(_("Always keep window on top"))
+        self.chk_meeting_on_top.setChecked(
+            self.conf.get("DICTEE_MEETING_ALWAYS_ON_TOP", "true").lower() == "true"
+        )
+        layout.addWidget(self.chk_meeting_on_top)
+
+        self.chk_meeting_all_desktops = ToggleSwitch(_("Show window on all virtual desktops"))
+        self.chk_meeting_all_desktops.setChecked(
+            self.conf.get("DICTEE_MEETING_ALL_DESKTOPS", "false").lower() == "true"
+        )
+        layout.addWidget(self.chk_meeting_all_desktops)
+
+        layout.addStretch()
+        return page
+
+    def _browse_meeting_dir(self):
+        """Open a directory picker to set the meeting save folder."""
+        from PyQt6.QtWidgets import QFileDialog
+        current = self.led_meeting_dir.text().strip() or os.path.join(
+            os.path.expanduser("~"), ".local", "share", "dictee", "meetings"
+        )
+        path = QFileDialog.getExistingDirectory(
+            self, _("Select meeting save folder"), current,
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if path:
+            self.led_meeting_dir.setText(path)
+
     @staticmethod
     def _detect_install_type():
         """Return a dict describing how dictee is installed:
@@ -5559,8 +6184,14 @@ class DicteeSetupDialog(QDialog):
                 for line in (r.stdout or "").splitlines():
                     parts = line.split()
                     if len(parts) >= 2 and parts[1]:
+                        # pkg_name kept so _check_for_updates can match the
+                        # exact asset (avoids proposing dictee-cpu .deb to
+                        # a dictee-cuda user — the assets share the .deb
+                        # extension and the previous endswith() loop just
+                        # picked the first .deb alphabetically).
                         return {"kind": "deb", "label": f"{parts[0]} {parts[1]}",
-                                "asset_hint": ".deb"}
+                                "asset_hint": ".deb",
+                                "pkg_name": parts[0]}
             except Exception as _e:
                 _dbg_setup(f"silenced: {_e!r}")
         # rpm (Fedora/RHEL/openSUSE)
@@ -5576,17 +6207,20 @@ class DicteeSetupDialog(QDialog):
                     parts = line.split()
                     if len(parts) >= 2:
                         return {"kind": "rpm", "label": f"{parts[0]} {parts[1]}",
-                                "asset_hint": ".rpm"}
+                                "asset_hint": ".rpm",
+                                "pkg_name": parts[0]}
             except Exception as _e:
                 _dbg_setup(f"silenced: {_e!r}")
-        # pacman (Arch)
+        # pacman (Arch) — no binary asset published in the release (users
+        # build from source via PKGBUILD + makepkg -si). _check_for_updates
+        # surfaces the new version + manual install instructions.
         if shutil.which("pacman"):
             try:
                 r = subprocess.run(["pacman", "-Q", "dictee"],
                                    capture_output=True, text=True, timeout=5)
                 if r.returncode == 0 and r.stdout.strip():
                     return {"kind": "pacman", "label": r.stdout.strip(),
-                            "asset_hint": ".pkg.tar.zst"}
+                            "asset_hint": ""}
             except Exception as _e:
                 _dbg_setup(f"silenced: {_e!r}")
         # Source install detected via presence of Cargo.toml alongside
@@ -5594,6 +6228,13 @@ class DicteeSetupDialog(QDialog):
         if os.path.isfile(os.path.join(_script_dir, "Cargo.toml")):
             return {"kind": "source", "label": _("Source tree / git checkout"),
                     "asset_hint": ".tar.gz"}
+        # Tarball install detected if /usr/bin/dictee exists but no package
+        # manager claimed it. The "_amd64" segment in the asset_hint excludes
+        # the source tarball (dictee-X.Y.Z-source.tar.gz) so the user gets
+        # the pre-built binary archive.
+        if os.path.isfile("/usr/bin/dictee"):
+            return {"kind": "tarball", "label": _("Tarball install"),
+                    "asset_hint": "_amd64.tar.gz"}
         return {"kind": "unknown", "label": _("Unknown install type"),
                 "asset_hint": ""}
 
@@ -5676,17 +6317,38 @@ class DicteeSetupDialog(QDialog):
         accent_hex = self.palette().color(
             self.palette().ColorRole.Highlight).name()
 
-        # Find matching asset for the install type
+        # Find matching asset for the install type. For deb / rpm, also
+        # match the exact package name (dictee-cpu vs dictee-cuda vs dictee
+        # vs dictee-plasmoid) — otherwise a CUDA user would be offered
+        # the CPU .deb because it sorts first alphabetically.
         hint = install_info.get("asset_hint", "")
+        pkg_name = install_info.get("pkg_name", "")
+        kind = install_info.get("kind", "")
         asset_line = ""
         if hint:
             for asset in data.get("assets", []):
                 name = asset.get("name", "")
                 url = asset.get("browser_download_url", "")
-                if name.endswith(hint):
-                    asset_line = (f"<br>{_('Asset for your install')}: "
-                                  f"<a href='{url}' style='color:{accent_hex};'>{name}</a>")
-                    break
+                if not name.endswith(hint):
+                    continue
+                # When a package name is known, require the asset to
+                # start with it (with a "_" or "-" separator) so we
+                # don't pick dictee-cpu for a dictee-cuda install.
+                if pkg_name and not (name.startswith(pkg_name + "_")
+                                     or name.startswith(pkg_name + "-")):
+                    continue
+                asset_line = (f"<br>{_('Asset for your install')}: "
+                              f"<a href='{url}' style='color:{accent_hex};'>{name}</a>")
+                break
+        elif kind == "pacman":
+            # Arch users build from source via makepkg — no binary asset
+            # is shipped. Surface concrete install instructions instead.
+            asset_line = (
+                "<br><span style='font-size:12px; opacity:0.85;'>"
+                + _("Arch install: <code>git pull &amp;&amp; makepkg -si</code> "
+                    "from the dictee PKGBUILD directory, or <code>{cmd}</code>.").format(
+                        cmd="curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash")
+                + "</span>")
 
         if new_t > cur_t:
             lbl_status.setText(
@@ -5747,7 +6409,7 @@ class DicteeSetupDialog(QDialog):
             f"{_('Language')}: Python, Rust &amp; Bash</p>"
             f"<p><a href='https://github.com/rcspam/dictee' style='color:{accent_hex};'>"
             f"github.com/rcspam/dictee</a></p>"
-            f"<p style='font-size:11px; opacity:0.8; text-align:left;'>"
+            f"<p style='font-size:13px; opacity:0.8; text-align:left;'>"
             f"<b>{_('Built on')}:</b><br>"
             f"• Parakeet-TDT 0.6B v3 — CC-BY-4.0 (NVIDIA NeMo)<br>"
             f"• Canary 1B v2 — CC-BY-4.0 (NVIDIA NeMo)<br>"
@@ -5776,7 +6438,7 @@ class DicteeSetupDialog(QDialog):
             + _("Installation: {label}").format(label=install_info["label"]) +
             "</span>")
         lbl_install.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_install.setStyleSheet("font-size: 12px;")
+        lbl_install.setStyleSheet("font-size: 14px;")
         lay.addWidget(lbl_install)
 
         # Runtime mode (CUDA active vs CPU fallback) — visible so the user
@@ -5810,14 +6472,14 @@ class DicteeSetupDialog(QDialog):
         if _rt_html:
             lbl_runtime = QLabel(_rt_html)
             lbl_runtime.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl_runtime.setStyleSheet("font-size: 12px;")
+            lbl_runtime.setStyleSheet("font-size: 14px;")
             lay.addWidget(lbl_runtime)
 
         lbl_upd_status = QLabel(_("Click \"Check for updates\" to query GitHub."))
         lbl_upd_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_upd_status.setWordWrap(True)
         lbl_upd_status.setOpenExternalLinks(True)
-        lbl_upd_status.setStyleSheet("font-size: 12px;")
+        lbl_upd_status.setStyleSheet("font-size: 14px;")
         lay.addWidget(lbl_upd_status)
 
         btn_row = QHBoxLayout()
@@ -5873,6 +6535,7 @@ class DicteeSetupDialog(QDialog):
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
+            self.cmb_asr_backend.addItem("Whisper-Rust large-v3 (GPU)", "whisper-rust")
         self._set_combo_by_data(self.cmb_asr_backend, current_asr, 0)
         glay.addWidget(self.cmb_asr_backend)
 
@@ -5891,6 +6554,7 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
         self._build_canary_options(glay)
+        self._build_whisper_rust_options(glay)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
@@ -5898,9 +6562,14 @@ class DicteeSetupDialog(QDialog):
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
             self.w_canary_options.setVisible(backend == "canary")
+            self.w_whisper_rust_options.setVisible(backend == "whisper-rust")
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
+            # GPU-only backends (canary/whisper-rust) and CPU-only Vosk pin the
+            # Force CPU toggle — refresh it whenever the backend changes.
+            if hasattr(self, 'tgl_force_cpu'):
+                self._refresh_force_cpu_toggle_state()
         self.cmb_asr_backend.currentIndexChanged.connect(lambda: _on_asr_changed())
         _on_asr_changed()
 
@@ -5928,8 +6597,14 @@ class DicteeSetupDialog(QDialog):
         lay_opt.setSpacing(6)
         lay_opt.setContentsMargins(16, 16, 16, 12)
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
         lay_opt.addWidget(self.chk_clipboard)
+        self.lbl_clipboard_warn = QLabel(_(
+            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
+            "prevent the transcript from being typed into some Electron apps."))
+        self.lbl_clipboard_warn.setWordWrap(True)
+        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
+        lay_opt.addWidget(self.lbl_clipboard_warn)
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
@@ -5938,23 +6613,140 @@ class DicteeSetupDialog(QDialog):
 
         lay_ctx = QHBoxLayout()
         lay_ctx.setSpacing(8)
-        lbl_ctx = QLabel(_("Context duration (seconds):"))
-        lbl_ctx.setToolTip(_tt(_("Maximum duration of accumulated audio context. Also the inactivity timeout: the buffer expires after this many seconds without a non-empty dictation.")))
+        # Indent to align with the switch label text (ToggleSwitch track = 44 px + 8 px spacing)
+        lay_ctx.setContentsMargins(ToggleSwitch._TRACK_W + ToggleSwitch._TEXT_SPACING, 0, 0, 0)
+        self.lbl_audio_context = QLabel(_("Context duration:"))
+        self.lbl_audio_context.setToolTip(_tt(_("Maximum duration of accumulated audio context. Also the inactivity timeout: the buffer expires after this many seconds without a non-empty dictation.")))
         self.spin_audio_context_timeout = QSpinBox()
         self.spin_audio_context_timeout.setRange(5, 120)
         self.spin_audio_context_timeout.setValue(
             int(conf.get("DICTEE_AUDIO_CONTEXT_TIMEOUT", "30")))
-        self.spin_audio_context_timeout.setSuffix(" s")
-        lay_ctx.addWidget(lbl_ctx)
+        self.lbl_audio_context_unit = QLabel(_("seconds"))
+        lay_ctx.addWidget(self.lbl_audio_context)
         lay_ctx.addWidget(self.spin_audio_context_timeout)
+        lay_ctx.addWidget(self.lbl_audio_context_unit)
         lay_ctx.addStretch()
         lay_opt.addLayout(lay_ctx)
+        # Grey out the duration row when "Audio context buffer" is off
+        def _sync_audio_ctx_enabled(checked):
+            self.lbl_audio_context.setEnabled(checked)
+            self.spin_audio_context_timeout.setEnabled(checked)
+            self.lbl_audio_context_unit.setEnabled(checked)
+        _sync_audio_ctx_enabled(self.chk_audio_context.isChecked())
+        self.chk_audio_context.toggled.connect(_sync_audio_ctx_enabled)
 
         self.chk_debug = ToggleSwitch(_("Debug mode (log to /tmp)"))
         self.chk_debug.setChecked(conf.get("DICTEE_DEBUG", "true") == "true")
         self.chk_debug.setToolTip(_tt(_("Write detailed logs to /tmp/dictee-debug-*.log for troubleshooting dictation and continuation issues.")))
         lay_opt.addWidget(self.chk_debug)
         lay.addWidget(grp_options)
+
+        # Input devices (advanced) — push-to-talk device whitelist/blacklist and
+        # the dotool typing settle delay. Moved here from the shortcut page so
+        # the shortcut page stays focused on the keys themselves. Most users
+        # leave all three empty/zero.
+        grp_dev = QGroupBox(_("Input devices (advanced)"))
+        lay_dev = QVBoxLayout(grp_dev)
+        lay_dev.setSpacing(6)
+        lay_dev.setContentsMargins(16, 16, 16, 12)
+
+        lbl_extra = QLabel(_("Extra input devices") + " :")
+        lay_dev.addWidget(lbl_extra)
+
+        row_extra = QHBoxLayout()
+        self.txt_ptt_extra_devices = QLineEdit()
+        self.txt_ptt_extra_devices.setPlaceholderText(
+            _("e.g. LogiOps Virtual Input, keyd virtual keyboard"))
+        self.txt_ptt_extra_devices.setText(
+            conf.get("DICTEE_PTT_EXTRA_DEVICES", ""))
+        self.txt_ptt_extra_devices.setToolTip(_tt(_(
+            "Comma-separated names (case-insensitive, substring match). "
+            "Use this if you trigger dictation via a mouse button or key "
+            "remapped through tools like logiops, keyd, kanata, xremap or "
+            "input-remapper. Most users leave this empty.")))
+        row_extra.addWidget(self.txt_ptt_extra_devices, 1)
+
+        btn_detect_devices = QPushButton(_("Detect…"))
+        btn_detect_devices.setToolTip(_tt(_(
+            "Scan input devices and pick virtual keyboards to whitelist")))
+        btn_detect_devices.setFixedWidth(120)
+        btn_detect_devices.clicked.connect(self._on_detect_extra_devices)
+        row_extra.addWidget(btn_detect_devices)
+        lay_dev.addLayout(row_extra)
+
+        lbl_extra_help = QLabel(_(
+            "For mouse buttons or keys remapped via logiops, keyd, etc. "
+            "Most users don't need this."))
+        lbl_extra_help.setWordWrap(True)
+        lbl_extra_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_dev.addWidget(lbl_extra_help)
+
+        lay_dev.addSpacing(8)
+        lbl_exclude = QLabel(_("Exclude input devices") + " :")
+        lay_dev.addWidget(lbl_exclude)
+
+        row_exclude = QHBoxLayout()
+        self.txt_ptt_exclude_devices = QLineEdit()
+        self.txt_ptt_exclude_devices.setPlaceholderText(
+            _("e.g. Logitech USB Receiver"))
+        self.txt_ptt_exclude_devices.setText(
+            conf.get("DICTEE_PTT_EXCLUDE_DEVICES", ""))
+        self.txt_ptt_exclude_devices.setToolTip(_tt(_(
+            "Comma-separated EXACT device names that push-to-talk must NOT grab, "
+            "so another tool can keep them (e.g. input-remapper grabbing your "
+            "physical keyboard). dictee then listens to that tool's forwarded "
+            "device instead. Match is exact, not substring. Most users leave "
+            "this empty.")))
+        row_exclude.addWidget(self.txt_ptt_exclude_devices, 1)
+
+        btn_detect_exclude = QPushButton(_("Detect…"))
+        btn_detect_exclude.setToolTip(_tt(_(
+            "Scan input devices and pick the physical keyboard to exclude")))
+        btn_detect_exclude.setFixedWidth(120)
+        btn_detect_exclude.clicked.connect(self._on_detect_exclude_devices)
+        row_exclude.addWidget(btn_detect_exclude)
+        lay_dev.addLayout(row_exclude)
+
+        lbl_exclude_help = QLabel(_(
+            "Only needed if a tool such as input-remapper grabs your keyboard "
+            "and push-to-talk stops working. Most users don't need this."))
+        lbl_exclude_help.setWordWrap(True)
+        lbl_exclude_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_dev.addWidget(lbl_exclude_help)
+
+        lay_dev.addSpacing(8)
+        lbl_settle = QLabel(_("Typing delay") + " :")
+        lay_dev.addWidget(lbl_settle)
+
+        row_settle = QHBoxLayout()
+        self.spin_dotool_settle = QDoubleSpinBox()
+        self.spin_dotool_settle.setRange(0.0, 10.0)
+        self.spin_dotool_settle.setSingleStep(0.1)
+        self.spin_dotool_settle.setDecimals(1)
+        self.spin_dotool_settle.setSuffix(" s")
+        try:
+            self.spin_dotool_settle.setValue(
+                float(conf.get("DICTEE_DOTOOL_SETTLE", "0") or "0"))
+        except ValueError:
+            self.spin_dotool_settle.setValue(0.0)
+        self.spin_dotool_settle.setFixedWidth(120)
+        self.spin_dotool_settle.setToolTip(_tt(_(
+            "Delay before the dictated text is typed, in seconds. Leave at 0 "
+            "unless dictation types nothing on Wayland. Tools like "
+            "input-remapper can delay the virtual keyboard binding so the text "
+            "is sent too early and lost; a delay of 1-2 s fixes it. 0 = off.")))
+        row_settle.addWidget(self.spin_dotool_settle)
+        row_settle.addStretch(1)
+        lay_dev.addLayout(row_settle)
+
+        lbl_settle_help = QLabel(_(
+            "Set 1-2 s only if dictation types nothing on Wayland (e.g. with "
+            "input-remapper). 0 = off. Most users don't need this."))
+        lbl_settle_help.setWordWrap(True)
+        lbl_settle_help.setStyleSheet("color: #888; font-size: 11px;")
+        lay_dev.addWidget(lbl_settle_help)
+
+        lay.addWidget(grp_dev)
 
     def _build_subpage_notifications(self, lay, conf):
         grp_notif = QGroupBox(_("Notifications"))
@@ -6108,13 +6900,14 @@ class DicteeSetupDialog(QDialog):
         nav = QHBoxLayout()
         nav.setContentsMargins(20, 8, 20, 16)
 
-        self._is_first_setup = (self.conf.get("DICTEE_SETUP_DONE", "") != "true")
+        self._is_first_setup = (self.conf.get("DICTEE_SETUP_DONE", "") != "true") or getattr(self, "_force_first_run", False)
 
         self.btn_prev = QPushButton(_("Previous"))
         self.btn_prev.clicked.connect(self._wizard_prev)
         nav.addWidget(self.btn_prev)
 
         self.btn_cancel_wizard = QPushButton(_("Quit setup"))
+        self.btn_cancel_wizard.setStyleSheet("font-weight: bold;")
         self.btn_cancel_wizard.clicked.connect(self.close)
         self.btn_cancel_wizard.setVisible(self._is_first_setup)
         nav.addWidget(self.btn_cancel_wizard)
@@ -6123,6 +6916,22 @@ class DicteeSetupDialog(QDialog):
         self.lbl_step.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nav.addWidget(self.lbl_step, 1)
 
+        # Quick install — visible only on page 0 (welcome). Applies the
+        # recommended setup WITHOUT translation backend (lighter, no Docker
+        # image to download). Right next to the primary "Start configuration"
+        # button so users see both choices on the same line.
+        self.btn_quick_install = QPushButton("🚀 " + _("Quick install\n(no translation)"))
+        self.btn_quick_install.setToolTip(_(
+            "One-click setup: ASR + tray + shortcut, no translation. "
+            "You can enable translation later from the setup."))
+        self.btn_quick_install.setStyleSheet(
+            "QPushButton { padding: 10px 22px; font-weight: bold; "
+            "background: palette(button); color: palette(button-text); "
+            "border: 1px solid palette(mid); border-radius: 4px; }"
+            "QPushButton:hover { background: palette(midlight); }")
+        self.btn_quick_install.clicked.connect(self._on_quick_install_clicked)
+        nav.addWidget(self.btn_quick_install)
+
         self.btn_next = QPushButton(_("Next"))
         self.btn_next.clicked.connect(self._wizard_next)
         nav.addWidget(self.btn_next)
@@ -6130,10 +6939,21 @@ class DicteeSetupDialog(QDialog):
         outer.addLayout(nav)
         self._update_wizard_nav()
 
+    def _on_quick_install_clicked(self):
+        """Apply recommended setup with translation forced off."""
+        args = getattr(self, '_quick_install_args', None)
+        if args:
+            self._apply_recommended_setup(*args)
+
     def _update_wizard_nav(self):
         idx = self.stack.currentIndex()
         total = self.stack.count()
-        self.btn_prev.setEnabled(idx > 0)
+        # Hide Previous on welcome page (no prior step). Enabled state was
+        # confusing — showing a permanently-disabled button on page 0.
+        self.btn_prev.setVisible(idx > 0)
+        # Quick install button: only on welcome page (page 0).
+        if hasattr(self, 'btn_quick_install'):
+            self.btn_quick_install.setVisible(idx == 0)
         if idx == 0:
             self.lbl_step.setText("")
         else:
@@ -6142,8 +6962,11 @@ class DicteeSetupDialog(QDialog):
             self.btn_next.setText(_("Finish"))
             self.btn_next.setStyleSheet("font-weight: bold; background: #4a4; color: white; padding: 8px 20px; border-radius: 4px;")
         elif idx == 0:
-            self.btn_next.setText(_("Start configuration"))
-            self.btn_next.setStyleSheet("font-weight: bold; font-size: 15px; padding: 10px 28px;")
+            self.btn_next.setText(_("Start complete\nsetup"))
+            self.btn_next.setStyleSheet(
+                "QPushButton { padding: 10px 22px; font-weight: bold; "
+                "background: palette(highlight); color: palette(highlighted-text); "
+                "border-radius: 4px; }")
         else:
             self.btn_next.setText(_("Next"))
             self.btn_next.setStyleSheet("")
@@ -6213,9 +7036,80 @@ class DicteeSetupDialog(QDialog):
             # Update canary translation visibility when entering translation page
             self._update_canary_translation_visibility()
             if idx + 1 == self.stack.count() - 1:
-                # Entering checks page — save config, start services, verify
-                self._on_apply()
+                # Entering checks page — read-only verification of prerequisites
+                # (services exist, model installed, audio device, etc.).
+                # No write to dictee.conf, no service start: the test buttons
+                # spawn an ad-hoc transcribe-daemon on a dedicated socket when
+                # clicked, so nothing is persisted before the user clicks Finish.
                 self._run_wizard_checks()
+                self._update_test_buttons_state()
+
+    def _update_test_buttons_state(self):
+        """Désactive le bouton test traduction si aucun backend translate sélectionné.
+        En wizard mode, désactive aussi les tests pour Vosk/Whisper (ad-hoc
+        daemon ne supporte que Parakeet/Canary — Vosk/Whisper testables après Finish).
+        Met aussi à jour le résumé translation."""
+        # Translation summary row
+        if hasattr(self, '_lbl_translation_summary'):
+            wt = getattr(self, '_wizard_trans', '') or ""
+            labels = {
+                "libretranslate": _("LibreTranslate (local)"),
+                "ollama": _("Ollama (local LLM)"),
+                "google": _("Google (cloud — sends text to Google)"),
+                "bing": _("Bing (cloud — sends text to Microsoft)"),
+            }
+            if wt:
+                msg = _("Translation: {backend}").format(backend=labels.get(wt, wt))
+            else:
+                msg = _("Translation: disabled — click Configure to enable")
+            self._lbl_translation_summary.setText(msg)
+        asr = getattr(self, '_wizard_asr', '') or self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        wizard_unsupported = self.wizard_mode and asr not in ("parakeet", "canary")
+        if hasattr(self, 'btn_test_dictee'):
+            self.btn_test_dictee.setEnabled(not wizard_unsupported)
+            if wizard_unsupported:
+                self.btn_test_dictee.setToolTip(
+                    _("Test available after Finish (Vosk/Whisper require system daemon)"))
+            else:
+                self.btn_test_dictee.setToolTip("")
+        if hasattr(self, 'btn_test_translate'):
+            has_translate = bool(getattr(self, '_wizard_trans', ''))
+            self.btn_test_translate.setEnabled(has_translate and not wizard_unsupported)
+            if wizard_unsupported:
+                self.btn_test_translate.setToolTip(
+                    _("Test available after Finish (Vosk/Whisper require system daemon)"))
+            elif not has_translate:
+                self.btn_test_translate.setToolTip(_("No translation backend selected"))
+            else:
+                self.btn_test_translate.setToolTip("")
+
+    def _wizard_test_env(self):
+        """Build env vars for an ad-hoc transcribe-daemon spawned by the test
+        buttons. Returns None when the system daemon should be used instead:
+        - settings mode (wizard_mode=False) — daemon already runs
+        - reconfig wizard on an already-configured install (conf existed and
+          DICTEE_SETUP_DONE=true) — re-use the running system daemon to avoid
+          a useless model-load roundtrip
+        - backends without transcribe-daemon support (vosk/whisper)
+        Otherwise (true first-run) returns env vars for the ad-hoc daemon.
+        """
+        if not self.wizard_mode:
+            return None
+        asr = getattr(self, '_wizard_asr', '') or self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
+        if asr not in ("parakeet", "canary"):
+            return None
+        setup_done = self.conf.get("DICTEE_SETUP_DONE", "") == "true"
+        if getattr(self, '_conf_existed_before_wizard', False) and setup_done:
+            return None  # post-install reconfig: use system daemon
+        env = {"DICTEE_ASR_BACKEND": asr}
+        src = "fr"
+        for attr in ("cmb_lang", "combo_src"):
+            cmb = getattr(self, attr, None)
+            if cmb is not None and cmb.currentData():
+                src = cmb.currentData()
+                break
+        env["DICTEE_LANG_SOURCE"] = src
+        return env
 
     def _validate_wizard_page(self, idx):
         """Valide la page courante avant d'avancer. Retourne True si OK."""
@@ -6268,16 +7162,65 @@ class DicteeSetupDialog(QDialog):
                       "Please click 'Fix' above."))
                 return False
         elif idx == 5:
-            # Translation config page: if libretranslate, user must be in 'docker' group
-            if hasattr(self, 'cmb_translate_backend'):
-                backend = self.cmb_translate_backend.currentData()
-                if backend == "libretranslate":
-                    if not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False):
-                        QMessageBox.warning(self, _("Group required"),
-                            _("Docker permissions are required for LibreTranslate.\n"
-                              "Please click 'Fix permissions' above."))
-                        return False
+            # Translation config page — pre-check that the chosen backend's
+            # binary is actually installed before letting the user move on,
+            # otherwise Apply would later fail silently. The previous check
+            # used `cmb_translate_backend` which doesn't exist in the modern
+            # card-based wizard (the choice is in `_wizard_trans` set by
+            # _on_trans_card_click on page 4).
+            #
+            # Skip all checks if the user opted out via the "No translation"
+            # toggle on page 4.
+            if hasattr(self, '_chk_trans_disabled') and self._chk_trans_disabled.isChecked():
+                return True
+            backend = getattr(self, '_wizard_trans', '')
+            if backend == "libretranslate":
+                # Distinct messages for "docker not installed" vs "docker
+                # installed but not accessible" — the previous single
+                # "Docker permissions" wording was misleading when docker
+                # was simply absent (FileNotFoundError).
+                if not shutil.which("docker"):
+                    return self._translate_required_dialog(
+                        _("Docker required"),
+                        _("LibreTranslate needs Docker, which is not installed.\n\n"
+                          "Install via:\n"
+                          "  Debian/Ubuntu: sudo apt install docker.io\n"
+                          "  Fedora: sudo dnf install moby-engine\n"
+                          "  Arch: sudo pacman -S docker"))
+                if not docker_is_accessible() and not getattr(self, '_docker_group_fixed', False):
+                    return self._translate_required_dialog(
+                        _("Docker permissions required"),
+                        _("Docker is installed but not accessible. Make sure the\n"
+                          "Docker service is running, and that your user is in\n"
+                          "the 'docker' group. Use the 'Fix permissions' button\n"
+                          "on this page if available."))
+            elif backend == "ollama":
+                if not shutil.which("ollama"):
+                    return self._translate_required_dialog(
+                        _("Ollama required"),
+                        _("Ollama is not installed. Install via:\n\n"
+                          "  curl -fsSL https://ollama.com/install.sh | sh"))
         return True
+
+    def _translate_required_dialog(self, title, text):
+        """Show 'XX required' dialog with [Disable translation and continue] /
+        [Go back] buttons. Returns True if user chose to disable translation
+        (validate_wizard_page returns True → wizard advances), False to stay."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        btn_disable = msg.addButton(_("Disable translation and continue"),
+                                    QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton(_("Go back"), QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+        if msg.clickedButton() is btn_disable:
+            if hasattr(self, '_chk_trans_disabled'):
+                self._chk_trans_disabled.setChecked(True)
+            else:
+                self._wizard_trans = ""
+            return True
+        return False
 
     # -- Project logos grid --
 
@@ -6370,7 +7313,10 @@ class DicteeSetupDialog(QDialog):
                 break
         lbl_ver = QLabel(f"v{_ver}")
         lbl_ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_ver.setStyleSheet("font-size: 14px; opacity: 0.5;")
+        _vf = QFont()
+        _vf.setPointSize(max(QApplication.font().pointSize(), 9) + 2)
+        lbl_ver.setFont(_vf)
+        lbl_ver.setStyleSheet("opacity: 0.6;")
         lay.addWidget(lbl_ver)
 
         lay.addStretch(3)
@@ -6397,8 +7343,222 @@ class DicteeSetupDialog(QDialog):
         if logos_widget:
             lay.addWidget(logos_widget)
 
+        # Recommended setup card (QW7) — hardware detection + 1-click setup.
+        # Goal: an evaluator who wants to test fast can skip pages 1-6 and land
+        # directly on the test page with sensible defaults pre-filled. Pages
+        # remain accessible via "Next" for users who prefer manual config.
+        lay.addSpacing(16)
+        rec_card = self._build_recommended_setup_card()
+        if rec_card:
+            lay.addWidget(rec_card)
+
         lay.addStretch(1)
         self.stack.addWidget(page)
+
+    def _build_recommended_setup_card(self):
+        """Build the 'Recommended setup' card on the welcome page (QW7).
+
+        Detects hardware (GPU/RAM/desktop/lang), shows what was found, what
+        will be configured, and offers a single 'Use recommended setup' button
+        that pre-fills choices and jumps directly to the final test page.
+        """
+        ram_gb, gpu_name, gpu_total, _gpu_free = self._get_system_info()
+        lang_env = os.environ.get("LANG") or os.environ.get("LC_ALL") or ""
+        lang_code = (lang_env.split(".")[0].split("_")[0] if lang_env else "en").lower() or "en"
+        de_label, de_type = detect_desktop()
+        is_kde = de_type == "kde"
+
+        backend = self._get_recommended_backend(ram_gb, gpu_total)
+        backend_label = {"parakeet": "Parakeet-TDT v3", "canary": "Canary 1B v2",
+                         "whisper": "faster-whisper", "vosk": "Vosk"}.get(backend, backend)
+        # Parakeet's recommended quantization is hardware-dependent — show it.
+        if backend == "parakeet":
+            backend_label += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
+        cuda_suffix = ""
+        if backend in ("parakeet", "canary", "whisper") and gpu_total >= 4:
+            cuda_suffix = " " + _("with CUDA")
+        elif backend in ("parakeet", "whisper"):
+            cuda_suffix = " " + _("(CPU mode)")
+
+        # Translation auto-enable: non-English system language + enough RAM + a
+        # local backend (LibreTranslate or Ollama). Cascade local-first to keep
+        # dictee's "100% local" promise — never auto-pick Google/Bing (cloud).
+        docker_ok = bool(shutil.which("docker"))
+        ollama_ok = bool(shutil.which("ollama"))
+        if docker_ok:
+            translate_local_choice = "libretranslate"
+        elif ollama_ok:
+            translate_local_choice = "ollama"
+        else:
+            translate_local_choice = ""
+        translate_auto = (lang_code != "en" and ram_gb >= 8
+                          and bool(translate_local_choice))
+
+        # Build detection description
+        det_lines = []
+        if gpu_total > 0:
+            det_lines.append("• " + _("NVIDIA GPU detected: {name} ({vram:.1f} GB VRAM)").format(
+                name=gpu_name or _("GPU"), vram=gpu_total))
+        else:
+            det_lines.append("• " + _("No NVIDIA GPU detected — CPU mode"))
+        det_lines.append("• " + _("RAM: {ram:.1f} GB").format(ram=ram_gb if ram_gb else 0))
+        det_lines.append("• " + _("Desktop: {de}").format(de=de_label))
+        det_lines.append("• " + _("System language: {lang}").format(lang=lang_code))
+
+        # Build recommendation description
+        rec_lines = ["• " + _("ASR backend:") + f" <b>{backend_label}{cuda_suffix}</b>"]
+        if is_kde:
+            rec_lines.append("• " + _("KDE plasmoid widget enabled"))
+        else:
+            rec_lines.append("• " + _("System tray (no plasmoid on this desktop)"))
+        rec_lines.append("• " + _("Push-to-talk on F9 (change later if needed)"))
+        if translate_auto and translate_local_choice == "libretranslate":
+            rec_lines.append("• " + _("Translation: LibreTranslate ({src} → EN, fully local)").format(src=lang_code))
+        elif translate_auto and translate_local_choice == "ollama":
+            rec_lines.append("• " + _("Translation: Ollama ({src} → EN, local LLM)").format(src=lang_code))
+        elif lang_code != "en":
+            rec_lines.append("• " + _("Translation: off — install Docker or Ollama for local translation"))
+        else:
+            rec_lines.append("• " + _("Translation: off (you can enable later)"))
+
+        card = QWidget()
+        card.setStyleSheet(
+            "QWidget#dictee_rec_card { border: 1px solid palette(mid); "
+            "border-radius: 8px; padding: 16px; background: palette(alternate-base); }")
+        card.setObjectName("dictee_rec_card")
+        card.setMinimumHeight(290)
+        clay = QVBoxLayout(card)
+        clay.setSpacing(14)
+        clay.setContentsMargins(28, 24, 28, 24)
+
+        # Two columns side-by-side: Detected (left) | Recommended (right)
+        # Avoids vertical overflow on smaller windows (VM, lower-DPI screens).
+        cols = QHBoxLayout()
+        cols.setSpacing(24)
+
+        # Use relative font sizes (+N pt over the system base) so the rendered
+        # size is consistent across themes — Qt CSS font-size in absolute pt
+        # was rendering noticeably smaller on Adwaita-light (VM) than on
+        # Breeze-dark (host dev).
+        base_pt = max(QApplication.font().pointSize(), 9)
+        f_title = QFont()
+        f_title.setPointSize(base_pt + 4)
+        f_title.setBold(True)
+        f_text = QFont()
+        f_text.setPointSize(base_pt + 2)
+        f_text_bold = QFont(f_text)
+        f_text_bold.setBold(True)
+
+        col_det = QVBoxLayout()
+        col_det.setSpacing(8)
+        det_title = QLabel(_("Detected on your machine:"))
+        det_title.setFont(f_title)
+        det_title.setStyleSheet("padding-bottom: 4px;")
+        col_det.addWidget(det_title)
+        det = QLabel("<br>".join(det_lines))
+        det.setFont(f_text)
+        det.setTextFormat(Qt.TextFormat.RichText)
+        det.setWordWrap(True)
+        det.setAlignment(Qt.AlignmentFlag.AlignTop)
+        col_det.addWidget(det, 1)
+        cols.addLayout(col_det, 1)
+
+        col_rec = QVBoxLayout()
+        col_rec.setSpacing(8)
+        rec_title = QLabel(_("Recommended setup:"))
+        rec_title.setFont(f_title)
+        rec_title.setStyleSheet("color: #27ae60; padding-bottom: 4px;")
+        col_rec.addWidget(rec_title)
+        rec = QLabel("<br>".join(rec_lines))
+        rec.setFont(f_text_bold)
+        rec.setStyleSheet("color: #27ae60;")
+        rec.setTextFormat(Qt.TextFormat.RichText)
+        rec.setWordWrap(True)
+        rec.setAlignment(Qt.AlignmentFlag.AlignTop)
+        col_rec.addWidget(rec, 1)
+        cols.addLayout(col_rec, 1)
+
+        clay.addLayout(cols)
+        clay.addSpacing(8)
+
+        # Buttons live in the bottom nav bar (Quick install + Start configuration),
+        # not in the card itself. Stash the apply args so the nav handlers can use
+        # them when the user clicks the corresponding button on page 0.
+        self._quick_install_args = (backend, is_kde, False, lang_code, "")
+        self._standard_setup_args = (backend, is_kde, translate_auto, lang_code,
+                                     translate_local_choice)
+        return card
+
+    def _apply_recommended_setup(self, backend, is_kde, translate_auto,
+                                 lang_code, translate_local_choice=""):
+        """Apply the recommended setup and jump to the final test page (QW7).
+
+        Pre-fills the wizard state (ASR backend, plasmoid, translation) and
+        jumps to the last page so the user can review the checks and click
+        Finish. Pages 1-6 remain navigable via Previous if the user changes
+        their mind.
+        """
+        # ASR backend — set both the internal state AND the combo widget so
+        # the page 1 selection card UI reflects the choice if the user goes back.
+        self._wizard_asr = backend
+        if hasattr(self, "cmb_asr_backend"):
+            for i in range(self.cmb_asr_backend.count()):
+                if self.cmb_asr_backend.itemData(i) == backend:
+                    self.cmb_asr_backend.setCurrentIndex(i)
+                    break
+
+        # Translation — local-first cascade. Never auto-pick Google/Bing (cloud).
+        if translate_auto and translate_local_choice:
+            self._wizard_trans = translate_local_choice
+            if hasattr(self, '_chk_trans_disabled') and self._chk_trans_disabled.isChecked():
+                self._chk_trans_disabled.blockSignals(True)
+                self._chk_trans_disabled.setChecked(False)
+                self._chk_trans_disabled.blockSignals(False)
+            if hasattr(self, "cmb_lang"):
+                # Source = system language, target = English (best supported)
+                for i in range(self.cmb_lang.count()):
+                    if self.cmb_lang.itemData(i) == lang_code:
+                        self.cmb_lang.setCurrentIndex(i)
+                        break
+        else:
+            # No local translation backend available (or English source).
+            # Don't silently fall back to Google/Bing — these are cloud
+            # services that send your text to remote servers, contradicting
+            # dictee's 100% local promise. Warn explicitly when the user
+            # would have benefited from translation.
+            if lang_code != "en":
+                QMessageBox.information(
+                    self, _("No local translation backend installed"),
+                    _("dictee aims to keep everything 100% local.\n\n"
+                      "To translate your dictation locally, install one of:\n\n"
+                      "  • LibreTranslate (Docker) — best quality, ~20 languages\n"
+                      "      sudo apt install docker.io\n"
+                      "      (Fedora: sudo dnf install moby-engine — Arch: sudo pacman -S docker)\n\n"
+                      "  • Ollama (local LLM) — uses any installed model\n"
+                      "      curl -fsSL https://ollama.com/install.sh | sh\n\n"
+                      "Google and Bing translation work too, but they send your text\n"
+                      "to remote servers. They're available manually in the wizard if\n"
+                      "you accept that trade-off, but recommended setup won't enable\n"
+                      "them automatically.\n\n"
+                      "Continuing without translation — you can enable it later from\n"
+                      "the dictee setup wizard."))
+            if hasattr(self, '_chk_trans_disabled'):
+                self._chk_trans_disabled.setChecked(True)
+            else:
+                self._wizard_trans = ""
+
+        # Plasmoid is auto-installed by postinst on KDE — we don't toggle it
+        # here; the user sees it after Finish if they're on KDE Plasma.
+
+        # Jump to the last page (test/checks). Same hooks as _wizard_next
+        # arriving on the last page: read-only checks. Nothing is persisted
+        # until Finish — test buttons spawn an ad-hoc daemon if used.
+        last = self.stack.count() - 1
+        self.stack.setCurrentIndex(last)
+        self._update_wizard_nav()
+        self._update_canary_translation_visibility()
+        self._run_wizard_checks()
+        self._update_test_buttons_state()
 
     # -- Wizard Page 1: ASR --
 
@@ -6437,6 +7597,47 @@ class DicteeSetupDialog(QDialog):
         if ram_gb < 4:
             return "vosk"
         return "parakeet"
+
+    def _detect_hw_tier(self):
+        """Mirror EXACT de transcribe-daemon-whisper._detect_hw_tier.
+
+        Returns (tier, cores, ram_gb, vram_gb) — entiers cohérents avec
+        le daemon. NE PAS factoriser via _get_system_info() qui arrondit
+        en float (round) : divergence visible dès qu'une mesure tombe
+        sur une frontière de tier — ex. RTX 4070 Laptop 8188 MiB donne
+        daemon=7 (//) mais round=8.0, l'UI afficherait 'ultra' alors
+        que le daemon utilise 'high'.
+        """
+        cores = os.cpu_count() or 4
+        ram_gb = 8  # fallback
+        try:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if line.startswith("MemTotal:"):
+                        ram_gb = int(line.split()[1]) // (1024 * 1024)
+                        break
+        except OSError:
+            pass
+        vram_gb = 0
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=memory.total",
+                 "--format=csv,noheader,nounits"],
+                timeout=2, text=True,
+            )
+            vram_gb = int(out.strip().split("\n")[0]) // 1024
+        except (FileNotFoundError, subprocess.TimeoutExpired,
+                subprocess.CalledProcessError, ValueError):
+            pass
+        if vram_gb >= 8 and ram_gb >= 16 and cores >= 8:
+            tier = "ultra"
+        elif vram_gb >= 4 and ram_gb >= 8:
+            tier = "high"
+        elif cores >= 8 and ram_gb >= 16:
+            tier = "medium"
+        else:
+            tier = "low"
+        return tier, cores, ram_gb, vram_gb
 
     def _build_wizard_page1(self, conf):
         page = QWidget()
@@ -6487,8 +7688,13 @@ class DicteeSetupDialog(QDialog):
 
         rec_names = {"parakeet": "Parakeet-TDT", "vosk": "Vosk",
                      "whisper": "faster-whisper", "canary": "Canary 1B v2"}
+        rec_label = rec_names[recommended]
+        # For Parakeet the recommended quantization is hardware-dependent
+        # (int8 on CPU / low VRAM, FP32 on a ≥4 GB GPU) — surface it here too.
+        if recommended == "parakeet":
+            rec_label += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
         hw_lines.append("")
-        hw_lines.append(_("Recommended") + " : <b>" + rec_names[recommended] + "</b>")
+        hw_lines.append(_("Recommended") + " : <b>" + rec_label + "</b>")
 
         hw_lbl = QLabel("<br>".join(hw_lines))
         hw_lbl.setWordWrap(True)
@@ -6596,6 +7802,7 @@ class DicteeSetupDialog(QDialog):
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
         self.w_canary_options.setVisible(asr == "canary")
+        self.w_whisper_rust_options.setVisible(asr == "whisper-rust")
 
     def _on_card_click(self, backend_id):
         """Handle card click: single=select, rapid double=select+next."""
@@ -6719,6 +7926,7 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(lay_sub)
         self._build_whisper_options(lay_sub)
         self._build_canary_options(lay_sub)
+        self._build_whisper_rust_options(lay_sub)
 
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
@@ -6877,7 +8085,9 @@ class DicteeSetupDialog(QDialog):
         elif existing in ("libretranslate", "ollama"):
             self._wizard_trans = existing
         elif self.wizard_mode:
-            self._wizard_trans = "google"
+            # First-run wizard: no translation by default. User picks explicitly.
+            # Local-first: don't auto-select Google/Bing (cloud services).
+            self._wizard_trans = ""
         else:
             self._wizard_trans = "google"
 
@@ -7088,8 +8298,14 @@ class DicteeSetupDialog(QDialog):
         # Options
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setStyleSheet("font-size: 11pt;")
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "true") == "true")
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
         lay.addWidget(self.chk_clipboard)
+        self.lbl_clipboard_warn = QLabel(_(
+            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
+            "prevent the transcript from being typed into some Electron apps."))
+        self.lbl_clipboard_warn.setWordWrap(True)
+        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
+        lay.addWidget(self.lbl_clipboard_warn)
 
         lay.addStretch()
         scroll.setWidget(content)
@@ -7125,7 +8341,11 @@ class DicteeSetupDialog(QDialog):
             ("dotool", _("dotool")),
         ]:
             row = QHBoxLayout()
-            lbl_icon = QLabel("⏳")
+            # First braille frame as initial icon — animated by the timer set
+            # up in _ensure_check_spinner_timer() while a check is in flight
+            # (lbl_status empty). Replaces the previous static ⏳ hourglass
+            # (cf. dictee-transcribe.py:4616 SPINNER_FRAMES — same idiom).
+            lbl_icon = QLabel(_CHECK_SPINNER_FRAMES[0])
             lbl_icon.setFixedWidth(24)
             lbl_name = QLabel(label)
             lbl_status = QLabel()
@@ -7135,6 +8355,21 @@ class DicteeSetupDialog(QDialog):
             lay_checks.addLayout(row)
             self._check_labels[check_id] = (lbl_icon, lbl_status)
         lay.addWidget(self.w_checks)
+
+        # Translation summary row + Configure button (jumps to translation page).
+        # Lets the user see what translate backend will be used and reach the
+        # config page in one click without manually navigating Previous.
+        trans_row = QHBoxLayout()
+        trans_row.setContentsMargins(0, 4, 0, 4)
+        trans_row.addWidget(QLabel("🌐"))
+        self._lbl_translation_summary = QLabel()
+        self._lbl_translation_summary.setWordWrap(True)
+        trans_row.addWidget(self._lbl_translation_summary, 1)
+        btn_cfg_trans = QPushButton(_("Configure translation"))
+        btn_cfg_trans.setToolTip(_("Go back to the translation page to change settings"))
+        btn_cfg_trans.clicked.connect(lambda: self.stack.setCurrentIndex(4))
+        trans_row.addWidget(btn_cfg_trans)
+        lay.addLayout(trans_row)
 
         # Test dictée
         grp_test = QGroupBox(_("Dictation test"))
@@ -7184,6 +8419,8 @@ class DicteeSetupDialog(QDialog):
             return venv_is_installed(WHISPER_VENV)
         if backend_id == "canary":
             return self._canary_model_installed()
+        if backend_id == "whisper-rust":
+            return self._any_whisper_rust_model_installed()
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -7198,7 +8435,12 @@ class DicteeSetupDialog(QDialog):
 
         # Title row + recommended top-right
         title_row = QHBoxLayout()
-        lbl_title = QLabel(f"<b style='font-size: 13pt;'>{name}</b>")
+        # Parakeet's recommended quantization is hardware-dependent — append it
+        # right after the model name (int8 on CPU / low VRAM, FP32 on ≥4 GB GPU).
+        title_name = name
+        if backend_id == "parakeet":
+            title_name += " (Int8)" if suggest_parakeet_quant() == "int8" else " (FP32)"
+        lbl_title = QLabel(f"<b style='font-size: 13pt;'>{title_name}</b>")
         title_row.addWidget(lbl_title)
         title_row.addStretch()
         if is_recommended:
@@ -7446,7 +8688,7 @@ class DicteeSetupDialog(QDialog):
             "disabled": 5,
         }
         self.cmb_cheatsheet_mode.setCurrentIndex(
-            mode_to_idx.get(existing_cheat_mode, 5))  # default Disabled
+            mode_to_idx.get(existing_cheat_mode, 3))  # default Same key + Shift
         lay_sc.addWidget(self.cmb_cheatsheet_mode)
 
         # Capture editor visible only when "Separate key" is selected.
@@ -7472,42 +8714,291 @@ class DicteeSetupDialog(QDialog):
         # that both combos exist and the dictation key has been read.
         self._refresh_shortcut_combos_labels()
 
-    def _build_parakeet_options(self, parent_layout):
-        """Build Parakeet model download widgets."""
-        self.w_parakeet_options = QWidget()
-        lay_parakeet = QVBoxLayout(self.w_parakeet_options)
-        lay_parakeet.setContentsMargins(0, 4, 0, 0)
-        lay_parakeet.setSpacing(6)
+    # Wrapped in _() so the strings are extractable/translated. Using _(variable)
+    # at the call site alone leaves them invisible to gettext extraction (and
+    # they were silently English in every locale).
+    _MODEL_DESCRIPTIONS = {
+        "tdt": _("Full precision. 25 languages with native punctuation and capitalization."),
+        "tdt-int8": _("Quantized variant. ~3.6× smaller, ~34 % faster on CPU. "
+                      "Always runs on the CPU: pick it when there is no GPU, "
+                      "or too little VRAM for FP32."),
+        "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
+                        "in a recording. Optional — only needed for speaker identification."),
+    }
 
-        _model_descriptions = {
-            "tdt": _("Main transcription model. Required for all dictation modes. "
-                     "Supports 25 languages with native punctuation and capitalization."),
-            "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
-                            "in a recording. Optional — only needed for speaker identification."),
-        }
+    def _make_model_label_html(self, model, active_quant, recommended_quant):
+        """Generate two-line HTML for a model entry:
+          - Line 1: "FP32" or "INT8" (or model name for non-TDT) — bold + ★ Recommended badge
+          - Line 2: description in smaller font
+        Non-active TDT variant is rendered greyed out (color: #888) on both lines."""
+        model_quant = model.get("quant")  # "fp32", "int8", or None
 
+        # Title line: variant code in uppercase for TDT, or full model name otherwise
+        if model_quant:
+            title = model_quant.upper()  # "FP32" or "INT8"
+            is_active = (model_quant == active_quant)
+            inactive_color = " color:#888;" if not is_active else ""
+        else:
+            title = model["name"]
+            is_active = True  # non-TDT models are always "active" (no quant choice)
+            inactive_color = ""
+
+        # ★ Recommended for your hardware — badge on the hardware-suggested variant.
+        # Badge follows the variant's active state: orange when active, grey when
+        # the user has toggled away from the recommendation. Keeps the whole row
+        # visually coherent (no orange highlight floating on a greyed block).
+        badge_html = ""
+        if model_quant and model_quant == recommended_quant:
+            badge_color = "#d8a000" if is_active else "#888"
+            badge_html = (
+                f" <span style='color:{badge_color}; font-size:10pt; font-weight:bold;'>★ "
+                + _("Recommended for your hardware") + "</span>"
+            )
+
+        desc_text = self._MODEL_DESCRIPTIONS.get(model["id"], "")
+
+        return (
+            f"<p style='margin:0; line-height:1.3;'>"
+            f"<span style='font-size:12pt; font-weight:bold;{inactive_color}'>{title}</span>"
+            f"{badge_html}"
+            f"<br/>"
+            f"<span style='font-size:10pt;{inactive_color}'>{desc_text}</span>"
+            f"</p>"
+        )
+
+    def _refresh_force_cpu_warning(self):
+        """Update the warning label under the Force CPU toggle.
+        Guard-rail: tell the user what they lose / gain by switching modes,
+        based on detected GPU VRAM. Called by ToggleSwitch.toggled and once
+        at build time."""
+        if not hasattr(self, '_lbl_force_cpu_warning') or not hasattr(self, 'tgl_force_cpu'):
+            return
+        forcing_cpu = self.tgl_force_cpu.isChecked()
+        total_vram, _free = get_gpu_vram_gb()
+
+        if forcing_cpu:
+            # User wants CPU. Warn if GPU was capable.
+            if total_vram >= 4:
+                msg = ("⚠ " + _("CPU mode forced — losing GPU acceleration "
+                                "({:.1f} GB VRAM available). Parakeet FP32 "
+                                "will be ~6× slower.").format(total_vram))
+                color = "#d8a000"  # orange warning
+            elif total_vram > 0:
+                msg = ("ℹ " + _("CPU mode forced — GPU has only {:.1f} GB VRAM, "
+                                "FP32 likely OOM anyway. INT8 on CPU is a "
+                                "reasonable fallback.").format(total_vram))
+                color = "#7a7a7a"  # neutral grey
+            else:
+                msg = ("ℹ " + _("No GPU detected — CPU is the only option "
+                                "(this toggle is a no-op)."))
+                color = "#7a7a7a"
+        else:
+            # User wants GPU (or default).
+            if total_vram >= 4:
+                msg = ("✓ " + _("GPU acceleration enabled "
+                                "({:.1f} GB VRAM detected).").format(total_vram))
+                color = "#3a7a3a"  # green ok
+            elif total_vram > 0:
+                msg = ("⚠ " + _("GPU has only {:.1f} GB VRAM — Parakeet FP32 "
+                                "may OOM at load. Consider toggling CPU "
+                                "or using INT8 (runs on the CPU).").format(total_vram))
+                color = "#d8a000"
+            else:
+                msg = ("ℹ " + _("No GPU detected — running on CPU regardless "
+                                "of this toggle."))
+                color = "#7a7a7a"
+
+        self._lbl_force_cpu_warning.setText(
+            f"<p style='font-size: 10pt; color: {color};'>{msg}</p>")
+
+    def _on_force_cpu_toggled(self, checked):
+        """User flipped the GPU/CPU toggle. Record the real preference only
+        when the toggle is interactive — when it's locked to CPU (no GPU or
+        int8), the checked state is cosmetic and must not overwrite the
+        stored DICTEE_FORCE_CPU preference."""
+        if self.tgl_force_cpu.isEnabled():
+            self._force_cpu_pref = checked
+        self._refresh_force_cpu_warning()
+
+    def _refresh_force_cpu_toggle_state(self):
+        """Grey out + show CPU on the GPU/CPU toggle whenever the GPU can't
+        be used: no NVIDIA GPU detected, the CPU-only package (no CUDA
+        provider lib), or the int8 Parakeet variant (which the daemon always
+        runs on CPU). Cosmetic only: the stored preference (_force_cpu_pref)
+        is preserved, so other backends (Whisper/Canary) keep their GPU
+        setting and switching back to FP32 restores the toggle. Called at
+        build time, whenever the int8/FP32 toggle flips, and whenever the
+        ASR backend changes."""
+        if not hasattr(self, 'tgl_force_cpu'):
+            return
+        total_vram, _free = get_gpu_vram_gb()
+        cuda_pkg = os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so")
+        gpu_present = total_vram > 0 and cuda_pkg
+        int8_active = hasattr(self, 'tgl_quant') and self.tgl_quant.isChecked()
+        backend = (self.cmb_asr_backend.currentData()
+                   if hasattr(self, 'cmb_asr_backend') else "parakeet") or "parakeet"
+
+        # Mirror dictee-tray._force_cpu_constraint: some backends pin the
+        # GPU/CPU position regardless of the user's preference.
+        #   forced = "gpu" → GPU-only backend (Force CPU off + disabled)
+        #   forced = "cpu" → CPU-only situation (Force CPU on + disabled)
+        #   forced = None  → user-controlled (FP32 Parakeet with a usable GPU)
+        forced = None
+        if backend in ("canary", "whisper-rust"):
+            forced = "gpu"
+        elif backend == "vosk":
+            forced = "cpu"
+        elif backend == "parakeet" and int8_active:
+            forced = "cpu"
+        elif not gpu_present:
+            forced = "cpu"
+        locked = forced is not None
+
+        self.tgl_force_cpu.blockSignals(True)
+        if locked:
+            self.tgl_force_cpu.setChecked(forced == "cpu")
+        else:
+            self.tgl_force_cpu.setChecked(self._force_cpu_pref)
+        self.tgl_force_cpu.setEnabled(not locked)
+        self.tgl_force_cpu.blockSignals(False)
+
+        if forced == "gpu" or (int8_active and gpu_present):
+            # GPU-only backend, or int8 (which always runs on CPU): the
+            # VRAM/FP32-centric warning would be misleading, so clear it.
+            if hasattr(self, '_lbl_force_cpu_warning'):
+                self._lbl_force_cpu_warning.setText("")
+        else:
+            self._refresh_force_cpu_warning()
+
+    def _apply_block_opacity(self, widget, opacity):
+        """Apply or remove QGraphicsOpacityEffect on a widget.
+        opacity >= 1.0 → restore full opacity (effect removed).
+        Otherwise → install an effect that fades the entire widget subtree.
+
+        Note: an opacity effect is created fresh each time so toggling stays
+        reliable (mutating an existing effect can be unstable across Qt
+        versions). The previous effect is dropped by setGraphicsEffect."""
+        if opacity >= 1.0:
+            widget.setGraphicsEffect(None)
+        else:
+            effect = QGraphicsOpacityEffect(widget)
+            effect.setOpacity(opacity)
+            widget.setGraphicsEffect(effect)
+
+    def _refresh_tdt_active_badge(self):
+        """Live-update TDT model rows when the toggle flips:
+        - Selected variant: full opacity, normal colour text
+        - Other variant: container faded to opacity 0.45 (label + buttons
+          + progress all greyed together via QGraphicsOpacityEffect)
+
+        Buttons stay functionally clickable (the user can still re-install
+        or delete the non-active variant) but the whole block reads as
+        secondary, matching the toggle position. Called by
+        ToggleSwitch.toggled — no need to wait for Apply."""
+        if not hasattr(self, 'tgl_quant'):
+            return
+        new_active = "int8" if self.tgl_quant.isChecked() else "fp32"
+        recommended = suggest_parakeet_quant()
         for model in ASR_MODELS:
+            model_quant = model.get("quant")
+            if model_quant not in ("fp32", "int8"):
+                continue
+            is_active = (model_quant == new_active)
+            widgets = self._model_widgets.get(model["id"])
+            if not widgets:
+                continue
+            # 1) Refresh the description label text (badge color follows active state)
+            if widgets.get("desc_label"):
+                widgets["desc_label"].setText(
+                    self._make_model_label_html(model, new_active, recommended))
+            # 2) Fade or restore the whole container (label + buttons + progress)
+            container = widgets.get("container")
+            if container is not None:
+                self._apply_block_opacity(container, 1.0 if is_active else 0.45)
+
+    def _refresh_quant_toggle_state(self):
+        """Re-evaluate the int8/FP32 toggle's enabled state after a model
+        download finishes or a variant is deleted. The toggle is only
+        meaningful when BOTH variants are installed; otherwise the active
+        variant is auto-resolved and the toggle stays disabled. Without this,
+        the toggle keeps the state it had at page-build time (e.g. greyed out
+        right after installing int8) until the setup window is reopened."""
+        if not hasattr(self, 'tgl_quant'):
+            return
+        fp32_installed = model_is_installed(ASR_MODELS[0])
+        int8_installed = (
+            len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
+            and model_is_installed(ASR_MODELS[1])
+        )
+        both_installed = fp32_installed and int8_installed
+        self.tgl_quant.setEnabled(both_installed)
+        # When only one variant is present, force the toggle to reflect it.
+        # Block signals: this programmatic sync must not mark the form dirty.
+        if fp32_installed and not int8_installed:
+            self.tgl_quant.blockSignals(True)
+            self.tgl_quant.setChecked(False)
+            self.tgl_quant.blockSignals(False)
+        elif int8_installed and not fp32_installed:
+            self.tgl_quant.blockSignals(True)
+            self.tgl_quant.setChecked(True)
+            self.tgl_quant.blockSignals(False)
+
+    def _build_parakeet_options(self, parent_layout):
+        """Build Parakeet + Sortformer model download UI.
+
+        Layout (top to bottom):
+          ┌─ Parakeet TDT — main transcription ──────────┐
+          │  Parakeet TDT FP32 ★/ACTIVE [Install][Del]   │
+          │  Parakeet TDT int8 ★/ACTIVE [Install][Del]   │
+          │  Active variant: (•) int8   ( ) FP32         │
+          │  ★ Recommended for your hardware: <variant>  │
+          └──────────────────────────────────────────────┘
+          ┌─ Sortformer — speaker diarization (optional)┐
+          │  Sortformer [Install][Delete]                │
+          └──────────────────────────────────────────────┘
+        """
+        self.w_parakeet_options = QWidget()
+        lay_outer = QVBoxLayout(self.w_parakeet_options)
+        lay_outer.setContentsMargins(0, 4, 0, 0)
+        lay_outer.setSpacing(8)
+
+        # Hardware-aware recommendation + currently active variant
+        recommended_quant = suggest_parakeet_quant()
+        active_quant = (self.conf.get("DICTEE_PARAKEET_QUANT") or recommended_quant).lower()
+        if active_quant not in ("fp32", "int8"):
+            active_quant = recommended_quant
+
+        def _build_model_row(layout, model):
+            """Build a model row inside its own container widget. The container
+            is needed so we can apply a QGraphicsOpacityEffect to grey out the
+            entire block (label + buttons + progress) when the variant is
+            non-active. setStyleSheet on individual buttons doesn't visibly
+            grey them on KDE/Plasma styles, hence the container approach."""
             installed = model_is_installed(model)
 
-            # Description label above the button
-            desc_text = _model_descriptions.get(model["id"], "")
-            if desc_text:
-                lbl_desc = QLabel(f"<p style='font-size: 11pt;'><b>{model['name']}</b> — {desc_text}</p>")
-                lbl_desc.setWordWrap(True)
-                lay_parakeet.addWidget(lbl_desc)
+            container = QWidget()
+            container_lay = QVBoxLayout(container)
+            container_lay.setContentsMargins(0, 0, 0, 0)
+            container_lay.setSpacing(4)
 
-            # Button + delete on same row
+            lbl_desc = QLabel(self._make_model_label_html(model, active_quant, recommended_quant))
+            lbl_desc.setWordWrap(True)
+            container_lay.addWidget(lbl_desc)
+
             btn_row = QHBoxLayout()
-
             btn = QPushButton()
             self._update_venv_button(btn, model["name"], installed)
             btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
 
-            # Sortformer requires TDT
-            tdt_installed = model_is_installed(ASR_MODELS[0])
-            if model["id"] == "sortformer" and not tdt_installed and not installed:
-                btn.setEnabled(False)
-                btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
+            if model["id"] == "sortformer":
+                any_tdt_installed = (
+                    model_is_installed(ASR_MODELS[0])
+                    or (len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
+                        and model_is_installed(ASR_MODELS[1]))
+                )
+                if not any_tdt_installed and not installed:
+                    btn.setEnabled(False)
+                    btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 (FP32 or int8) to be installed first"))
 
             btn_del = QPushButton()
             btn_del.setIcon(QIcon.fromTheme("edit-delete"))
@@ -7524,17 +9015,136 @@ class DicteeSetupDialog(QDialog):
             btn_row.addWidget(btn, 1)
             btn_row.addWidget(btn_del)
             btn_row.addWidget(btn_cancel)
-            lay_parakeet.addLayout(btn_row)
+            container_lay.addLayout(btn_row)
 
             progress = QProgressBar()
             progress.setRange(0, 100)
             progress.setVisible(False)
-            lay_parakeet.addWidget(progress)
+            container_lay.addWidget(progress)
+
+            layout.addWidget(container)
 
             self._model_widgets[model["id"]] = {
-                "label": None, "button": btn, "btn_delete": btn_del,
+                "label": None, "desc_label": lbl_desc, "container": container,
+                "button": btn, "btn_delete": btn_del,
                 "btn_cancel": btn_cancel, "progress": progress, "model": model,
             }
+            # Apply initial opacity if this TDT variant is not active
+            model_quant = model.get("quant")
+            if model_quant in ("fp32", "int8") and model_quant != active_quant:
+                self._apply_block_opacity(container, 0.45)
+
+        # === Parakeet group box (no subtitle — the ASR backend combobox already
+        # identifies the model family). Just "Parakeet TDT" as section anchor. ===
+        parakeet_box = QGroupBox(_("Parakeet TDT"))
+        parakeet_lay = QVBoxLayout(parakeet_box)
+        parakeet_lay.setContentsMargins(12, 12, 12, 10)
+        parakeet_lay.setSpacing(6)
+
+        # TDT FP32 + int8 rows
+        for model in [m for m in ASR_MODELS if m.get("quant") in ("fp32", "int8")]:
+            _build_model_row(parakeet_lay, model)
+
+        # Active variant toggle (int8 / FP32) — int8 first per user UX preference
+        fp32_installed = model_is_installed(ASR_MODELS[0])
+        int8_installed = (
+            len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
+            and model_is_installed(ASR_MODELS[1])
+        )
+
+        # Toggle switch centered horizontally: "FP32 [━━●] INT8".
+        # Variants above are greyed out when not selected, so the toggle state
+        # is visually obvious without a header label.
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(0, 6, 0, 0)
+        toggle_row.addStretch()  # left padding to center
+        toggle_row.addWidget(QLabel("FP32"))
+
+        self.tgl_quant = ToggleSwitch("")
+        self.tgl_quant.setChecked(active_quant == "int8")
+        # Enable only if BOTH variants are installed; otherwise auto-resolved + disabled
+        both_installed = fp32_installed and int8_installed
+        self.tgl_quant.setEnabled(both_installed)
+        if fp32_installed and not int8_installed:
+            self.tgl_quant.setChecked(False)
+        elif int8_installed and not fp32_installed:
+            self.tgl_quant.setChecked(True)
+        self.tgl_quant.toggled.connect(self._refresh_tdt_active_badge)
+        toggle_row.addWidget(self.tgl_quant)
+
+        toggle_row.addWidget(QLabel("INT8"))
+        toggle_row.addStretch()  # right padding to center
+        parakeet_lay.addLayout(toggle_row)
+
+        # Set the hardware-reason as tooltip on the recommended variant's
+        # description label (visible on hover, keeps the UI compact).
+        total_vram, _free = get_gpu_vram_gb()
+        if total_vram >= 4:
+            reason = _("GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA").format(total_vram)
+        elif total_vram > 0:
+            reason = _("GPU with only {:.1f} GB VRAM — too little for FP32; "
+                       "int8 runs on the CPU instead").format(total_vram)
+        else:
+            reason = _("No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)")
+        for model in ASR_MODELS:
+            if model.get("quant") == recommended_quant:
+                widgets = self._model_widgets.get(model["id"])
+                if widgets and widgets.get("desc_label"):
+                    widgets["desc_label"].setToolTip(reason)
+                break
+
+        lay_outer.addWidget(parakeet_box)
+
+        # === Performance group box (Force CPU toggle, applies to all backends) ===
+        perf_box = QGroupBox(_("Performance"))
+        perf_lay = QVBoxLayout(perf_box)
+        perf_lay.setContentsMargins(12, 12, 12, 10)
+        perf_lay.setSpacing(6)
+
+        force_cpu_active = (self.conf.get("DICTEE_FORCE_CPU", "0").lower()
+                            in ("1", "true", "yes"))
+        # The user's real GPU/CPU preference. The toggle may be visually
+        # forced to CPU (greyed) when the GPU isn't usable, but this stored
+        # value is what gets written to dictee.conf — see _on_apply.
+        self._force_cpu_pref = force_cpu_active
+
+        # Centered GPU [toggle] CPU row
+        force_row = QHBoxLayout()
+        force_row.setContentsMargins(0, 0, 0, 0)
+        force_row.addStretch()
+        force_row.addWidget(QLabel("GPU"))
+        self.tgl_force_cpu = ToggleSwitch("")
+        self.tgl_force_cpu.setChecked(force_cpu_active)
+        self.tgl_force_cpu.toggled.connect(self._on_force_cpu_toggled)
+        force_row.addWidget(self.tgl_force_cpu)
+        force_row.addWidget(QLabel("CPU"))
+        force_row.addStretch()
+        perf_lay.addLayout(force_row)
+
+        # Dynamic warning label below the toggle (guard-rail)
+        self._lbl_force_cpu_warning = QLabel()
+        self._lbl_force_cpu_warning.setWordWrap(True)
+        self._lbl_force_cpu_warning.setStyleSheet("QLabel { padding-left: 4px; }")
+        perf_lay.addWidget(self._lbl_force_cpu_warning)
+        # Flipping the int8/FP32 toggle changes whether the GPU is usable, so
+        # re-evaluate the GPU/CPU toggle's locked state when it does.
+        if hasattr(self, 'tgl_quant'):
+            self.tgl_quant.toggled.connect(self._refresh_force_cpu_toggle_state)
+        # Initial render (greys + shows CPU when the GPU can't be used)
+        self._refresh_force_cpu_toggle_state()
+
+        lay_outer.addWidget(perf_box)
+
+        # === Sortformer group box (separate, simple title) ===
+        sortformer_box = QGroupBox(_("Sortformer"))
+        sortformer_lay = QVBoxLayout(sortformer_box)
+        sortformer_lay.setContentsMargins(12, 12, 12, 10)
+        sortformer_lay.setSpacing(6)
+
+        for model in [m for m in ASR_MODELS if m["id"] == "sortformer"]:
+            _build_model_row(sortformer_lay, model)
+
+        lay_outer.addWidget(sortformer_box)
 
         parent_layout.addWidget(self.w_parakeet_options)
 
@@ -7631,22 +9241,38 @@ class DicteeSetupDialog(QDialog):
         if self.wizard_mode:
             self.conf["DICTEE_VOSK_MODEL"] = code
             return
-        # Update conf file in-place
+        # Update conf file in-place, atomically. Match the active key OR an
+        # only-commented one, and drop any duplicate so we never accumulate a
+        # stale "#DICTEE_VOSK_MODEL=..." line alongside the active value.
+        key_re = re.compile(r"^\s*#?\s*DICTEE_VOSK_MODEL=")
         lines = []
         found = False
         if os.path.isfile(CONF_PATH):
             with open(CONF_PATH) as f:
                 for line in f:
-                    if line.startswith("DICTEE_VOSK_MODEL="):
-                        lines.append(f"DICTEE_VOSK_MODEL={code}\n")
-                        found = True
+                    if key_re.match(line):
+                        if not found:
+                            lines.append(f"DICTEE_VOSK_MODEL={code}\n")
+                            found = True
+                        # else: drop the duplicate (active or commented)
                     else:
                         lines.append(line)
         if not found:
             lines.append(f"DICTEE_VOSK_MODEL={code}\n")
-        os.makedirs(os.path.dirname(CONF_PATH), exist_ok=True)
-        with open(CONF_PATH, "w") as f:
-            f.writelines(lines)
+        conf_target = _conf_write_target()
+        conf_dir = os.path.dirname(conf_target) or "."
+        os.makedirs(conf_dir, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
+        try:
+            with os.fdopen(tmp_fd, "w") as f:
+                f.writelines(lines)
+            os.replace(tmp_path, conf_target)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         # Restart Vosk daemon if it is running
         try:
             r = subprocess.run(["systemctl", "--user", "is-active", "dictee-vosk.service"],
@@ -7897,6 +9523,61 @@ class DicteeSetupDialog(QDialog):
         self.btn_del_whisper_venv.clicked.connect(lambda: self._delete_venv("whisper"))
         row.addWidget(self.btn_del_whisper_venv)
 
+        # Row 3: Performance profile (HardwareProfile pattern, 2026-05-21)
+        # Tier maps to beam_size: ultra=5, high=3, medium=2, low=1. Auto =
+        # detected from cores + RAM + VRAM at daemon startup.
+        _detected_tier, _cores, _ram_gb, _vram_gb = self._detect_hw_tier()
+        lbl_hw_tier = QLabel(_("Performance profile:"))
+        self.cmb_whisper_hw_tier = QComboBox()
+        self.cmb_whisper_hw_tier.setFixedWidth(150)
+        _tier_items = [
+            ("auto",   _("Auto (detected)")),
+            ("ultra",  _("Ultra (beam=5)")),
+            ("high",   _("High (beam=3)")),
+            ("medium", _("Medium (beam=2)")),
+            ("low",    _("Low (beam=1)")),
+        ]
+        for code, label in _tier_items:
+            self.cmb_whisper_hw_tier.addItem(label, code)
+        _cur_tier = self.conf.get("DICTEE_HW_TIER", "auto").lower()
+        _idx = self.cmb_whisper_hw_tier.findData(_cur_tier)
+        self.cmb_whisper_hw_tier.setCurrentIndex(_idx if _idx >= 0 else 0)
+        self.cmb_whisper_hw_tier.currentIndexChanged.connect(self._mark_dirty)
+        # Tooltip user-friendly : explique le compromis précision/vitesse
+        # sans jargon (pas de "beam_size", "tier", etc. — c'est dans les
+        # labels du combobox pour les utilisateurs avancés).
+        # \n autorisés ici pour structurer les bullets — le helper _tt()
+        # utilise white-space:pre-wrap qui les respecte. La règle
+        # "single-line" du memory vise les \n parasites au milieu d'une
+        # phrase, pas la structure logique en sections.
+        self.cmb_whisper_hw_tier.setToolTip(_tt(_(
+            "Adjusts Whisper's accuracy vs speed trade-off based on "
+            "your hardware.\n\n"
+            "• Auto (recommended): detects your CPU, RAM and GPU and "
+            "picks the best profile.\n"
+            "• Ultra / High: more accurate, slower (GPU or strong "
+            "CPU needed).\n"
+            "• Medium / Low: faster, lower accuracy (small or older "
+            "machines).\n\n"
+            "Override Auto only when needed — e.g. force Low to save "
+            "battery, or High on a shared machine where Auto "
+            "under-counts your hardware.")))
+        self._lbl_hw_tier_detected = QLabel(
+            _("Detected: {tier} — {cores} cores, {ram} GB RAM, {vram} GB VRAM").format(
+                tier=_detected_tier, cores=_cores, ram=_ram_gb, vram=_vram_gb))
+        self._lbl_hw_tier_detected.setStyleSheet("color: gray;")
+        self._lbl_hw_tier_detected.setToolTip(_tt(_(
+            "Hardware automatically detected. Auto mode picks the profile "
+            "shown here. Selecting a different profile in the combo "
+            "overrides this detection.")))
+        row_hw = QHBoxLayout()
+        row_hw.setContentsMargins(24, 0, 0, 0)
+        row_hw.addWidget(lbl_hw_tier)
+        row_hw.addWidget(self.cmb_whisper_hw_tier)
+        row_hw.addWidget(self._lbl_hw_tier_detected)
+        row_hw.addStretch()
+        whisper_outer.addLayout(row_hw)
+
         self._lbl_whisper_status = QLabel()
         self._lbl_whisper_status.setContentsMargins(24, 0, 0, 0)
         self._lbl_whisper_status.setWordWrap(True)
@@ -7905,6 +9586,8 @@ class DicteeSetupDialog(QDialog):
         self._whisper_config_widgets = [self._lbl_wh_model, self.cmb_whisper_model,
                                         self.btn_download_whisper, self.btn_del_whisper_model,
                                         lbl_wh_lang, self.txt_whisper_lang, lbl_auto,
+                                        lbl_hw_tier, self.cmb_whisper_hw_tier,
+                                        self._lbl_hw_tier_detected,
                                         self._lbl_whisper_status]
         for w in self._whisper_config_widgets:
             w.setEnabled(whisper_installed)
@@ -8039,6 +9722,52 @@ class DicteeSetupDialog(QDialog):
                 break
         self._update_whisper_status()
 
+    def _build_whisper_rust_options(self, parent_layout):
+        """Whisper-Rust model picker (GPU Vulkan; all ggml models)."""
+        self.w_whisper_rust_options = QWidget()
+        outer = QVBoxLayout(self.w_whisper_rust_options)
+        outer.setContentsMargins(0, 4, 0, 0)
+        outer.setSpacing(4)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel(_("Model:")))
+        self.cmb_whisper_rust_model = _CheckMarkComboBox()
+        self.cmb_whisper_rust_model.setMinimumWidth(420)
+        self._populate_whisper_rust_combo()
+        cur = self.conf.get("DICTEE_WHISPER_RUST_MODEL", "large-v3")
+        for i in range(self.cmb_whisper_rust_model.count()):
+            if self.cmb_whisper_rust_model.itemData(i) == cur:
+                self.cmb_whisper_rust_model.setCurrentIndex(i)
+                break
+        self.cmb_whisper_rust_model.currentIndexChanged.connect(self._update_whisper_rust_status)
+        row.addWidget(self.cmb_whisper_rust_model, 1)
+
+        self.btn_download_whisper_rust = QPushButton(_("Download"))
+        self.btn_download_whisper_rust.setFixedWidth(150)
+        self.btn_download_whisper_rust.clicked.connect(self._on_whisper_rust_model_download)
+        row.addWidget(self.btn_download_whisper_rust)
+
+        self.btn_del_whisper_rust_model = QPushButton()
+        self.btn_del_whisper_rust_model.setIcon(QIcon.fromTheme("edit-delete"))
+        self.btn_del_whisper_rust_model.setFixedWidth(28)
+        self.btn_del_whisper_rust_model.setToolTip(_("Delete model"))
+        self.btn_del_whisper_rust_model.clicked.connect(self._on_whisper_rust_model_delete)
+        row.addWidget(self.btn_del_whisper_rust_model)
+
+        self.btn_cancel_whisper_rust = QPushButton(_("Cancel"))
+        self.btn_cancel_whisper_rust.setFixedWidth(80)
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self.btn_cancel_whisper_rust.clicked.connect(self._cancel_whisper_rust_download)
+        row.addWidget(self.btn_cancel_whisper_rust)
+        outer.addLayout(row)
+
+        self._lbl_whisper_rust_status = QLabel("")
+        outer.addWidget(self._lbl_whisper_rust_status)
+
+        self._update_whisper_rust_status()
+        self.w_whisper_rust_options.setVisible(False)
+        parent_layout.addWidget(self.w_whisper_rust_options)
+
     def _build_canary_options(self, parent_layout):
         """Build Canary 1B v2 sub-options (GPU only, model download)."""
         self.w_canary_options = QWidget()
@@ -8073,6 +9802,90 @@ class DicteeSetupDialog(QDialog):
 
         self.w_canary_options.setVisible(False)
         parent_layout.addWidget(self.w_canary_options)
+
+    def _whisper_rust_model_installed(self, model_id):
+        """True if the given Whisper-Rust ggml is present (user dir first, then system)."""
+        d = _whisper_rust_model_dict(model_id)
+        return bool(d) and model_is_installed(d)
+
+    def _any_whisper_rust_model_installed(self):
+        return any(self._whisper_rust_model_installed(m[0]) for m in WHISPER_RUST_MODELS)
+
+    def _populate_whisper_rust_combo(self):
+        self.cmb_whisper_rust_model.clear()
+        for mid, _fname, label in WHISPER_RUST_MODELS:
+            cached = self._whisper_rust_model_installed(mid)
+            self.cmb_whisper_rust_model.addItem(("✓ " if cached else "   ") + label, mid)
+            if cached:
+                self.cmb_whisper_rust_model.setItemData(
+                    self.cmb_whisper_rust_model.count() - 1, True, Qt.ItemDataRole.UserRole + 1)
+
+    def _update_whisper_rust_status(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        if not mid:
+            return
+        cached = self._whisper_rust_model_installed(mid)
+        self._lbl_whisper_rust_status.setText(
+            '<span style="color: green;">✓</span> ' + _("Model downloaded and ready")
+            if cached else _("Select a model and click Download"))
+        self.btn_download_whisper_rust.setText(_("Download"))
+        self.btn_download_whisper_rust.setVisible(not cached)
+        self.btn_del_whisper_rust_model.setVisible(cached)
+
+    def _on_whisper_rust_model_download(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        d = _whisper_rust_model_dict(mid)
+        if not d:
+            return
+        self.btn_download_whisper_rust.setEnabled(False)
+        self.btn_download_whisper_rust.setText(_("Downloading…"))
+        self.btn_cancel_whisper_rust.setVisible(True)
+        thread = ModelDownloadThread(d)
+        thread.progress.connect(lambda msg: self.btn_download_whisper_rust.setText(msg))
+        thread.done.connect(self._on_whisper_rust_download_done)
+        self._venv_threads["whisper-rust"] = thread
+        thread.start()
+
+    def _cancel_whisper_rust_download(self):
+        thread = self._venv_threads.get("whisper-rust")
+        if thread and thread.isRunning():
+            thread.cancel()
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self._refresh_whisper_rust_after_change()
+
+    def _on_whisper_rust_download_done(self, ok, msg):
+        self.btn_cancel_whisper_rust.setVisible(False)
+        self._refresh_whisper_rust_after_change()
+        if not ok and msg != _("Cancelled"):
+            QMessageBox.warning(self, _("Download failed"), msg)
+
+    def _on_whisper_rust_model_delete(self):
+        mid = self.cmb_whisper_rust_model.currentData()
+        if not mid or not self._whisper_rust_model_installed(mid):
+            return
+        if QMessageBox.question(self, _("Delete"), _("Delete model '{}'?").format(mid),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) \
+                != QMessageBox.StandardButton.Yes:
+            return
+        d = _whisper_rust_model_dict(mid)
+        for base in (d["dir"], d["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR)):
+            f = os.path.join(base, d["check_file"])
+            try:
+                if os.path.isfile(f):
+                    os.remove(f)
+            except OSError:
+                pass
+        self._refresh_whisper_rust_after_change()
+
+    def _refresh_whisper_rust_after_change(self):
+        self.btn_download_whisper_rust.setEnabled(True)
+        cur = self.cmb_whisper_rust_model.currentData()
+        self._populate_whisper_rust_combo()
+        for i in range(self.cmb_whisper_rust_model.count()):
+            if self.cmb_whisper_rust_model.itemData(i) == cur:
+                self.cmb_whisper_rust_model.setCurrentIndex(i)
+                break
+        self._update_whisper_rust_status()
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
@@ -8138,7 +9951,7 @@ class DicteeSetupDialog(QDialog):
                     r = subprocess.run(["pkexec", "rm", "-rf", d],
                                        capture_output=True, timeout=10)
                     if r.returncode == 0:
-                        os.makedirs(d, mode=0o777, exist_ok=True)
+                        os.makedirs(d, mode=0o755, exist_ok=True)
                     else:
                         failed = True
         if failed:
@@ -13512,7 +15325,7 @@ class DicteeSetupDialog(QDialog):
         self._audio_devices = []
         self._audio_saved_src = saved_src
         self._audio_populated = False
-        self.cmb_audio_source = QComboBox()
+        self.cmb_audio_source = SourceComboBox(self._refresh_audio_sources)
         self.cmb_audio_source.addItem(_("System default"), "")
         self.cmb_audio_source.currentIndexChanged.connect(self._on_audio_source_changed)
         QTimer.singleShot(0, self._ensure_audio_populated)
@@ -13530,6 +15343,17 @@ class DicteeSetupDialog(QDialog):
         lay_mic.addWidget(QLabel(_("Audio source:")))
         lay_mic.addLayout(lay_src)
 
+        # Hide permanently-silent noise streams (speech-dispatcher…) from the
+        # application list. Shared with the meeting window + plasmoid via
+        # DICTEE_FILTER_NOISE_SOURCES in dictee.conf.
+        self.chk_filter_noise = QCheckBox(
+            _("Hide silent helper streams (speech-dispatcher…)"))
+        self.chk_filter_noise.setChecked(
+            (conf.get("DICTEE_FILTER_NOISE_SOURCES", "true") or "true").lower()
+            != "false")
+        self.chk_filter_noise.toggled.connect(self._on_filter_noise_toggled)
+        lay_mic.addWidget(self.chk_filter_noise)
+
         # Volume slider
         lay_vol = QHBoxLayout()
         lay_vol.setSpacing(8)
@@ -13543,6 +15367,12 @@ class DicteeSetupDialog(QDialog):
         lay_vol.addWidget(self.slider_volume, 1)
         lay_vol.addWidget(self.lbl_vol_pct)
         lay_mic.addLayout(lay_vol)
+        # Follow the system level: a 'pactl subscribe' watcher refreshes the
+        # slider when the source volume changes elsewhere (plasmoid, meeting,
+        # system mixer). Initial read happens once sources are populated.
+        self._vol_watcher = _SourceVolumeWatcher()
+        self._vol_watcher.source_changed.connect(self._sync_volume_slider)
+        self._vol_watcher.start()
 
         # Level meter (custom painted — instant repaint)
         self.mic_level = LevelMeter()
@@ -13969,45 +15799,45 @@ class DicteeSetupDialog(QDialog):
                 self.cmb_audio_source.blockSignals(True)
                 self.cmb_audio_source.setCurrentIndex(idx)
                 self.cmb_audio_source.blockSignals(False)
+        # Initial read: align the slider with the selected source's live volume.
+        self._sync_volume_slider()
 
     def _populate_audio_sources(self):
-        """Populate combo with devices (Qt) + monitors + applications (PipeWire)."""
-        # ── Devices (microphones) ──
-        for dev in self._audio_devices:
-            self.cmb_audio_source.addItem(
-                "🎤 " + dev.description(), dev.id().data().decode())
-        # ── Monitors + Applications (PipeWire/PulseAudio) ──
+        """Populate the F9 source combo from dictee-audio-sources — the single
+        source of truth shared with the plasmoid (and the meeting window).
+
+        This guarantees the same value vocabulary everywhere ('' = system
+        default, '<node.name>' = device/monitor, 'app:<name>' = application
+        stream), so a source picked in the plasmoid resolves in dictee-setup and
+        vice-versa (live resync via findData), and dictee's F9 source resolution
+        understands every value.
+
+        Noise filtering (DICTEE_FILTER_NOISE_SOURCES) is applied by the helper,
+        which reads the conf file — _on_filter_noise_toggled writes it before
+        refreshing, so the live toggle is honored.
+        """
         try:
-            import json
             out = subprocess.check_output(
-                ["pw-dump"], timeout=3, stderr=subprocess.DEVNULL)
-            nodes = json.loads(out)
-            for node in nodes:
-                if node.get("type") != "PipeWire:Interface:Node":
-                    continue
-                props = node.get("info", {}).get("props", {})
-                media_class = props.get("media.class", "")
-                node_name = props.get("node.name", "")
-                # Monitors (audio output loopback)
-                if media_class == "Audio/Source" and node_name.endswith(".monitor"):
-                    desc = props.get("node.description",
-                                     props.get("node.nick", node_name))
-                    self.cmb_audio_source.addItem(
-                        "🔊 Monitor: " + desc, node_name)
-                # Applications playing audio
-                elif media_class == "Stream/Output/Audio":
-                    app = props.get("application.name", "?")
-                    media = props.get("media.name", "")
-                    label = f"📺 {app}"
-                    if media and media != app:
-                        # Truncate long media names
-                        if len(media) > 50:
-                            media = media[:47] + "..."
-                        label += f" — {media}"
-                    # Use node.name (stable) instead of id (ephemeral)
-                    self.cmb_audio_source.addItem(label, node_name)
+                ["dictee-audio-sources"], timeout=3, text=True,
+                stderr=subprocess.DEVNULL)
         except Exception:
-            pass  # pw-dump unavailable — Qt devices only
+            return  # helper unavailable — combo keeps just "System default"
+        for line in out.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            value, icon, label = parts
+            # The combo already carries its own translated "System default"
+            # (empty value) as the first item — skip the helper's duplicate.
+            if not value:
+                continue
+            if "microphone" in icon:
+                prefix = "🎤 "
+            elif value.endswith(".monitor") or "speaker" in icon:
+                prefix = "🔊 "
+            else:
+                prefix = "📺 "
+            self.cmb_audio_source.addItem(prefix + label, value)
 
     def _refresh_audio_sources(self):
         """Refresh the audio source list (re-scan devices + apps)."""
@@ -14026,7 +15856,64 @@ class DicteeSetupDialog(QDialog):
         # deferred _ensure_audio_populated() from re-adding entries.
         self._audio_populated = True
 
+    def _on_filter_noise_toggled(self, checked):
+        self._write_conf_key("DICTEE_FILTER_NOISE_SOURCES",
+                             "true" if checked else "false")
+        self._refresh_audio_sources()
+
+    def _write_conf_key(self, key, value):
+        """Replace-or-append a single key in ~/.config/dictee.conf (no dup line).
+        save_config preserves keys it doesn't manage, so this survives a Save."""
+        conf_path = os.path.join(os.path.expanduser("~"), ".config", "dictee.conf")
+        lines = []
+        try:
+            if os.path.isfile(conf_path):
+                with open(conf_path, encoding="utf-8") as fh:
+                    lines = fh.read().splitlines()
+        except OSError:
+            return
+        prefix = key + "="
+        for i, line in enumerate(lines):
+            if line.strip().startswith(prefix):
+                lines[i] = prefix + value
+                break
+        else:
+            lines.append(prefix + value)
+        try:
+            os.makedirs(os.path.dirname(conf_path), exist_ok=True)
+            with open(conf_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+        except OSError:
+            pass
+
     # ── Wizard checks (page 5) ───────────────────────────────────
+
+    def _ensure_check_spinner_timer(self):
+        """Lazy-init the braille spinner timer used to animate the wizard
+        check icons while a check is in flight. The tick advances the frame
+        on every label whose status is still empty (= pending). Once a
+        check resolves (✓/✗), its icon is replaced and the tick skips it.
+        Stops automatically when no pending labels remain."""
+        if getattr(self, "_check_spinner_timer", None) is not None:
+            return
+        self._check_spinner_frame = 0
+        self._check_spinner_timer = QTimer(self)
+        self._check_spinner_timer.setInterval(100)
+        self._check_spinner_timer.timeout.connect(self._tick_check_spinner)
+
+    def _tick_check_spinner(self):
+        frame = _CHECK_SPINNER_FRAMES[self._check_spinner_frame % len(_CHECK_SPINNER_FRAMES)]
+        self._check_spinner_frame += 1
+        any_pending = False
+        for _cid, (lbl_icon, lbl_status) in self._check_labels.items():
+            # A label is "pending" while its status is still empty — once
+            # _run_wizard_checks fills lbl_status with OK / Not found, it's
+            # done and we stop animating that row.
+            if not lbl_status.text():
+                lbl_icon.setText(frame)
+                any_pending = True
+        if not any_pending:
+            self._check_spinner_timer.stop()
 
     def _run_wizard_checks(self):
         checks = {
@@ -14036,9 +15923,23 @@ class DicteeSetupDialog(QDialog):
             "audio": lambda: len(QMediaDevices.audioInputs()) > 0,
             "dotool": lambda: shutil.which("dotool") is not None,
         }
+        # Reset all labels to pending and start the spinner before running.
+        # Each completed check empties its row's pending state, the spinner
+        # tick stops itself when no rows remain.
+        self._ensure_check_spinner_timer()
+        for _cid, (lbl_icon, lbl_status) in self._check_labels.items():
+            lbl_status.setText("")
+            lbl_icon.setText(_CHECK_SPINNER_FRAMES[0])
+        if not self._check_spinner_timer.isActive():
+            self._check_spinner_timer.start()
+
         all_ok = True
         for check_id, fn in checks.items():
             lbl_icon, lbl_status = self._check_labels[check_id]
+            # Let Qt repaint the spinner between checks so the animation
+            # actually shows up — without this, the synchronous loop
+            # blocks until all checks finish and the user sees nothing.
+            QApplication.processEvents()
             try:
                 ok = fn()
             except Exception:
@@ -14049,6 +15950,14 @@ class DicteeSetupDialog(QDialog):
                     ptt_k = getattr(self, '_ptt_key', int(self.conf.get("DICTEE_PTT_KEY", 67)))
                     lbl_status.setText('<span style="color: green;">'
                                       + linux_keycode_name(ptt_k) + '</span>')
+                elif check_id == "daemon" and self.wizard_mode and not getattr(
+                        self, '_conf_existed_before_wizard', False):
+                    # True first-run: service unit installed but not started yet
+                    # (will be at Finish). Make this explicit instead of "OK".
+                    lbl_status.setText(
+                        '<span style="color: green;">' + _("Installed") + '</span> '
+                        '<span style="color: palette(text); opacity: 0.7;">— '
+                        + _("will be activated on Finish") + '</span>')
                 else:
                     lbl_status.setText('<span style="color: green;">' + _("OK") + '</span>')
             else:
@@ -14076,17 +15985,37 @@ class DicteeSetupDialog(QDialog):
             )
 
     def _check_daemon_active(self):
-        """Vérifie que le service ASR est réellement actif (et la socket ouverte
-        pour les backends Rust). Tolère un état `activating` transitoire (model
-        loading) jusqu'à ~6 s avant de conclure à l'échec, ce qui évite un
-        faux positif quand le daemon crashe en boucle (driver CUDA cassé,
-        modèle absent, etc.)."""
+        """Vérifie l'état du service ASR.
+
+        - Wizard pre-Finish : vérifie juste que le service systemd est
+          INSTALLÉ (le service ne tourne pas encore — il sera démarré au
+          clic Finish). Évite un faux négatif maintenant que la page 7
+          n'écrit plus dictee.conf et ne démarre plus les services.
+        - Mode settings/post-Finish : vérifie l'état actif réel (active +
+          socket ouverte pour Rust). Tolère `activating` ~6 s.
+        """
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk",
-               "whisper": "dictee-whisper", "canary": "dictee-canary"}.get(asr, "dictee")
+               "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
+               "canary": "dictee-canary"}.get(asr, "dictee")
+        # True first-run wizard (no prior dictee.conf): the service hasn't been
+        # started yet (will be at Finish). Fallback to "is the unit installed".
+        # Reconfig wizard or settings: check live state.
+        true_first_run = (
+            self.wizard_mode
+            and not getattr(self, '_wizard_finished', False)
+            and not getattr(self, '_conf_existed_before_wizard', False))
+        if true_first_run:
+            try:
+                r = subprocess.run(
+                    ["systemctl", "--user", "list-unit-files", f"{svc}.service"],
+                    capture_output=True, text=True, timeout=2)
+                return f"{svc}.service" in r.stdout
+            except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+                return False
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
         sock = os.path.join(runtime_dir, "transcribe.sock")
-        needs_socket = asr in ("parakeet", "canary")
+        needs_socket = asr in ("parakeet", "canary", "whisper-rust")
         deadline = time.monotonic() + 6.0
         last_state = "?"
         while time.monotonic() < deadline:
@@ -14149,19 +16078,54 @@ class DicteeSetupDialog(QDialog):
                               str(src) if src else "@DEFAULT_SOURCE@", pct],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def _source_volume_percent(self):
+        """Live volume (%) of the selected source (or @DEFAULT_SOURCE@)."""
+        src = self.cmb_audio_source.currentData() if hasattr(self, "cmb_audio_source") else ""
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-source-volume", str(src) if src else "@DEFAULT_SOURCE@"],
+                text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
+            m = re.search(r"(\d+)%", out)
+            if m:
+                return max(0, min(100, int(m.group(1))))
+        except Exception:
+            pass
+        return self.slider_volume.value()
+
+    def _sync_volume_slider(self):
+        """Follow the system: set the slider to the selected source's live
+        volume (shared with the plasmoid / meeting / system mixer). Skipped
+        while the user drags it so the re-read never fights the drag."""
+        if not hasattr(self, "slider_volume") or self.slider_volume.isSliderDown():
+            return
+        cur = self._source_volume_percent()
+        if cur != self.slider_volume.value():
+            self.slider_volume.blockSignals(True)
+            self.slider_volume.setValue(cur)
+            self.slider_volume.blockSignals(False)
+            self.lbl_vol_pct.setText(f"{cur}%")
+
     def _on_audio_source_changed(self, _index):
-        """Restart audio level thread on new source."""
+        """Restart audio level thread on new source; show its live volume."""
         self._stop_audio_level()
         self._start_audio_level()
+        self._sync_volume_slider()
 
     def _start_audio_level(self):
         if self._audio_monitor is not None:
             return
-        idx = self.cmb_audio_source.currentIndex()
-        if idx > 0 and idx - 1 < len(self._audio_devices):
-            device = self._audio_devices[idx - 1]
-        else:
-            device = QMediaDevices.defaultAudioInput()
+        # Map the selected value back to a QAudioDevice for the VU meter. A mic
+        # carries its node.name as value, which equals QAudioDevice.id() on the
+        # Qt PipeWire backend; monitors/apps have no QAudioDevice, so the meter
+        # falls back to the default input. (Index-based mapping broke once the
+        # combo gained monitor/app entries from dictee-audio-sources.)
+        src = self.cmb_audio_source.currentData() or ""
+        device = QMediaDevices.defaultAudioInput()
+        if src:
+            for dev in self._audio_devices:
+                if dev.id().data().decode() == src:
+                    device = dev
+                    break
         self._audio_monitor = AudioLevelMonitor(self.mic_level, device)
         self._audio_monitor.start()
 
@@ -14172,16 +16136,28 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
+        _vw = getattr(self, "_vol_watcher", None)
+        if _vw is not None:
+            _vw.stop()
         self._cleanup_calib_records()
-        # Wizard annulé : rien n'a été écrit sur disque, rien à nettoyer
+        # Stop any ad-hoc daemon if a test thread is still running. The thread's
+        # stop() also cleans up the socket file. Two separate handles since the
+        # audit fix split _test_thread into dictee/translate-specific handles.
+        for _attr in ("_test_dictee_thread", "_test_translate_thread"):
+            _t = getattr(self, _attr, None)
+            if _t and _t.isRunning():
+                _t.stop()
+                _t.wait(2000)
+        # Wizard annulé : aucune écriture sur disque (l'arrivée page 7 ne
+        # déclenche plus _on_apply), rien à nettoyer.
         super().closeEvent(event)
 
     # ── Test dictation ────────────────────────────────────────────
 
     def _on_test_dictee(self):
         _dbg_setup("_on_test_dictee")
-        if self._test_thread and self._test_thread.isRunning():
-            self._test_thread.stop()
+        if self._test_dictee_thread and self._test_dictee_thread.isRunning():
+            self._test_dictee_thread.stop()
             self.btn_test_dictee.setText("🎤 " + _("Test dictation"))
             self.btn_test_dictee.setEnabled(True)
             if hasattr(self, '_test_timer'):
@@ -14197,10 +16173,11 @@ class DicteeSetupDialog(QDialog):
         _thr = (
             self.slider_silence.value() / 1000.0
             if hasattr(self, 'slider_silence') else None)
-        self._test_thread = TestDicteeThread(
-            duration=5, postprocess=pp_enabled, silence_threshold=_thr)
-        self._test_thread.result.connect(self._on_test_result)
-        self._test_thread.start()
+        self._test_dictee_thread = TestDicteeThread(
+            duration=5, postprocess=pp_enabled, silence_threshold=_thr,
+            wizard_env=self._wizard_test_env())
+        self._test_dictee_thread.result.connect(self._on_test_result)
+        self._test_dictee_thread.start()
 
     def _on_test_tick(self):
         self._test_countdown -= 1
@@ -14221,8 +16198,8 @@ class DicteeSetupDialog(QDialog):
 
     def _on_test_translate(self):
         _dbg_setup("_on_test_translate")
-        if self._test_thread and self._test_thread.isRunning():
-            self._test_thread.stop()
+        if self._test_translate_thread and self._test_translate_thread.isRunning():
+            self._test_translate_thread.stop()
             self.btn_test_translate.setText("🌐 " + _("Test translation"))
             self.btn_test_translate.setEnabled(True)
             if hasattr(self, '_test_timer_tr'):
@@ -14257,14 +16234,17 @@ class DicteeSetupDialog(QDialog):
         _thr = (
             self.slider_silence.value() / 1000.0
             if hasattr(self, 'slider_silence') else None)
-        self._test_thread = TestTranslateThread(
+        wenv = self._wizard_test_env()
+        if wenv and asr == "canary":
+            wenv["DICTEE_LANG_TARGET"] = target  # Canary inline translation
+        self._test_translate_thread = TestTranslateThread(
             duration=5, asr_backend=asr, trans_backend=trans_backend,
             source_lang=source, target_lang=target, trans_engine=trans_engine,
             lt_port=lt_port, ollama_model=ollama_model, postprocess=pp_enabled,
-            silence_threshold=_thr,
+            silence_threshold=_thr, wizard_env=wenv,
         )
-        self._test_thread.result.connect(self._on_test_translate_result)
-        self._test_thread.start()
+        self._test_translate_thread.result.connect(self._on_test_translate_result)
+        self._test_translate_thread.start()
 
     def _on_test_translate_tick(self):
         self._test_countdown_tr -= 1
@@ -14489,7 +16469,8 @@ class DicteeSetupDialog(QDialog):
             self.lbl_ptt_warning.setText(
                 '<span style="color: red;">⚠ ' +
                 _("Key '{key}' is not supported. Use a function key (F1-F24), "
-                  "the backtick (`) or a special key (Home, End, Insert, etc.).").format(key=key_str) +
+                  "the top-left {key41} key or a special key (Home, End, Insert, "
+                  "etc.).").format(key=key_str, key41=_key41_label()) +
                 '</span>'
             )
             self.lbl_ptt_warning.setVisible(True)
@@ -14506,6 +16487,121 @@ class DicteeSetupDialog(QDialog):
             self.btn_capture_translate.setText(
                 _("Key '{key}' not supported").format(key=key_str))
 
+    def _on_detect_extra_devices(self):
+        self._detect_devices_dialog("whitelist")
+
+    def _on_detect_exclude_devices(self):
+        self._detect_devices_dialog("exclude")
+
+    def _detect_devices_dialog(self, mode):
+        """Dialog listing input keyboards. mode='whitelist' lets the user check
+        VIRTUAL devices to listen to (DICTEE_PTT_EXTRA_DEVICES); mode='exclude'
+        lets the user check PHYSICAL devices to leave to another exclusive
+        grabber such as input-remapper (DICTEE_PTT_EXCLUDE_DEVICES, issue #20)."""
+        try:
+            with open("/proc/bus/input/devices") as f:
+                content = f.read()
+        except OSError as e:
+            QMessageBox.warning(self, _("Error"), str(e))
+            return
+
+        # Patterns rejected by default in dictee-ptt.find_keyboards_*
+        # (kept in sync — feedback loop protection).
+        FILTER_PAT = re.compile(r"virtual|uinput", re.IGNORECASE)
+        ALWAYS_BLOCKED = re.compile(r"dotool|dictee-ptt", re.IGNORECASE)
+        # UI-only heuristic (exclude mode): devices created by remapping tools
+        # carry the keystrokes dictee-ptt must LISTEN to (the "forwarded" output).
+        # Don't let the user exclude them by mistake. Does NOT affect dictee-ptt's
+        # grab filter — only which rows are checkable in the exclude picker.
+        FORWARDED_PAT = re.compile(r"input-remapper|forwarded|xremap|keyd|kanata",
+                                   re.IGNORECASE)
+
+        devices = []  # (name, status) where status in {'whitelistable', 'physical', 'blocked'}
+        for block in content.split("\n\n"):
+            name = handlers = ""
+            for line in block.strip().splitlines():
+                if line.startswith("N: Name="):
+                    name = line[8:].strip().strip('"')
+                elif line.startswith("H: Handlers="):
+                    handlers = line[12:].strip()
+            if not name or "kbd" not in handlers:
+                continue
+            if ALWAYS_BLOCKED.search(name):
+                devices.append((name, "blocked"))
+            elif FILTER_PAT.search(name):
+                devices.append((name, "whitelistable"))
+            else:
+                devices.append((name, "physical"))
+
+        if mode == "exclude":
+            field = self.txt_ptt_exclude_devices
+            checkable = "physical"
+            intro = _("Keyboards detected on your system. Check the PHYSICAL "
+                      "keyboard that another tool grabs exclusively (e.g. "
+                      "input-remapper): dictee push-to-talk will leave it alone "
+                      "and listen to that tool's forwarded device instead.")
+        else:
+            field = self.txt_ptt_extra_devices
+            checkable = "whitelistable"
+            intro = _("Keyboards detected on your system. Check the virtual ones "
+                      "you want dictee to listen to (e.g. devices created by "
+                      "logiops, keyd, kanata, xremap or input-remapper).")
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(_("Detect input devices"))
+        dlg.setMinimumSize(440, 420)
+        layout = QVBoxLayout(dlg)
+        _lbl_intro = QLabel(intro)
+        _lbl_intro.setWordWrap(True)
+        layout.addWidget(_lbl_intro)
+
+        list_widget = QListWidget()
+        current = {s.strip() for s in field.text().split(",") if s.strip()}
+        for name, status in devices:
+            # In exclude mode, only a TRUE physical keyboard is checkable: never a
+            # remapper's forwarded/output device (dictee-ptt must keep listening
+            # to those). In whitelist mode, only virtual devices are checkable.
+            is_forwarded = bool(FORWARDED_PAT.search(name))
+            if mode == "exclude":
+                checkable_here = (status == "physical") and not is_forwarded
+            else:
+                checkable_here = (status == "whitelistable")
+            if checkable_here:
+                label = name
+            elif status == "blocked":
+                label = _("{name}  [internal — always blocked]").format(name=name)
+            elif mode == "exclude" and is_forwarded:
+                label = _("{name}  [forwarded — dictee listens here, keep]").format(name=name)
+            elif status == "physical":
+                label = _("{name}  [physical — listened by default]").format(name=name)
+            else:  # virtual
+                label = _("{name}  [virtual]").format(name=name)
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if name in current
+                               else Qt.CheckState.Unchecked)
+            if not checkable_here:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btn_box.accepted.connect(dlg.accept)
+        btn_box.rejected.connect(dlg.reject)
+        layout.addWidget(btn_box)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            selected = []
+            for i in range(list_widget.count()):
+                item = list_widget.item(i)
+                if (item.checkState() == Qt.CheckState.Checked
+                        and item.flags() & Qt.ItemFlag.ItemIsEnabled):
+                    selected.append(item.data(Qt.ItemDataRole.UserRole))
+            field.setText(",".join(selected))
+            self._dirty = True
+
     def _check_ptt_warning(self, code, lbl):
         """Avertit si la touche risque de poser problème."""
         # Touches dangereuses : lettres, chiffres, espace, enter, tab
@@ -14518,7 +16614,8 @@ class DicteeSetupDialog(QDialog):
             lbl.setText(
                 '<span style="color: orange;">⚠ ' +
                 _("This key is used for typing. Prefer a function key (F1-F24), "
-                  "the backtick (`) or a special key (Home, End, Insert, etc.).") +
+                  "the top-left {key41} key or a special key (Home, End, Insert, "
+                  "etc.).").format(key41=_key41_label()) +
                 '</span>'
             )
             lbl.setVisible(True)
@@ -15061,10 +17158,11 @@ class DicteeSetupDialog(QDialog):
                     break
             if not inserted:
                 lines.append(f"DICTEE_LIBRETRANSLATE_LANGS={langs}\n")
-        tmp_path = CONF_PATH + ".tmp"
+        conf_target = _conf_write_target()
+        tmp_path = conf_target + ".tmp"
         with open(tmp_path, "w") as f:
             f.writelines(lines)
-        os.replace(tmp_path, CONF_PATH)
+        os.replace(tmp_path, conf_target)
 
     def _on_lt_restart_langs_finished(self, success, message):
         self._lt_set_buttons_busy(False)
@@ -15297,6 +17395,11 @@ class DicteeSetupDialog(QDialog):
                 if not model_is_installed(dep_w["model"]):
                     self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
                     dep_w["button"].setToolTip("")
+            # A TDT variant just appeared: re-enable the int8/FP32 toggle if
+            # both variants are now installed (otherwise it stays greyed out
+            # until the window is reopened).
+            if mid in ("tdt", "tdt-int8"):
+                self._refresh_quant_toggle_state()
         else:
             self._update_venv_button(w["button"], model["name"], False)
             if message != _("Cancelled"):
@@ -15313,19 +17416,31 @@ class DicteeSetupDialog(QDialog):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        import shutil
+        # The fp32 and int8 TDT variants share one dir (and vocab.txt); every
+        # other model owns its dir alone. Delete only the files this variant
+        # brought, keeping any file a still-installed sibling needs — a blanket
+        # rmtree(dir) would wipe the coexisting variant (the int8 <-> fp32 case).
+        siblings = [m for m in ASR_MODELS
+                    if m is not model and m["dir"] == model["dir"]
+                    and model_is_installed(m)]
+        shared = {os.path.basename(dest)
+                  for sib in siblings for _url, dest in sib["files"]}
+        to_delete = {os.path.basename(dest)
+                     for _url, dest in model["files"]} - shared
         # Delete from both system and user dirs
         for base in (MODEL_DIR, DICTEE_DATA_DIR):
             model_dir = model["dir"].replace(MODEL_DIR, base)
-            if os.path.isdir(model_dir):
+            if not os.path.isdir(model_dir):
+                continue
+            paths = [os.path.join(model_dir, f) for f in to_delete
+                     if os.path.isfile(os.path.join(model_dir, f))]
+            for p in paths:
                 try:
-                    shutil.rmtree(model_dir)
-                    os.makedirs(model_dir, exist_ok=True)
+                    os.remove(p)
                 except PermissionError:
-                    r = subprocess.run(["pkexec", "rm", "-rf", model_dir],
-                                       capture_output=True, timeout=10)
-                    if r.returncode == 0:
-                        os.makedirs(model_dir, mode=0o777, exist_ok=True)
+                    subprocess.run(["pkexec", "rm", "-f", *paths],
+                                   capture_output=True, timeout=10)
+                    break
         w = self._model_widgets[mid]
         self._update_venv_button(w["button"], name, False)
         w["btn_delete"].setVisible(False)
@@ -15335,6 +17450,10 @@ class DicteeSetupDialog(QDialog):
             if not model_is_installed(dep_w["model"]):
                 dep_w["button"].setEnabled(False)
                 dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
+        # A TDT variant was removed: a single remaining variant must be
+        # auto-resolved and the toggle disabled.
+        if mid in ("tdt", "tdt-int8"):
+            self._refresh_quant_toggle_state()
 
     # -- Installation venv ASR --
 
@@ -15381,7 +17500,7 @@ class DicteeSetupDialog(QDialog):
                              "to fetch at least one Vosk language model — without it, "
                              "Vosk cannot transcribe anything.")
                 else:  # whisper
-                    hint = _("Now pick a Whisper model (small / turbo / large-v3…) and "
+                    hint = _("Now pick a Whisper model (tiny / small / medium) and "
                              "click Download — Whisper cannot transcribe until at least "
                              "one model is downloaded.")
                 QMessageBox.information(
@@ -15395,7 +17514,8 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"Venv install error ({name}): {message!r}")
             QMessageBox.critical(self, _("Installation error"), message or _("Unknown error"))
 
-    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None):
+    def _asr_backend_ready(self, backend, whisper_model=None, vosk_lang=None,
+                           whisper_rust_model=None):
         """Return (ok, error_message) for the given ASR backend.
         Checks that the engine is actually installed AND that at least one
         language/model for it is available. Parakeet is always considered
@@ -15441,12 +17561,26 @@ class DicteeSetupDialog(QDialog):
             if not self._any_model_installed("whisper"):
                 return False, _(
                     "Whisper is installed, but no model has been downloaded.\n\n"
-                    "Pick a Whisper model (small / turbo / large-v3…) and click Download.")
+                    "Pick a Whisper model (tiny / small / medium) and click Download.")
             if whisper_model and not self._whisper_model_cached(whisper_model):
                 return False, _(
                     "The Whisper model « {model} » is not downloaded yet.\n\n"
                     "Click Download next to it, or choose a model that is already "
                     "available.").format(model=whisper_model)
+            return True, ""
+        if backend == "whisper-rust":
+            if get_gpu_vram_gb()[0] <= 0:
+                return False, _(
+                    "Whisper-Rust requires a Vulkan GPU (none detected).")
+            if not self._any_whisper_rust_model_installed():
+                return False, _(
+                    "No Whisper-Rust model is downloaded.\n\n"
+                    "Pick a model in the combo and click Download.")
+            if whisper_rust_model and not self._whisper_rust_model_installed(whisper_rust_model):
+                return False, _(
+                    "The Whisper-Rust model « {model} » is not downloaded yet.\n\n"
+                    "Click Download next to it, or choose a model that is already "
+                    "available.").format(model=whisper_rust_model)
             return True, ""
         return True, ""
 
@@ -16563,7 +18697,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-canary.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-whisper-rust.service", "dictee-canary.service"]
         active = False
         for svc in services:
             try:
@@ -16583,7 +18717,9 @@ class DicteeSetupDialog(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 backend = self.conf.get("DICTEE_ASR_BACKEND", "parakeet")
                 svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
-                           "whisper": "dictee-whisper.service", "canary": "dictee-canary.service"}
+                           "whisper": "dictee-whisper.service",
+                           "whisper-rust": "dictee-whisper-rust.service",
+                           "canary": "dictee-canary.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
             else:
@@ -16735,7 +18871,7 @@ class DicteeSetupDialog(QDialog):
             btn.setMinimumWidth(orig_min_w)
             btn.setEnabled(True)
 
-    def _on_apply(self, show_message=True):
+    def _on_apply(self, show_message=True, mark_setup_done=True):
         _dbg_setup("_on_apply: saving configuration")
         # Save ALL editor content — user expects Apply to persist
         # every pending change, not just the checkboxes.
@@ -16759,8 +18895,10 @@ class DicteeSetupDialog(QDialog):
         _old_ptt = {}
         _old_asr = {}
         _ASR_KEYS = ("DICTEE_ASR_BACKEND", "DICTEE_WHISPER_MODEL",
+                     "DICTEE_WHISPER_RUST_MODEL", "DICTEE_WHISPER_RUST_GGML",
                      "DICTEE_WHISPER_LANG", "DICTEE_VOSK_MODEL",
-                     "DICTEE_AUDIO_SOURCE")
+                     "DICTEE_AUDIO_SOURCE", "DICTEE_PARAKEET_QUANT",
+                     "DICTEE_FORCE_CPU")
         try:
             if os.path.isfile(CONF_PATH):
                 with open(CONF_PATH) as _f:
@@ -16774,6 +18912,7 @@ class DicteeSetupDialog(QDialog):
                         if _pk in ("DICTEE_PTT_MODE", "DICTEE_PTT_KEY",
                                    "DICTEE_PTT_KEY_TRANSLATE",
                                    "DICTEE_PTT_MOD_TRANSLATE",
+                                   "DICTEE_PTT_EXTRA_DEVICES",
                                    "DICTEE_CHEATSHEET_MOD"):
                             _old_ptt[_pk] = _pv
                         elif _pk in _ASR_KEYS:
@@ -16834,6 +18973,19 @@ class DicteeSetupDialog(QDialog):
             asr_backend = self.cmb_asr_backend.currentData() or "parakeet"
 
         whisper_model = self.cmb_whisper_model.currentData() or "small"
+        whisper_rust_model = (self.cmb_whisper_rust_model.currentData()
+                              if hasattr(self, "cmb_whisper_rust_model") else None) or "large-v3"
+        _wr = _whisper_rust_model_dict(whisper_rust_model)
+        whisper_rust_ggml = ""
+        if _wr:
+            # Resolve where the ggml ACTUALLY is: system dir (MODEL_DIR) first, then
+            # the user dir — matching model_is_installed + ModelDownloadThread's
+            # PermissionError fallback (MODEL_DIR may be user-writable on dev boxes,
+            # root-owned on real installs). Default to the user dir if not found.
+            _wr_sys = os.path.join(_WHISPER_RUST_DIR, _wr["check_file"])
+            _wr_usr = os.path.join(DICTEE_DATA_DIR, "whisper-rust", _wr["check_file"])
+            whisper_rust_ggml = (_wr_sys if os.path.isfile(_wr_sys)
+                                 else _wr_usr)
         whisper_lang = (self.txt_whisper_lang.currentData() or self.txt_whisper_lang.currentText() or "").strip()
         vosk_model = self.cmb_vosk_lang.currentData() or "fr"
 
@@ -16842,7 +18994,8 @@ class DicteeSetupDialog(QDialog):
         # and end up with DICTEE_ASR_BACKEND set in dictee.conf pointing to
         # an engine that can't start → transcription silently fails on F9.
         _ready_ok, _ready_msg = self._asr_backend_ready(
-            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model)
+            asr_backend, whisper_model=whisper_model, vosk_lang=vosk_model,
+            whisper_rust_model=whisper_rust_model)
         if not _ready_ok:
             QMessageBox.warning(self, _("ASR backend not ready"), _ready_msg)
             return False
@@ -16856,6 +19009,15 @@ class DicteeSetupDialog(QDialog):
         ptt_mode = self.cmb_ptt_mode.currentData() if hasattr(self, 'cmb_ptt_mode') else "toggle"
         ptt_key = getattr(self, '_ptt_key', 67)
         ptt_mod_translate = ""
+        # These three live on the Extra-options page, which the wizard does not
+        # build. When the widget is absent (wizard), fall back to the existing
+        # conf value instead of "" / 0 so a wizard re-run never clobbers them.
+        ptt_extra_devices = (self.txt_ptt_extra_devices.text().strip()
+                             if hasattr(self, 'txt_ptt_extra_devices')
+                             else self.conf.get("DICTEE_PTT_EXTRA_DEVICES", ""))
+        ptt_exclude_devices = (self.txt_ptt_exclude_devices.text().strip()
+                               if hasattr(self, 'txt_ptt_exclude_devices')
+                               else self.conf.get("DICTEE_PTT_EXCLUDE_DEVICES", ""))
 
         translate_mode = self.cmb_translate_mode.currentData() if hasattr(self, 'cmb_translate_mode') else "disabled"
         if translate_mode == "same_alt":
@@ -16956,11 +19118,17 @@ class DicteeSetupDialog(QDialog):
         save_config(backend, lang_src, lang_tgt, clipboard,
                     anim_speech, anim_plasmoid,
                     ollama_model, ollama_cpu, trans_engine, lt_port, lt_langs,
-                    asr_backend, whisper_model, whisper_lang, vosk_model,
+                    asr_backend, whisper_model, whisper_rust_model, whisper_rust_ggml,
+                    whisper_lang, vosk_model,
                     audio_source=str(audio_source),
                     ptt_mode=ptt_mode, ptt_key=ptt_key,
                     ptt_key_translate=ptt_key_translate,
                     ptt_mod_translate=ptt_mod_translate,
+                    ptt_extra_devices=ptt_extra_devices,
+                    ptt_exclude_devices=ptt_exclude_devices,
+                    dotool_settle=(self.spin_dotool_settle.value()
+                                   if hasattr(self, 'spin_dotool_settle')
+                                   else self.conf.get("DICTEE_DOTOOL_SETTLE", "0")),
                     cheatsheet_mod=cheatsheet_mode,
                     cheatsheet_key_seq=cheatsheet_seq_str,
                     postprocess=postprocess,
@@ -16995,7 +19163,33 @@ class DicteeSetupDialog(QDialog):
                     trpp_states=dict(self._trpp_state),
                     trpp_short_text_max=(
                         self.cmb_trpp_short_text_max.currentData()
-                        if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3)
+                        if hasattr(self, 'cmb_trpp_short_text_max') else 3) or 3,
+                    parakeet_quant=(
+                        # Always read the toggle's state (even if auto-resolved
+                        # to a single installed variant) so DICTEE_PARAKEET_QUANT
+                        # is written to dictee.conf and the daemon picks the
+                        # correct variant on restart.
+                        ("int8" if self.tgl_quant.isChecked() else "fp32")
+                        if hasattr(self, 'tgl_quant') else None),
+                    force_cpu=(
+                        self._force_cpu_pref
+                        if hasattr(self, 'tgl_force_cpu') else None),
+                    meeting_dir=(
+                        self.led_meeting_dir.text()
+                        if hasattr(self, 'led_meeting_dir') else ""),
+                    meeting_chunk_s=(
+                        self.sld_chunk.value()
+                        if hasattr(self, 'sld_chunk') else 40),
+                    meeting_always_on_top=(
+                        self.chk_meeting_on_top.isChecked()
+                        if hasattr(self, 'chk_meeting_on_top') else True),
+                    meeting_all_desktops=(
+                        self.chk_meeting_all_desktops.isChecked()
+                        if hasattr(self, 'chk_meeting_all_desktops') else False),
+                    hw_tier=(
+                        self.cmb_whisper_hw_tier.currentData()
+                        if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
+                    mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.
         # - "Same key + <mod>" modes (same_alt / same_ctrl / same_super /
@@ -17058,7 +19252,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR (active service: synchronous for error reporting)
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "canary": "dictee-canary"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
         # Disable inactive services + enable/restart tray/ptt in background
@@ -17077,6 +19271,8 @@ class DicteeSetupDialog(QDialog):
             "DICTEE_PTT_KEY": str(ptt_key),
             "DICTEE_PTT_KEY_TRANSLATE": str(ptt_key_translate) if ptt_key_translate else "",
             "DICTEE_PTT_MOD_TRANSLATE": ptt_mod_translate or "",
+            "DICTEE_PTT_EXTRA_DEVICES": ptt_extra_devices or "",
+            "DICTEE_PTT_EXCLUDE_DEVICES": ptt_exclude_devices or "",
             # dictee-ptt now also handles the cheatsheet shortcut (Mod+key →
             # toggle dictee-cheatsheet). Changing DICTEE_CHEATSHEET_MOD must
             # therefore restart the daemon so it picks up the new modifier.
@@ -17087,6 +19283,7 @@ class DicteeSetupDialog(QDialog):
             "DICTEE_PTT_KEY": _old_ptt.get("DICTEE_PTT_KEY", "67"),
             "DICTEE_PTT_KEY_TRANSLATE": _old_ptt.get("DICTEE_PTT_KEY_TRANSLATE", ""),
             "DICTEE_PTT_MOD_TRANSLATE": _old_ptt.get("DICTEE_PTT_MOD_TRANSLATE", ""),
+            "DICTEE_PTT_EXTRA_DEVICES": _old_ptt.get("DICTEE_PTT_EXTRA_DEVICES", ""),
             "DICTEE_CHEATSHEET_MOD": _old_ptt.get("DICTEE_CHEATSHEET_MOD", ""),
         }
         _ptt_changed = _new_ptt != _old_ptt_normalized
@@ -17109,15 +19306,40 @@ class DicteeSetupDialog(QDialog):
             svc_error = _("Warning: could not enable {svc} at boot.\n{err}").format(
                 svc=active_svc, err=en.stderr.strip())
 
+        # Include DICTEE_PARAKEET_QUANT and DICTEE_FORCE_CPU so toggling either
+        # triggers a daemon restart (otherwise the daemon keeps the old model
+        # / mode and the env var change has no visible effect).
+        _new_parakeet_quant = (
+            ("int8" if self.tgl_quant.isChecked() else "fp32")
+            if hasattr(self, 'tgl_quant') else ""
+        )
+        _new_force_cpu = (
+            ("1" if self._force_cpu_pref else "0")
+            if hasattr(self, 'tgl_force_cpu') else ""
+        )
         _new_asr = {
             "DICTEE_ASR_BACKEND": asr_backend,
             "DICTEE_WHISPER_MODEL": whisper_model,
+            "DICTEE_WHISPER_RUST_MODEL": whisper_rust_model,
+            "DICTEE_WHISPER_RUST_GGML": whisper_rust_ggml,
             "DICTEE_WHISPER_LANG": whisper_lang,
             "DICTEE_VOSK_MODEL": vosk_model,
             "DICTEE_AUDIO_SOURCE": str(audio_source),
+            "DICTEE_PARAKEET_QUANT": _new_parakeet_quant,
+            "DICTEE_FORCE_CPU": _new_force_cpu,
         }
         _old_asr_normalized = {k: _old_asr.get(k, "") for k in _new_asr}
         _asr_changed = _new_asr != _old_asr_normalized
+        # When ONLY the Parakeet variant flipped (int8 <-> fp32) and Parakeet
+        # is the active backend, route the restart through dictee-switch-backend
+        # so the user gets a "Parakeet model: int8/fp32" notification. The conf
+        # is already saved by save_config() above, so the wrapper's set_conf is
+        # idempotent here.
+        _quant_changed = (
+            asr_backend == "parakeet"
+            and _new_parakeet_quant in ("fp32", "int8")
+            and _old_asr.get("DICTEE_PARAKEET_QUANT", "") != _new_parakeet_quant
+        )
         # Also restart if the service isn't running yet (first-install path)
         _active_running = subprocess.run(
             ["systemctl", "--user", "is-active", active_svc],
@@ -17127,8 +19349,14 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"_on_apply: restarting {active_svc} (asr_changed={_asr_changed}, running={_active_running})")
             try:
                 from PyQt6.QtWidgets import QApplication
+                _switch_bin = shutil.which("dictee-switch-backend")
+                _restart_cmd = (
+                    [_switch_bin, "quant", _new_parakeet_quant]
+                    if (_quant_changed and _switch_bin)
+                    else ["systemctl", "--user", "restart", active_svc]
+                )
                 _proc = subprocess.Popen(
-                    ["systemctl", "--user", "restart", active_svc],
+                    _restart_cmd,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 )
                 import time as _time
@@ -17309,6 +19537,8 @@ def main():
                "  dictee-setup --debug          Enable debug logging\n")
     parser.add_argument("--wizard", action="store_true",
                         help="Force wizard mode (step-by-step configuration)")
+    parser.add_argument("--first-run", action="store_true",
+                        help="Simulate first-run (wizard + 'Quit setup' visible) — dev/test only")
     parser.add_argument("--postprocess", action="store_true",
                         help="Open post-processing dialog directly")
     parser.add_argument("--translation", action="store_true",
@@ -17426,8 +19656,11 @@ def main():
         # Text and background too similar — force readable contrast
         txt_color = "white" if _win_light < 128 else "black"
         app.setStyleSheet(f"QMessageBox QLabel {{ color: {txt_color}; }}")
-    _dbg_setup(f"wizard={args.wizard}, postprocess={args.postprocess}, translation={args.translation}")
-    dialog = DicteeSetupDialog(wizard=args.wizard, open_postprocess=args.postprocess,
+    _dbg_setup(f"wizard={args.wizard}, first_run={args.first_run}, postprocess={args.postprocess}, translation={args.translation}")
+    # --first-run implies --wizard (simulate the very first launch experience)
+    dialog = DicteeSetupDialog(wizard=args.wizard or args.first_run,
+                               first_run=args.first_run,
+                               open_postprocess=args.postprocess,
                                open_translation=args.translation)
     # All CLI flags (--postprocess, --translation) open the main sidebar
     # window; navigation to the matching entry is handled in showEvent via

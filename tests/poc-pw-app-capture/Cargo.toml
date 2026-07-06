@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "poc-pw-app-capture"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+pipewire = "0.8"
+
+[profile.release]
+lto = false
+debug = false
+strip = true

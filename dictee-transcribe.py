@@ -31,7 +31,7 @@ try:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
     )
     from PyQt6.QtGui import QFont as _QFontTip
     from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -48,7 +48,7 @@ except ImportError:
         QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
         QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
         QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
+        QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
     )
     from PySide6.QtGui import QFont as _QFontTip
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -75,7 +75,12 @@ def asr_spec_to_daemon(spec):
         return {"backend": "parakeet",
                 "env": {"DICTEE_PARAKEET_QUANT": "int8", "DICTEE_FORCE_CPU": "1"}}
     if spec == "parakeet-fp32":
-        return {"backend": "parakeet", "env": {"DICTEE_PARAKEET_QUANT": "fp32"}}
+        # fp32 = full-precision model on the best provider (GPU if present).
+        # Explicitly clear any conf-level DICTEE_FORCE_CPU so an isolated fp32
+        # run isn't pinned to CPU by the F9 config ("0" means "GPU allowed":
+        # execution.rs only forces CPU on 1/true/yes).
+        return {"backend": "parakeet",
+                "env": {"DICTEE_PARAKEET_QUANT": "fp32", "DICTEE_FORCE_CPU": "0"}}
     # whisper-rust before plain whisper: both share the "whisper-" prefix.
     if spec.startswith("whisper-rust-"):
         size = spec[len("whisper-rust-"):]
@@ -87,6 +92,33 @@ def asr_spec_to_daemon(spec):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
     raise ValueError(f"unknown asr spec: {spec}")
+
+
+def list_past_meetings(base=None):
+    """Return [(label, audio_path), ...] sorted recent→old, from
+    ~/.local/share/dictee/meetings/*/meeting.meta.json (title + date)."""
+    import json
+    base = base or os.environ.get(
+        "DICTEE_MEETING_DIR",
+        os.path.join(os.path.expanduser("~"), ".local/share/dictee/meetings"))
+    out = []
+    if not os.path.isdir(base):
+        return out
+    for name in sorted(os.listdir(base), reverse=True):   # date-prefixed → recent first
+        d = os.path.join(base, name)
+        audio = os.path.join(d, "audio.wav")
+        if not os.path.isfile(audio):
+            continue
+        title = name
+        meta = os.path.join(d, "meeting.meta.json")
+        if os.path.isfile(meta):
+            try:
+                with open(meta, encoding="utf-8") as f:
+                    title = json.load(f).get("title") or name
+            except Exception:
+                pass
+        out.append((f"{name} — {title}" if title != name else name, audio))
+    return out
 
 
 class ToggleSwitch(QCheckBox):
@@ -653,11 +685,12 @@ class _DiarizeTranscribeWorker(QThread):
     finished = Signal(str)         # final output text
     error = Signal(str)            # error message
 
-    def __init__(self, audio_path, diarize_output, sock_path, parent=None):
+    def __init__(self, audio_path, diarize_output, sock_path, parent=None, socket_timeout=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._diarize_output = diarize_output
         self._sock_path = sock_path
+        self._socket_timeout = socket_timeout
         self._cancelled = False
         self._sock = None  # current open socket, if any (for cancel)
 
@@ -707,11 +740,12 @@ class _DiarizeTranscribeWorker(QThread):
     def run(self):
         import socket as sock_mod, time as _time, re
 
-        # Wait for socket (max 15s).
+        # Wait for socket (default max 15s; isolated cold-loads override it).
         # NB: never use `_` as the loop variable — it shadows the gettext
         # function `_(...)` for the rest of run(), and every translated
         # string downstream blows up with "'int' object is not callable".
-        for _attempt in range(60):
+        _wait_s = self._socket_timeout if self._socket_timeout else 15
+        for _attempt in range(int(_wait_s / 0.25)):
             if os.path.exists(self._sock_path):
                 try:
                     s = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
@@ -723,7 +757,8 @@ class _DiarizeTranscribeWorker(QThread):
                     pass
             _time.sleep(0.25)
         else:
-            self.error.emit(_("Daemon socket not available after 15s"))
+            self.error.emit(
+                _("Daemon socket not available after {s}s").format(s=int(_wait_s)))
             return
 
         # Parse diarize-only output into speaker segments
@@ -858,7 +893,7 @@ class _ChunkedPipelineWorker(QThread):
                           # (repeated sentences) at every chunk boundary.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
+    def __init__(self, audio_path, sensitivity, diarize=True, parent=None, env_override=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
@@ -879,6 +914,10 @@ class _ChunkedPipelineWorker(QThread):
         for _k, _v in _read_conf().items():
             if _k.startswith("DICTEE_"):
                 self._subprocess_env[_k] = _v
+        # Per-run model override (e.g. isolated Parakeet quant chosen in the
+        # combo): wins over the conf-derived values WITHOUT touching dictee.conf.
+        if env_override:
+            self._subprocess_env.update(env_override)
 
     def request_cancel(self):
         self._cancel = True
@@ -1157,6 +1196,60 @@ class _ChunkedPipelineWorker(QThread):
                 shutil.rmtree(self._tmp_dir, ignore_errors=True)
             except Exception as _e:
                 _dbg(f"silenced: {_e!r}")
+
+
+class IsolatedAsrDaemon:
+    """Spawn an ad-hoc ASR daemon on a private socket for a one-off model,
+    WITHOUT touching dictee.conf or the F9 daemon/badge. Non-blocking:
+    start() launches the process and returns the socket path immediately;
+    the phase-2 worker waits for the socket (model cold-load can be slow).
+    """
+    def __init__(self, recipe, model_dir="/usr/share/dictee/tdt"):
+        self.recipe = recipe            # {"backend", "env"} from asr_spec_to_daemon
+        self.model_dir = model_dir
+        self.sock = f"/tmp/dictee-adhoc-{os.getpid()}.sock"
+        self.proc = None
+
+    def _build_cmd_env(self):
+        """Return (cmd_list, env_dict) for the ad-hoc daemon. Pure (no spawn)."""
+        env = os.environ.copy()
+        env.update(self.recipe["env"])
+        env["DICTEE_TRANSCRIBE_SOCKET"] = self.sock     # whisper daemon honors this
+        env["DICTEE_DAEMON_NO_PROVIDER"] = "1"          # don't clobber the F9 badge
+        ort = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort):
+            env.setdefault("ORT_DYLIB_PATH", ort)
+        if self.recipe["backend"] == "whisper":
+            cmd = ["transcribe-daemon-whisper"]
+        else:  # parakeet ad-hoc (not used by the current routing, kept for completeness)
+            cmd = ["transcribe-daemon", "--socket", self.sock, self.model_dir]
+        return cmd, env
+
+    def start(self):
+        """Launch the daemon (non-blocking). Returns the private socket path."""
+        cmd, env = self._build_cmd_env()
+        try:
+            os.unlink(self.sock)        # clear a stale socket
+        except OSError:
+            pass
+        self.proc = subprocess.Popen(cmd, env=env,
+                                     stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL)
+        return self.sock
+
+    def stop(self):
+        """Terminate the daemon and remove the private socket. Idempotent."""
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc = None
+        try:
+            os.unlink(self.sock)
+        except OSError:
+            pass
 
 
 # Strip ASCII control characters (except \t \n \r) from segment text.
@@ -2151,8 +2244,9 @@ class LLMProcessDialog(QDialog):
 class TranscribeWindow(QDialog):
     """Main transcription/diarization window."""
 
-    def __init__(self, file_path=None, auto_diarize=False, parent=None):
+    def __init__(self, file_path=None, auto_diarize=False, asr_model="", parent=None):
         super().__init__(parent)
+        self._asr_model = asr_model or ""
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
@@ -2180,6 +2274,7 @@ class TranscribeWindow(QDialog):
         self._tip = _tip
 
         self._process = None
+        self._isolated_daemon = None  # ad-hoc isolated ASR daemon (Task 5b)
         self._stdout_buf = QByteArray()
         self._segments = []
         self._raw_text = ""  # raw transcription output (stored for reformat)
@@ -2257,6 +2352,26 @@ class TranscribeWindow(QDialog):
 
         # -- File picker --
         lay_file = QHBoxLayout()
+
+        self._asr_model_combo = QComboBox()
+        # (label, userData=spec). "" = Default (F9).
+        for _lbl, _spec in (
+            (_("Default (F9)"), ""),
+            ("Parakeet int8", "parakeet-int8"),
+            ("Parakeet fp32", "parakeet-fp32"),
+            ("Whisper tiny", "whisper-tiny"),
+            ("Whisper small", "whisper-small"),
+            ("Whisper medium", "whisper-medium"),
+        ):
+            self._asr_model_combo.addItem(_lbl, _spec)
+        self._asr_model_combo.setToolTip(self._tip(
+            _("ASR model for this transcription (isolated from your F9 setting)")))
+        if self._asr_model:
+            _i = self._asr_model_combo.findData(self._asr_model)
+            if _i >= 0:
+                self._asr_model_combo.setCurrentIndex(_i)
+        lay_file.addWidget(self._asr_model_combo)
+
         lbl = QLabel(_("File:"))
         lay_file.addWidget(lbl)
 
@@ -2274,6 +2389,11 @@ class TranscribeWindow(QDialog):
         self._btn_browse.setToolTip(_("Open file selection dialog"))
         self._btn_browse.clicked.connect(self._on_browse)
         lay_file.addWidget(self._btn_browse)
+
+        self._btn_history = QPushButton(_("History"))
+        self._btn_history.setToolTip(self._tip(_("Open a past meeting")))
+        self._btn_history.clicked.connect(self._on_open_history)
+        lay_file.addWidget(self._btn_history)
 
         layout.addLayout(lay_file)
 
@@ -2918,6 +3038,9 @@ class TranscribeWindow(QDialog):
                         w.cancel()
                     except Exception as _e:
                         _dbg(f"silenced: {_e!r}")
+        # Kill the ad-hoc isolated ASR daemon too (window/main-tab closed
+        # mid-run). closeEvent calls this, so the private socket is freed.
+        self._stop_isolated_daemon()
         # Hide the cancel button + reset status so the next run starts
         # from a clean slate.
         if hasattr(self, "_btn_cancel"):
@@ -3085,6 +3208,17 @@ class TranscribeWindow(QDialog):
             self._file_input.setText(path)
             self._player.stop()
             self._load_audio(path)
+
+    def _on_open_history(self):
+        items = list_past_meetings()
+        if not items:
+            QMessageBox.information(self, _("History"), _("No past meeting found."))
+            return
+        labels = [lbl for lbl, _p in items]
+        choice, ok = QInputDialog.getItem(
+            self, _("Past meetings"), _("Meeting:"), labels, 0, False)
+        if ok and choice:
+            self._file_input.setText(dict(zip(labels, [p for _l, p in items]))[choice])
 
     # -- Drag & drop audio file onto the window --
 
@@ -3683,6 +3817,11 @@ class TranscribeWindow(QDialog):
         diarize = self._chk_diarize.isChecked()
         _dbg(f"_on_transcribe: file={audio_path}, diarize={diarize}")
 
+        # Isolated ASR model selection (combo). None = Default F9 (unchanged).
+        # Only honored for diarized runs (see _ChunkedPipelineWorker / phase-2).
+        _spec = self._asr_model_combo.currentData() if hasattr(self, "_asr_model_combo") else ""
+        self._isolated_recipe = asr_spec_to_daemon(_spec)
+
         # Create a new tab for this transcription (keep previous tabs)
         self._was_diarized = False
         # Name tab after mode + sensitivity + counter
@@ -3802,7 +3941,19 @@ class TranscribeWindow(QDialog):
         # _long_audio_threshold_minutes() and _has_cuda_build() are kept
         # in case the upstream ONNX bug gets fixed and we want to revert
         # to a VRAM-aware threshold.
-        if self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS:
+        # Hybrid isolated-model routing: a diarized run with an isolated
+        # Parakeet quant selected goes through the chunked pipeline at ANY
+        # length (one chunk for short files), with the quant env forced onto
+        # the batch CLI subprocess. An isolated Whisper selection is handled
+        # by the two-phase socket path (Task 5b) and must NOT enter here.
+        _parakeet_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "parakeet")
+        _whisper_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "whisper")
+        if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
+                or _parakeet_isolated) and not _whisper_isolated):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
@@ -3811,7 +3962,8 @@ class TranscribeWindow(QDialog):
             self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
-                audio_path, sensitivity, diarize=diarize, parent=self)
+                audio_path, sensitivity, diarize=diarize, parent=self,
+                env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None))
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -3868,6 +4020,21 @@ class TranscribeWindow(QDialog):
             self._process.deleteLater()
             self._process = None
             return
+        # Isolated Whisper diarized run: force the two-phase path (diarize-only
+        # speakers + phase-2 isolated whisper daemon over a private socket),
+        # regardless of the F9 backend. Requires diarize-only.
+        if _whisper_isolated:
+            if not shutil.which("diarize-only"):
+                self._progress.setVisible(False)
+                self._lbl_status.setText(
+                    _("Command '{cmd}' not found. Install dictee first.").format(cmd="diarize-only"))
+                self._lbl_status.setVisible(True)
+                self._transcription_in_progress = False
+                self._update_transcribe_btn()
+                self._process.deleteLater()
+                self._process = None
+                return
+            cmd, two_phase = "diarize-only", True
         self._diarize_two_phase = two_phase
         if diarize and asr_backend.lower() == "canary" and not two_phase:
             _dbg("_on_transcribe: Canary daemon detected — using "
@@ -3930,17 +4097,30 @@ class TranscribeWindow(QDialog):
             self._update_transcribe_btn()
             return
 
-        # Restart daemon
-        self._daemon_was_active = False
-        self._start_daemon()
-        sock_path = os.path.join(
-            os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "transcribe.sock")
+        if getattr(self, "_isolated_recipe", None) and self._isolated_recipe["backend"] == "whisper":
+            # Isolated whisper: spawn an ad-hoc daemon on a private socket
+            # (the F9 daemon/config/badge are untouched). Larger socket-wait
+            # timeout because the whisper model cold-load can take a while.
+            self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
+            sock_path = self._isolated_daemon.start()
+            _worker_timeout = 180
+        else:
+            # Restart daemon
+            self._daemon_was_active = False
+            self._start_daemon()
+            # Match the daemon's socket resolution (transcribe_daemon.rs): when
+            # XDG_RUNTIME_DIR is unset the fallback is /tmp/transcribe-<uid>.sock,
+            # NOT /tmp/transcribe.sock (which the daemon never listens on).
+            _xdg = os.environ.get("XDG_RUNTIME_DIR")
+            sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
+                         else f"/tmp/transcribe-{os.getuid()}.sock")
+            _worker_timeout = None
 
         self._lbl_status.setText(_("Waiting for daemon..."))
 
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
-            audio_path, diarize_output, sock_path, self)
+            audio_path, diarize_output, sock_path, self, socket_timeout=_worker_timeout)
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)
         self._diarize_worker.error.connect(self._on_diarize_error)
@@ -3961,9 +4141,15 @@ class TranscribeWindow(QDialog):
         # skipped on every two-phase short-file diarization.
         self._was_diarized = True
         self._finish_transcription(raw_output)
+        # Tear down the ad-hoc isolated whisper daemon (if any) and restore
+        # the F9 daemon if the VRAM-free block stopped it (no-op otherwise).
+        self._stop_isolated_daemon()
+        self._restart_daemon_if_stopped()
         _dbg(f"_on_diarize_done: btn_enabled_after={self._btn_transcribe.isEnabled()}")
 
     def _on_diarize_error(self, msg):
+        self._stop_isolated_daemon()
+        self._restart_daemon_if_stopped()
         self._diarize_worker = None
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
@@ -4031,6 +4217,16 @@ class TranscribeWindow(QDialog):
             self._daemon_was_active = False
             _dbg("_restart_daemon_if_stopped: restarting ASR daemon")
             self._start_daemon()
+
+    def _stop_isolated_daemon(self):
+        """Tear down the ad-hoc isolated ASR daemon if one is running."""
+        d = getattr(self, "_isolated_daemon", None)
+        if d is not None:
+            try:
+                d.stop()
+            except Exception as _e:
+                _dbg(f"silenced: {_e!r}")
+            self._isolated_daemon = None
 
     def _on_cancel_chunked(self):
         """User clicked Cancel during the chunked pipeline."""
@@ -5371,6 +5567,10 @@ def main():
     parser.add_argument("--file", "-f", help="Audio file to transcribe")
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
+    parser.add_argument("--asr-model", default="",
+                        help="ASR model spec (parakeet-int8|parakeet-fp32|"
+                             "whisper-tiny|whisper-small|whisper-medium). "
+                             "Empty = use the F9 daemon (default).")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
     # Positional args: receive %F from .desktop / file-manager open-with /
@@ -5408,6 +5608,7 @@ def main():
     win = TranscribeWindow(
         file_path=file_path,
         auto_diarize=args.diarize,
+        asr_model=args.asr_model,
     )
     win.show()
     sys.exit(app.exec())

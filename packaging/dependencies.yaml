@@ -88,6 +88,10 @@ depends:
     rpm: pipewire
     arch: pipewire
     why: capture audio micro (pw-record, en dur — aucun fallback ALSA dans le code)
+    # Note: le binaire Rust `dictee-app-capture` se lie à libpipewire-0.3.so.0
+    # (fourni par `pipewire`, déjà déclaré ici) → AUCUNE nouvelle dep runtime.
+    # Côté build-host uniquement (non packagé, le mainteneur les a déjà) :
+    # libpipewire-0.3-dev (deb) / pipewire-devel (rpm) + clang/libclang pour bindgen.
 
   - canonical: sox
     variants: [cpu, cuda]

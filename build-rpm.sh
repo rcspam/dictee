@@ -56,7 +56,7 @@ prepare_buildroot() {
 
     # Binaires
     mkdir -p "$buildroot/usr/bin"
-    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only transcribe-daemon-whisper-rust; do
+    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only transcribe-daemon-whisper-rust dictee-app-capture; do
         cp "target/release/$bin" "$buildroot/usr/bin/"
     done
     cp "$PKG_DIR/usr/bin/dictee" "$buildroot/usr/bin/"
@@ -200,7 +200,8 @@ build_rpm_cuda() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
     # --bin transcribe-daemon-whisper-rust, so the main daemon stays vulkan-free.
@@ -538,7 +539,8 @@ build_rpm_cpu() {
         --bin transcribe-diarize \
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
-        --bin diarize-only
+        --bin diarize-only \
+        --bin dictee-app-capture
 
     # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build time.
     # Separate wrapper so the main daemon stays vulkan-free.

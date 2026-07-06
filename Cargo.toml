@@ -57,6 +57,10 @@ path = "src/bin/diarize_only.rs"
 name = "transcribe-daemon-whisper-rust"
 path = "src/bin/transcribe_daemon.rs"
 
+[[bin]]
+name = "dictee-app-capture"
+path = "src/bin/app_capture.rs"
+
 [dependencies]
 ort = { version = "=2.0.0-rc.11", default-features = false, features = ["std", "ndarray"] }
 hound = "3.5"
@@ -69,6 +73,7 @@ serde_json = "1.0"
 rustfft = "6.4"
 ctrlc = "3.4"
 libc = "0.2"
+pipewire = "0.8"
 
 [dev-dependencies]
 

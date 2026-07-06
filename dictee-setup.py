@@ -3118,6 +3118,51 @@ class AudioLevelMonitor:
             self._meter.setLevel(level)
 
 
+class _SourceVolumeWatcher(QThread):
+    """Emits source_changed whenever a PipeWire/Pulse *source* changes
+    (volume/mute), via 'pactl subscribe'. Lets the volume slider FOLLOW external
+    changes (plasmoid, meeting, system mixer) instead of only pushing them out.
+
+    'stdbuf -oL' forces pactl to line-buffer (a pipe is otherwise block-buffered
+    → delayed bursts); iter(readline) keeps delivery line-by-line in real time."""
+
+    source_changed = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.proc = None
+        self._stop = False
+
+    def run(self):
+        for cmd in (["stdbuf", "-oL", "pactl", "subscribe"],
+                    ["pactl", "subscribe"]):
+            try:
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    text=True, bufsize=1, env=dict(os.environ, LC_ALL="C"))
+                break
+            except (FileNotFoundError, OSError):
+                self.proc = None
+        if self.proc is None:
+            return
+        for line in iter(self.proc.stdout.readline, ""):
+            if self._stop:
+                break
+            # exclude 'source-output' ('on source-output #' never matches this)
+            if "'change'" in line and "on source #" in line:
+                self.source_changed.emit()
+
+    def stop(self):
+        self._stop = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.wait(2000)
+
+
 class TestTranslateThread(QThread):
     """Record mic, transcribe, then translate using the configured backend."""
     result = Signal(str)
@@ -15322,6 +15367,12 @@ class DicteeSetupDialog(QDialog):
         lay_vol.addWidget(self.slider_volume, 1)
         lay_vol.addWidget(self.lbl_vol_pct)
         lay_mic.addLayout(lay_vol)
+        # Follow the system level: a 'pactl subscribe' watcher refreshes the
+        # slider when the source volume changes elsewhere (plasmoid, meeting,
+        # system mixer). Initial read happens once sources are populated.
+        self._vol_watcher = _SourceVolumeWatcher()
+        self._vol_watcher.source_changed.connect(self._sync_volume_slider)
+        self._vol_watcher.start()
 
         # Level meter (custom painted — instant repaint)
         self.mic_level = LevelMeter()
@@ -15748,6 +15799,8 @@ class DicteeSetupDialog(QDialog):
                 self.cmb_audio_source.blockSignals(True)
                 self.cmb_audio_source.setCurrentIndex(idx)
                 self.cmb_audio_source.blockSignals(False)
+        # Initial read: align the slider with the selected source's live volume.
+        self._sync_volume_slider()
 
     def _populate_audio_sources(self):
         """Populate the F9 source combo from dictee-audio-sources — the single
@@ -16025,10 +16078,38 @@ class DicteeSetupDialog(QDialog):
                               str(src) if src else "@DEFAULT_SOURCE@", pct],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def _source_volume_percent(self):
+        """Live volume (%) of the selected source (or @DEFAULT_SOURCE@)."""
+        src = self.cmb_audio_source.currentData() if hasattr(self, "cmb_audio_source") else ""
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-source-volume", str(src) if src else "@DEFAULT_SOURCE@"],
+                text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
+            m = re.search(r"(\d+)%", out)
+            if m:
+                return max(0, min(100, int(m.group(1))))
+        except Exception:
+            pass
+        return self.slider_volume.value()
+
+    def _sync_volume_slider(self):
+        """Follow the system: set the slider to the selected source's live
+        volume (shared with the plasmoid / meeting / system mixer). Skipped
+        while the user drags it so the re-read never fights the drag."""
+        if not hasattr(self, "slider_volume") or self.slider_volume.isSliderDown():
+            return
+        cur = self._source_volume_percent()
+        if cur != self.slider_volume.value():
+            self.slider_volume.blockSignals(True)
+            self.slider_volume.setValue(cur)
+            self.slider_volume.blockSignals(False)
+            self.lbl_vol_pct.setText(f"{cur}%")
+
     def _on_audio_source_changed(self, _index):
-        """Restart audio level thread on new source."""
+        """Restart audio level thread on new source; show its live volume."""
         self._stop_audio_level()
         self._start_audio_level()
+        self._sync_volume_slider()
 
     def _start_audio_level(self):
         if self._audio_monitor is not None:
@@ -16055,6 +16136,9 @@ class DicteeSetupDialog(QDialog):
 
     def closeEvent(self, event):
         self._stop_audio_level()
+        _vw = getattr(self, "_vol_watcher", None)
+        if _vw is not None:
+            _vw.stop()
         self._cleanup_calib_records()
         # Stop any ad-hoc daemon if a test thread is still running. The thread's
         # stop() also cleans up the socket file. Two separate handles since the
