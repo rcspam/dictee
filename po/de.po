@@ -3607,11 +3607,12 @@ msgstr "Übersetzung…"
 #: dictee-setup.py:16044
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the backtick (`) "
-"or a special key (Home, End, Insert, etc.)."
+"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
 "Die Taste „{key}“ wird nicht unterstützt. Verwenden Sie eine Funktionstaste "
-"(F1-F24), den Gravis (`) oder eine Sondertaste (Pos1, Ende, Einfg usw.)."
+"(F1-F24), die Taste {key41} (oben links) oder eine Sondertaste (Pos1, "
+"Ende, Einfg usw.)."
 
 #: dictee-setup.py:16060
 #, python-brace-format
@@ -3664,13 +3665,14 @@ msgid "{name}  [virtual]"
 msgstr "{name}  [virtuell]"
 
 #: dictee-setup.py:16188
+#, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the backtick "
-"(`) or a special key (Home, End, Insert, etc.)."
+"This key is used for typing. Prefer a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
 "Diese Taste wird zum Tippen verwendet. Verwenden Sie vorzugsweise eine "
-"Funktionstaste (F1-F24), den Gravis (`) oder eine Sondertaste (Pos1, Ende, "
-"Einfg usw.)."
+"Funktionstaste (F1-F24), die Taste {key41} (oben links) oder eine "
+"Sondertaste (Pos1, Ende, Einfg usw.)."
 
 #: dictee-setup.py:16196
 msgid "Escape is used to cancel dictation. Choose another key."

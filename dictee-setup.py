@@ -288,8 +288,66 @@ def qt_key_to_linux_keycode(seq):
     return QT_TO_LINUX_KEYCODE.get(key_only, 0)
 
 
+# What the physical KEY_GRAVE=41 key (top-left, left of the 1) prints per XKB
+# layout. The evdev keycode is layout-independent (that is why the shortcut
+# works everywhere) but the legend on the keycap is not — show the user THEIR
+# character (issues #22/#25). Conservative list; unknown layouts fall back to
+# the two most common legends ("` / ²") rather than guessing wrong.
+_KEY41_GLYPHS = {
+    "us": "`", "gb": "`", "ie": "`", "pl": "`",
+    "fr": "²", "be": "²",
+    "de": "^", "at": "^",
+    "ch": "§", "se": "§", "fi": "§", "no": "§",
+    "dk": "½",
+    "es": "º", "latam": "|",
+    "pt": "\\", "it": "\\",
+    "br": "'",
+    "cz": ";", "sk": ";",
+    "hu": "0",
+    "tr": "é",
+    "ru": "ё",
+}
+_KEY41_CACHE = []
+
+
+def _key41_glyph():
+    """Character printed on the KEY_GRAVE=41 keycap for the ACTIVE layout,
+    or None when the layout is unknown. Reuses resolve_active_layout from
+    dictee-common.sh — the same 4-tier detection (conf override, KDE DBus,
+    GNOME gsettings, localectl/setxkbmap) that dotool typing relies on, so
+    label and typing always agree on the layout. Cached (one subprocess)."""
+    if _KEY41_CACHE:
+        return _KEY41_CACHE[0]
+    glyph = None
+    for p in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "dictee-common.sh"),
+              "/usr/lib/dictee/dictee-common.sh"):
+        if not os.path.isfile(p):
+            continue
+        try:
+            out = subprocess.run(
+                ["bash", "-c", 'source "$1" >/dev/null 2>&1; resolve_active_layout',
+                 "_", p],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+        except Exception:
+            out = ""
+        if out:
+            glyph = _KEY41_GLYPHS.get(out.split("|", 1)[0])
+        break
+    _KEY41_CACHE.append(glyph)
+    return glyph
+
+
+def _key41_label():
+    """Display label for keycode 41: the active layout's keycap glyph, or
+    the two most common legends when the layout is unknown."""
+    return _key41_glyph() or "` / ²"
+
+
 def linux_keycode_name(code):
     """Retourne le nom lisible d'un keycode Linux."""
+    if code == 41:
+        return _key41_label()
     return LINUX_KEYCODE_NAMES.get(code, f"Key {code}")
 ANIMATION_SPEECH_REPO = "rcspam/animation-speech"
 ANIMATION_SPEECH_BIN = "animation-speech-ctl"
@@ -16060,7 +16118,8 @@ class DicteeSetupDialog(QDialog):
             self.lbl_ptt_warning.setText(
                 '<span style="color: red;">⚠ ' +
                 _("Key '{key}' is not supported. Use a function key (F1-F24), "
-                  "the backtick (`) or a special key (Home, End, Insert, etc.).").format(key=key_str) +
+                  "the top-left {key41} key or a special key (Home, End, Insert, "
+                  "etc.).").format(key=key_str, key41=_key41_label()) +
                 '</span>'
             )
             self.lbl_ptt_warning.setVisible(True)
@@ -16204,7 +16263,8 @@ class DicteeSetupDialog(QDialog):
             lbl.setText(
                 '<span style="color: orange;">⚠ ' +
                 _("This key is used for typing. Prefer a function key (F1-F24), "
-                  "the backtick (`) or a special key (Home, End, Insert, etc.).") +
+                  "the top-left {key41} key or a special key (Home, End, Insert, "
+                  "etc.).").format(key41=_key41_label()) +
                 '</span>'
             )
             lbl.setVisible(True)
