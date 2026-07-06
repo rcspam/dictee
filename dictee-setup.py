@@ -106,6 +106,18 @@ CONF_PATH = os.path.join(
     "dictee.conf",
 )
 
+
+def _conf_write_target():
+    """Real file to atomically replace when saving dictee.conf.
+
+    CONF_PATH may be a symlink (dotfiles managers like rcm keep the real
+    file in a versioned repo — #24): os.replace on the symlink NAME would
+    clobber the link with a regular file, so resolve it and replace the
+    TARGET instead. The temp file must live next to the target (same
+    filesystem) so the rename stays atomic.
+    """
+    return os.path.realpath(CONF_PATH)
+
 LANGUAGES = [
     ("fr", "Français"),
     ("en", "English"),
@@ -657,14 +669,15 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
             extra.append(f"{k}={v}\n")
         new_lines[insert_idx:insert_idx] = extra
 
-    # Atomic write
-    conf_dir = os.path.dirname(CONF_PATH) or "."
+    # Atomic write, through a possible symlink (see _conf_write_target)
+    _conf_target = _conf_write_target()
+    conf_dir = os.path.dirname(_conf_target) or "."
     os.makedirs(conf_dir, exist_ok=True)
     _tmp_fd, _tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
     try:
         with os.fdopen(_tmp_fd, "w") as f:
             f.writelines(new_lines)
-        os.replace(_tmp_path, CONF_PATH)
+        os.replace(_tmp_path, _conf_target)
     except BaseException:
         try:
             os.unlink(_tmp_path)
@@ -9044,13 +9057,14 @@ class DicteeSetupDialog(QDialog):
                         lines.append(line)
         if not found:
             lines.append(f"DICTEE_VOSK_MODEL={code}\n")
-        conf_dir = os.path.dirname(CONF_PATH) or "."
+        conf_target = _conf_write_target()
+        conf_dir = os.path.dirname(conf_target) or "."
         os.makedirs(conf_dir, exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
         try:
             with os.fdopen(tmp_fd, "w") as f:
                 f.writelines(lines)
-            os.replace(tmp_path, CONF_PATH)
+            os.replace(tmp_path, conf_target)
         except BaseException:
             try:
                 os.unlink(tmp_path)
@@ -16733,10 +16747,11 @@ class DicteeSetupDialog(QDialog):
                     break
             if not inserted:
                 lines.append(f"DICTEE_LIBRETRANSLATE_LANGS={langs}\n")
-        tmp_path = CONF_PATH + ".tmp"
+        conf_target = _conf_write_target()
+        tmp_path = conf_target + ".tmp"
         with open(tmp_path, "w") as f:
             f.writelines(lines)
-        os.replace(tmp_path, CONF_PATH)
+        os.replace(tmp_path, conf_target)
 
     def _on_lt_restart_langs_finished(self, success, message):
         self._lt_set_buttons_busy(False)
