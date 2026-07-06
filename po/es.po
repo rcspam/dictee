@@ -3614,11 +3614,12 @@ msgstr "Traduciendo…"
 #: dictee-setup.py:16221
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the backtick (`) "
-"or a special key (Home, End, Insert, etc.)."
+"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
 "La tecla '{key}' no es compatible. Use una tecla de función (F1-F24), la "
-"comilla invertida (`) o una tecla especial (Inicio, Fin, Insertar, etc.)."
+"tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
+"Insertar, etc.)."
 
 #: dictee-setup.py:16237
 #, python-brace-format
@@ -3671,12 +3672,14 @@ msgid "{name}  [virtual]"
 msgstr "{name}  [virtual]"
 
 #: dictee-setup.py:16365
+#, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the backtick "
-"(`) or a special key (Home, End, Insert, etc.)."
+"This key is used for typing. Prefer a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
 "Esta tecla se usa para escribir. Prefiera una tecla de función (F1-F24), la "
-"comilla invertida (`) o una tecla especial (Inicio, Fin, Insertar, etc.)."
+"tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
+"Insertar, etc.)."
 
 #: dictee-setup.py:16373
 msgid "Escape is used to cancel dictation. Choose another key."

@@ -3589,11 +3589,12 @@ msgstr "Traduzindo…"
 #: dictee-setup.py:16221
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the backtick (`) "
-"or a special key (Home, End, Insert, etc.)."
+"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
-"A tecla '{key}' não é suportada. Use uma tecla de função (F1-F24), o acento "
-"grave (`) ou uma tecla especial (Home, End, Insert, etc.)."
+"A tecla '{key}' não é suportada. Use uma tecla de função (F1-F24), a "
+"tecla {key41} (canto superior esquerdo) ou uma tecla especial (Home, End, "
+"Insert, etc.)."
 
 #: dictee-setup.py:16237
 #, python-brace-format
@@ -3646,12 +3647,14 @@ msgid "{name}  [virtual]"
 msgstr "{name}  [virtual]"
 
 #: dictee-setup.py:16365
+#, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the backtick "
-"(`) or a special key (Home, End, Insert, etc.)."
+"This key is used for typing. Prefer a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
-"Esta tecla é usada para escrever. Prefira uma tecla de função (F1-F24), o "
-"acento grave (`) ou uma tecla especial (Home, End, Insert, etc.)."
+"Esta tecla é usada para escrever. Prefira uma tecla de função (F1-F24), a "
+"tecla {key41} (canto superior esquerdo) ou uma tecla especial (Home, End, "
+"Insert, etc.)."
 
 #: dictee-setup.py:16373
 msgid "Escape is used to cancel dictation. Choose another key."

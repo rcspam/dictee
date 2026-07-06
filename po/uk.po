@@ -3583,11 +3583,12 @@ msgstr "Переклад…"
 #: dictee-setup.py:16221
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the backtick (`) "
-"or a special key (Home, End, Insert, etc.)."
+"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
 "Клавіша '{key}' не підтримується. Використайте функціональну клавішу (F1-"
-"F24), зворотний апостроф (`) або спеціальну клавішу (Home, End, Insert тощо)."
+"F24), клавішу {key41} (верхній лівий кут) або спеціальну клавішу (Home, "
+"End, Insert тощо)."
 
 #: dictee-setup.py:16237
 #, python-brace-format
@@ -3639,13 +3640,14 @@ msgid "{name}  [virtual]"
 msgstr "{name}  [віртуальний]"
 
 #: dictee-setup.py:16365
+#, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the backtick "
-"(`) or a special key (Home, End, Insert, etc.)."
+"This key is used for typing. Prefer a function key (F1-F24), the top-left "
+"{key41} key or a special key (Home, End, Insert, etc.)."
 msgstr ""
 "Ця клавіша використовується для введення тексту. Краще вибрати функціональну "
-"клавішу (F1-F24), зворотний апостроф (`) або спеціальну клавішу (Home, End, "
-"Insert тощо)."
+"клавішу (F1-F24), клавішу {key41} (верхній лівий кут) або спеціальну "
+"клавішу (Home, End, Insert тощо)."
 
 #: dictee-setup.py:16373
 msgid "Escape is used to cancel dictation. Choose another key."
