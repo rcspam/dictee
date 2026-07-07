@@ -93,9 +93,12 @@ jobs:
       # without them.
       run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
-      run: cargo build --verbose
+      # sortformer + diar are additive pure-Rust features (no system deps):
+      # building with them matches the shipped CPU package feature set and
+      # compiles the diarization engines that a default build skips.
+      run: cargo build --verbose --features "sortformer,diar"
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --features "sortformer,diar"
 
   test-arm64:
     runs-on: ubuntu-24.04-arm
@@ -107,9 +110,10 @@ jobs:
       # Same as test-x86: libpipewire dev headers for dictee-app-capture.
       run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
-      run: cargo build --verbose
+      # Same feature set as test-x86 (see comment there).
+      run: cargo build --verbose --features "sortformer,diar"
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --features "sortformer,diar"
 
   release:
     needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, packaging-audit, test-install-arch-source, test-x86, test-arm64]

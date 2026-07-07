@@ -683,6 +683,37 @@ def _sortformer_available():
     return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
 
 
+def _diar_multi_available():
+    """Check if the in-house multi-speaker diarization engine is usable:
+    diarize-multi binary on PATH + its models installed (sentinel =
+    segmentation-3.0.onnx, same convention as the Rust default_models_dir).
+    When available it is preferred over Sortformer for batch diarization
+    (no 4-speaker cap, better DER)."""
+    import shutil
+    if not shutil.which("diarize-multi"):
+        return False
+    sentinel = "segmentation-3.0.onnx"
+    dd = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "diar",
+    )
+    return (os.path.isfile(os.path.join(dd, sentinel))
+            or os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel)))
+
+
+def _diarize_available():
+    """True when at least one diarization engine (multi-speaker or
+    Sortformer) is installed — gates the diarize toggle."""
+    return _diar_multi_available() or _sortformer_available()
+
+
+def _diar_threshold_from_sensitivity(sensitivity):
+    """Map the UI sensitivity slider (0.0-1.0, default 0.5) to the
+    diarize-multi AHC distance threshold (default 0.6, lower = more
+    speakers — same direction as the slider)."""
+    return sensitivity * 1.2
+
+
 class _DiarizeTranscribeWorker(QThread):
     """Phase 2 worker: transcribe diarized segments via daemon socket."""
     progress = Signal(int, int)    # (done, total)
@@ -956,7 +987,8 @@ class _ChunkedPipelineWorker(QThread):
 
     With diarize=True (4 phases):
       Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
-      Phase 2: diarize-only on the full file -> global speaker segments.
+      Phase 2: diarize-multi (preferred) or diarize-only on the full file
+               -> global speaker segments.
       Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
       Phase 4: merge global speakers onto tokens via argmax_overlap.
       Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
@@ -984,6 +1016,10 @@ class _ChunkedPipelineWorker(QThread):
         self._audio_path = audio_path
         self._sensitivity = sensitivity
         self._diarize = diarize
+        # Engine choice is frozen at job start (availability won't change
+        # mid-run): multi-speaker engine preferred, Sortformer fallback.
+        self._use_diar_multi = _diar_multi_available()
+        self._duration = 0.0  # set in run(), used for the diarize timeout
         self._cancel = False
         self._tmp_dir = None
         self._current_proc = None
@@ -1027,6 +1063,7 @@ class _ChunkedPipelineWorker(QThread):
             if duration <= 0:
                 self.error.emit(_("Could not determine audio duration"))
                 return
+            self._duration = duration
 
             n_phases = 4 if self._diarize else 2
             self.phase_changed.emit(
@@ -1133,15 +1170,29 @@ class _ChunkedPipelineWorker(QThread):
         return chunks
 
     def _run_diarize_only(self):
-        """Run diarize-only. Stdout format: 'start end speaker_id' per line."""
-        cmd = ["diarize-only", "--sensitivity", f"{self._sensitivity:.2f}",
-               self._audio_path]
+        """Run the global diarization pass. Stdout format:
+        'start end speaker_id' per line (same contract for both engines).
+
+        diarize-multi (in-house, no 4-speaker cap) is preferred; Sortformer
+        diarize-only is the fallback when its models are not installed."""
+        if self._use_diar_multi:
+            threshold = _diar_threshold_from_sensitivity(self._sensitivity)
+            cmd = ["diarize-multi", "--threshold", f"{threshold:.2f}",
+                   self._audio_path]
+            # CPU-only hosts run diarize-multi at RTF ~0.9 (plus the
+            # clustering pass): the fixed 600 s cap would kill any file
+            # beyond ~10 min, so scale the timeout with the duration.
+            timeout = max(600, int(self._duration * 3))
+        else:
+            cmd = ["diarize-only", "--sensitivity", f"{self._sensitivity:.2f}",
+                   self._audio_path]
+            timeout = 600
         self._current_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env=self._subprocess_env,
         )
         try:
-            stdout_data, _err = self._current_proc.communicate(timeout=600)
+            stdout_data, _err = self._current_proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             self._current_proc.kill()
             return []
@@ -1450,7 +1501,8 @@ def _format_json(segments, name_map=None):
 # === Transcription routing ===
 
 def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
-                           has_diarize_only, has_transcribe_diarize):
+                           has_diarize_only, has_transcribe_diarize,
+                           has_diarize_multi=False):
     """Pick the ASR command and pipeline mode for a transcription run.
 
     Pure function (no I/O, no Qt) so the routing matrix stays
@@ -1464,10 +1516,15 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
         locked at DICTEE_LANG_SOURCE — phase-2 transcription would
         mistranscribe any audio in another language. Standalone
         transcribe-diarize loads Parakeet-TDT itself (multilingual
-        auto-detect).
+        auto-detect). This is about the phase-2 TRANSCRIPTION engine,
+        so it applies whatever diarization engine is installed.
+      diarize=True   + diarize-multi usable → ("diarize-multi", True, None)
+        Two-phase with the in-house multi-speaker engine (no 4-speaker
+        cap): diarize-multi emits speaker timestamps, daemon socket
+        transcribes each segment. Preferred over Sortformer.
       diarize=True   + Parakeet daemon   → ("diarize-only", True, None)
-        Two-phase: diarize-only emits speaker timestamps, daemon
-        socket transcribes each segment. Reuses the loaded model.
+        Two-phase Sortformer fallback: diarize-only emits speaker
+        timestamps, daemon socket transcribes each segment.
       diarize=True   + diarize-only missing → ("transcribe-diarize", False, None)
         Legacy fallback when the two-phase binary is not installed.
       Required binary missing → (None, False, error_string)
@@ -1478,6 +1535,8 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
         "" / "parakeet" / "canary" / etc. Case-insensitive.
       has_transcribe / has_diarize_only / has_transcribe_diarize: bools
         — typically `bool(shutil.which(<name>))`.
+      has_diarize_multi: bool — binary on PATH AND its models installed
+        (`_diar_multi_available()`, not a bare which()).
 
     Returns: (cmd, two_phase, error). On error, cmd is None and
     error is the missing-binary message ready for the status bar.
@@ -1491,6 +1550,9 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
 
     if daemon_is_canary and has_transcribe_diarize:
         return "transcribe-diarize", False, None
+
+    if has_diarize_multi:
+        return "diarize-multi", True, None
 
     if has_diarize_only:
         return "diarize-only", True, None
@@ -2413,7 +2475,7 @@ class TranscribeWindow(QDialog):
         if file_path:
             self._file_input.setText(file_path)
             self._load_audio(file_path)
-        if auto_diarize and _sortformer_available():
+        if auto_diarize and _diarize_available():
             self._chk_diarize.setChecked(True)
 
         # Speaker transfer from meeting-live: look for speakers.json next to
@@ -2598,15 +2660,20 @@ class TranscribeWindow(QDialog):
         # always laid out next to the toggle (no separate row) so the
         # vertical rhythm of the pad doesn't change when it appears.
         self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
+        diar_multi_ok = _diar_multi_available()
         sortformer_ok = _sortformer_available()
-        self._chk_diarize.setEnabled(sortformer_ok)
-        if sortformer_ok:
+        self._chk_diarize.setEnabled(diar_multi_ok or sortformer_ok)
+        if diar_multi_ok:
+            self._chk_diarize.setToolTip(self._tip(
+                _("Identify speakers (no speaker-count limit). Works on "
+                  "any duration thanks to the auto-chunking pipeline.")))
+        elif sortformer_ok:
             self._chk_diarize.setToolTip(self._tip(
                 _("Identify speakers (max 4). Works on any duration "
                   "thanks to the auto-chunking pipeline.")))
         else:
             self._chk_diarize.setToolTip(
-                _("Sortformer model not installed. Configure in dictee-setup."))
+                _("No diarization model installed. Configure in dictee-setup."))
 
         self._w_threshold = QWidget()
         lay_thresh = QHBoxLayout(self._w_threshold)
@@ -4110,6 +4177,7 @@ class TranscribeWindow(QDialog):
             has_transcribe=bool(shutil.which("transcribe")),
             has_diarize_only=bool(shutil.which("diarize-only")),
             has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
+            has_diarize_multi=_diar_multi_available(),
         )
         if cmd is None:
             self._progress.setVisible(False)
@@ -4122,10 +4190,15 @@ class TranscribeWindow(QDialog):
             self._process = None
             return
         # Isolated Whisper/Nemotron diarized run: force the two-phase path
-        # (diarize-only speakers + phase-2 isolated daemon over a private
-        # socket), regardless of the F9 backend. Requires diarize-only.
+        # (diarization pass + phase-2 isolated daemon over a private
+        # socket), regardless of the F9 backend. Same engine preference
+        # as the routing matrix: diarize-multi first, Sortformer fallback.
         if _whisper_isolated or _nemotron_isolated:
-            if not shutil.which("diarize-only"):
+            if _diar_multi_available():
+                cmd, two_phase = "diarize-multi", True
+            elif shutil.which("diarize-only"):
+                cmd, two_phase = "diarize-only", True
+            else:
                 self._progress.setVisible(False)
                 self._lbl_status.setText(
                     _("Command '{cmd}' not found. Install dictee first.").format(cmd="diarize-only"))
@@ -4135,7 +4208,6 @@ class TranscribeWindow(QDialog):
                 self._process.deleteLater()
                 self._process = None
                 return
-            cmd, two_phase = "diarize-only", True
         self._diarize_two_phase = two_phase
         if diarize and asr_backend.lower() == "canary" and not two_phase:
             _dbg("_on_transcribe: Canary daemon detected — using "
@@ -4145,7 +4217,11 @@ class TranscribeWindow(QDialog):
         args = [audio_path]
         if diarize:
             sensitivity = self._sld_sensitivity.value() / 100.0
-            args += ["--sensitivity", f"{sensitivity:.2f}"]
+            if cmd == "diarize-multi":
+                args += ["--threshold",
+                         f"{_diar_threshold_from_sensitivity(sensitivity):.2f}"]
+            else:
+                args += ["--sensitivity", f"{sensitivity:.2f}"]
         self._process.start(cmd, args)
         # Watchdog: kill process if it hangs (5 min for long audio + GPU)
         self._process_timer = QTimer(self)

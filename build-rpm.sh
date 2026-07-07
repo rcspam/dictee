@@ -56,7 +56,7 @@ prepare_buildroot() {
 
     # Binaires
     mkdir -p "$buildroot/usr/bin"
-    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only transcribe-daemon-whisper-rust dictee-app-capture; do
+    for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only diarize-multi transcribe-daemon-whisper-rust dictee-app-capture; do
         cp "target/release/$bin" "$buildroot/usr/bin/"
     done
     cp "$PKG_DIR/usr/bin/dictee" "$buildroot/usr/bin/"
@@ -195,7 +195,7 @@ build_rpm_cuda() {
     echo "CUDA rebuild (forced)..."
     # CRITICAL: --no-default-features disables ort-defaults (static linking)
     # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
-    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
+    cargo build --release --no-default-features --features "cuda,sortformer,diar,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -203,6 +203,7 @@ build_rpm_cuda() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only \
+        --bin diarize-multi \
         --bin dictee-app-capture
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
@@ -328,7 +329,7 @@ Features:
 - GPU-accelerated transcription via CUDA
 - Low-latency daemon mode with preloaded model
 - Push-to-talk dictation with dotool integration
-- Speaker diarization with Sortformer
+- Speaker diarization (who speaks when), no speaker-count limit
 
 %files
 /usr/bin/*
@@ -535,7 +536,7 @@ build_rpm_cpu() {
     echo "=== [RPM CPU] Building dictee-cpu ==="
 
     # Recompiler en CPU
-    cargo build --release --features "sortformer" \
+    cargo build --release --features "sortformer,diar" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -543,6 +544,7 @@ build_rpm_cpu() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only \
+        --bin diarize-multi \
         --bin dictee-app-capture
 
     # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build time.
@@ -601,7 +603,7 @@ Features:
 - CPU-based transcription (no GPU required)
 - Low-latency daemon mode with preloaded model
 - Push-to-talk dictation with dotool integration
-- Speaker diarization with Sortformer
+- Speaker diarization (who speaks when), no speaker-count limit
 
 %files
 /usr/bin/*

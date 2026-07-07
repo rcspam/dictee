@@ -2100,6 +2100,7 @@ class _RuleTranscribeThread(QThread):
 
 
 NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
+DIAR_HF = "https://huggingface.co/avencera/speakrs-models/resolve/main"
 
 ASR_MODELS = [
     {
@@ -2185,6 +2186,41 @@ ASR_MODELS = [
             (f"{NEMOTRON_HF}/encoder.onnx.data", "encoder.onnx.data"),
             (f"{NEMOTRON_HF}/decoder_joint.onnx", "decoder_joint.onnx"),
             (f"{NEMOTRON_HF}/tokenizer.model", "tokenizer.model"),
+        ],
+        "required": False,
+    },
+    {
+        # In-house multi-speaker diarization engine (diarize-multi binary,
+        # src/diar/). Models from the speakrs project (Apache-2.0, not gated):
+        # pyannote segmentation-3.0 + WeSpeaker ResNet34 + Kaldi PLDA.
+        # plda_phi.npy is NOT downloaded: the engine derives phi from psi
+        # (src/diar/plda.rs).
+        "id": "diar",
+        "name": _("Multi-speaker diarization"),
+        "desc": _("Speaker diarization without the 4-speaker cap (~60 MB)"),
+        "help": _(
+            "<b>Multi-speaker diarization</b> — in-house engine<br><br>"
+            "Identifies speakers in a recording with <b>no fixed speaker "
+            "limit</b> (meetings with 5+ participants).<br>"
+            "pyannote segmentation-3.0 + WeSpeaker ResNet34 embeddings + "
+            "VBx clustering, GPU-accelerated with automatic CPU fallback.<br><br>"
+            "<b>Optional</b> — when installed, file transcription uses it "
+            "instead of Sortformer for speaker identification.<br>"
+            "Used by: <code>diarize-multi</code>"
+        ),
+        "dir": os.path.join(MODEL_DIR, "diar"),
+        "check_file": "segmentation-3.0.onnx",
+        "files": [
+            (f"{DIAR_HF}/segmentation-3.0.onnx", "segmentation-3.0.onnx"),
+            (f"{DIAR_HF}/wespeaker-voxceleb-resnet34.onnx", "wespeaker-voxceleb-resnet34.onnx"),
+            (f"{DIAR_HF}/wespeaker-voxceleb-resnet34.onnx.data", "wespeaker-voxceleb-resnet34.onnx.data"),
+            (f"{DIAR_HF}/wespeaker-voxceleb-resnet34.min_num_samples.txt", "wespeaker-voxceleb-resnet34.min_num_samples.txt"),
+            (f"{DIAR_HF}/plda_lda.npy", "plda_lda.npy"),
+            (f"{DIAR_HF}/plda_mean1.npy", "plda_mean1.npy"),
+            (f"{DIAR_HF}/plda_mean2.npy", "plda_mean2.npy"),
+            (f"{DIAR_HF}/plda_mu.npy", "plda_mu.npy"),
+            (f"{DIAR_HF}/plda_psi.npy", "plda_psi.npy"),
+            (f"{DIAR_HF}/plda_tr.npy", "plda_tr.npy"),
         ],
         "required": False,
     },
@@ -8778,6 +8814,9 @@ class DicteeSetupDialog(QDialog):
                       "or too little VRAM for FP32."),
         "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
                         "in a recording. Optional — only needed for speaker identification."),
+        "diar": _("Speaker diarization add-on without the 4-speaker cap. "
+                  "When installed, file transcription uses it instead of "
+                  "Sortformer."),
     }
 
     def _make_model_label_html(self, model, active_quant, recommended_quant):
@@ -9199,6 +9238,17 @@ class DicteeSetupDialog(QDialog):
             _build_model_row(sortformer_lay, model)
 
         lay_outer.addWidget(sortformer_box)
+
+        # === Multi-speaker diarization group box (in-house engine) ===
+        diar_box = QGroupBox(_("Multi-speaker diarization"))
+        diar_lay = QVBoxLayout(diar_box)
+        diar_lay.setContentsMargins(12, 12, 12, 10)
+        diar_lay.setSpacing(6)
+
+        for model in [m for m in ASR_MODELS if m["id"] == "diar"]:
+            _build_model_row(diar_lay, model)
+
+        lay_outer.addWidget(diar_box)
 
         parent_layout.addWidget(self.w_parakeet_options)
 

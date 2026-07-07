@@ -77,16 +77,23 @@ class SelectTranscribeCmdTests(unittest.TestCase):
     """Routing matrix for _on_transcribe.
 
     Inputs: (diarize, asr_backend, has_transcribe, has_diarize_only,
-             has_transcribe_diarize)
+             has_transcribe_diarize, has_diarize_multi)
     Output: (cmd, two_phase, missing_binary)
     """
 
-    # Default fixture: every binary present, no backend env set.
+    # Default fixture: every legacy binary present, no backend env set.
+    # has_diarize_multi defaults to False here so the pre-existing matrix
+    # keeps documenting the Sortformer-era behaviour; the multi-speaker
+    # engine has its own test block below.
     BASE = dict(
         has_transcribe=True,
         has_diarize_only=True,
         has_transcribe_diarize=True,
+        has_diarize_multi=False,
     )
+    # Fixture for hosts with the in-house multi-speaker engine installed
+    # (binary + models — the caller passes _diar_multi_available()).
+    BASE_MULTI = dict(BASE, has_diarize_multi=True)
 
     # ── diarize=False (plain transcribe) ──────────────────────────────
 
@@ -193,6 +200,54 @@ class SelectTranscribeCmdTests(unittest.TestCase):
         self.assertIsNone(cmd)
         self.assertFalse(two_phase)
         self.assertEqual(err, "diarize-only")
+
+    # ── diarize=True with the in-house multi-speaker engine ───────────
+
+    def test_diar_multi_preferred_over_sortformer(self):
+        # The in-house engine (no 4-speaker cap, better DER) wins over
+        # the Sortformer two-phase path when its models are installed.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet", **self.BASE_MULTI)
+        self.assertEqual(cmd, "diarize-multi")
+        self.assertTrue(two_phase)
+        self.assertIsNone(err)
+
+    def test_diar_multi_ignored_for_plain_transcription(self):
+        cmd, _, _ = _select_transcribe_cmd(
+            diarize=False, asr_backend="parakeet", **self.BASE_MULTI)
+        self.assertEqual(cmd, "transcribe")
+
+    def test_canary_daemon_still_bypasses_diar_multi(self):
+        # The Canary bypass exists because of the PHASE-2 transcription
+        # engine (daemon locked at DICTEE_LANG_SOURCE), not because of
+        # the diarization engine — it must survive diarize-multi.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="canary", **self.BASE_MULTI)
+        self.assertEqual(cmd, "transcribe-diarize")
+        self.assertFalse(two_phase)
+        self.assertIsNone(err)
+
+    def test_canary_fallback_prefers_diar_multi(self):
+        # Canary without the standalone binary falls back to two-phase:
+        # the multi-speaker engine wins there too.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="canary",
+            has_transcribe=True, has_diarize_only=True,
+            has_transcribe_diarize=False, has_diarize_multi=True)
+        self.assertEqual(cmd, "diarize-multi")
+        self.assertTrue(two_phase)
+        self.assertIsNone(err)
+
+    def test_diar_multi_alone_is_sufficient(self):
+        # A future package without Sortformer at all: diarize-multi
+        # (binary + models) alone must carry the diarize path.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet",
+            has_transcribe=True, has_diarize_only=False,
+            has_transcribe_diarize=False, has_diarize_multi=True)
+        self.assertEqual(cmd, "diarize-multi")
+        self.assertTrue(two_phase)
+        self.assertIsNone(err)
 
     # ── Future-proofing for new daemon backends ───────────────────────
 

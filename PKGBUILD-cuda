@@ -105,7 +105,7 @@ build() {
     # the CUDA provider .so files are NEVER loaded at runtime, leading to
     # a silent CPU fallback.
     cargo build --release --no-default-features \
-        --features "cuda,sortformer,load-dynamic" \
+        --features "cuda,sortformer,diar,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -113,6 +113,7 @@ build() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only \
+        --bin diarize-multi \
         --bin dictee-app-capture
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
@@ -163,6 +164,7 @@ package() {
     install -Dm755 target/release/transcribe-stream-diarize "$pkgdir/usr/bin/transcribe-stream-diarize"
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
+    install -Dm755 target/release/diarize-multi "$pkgdir/usr/bin/diarize-multi"
     install -Dm755 target/release/transcribe-daemon-whisper-rust "$pkgdir/usr/bin/transcribe-daemon-whisper-rust"
     install -Dm755 target/release/dictee-app-capture "$pkgdir/usr/bin/dictee-app-capture"
 

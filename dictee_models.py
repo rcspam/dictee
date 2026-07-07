@@ -109,6 +109,23 @@ def find_sortformer_models():
     return models
 
 
+def find_diar_models():
+    """Find multi-speaker diarization models (in-house diarize-multi engine)."""
+    models = []
+    for base, location in [(SYS_DIR, "system"), (DICTEE_DATA, "user")]:
+        diar_dir = os.path.join(base, "diar")
+        if os.path.isfile(os.path.join(diar_dir, "segmentation-3.0.onnx")):
+            size = _dir_size_mb(diar_dir)
+            models.append({
+                "backend": "diar",
+                "name": "multi-speaker-diarization",
+                "path": diar_dir,
+                "location": location,
+                "size_mb": round(size),
+            })
+    return models
+
+
 def find_vosk_models():
     """Find Vosk models."""
     models = []
@@ -233,6 +250,7 @@ def find_all_models():
     all_models.extend(find_canary_models())
     all_models.extend(find_nemotron_models())
     all_models.extend(find_sortformer_models())
+    all_models.extend(find_diar_models())
     all_models.extend(find_vosk_models())
     all_models.extend(find_whisper_models())
     return all_models

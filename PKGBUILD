@@ -89,7 +89,7 @@ build() {
     export RUSTONIG_STATIC_LIBONIG=1
 
     # Build Rust binaries
-    cargo build --release --features sortformer \
+    cargo build --release --features "sortformer,diar" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -97,6 +97,7 @@ build() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only \
+        --bin diarize-multi \
         --bin dictee-app-capture
 
     # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build
@@ -127,6 +128,7 @@ package() {
     install -Dm755 target/release/transcribe-stream-diarize "$pkgdir/usr/bin/transcribe-stream-diarize"
     install -Dm755 target/release/transcribe-diarize-batch "$pkgdir/usr/bin/transcribe-diarize-batch"
     install -Dm755 target/release/diarize-only "$pkgdir/usr/bin/diarize-only"
+    install -Dm755 target/release/diarize-multi "$pkgdir/usr/bin/diarize-multi"
     install -Dm755 target/release/transcribe-daemon-whisper-rust "$pkgdir/usr/bin/transcribe-daemon-whisper-rust"
     install -Dm755 target/release/dictee-app-capture "$pkgdir/usr/bin/dictee-app-capture"
 

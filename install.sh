@@ -498,6 +498,7 @@ mode_online() {
             "/usr/bin/dictee"
             "/usr/bin/dictee-"*
             "/usr/bin/diarize-only"
+            "/usr/bin/diarize-multi"
             "/usr/bin/transcribe"
             "/usr/bin/transcribe-"*
             "/usr/share/dictee/assets/banner-"*.svg
@@ -794,13 +795,16 @@ EOF
     info "Installing binaries into $PREFIX/bin/"
     local bins=(
         transcribe transcribe-daemon transcribe-client transcribe-diarize
-        transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt
+        transcribe-stream-diarize transcribe-diarize-batch
+        diarize-only diarize-multi
+        dictee dictee-setup dictee-tray dictee-ptt
         dictee-postprocess dictee-diarize-llm dictee-switch-backend dictee-test-rules
         dictee-transcribe transcribe-daemon-vosk transcribe-daemon-whisper
-        transcribe-daemon-whisper-rust
+        transcribe-daemon-whisper-rust dictee-app-capture
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
         dictee-translate-langs dictee-audio-sources dictee-meeting-live
+        dictee-stream dictee-cheatsheet
     )
     for b in "${bins[@]}"; do
         [[ -f "$SCRIPT_DIR/usr/bin/$b" ]] && install -Dm755 "$SCRIPT_DIR/usr/bin/$b" "$PREFIX/bin/$b"

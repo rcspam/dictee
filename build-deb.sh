@@ -97,7 +97,7 @@ build_cuda() {
 
     # CRITICAL: --no-default-features disables ort-defaults (static linking)
     # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
-    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
+    cargo build --release --no-default-features --features "cuda,sortformer,diar,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -105,6 +105,7 @@ build_cuda() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only \
+        --bin diarize-multi \
         --bin dictee-app-capture
 
     # whisper-rust daemon (CUDA variant) — wrapper builds ONLY
@@ -135,7 +136,7 @@ Description: Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
   - GPU-accelerated transcription via CUDA
   - Low-latency daemon mode with preloaded model
   - Push-to-talk dictation with dotool integration
-  - Speaker diarization with Sortformer (who speaks when)
+  - Speaker diarization (who speaks when), no speaker-count limit
 EOF
 
     # Copy binaries
@@ -146,6 +147,7 @@ EOF
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp target/release/diarize-multi "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-daemon-whisper-rust "$PKG_DIR/usr/bin/"
     cp target/release/dictee-app-capture "$PKG_DIR/usr/bin/"
 
@@ -242,7 +244,7 @@ build_cpu() {
     rm -rf "$PKG_DIR"
     cp -a pkg/dictee "$PKG_DIR"
 
-    cargo build --release --features "sortformer" \
+    cargo build --release --features "sortformer,diar" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -250,6 +252,7 @@ build_cpu() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only \
+        --bin diarize-multi \
         --bin dictee-app-capture
 
     # whisper-rust daemon (Vulkan variant) — needs glslc (shaderc) at build time.
@@ -277,7 +280,7 @@ Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
   - CPU-based transcription (no GPU required)
   - Low-latency daemon mode with preloaded model
   - Push-to-talk dictation with dotool integration
-  - Speaker diarization with Sortformer (who speaks when)
+  - Speaker diarization (who speaks when), no speaker-count limit
 EOF
 
     # Copy binaries
@@ -288,6 +291,7 @@ EOF
     cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
     cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp target/release/diarize-multi "$PKG_DIR/usr/bin/"
     cp target/release/transcribe-daemon-whisper-rust "$PKG_DIR/usr/bin/"
     cp target/release/dictee-app-capture "$PKG_DIR/usr/bin/"
 
