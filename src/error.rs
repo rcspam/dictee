@@ -39,6 +39,14 @@ impl From<ort::Error> for Error {
     }
 }
 
+// ort 2.0.0-rc.12 builder methods return a recoverable Error<SessionBuilder>;
+// strip the builder state through ort's own From impl.
+impl From<ort::Error<ort::session::builder::SessionBuilder>> for Error {
+    fn from(e: ort::Error<ort::session::builder::SessionBuilder>) -> Self {
+        Error::Ort(e.into())
+    }
+}
+
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Error::Config(e.to_string())

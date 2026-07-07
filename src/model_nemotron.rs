@@ -118,11 +118,11 @@ impl NemotronModel {
         }
 
         let builder = Session::builder()?;
-        let builder = exec_config.apply_to_session_builder(builder)?;
+        let mut builder = exec_config.apply_to_session_builder(builder)?;
         let encoder = builder.commit_from_file(&encoder_path)?;
 
         let builder = Session::builder()?;
-        let builder = exec_config.apply_to_session_builder(builder)?;
+        let mut builder = exec_config.apply_to_session_builder(builder)?;
         let decoder_joint = builder.commit_from_file(&decoder_path)?;
 
         // Detect the multilingual `prompt_index` input and read the actual
