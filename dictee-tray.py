@@ -214,6 +214,24 @@ ASR_BACKENDS = [
     ("nemotron",      "Nemotron",                "nemotron", None),
 ]
 
+_ASR_LABELS = {m: l for m, l, _b, _q in ASR_BACKENDS}
+
+
+def _asr_menu_label(menu_id):
+    """Menu label for an ASR entry. The whisper entries show the model size
+    configured in dictee-setup (single-source setting) in parentheses —
+    refreshed on every menu open so a setup change shows up immediately."""
+    if menu_id == "whisper":
+        size = read_conf_value("DICTEE_WHISPER_MODEL", "small").strip()
+        if size not in ("tiny", "small", "medium"):
+            size = "small"
+        return f"Whisper ({size})"
+    if menu_id == "whisper-rust":
+        size = (read_conf_value("DICTEE_WHISPER_RUST_MODEL", "large-v3").strip()
+                or "large-v3")
+        return f"Whisper-Rust ({size})"
+    return _(_ASR_LABELS[menu_id])
+
 TRANSLATE_BACKENDS = [
     ("google", "Google Translate"),
     ("bing", "Bing"),
@@ -1129,6 +1147,7 @@ class DicteeTrayAppIndicator:
                 active = (backend == current_asr)
             item.set_active(active)
             item.set_sensitive(_asr_service_exists(backend))
+            item.set_label(_asr_menu_label(menu_id))
             item.handler_unblock_by_func(self._on_asr_toggled)
 
         # Disable translation submenu when using canary (built-in translation)
@@ -1531,6 +1550,7 @@ class DicteeTrayQt:
                 checked = (backend == current)
             action.setChecked(checked)
             action.setEnabled(_asr_service_exists(backend))
+            action.setText(_asr_menu_label(menu_id))
 
     def _refresh_trans_menu(self):
         # Disable when using canary (built-in translation)

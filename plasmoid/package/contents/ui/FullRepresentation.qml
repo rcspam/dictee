@@ -588,6 +588,20 @@ RowLayout {
                 }
             }
             textRole: "text"
+            // The whisper entries show the model size selected in
+            // dictee-setup (root.currentWhisper*Model, read from dictee.conf
+            // asynchronously — hence dynamic relabeling, not static text).
+            function relabelWhisper() {
+                for (var i = 0; i < asrModel.count; i++) {
+                    var it = asrModel.get(i)
+                    if (it.value === "whisper")
+                        asrModel.setProperty(i, "text",
+                            "Whisper (" + root.currentWhisperModel + ")")
+                    else if (it.value === "whisper-rust")
+                        asrModel.setProperty(i, "text",
+                            "Whisper-Rust (" + root.currentWhisperRustModel + ")")
+                }
+            }
             function syncIndex() {
                 // Match both backend AND (for Parakeet) the active quantization
                 for (var i = 0; i < asrModel.count; i++) {
@@ -605,11 +619,16 @@ RowLayout {
                 }
                 currentIndex = 0
             }
-            Component.onCompleted: syncIndex()
+            Component.onCompleted: {
+                relabelWhisper()
+                syncIndex()
+            }
             Connections {
                 target: root
                 function onCurrentAsrBackendChanged() { asrCombo.syncIndex() }
                 function onCurrentParakeetQuantChanged() { asrCombo.syncIndex() }
+                function onCurrentWhisperModelChanged() { asrCombo.relabelWhisper() }
+                function onCurrentWhisperRustModelChanged() { asrCombo.relabelWhisper() }
             }
             delegate: QQC2.ItemDelegate {
                 width: parent ? parent.width : 0
