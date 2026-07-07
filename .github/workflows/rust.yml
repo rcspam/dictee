@@ -79,6 +79,10 @@ jobs:
       # whose PKGBUILD _tag points at a tarball that actually exists (HTTP
       # 200). Catches a master bump to an unreleased version, a stale
       # hard-coded branch, or any tag/_tag mismatch — before users hit it.
+      # The token avoids the anonymous GitHub API rate limit shared across
+      # runner IPs (403 flake seen 2026-07-07).
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
       run: bash tests/test-install-arch-source.sh
 
   test-x86:

@@ -21,6 +21,12 @@ set -uo pipefail
 REPO="rcspam/dictee"
 INSTALL_SH="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/install.sh}"
 
+# The GitHub API is rate-limited per IP and CI runners share theirs, so the
+# unauthenticated /releases/latest call gets 403s in CI (seen 2026-07-07).
+# Authenticate when the workflow provides a token; stay anonymous locally.
+api_auth=()
+[[ -n "${GITHUB_TOKEN:-}" ]] && api_auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 [[ -r "$INSTALL_SH" ]] || fail "install.sh not readable: $INSTALL_SH"
@@ -44,7 +50,8 @@ case "$ref" in
     *'$RELEASE_TAG'*|*'${RELEASE_TAG}'*)
         # Installer clones the resolved latest-release tag. Resolve it the
         # same way install.sh does, so we exercise the real chain.
-        ref="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+        ref="$(curl -fsSL ${api_auth[@]+"${api_auth[@]}"} \
+                "https://api.github.com/repos/${REPO}/releases/latest" \
                 | grep -Po '"tag_name"\s*:\s*"\K[^"]+' | head -1)"
         [[ -n "$ref" ]] || fail "cannot resolve \$RELEASE_TAG from /releases/latest" ;;
     *'$'*)
