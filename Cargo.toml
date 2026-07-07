@@ -56,6 +56,10 @@ name = "diarize-only"
 path = "src/bin/diarize_only.rs"
 
 [[bin]]
+name = "diarize-multi"
+path = "src/bin/diarize_multi.rs"
+
+[[bin]]
 name = "transcribe-daemon-whisper-rust"
 path = "src/bin/transcribe_daemon.rs"
 
@@ -66,6 +70,12 @@ path = "src/bin/app_capture.rs"
 [dependencies]
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray"] }
 hound = "3.5"
+# diar feature (src/diar/): pure-Rust dependencies ON PURPOSE — ndarray-linalg
+# is forbidden here (it flips ndarray's `blas` feature on, which unifies into
+# every ASR binary and breaks linking with undefined cblas_sgemm).
+kodama = { version = "0.3", optional = true }
+nalgebra = { version = "0.34", default-features = false, features = ["std"], optional = true }
+ndarray-npy = { version = "0.10", default-features = false, optional = true }
 whisper-rs = { version = "0.16", default-features = false, optional = true }
 eyre = "0.6"
 ndarray = "0.17"
@@ -78,6 +88,7 @@ libc = "0.2"
 pipewire = "0.8"
 
 [dev-dependencies]
+approx = "0.5"
 
 [features]
 default = ["cpu", "ort-defaults"]
@@ -92,6 +103,8 @@ openvino = ["ort/openvino"]
 webgpu = ["ort/webgpu"]
 nnapi = ["ort/nnapi"]
 sortformer = []
+# In-house multi-speaker diarization engine (src/diar/, no 4-speaker cap).
+diar = ["dep:kodama", "dep:nalgebra", "dep:ndarray-npy"]
 whisper        = ["dep:whisper-rs", "whisper-rs/raw-api"]
 whisper-vulkan = ["whisper", "whisper-rs/vulkan"]
 whisper-cuda   = ["whisper", "whisper-rs/cuda"]

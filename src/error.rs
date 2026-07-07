@@ -10,6 +10,8 @@ pub enum Error {
     Model(String),
     Tokenizer(String),
     Config(String),
+    /// Diarization pipeline error (npy load, linalg, invariants).
+    Diar(String),
 }
 
 impl fmt::Display for Error {
@@ -21,6 +23,7 @@ impl fmt::Display for Error {
             Error::Model(msg) => write!(f, "Model error: {msg}"),
             Error::Tokenizer(msg) => write!(f, "Tokenizer error: {msg}"),
             Error::Config(msg) => write!(f, "Config error: {msg}"),
+            Error::Diar(msg) => write!(f, "Diarization error: {msg}"),
         }
     }
 }
@@ -56,5 +59,19 @@ impl From<serde_json::Error> for Error {
 impl From<hound::Error> for Error {
     fn from(e: hound::Error) -> Self {
         Error::Audio(e.to_string())
+    }
+}
+
+#[cfg(feature = "diar")]
+impl From<crate::diar::plda::PldaError> for Error {
+    fn from(e: crate::diar::plda::PldaError) -> Self {
+        Error::Diar(e.to_string())
+    }
+}
+
+#[cfg(feature = "diar")]
+impl From<crate::diar::linalg::LinalgError> for Error {
+    fn from(e: crate::diar::linalg::LinalgError) -> Self {
+        Error::Diar(e.to_string())
     }
 }

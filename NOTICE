@@ -1,0 +1,20 @@
+dictee — NOTICE
+
+src/diar/ contains code derived from speakrs v0.4.2
+(https://github.com/avencera/speakrs), Copyright 2026 Praveen Perera,
+licensed under the Apache License 2.0 (see LICENSE-APACHE). It is
+redistributed here as part of dictee-asr under GPL-3.0-or-later, as
+permitted by Apache-2.0 section 4.
+
+Modifications from the original:
+- extraction of the sequential offline pipeline only (no CoreML, no
+  concurrent/queued modes, no hf-hub downloading, no batched model variants);
+- pure-Rust linear algebra (nalgebra Cholesky reduction + SymmetricEigen)
+  replacing ndarray-linalg/BLAS for the PLDA generalized eigenproblem;
+- exact-speaker-count AHC dendrogram cut (oracle mode);
+- ONNX session construction through the dictee-asr ExecutionConfig
+  conventions (CUDA/CPU provider selection, load-dynamic runtime).
+
+The pipeline itself is a Rust reimplementation of the pyannote
+speaker-diarization-community-1 approach (segmentation + embeddings +
+AHC/PLDA/VBx clustering).
