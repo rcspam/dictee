@@ -1,0 +1,14 @@
+# Data, models, caches — never committed (multi-GB, downloadable/regenerable)
+models/
+audio/
+ref_rttm/
+uem/
+hyp/
+results/
+logs/
+.dl/
+.mdir/
+.tools/
+.refall/
+**/__pycache__/
+*.pyc
