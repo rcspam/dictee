@@ -87,6 +87,11 @@ jobs:
     - uses: actions/checkout@v5
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+    - name: Install build deps
+      # dictee-app-capture links libpipewire-0.3: libspa-sys' build.rs needs
+      # the .pc file and bindgen needs libclang — any workspace build fails
+      # without them.
+      run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -98,6 +103,9 @@ jobs:
     - uses: actions/checkout@v5
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
+    - name: Install build deps
+      # Same as test-x86: libpipewire dev headers for dictee-app-capture.
+      run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
