@@ -43,10 +43,12 @@ def test_default_returns_none():
 
 
 def test_whisper_rust_turbo():
-    assert dt.asr_spec_to_daemon("whisper-rust-large-v3-turbo") == {
-        "backend": "whisper-rust",
-        "env": {"DICTEE_WHISPER_RUST_MODEL": "large-v3-turbo"},
-    }
+    # Since the isolated-run support the recipe also carries the resolved
+    # ggml path (IsolatedAsrDaemon doesn't source dictee.conf).
+    r = dt.asr_spec_to_daemon("whisper-rust-large-v3-turbo")
+    assert r["backend"] == "whisper-rust"
+    assert r["env"]["DICTEE_WHISPER_RUST_MODEL"] == "large-v3-turbo"
+    assert "DICTEE_WHISPER_RUST_GGML" in r["env"]
 
 
 def test_whisper_rust_small():
@@ -105,3 +107,56 @@ def test_list_past_meetings(tmp_path):
     res = dt.list_past_meetings(str(tmp_path))
     assert res == [("2026-06-08-1430_reunion — Réunion équipe",
                     str(m / "audio.wav"))]
+
+
+# --- Engine-level whisper specs (size follows dictee-setup / dictee.conf) ---
+
+
+def test_whisper_unsized_reads_conf_size(monkeypatch):
+    monkeypatch.setattr(dt, "_read_conf", lambda: {"DICTEE_WHISPER_MODEL": "medium"})
+    assert dt.asr_spec_to_daemon("whisper") == {
+        "backend": "whisper",
+        "env": {"DICTEE_WHISPER_MODEL": "medium"},
+    }
+
+
+def test_whisper_unsized_falls_back_to_small(monkeypatch):
+    # Unknown / broken conf sizes (e.g. large-v3, excluded from the curated
+    # faster-whisper list) must not leak into the isolated daemon.
+    monkeypatch.setattr(dt, "_read_conf", lambda: {"DICTEE_WHISPER_MODEL": "large-v3"})
+    assert dt.asr_spec_to_daemon("whisper")["env"]["DICTEE_WHISPER_MODEL"] == "small"
+
+
+def test_whisper_rust_unsized_carries_ggml_path(monkeypatch, tmp_path):
+    ggml = tmp_path / "ggml-large-v3-q5_0.bin"
+    ggml.write_bytes(b"\x00")
+    monkeypatch.setattr(dt, "_read_conf",
+                        lambda: {"DICTEE_WHISPER_RUST_GGML": str(ggml)})
+    assert dt.asr_spec_to_daemon("whisper-rust") == {
+        "backend": "whisper-rust",
+        "env": {"DICTEE_WHISPER_RUST_GGML": str(ggml)},
+    }
+
+
+def test_whisper_rust_sized_resolves_by_size(monkeypatch):
+    monkeypatch.setattr(dt, "_whisper_rust_ggml_path",
+                        lambda size=None: f"/models/ggml-{size}-q5_0.bin")
+    r = dt.asr_spec_to_daemon("whisper-rust-medium")
+    assert r["backend"] == "whisper-rust"
+    assert r["env"]["DICTEE_WHISPER_RUST_MODEL"] == "medium"
+    assert r["env"]["DICTEE_WHISPER_RUST_GGML"].endswith("ggml-medium-q5_0.bin")
+
+
+def test_whisper_rust_unknown_size_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        dt.asr_spec_to_daemon("whisper-rust-gigantic")
+
+
+def test_isolated_daemon_whisper_rust_cmd_env():
+    d = dt.IsolatedAsrDaemon({"backend": "whisper-rust",
+                              "env": {"DICTEE_WHISPER_RUST_GGML": "/x/ggml.bin"}})
+    cmd, env = d._build_cmd_env()
+    assert cmd == ["transcribe-daemon-whisper-rust", "--socket", d.sock]
+    assert env["DICTEE_WHISPER_RUST_GGML"] == "/x/ggml.bin"
+    assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"

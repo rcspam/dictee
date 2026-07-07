@@ -104,15 +104,31 @@ def _acquire_singleton_lock():
 
 
 def current_f9_spec(conf):
-    """Map the F9 dictee.conf settings to an --asr-model spec (combo default)."""
+    """Map the F9 dictee.conf settings to an --asr-model spec (combo default).
+
+    Whisper specs are per ENGINE ("whisper" / "whisper-rust"): the model
+    size follows the dictee-setup selection in dictee.conf, so the combo
+    doesn't duplicate the size choice."""
     backend = (conf.get("DICTEE_ASR_BACKEND") or "parakeet").strip().lower()
     if backend == "whisper":
-        size = (conf.get("DICTEE_WHISPER_MODEL") or "small").strip()
-        return f"whisper-{size}" if size in ("tiny", "small", "medium") else "whisper-small"
+        return "whisper"
+    if backend == "whisper-rust":
+        return "whisper-rust"
     if backend == "nemotron":
         return "nemotron"
     quant = (conf.get("DICTEE_PARAKEET_QUANT") or "fp32").strip().lower()
     return "parakeet-int8" if quant == "int8" else "parakeet-fp32"
+
+
+def normalize_asr_spec(spec):
+    """Fold the sized whisper specs saved by older versions into the
+    engine-level specs the combo exposes now."""
+    s = (spec or "").strip()
+    if s.startswith("whisper-rust"):
+        return "whisper-rust"
+    if s.startswith("whisper-"):
+        return "whisper"
+    return s
 
 
 def slug_title(title):
@@ -1229,16 +1245,28 @@ class MeetingWindow(QWidget):
         model_row = QHBoxLayout()
         model_row.addWidget(QLabel("Modèle :"))
         self._model_combo = QComboBox()
+        # One entry per whisper ENGINE: the model size follows the
+        # dictee-setup selection (DICTEE_WHISPER_MODEL /
+        # DICTEE_WHISPER_RUST_MODEL in dictee.conf). The configured size is
+        # shown in parentheses (snapshot at window build).
+        _conf = self._conf_dict()
+        _wh_size = (_conf.get("DICTEE_WHISPER_MODEL") or "small").strip()
+        if _wh_size not in ("tiny", "small", "medium"):
+            _wh_size = "small"
+        _wr_size = (_conf.get("DICTEE_WHISPER_RUST_MODEL") or "large-v3").strip()
         for _lbl, _spec in (("Parakeet int8", "parakeet-int8"),
                             ("Parakeet fp32", "parakeet-fp32"),
-                            ("Whisper tiny", "whisper-tiny"),
-                            ("Whisper small", "whisper-small"),
-                            ("Whisper medium", "whisper-medium"),
+                            (f"faster-whisper ({_wh_size})", "whisper"),
+                            (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
                             ("Nemotron", "nemotron")):
             self._model_combo.addItem(_lbl, _spec)
-        # Default: saved DICTEE_MEETING_ASR_MODEL, else the current F9 model.
-        _conf = self._conf_dict()
-        _saved = _conf.get("DICTEE_MEETING_ASR_MODEL") or current_f9_spec(_conf)
+        self._model_combo.setToolTip(
+            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
+            "le choix fait dans dictee-setup.")
+        # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper specs
+        # folded into the engine-level ones), else the current F9 model.
+        _saved = normalize_asr_spec(
+            _conf.get("DICTEE_MEETING_ASR_MODEL") or current_f9_spec(_conf))
         _i = self._model_combo.findData(_saved)
         if _i >= 0:
             self._model_combo.setCurrentIndex(_i)
@@ -2039,10 +2067,41 @@ class MeetingWindow(QWidget):
         self._live_asr_sock = None
         self._daemon_was_active = False   # F9 services stopped to free VRAM
         _spec = self._model_combo.currentData()
-        if _spec and _spec.startswith("whisper-"):
+        if _spec == "whisper-rust":
+            # Isolated whisper.cpp daemon on a private socket. The ggml model
+            # is the one selected in dictee-setup: _build_subprocess_env()
+            # forwards DICTEE_WHISPER_RUST_GGML from dictee.conf.
+            _env = _build_subprocess_env()
+            _ggml = _env.get("DICTEE_WHISPER_RUST_GGML", "")
+            if not (_ggml and os.path.isfile(_ggml)):
+                self._on_error_msg("Aucun modèle Whisper-Rust installé "
+                                   "(voir dictee-setup) — live en Parakeet")
+            else:
+                self._live_asr_sock = \
+                    f"/tmp/dictee-meeting-whisper-rust-{os.getpid()}.sock"
+                self._free_vram_for_live_daemon()
+                _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+                try:
+                    os.unlink(self._live_asr_sock)
+                except OSError:
+                    pass
+                try:
+                    self._live_asr_proc = subprocess.Popen(
+                        ["transcribe-daemon-whisper-rust",
+                         "--socket", self._live_asr_sock],
+                        env=_env,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    self._on_error_msg("transcribe-daemon-whisper-rust "
+                                       "introuvable — live en Parakeet")
+                    self._live_asr_sock = None
+        elif _spec == "whisper" or (_spec and _spec.startswith("whisper-")):
             self._live_asr_sock = f"/tmp/dictee-meeting-whisper-{os.getpid()}.sock"
             _env = _build_subprocess_env()
-            _env["DICTEE_WHISPER_MODEL"] = _spec.split("-", 1)[1]
+            if _spec != "whisper":
+                # Legacy sized spec (saved before the engine-level combo);
+                # plain "whisper" follows DICTEE_WHISPER_MODEL from the conf.
+                _env["DICTEE_WHISPER_MODEL"] = _spec.split("-", 1)[1]
             _env["DICTEE_TRANSCRIBE_SOCKET"] = self._live_asr_sock
             _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
             try:
@@ -2084,8 +2143,9 @@ class MeetingWindow(QWidget):
 
         self._nemotron_live = bool(self._live_asr_sock) and _spec == "nemotron"
         self._chunk_paths = {}            # chunk_id → wav path (nemotron live)
-        _whisper_sock = (self._live_asr_sock
-                         if (_spec or "").startswith("whisper-") else None)
+        # Any whisper-family private socket (faster-whisper AND whisper-rust:
+        # both daemons speak the same protocol with word timestamps).
+        _whisper_sock = None if self._nemotron_live else self._live_asr_sock
         _nemotron_sock = self._live_asr_sock if self._nemotron_live else None
         self.transcriber = TranscriptionWorker(whisper_sock=_whisper_sock,
                                                nemotron_sock=_nemotron_sock)

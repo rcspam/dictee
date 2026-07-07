@@ -62,14 +62,46 @@ _WHISPER_RUST_SIZES = ("tiny", "base", "small", "medium",
                        "large-v3-turbo", "large-v3")
 
 ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
-             "whisper-tiny", "whisper-small", "whisper-medium",
-             "nemotron") + tuple(
+             "whisper", "whisper-tiny", "whisper-small", "whisper-medium",
+             "whisper-rust", "nemotron") + tuple(
              f"whisper-rust-{s}" for s in _WHISPER_RUST_SIZES)
+
+
+def _whisper_rust_ggml_path(size=None):
+    """Resolve the ggml model file for an isolated Whisper-Rust run.
+
+    Preference order: the dictee.conf DICTEE_WHISPER_RUST_GGML path (written
+    by dictee-setup when a model is selected), unless a specific `size` is
+    requested; then a glob for ggml-<size>-q*.bin in the user and system
+    model dirs (quantization suffixes vary per size, so no filename table
+    is duplicated here). Returns "" when nothing is installed.
+    """
+    import glob
+    conf = _read_conf()
+    if size is None:
+        p = (conf.get("DICTEE_WHISPER_RUST_GGML") or "").strip()
+        if p and os.path.isfile(p):
+            return p
+        size = (conf.get("DICTEE_WHISPER_RUST_MODEL") or "large-v3").strip()
+    user_dir = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "whisper-rust")
+    for d in (user_dir, "/usr/share/dictee/whisper-rust"):
+        hits = sorted(glob.glob(os.path.join(d, f"ggml-{size}-q*.bin")))
+        if hits:
+            return hits[0]
+    return ""
 
 
 def asr_spec_to_daemon(spec):
     """Map an --asr-model spec to the isolated-daemon recipe, or None for the
-    default F9 daemon.  Raises ValueError on an unknown non-empty spec."""
+    default F9 daemon.  Raises ValueError on an unknown non-empty spec.
+
+    The unsized "whisper" / "whisper-rust" specs follow the model selected
+    in dictee-setup (dictee.conf) — the UI combos expose only those two so
+    the size stays a single-source setting. The sized variants remain for
+    the CLI and for values saved before this change.
+    """
     if not spec or spec in ("f9", "default"):  # UI-combo sentinels meaning "use the F9 daemon"
         return None
     if spec == "parakeet-int8":
@@ -83,12 +115,26 @@ def asr_spec_to_daemon(spec):
         return {"backend": "parakeet",
                 "env": {"DICTEE_PARAKEET_QUANT": "fp32", "DICTEE_FORCE_CPU": "0"}}
     # whisper-rust before plain whisper: both share the "whisper-" prefix.
+    # The daemon needs the ggml PATH (transcribe_daemon.rs reads
+    # DICTEE_WHISPER_RUST_GGML): IsolatedAsrDaemon does not source
+    # dictee.conf, so the recipe must carry it. Empty path = model not
+    # installed; the caller surfaces the error before spawning.
+    if spec == "whisper-rust":
+        return {"backend": "whisper-rust",
+                "env": {"DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path()}}
     if spec.startswith("whisper-rust-"):
         size = spec[len("whisper-rust-"):]
         if size in _WHISPER_RUST_SIZES:
             return {"backend": "whisper-rust",
-                    "env": {"DICTEE_WHISPER_RUST_MODEL": size}}
+                    "env": {"DICTEE_WHISPER_RUST_MODEL": size,
+                            "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path(size)}}
         raise ValueError(f"unknown asr spec: {spec}")
+    if spec == "whisper":
+        size = (_read_conf().get("DICTEE_WHISPER_MODEL") or "small").strip()
+        if size not in ("tiny", "small", "medium"):
+            size = "small"
+        return {"backend": "whisper",
+                "env": {"DICTEE_WHISPER_MODEL": size}}
     if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
@@ -1358,6 +1404,10 @@ class IsolatedAsrDaemon:
             env.setdefault("ORT_DYLIB_PATH", ort)
         if self.recipe["backend"] == "whisper":
             cmd = ["transcribe-daemon-whisper"]
+        elif self.recipe["backend"] == "whisper-rust":
+            # whisper.cpp daemon: model file comes from the recipe's
+            # DICTEE_WHISPER_RUST_GGML (checked by the caller before spawn).
+            cmd = ["transcribe-daemon-whisper-rust", "--socket", self.sock]
         elif self.recipe["backend"] == "nemotron":
             # transcribe-daemon reads DICTEE_ASR_BACKEND=nemotron from env and
             # auto-selects the nemotron model directory (no positional arg needed).
@@ -2507,18 +2557,30 @@ class TranscribeWindow(QDialog):
 
         self._asr_model_combo = QComboBox()
         # (label, userData=spec). "" = Default (F9).
+        # Whisper entries are per ENGINE, not per size: the model size
+        # follows the dictee-setup selection (DICTEE_WHISPER_MODEL /
+        # DICTEE_WHISPER_RUST_MODEL) — keeps the list short and the size a
+        # single-source setting. The configured size is shown in
+        # parentheses (snapshot at window build).
+        _conf_sizes = _read_conf()
+        _wh_size = (_conf_sizes.get("DICTEE_WHISPER_MODEL") or "small").strip()
+        if _wh_size not in ("tiny", "small", "medium"):
+            _wh_size = "small"
+        _wr_size = (_conf_sizes.get("DICTEE_WHISPER_RUST_MODEL")
+                    or "large-v3").strip()
         for _lbl, _spec in (
             (_("Default (F9)"), ""),
             ("Parakeet int8", "parakeet-int8"),
             ("Parakeet fp32", "parakeet-fp32"),
-            ("Whisper tiny", "whisper-tiny"),
-            ("Whisper small", "whisper-small"),
-            ("Whisper medium", "whisper-medium"),
+            (f"faster-whisper ({_wh_size})", "whisper"),
+            (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
             ("Nemotron", "nemotron"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
         self._asr_model_combo.setToolTip(self._tip(
-            _("ASR model for this transcription (isolated from your F9 setting)")))
+            _("ASR model for this transcription (isolated from your F9 "
+              "setting). Whisper model sizes follow your dictee-setup "
+              "selection.")))
         if self._asr_model:
             _i = self._asr_model_combo.findData(self._asr_model)
             if _i >= 0:
@@ -4116,11 +4178,29 @@ class TranscribeWindow(QDialog):
         _whisper_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "whisper")
+        _whisper_rust_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "whisper-rust")
         _nemotron_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "nemotron")
+        # Isolated Whisper-Rust needs its ggml model: fail fast with a
+        # pointer to dictee-setup instead of a daemon-socket timeout.
+        if _whisper_rust_isolated:
+            _ggml = self._isolated_recipe["env"].get("DICTEE_WHISPER_RUST_GGML", "")
+            if not (_ggml and os.path.isfile(_ggml)):
+                self._progress.setVisible(False)
+                self._lbl_status.setText(
+                    _("No Whisper-Rust model installed. Pick one in "
+                      "dictee-setup first."))
+                self._lbl_status.setVisible(True)
+                self._transcription_in_progress = False
+                self._update_transcribe_btn()
+                self._stop_all_spinners()
+                return
         if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
                 or _parakeet_isolated) and not _whisper_isolated
+                and not _whisper_rust_isolated
                 and not _nemotron_isolated):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
@@ -4189,11 +4269,12 @@ class TranscribeWindow(QDialog):
             self._process.deleteLater()
             self._process = None
             return
-        # Isolated Whisper/Nemotron diarized run: force the two-phase path
-        # (diarization pass + phase-2 isolated daemon over a private
-        # socket), regardless of the F9 backend. Same engine preference
-        # as the routing matrix: diarize-multi first, Sortformer fallback.
-        if _whisper_isolated or _nemotron_isolated:
+        # Isolated Whisper/Whisper-Rust/Nemotron diarized run: force the
+        # two-phase path (diarization pass + phase-2 isolated daemon over a
+        # private socket), regardless of the F9 backend. Same engine
+        # preference as the routing matrix: diarize-multi first, Sortformer
+        # fallback.
+        if _whisper_isolated or _whisper_rust_isolated or _nemotron_isolated:
             if _diar_multi_available():
                 cmd, two_phase = "diarize-multi", True
             elif shutil.which("diarize-only"):
@@ -4276,11 +4357,14 @@ class TranscribeWindow(QDialog):
             return
 
         if (getattr(self, "_isolated_recipe", None)
-                and self._isolated_recipe["backend"] in ("whisper", "nemotron")):
-            # Isolated whisper/nemotron: spawn an ad-hoc daemon on a private
-            # socket (the F9 daemon/config/badge are untouched). Extended
-            # socket-wait timeout because both models cold-load slowly
-            # (whisper model download + init; nemotron 2.45 GB load).
+                and self._isolated_recipe["backend"] in ("whisper",
+                                                         "whisper-rust",
+                                                         "nemotron")):
+            # Isolated whisper/whisper-rust/nemotron: spawn an ad-hoc daemon
+            # on a private socket (the F9 daemon/config/badge are untouched).
+            # Extended socket-wait timeout because these models cold-load
+            # slowly (whisper model download + init; nemotron 2.45 GB load;
+            # whisper-rust large-v3 ~1 GB ggml).
             self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
@@ -5755,7 +5839,10 @@ def main():
                         help="Enable speaker diarization")
     parser.add_argument("--asr-model", default="",
                         help="ASR model spec (parakeet-int8|parakeet-fp32|"
-                             "whisper-tiny|whisper-small|whisper-medium). "
+                             "whisper|whisper-rust|nemotron; whisper sizes "
+                             "follow dictee-setup, or force one with "
+                             "whisper-tiny|whisper-small|whisper-medium|"
+                             "whisper-rust-<size>). "
                              "Empty = use the F9 daemon (default).")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
