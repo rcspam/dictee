@@ -46,6 +46,9 @@ src/dictee-*.tar.gz
 tdt
 tdt/
 models/
+# Exception: the PLDA test fixtures (~270 KB) live in a dir named
+# "models" — the diar unit tests need them in CI.
+!tests/diar-fixtures/models/
 onnxruntime-linux-x64-gpu-*/
 onnxruntime-linux-x64-gpu-*.tgz
 # LibriSpeech, librivox → .dev/datasets/ (covered by .dev/ above)
