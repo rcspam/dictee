@@ -5,6 +5,7 @@
 | candidat | _val | aishellsub | voxsub |
 |---|---|---|---|
 | community1-onnx-th0.5 | — | 42.8 | 35.3 |
+| diarize-multi-th0.6 | — | 7.9 | 13.2 |
 | diarizen | — | 6.7 | 11.8 |
 | pyannote-speaker-diarization-community-1 | — | 7.9 | 13.2 |
 | sherpa-3dspeaker_speech_campplus_sv_en_voxceleb_16k-th0.6 | — | 34.0 | 21.0 |
@@ -18,6 +19,7 @@
 | candidat | _val | aishellsub | voxsub |
 |---|---|---|---|
 | community1-onnx-oracle | — | 51.9 | 36.4 |
+| diarize-multi-oracle | — | 31.2 | 14.2 |
 | pyannote-speaker-diarization-community-1 | — | 7.9 | 21.1 |
 | sherpa-3dspeaker_speech_campplus_sv_en_voxceleb_16k-oracle | — | 26.6 | 27.7 |
 | sherpa-3dspeaker_speech_eres2net_sv_en_voxceleb_16k-oracle | 14.9 | 27.3 | 17.4 |
@@ -29,6 +31,7 @@
 | candidat | _val | aishellsub | voxsub |
 |---|---|---|---|
 | community1-onnx-th0.5 | — | 36.5 | 27.2 |
+| diarize-multi-th0.6 | — | 1.9 | 7.0 |
 | diarizen | — | 1.7 | 6.3 |
 | pyannote-speaker-diarization-community-1 | — | 1.9 | 7.1 |
 | sherpa-3dspeaker_speech_campplus_sv_en_voxceleb_16k-th0.6 | — | 26.5 | 13.2 |
@@ -42,6 +45,7 @@
 | candidat | _val | aishellsub | voxsub |
 |---|---|---|---|
 | community1-onnx-oracle | — | 47.2 | 28.7 |
+| diarize-multi-oracle | — | 26.1 | 8.1 |
 | pyannote-speaker-diarization-community-1 | — | 1.9 | 15.6 |
 | sherpa-3dspeaker_speech_campplus_sv_en_voxceleb_16k-oracle | — | 21.6 | 21.8 |
 | sherpa-3dspeaker_speech_eres2net_sv_en_voxceleb_16k-oracle | 11.2 | 22.4 | 11.0 |
