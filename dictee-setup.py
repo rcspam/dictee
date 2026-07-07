@@ -696,9 +696,11 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
     _installed_example = "/usr/share/dictee/dictee.conf.example"
     lines = []
     _use_template = True
+    _old_lines = []
     if os.path.isfile(CONF_PATH):
         with open(CONF_PATH) as f:
-            lines = f.readlines()
+            _old_lines = f.readlines()
+        lines = _old_lines
         # Keep existing file only if it has section separators (new format)
         if any("====" in line for line in lines):
             _use_template = False
@@ -708,6 +710,18 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 with open(path) as f:
                     lines = f.readlines()
                 break
+
+    # Old-flat-format migration: the template REPLACED the user's file
+    # above, so collect its ACTIVE hand-added keys (not managed by this
+    # GUI) to keep them alive — by re-activating the template's commented
+    # line when it documents the key, or appended at the end otherwise.
+    _carry = {}
+    if _use_template and _old_lines:
+        for line in _old_lines:
+            m = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)=(.*)$', line.rstrip("\r\n"))
+            if m and m.group(1) not in values \
+                    and m.group(1) not in _comment_out:
+                _carry.setdefault(m.group(1), m.group(2))
 
     # Patch lines in-place
     written_keys = set()
@@ -724,6 +738,13 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                     new_lines.append(f"{key}={values[key]}\n")
                     written_keys.add(key)
                 # else: drop duplicate line
+                continue
+            if key in _carry:
+                # Migration carry-over: the user had this unmanaged key
+                # active — keep his value over the template's default.
+                if key not in written_keys:
+                    new_lines.append(f"{key}={_carry[key]}\n")
+                    written_keys.add(key)
                 continue
             if key in _comment_out and not commented:
                 # Re-comment: key was active but is no longer needed
@@ -745,6 +766,15 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         for k, v in missing.items():
             extra.append(f"{k}={v}\n")
         new_lines[insert_idx:insert_idx] = extra
+
+    # Migration leftovers: hand-added keys the template doesn't know at
+    # all land at the end, under an explicit marker.
+    _leftover = {k: v for k, v in _carry.items() if k not in written_keys}
+    if _leftover:
+        new_lines.append(
+            "\n# Keys preserved from the previous configuration file\n")
+        for k, v in _leftover.items():
+            new_lines.append(f"{k}={v}\n")
 
     # Atomic write, through a possible symlink (see _conf_write_target)
     _conf_target = _conf_write_target()
@@ -2106,7 +2136,9 @@ ASR_MODELS = [
     {
         "id": "tdt",
         "name": "Parakeet-TDT 0.6B v3 (FP32)",
-        "desc": _("Multilingual transcription (25 languages, ~2.5 GB) — best accuracy, recommended for GPU"),
+        "desc": _("Full precision (~2.5 GB). 25 languages with native "
+                  "punctuation and capitalization. Best accuracy, "
+                  "recommended for GPU."),
         "help": _(
             "<b>Parakeet-TDT 0.6B v3 — FP32</b><br><br>"
             "Full-precision variant of the main transcription model.<br>"
@@ -2131,8 +2163,9 @@ ASR_MODELS = [
     {
         "id": "tdt-int8",
         "name": "Parakeet-TDT 0.6B v3 (int8)",
-        "desc": _("Quantized variant (~670 MB), runs on the CPU. For systems "
-                  "without a GPU or with too little VRAM for FP32."),
+        "desc": _("Quantized variant (~670 MB). ~3.6× smaller, ~34 % faster "
+                  "on CPU. Always runs on the CPU: pick it when there is "
+                  "no GPU, or too little VRAM for FP32."),
         "help": _(
             "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>"
             "Same architecture as FP32 with 8-bit quantized weights.<br><br>"
@@ -2156,7 +2189,9 @@ ASR_MODELS = [
     {
         "id": "sortformer",
         "name": "Sortformer",
-        "desc": _("Speaker diarization (4 speakers max, ~50 MB)"),
+        "desc": _("Speaker diarization add-on (~490 MB). Identifies up to "
+                  "4 speakers in a recording. Optional — only needed for "
+                  "speaker identification."),
         "help": _(
             "<b>Sortformer</b> — Speaker diarization model<br><br>"
             "Identifies and separates up to <b>4 different speakers</b> in an audio recording.<br>"
@@ -2197,7 +2232,9 @@ ASR_MODELS = [
         # (src/diar/plda.rs).
         "id": "diar",
         "name": _("Multi-speaker diarization"),
-        "desc": _("Speaker diarization without the 4-speaker cap (~60 MB)"),
+        "desc": _("Speaker diarization add-on without the 4-speaker cap "
+                  "(~60 MB). When installed, file transcription uses it "
+                  "instead of Sortformer."),
         "help": _(
             "<b>Multi-speaker diarization</b> — in-house engine<br><br>"
             "Identifies speakers in a recording with <b>no fixed speaker "
@@ -2236,6 +2273,15 @@ def model_is_installed(model):
         model["dir"].replace(MODEL_DIR, DICTEE_DATA_DIR),
         model["check_file"])
     return os.path.isfile(sys_path) or os.path.isfile(user_path)
+
+
+def any_parakeet_installed():
+    """True when at least one Parakeet-TDT variant (FP32 or int8) is
+    installed. Wizard/installed gates must accept an int8-only install:
+    int8 is the recommended CPU path, requiring the 2.5 GB FP32 there
+    was a bug."""
+    return any(model_is_installed(m) for m in ASR_MODELS
+               if m.get("quant") in ("fp32", "int8"))
 
 
 class ModelDownloadThread(QThread):
@@ -5943,6 +5989,13 @@ class DicteeSetupDialog(QDialog):
         self._sidebar_stack.addWidget(self._about_page)
         QTimer.singleShot(0, self._ensure_about_built)
 
+        # Section 12 : Diarization models — appended AFTER About so every
+        # pre-existing hardcoded stack index (welcome 0 … about 11) stays
+        # valid. The tree entry below places it logically next to the
+        # other diarization pages regardless of this stack position.
+        self._diar_models_page = self._build_page_diarization()
+        self._sidebar_stack.addWidget(self._diar_models_page)
+
         # --- Top: pipeline header (persistent across all sections) ---
         outer.addWidget(pipeline_header)
 
@@ -5978,8 +6031,13 @@ class DicteeSetupDialog(QDialog):
         _add(pp_root, _("Dictionary"), 8, 3)
         _add(pp_root, _("LLM"), 8, 4)
         pp_root.setExpanded(True)
-        _add(tree, _("Live meeting"), 10)
-        _add(tree, _("LLM Diarization"), 9)
+        # Live meeting groups the diarization-related pages, mirroring the
+        # Post-processing sub-items — except these children point at their
+        # OWN stack pages instead of tabs of the parent's page.
+        meeting_root = _add(tree, _("Live meeting"), 10)
+        _add(meeting_root, _("Diarization"), 12)
+        _add(meeting_root, _("LLM Diarization"), 9)
+        meeting_root.setExpanded(True)
         _add(tree, _("About"), 11)
 
         def _on_item_changed(current, previous):
@@ -6618,7 +6676,9 @@ class DicteeSetupDialog(QDialog):
                 Qt.TextInteractionFlag.TextSelectableByMouse)
             glay.addWidget(warn_lbl)
 
-        self._build_parakeet_options(glay)
+        # Diarization boxes excluded: in the sidebar UI they live on the
+        # dedicated backend-independent Diarization page.
+        self._build_parakeet_options(glay, include_diarization=False)
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
         self._build_nemotron_options(glay)
@@ -7187,11 +7247,12 @@ class DicteeSetupDialog(QDialog):
             # Download page: verify a model is installed for selected backend
             asr = self._wizard_asr
             if asr == "parakeet":
-                for m in ASR_MODELS:
-                    if m["required"] and not model_is_installed(m):
-                        QMessageBox.warning(self, _("Model required"),
-                            _("Please download the required model before continuing."))
-                        return False
+                # An int8-only install is a valid CPU setup — accept ANY
+                # TDT variant instead of demanding the required FP32 one.
+                if not any_parakeet_installed():
+                    QMessageBox.warning(self, _("Model required"),
+                        _("Please download the required model before continuing."))
+                    return False
             elif asr == "vosk":
                 if not venv_is_installed(VOSK_VENV):
                     QMessageBox.warning(self, _("Setup required"),
@@ -8500,7 +8561,7 @@ class DicteeSetupDialog(QDialog):
     def _is_backend_installed(self, backend_id):
         """Check if a backend's model/engine is installed."""
         if backend_id == "parakeet":
-            return model_is_installed(ASR_MODELS[0])
+            return any_parakeet_installed()
         if backend_id == "vosk":
             return venv_is_installed(VOSK_VENV)
         if backend_id == "whisper":
@@ -8804,21 +8865,6 @@ class DicteeSetupDialog(QDialog):
         # that both combos exist and the dictation key has been read.
         self._refresh_shortcut_combos_labels()
 
-    # Wrapped in _() so the strings are extractable/translated. Using _(variable)
-    # at the call site alone leaves them invisible to gettext extraction (and
-    # they were silently English in every locale).
-    _MODEL_DESCRIPTIONS = {
-        "tdt": _("Full precision. 25 languages with native punctuation and capitalization."),
-        "tdt-int8": _("Quantized variant. ~3.6× smaller, ~34 % faster on CPU. "
-                      "Always runs on the CPU: pick it when there is no GPU, "
-                      "or too little VRAM for FP32."),
-        "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
-                        "in a recording. Optional — only needed for speaker identification."),
-        "diar": _("Speaker diarization add-on without the 4-speaker cap. "
-                  "When installed, file transcription uses it instead of "
-                  "Sortformer."),
-    }
-
     def _make_model_label_html(self, model, active_quant, recommended_quant):
         """Generate two-line HTML for a model entry:
           - Line 1: "FP32" or "INT8" (or model name for non-TDT) — bold + ★ Recommended badge
@@ -8848,7 +8894,10 @@ class DicteeSetupDialog(QDialog):
                 + _("Recommended for your hardware") + "</span>"
             )
 
-        desc_text = self._MODEL_DESCRIPTIONS.get(model["id"], "")
+        # Single source of truth: the registry entry's "desc" (previously a
+        # separate _MODEL_DESCRIPTIONS dict shadowed it and left the "desc"
+        # field dead for every model but Nemotron).
+        desc_text = model.get("desc", "")
 
         return (
             f"<p style='margin:0; line-height:1.3;'>"
@@ -9036,8 +9085,74 @@ class DicteeSetupDialog(QDialog):
             self.tgl_quant.setChecked(True)
             self.tgl_quant.blockSignals(False)
 
-    def _build_parakeet_options(self, parent_layout):
-        """Build Parakeet + Sortformer model download UI.
+    def _build_model_row(self, layout, model, active_quant=None,
+                         recommended_quant=None):
+        """Build a model row inside its own container widget. The container
+        is needed so we can apply a QGraphicsOpacityEffect to grey out the
+        entire block (label + buttons + progress) when the variant is
+        non-active. setStyleSheet on individual buttons doesn't visibly
+        grey them on KDE/Plasma styles, hence the container approach.
+
+        active_quant / recommended_quant only matter for the TDT variants
+        (badge + greyout); non-TDT models pass None safely."""
+        installed = model_is_installed(model)
+
+        container = QWidget()
+        container_lay = QVBoxLayout(container)
+        container_lay.setContentsMargins(0, 0, 0, 0)
+        container_lay.setSpacing(4)
+
+        lbl_desc = QLabel(self._make_model_label_html(model, active_quant, recommended_quant))
+        lbl_desc.setWordWrap(True)
+        container_lay.addWidget(lbl_desc)
+
+        btn_row = QHBoxLayout()
+        btn = QPushButton()
+        self._update_venv_button(btn, model["name"], installed)
+        btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
+
+        if model["id"] == "sortformer":
+            if not any_parakeet_installed() and not installed:
+                btn.setEnabled(False)
+                btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 (FP32 or int8) to be installed first"))
+
+        btn_del = QPushButton()
+        btn_del.setIcon(QIcon.fromTheme("edit-delete"))
+        btn_del.setFixedWidth(28)
+        btn_del.setToolTip(_("Delete model"))
+        btn_del.setVisible(installed)
+        btn_del.clicked.connect(lambda checked, m=model: self._on_model_delete(m))
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.setFixedWidth(80)
+        btn_cancel.setVisible(False)
+        btn_cancel.clicked.connect(lambda checked, m=model["id"]: self._on_model_cancel(m))
+
+        btn_row.addWidget(btn, 1)
+        btn_row.addWidget(btn_del)
+        btn_row.addWidget(btn_cancel)
+        container_lay.addLayout(btn_row)
+
+        progress = QProgressBar()
+        progress.setRange(0, 100)
+        progress.setVisible(False)
+        container_lay.addWidget(progress)
+
+        layout.addWidget(container)
+
+        self._model_widgets[model["id"]] = {
+            "label": None, "desc_label": lbl_desc, "container": container,
+            "button": btn, "btn_delete": btn_del,
+            "btn_cancel": btn_cancel, "progress": progress, "model": model,
+        }
+        # Apply initial opacity if this TDT variant is not active
+        model_quant = model.get("quant")
+        if model_quant in ("fp32", "int8") and model_quant != active_quant:
+            self._apply_block_opacity(container, 0.45)
+
+    def _build_parakeet_options(self, parent_layout, include_diarization=True):
+        """Build the Parakeet model download UI (+ optionally the two
+        diarization model boxes).
 
         Layout (top to bottom):
           ┌─ Parakeet TDT — main transcription ──────────┐
@@ -9046,9 +9161,13 @@ class DicteeSetupDialog(QDialog):
           │  Active variant: (•) int8   ( ) FP32         │
           │  ★ Recommended for your hardware: <variant>  │
           └──────────────────────────────────────────────┘
-          ┌─ Sortformer — speaker diarization (optional)┐
-          │  Sortformer [Install][Delete]                │
-          └──────────────────────────────────────────────┘
+          ┌─ Sortformer / Multi-speaker (optional) ──────┐
+
+        include_diarization: the wizard keeps the diarization boxes here
+        (single download page); the sidebar UI passes False because they
+        live on the dedicated backend-independent Diarization page
+        (_build_page_diarization) — diarization serves file transcription
+        whatever the ASR backend is.
         """
         self.w_parakeet_options = QWidget()
         lay_outer = QVBoxLayout(self.w_parakeet_options)
@@ -9062,70 +9181,7 @@ class DicteeSetupDialog(QDialog):
             active_quant = recommended_quant
 
         def _build_model_row(layout, model):
-            """Build a model row inside its own container widget. The container
-            is needed so we can apply a QGraphicsOpacityEffect to grey out the
-            entire block (label + buttons + progress) when the variant is
-            non-active. setStyleSheet on individual buttons doesn't visibly
-            grey them on KDE/Plasma styles, hence the container approach."""
-            installed = model_is_installed(model)
-
-            container = QWidget()
-            container_lay = QVBoxLayout(container)
-            container_lay.setContentsMargins(0, 0, 0, 0)
-            container_lay.setSpacing(4)
-
-            lbl_desc = QLabel(self._make_model_label_html(model, active_quant, recommended_quant))
-            lbl_desc.setWordWrap(True)
-            container_lay.addWidget(lbl_desc)
-
-            btn_row = QHBoxLayout()
-            btn = QPushButton()
-            self._update_venv_button(btn, model["name"], installed)
-            btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
-
-            if model["id"] == "sortformer":
-                any_tdt_installed = (
-                    model_is_installed(ASR_MODELS[0])
-                    or (len(ASR_MODELS) > 1 and ASR_MODELS[1].get("quant") == "int8"
-                        and model_is_installed(ASR_MODELS[1]))
-                )
-                if not any_tdt_installed and not installed:
-                    btn.setEnabled(False)
-                    btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 (FP32 or int8) to be installed first"))
-
-            btn_del = QPushButton()
-            btn_del.setIcon(QIcon.fromTheme("edit-delete"))
-            btn_del.setFixedWidth(28)
-            btn_del.setToolTip(_("Delete model"))
-            btn_del.setVisible(installed)
-            btn_del.clicked.connect(lambda checked, m=model: self._on_model_delete(m))
-
-            btn_cancel = QPushButton(_("Cancel"))
-            btn_cancel.setFixedWidth(80)
-            btn_cancel.setVisible(False)
-            btn_cancel.clicked.connect(lambda checked, m=model["id"]: self._on_model_cancel(m))
-
-            btn_row.addWidget(btn, 1)
-            btn_row.addWidget(btn_del)
-            btn_row.addWidget(btn_cancel)
-            container_lay.addLayout(btn_row)
-
-            progress = QProgressBar()
-            progress.setRange(0, 100)
-            progress.setVisible(False)
-            container_lay.addWidget(progress)
-
-            layout.addWidget(container)
-
-            self._model_widgets[model["id"]] = {
-                "label": None, "desc_label": lbl_desc, "container": container,
-                "button": btn, "btn_delete": btn_del,
-                "btn_cancel": btn_cancel, "progress": progress, "model": model,
-            }
-            # Apply initial opacity if this TDT variant is not active
-            model_quant = model.get("quant")
-            if model_quant in ("fp32", "int8") and model_quant != active_quant:
-                self._apply_block_opacity(container, 0.45)
+            self._build_model_row(layout, model, active_quant, recommended_quant)
 
         # === Parakeet group box (no subtitle — the ASR backend combobox already
         # identifies the model family). Just "Parakeet TDT" as section anchor. ===
@@ -9228,29 +9284,72 @@ class DicteeSetupDialog(QDialog):
 
         lay_outer.addWidget(perf_box)
 
-        # === Sortformer group box (separate, simple title) ===
+        if include_diarization:
+            # === Sortformer group box (separate, simple title) ===
+            sortformer_box = QGroupBox(_("Sortformer"))
+            sortformer_lay = QVBoxLayout(sortformer_box)
+            sortformer_lay.setContentsMargins(12, 12, 12, 10)
+            sortformer_lay.setSpacing(6)
+
+            for model in [m for m in ASR_MODELS if m["id"] == "sortformer"]:
+                _build_model_row(sortformer_lay, model)
+
+            lay_outer.addWidget(sortformer_box)
+
+            # === Multi-speaker diarization group box (in-house engine) ===
+            diar_box = QGroupBox(_("Multi-speaker diarization"))
+            diar_lay = QVBoxLayout(diar_box)
+            diar_lay.setContentsMargins(12, 12, 12, 10)
+            diar_lay.setSpacing(6)
+
+            for model in [m for m in ASR_MODELS if m["id"] == "diar"]:
+                _build_model_row(diar_lay, model)
+
+            lay_outer.addWidget(diar_box)
+
+        parent_layout.addWidget(self.w_parakeet_options)
+
+    def _build_page_diarization(self):
+        """Dedicated sidebar page for the diarization models (sidebar UI
+        only — the wizard keeps them on its download page). Diarization is
+        consumed by the Transcribe window and Live meeting whatever the
+        ASR backend is, so unlike the per-backend option panels this page
+        is always reachable."""
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(10)
+
+        lay.addWidget(QLabel("<h2>" + _("Diarization models") + "</h2>"))
+        desc = QLabel(_(
+            "Diarization identifies <b>who speaks when</b> in a recording. "
+            "It is used by the Transcribe window (Diarization toggle) and "
+            "by Live meeting, and works with every ASR backend.<br><br>"
+            "When the multi-speaker model is installed, file transcription "
+            "uses it automatically instead of Sortformer."
+        ))
+        desc.setWordWrap(True)
+        desc.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(desc)
+
         sortformer_box = QGroupBox(_("Sortformer"))
         sortformer_lay = QVBoxLayout(sortformer_box)
         sortformer_lay.setContentsMargins(12, 12, 12, 10)
         sortformer_lay.setSpacing(6)
-
         for model in [m for m in ASR_MODELS if m["id"] == "sortformer"]:
-            _build_model_row(sortformer_lay, model)
+            self._build_model_row(sortformer_lay, model)
+        lay.addWidget(sortformer_box)
 
-        lay_outer.addWidget(sortformer_box)
-
-        # === Multi-speaker diarization group box (in-house engine) ===
         diar_box = QGroupBox(_("Multi-speaker diarization"))
         diar_lay = QVBoxLayout(diar_box)
         diar_lay.setContentsMargins(12, 12, 12, 10)
         diar_lay.setSpacing(6)
-
         for model in [m for m in ASR_MODELS if m["id"] == "diar"]:
-            _build_model_row(diar_lay, model)
+            self._build_model_row(diar_lay, model)
+        lay.addWidget(diar_box)
 
-        lay_outer.addWidget(diar_box)
-
-        parent_layout.addWidget(self.w_parakeet_options)
+        lay.addStretch(1)
+        return page
 
     def _build_vosk_options(self, parent_layout):
         """Build Vosk install + language widgets."""
@@ -16259,7 +16358,8 @@ class DicteeSetupDialog(QDialog):
     def _check_model_installed_fn(self):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         if asr == "parakeet":
-            return all(model_is_installed(m) for m in ASR_MODELS if m["required"])
+            # Any TDT variant counts — int8-only is a valid CPU install.
+            return any_parakeet_installed()
         elif asr == "vosk":
             return venv_is_installed(VOSK_VENV)
         elif asr == "whisper":
