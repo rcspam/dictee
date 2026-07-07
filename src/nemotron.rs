@@ -28,13 +28,88 @@ const LEFT_CONTEXT: usize = 70;
 const CONV_CONTEXT: usize = 8;
 
 // Decoder
-const VOCAB_SIZE: usize = 1024;
-const BLANK_ID: usize = 1024;
 const DECODER_LSTM_DIM: usize = 640;
 
-// Streaming chunk config
+// Streaming chunk config (identical across English-only and multilingual variants:
+// both use chunk_size_output=7 in NeMo's streaming_cfg which corresponds to 56 mel frames).
 const CHUNK_SIZE: usize = 56;
 const PRE_ENCODE_CACHE: usize = 9;
+
+/// Language → prompt embedding index for the multilingual model. Mirrors
+/// `cfg.model_defaults.prompt_dictionary` from the .nemo. Embedded here so
+/// we don't require a sidecar `config.json` next to the ONNX files.
+///
+/// NVIDIA's model card documents 40 language-locales across 3 tiers
+/// (transcription-ready, broad-coverage, adaptation-ready). The full
+/// dictionary below contains additional entries because (a) several codes
+/// alias the same prompt index (`en` == `en-US`, `hi` == `hi-IN`, ...) and
+/// (b) some experimental languages have prompt slots but are not in the model
+/// card — those run, but quality is not guaranteed.
+///
+/// See: https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
+const PROMPT_DICTIONARY: &[(&str, i64)] = &[
+    ("af-ZA", 54), ("am-ET", 49), ("ar", 7), ("ar-AR", 7), ("auto", 101),
+    ("ay-BO", 81), ("az-AZ", 66), ("bg", 30), ("bg-BG", 30), ("bn-IN", 36),
+    ("cs", 22), ("cs-CZ", 22), ("da", 25), ("da-DK", 25), ("de", 9),
+    ("de-DE", 9), ("el", 21), ("el-GR", 21), ("en", 0), ("en-GB", 1),
+    ("en-US", 0), ("enGB", 1), ("es", 3), ("es-ES", 2), ("es-US", 3),
+    ("esES", 2), ("et", 60), ("et-EE", 60), ("fa-IR", 38), ("fi", 26),
+    ("fi-FI", 26), ("fr", 8), ("fr-CA", 100), ("fr-FR", 8), ("gn-PY", 82),
+    ("gu-IN", 42), ("ha-NG", 50), ("haw-US", 97), ("he-IL", 64), ("hi", 6),
+    ("hi-HI", 6), ("hi-IN", 6), ("hr", 29), ("hr-HR", 29), ("hu", 23),
+    ("hu-HU", 23), ("hy-AM", 68), ("id-ID", 34), ("ig-NG", 53), ("it", 15),
+    ("it-IT", 15), ("ja-JA", 10), ("ja-JP", 10), ("ka-GE", 67), ("km-KH", 47),
+    ("kn-IN", 43), ("ko", 14), ("ko-KO", 14), ("ko-KR", 14), ("ku-TR", 65),
+    ("ky-KG", 71), ("ln-CD", 58), ("lt", 31), ("lt-LT", 31), ("lv", 61),
+    ("lv-LV", 61), ("mi-NZ", 96), ("ml-IN", 44), ("mr-IN", 41), ("ms-MY", 35),
+    ("mt-MT", 102), ("nah-MX", 83), ("nb", 103), ("nb-NO", 103), ("ne-NP", 46),
+    ("nl", 16), ("nl-NL", 16), ("nn", 104), ("nn-NO", 104), ("no", 27),
+    ("no-NO", 27), ("ny-MW", 57), ("or-KE", 59), ("pl", 17), ("pl-PL", 17),
+    ("pt", 13), ("pt-BR", 12), ("pt-PT", 13), ("qu-PE", 80), ("ro", 20),
+    ("ro-RO", 20), ("ru", 11), ("ru-RU", 11), ("rw-RW", 55), ("si-LK", 45),
+    ("sk", 28), ("sk-SK", 28), ("sl", 62), ("sl-SI", 62), ("sm-WS", 98),
+    ("so-SO", 56), ("sv", 24), ("sv-SE", 24), ("sw-KE", 48), ("ta-IN", 39),
+    ("te-IN", 40), ("tg-TJ", 70), ("th-TH", 32), ("to-TO", 99), ("tr", 18),
+    ("tr-TR", 18), ("uk", 19), ("uk-UA", 19), ("ur-PK", 37), ("uz-UZ", 69),
+    ("vi-VN", 33), ("yo-NG", 52), ("zh-CN", 4), ("zh-TW", 5), ("zh-ZH", 4),
+    ("zu-ZA", 51),
+];
+
+/// Prompt index for language-agnostic ("auto") decoding — the model picks
+/// the language itself. Used as the multilingual default until the caller
+/// invokes [`Nemotron::set_target_lang`].
+const PROMPT_INDEX_AUTO: i64 = 101;
+
+/// Detect SentencePiece pieces that encode a language tag like `<en-US>` or
+/// `<en>`. The multilingual model emits these inline with text; they're
+/// stripped from the user-visible transcript.
+fn is_lang_tag(piece: &str) -> bool {
+    let bytes = piece.as_bytes();
+    if bytes.len() < 4 || bytes[0] != b'<' || bytes[bytes.len() - 1] != b'>' {
+        return false;
+    }
+    let inner = &bytes[1..bytes.len() - 1];
+    match inner.len() {
+        2 => inner[0].is_ascii_lowercase() && inner[1].is_ascii_lowercase(),
+        5 => inner[0].is_ascii_lowercase()
+            && inner[1].is_ascii_lowercase()
+            && inner[2] == b'-'
+            && inner[3].is_ascii_uppercase()
+            && inner[4].is_ascii_uppercase(),
+        _ => false,
+    }
+}
+
+/// Which Nemotron variant a handle wraps. Detected automatically from
+/// the encoder ONNX graph (multilingual exposes a `prompt_index` input).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NemotronMode {
+    /// English-only Nemotron 0.6B (vocab 1024, no language conditioning).
+    EnglishOnly,
+    /// Multilingual Nemotron 3.5 0.6B with `prompt_index` input,
+    /// vocab ~13k, supports `target_lang` selection.
+    Multilingual,
+}
 
 /// Minimal SentencePiece vocabulary loader.
 /// Parses the protobuf .model file to extract token strings.
@@ -183,13 +258,44 @@ impl SentencePieceVocab {
     pub fn size(&self) -> usize {
         self.pieces.len()
     }
+
+    /// Token IDs whose SentencePiece pieces look like language tags
+    /// (`<en-US>`, `<fr>`, ...). Empty for the English-only vocab.
+    pub fn lang_tag_ids(&self) -> Vec<usize> {
+        self.pieces
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| is_lang_tag(p).then_some(i))
+            .collect()
+    }
 }
 
 /// Nemotron streaming ASR model (0.6B parameters).
 /// We dont apply mel normalization unlike others...
+///
+/// Both the English-only 0.6B and the multilingual 3.5 0.6B drop into this
+/// same type; the variant is auto-detected at load time (the multilingual
+/// encoder graph exposes a `prompt_index` input). For the multilingual
+/// variant call [`Nemotron::set_target_lang`] before transcribing if you
+/// know the language; otherwise it defaults to `auto` (prompt index 101)
+/// and lets the model pick.
 pub struct Nemotron {
     model: NemotronModel,
     vocab: SentencePieceVocab,
+    mode: NemotronMode,
+    /// Encoder/decoder dims read from the loaded model (multilingual differs
+    /// from English-only, e.g. left_context 56 vs 70).
+    num_encoder_layers: usize,
+    hidden_dim: usize,
+    left_context: usize,
+    conv_context: usize,
+    vocab_size: usize,
+    blank_id: usize,
+    /// Empty for English-only; populated for multilingual with all `<xx-XX>`
+    /// token ids so they can be stripped from the transcript.
+    lang_tag_ids: Vec<usize>,
+    /// `None` for English-only mode; `Some(idx)` for multilingual.
+    prompt_index: Option<i64>,
     encoder_cache: NemotronEncoderCache,
     state_1: Array3<f32>,
     state_2: Array3<f32>,
@@ -218,6 +324,11 @@ impl Nemotron {
         let path = path.as_ref();
 
         let vocab = SentencePieceVocab::from_file(path.join("tokenizer.model"))?;
+        // blank_id == vocab_size holds for both variants (English-only 1024,
+        // multilingual ~13k). Dimensions below are seeded with English-only
+        // defaults; NemotronModel::from_pretrained overrides them from the
+        // encoder graph (multilingual uses left_context=56, not 70).
+        let vocab_size = vocab.size();
 
         let model_config = NemotronModelConfig {
             num_encoder_layers: NUM_ENCODER_LAYERS,
@@ -226,23 +337,55 @@ impl Nemotron {
             conv_context: CONV_CONTEXT,
             decoder_lstm_dim: DECODER_LSTM_DIM,
             decoder_lstm_layers: 2,
-            vocab_size: VOCAB_SIZE,
-            blank_id: BLANK_ID,
+            vocab_size,
+            blank_id: vocab_size,
         };
 
         let exec = exec_config.unwrap_or_default();
         let model = NemotronModel::from_pretrained(path, exec, model_config)?;
 
-        let encoder_cache =
-            NemotronEncoderCache::with_dims(NUM_ENCODER_LAYERS, LEFT_CONTEXT, HIDDEN_DIM, CONV_CONTEXT);
+        // Resolved dims come from the loaded model (overridden from the graph).
+        let cfg = model.config.clone();
+        let mode = if model.has_prompt {
+            NemotronMode::Multilingual
+        } else {
+            NemotronMode::EnglishOnly
+        };
+        let lang_tag_ids = if mode == NemotronMode::Multilingual {
+            vocab.lang_tag_ids()
+        } else {
+            Vec::new()
+        };
+        // Multilingual defaults to "auto" (model picks the language) until
+        // set_target_lang is called; English-only feeds no prompt.
+        let prompt_index = match mode {
+            NemotronMode::Multilingual => Some(PROMPT_INDEX_AUTO),
+            NemotronMode::EnglishOnly => None,
+        };
+
+        let encoder_cache = NemotronEncoderCache::with_dims(
+            cfg.num_encoder_layers,
+            cfg.left_context,
+            cfg.hidden_dim,
+            cfg.conv_context,
+        );
 
         Ok(Self {
             model,
             vocab,
+            mode,
+            num_encoder_layers: cfg.num_encoder_layers,
+            hidden_dim: cfg.hidden_dim,
+            left_context: cfg.left_context,
+            conv_context: cfg.conv_context,
+            vocab_size: cfg.vocab_size,
+            blank_id: cfg.blank_id,
+            lang_tag_ids,
+            prompt_index,
             encoder_cache,
-            state_1: Array3::zeros((2, 1, DECODER_LSTM_DIM)),
-            state_2: Array3::zeros((2, 1, DECODER_LSTM_DIM)),
-            last_token: BLANK_ID as i32,
+            state_1: Array3::zeros((cfg.decoder_lstm_layers, 1, cfg.decoder_lstm_dim)),
+            state_2: Array3::zeros((cfg.decoder_lstm_layers, 1, cfg.decoder_lstm_dim)),
+            last_token: cfg.blank_id as i32,
             mel_basis: crate::audio::create_mel_filterbank(N_FFT, N_MELS, SAMPLE_RATE),
             window: Self::create_window(),
             audio_buffer: Vec::new(),
@@ -252,26 +395,71 @@ impl Nemotron {
         })
     }
 
-    /// Reset all state for new utterance
+    /// Which Nemotron variant this instance wraps (auto-detected at load time).
+    pub fn mode(&self) -> NemotronMode {
+        self.mode
+    }
+
+    /// Languages this model can transcribe, as accepted by
+    /// [`Self::set_target_lang`]. Empty for the English-only variant.
+    pub fn available_languages(&self) -> Vec<&'static str> {
+        match self.mode {
+            NemotronMode::Multilingual => PROMPT_DICTIONARY.iter().map(|(k, _)| *k).collect(),
+            NemotronMode::EnglishOnly => Vec::new(),
+        }
+    }
+
+    /// Set the target language for the multilingual model. Accepts any key
+    /// from [`Self::available_languages`] (e.g. `"en-US"`, `"es-ES"`,
+    /// `"fr-FR"`, `"ja-JP"`, `"auto"` for language-agnostic decoding).
+    ///
+    /// Returns an error on the English-only variant or for an unknown language.
+    /// The new language takes effect on the next encoder call — for clean
+    /// switching mid-utterance you usually also want [`Self::reset`].
+    pub fn set_target_lang(&mut self, lang: &str) -> Result<()> {
+        if self.mode != NemotronMode::Multilingual {
+            return Err(Error::Config(
+                "set_target_lang is only available on the multilingual variant".into(),
+            ));
+        }
+        let idx = PROMPT_DICTIONARY
+            .iter()
+            .find_map(|(k, v)| (*k == lang).then_some(*v))
+            .ok_or_else(|| {
+                Error::Config(format!(
+                    "Unknown target language '{lang}'. Try one of: en-US, es-ES, de-DE, fr-FR, ja-JP, zh-CN, auto, ..."
+                ))
+            })?;
+        self.prompt_index = Some(idx);
+        Ok(())
+    }
+
+    /// Reset all state for new utterance. Preserves the configured target
+    /// language (call [`Self::set_target_lang`] again to change it).
     pub fn reset(&mut self) {
-        self.encoder_cache =
-            NemotronEncoderCache::with_dims(NUM_ENCODER_LAYERS, LEFT_CONTEXT, HIDDEN_DIM, CONV_CONTEXT);
+        self.encoder_cache = NemotronEncoderCache::with_dims(
+            self.num_encoder_layers,
+            self.left_context,
+            self.hidden_dim,
+            self.conv_context,
+        );
         self.state_1.fill(0.0);
         self.state_2.fill(0.0);
-        self.last_token = BLANK_ID as i32;
+        self.last_token = self.blank_id as i32;
         self.audio_buffer.clear();
         self.audio_processed = 0;
         self.chunk_idx = 0;
         self.accumulated_tokens.clear();
     }
 
-    /// Get the full accumulated transcript
+    /// Get the full accumulated transcript. Language tag tokens (e.g. `<en-US>`)
+    /// emitted by the multilingual model are stripped.
     pub fn get_transcript(&self) -> String {
         let valid: Vec<usize> = self
             .accumulated_tokens
             .iter()
-            .filter(|&&t| t < VOCAB_SIZE)
             .copied()
+            .filter(|t| *t < self.vocab_size && !self.lang_tag_ids.contains(t))
             .collect();
         self.vocab.decode(&valid)
     }
@@ -336,9 +524,12 @@ impl Nemotron {
 
             let chunk_length = PRE_ENCODE_CACHE + main_len;
 
-            let (encoded, enc_len, new_cache) =
-                self.model
-                    .run_encoder(&mel_chunk, chunk_length as i64, &self.encoder_cache)?;
+            let (encoded, enc_len, new_cache) = self.model.run_encoder(
+                &mel_chunk,
+                chunk_length as i64,
+                &self.encoder_cache,
+                self.prompt_index,
+            )?;
             self.encoder_cache = new_cache;
 
             let new_tokens = self.decode_chunk(&encoded, enc_len as usize)?;
@@ -348,7 +539,10 @@ impl Nemotron {
             chunk_idx += 1;
         }
 
-        let valid_tokens: Vec<usize> = all_tokens.into_iter().filter(|&t| t < VOCAB_SIZE).collect();
+        let valid_tokens: Vec<usize> = all_tokens
+            .into_iter()
+            .filter(|t| *t < self.vocab_size && !self.lang_tag_ids.contains(t))
+            .collect();
 
         Ok(self.vocab.decode(&valid_tokens))
     }
@@ -423,9 +617,12 @@ impl Nemotron {
         let mel_chunk = Array3::from_shape_vec((1, N_MELS, expected_size), chunk_data)
             .map_err(|e| Error::Model(format!("Failed to create mel chunk: {e}")))?;
 
-        let (encoded, enc_len, new_cache) =
-            self.model
-                .run_encoder(&mel_chunk, expected_size as i64, &self.encoder_cache)?;
+        let (encoded, enc_len, new_cache) = self.model.run_encoder(
+            &mel_chunk,
+            expected_size as i64,
+            &self.encoder_cache,
+            self.prompt_index,
+        )?;
         self.encoder_cache = new_cache;
 
         let tokens = self.decode_chunk(&encoded, enc_len as usize)?;
@@ -448,7 +645,97 @@ impl Nemotron {
 
         let mut result = String::new();
         for &t in &tokens {
-            if t < VOCAB_SIZE {
+            if t < self.vocab_size && !self.lang_tag_ids.contains(&t) {
+                result.push_str(&self.vocab.decode_single(t));
+            }
+        }
+        Ok(result)
+    }
+
+    /// Flush the remaining buffered audio as the FINAL chunks of the stream.
+    ///
+    /// Mirrors what `transcribe_audio` does for its last iteration: the last
+    /// partial chunk is encoded with its TRUE (shorter) length, which is the
+    /// explicit end-of-sequence signal that makes the model emit the final
+    /// punctuation token. Padding with silence never achieves this — the
+    /// model just sees speech followed by silence and holds the period back.
+    /// Returns the newly decoded text fragment (may be empty).
+    pub fn finalize_transcript(&mut self) -> Result<String> {
+        let total_audio = self.audio_buffer.len();
+        if total_audio < WIN_LENGTH {
+            return Ok(String::new());
+        }
+        let full_mel = self.compute_mel_spectrogram(&self.audio_buffer);
+        let total_mel_frames = full_mel.shape()[1];
+        let expected_size = PRE_ENCODE_CACHE + CHUNK_SIZE;
+        let mut new_tokens: Vec<usize> = Vec::new();
+
+        loop {
+            let processed_mel_frames = self.audio_processed / HOP_LENGTH;
+            let available = total_mel_frames.saturating_sub(processed_mel_frames);
+            if available == 0 {
+                break;
+            }
+            let main_len = available.min(CHUNK_SIZE);
+            let main_start = processed_mel_frames;
+            let mut chunk_data = vec![0.0f32; N_MELS * expected_size];
+
+            if self.chunk_idx == 0 {
+                // First chunk: zero-pad for pre-encode cache (main_start == 0).
+                for f in 0..main_len {
+                    for m in 0..N_MELS {
+                        chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] =
+                            full_mel[[m, f]];
+                    }
+                }
+            } else {
+                // Subsequent chunks: include pre-encode cache from previous frames.
+                let cache_start = main_start.saturating_sub(PRE_ENCODE_CACHE);
+                let cache_frames = main_start - cache_start;
+                let cache_offset = PRE_ENCODE_CACHE - cache_frames;
+                for f in 0..cache_frames {
+                    for m in 0..N_MELS {
+                        chunk_data[m * expected_size + cache_offset + f] =
+                            full_mel[[m, cache_start + f]];
+                    }
+                }
+                for f in 0..main_len {
+                    for m in 0..N_MELS {
+                        chunk_data[m * expected_size + PRE_ENCODE_CACHE + f] =
+                            full_mel[[m, main_start + f]];
+                    }
+                }
+            }
+
+            let mel_chunk = Array3::from_shape_vec((1, N_MELS, expected_size), chunk_data)
+                .map_err(|e| Error::Model(format!("Failed to create mel chunk: {e}")))?;
+
+            // True length: tells the encoder where the valid frames stop —
+            // for the last partial chunk this signals end-of-sequence.
+            let chunk_length = (PRE_ENCODE_CACHE + main_len) as i64;
+            let (encoded, enc_len, new_cache) = self.model.run_encoder(
+                &mel_chunk,
+                chunk_length,
+                &self.encoder_cache,
+                self.prompt_index,
+            )?;
+            self.encoder_cache = new_cache;
+
+            let tokens = self.decode_chunk(&encoded, enc_len as usize)?;
+            self.accumulated_tokens.extend(&tokens);
+            new_tokens.extend(tokens);
+
+            self.audio_processed += main_len * HOP_LENGTH;
+            self.chunk_idx += 1;
+
+            if main_len < CHUNK_SIZE {
+                break; // that was the final partial chunk
+            }
+        }
+
+        let mut result = String::new();
+        for &t in &new_tokens {
+            if t < self.vocab_size && !self.lang_tag_ids.contains(&t) {
                 result.push_str(&self.vocab.decode_single(t));
             }
         }
@@ -481,7 +768,7 @@ impl Nemotron {
                     }
                 }
 
-                if max_idx == BLANK_ID {
+                if max_idx == self.blank_id {
                     break;
                 }
 

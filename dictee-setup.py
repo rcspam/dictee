@@ -208,8 +208,9 @@ CANARY_LANGUAGES = PARAKEET_LANGUAGES  # same 25 EU languages
 ASR_LANGUAGES = {
     "parakeet": PARAKEET_LANGUAGES,
     "vosk": {"fr", "en", "de", "es", "it", "pt", "ru", "zh", "ja"},
-    "whisper": None,   # None = toutes
+    "whisper": None,   # None = all languages
     "canary": CANARY_LANGUAGES,
+    "nemotron": None,  # None = all languages (multilingual)
 }
 
 # Languages supported by each translation backend (pour filtrer la langue cible)
@@ -480,6 +481,10 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
+                streaming=False,
+                streaming_final_pass=False,
+                streaming_retranscribe=False,
+                streaming_granularity="live",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -525,6 +530,10 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
+        "DICTEE_STREAMING": "true" if streaming else "false",
+        "DICTEE_STREAMING_FINAL_PASS": "true" if streaming_final_pass else "false",
+        "DICTEE_STREAMING_RETRANSCRIBE": "true" if streaming_retranscribe else "false",
+        "DICTEE_STREAMING_GRANULARITY": _s(streaming_granularity) if streaming_granularity in ("live", "sentence") else "live",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
     # (Finish button or classic Apply). At wizard checks-page entry (page 6→7
@@ -2090,6 +2099,8 @@ class _RuleTranscribeThread(QThread):
             self.finished_sig.emit("")
 
 
+NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
+
 ASR_MODELS = [
     {
         "id": "tdt",
@@ -2159,7 +2170,27 @@ ASR_MODELS = [
         ],
         "required": False,
     },
+    {
+        "id": "nemotron",
+        "name": "Nemotron 3.5 (multilingual)",
+        "desc": _("Multilingual streaming ASR (robust French)"),
+        "help": _(
+            "<b>Nemotron 3.5 0.6B</b> — multilingual streaming RNNT. "
+            "Robust French, runs on CPU and GPU."
+        ),
+        "dir": os.path.join(MODEL_DIR, "nemotron"),
+        "check_file": "encoder.onnx",
+        "files": [
+            (f"{NEMOTRON_HF}/encoder.onnx", "encoder.onnx"),
+            (f"{NEMOTRON_HF}/encoder.onnx.data", "encoder.onnx.data"),
+            (f"{NEMOTRON_HF}/decoder_joint.onnx", "decoder_joint.onnx"),
+            (f"{NEMOTRON_HF}/tokenizer.model", "tokenizer.model"),
+        ],
+        "required": False,
+    },
 ]
+
+NEMOTRON_MODEL = next(m for m in ASR_MODELS if m["id"] == "nemotron")
 
 
 def model_is_installed(model):
@@ -6532,6 +6563,7 @@ class DicteeSetupDialog(QDialog):
         self.cmb_asr_backend.addItem("Parakeet-TDT 0.6B", "parakeet")
         self.cmb_asr_backend.addItem("Vosk", "vosk")
         self.cmb_asr_backend.addItem("faster-whisper", "whisper")
+        self.cmb_asr_backend.addItem("Nemotron 3.5 (multilingual)", "nemotron")
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
@@ -6553,6 +6585,7 @@ class DicteeSetupDialog(QDialog):
         self._build_parakeet_options(glay)
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
+        self._build_nemotron_options(glay)
         self._build_canary_options(glay)
         self._build_whisper_rust_options(glay)
 
@@ -6561,6 +6594,7 @@ class DicteeSetupDialog(QDialog):
             self.w_parakeet_options.setVisible(backend == "parakeet")
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
+            self.w_nemotron_options.setVisible(backend == "nemotron")
             self.w_canary_options.setVisible(backend == "canary")
             self.w_whisper_rust_options.setVisible(backend == "whisper-rust")
             self._update_canary_translation_visibility()
@@ -7732,6 +7766,11 @@ class DicteeSetupDialog(QDialog):
                 _("Runs on CPU or GPU"),
                 _("100% local, no internet needed"),
             ], "39 Mo–3 Go | CPU ~0.3s (small)"),
+            ("nemotron", "Nemotron 3.5", [
+                _("Multilingual, robust French"),
+                _("Streaming, no length limit"),
+                _("CPU + GPU"),
+            ], "2.5 Go | CPU/GPU"),
         ]
         if gpu_total > 0:
             backends.append(
@@ -7743,10 +7782,10 @@ class DicteeSetupDialog(QDialog):
                     _("100% local, requires NVIDIA GPU (6+ Go VRAM)"),
                 ], "4.7 Go | VRAM ~5.3 Go | GPU ~0.7s"))
 
-        # Grid layout: 2x2 square cards
+        # Grid layout: 2 columns, as many rows as needed
         grid = QGridLayout()
         grid.setSpacing(10)
-        positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+        positions = [(r, c) for r in range((len(backends) + 1) // 2) for c in range(2)]
         for i, (backend_id, name, advantages, specs) in enumerate(backends):
             is_rec = (backend_id == recommended)
             is_sel = (backend_id == self._wizard_asr)
@@ -7756,9 +7795,11 @@ class DicteeSetupDialog(QDialog):
             self._asr_cards[backend_id] = card
             row, col = positions[i]
             grid.addWidget(card, row, col)
-        if len(backends) < 4:
+        # If the last row has only one card, fill the empty slot with a spacer
+        if len(backends) % 2 == 1:
+            last_row = (len(backends) - 1) // 2
             spacer = QWidget()
-            grid.addWidget(spacer, 1, 1)
+            grid.addWidget(spacer, last_row, 1)
         lay.addLayout(grid)
 
         # cuDNN warning
@@ -7801,6 +7842,7 @@ class DicteeSetupDialog(QDialog):
         self.w_parakeet_options.setVisible(asr == "parakeet")
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
+        self.w_nemotron_options.setVisible(asr == "nemotron")
         self.w_canary_options.setVisible(asr == "canary")
         self.w_whisper_rust_options.setVisible(asr == "whisper-rust")
 
@@ -7866,6 +7908,15 @@ class DicteeSetupDialog(QDialog):
             ],
             "specs": "39 Mo–3 Go | CPU ~0.3s (small)",
         },
+        "nemotron": {
+            "title": "Nemotron 3.5",
+            "advantages": [
+                "Multilingual, robust French",
+                "Streaming, no length limit",
+                "CPU + GPU",
+            ],
+            "specs": "2.5 Go | CPU/GPU",
+        },
         "canary": {
             "title": "Canary 1B v2",
             "advantages": [
@@ -7925,6 +7976,7 @@ class DicteeSetupDialog(QDialog):
         self._build_parakeet_options(lay_sub)
         self._build_vosk_options(lay_sub)
         self._build_whisper_options(lay_sub)
+        self._build_nemotron_options(lay_sub)
         self._build_canary_options(lay_sub)
         self._build_whisper_rust_options(lay_sub)
 
@@ -8421,6 +8473,8 @@ class DicteeSetupDialog(QDialog):
             return self._canary_model_installed()
         if backend_id == "whisper-rust":
             return self._any_whisper_rust_model_installed()
+        if backend_id == "nemotron":
+            return model_is_installed(NEMOTRON_MODEL)
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -9886,6 +9940,122 @@ class DicteeSetupDialog(QDialog):
                 self.cmb_whisper_rust_model.setCurrentIndex(i)
                 break
         self._update_whisper_rust_status()
+
+    def _build_nemotron_options(self, parent_layout):
+        """Build Nemotron 3.5 model download UI (group box with install/delete row)."""
+        self.w_nemotron_options = QWidget()
+        nemotron_outer = QVBoxLayout(self.w_nemotron_options)
+        nemotron_outer.setContentsMargins(0, 4, 0, 0)
+        nemotron_outer.setSpacing(6)
+
+        box = QGroupBox(_("Nemotron 3.5"))
+        box_lay = QVBoxLayout(box)
+        box_lay.setContentsMargins(12, 12, 12, 10)
+        box_lay.setSpacing(6)
+
+        installed = model_is_installed(NEMOTRON_MODEL)
+
+        lbl_desc = QLabel(NEMOTRON_MODEL["desc"])
+        lbl_desc.setWordWrap(True)
+        box_lay.addWidget(lbl_desc)
+
+        row = QHBoxLayout()
+        btn = QPushButton()
+        self._update_venv_button(btn, NEMOTRON_MODEL["name"], installed)
+        btn.clicked.connect(lambda checked, m=NEMOTRON_MODEL: self._on_model_download(m))
+
+        btn_del = QPushButton()
+        btn_del.setIcon(QIcon.fromTheme("edit-delete"))
+        btn_del.setFixedWidth(28)
+        btn_del.setToolTip(_("Delete model"))
+        btn_del.setVisible(installed)
+        btn_del.clicked.connect(lambda checked, m=NEMOTRON_MODEL: self._on_model_delete(m))
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.setFixedWidth(80)
+        btn_cancel.setVisible(False)
+        btn_cancel.clicked.connect(lambda checked: self._on_model_cancel(NEMOTRON_MODEL["id"]))
+
+        row.addWidget(btn, 1)
+        row.addWidget(btn_del)
+        row.addWidget(btn_cancel)
+        box_lay.addLayout(row)
+
+        progress = QProgressBar()
+        progress.setRange(0, 100)
+        progress.setVisible(False)
+        box_lay.addWidget(progress)
+
+        nemotron_outer.addWidget(box)
+
+        self._model_widgets[NEMOTRON_MODEL["id"]] = {
+            "label": None, "desc_label": lbl_desc, "container": box,
+            "button": btn, "btn_delete": btn_del,
+            "btn_cancel": btn_cancel, "progress": progress, "model": NEMOTRON_MODEL,
+        }
+
+        # --- Streaming settings (Nemotron only) ---
+        stream_box = QGroupBox(_("Streaming"))
+        stream_lay = QVBoxLayout(stream_box)
+        stream_lay.setContentsMargins(12, 12, 12, 10)
+        stream_lay.setSpacing(6)
+
+        self.chk_streaming = ToggleSwitch(
+            _("Real-time streaming (text appears as you speak)"))
+        self.chk_streaming.setChecked(
+            self.conf.get("DICTEE_STREAMING", "false") == "true")
+        self.chk_streaming.toggled.connect(self._mark_dirty)
+        stream_lay.addWidget(self.chk_streaming)
+
+        self.chk_streaming_final_pass = ToggleSwitch(
+            _("Final corrective pass on release (applies LLM/translation)"))
+        self.chk_streaming_final_pass.setChecked(
+            self.conf.get("DICTEE_STREAMING_FINAL_PASS", "false") == "true")
+        self.chk_streaming_final_pass.toggled.connect(self._mark_dirty)
+        stream_lay.addWidget(self.chk_streaming_final_pass)
+
+        self.chk_streaming_retranscribe = ToggleSwitch(
+            _("Re-transcribe on release (batch accuracy, costs a short wait)"))
+        self.chk_streaming_retranscribe.setChecked(
+            self.conf.get("DICTEE_STREAMING_RETRANSCRIBE", "false") == "true")
+        self.chk_streaming_retranscribe.toggled.connect(self._mark_dirty)
+        stream_lay.addWidget(self.chk_streaming_retranscribe)
+
+        row_gran = QHBoxLayout()
+        row_gran.setContentsMargins(
+            ToggleSwitch._TRACK_W + ToggleSwitch._TEXT_SPACING, 0, 0, 0)
+        lbl_gran = QLabel(_("Granularity:"))
+        self.cmb_streaming_granularity = QComboBox()
+        self.cmb_streaming_granularity.addItem(
+            _("Live (words appear and self-correct as you speak)"), "live")
+        self.cmb_streaming_granularity.addItem(
+            _("Sentence (no rewrites, ~1 sentence latency)"), "sentence")
+        _gran = self.conf.get("DICTEE_STREAMING_GRANULARITY", "live")
+        if _gran == "word":
+            _gran = "live"  # legacy value: word mode became live
+        _gran_idx = self.cmb_streaming_granularity.findData(_gran)
+        self.cmb_streaming_granularity.setCurrentIndex(
+            _gran_idx if _gran_idx >= 0 else 0)
+        self.cmb_streaming_granularity.currentIndexChanged.connect(
+            self._mark_dirty)
+        row_gran.addWidget(lbl_gran)
+        row_gran.addWidget(self.cmb_streaming_granularity)
+        row_gran.addStretch()
+        stream_lay.addLayout(row_gran)
+
+        # Enable sub-widgets only when streaming is on
+        def _sync_streaming_sub(checked):
+            self.chk_streaming_final_pass.setEnabled(checked)
+            self.chk_streaming_retranscribe.setEnabled(checked)
+            lbl_gran.setEnabled(checked)
+            self.cmb_streaming_granularity.setEnabled(checked)
+        _sync_streaming_sub(self.chk_streaming.isChecked())
+        self.chk_streaming.toggled.connect(_sync_streaming_sub)
+
+        nemotron_outer.addWidget(stream_box)
+
+        self.w_nemotron_options.setVisible(False)
+        parent_layout.addWidget(self.w_nemotron_options)
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
@@ -15997,6 +16167,7 @@ class DicteeSetupDialog(QDialog):
         asr = self._wizard_asr if hasattr(self, '_wizard_asr') else "parakeet"
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk",
                "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
+               "nemotron": "dictee-nemotron",
                "canary": "dictee-canary"}.get(asr, "dictee")
         # True first-run wizard (no prior dictee.conf): the service hasn't been
         # started yet (will be at Finish). Fallback to "is the unit installed".
@@ -16015,7 +16186,7 @@ class DicteeSetupDialog(QDialog):
                 return False
         runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
         sock = os.path.join(runtime_dir, "transcribe.sock")
-        needs_socket = asr in ("parakeet", "canary", "whisper-rust")
+        needs_socket = asr in ("parakeet", "canary", "whisper-rust", "nemotron")
         deadline = time.monotonic() + 6.0
         last_state = "?"
         while time.monotonic() < deadline:
@@ -18697,7 +18868,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-whisper-rust.service", "dictee-canary.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-whisper-rust.service", "dictee-canary.service", "dictee-nemotron.service"]
         active = False
         for svc in services:
             try:
@@ -18719,6 +18890,7 @@ class DicteeSetupDialog(QDialog):
                 svc_map = {"parakeet": "dictee.service", "vosk": "dictee-vosk.service",
                            "whisper": "dictee-whisper.service",
                            "whisper-rust": "dictee-whisper-rust.service",
+                           "nemotron": "dictee-nemotron.service",
                            "canary": "dictee-canary.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
@@ -19189,6 +19361,18 @@ class DicteeSetupDialog(QDialog):
                     hw_tier=(
                         self.cmb_whisper_hw_tier.currentData()
                         if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
+                    streaming=(
+                        self.chk_streaming.isChecked()
+                        if hasattr(self, 'chk_streaming') else False),
+                    streaming_final_pass=(
+                        self.chk_streaming_final_pass.isChecked()
+                        if hasattr(self, 'chk_streaming_final_pass') else False),
+                    streaming_retranscribe=(
+                        self.chk_streaming_retranscribe.isChecked()
+                        if hasattr(self, 'chk_streaming_retranscribe') else False),
+                    streaming_granularity=(
+                        self.cmb_streaming_granularity.currentData()
+                        if hasattr(self, 'cmb_streaming_granularity') else "live"),
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.
@@ -19252,7 +19436,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR (active service: synchronous for error reporting)
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
         # Disable inactive services + enable/restart tray/ptt in background

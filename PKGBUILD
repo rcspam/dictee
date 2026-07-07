@@ -144,6 +144,7 @@ package() {
     install -Dm755 dictee-reset "$pkgdir/usr/bin/dictee-reset"
     install -Dm755 dictee-translate-langs "$pkgdir/usr/bin/dictee-translate-langs"
     install -Dm755 dictee-cheatsheet "$pkgdir/usr/bin/dictee-cheatsheet"
+    install -Dm755 dictee-stream "$pkgdir/usr/bin/dictee-stream"
     install -Dm755 pkg/dictee/usr/bin/dictee-audio-sources "$pkgdir/usr/bin/dictee-audio-sources"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level "$pkgdir/usr/bin/dictee-plasmoid-level"
     install -Dm755 pkg/dictee/usr/bin/dictee-plasmoid-level-daemon "$pkgdir/usr/bin/dictee-plasmoid-level-daemon"
@@ -159,6 +160,7 @@ package() {
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper.service "$pkgdir/usr/lib/systemd/user/dictee-whisper.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-whisper-rust.service "$pkgdir/usr/lib/systemd/user/dictee-whisper-rust.service"
     install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-canary.service "$pkgdir/usr/lib/systemd/user/dictee-canary.service"
+    install -Dm644 pkg/dictee/usr/lib/systemd/user/dictee-nemotron.service "$pkgdir/usr/lib/systemd/user/dictee-nemotron.service"
     # Note: dotoold.service is shipped by the AUR `dotool` package (declared in depends).
     # Shipping it here causes a pacman file conflict. See GitHub issue #4.
     install -Dm644 pkg/dictee/usr/lib/systemd/user-preset/90-dictee.preset "$pkgdir/usr/lib/systemd/user-preset/90-dictee.preset"

@@ -1,12 +1,12 @@
 use parakeet_rs::{
-    best_provider, provider_status, Canary, ExecutionConfig, ExecutionProvider, ParakeetTDT,
-    TimestampMode, Transcriber, TranscriptionResult,
+    best_provider, provider_status, Canary, ExecutionConfig, ExecutionProvider, Nemotron,
+    ParakeetTDT, TimestampMode, Transcriber, TranscriptionResult,
 };
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::time::Duration;
 
@@ -38,6 +38,7 @@ struct DaemonArgs {
     canary: bool,
     #[cfg(feature = "whisper")]
     whisper: bool,
+    nemotron: bool,
     /// Explicit socket path (`--socket <path>`); overrides socket_path().
     socket: Option<String>,
     /// Optional positional model directory.
@@ -59,6 +60,7 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
             "--canary" => out.canary = true,
             #[cfg(feature = "whisper")]
             "--whisper" => out.whisper = true,
+            "--nemotron" => out.nemotron = true,
             "--socket" => {
                 let path = args
                     .get(i + 1)
@@ -81,10 +83,11 @@ fn parse_daemon_args(args: &[String]) -> Result<DaemonArgs, String> {
     Ok(out)
 }
 
-/// Unified ASR backend: Parakeet TDT, Canary AED, or Whisper (GPU-only)
+/// Unified ASR backend: Parakeet TDT, Canary AED, Nemotron RNNT, or Whisper (GPU-only)
 enum AsrBackend {
     Parakeet(ParakeetTDT),
     Canary(Canary),
+    Nemotron(Nemotron),
     #[cfg(feature = "whisper")]
     Whisper(parakeet_rs::whisper::WhisperBackend),
 }
@@ -100,6 +103,20 @@ impl AsrBackend {
         match self {
             AsrBackend::Parakeet(p) => p.transcribe_samples(audio, sample_rate, channels, mode),
             AsrBackend::Canary(c) => c.transcribe_samples(audio, sample_rate, channels, mode),
+            AsrBackend::Nemotron(n) => {
+                // Nemotron expects 16 kHz mono; the dictee pipeline already
+                // delivers that. Guard loudly so wrong-rate audio is never
+                // silently mistranscribed.
+                if sample_rate != 16000 {
+                    return Err(parakeet_rs::Error::Audio(format!(
+                        "Nemotron expects 16000 Hz mono, got {} Hz",
+                        sample_rate
+                    )));
+                }
+                // No word timestamps -> empty tokens.
+                let text = n.transcribe_audio(&audio)?;
+                Ok(TranscriptionResult { text, tokens: Vec::new() })
+            }
             #[cfg(feature = "whisper")]
             AsrBackend::Whisper(w) => w.transcribe_samples(audio, sample_rate, channels, mode),
         }
@@ -117,6 +134,7 @@ impl AsrBackend {
         match self {
             AsrBackend::Canary(c) => c.last_token_ids().is_some(),
             AsrBackend::Parakeet(_) => false,
+            AsrBackend::Nemotron(_) => false,
             #[cfg(feature = "whisper")]
             AsrBackend::Whisper(_) => false,
         }
@@ -202,17 +220,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = parsed.socket.clone().unwrap_or_else(socket_path);
 
     if parsed.help {
-        eprintln!("transcribe-daemon - ASR daemon via Unix socket (Parakeet TDT / Canary AED)");
+        eprintln!("transcribe-daemon - ASR daemon via Unix socket (Parakeet TDT / Canary AED / Nemotron RNNT)");
         eprintln!();
-        eprintln!("Usage: transcribe-daemon [model_dir] [--canary] [--socket <path>]");
+        eprintln!("Usage: transcribe-daemon [model_dir] [--canary|--nemotron] [--socket <path>]");
         eprintln!();
         eprintln!("Arguments:");
-        eprintln!("  [model_dir]      Model directory (default: /usr/share/dictee/tdt or /canary)");
+        eprintln!("  [model_dir]      Model directory (default: /usr/share/dictee/tdt, /canary, or /nemotron)");
         eprintln!("  --canary         Use Canary AED backend instead of Parakeet TDT");
+        eprintln!("  --nemotron       Use Nemotron RNNT backend instead of Parakeet TDT");
         eprintln!("  --socket <path>  Listen on this socket path (default: $DICTEE_TRANSCRIBE_SOCKET or $XDG_RUNTIME_DIR/transcribe.sock)");
         eprintln!();
         eprintln!("Environment:");
         eprintln!("  DICTEE_ASR_BACKEND=canary    Select Canary backend");
+        eprintln!("  DICTEE_ASR_BACKEND=nemotron  Select Nemotron backend");
         eprintln!("  DICTEE_LANG_SOURCE=fr        Source language (default: fr)");
         eprintln!("  DICTEE_LANG_TARGET=fr        Target language (default: source)");
         eprintln!();
@@ -235,6 +255,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|v| v == "canary")
         .unwrap_or(false)
         || parsed.canary;
+    let use_nemotron = env::var("DICTEE_ASR_BACKEND")
+        .map(|v| v == "nemotron")
+        .unwrap_or(false)
+        || parsed.nemotron;
+
+    if use_canary && use_nemotron {
+        eprintln!("[daemon] warning: --canary and --nemotron both set; using Canary");
+    }
 
     let source_lang = env::var("DICTEE_LANG_SOURCE").unwrap_or_else(|_| "fr".to_string());
     // For Canary: default target = source (transcription, not translation).
@@ -251,15 +279,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .model_dir
         .clone()
         .unwrap_or_else(|| {
-            let subdir = if use_canary { "canary" } else { "tdt" };
+            let subdir = if use_canary { "canary" } else if use_nemotron { "nemotron" } else { "tdt" };
             let user_dir = format!(
                 "{}/.local/share/dictee/{}",
                 env::var("HOME").unwrap_or_else(|_| "/root".to_string()),
                 subdir
             );
             let sys_dir = format!("/usr/share/dictee/{}", subdir);
+            // Nemotron uses tokenizer.model as sentinel; Parakeet/Canary use vocab.txt.
+            let sentinel = if use_nemotron { "tokenizer.model" } else { "vocab.txt" };
             // User dir takes priority (local overrides, test models)
-            if Path::new(&user_dir).join("vocab.txt").exists() {
+            if Path::new(&user_dir).join(sentinel).exists() {
                 user_dir
             } else {
                 sys_dir
@@ -324,7 +354,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Model loaded. Listening on {}", socket_path);
         let listener = UnixListener::bind(&socket_path)?;
         fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
-        return run_socket_loop(backend, listener, source_lang, debug);
+        return run_socket_loop(backend, listener, source_lang, None, debug);
     }
 
     // Parakeet int8 is forced to CPU: the ORT CUDA EP doesn't optimize int8
@@ -335,7 +365,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|v| v.eq_ignore_ascii_case("int8"))
         .unwrap_or(false);
     let force_cpu_int8 =
-        !use_canary && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8);
+        !use_canary && !use_nemotron && parakeet_resolves_to_int8(Path::new(&model_dir), prefers_int8);
     let provider = if force_cpu_int8 {
         eprintln!("[dictee] Parakeet int8 model — forcing CPU (int8 is slow on the CUDA EP)");
         ExecutionProvider::Cpu
@@ -359,14 +389,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!(
         "Loading {} model from {}...",
-        if use_canary { "Canary AED" } else { "Parakeet TDT" },
+        if use_canary { "Canary AED" } else if use_nemotron { "Nemotron RNNT" } else { "Parakeet TDT" },
         &model_dir
     );
     // Log the encoder variant being loaded. int8 is otherwise invisible: it is
     // read into a buffer rather than mmap'd, so it never appears in
     // /proc/<pid>/maps the way the fp32 encoder-model.onnx.data file does.
     // Mirrors the candidate order in ParakeetTDTModel::find_encoder.
-    if !use_canary {
+    if !use_canary && !use_nemotron {
         let dir = Path::new(&model_dir);
         let encoder_file = if force_cpu_int8 {
             "encoder-model.int8.onnx"
@@ -382,14 +412,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    // Capture the language that will actually be pinned at startup for the
+    // Nemotron multilingual backend. Used to restore after a per-session
+    // lang: override (see Fix 3 in handle_stream).  None means the model
+    // keeps its default "auto" prompt (no set_target_lang call at startup).
+    let nemotron_startup_lang: Option<String>;
+
     let backend = if use_canary {
+        nemotron_startup_lang = None;
         AsrBackend::Canary(Canary::from_pretrained(
             &model_dir,
             Some(config),
             &source_lang,
             &target_lang,
         )?)
+    } else if use_nemotron {
+        let mut n = Nemotron::from_pretrained(&model_dir, Some(config))?;
+        // Decision A: drive language from the global DICTEE_LANG_SOURCE; "auto"
+        // (or unset) lets Nemotron pick — robust for FR. Only pin when set.
+        if let parakeet_rs::NemotronMode::Multilingual = n.mode() {
+            if source_lang != "auto" && !source_lang.is_empty() {
+                if let Err(e) = n.set_target_lang(&source_lang) {
+                    eprintln!("[daemon] nemotron lang '{}' rejected, using auto: {}", source_lang, e);
+                    nemotron_startup_lang = None;
+                } else {
+                    nemotron_startup_lang = Some(source_lang.clone());
+                }
+            } else {
+                nemotron_startup_lang = None; // stays on "auto"
+            }
+        } else {
+            nemotron_startup_lang = None; // English-only variant: no lang pin
+        }
+        AsrBackend::Nemotron(n)
     } else {
+        nemotron_startup_lang = None;
         AsrBackend::Parakeet(ParakeetTDT::from_pretrained(&model_dir, Some(config))?)
     };
 
@@ -398,13 +455,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = UnixListener::bind(&socket_path)?;
     fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
 
-    run_socket_loop(backend, listener, source_lang, debug)
+    run_socket_loop(backend, listener, source_lang, nemotron_startup_lang, debug)
 }
 
 fn run_socket_loop(
     mut backend: AsrBackend,
     listener: UnixListener,
     source_lang: String,
+    // Startup-pinned Nemotron language to restore after a per-session
+    // stream lang: override; None (whisper/canary/parakeet) restores "auto".
+    nemotron_startup_lang: Option<String>,
     debug: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     for stream in listener.incoming() {
@@ -414,46 +474,91 @@ fn run_socket_loop(
                 // request line: without a read timeout it would block the
                 // single-threaded accept loop and hang the whole UI.
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-                let reader = BufReader::new(&stream);
-                if let Some(Ok(line)) = reader.lines().next() {
-                    let line = line.trim().to_string();
-                    let req = parse_request(&line);
-                    dbg_print!(debug, "[daemon] request: path={} mode={} context={} lang={:?}",
-                        req.path, req.mode, req.context.is_some(), req.target_lang);
+                // Guard against a live-but-stalled client that stops draining
+                // replies: once the socket send buffer fills, write_all would
+                // block forever, freezing the single-threaded daemon.
+                let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
+                // Use read_line (borrows &mut self) instead of .lines()
+                // (which consumes self) so we can pass the BufReader into
+                // handle_stream without losing any bytes it may have buffered
+                // after the handshake line.
+                let mut reader = BufReader::new(&stream);
+                let mut raw_line = String::new();
+                match reader.read_line(&mut raw_line) {
+                    Ok(0) | Err(_) => continue, // EOF or timeout before handshake
+                    Ok(_) => {}
+                }
+                let line = raw_line.trim().to_string();
 
-                    // Set decoder context if provided (Canary decodercontext)
-                    if let Some(ctx) = req.context {
-                        backend.set_context(&ctx);
-                    }
-
-                    // Set target language for Canary translation
-                    if let Some(ref lang) = req.target_lang {
-                        if let AsrBackend::Canary(ref mut canary) = backend {
-                            if let Err(e) = canary.set_target_lang(lang) {
-                                eprintln!("[daemon] invalid target lang '{}': {}", lang, e);
+                // Stream mode: bidirectional persistent connection.
+                // Handshake line: "stream" (optionally "stream\tlang:fr").
+                // Pass the BufReader by value so any bytes it buffered
+                // beyond the handshake line are not lost.
+                if line == "stream" || line.starts_with("stream\t") {
+                    if let Some(lang) = line.strip_prefix("stream\t")
+                        .and_then(|s| s.strip_prefix("lang:"))
+                    {
+                        if let AsrBackend::Nemotron(ref mut n) = backend {
+                            if let Err(e) = n.set_target_lang(lang) {
+                                eprintln!("[daemon] stream: invalid lang '{}': {}", lang, e);
                             }
                         }
                     }
-
-                    let has_ctx = backend.has_context();
-                    dbg_print!(debug, "[daemon] has_context={}", has_ctx);
-
-                    match transcribe_file(&mut backend, req.path, req.mode) {
-                        Ok(text) => {
-                            dbg_print!(debug, "[daemon] result: {} chars", text.len());
-                            let _ = writeln!(stream, "{}", text);
-                        }
-                        Err(e) => {
-                            eprintln!("[daemon] error: {}", e);
-                            let _ = writeln!(stream, "ERROR: {}", e);
+                    if let Err(e) = handle_stream(&mut backend, reader, debug) {
+                        eprintln!("[daemon] stream error: {}", e);
+                    }
+                    // Restore the startup language so subsequent batch requests
+                    // and lang-less stream sessions are not pinned to this
+                    // session's lang: override.
+                    if let AsrBackend::Nemotron(ref mut n) = backend {
+                        let restore = nemotron_startup_lang.as_deref().unwrap_or("auto");
+                        if let Err(e) = n.set_target_lang(restore) {
+                            eprintln!("[daemon] lang restore '{}' failed: {}", restore, e);
                         }
                     }
+                    continue;
+                }
 
-                    // Reset target language back to source after translation request
-                    if req.target_lang.is_some() {
-                        if let AsrBackend::Canary(ref mut canary) = backend {
-                            let _ = canary.set_target_lang(&source_lang);
+                // Batch mode: reader's borrow ends here; stream is free for
+                // writeln! below.
+                drop(reader);
+
+                let req = parse_request(&line);
+                dbg_print!(debug, "[daemon] request: path={} mode={} context={} lang={:?}",
+                    req.path, req.mode, req.context.is_some(), req.target_lang);
+
+                // Set decoder context if provided (Canary decodercontext)
+                if let Some(ctx) = req.context {
+                    backend.set_context(&ctx);
+                }
+
+                // Set target language for Canary translation
+                if let Some(ref lang) = req.target_lang {
+                    if let AsrBackend::Canary(ref mut canary) = backend {
+                        if let Err(e) = canary.set_target_lang(lang) {
+                            eprintln!("[daemon] invalid target lang '{}': {}", lang, e);
                         }
+                    }
+                }
+
+                let has_ctx = backend.has_context();
+                dbg_print!(debug, "[daemon] has_context={}", has_ctx);
+
+                match transcribe_file(&mut backend, req.path, req.mode) {
+                    Ok(text) => {
+                        dbg_print!(debug, "[daemon] result: {} chars", text.len());
+                        let _ = writeln!(stream, "{}", text);
+                    }
+                    Err(e) => {
+                        eprintln!("[daemon] error: {}", e);
+                        let _ = writeln!(stream, "ERROR: {}", e);
+                    }
+                }
+
+                // Reset target language back to source after translation request
+                if req.target_lang.is_some() {
+                    if let AsrBackend::Canary(ref mut canary) = backend {
+                        let _ = canary.set_target_lang(&source_lang);
                     }
                 }
             }
@@ -536,6 +641,123 @@ fn transcribe_file(
         }
         _ => Ok(result.text.trim().to_string()),
     }
+}
+
+/// Stream mode: read length-prefixed s16le audio frames, feed Nemotron's
+/// `transcribe_chunk`, write back length-prefixed UTF-8 text fragments.
+///
+/// # Protocol contract
+///
+/// After sending the zero-length sentinel the client **must** read until EOF.
+/// Zero or more flush fragment frames may arrive, and the **last** frame before
+/// EOF is the full transcript (`get_transcript()`).  If the connection closes
+/// before the client has sent the sentinel — or if an error occurs mid-stream —
+/// the server closes without sending a final frame; the resulting EOF without a
+/// preceding sentinel signals an aborted session to the client.
+///
+/// The client must pace audio frames so that each frame covers at most 560 ms
+/// of audio (the engine processes at most one internal chunk per call; the
+/// silence flush only covers a partial tail, not a backlog). `MAX_FRAME_LEN`
+/// caps the largest accepted frame at ≈32 s regardless.
+///
+/// The `reader` is passed in by value (rather than reconstructed from
+/// `&stream`) so that any bytes the BufReader already consumed past the
+/// handshake line are not silently dropped.
+fn handle_stream(
+    backend: &mut AsrBackend,
+    reader: BufReader<&UnixStream>,
+    debug: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use parakeet_rs::stream_proto::{frame, read_frame, s16le_to_f32};
+
+    let nemo = match backend {
+        AsrBackend::Nemotron(n) => n,
+        _ => {
+            // Stream mode requires Nemotron; refuse gracefully.
+            let mut w = reader.get_ref().try_clone()?;
+            w.write_all(&frame(b"ERROR: stream mode requires the Nemotron backend"))?;
+            return Ok(());
+        }
+    };
+
+    // Clone the underlying stream reference for writing; the BufReader keeps
+    // the read side (including any bytes buffered after the handshake line).
+    let mut writer = reader.get_ref().try_clone()?;
+    let mut reader = reader;
+
+    // Whether the loop ended on a proper sentinel (true) or abnormally (false).
+    // Only a sentinel exit gets the silence flush + final transcript frame.
+    let mut sentinel = false;
+
+    loop {
+        match read_frame(&mut reader) {
+            Ok(None) => {
+                sentinel = true;
+                break; // clean end-of-stream sentinel
+            }
+            Err(e) => {
+                // EOF, 30 s read timeout, or oversized frame (protocol error).
+                dbg_print!(debug, "[daemon] stream read ended: {}", e);
+                break; // abnormal exit — no final frame
+            }
+            Ok(Some(payload)) => {
+                let samples = s16le_to_f32(&payload);
+                let fragment = match nemo.transcribe_chunk(&samples) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        eprintln!("[daemon] stream transcribe_chunk error: {}", e);
+                        break; // abnormal exit — no final frame
+                    }
+                };
+                if !fragment.is_empty() {
+                    if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
+                        eprintln!("[daemon] stream write error: {}", e);
+                        break; // abnormal exit — no final frame
+                    }
+                    if let Err(e) = writer.flush() {
+                        eprintln!("[daemon] stream flush error: {}", e);
+                        break; // abnormal exit — no final frame
+                    }
+                }
+            }
+        }
+    }
+
+    if sentinel {
+        // Flush the engine's buffered tail exactly like transcribe_audio
+        // handles its last iteration: the final partial chunk is encoded
+        // with its TRUE length — the explicit end-of-sequence that makes
+        // the model decode the held-back tail tokens AND emit the final
+        // punctuation. (Silence padding did neither reliably: the model
+        // saw speech followed by silence, not an end of sequence.)
+        // Write errors here are non-fatal: we must still reach nemo.reset().
+        match nemo.finalize_transcript() {
+            Ok(fragment) => {
+                if !fragment.is_empty() {
+                    if let Err(e) = writer.write_all(&frame(fragment.as_bytes())) {
+                        eprintln!("[daemon] stream flush write error: {}", e);
+                    } else if let Err(e) = writer.flush() {
+                        eprintln!("[daemon] stream flush error: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[daemon] stream finalize error: {}", e);
+            }
+        }
+
+        let final_text = nemo.get_transcript();
+        if let Err(e) = writer.write_all(&frame(final_text.as_bytes())) {
+            eprintln!("[daemon] stream final write error: {}", e);
+        } else if let Err(e) = writer.flush() {
+            eprintln!("[daemon] stream final flush error: {}", e);
+        }
+    }
+    // On abnormal exit: close without sending a final frame. The resulting EOF
+    // signals the aborted session to the client (no duplicate text risk).
+
+    nemo.reset();
+    Ok(())
 }
 
 #[cfg(test)]

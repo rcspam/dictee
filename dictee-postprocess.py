@@ -372,8 +372,9 @@ def fix_short_text(text, keepcaps=None, extended=False):
     # Skip voice commands: pure punctuation/whitespace/newlines
     if not stripped or not any(c.isalnum() for c in stripped):
         return text
-    # Text with newlines (voice command "à la ligne") is never "short text"
-    if '\n' in text:
+    # Text with newlines or tabs (voice commands "à la ligne",
+    # "tabulation") is never "short text"
+    if '\n' in text or '\t' in text:
         return text
 
     words = stripped.split()
@@ -1189,14 +1190,27 @@ def llm_postprocess(text):
 
 # ── Main ─────────────────────────────────────────────────────────────
 
-def main():
-    text = sys.stdin.read()
-    # Remove \n added by echo (but keep intentional \n)
-    if text.endswith('\n'):
-        text = text[:-1]
+def run_pipeline(text, local_only=False):
+    """Run the full post-processing pipeline on *text* and return the result.
+
+    Parameters
+    ----------
+    text : str
+        The transcribed text to process.
+    local_only : bool
+        When False (default), runs the complete pipeline including LLM
+        correction, bad-language rejection, and short_text normalisation —
+        identical to the historical batch behaviour.
+        When True, skips the three heavy/whole-utterance stages that are
+        unsuitable for per-sentence live processing:
+          - LLM correction (all positions: first, hybrid, last)
+          - Bad-language rejection (Cyrillic-ratio check)
+          - Short-text lowercasing (fix_short_text)
+        Everything else (rules, continuation, language rules, numbers,
+        dictionary, capitalization, control-char scrub) runs identically.
+    """
     if not text.strip():
-        sys.stdout.write(text)
-        return
+        return text
 
     # Debug trace (used by dictee-setup test panel) — emits step-by-step on stderr
     _pp_debug = _env_bool("DICTEE_PP_DEBUG", "false")
@@ -1208,7 +1222,7 @@ def main():
             sys.stderr.flush()
 
     # LLM correction — position "first" (before any post-processing)
-    _llm_enabled = _env_bool("DICTEE_LLM_POSTPROCESS", "false")
+    _llm_enabled = _env_bool("DICTEE_LLM_POSTPROCESS", "false") and not local_only
     _llm_position = os.environ.get("DICTEE_LLM_POSITION", "hybrid")
     if _llm_enabled and _llm_position == "first":
         _before = text
@@ -1227,12 +1241,13 @@ def main():
         _before = text
         text = apply_rules(text, rules)
         _trace("Rules", _before, text)
-    # Clean leading spaces (hesitations/annotations removed)
-    # but preserve trailing \n (voice commands)
-    text = text.lstrip(' \t').rstrip(' \t')
+    # Clean leading/trailing spaces (hesitations/annotations removed) but
+    # preserve \n AND \t (voice commands: "à la ligne", "tabulation" may sit
+    # at either end of the utterance).
+    text = text.lstrip(' ').rstrip(' ')
 
     # 5b. Bad language rejection (after rules, which may have converted known commands)
-    if LANG:
+    if LANG and not local_only:
         _LATIN_LANGS = {"fr", "en", "de", "es", "it", "pt", "nl", "pl", "ro", "cs", "sv", "da", "no", "fi", "hu", "tr"}
         _CYRILLIC_LANGS = {"ru", "uk", "bg", "sr", "mk", "be"}
         letters = [c for c in text if c.isalpha()]
@@ -1240,11 +1255,9 @@ def main():
             cyrillic = sum(1 for c in letters if '\u0400' <= c <= '\u04ff')
             ratio = cyrillic / len(letters)
             if LANG in _LATIN_LANGS and ratio > 0.5:
-                sys.stdout.write("")
-                return
+                return ""
             if LANG in _CYRILLIC_LANGS and ratio < 0.2:
-                sys.stdout.write("")
-                return
+                return ""
 
     # 5c. Continuation (remove erroneous periods after closed-class words)
     continuation_words = load_continuation()
@@ -1317,7 +1330,7 @@ def main():
         _trace("Capitalization", _before, text)
 
     # 12. Short text correction (< N words: remove trailing punct, lowercase)
-    if _env_bool("DICTEE_PP_SHORT_TEXT"):
+    if _env_bool("DICTEE_PP_SHORT_TEXT") and not local_only:
         _before = text
         # Keepcaps master toggle (default: on). Extended mode (default: on)
         # makes the keepcaps matching work beyond SHORT_TEXT_MAX_WORDS.
@@ -1345,7 +1358,18 @@ def main():
     if _leading_keepcaps:
         text = "\x03" + text
 
-    sys.stdout.write(text)
+    return text
+
+
+def main():
+    text = sys.stdin.read()
+    # Remove \n added by echo (but keep intentional \n)
+    if text.endswith('\n'):
+        text = text[:-1]
+    if not text.strip():
+        sys.stdout.write(text)
+        return
+    sys.stdout.write(run_pipeline(text, local_only=False))
 
 
 if __name__ == "__main__":

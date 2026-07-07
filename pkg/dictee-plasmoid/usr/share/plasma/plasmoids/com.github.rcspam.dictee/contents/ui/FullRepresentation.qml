@@ -211,6 +211,8 @@ RowLayout {
                             return "#3498db"  // bleu
                         case "transcribing":
                             return "#2ecc71"  // vert
+                        case "streaming":
+                            return "#00BCD4"  // cyan
                         case "switching":
                             return "#e67e22"  // orange
                         case "preparing":
@@ -236,6 +238,8 @@ RowLayout {
                             return i18n("Recording…")
                         case "transcribing":
                             return i18n("Transcribing…")
+                        case "streaming":
+                            return i18n("Dictating (live)…")
                         case "switching":
                             return i18n("Switching…")
                         case "preparing":
@@ -411,13 +415,13 @@ RowLayout {
                 text: i18n("Dictation")
                 icon.name: "audio-input-microphone"
                 onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
-                enabled: fullRep.state === "idle" || fullRep.state === "recording"
+                enabled: fullRep.state === "idle" || fullRep.state === "recording" || fullRep.state === "streaming"
                 leftPadding: dictateDot.visible ? 20 : undefined
             }
 
             Rectangle {
                 id: dictateDot
-                property bool active: fullRep.state === "recording" && root.activeButton === "dictate"
+                property bool active: (fullRep.state === "recording" || fullRep.state === "streaming") && root.activeButton === "dictate"
                 visible: active
                 width: 10; height: 10; radius: 5
                 color: "#ff0000"
@@ -448,13 +452,13 @@ RowLayout {
                 text: i18n("Translate")
                 icon.name: "translate"
                 onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
-                enabled: fullRep.state === "idle" || fullRep.state === "recording"
+                enabled: fullRep.state === "idle" || fullRep.state === "recording" || fullRep.state === "streaming"
                 leftPadding: translateDot.visible ? 20 : undefined
             }
 
             Rectangle {
                 id: translateDot
-                property bool active: fullRep.state === "recording" && root.activeButton === "dictate-translate"
+                property bool active: (fullRep.state === "recording" || fullRep.state === "streaming") && root.activeButton === "dictate-translate"
                 visible: active
                 width: 10; height: 10; radius: 5
                 color: "#ff0000"
@@ -580,6 +584,7 @@ RowLayout {
                     append({ "text": "Vosk",     "value": "vosk",    "quant": "" })
                     append({ "text": "Whisper",  "value": "whisper", "quant": "" })
                     append({ "text": "Whisper-Rust", "value": "whisper-rust", "quant": "" })
+                    append({ "text": "Nemotron", "value": "nemotron", "quant": "" })
                 }
             }
             textRole: "text"
@@ -1086,12 +1091,24 @@ RowLayout {
             orientation: Qt.Vertical
             from: 0.0
             to: 0.6
-            stepSize: 0.0
+            stepSize: 0.05
+            wheelEnabled: true
             snapMode: QQC2.Slider.NoSnap
             value: root.micVolume
             onMoved: {
                 root.micVolume = value
                 executable.run("wpctl set-volume @DEFAULT_SOURCE@ " + value.toFixed(2))
+                // Wheel/keys don't fire onPressedChanged; hold the guard briefly
+                // so the 150 ms poll can't revert the change before wpctl applies.
+                root.micSliderActive = true
+                micSettleTimer.restart()
+            }
+            // Pause the live re-read while dragging so the poll doesn't fight us.
+            onPressedChanged: root.micSliderActive = pressed
+            Timer {
+                id: micSettleTimer
+                interval: 400
+                onTriggered: root.micSliderActive = micSlider.pressed
             }
             QQC2.ToolTip.text: i18n("Microphone volume: %1%", (value * 100).toFixed(0))
             QQC2.ToolTip.visible: hovered

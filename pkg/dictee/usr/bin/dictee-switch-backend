@@ -25,7 +25,7 @@ usage() {
     echo "  quant [fp32|int8|toggle]  Switch Parakeet model variant (restarts daemon)"
     echo "  force_cpu [true|false|toggle]   Force CPU mode for all ASR backends"
     echo ""
-    echo "ASR backends:      parakeet, canary, vosk, whisper, whisper-rust"
+    echo "ASR backends:      parakeet, canary, vosk, whisper, whisper-rust, nemotron"
     echo "Translate backends: google, bing, ollama, libretranslate"
     exit 1
 }
@@ -91,7 +91,7 @@ status)
 
 asr)
     if [ $# -lt 2 ]; then usage; fi
-    case "$2" in parakeet|canary|vosk|whisper|whisper-rust) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
+    case "$2" in parakeet|canary|vosk|whisper|whisper-rust|nemotron) ;; *) echo "Error: unknown ASR backend '$2'" >&2; usage ;; esac
     svc=$(asr_service "$2")
 
     # Check that the service exists
@@ -123,6 +123,10 @@ asr)
             # Canary requires GPU (encoder too heavy for CPU)
             set_conf "DICTEE_FORCE_CPU" "0"
             ;;
+        nemotron)
+            # Nemotron runs on CPU and GPU; leave the user free (like Parakeet fp32)
+            set_conf "DICTEE_FORCE_CPU" "0"
+            ;;
         # vosk : CPU only by design, FORCE_CPU sans effet — ne pas toucher
         # whisper : libre, ne pas toucher
     esac
@@ -131,7 +135,7 @@ asr)
     _dbg "asr: switching to $2 (svc=$svc)"
 
     # Stop all daemons, start the right one
-    for s in dictee dictee-canary dictee-vosk dictee-whisper dictee-whisper-rust; do
+    for s in dictee dictee-canary dictee-vosk dictee-whisper dictee-whisper-rust dictee-nemotron; do
         if [ "$s" != "$svc" ]; then
             systemctl --user stop "${s}.service" 2>/dev/null || true
             systemctl --user disable "${s}.service" 2>/dev/null || true
@@ -221,7 +225,7 @@ diarize)
         set_conf "DICTEE_PRE_DIARIZE_BACKEND" "$current_asr"
         # Stop all daemons and wait for VRAM release
         _dbg "diarize: stopping all daemons for VRAM"
-        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null
+        systemctl --user disable --now dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron 2>/dev/null
         # Wait until GPU processes are gone (5s timeout)
         for i in $(seq 1 10); do
             if ! nvidia-smi --query-compute-apps=name --format=csv,noheader 2>/dev/null | grep -qE "transcribe|python"; then
@@ -398,6 +402,7 @@ force_cpu)
         vosk)     svc="dictee-vosk.service" ;;
         whisper)  svc="dictee-whisper.service" ;;
         whisper-rust) svc="dictee-whisper-rust.service" ;;
+        nemotron) svc="dictee-nemotron.service" ;;
         *)        svc="dictee.service" ;;
     esac
     systemctl --user restart "$svc" 2>/dev/null || true

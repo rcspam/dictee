@@ -1,0 +1,87 @@
+.TH DICTEE-TRAY 1 "Mars 2025" "dictee 1.3.0" "Commandes utilisateur"
+.SH NOM
+dictee-tray \- icône de zone de notification pour transcribe-daemon
+.SH SYNOPSIS
+.B dictee-tray
+.SH DESCRIPTION
+.B dictee-tray
+affiche une icône dans la zone de notification (systray) qui indique l'état de
+.BR transcribe\-daemon (1)
+et fournit des actions rapides via un menu contextuel.
+.PP
+L'icône s'adapte au thème du bureau (clair ou sombre) en utilisant 4 icônes SVG :
+.BR parakeet-active ", " parakeet-active-dark ", "
+.BR parakeet-inactive ", " parakeet-inactive-dark .
+La détection du thème est automatique (KDE via kreadconfig6, GNOME via color-scheme).
+.PP
+L'état du daemon est interrogé toutes les 3 secondes en vérifiant le socket
+.I /tmp/transcribe.sock
+et en vérifiant le processus via
+.BR pgrep (1).
+.SH BACKENDS D'INDICATEUR
+.B dictee-tray
+essaie les backends d'indicateur dans cet ordre :
+.TP
+1.
+.B AyatanaAppIndicator3
+(Ubuntu, KDE Plasma)
+.TP
+2.
+.B AppIndicator3
+.TP
+3.
+.B Gtk.StatusIcon
+(repli)
+.SH MENU CONTEXTUEL
+.TP
+\(bu
+.B État
+\(em indique si le daemon est actif ou arrêté.
+.TP
+\(bu
+.B Démarrer / Arrêter le daemon
+\(em contrôle
+.BR transcribe\-daemon (1)
+via
+.BR systemctl (1)
+(service utilisateur), ou gestion directe du processus si systemd n'est pas disponible.
+.TP
+\(bu
+.B Dictée vocale
+\(em lance
+.BR dictee (1).
+.TP
+\(bu
+.B Dictée + Traduction
+\(em lance
+.B dictee \-\-translate
+.TP
+\(bu
+.B Configuration
+\(em ouvre
+.BR dictee\-setup (1).
+.TP
+\(bu
+.B Quitter l'icône
+\(em ferme l'application systray.
+.SH SYSTEMD
+Pour démarrer automatiquement l'icône systray à la connexion :
+.PP
+.RS
+systemctl \-\-user enable \-\-now dictee\-tray
+.RE
+.PP
+L'unité de service est
+.IR dictee\-tray.service .
+.SH ICÔNES
+Les icônes SVG sont installées dans :
+.PP
+.RS
+/usr/share/icons/hicolor/scalable/apps/
+.RE
+.SH VOIR AUSSI
+.BR transcribe\-daemon (1),
+.BR dictee (1),
+.BR dictee\-setup (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

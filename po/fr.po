@@ -4478,3 +4478,7 @@ msgid ""
 msgstr ""
 "Dictée n'est pas encore configurée.\n"
 "Voulez-vous lancer l'assistant de configuration ?"
+
+#: dictee-setup.py:14914
+msgid "Hide silent helper streams (speech-dispatcher…)"
+msgstr "Masquer les flux auxiliaires silencieux (speech-dispatcher…)"

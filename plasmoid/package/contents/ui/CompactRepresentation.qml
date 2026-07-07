@@ -18,6 +18,7 @@ Item {
         switch (state) {
         case "recording":    return Kirigami.Theme.highlightColor
         case "transcribing": return Kirigami.Theme.positiveTextColor
+        case "streaming":    return "#00BCD4"
         case "offline":      return Kirigami.Theme.negativeTextColor
         default:             return Kirigami.Theme.textColor
         }
@@ -33,7 +34,7 @@ Item {
     // Badge "G" rouge affiché si "cpu" = fallback silencieux détecté.
     property string provider: ""
 
-    readonly property bool animActive: state === "recording" || state === "transcribing"
+    readonly property bool animActive: state === "recording" || state === "transcribing" || state === "streaming"
 
     Layout.preferredWidth: {
         var style = Plasmoid.configuration.animationStyle || "bars"

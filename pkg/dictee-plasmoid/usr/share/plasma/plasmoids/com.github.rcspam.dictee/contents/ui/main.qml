@@ -19,7 +19,7 @@ PlasmoidItem {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
     Kirigami.Theme.inherit: false
 
-    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
+    // State: "offline", "idle", "recording", "transcribing", "streaming", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
     property string state: "offline"
 
     // ASR daemon execution provider — écrit par le daemon dans /dev/shm/.dictee_provider.
@@ -58,6 +58,8 @@ PlasmoidItem {
             return Kirigami.Theme.highlightColor
         case "transcribing":
             return Kirigami.Theme.positiveTextColor
+        case "streaming":
+            return "#00BCD4"
         case "offline":
             return Kirigami.Theme.negativeTextColor
         case "idle":
@@ -84,6 +86,8 @@ PlasmoidItem {
             return i18n("Recording…") + keySuffix
         case "transcribing":
             return i18n("Transcribing…")
+        case "streaming":
+            return i18n("Dictating (live)…")
         case "switching":
             return i18n("Switching backend…")
         case "preparing":
@@ -121,7 +125,7 @@ PlasmoidItem {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "streaming" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
                         console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
@@ -246,7 +250,9 @@ PlasmoidItem {
             } else if (source === micVolumeCmd) {
                 // Parse "Volume: 0.50" or "Volume: 0.50 [MUTED]"
                 var volMatch = stdout.match(/Volume:\s+(\d+\.?\d*)/)
-                if (volMatch) {
+                // Skip while the user is dragging the slider (don't fight them);
+                // the periodic re-read otherwise keeps it synced with the system.
+                if (volMatch && !root.micSliderActive) {
                     root.micVolume = parseFloat(volMatch[1])
                 }
                 root.micMuted = stdout.indexOf("[MUTED]") !== -1
@@ -332,11 +338,23 @@ PlasmoidItem {
         "cat /dev/shm/.dictee_audio_bands #B"
     ]
 
+    // Keep the mic slider live-synced with the system @DEFAULT_SOURCE@ level
+    // while the popup is open, so an external change (meeting, system mixer,
+    // dictee-setup) is reflected here too. Re-reads wpctl every 150 ms (light;
+    // skipped onto the existing micVolume parse, which ignores it mid-drag).
+    Timer {
+        id: micVolTimer
+        interval: 150
+        running: root.expanded
+        repeat: true
+        onTriggered: executable.run(root.micVolumeCmd)
+    }
+
     // Timer de lecture niveau audio (~12 fps)
     Timer {
         id: audioTimer
         interval: 80
-        running: root.effectiveState === "recording" || root.expanded
+        running: root.effectiveState === "recording" || root.effectiveState === "streaming" || root.expanded
         repeat: true
         onTriggered: {
             if (!root.audioReadPending) {
@@ -354,16 +372,17 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
+    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
-    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust"]  // updated by checkInstalledCmd
+    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust", "nemotron"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
     property bool micMuted: false
+    property bool micSliderActive: false  // user is dragging the mic slider — pause live re-read
     property string micVolumeCmd: "wpctl get-volume @DEFAULT_SOURCE@"
     property string activeButton: ""  // "dictate", "dictate-translate", or "diarize"
     property string currentLangSource: "fr"
@@ -464,6 +483,7 @@ PlasmoidItem {
         // Whisper-Rust: shared transcribe-daemon (--whisper) + at least one ggml
         // model on disk (system or user dir). No venv — it's the Rust daemon.
         "{ ls /usr/share/dictee/whisper-rust/ggml-*.bin >/dev/null 2>&1 || ls \"$dd/whisper-rust\"/ggml-*.bin >/dev/null 2>&1; } && command -v transcribe-daemon >/dev/null 2>&1 && echo whisper-rust; " +
+        "{ [ -d /usr/share/dictee/nemotron ] || [ -d \"$dd/nemotron\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo nemotron; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
@@ -583,6 +603,7 @@ PlasmoidItem {
         // Stop all safety timers on any transition
         transcribingTimer.stop()
         recordingTimer.stop()
+        streamingTimer.stop()
         diarizingTimer.stop()
         switchingTimer.stop()
         preparingTimer.stop()
@@ -603,6 +624,9 @@ PlasmoidItem {
             break
         case "transcribing":
             transcribingTimer.restart()
+            break
+        case "streaming":
+            streamingTimer.restart()
             break
         case "diarizing":
             diarizingTimer.restart()
@@ -741,6 +765,20 @@ PlasmoidItem {
         }
     }
 
+    // Timer de sécurité pour streaming (3600s max — session live oubliée)
+    Timer {
+        id: streamingTimer
+        interval: 3600000
+        running: false
+        repeat: false
+        onTriggered: {
+            if (root.state === "streaming") {
+                _dbg("TIMEOUT: streaming 3600s — forcing idle")
+                root.state = "idle"
+            }
+        }
+    }
+
     compactRepresentation: CompactRepresentation {
         state: root.effectiveState
         // barColor calculated locally in the compact using its
@@ -777,12 +815,12 @@ PlasmoidItem {
             // + KeyboardMode.NONE and never steals it. Reverted to the
             // pre-62016a4 explicit close. Proper focus-restore (KWin Scripting
             // on Wayland + xdotool on X11) deferred to v1.4.
-            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+            if ((root.state === "recording" || root.state === "streaming") && !Plasmoid.configuration.pinPopup)
                 root.expanded = false
             executable.run(root.activeButton === "diarize" ? "dictee --diarize" : "dictee")
             break
         case "dictate-translate":
-            if (root.state === "recording" && !Plasmoid.configuration.pinPopup)
+            if ((root.state === "recording" || root.state === "streaming") && !Plasmoid.configuration.pinPopup)
                 root.expanded = false
             executable.run("dictee --translate")
             break
@@ -798,15 +836,15 @@ PlasmoidItem {
                 "svc=dictee; " +
                 "if [ -f \"$conf\" ]; then " +
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
-                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; whisper-rust) svc=dictee-whisper-rust;; canary) svc=dictee-canary;; esac; " +
+                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; whisper-rust) svc=dictee-whisper-rust;; canary) svc=dictee-canary;; nemotron) svc=dictee-nemotron;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
         case "stop-daemon":
-            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
+            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
-            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary" }
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
             root.activeButton = ""
@@ -872,13 +910,13 @@ PlasmoidItem {
         if (expanded) {
             refreshBackends()
             preStartAudioDaemon()
-        } else if (root.effectiveState !== "recording" && root.effectiveState !== "transcribing") {
+        } else if (root.effectiveState !== "recording" && root.effectiveState !== "transcribing" && root.effectiveState !== "streaming") {
             executable.run("dictee-plasmoid-level stop")
         }
     }
 
     onEffectiveStateChanged: {
-        if (effectiveState === "recording" || effectiveState === "transcribing") {
+        if (effectiveState === "recording" || effectiveState === "transcribing" || effectiveState === "streaming") {
             preStartAudioDaemon()
         } else if (!root.expanded) {
             executable.run("dictee-plasmoid-level stop")

@@ -62,7 +62,8 @@ _WHISPER_RUST_SIZES = ("tiny", "base", "small", "medium",
                        "large-v3-turbo", "large-v3")
 
 ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
-             "whisper-tiny", "whisper-small", "whisper-medium") + tuple(
+             "whisper-tiny", "whisper-small", "whisper-medium",
+             "nemotron") + tuple(
              f"whisper-rust-{s}" for s in _WHISPER_RUST_SIZES)
 
 
@@ -91,6 +92,9 @@ def asr_spec_to_daemon(spec):
     if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
         return {"backend": "whisper",
                 "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
+    if spec == "nemotron":
+        return {"backend": "nemotron",
+                "env": {"DICTEE_ASR_BACKEND": "nemotron"}}
     raise ValueError(f"unknown asr spec: {spec}")
 
 
@@ -685,12 +689,17 @@ class _DiarizeTranscribeWorker(QThread):
     finished = Signal(str)         # final output text
     error = Signal(str)            # error message
 
-    def __init__(self, audio_path, diarize_output, sock_path, parent=None, socket_timeout=None):
+    def __init__(self, audio_path, diarize_output, sock_path, parent=None,
+                 socket_timeout=None, per_segment=False):
         super().__init__(parent)
         self._audio_path = audio_path
         self._diarize_output = diarize_output
         self._sock_path = sock_path
         self._socket_timeout = socket_timeout
+        # Timestamp-less backends (nemotron): a full-audio '\tdiarize' request
+        # returns an empty body (the daemon formats word tokens, and nemotron
+        # has none) — transcribe each diarized segment separately instead.
+        self._per_segment = per_segment
         self._cancelled = False
         self._sock = None  # current open socket, if any (for cancel)
 
@@ -787,6 +796,10 @@ class _DiarizeTranscribeWorker(QThread):
         if self._cancelled:
             return
 
+        if self._per_segment:
+            self._run_per_segment(daemon_path, speaker_segments)
+            return
+
         # Transcribe full audio via daemon with timestamps (diarize mode)
         _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}")
         full_text = ""
@@ -862,6 +875,79 @@ class _DiarizeTranscribeWorker(QThread):
                 f"[{sent['start']:.2f}s - {sent['end']:.2f}s] {speaker}: {sent['text']}")
 
         self.progress.emit(3, 3)  # done
+        self.finished.emit("\n".join(results))
+
+    def _run_per_segment(self, daemon_path, speaker_segments):
+        """Per-segment phase 2 for timestamp-less backends (nemotron): cut the
+        audio on the diarized segments (stdlib wave — NOT sox) and send one
+        PLAIN request per segment. Speaker attribution is exact by
+        construction; output format is the same '[a s - b s] Speaker N: text'
+        lines as the overlap-matching path."""
+        import socket as sock_mod
+        import tempfile
+        import wave
+
+        results = []
+        total = len(speaker_segments)
+        try:
+            with wave.open(daemon_path, "rb") as wf:
+                rate = wf.getframerate()
+                width = wf.getsampwidth()
+                channels = wf.getnchannels()
+                nframes = wf.getnframes()
+                for done, seg in enumerate(speaker_segments, start=1):
+                    if self._cancelled:
+                        return
+                    start = max(0.0, seg["start"])
+                    end = min(seg["end"], nframes / rate)
+                    if end - start < 0.3:   # too short to transcribe (noise)
+                        self.progress.emit(done, total)
+                        continue
+                    wf.setpos(int(start * rate))
+                    frames = wf.readframes(int((end - start) * rate))
+                    tmp = tempfile.NamedTemporaryFile(
+                        prefix="dictee-seg-", suffix=".wav", delete=False)
+                    try:
+                        with wave.open(tmp, "wb") as out:
+                            out.setnchannels(channels)
+                            out.setsampwidth(width)
+                            out.setframerate(rate)
+                            out.writeframes(frames)
+                        tmp.close()
+                        self._sock = sock_mod.socket(sock_mod.AF_UNIX,
+                                                     sock_mod.SOCK_STREAM)
+                        self._sock.settimeout(120)
+                        self._sock.connect(self._sock_path)
+                        self._sock.sendall((tmp.name + "\n").encode())
+                        data = b""
+                        while True:
+                            chunk = self._sock.recv(4096)
+                            if not chunk:
+                                break
+                            data += chunk
+                        self._sock.close()
+                        self._sock = None
+                        text = data.decode("utf-8", errors="replace").strip()
+                    finally:
+                        try:
+                            os.unlink(tmp.name)
+                        except OSError:
+                            pass
+                    self.progress.emit(done, total)
+                    if not text or text.startswith("ERROR:"):
+                        continue
+                    results.append(
+                        f"[{start:.2f}s - {end:.2f}s]"
+                        f" {_('Speaker')} {seg['speaker']}: {text}")
+        except Exception as e:
+            if self._cancelled:
+                return
+            self.error.emit(f"Daemon transcription failed: {e}")
+            return
+
+        if not results:
+            self.error.emit(_("Empty transcription from daemon"))
+            return
         self.finished.emit("\n".join(results))
 
 
@@ -1221,6 +1307,10 @@ class IsolatedAsrDaemon:
             env.setdefault("ORT_DYLIB_PATH", ort)
         if self.recipe["backend"] == "whisper":
             cmd = ["transcribe-daemon-whisper"]
+        elif self.recipe["backend"] == "nemotron":
+            # transcribe-daemon reads DICTEE_ASR_BACKEND=nemotron from env and
+            # auto-selects the nemotron model directory (no positional arg needed).
+            cmd = ["transcribe-daemon", "--socket", self.sock]
         else:  # parakeet ad-hoc (not used by the current routing, kept for completeness)
             cmd = ["transcribe-daemon", "--socket", self.sock, self.model_dir]
         return cmd, env
@@ -2362,6 +2452,7 @@ class TranscribeWindow(QDialog):
             ("Whisper tiny", "whisper-tiny"),
             ("Whisper small", "whisper-small"),
             ("Whisper medium", "whisper-medium"),
+            ("Nemotron", "nemotron"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
         self._asr_model_combo.setToolTip(self._tip(
@@ -2961,7 +3052,8 @@ class TranscribeWindow(QDialog):
             svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
                        "whisper": "dictee-whisper",
                        "whisper-rust": "dictee-whisper-rust",
-                       "canary": "dictee-canary"}
+                       "canary": "dictee-canary",
+                       "nemotron": "dictee-nemotron"}
             subprocess.Popen(["systemctl", "--user", "enable", "--now", svc_map.get(asr, "dictee")])
         # Restaurer l'état idle pour le plasmoid
         _state_file = "/dev/shm/.dictee_state"
@@ -3897,7 +3989,8 @@ class TranscribeWindow(QDialog):
                         subprocess.run(
                             ["systemctl", "--user", "stop",
                              "dictee", "dictee-vosk", "dictee-whisper",
-                             "dictee-whisper-rust", "dictee-canary"],
+                             "dictee-whisper-rust", "dictee-canary",
+                             "dictee-nemotron"],
                             timeout=10)
                         _time.sleep(1)
                     # Still tight? Unload ollama too
@@ -3944,16 +4037,24 @@ class TranscribeWindow(QDialog):
         # Hybrid isolated-model routing: a diarized run with an isolated
         # Parakeet quant selected goes through the chunked pipeline at ANY
         # length (one chunk for short files), with the quant env forced onto
-        # the batch CLI subprocess. An isolated Whisper selection is handled
-        # by the two-phase socket path (Task 5b) and must NOT enter here.
+        # the batch CLI subprocess. An isolated Whisper or Nemotron selection
+        # is handled by the two-phase socket path and must NOT enter here.
+        # Both _whisper_isolated and _nemotron_isolated are gated on diarize:
+        # non-diarized runs always fall through to the plain Parakeet CLI
+        # (known limitation — selecting whisper/nemotron for a non-diarized
+        # batch file currently yields Parakeet output via the transcribe CLI).
         _parakeet_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "parakeet")
         _whisper_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "whisper")
+        _nemotron_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "nemotron")
         if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
-                or _parakeet_isolated) and not _whisper_isolated):
+                or _parakeet_isolated) and not _whisper_isolated
+                and not _nemotron_isolated):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
@@ -4020,10 +4121,10 @@ class TranscribeWindow(QDialog):
             self._process.deleteLater()
             self._process = None
             return
-        # Isolated Whisper diarized run: force the two-phase path (diarize-only
-        # speakers + phase-2 isolated whisper daemon over a private socket),
-        # regardless of the F9 backend. Requires diarize-only.
-        if _whisper_isolated:
+        # Isolated Whisper/Nemotron diarized run: force the two-phase path
+        # (diarize-only speakers + phase-2 isolated daemon over a private
+        # socket), regardless of the F9 backend. Requires diarize-only.
+        if _whisper_isolated or _nemotron_isolated:
             if not shutil.which("diarize-only"):
                 self._progress.setVisible(False)
                 self._lbl_status.setText(
@@ -4083,7 +4184,8 @@ class TranscribeWindow(QDialog):
         svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
                    "whisper": "dictee-whisper",
                    "whisper-rust": "dictee-whisper-rust",
-                   "canary": "dictee-canary"}
+                   "canary": "dictee-canary",
+                   "nemotron": "dictee-nemotron"}
         svc = svc_map.get(asr, "dictee")
         subprocess.Popen(["systemctl", "--user", "start", svc])
         return svc
@@ -4097,13 +4199,16 @@ class TranscribeWindow(QDialog):
             self._update_transcribe_btn()
             return
 
-        if getattr(self, "_isolated_recipe", None) and self._isolated_recipe["backend"] == "whisper":
-            # Isolated whisper: spawn an ad-hoc daemon on a private socket
-            # (the F9 daemon/config/badge are untouched). Larger socket-wait
-            # timeout because the whisper model cold-load can take a while.
+        if (getattr(self, "_isolated_recipe", None)
+                and self._isolated_recipe["backend"] in ("whisper", "nemotron")):
+            # Isolated whisper/nemotron: spawn an ad-hoc daemon on a private
+            # socket (the F9 daemon/config/badge are untouched). Extended
+            # socket-wait timeout because both models cold-load slowly
+            # (whisper model download + init; nemotron 2.45 GB load).
             self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
+            _per_segment = self._isolated_recipe["backend"] == "nemotron"
         else:
             # Restart daemon
             self._daemon_was_active = False
@@ -4115,12 +4220,17 @@ class TranscribeWindow(QDialog):
             sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
                          else f"/tmp/transcribe-{os.getuid()}.sock")
             _worker_timeout = None
+            # The F9 daemon itself may run a timestamp-less backend: a
+            # '\tdiarize' request to nemotron returns an empty body.
+            _per_segment = (_read_conf().get("DICTEE_ASR_BACKEND", "parakeet")
+                            == "nemotron")
 
         self._lbl_status.setText(_("Waiting for daemon..."))
 
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
-            audio_path, diarize_output, sock_path, self, socket_timeout=_worker_timeout)
+            audio_path, diarize_output, sock_path, self,
+            socket_timeout=_worker_timeout, per_segment=_per_segment)
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)
         self._diarize_worker.error.connect(self._on_diarize_error)

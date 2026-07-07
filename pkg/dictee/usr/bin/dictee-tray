@@ -146,7 +146,7 @@ STATE_FILE = "/dev/shm/.dictee_state"
 PROVIDER_FILE = "/dev/shm/.dictee_provider"
 TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
 APP_ID = "dictee"
-SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-whisper-rust", "dictee-canary")
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-whisper-rust", "dictee-canary", "dictee-nemotron")
 CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
@@ -211,6 +211,7 @@ ASR_BACKENDS = [
     ("vosk",          "Vosk",                    "vosk",     None),
     ("whisper",       "Whisper",                 "whisper",  None),
     ("whisper-rust",  "Whisper-Rust",            "whisper-rust", None),
+    ("nemotron",      "Nemotron",                "nemotron", None),
 ]
 
 TRANSLATE_BACKENDS = [
@@ -321,7 +322,7 @@ def _maybe_sync_force_cpu(constraint, want_cpu_bool, current_fc_raw):
         return
     # Skip while daemon is busy
     state = read_state()
-    if state in ("recording", "transcribing", "diarizing", "preparing",
+    if state in ("recording", "transcribing", "streaming", "diarizing", "preparing",
                  "diarize-ready", "meeting-ui-open", "meeting-recording"):
         return
     subprocess.Popen(["dictee-switch-backend", "force_cpu",
@@ -407,6 +408,11 @@ def _asr_service_exists(key):
             ):
                 return True
         return False
+    if key == "nemotron":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        return os.path.isdir("/usr/share/dictee/nemotron") or \
+            os.path.isfile(os.path.join(data_dir, "nemotron", "encoder.onnx"))
     # Vosk/Whisper: check venv
     venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
     venv = venv_map.get(key)
@@ -460,6 +466,7 @@ ICON_MAP = {
     "offline": "parakeet-offline",
     "recording": "parakeet-recording",
     "transcribing": "parakeet-transcribing",
+    "streaming": "parakeet-streaming",
     "diarize": "parakeet-diarize",
     "diarizing": "parakeet-diarize",
     "preparing": "parakeet-diarize",
@@ -509,7 +516,7 @@ def _conf_asr_service():
     """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
     mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
                "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
-               "canary": "dictee-canary"}
+               "canary": "dictee-canary", "nemotron": "dictee-nemotron"}
     try:
         with open(CONF_PATH) as f:
             for line in f:
@@ -607,7 +614,7 @@ def read_state():
     try:
         with open(STATE_FILE, "r") as f:
             state = f.read().strip()
-            if state in ("recording", "transcribing", "diarizing", "preparing",
+            if state in ("recording", "transcribing", "streaming", "diarizing", "preparing",
                          "diarize-ready", "switching", "offline",
                          "meeting-ui-open", "meeting-recording"):
                 return state
@@ -962,7 +969,7 @@ class DicteeTrayAppIndicator:
 
     def _check_state(self):
         file_state = read_state()
-        if file_state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready",
+        if file_state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready",
                           "meeting-ui-open", "meeting-recording"):
             self.state = file_state
         elif file_state in ("idle", "switching"):
@@ -993,19 +1000,20 @@ class DicteeTrayAppIndicator:
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
                       "transcribing": _("Transcribing…"),
+                      "streaming": _("Dictating (live)…"),
                       "diarizing": _("Diarization in progress…"),
                       "preparing": _("Preparing diarization…"),
                       "diarize-ready": _("Ready for diarization")}
             self.item_daemon.set_label(f"■ {labels.get(self.state, _('Daemon active'))}")
 
         # Menu dictée / traduction
-        is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
+        is_busy = self.state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         # "Stop" only while actively recording/processing. When meeting mode is
         # merely armed (diarize-ready) or switching backend (preparing), the
         # action still STARTS the recording → it must read "Start dictation"
         # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
-        _recording = self.state in ("recording", "transcribing", "diarizing")
+        _recording = self.state in ("recording", "transcribing", "streaming", "diarizing")
         self.item_dictee.set_label(
             _("Stop translation") if (_recording and is_translating)
             else _("Stop dictation") if _recording
@@ -1408,7 +1416,7 @@ class DicteeTrayQt:
             else:
                 subprocess.Popen(["dictee"])
         elif reason == self.QSystemTrayIcon.ActivationReason.MiddleClick:
-            if self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready"):
+            if self.state in ("recording", "streaming", "transcribing", "diarizing", "preparing", "diarize-ready"):
                 self._cancel()
 
     def _on_asr_selected(self, action):
@@ -1548,7 +1556,7 @@ class DicteeTrayQt:
 
     def _check_state(self):
         file_state = read_state()
-        if file_state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready",
+        if file_state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready",
                           "meeting-ui-open", "meeting-recording"):
             self.state = file_state
         elif file_state in ("idle", "switching"):
@@ -1576,6 +1584,7 @@ class DicteeTrayQt:
             "diarize-ready": _("Ready for diarization") + f" • {ptt}",
             "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
             "transcribing": _("Dictation — transcribing"),
+            "streaming": _("Dictating (live)…"),
         }
         self.tray.setToolTip(tooltips.get(self.state, _("Dictation")))
 
@@ -1595,6 +1604,7 @@ class DicteeTrayQt:
         else:
             labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
                       "transcribing": _("Transcribing…"),
+                      "streaming": _("Dictating (live)…"),
                       "diarizing": _("Diarization in progress…"),
                       "preparing": _("Preparing diarization…"),
                       "diarize-ready": _("Ready for diarization")}
@@ -1609,13 +1619,13 @@ class DicteeTrayQt:
                     self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
             self.action_daemon_hint.setText(f" {_('click to stop')}")
 
-        is_busy = self.state in ("recording", "transcribing", "diarizing", "preparing", "diarize-ready")
+        is_busy = self.state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready")
         is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
         # "Stop" only while actively recording/processing. When meeting mode is
         # merely armed (diarize-ready) or switching backend (preparing), the
         # action still STARTS the recording → it must read "Start dictation"
         # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
-        _recording = self.state in ("recording", "transcribing", "diarizing")
+        _recording = self.state in ("recording", "transcribing", "streaming", "diarizing")
         self.action_dictee.setText(
             _("Stop translation") if (_recording and is_translating)
             else _("Stop dictation") if _recording

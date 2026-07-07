@@ -1,0 +1,53 @@
+.TH TRANSCRIBE-DIARIZE 1 "April 2026" "dictee 1.3.0" "User Commands"
+.SH NAME
+transcribe-diarize \- transcribe with speaker identification
+.SH SYNOPSIS
+.B transcribe-diarize
+.I audio_file
+.RI [ model_dir ]
+.RI [ sortformer_dir ]
+.SH DESCRIPTION
+.B transcribe-diarize
+transcribes audio and identifies who is speaking (up to 4 speakers).
+Uses Parakeet TDT for transcription and Sortformer for speaker diarization.
+.PP
+Supports 25 languages (TDT). Diarization is language-independent.
+.PP
+Accepts any audio format (MP3, OGG, FLAC, OPUS, etc.) via automatic
+.BR ffmpeg (1)
+conversion to WAV 16kHz mono.
+File paths support
+.BR ~ ", " ./ ", and " ../
+resolution.
+.SH OPTIONS
+.TP
+.I audio_file
+Path to audio file (required). Any format supported by ffmpeg is accepted.
+.TP
+.I model_dir
+Path to TDT model (default: /usr/share/dictee/tdt).
+.TP
+.I sortformer_dir
+Path to Sortformer model (default: /usr/share/dictee/sortformer).
+.TP
+.BR \-\-help ", " \-h
+Display a brief usage summary and exit.
+.SH OUTPUT
+.PP
+[0.00s \- 2.50s] Speaker 0: Hello, how are you?
+.br
+[2.60s \- 5.30s] Speaker 1: I'm fine, thanks!
+.SH BUILD
+This binary requires the
+.B sortformer
+Cargo feature:
+.PP
+.RS
+cargo build \-\-release \-\-features sortformer
+.RE
+.SH SEE ALSO
+.BR transcribe (1),
+.BR transcribe\-stream\-diarize (1),
+.BR ffmpeg (1)
+.SH AUTHOR
+rcspam <rcspams@gmail.com>

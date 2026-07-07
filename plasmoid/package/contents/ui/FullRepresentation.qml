@@ -211,6 +211,8 @@ RowLayout {
                             return "#3498db"  // bleu
                         case "transcribing":
                             return "#2ecc71"  // vert
+                        case "streaming":
+                            return "#00BCD4"  // cyan
                         case "switching":
                             return "#e67e22"  // orange
                         case "preparing":
@@ -236,6 +238,8 @@ RowLayout {
                             return i18n("Recording…")
                         case "transcribing":
                             return i18n("Transcribing…")
+                        case "streaming":
+                            return i18n("Dictating (live)…")
                         case "switching":
                             return i18n("Switching…")
                         case "preparing":
@@ -411,13 +415,13 @@ RowLayout {
                 text: i18n("Dictation")
                 icon.name: "audio-input-microphone"
                 onClicked: { root.activeButton = "dictate"; fullRep.actionRequested("dictate") }
-                enabled: fullRep.state === "idle" || fullRep.state === "recording"
+                enabled: fullRep.state === "idle" || fullRep.state === "recording" || fullRep.state === "streaming"
                 leftPadding: dictateDot.visible ? 20 : undefined
             }
 
             Rectangle {
                 id: dictateDot
-                property bool active: fullRep.state === "recording" && root.activeButton === "dictate"
+                property bool active: (fullRep.state === "recording" || fullRep.state === "streaming") && root.activeButton === "dictate"
                 visible: active
                 width: 10; height: 10; radius: 5
                 color: "#ff0000"
@@ -448,13 +452,13 @@ RowLayout {
                 text: i18n("Translate")
                 icon.name: "translate"
                 onClicked: { root.activeButton = "dictate-translate"; fullRep.actionRequested("dictate-translate") }
-                enabled: fullRep.state === "idle" || fullRep.state === "recording"
+                enabled: fullRep.state === "idle" || fullRep.state === "recording" || fullRep.state === "streaming"
                 leftPadding: translateDot.visible ? 20 : undefined
             }
 
             Rectangle {
                 id: translateDot
-                property bool active: fullRep.state === "recording" && root.activeButton === "dictate-translate"
+                property bool active: (fullRep.state === "recording" || fullRep.state === "streaming") && root.activeButton === "dictate-translate"
                 visible: active
                 width: 10; height: 10; radius: 5
                 color: "#ff0000"
@@ -580,6 +584,7 @@ RowLayout {
                     append({ "text": "Vosk",     "value": "vosk",    "quant": "" })
                     append({ "text": "Whisper",  "value": "whisper", "quant": "" })
                     append({ "text": "Whisper-Rust", "value": "whisper-rust", "quant": "" })
+                    append({ "text": "Nemotron", "value": "nemotron", "quant": "" })
                 }
             }
             textRole: "text"

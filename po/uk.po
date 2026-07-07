@@ -4434,3 +4434,7 @@ msgid ""
 msgstr ""
 "Dictée ще не налаштовано.\n"
 "Бажаєте запустити майстер налаштування?"
+
+#: dictee-setup.py:14914
+msgid "Hide silent helper streams (speech-dispatcher…)"
+msgstr "Приховати тихі допоміжні потоки (speech-dispatcher…)"

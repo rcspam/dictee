@@ -8,7 +8,7 @@ NEMOTRON_DIR="$MODEL_DIR/nemotron"
 
 HF_TDT="https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/main"
 HF_DIAR="https://huggingface.co/altunenes/parakeet-rs/resolve/main"
-HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-speech-streaming-en-0.6b"
+HF_NEMOTRON="https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
 
 TDT_FILES=(
     "encoder-model.onnx"
@@ -59,7 +59,7 @@ download_sortformer() {
 
 download_nemotron() {
     echo ""
-    echo "=== Nemotron model (English streaming, ~2.5 GB) ==="
+    echo "=== Nemotron model (multilingual streaming, ~2.5 GB) ==="
     mkdir -p "$NEMOTRON_DIR"
     for file in "${NEMOTRON_FILES[@]}"; do
         download_file "$HF_NEMOTRON/$file" "$NEMOTRON_DIR/$file"
@@ -86,7 +86,7 @@ fi
 if [ -f "$NEMOTRON_DIR/encoder.onnx" ]; then
     echo "✓ Nemotron model present"
 else
-    echo "  Nemotron model missing (optional, English streaming)"
+    echo "  Nemotron model missing (optional, multilingual streaming)"
 fi
 
 if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
@@ -231,7 +231,7 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
         # Apply presets (auto-enable on first install)
-        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-ptt dictee-tray dotoold 2>/dev/null || true
         # Enable essential services (excluding ASR — handled by backend)
         $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
         # Start/restart services
@@ -252,15 +252,16 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
             _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$_user_home/.config/dictee.conf" | cut -d= -f2)
         fi
         case "$_asr_backend" in
-            vosk)    _asr_svc="dictee-vosk" ;;
-            whisper) _asr_svc="dictee-whisper" ;;
+            vosk)     _asr_svc="dictee-vosk" ;;
+            whisper)  _asr_svc="dictee-whisper" ;;
             whisper-rust) _asr_svc="dictee-whisper-rust" ;;
-            canary)  _asr_svc="dictee-canary" ;;
-            *)       _asr_svc="dictee" ;;
+            canary)   _asr_svc="dictee-canary" ;;
+            nemotron) _asr_svc="dictee-nemotron" ;;
+            *)        _asr_svc="dictee" ;;
         esac
         # Stop all ASR daemons, enable+start the configured one
-        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
-        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary 2>/dev/null || true
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron 2>/dev/null || true
         $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
         $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
         echo "  ↳ $_asr_svc started (backend: $_asr_backend)"

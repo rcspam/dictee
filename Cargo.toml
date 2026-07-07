@@ -1,12 +1,14 @@
+# Originally derived from parakeet-rs by altunenes (GPL-3.0-or-later).
+# Now the standalone ASR engine of the dictee project — no longer a fork.
 [package]
-name = "parakeet-rs"
+name = "dictee-asr"
 version = "1.4.0-beta"
 edition = "2021"
-authors = ["altunenes"]
-description = "Fast ASR & Speaker Diarization with NVIDIA Parakeet via ONNX"
-repository = "https://github.com/altunenes/parakeet-rs"
+authors = ["rcspam <contact@theia-ee.fr>", "altunenes (original parakeet-rs author)"]
+description = "dictee ASR & speaker diarization engine (ONNX): Parakeet TDT, Canary, Nemotron, Sortformer"
+repository = "https://github.com/rcspam/dictee"
 license = "GPL-3.0-or-later"
-keywords = ["speech-recognition", "asr", "parakeet", "onnx", "nvidia"]
+keywords = ["speech-recognition", "asr", "diarization", "onnx", "dictee"]
 categories = ["multimedia::audio", "science"]
 
 [lib]

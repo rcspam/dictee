@@ -1,0 +1,1234 @@
+#!/usr/bin/env python3
+"""dictee-stream — streaming dictation orchestrator.
+
+Spawned by the dictee shell at key-down (F9). Captures the microphone via
+pw-record, streams raw s16le PCM to the Nemotron daemon in stream mode,
+segments the append-only text into words or sentences, applies local
+post-processing in-process, types incrementally via dotool, and finalises
+on SIGTERM (key-up).
+
+Signals:
+  SIGTERM / SIGINT  — key-up: drain, optional final pass, type, exit.
+  SIGUSR1           — cancel: stop immediately, type NOTHING more.
+
+Settings read from environment (set by the dictee shell wrapper):
+  DICTEE_STREAMING_GRANULARITY  sentence (default) | word
+  DICTEE_STREAMING_FINAL_PASS   true | false
+  DICTEE_STREAMING_PAUSE_MS     default 700
+  DICTEE_SILENCE_RMS            default 0.03
+  DICTEE_TRANSLATE              true | false
+"""
+
+import argparse
+import array
+import atexit
+import importlib.machinery
+import importlib.util
+import math
+import os
+import queue
+import re
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import threading
+import time
+import wave
+
+# Terminal punctuation that closes a sentence (Nemotron punctuates natively).
+_SENT_END = re.compile(r"[.!?…]")
+
+# Queue sentinel: marks the point at which the audio sentinel was sent to the
+# daemon.  Any network frame arriving after this marker is post-sentinel
+# (flush fragment or full final transcript) and must NOT be fed to the
+# segmenter inside the main loop.
+_SENTINEL_SENT = object()
+
+# ---------------------------------------------------------------------------
+# Typist
+# ---------------------------------------------------------------------------
+
+# dotool cannot type these; map to safe equivalents (mirror of dictee:246-256).
+_DOTOOL_SUBST = {
+    " ": " ",   # NBSP (U+00A0) -> space
+    " ": " ",   # narrow NBSP (U+202F) -> space
+    "…": "...",
+    "—": "-",
+    "–": "-",
+}
+# Control chars that map to key presses (mirror of dictee:265 awk: enter/tab/ctrl+j).
+_KEY_SEGMENTS = {"\n": "key enter", "\t": "key tab", "\x01": "key ctrl+j"}
+
+# Key pacings, calibrated 2026-06-11 on this machine (Qt sandbox + Konsole
+# TUI, automated probe/verify): plain keys (backspace, arrows) are reliable
+# down to 1-2 ms; text typing breaks at 0 ms (dead-key/keymap-remap race,
+# "ôôcontrle" measured) but holds at 2/4. ZERO delays stay forbidden —
+# drops and scrambling were measured there in both environments.
+_PACE_EDIT_ON = "keydelay 1\nkeyhold 2"
+_PACE_EDIT_OFF = "keydelay 2\nkeyhold 8"
+_PACE_INIT = "typedelay 2\ntypehold 4\nkeydelay 2\nkeyhold 8"
+
+
+class Segmenter:
+    """Splits the append-only ASR text stream into commit units.
+
+    The ASR is monotone (append-only), so a word is 'stable' as soon as a
+    following character arrives. Fragments already contain SentencePiece
+    leading spaces, so we never inject spaces here.
+
+    Note: the sentence split is intentionally naive (decimals like "3.14" and
+    abbreviations will split early). This is acceptable because the final pass
+    and the batch path correct it.
+    """
+
+    def __init__(self, granularity="sentence"):
+        self.granularity = granularity
+        self._buf = ""
+
+    def feed(self, fragment):
+        """Append a fragment, return the list of newly-complete units."""
+        self._buf += fragment
+        if self.granularity == "word":
+            return self._emit_words()
+        return self._emit_sentences()
+
+    def _emit_words(self):
+        parts = self._buf.split(" ")
+        complete, self._buf = parts[:-1], parts[-1]
+        return [w for w in complete if w]
+
+    def _emit_sentences(self):
+        out = []
+        while True:
+            m = _SENT_END.search(self._buf)
+            if not m:
+                break
+            sentence = self._buf[:m.end()].strip()
+            self._buf = self._buf[m.end():]
+            if sentence:
+                out.append(sentence)
+        return out
+
+    def flush(self):
+        """Return any remaining buffered unit (soft boundary / key-up)."""
+        rest = self._buf.strip()
+        self._buf = ""
+        return [rest] if rest else []
+
+
+class LiveComposer:
+    """Live granularity: completed sentences are frozen, the in-progress
+    sentence is re-post-processed and re-rendered on every fragment.
+
+    The composer owns the FULL target text; the caller renders it with
+    Typist.rewrite(), whose common-prefix diff guarantees the frozen part
+    never flickers — only the volatile tail (the current sentence) gets
+    erased/retyped, and only where the PP actually changed it.
+    """
+
+    def __init__(self, pp_fn, lead="", continuation=False,
+                 keyword=None, on_keyword=None, closed_words=frozenset(),
+                 fr_typography=False):
+        self.pp = pp_fn          # text -> locally post-processed text
+        self.stable = ""         # frozen, final text (completed sentences)
+        self.raw_tail = ""       # raw ASR text of the in-progress sentence
+        # Cross-push continuation (read from LAST_WORD_FILE): `lead` is
+        # typed before the first unit (separates us from the previous
+        # push's text), `continuation` starts the session mid-sentence.
+        self.lead = lead
+        # True when `stable` ends mid-sentence (pause promotion or
+        # cross-push continuation): the next rendered text continues that
+        # sentence and must not be capitalized.
+        self.open_continuation = continuation
+        # Continuation voice keyword ("minuscule…"): when the push STARTS
+        # with it, the previous push's punctuation is erased and the text
+        # continues lowercase. The keyword arrives fragment by fragment, so
+        # rendering is HELD while the tail is still a possible prefix of it.
+        if keyword:
+            self._kw_full, self._kw_prefix = _build_keyword_matchers(keyword)
+        else:
+            self._kw_full, self._kw_prefix = None, None
+        self._kw_active = bool(keyword)
+        self._on_keyword = on_keyword
+        # Closed-class words: a period right after one of these is probably
+        # spurious (fix_continuation removes it once the next words arrive),
+        # so the tail must NOT freeze on it.
+        self._closed_words = closed_words
+        # French typography: join high punctuation with the (narrow)
+        # no-break space, like fix_french_typography would inside a block.
+        self.fr_typography = fr_typography
+
+    # No separator space before these when joining stable + next unit:
+    # closing punctuation produced by voice commands ("point final" -> ".")
+    # and rule-emitted newlines ("à la ligne" -> "\n").
+    _NO_SPACE_BEFORE = ".,;:!?…\n"
+    # The PP'd tail freezes when it ends with one of these.
+    _FREEZE_END = ".!?…\n"
+    # Marker bytes the rules may emit (\x02 end-of-sentence, etc.); ignored
+    # when testing for a terminator (Typist.sanitize strips them anyway).
+    _MARKERS = "\x01\x02\x03\x04"
+
+    def _casing(self, s):
+        if self.open_continuation and s:
+            # Never de-capitalize an acronym (dictionary entries like "API"):
+            # if the second letter is uppercase too, the word is a sigle.
+            if s[1:2].isupper():
+                return s
+            return s[:1].lower() + s[1:]
+        return s
+
+    def _join(self, left, right):
+        if right and right[0] in self._NO_SPACE_BEFORE:
+            # French typography: a (narrow) no-break space before high
+            # punctuation when it joins from a separate fragment — what
+            # fix_french_typography does inside a block, and what the bash
+            # apply_continuation does across pushes (dictee:514-520).
+            if self.fr_typography and left and not left.endswith(" "):
+                if right[0] in "!?;":
+                    return left + " " + right
+                if right[0] == ":":
+                    return left + " " + right
+            # Other punctuation glues leftward — even across pushes (a
+            # dictated "point final" at push start attaches to the previous
+            # text).
+            return left + right
+        if not left:
+            return self.lead + right
+        if left.endswith(("\n", "\t", "\x01", "\x04")):
+            # No separator after a line break / tab / ctrl+j / reset marker:
+            # the next text starts the new line or field directly (a space
+            # there would indent the new line).
+            return left + right
+        return left + " " + right
+
+    def _render_tail(self):
+        tail = self.raw_tail.strip()
+        if not tail:
+            return ""
+        # Strip trailing spaces (rules like "point final" emit ". " with a
+        # trailing space) but keep a trailing newline ("à la ligne").
+        return self._casing(self.pp(tail) or tail).rstrip(" ")
+
+    def feed(self, fragment):
+        """Absorb a fragment, return the full target text.
+
+        Sentence freezing happens on the POST-PROCESSED text, not the raw
+        ASR text: a dictated voice command ("point final") only becomes a
+        terminator after the rules ran. The whole tail freezes when its
+        PP'd form ends with a terminator; internal terminators stay
+        volatile (the raw<->pp position mapping is unknowable) — the PP
+        handles multi-sentence blocks natively, exactly like a batch push.
+        """
+        self.raw_tail += fragment
+        if self._kw_active and not self.stable:
+            tail = self.raw_tail.strip()
+            if tail:
+                m = self._kw_full.match(tail)
+                if m:
+                    # Keyword spoken at push start: drop it, force the
+                    # continuation casing, let the caller erase the previous
+                    # push's punctuation.
+                    self.raw_tail = tail[m.end():]
+                    self.open_continuation = True
+                    self._kw_active = False
+                    if self._on_keyword:
+                        self._on_keyword()
+                elif self._kw_prefix(tail):
+                    return self.stable  # hold: could still become the keyword
+                else:
+                    self._kw_active = False
+        # The model emits its native end-of-sequence punctuation when the
+        # daemon finalizes; if the user already dictated the punctuation
+        # ("point final" -> '.' frozen in stable), that native mark is a
+        # duplicate ('confirmé..', 'vraiment ?.') — swallow it. A batch push
+        # never shows this because the command rule eats adjacent [,.\s]*
+        # within one text. Kept when stable has no trailing punctuation
+        # (the native period is then a welcome bonus).
+        if self.stable and self.raw_tail:
+            tail_clean = "".join(
+                c for c in self.raw_tail if c not in self._MARKERS).strip()
+            stable_clean = "".join(
+                c for c in self.stable if c not in self._MARKERS).rstrip()
+            if (tail_clean and all(c in ".!?…" for c in tail_clean)
+                    and stable_clean and stable_clean[-1] in ".!?…\n"):
+                self.raw_tail = ""
+                return self.stable
+
+        vol = self._render_tail()
+        if vol:
+            # Strip markers and spaces only — a trailing \n IS a terminator
+            # ("à la ligne") and must stay visible to the freeze test.
+            clean = "".join(c for c in vol if c not in self._MARKERS).rstrip(" ")
+            if clean and clean[-1] == "." and self._closed_words:
+                # Period right after a closed-class word ("je vais le."):
+                # probably spurious — fix_continuation removes it once the
+                # next words arrive. Keep the tail volatile so the block
+                # re-PP can do that.
+                last = clean[:-1].rstrip().rsplit(" ", 1)[-1]
+                if "-" in last:
+                    last = last.rsplit("-", 1)[-1]
+                if last.lower() in self._closed_words:
+                    return self.target(vol)
+            if clean and clean[-1] in self._FREEZE_END:
+                self.stable = self._join(self.stable, vol)
+                self.raw_tail = ""
+                self.open_continuation = False
+                return self.stable
+        return self.target(vol)
+
+    def target(self, vol=None):
+        """Full text to display right now."""
+        if vol is None:
+            vol = self._render_tail()
+        if not vol:
+            return self.stable
+        return self._join(self.stable, vol)
+
+    def promote(self):
+        """Pause boundary: freeze the current volatile tail as already
+        rendered; the sentence stays open (continuation casing applies to
+        what follows). Costs no typing — the text is already on screen."""
+        vol = self._render_tail()
+        if not vol:
+            return
+        self.stable = self._join(self.stable, vol)
+        self.raw_tail = ""
+        self.open_continuation = True
+
+
+class Typist:
+    """Incremental, append-only typing via dotool, with backspace support.
+
+    Tracks the exact string typed since start so the final pass can rewrite
+    it (backspace typed_len + retype). dry_run skips the dotool subprocess
+    (tests).
+
+    Invariant: `typed` holds exactly the post-sanitize text dotool emitted,
+    so backspace counts are 1:1 with len(typed).
+    """
+
+    def __init__(self, dry_run=False):
+        self.dry_run = dry_run
+        self.typed = ""
+        self._proc = None  # persistent dotool process (lazy)
+        self._last_cmds = None  # last command batch (dry_run test capture)
+
+    @property
+    def typed_len(self):
+        return len(self.typed)
+
+    @staticmethod
+    def sanitize(text):
+        for bad, good in _DOTOOL_SUBST.items():
+            text = text.replace(bad, good)
+        # Keep the control chars that map to keys (\n, \t, \x01 = ctrl+j);
+        # strip the rest. \x02 (end-of-sentence), \x03 (keepcaps), \x04
+        # (audio-context reset) are batch-path bookkeeping read by
+        # save_last_word — meaningless in streaming, dropped on purpose.
+        return "".join(c for c in text if c in "\n\t\x01" or ord(c) >= 0x20)
+
+    @staticmethod
+    def build_commands(clean):
+        """Convert sanitized text to dotool command lines."""
+        cmds, buf = [], ""
+        for c in clean:
+            if c in _KEY_SEGMENTS:
+                if buf:
+                    cmds.append(f"type {buf}")
+                    buf = ""
+                cmds.append(_KEY_SEGMENTS[c])
+            else:
+                buf += c
+        if buf:
+            cmds.append(f"type {buf}")
+        return cmds
+
+    def _dotool_proc(self):
+        """Persistent dotool process, (re)spawned lazily.
+
+        A fresh dotool per call would create a new uinput virtual keyboard
+        every time — device registration by the compositor costs hundreds of
+        ms, which is paid PER WORD in word granularity. One long-lived
+        process types everything for the session; dotool executes commands
+        as lines arrive on stdin.
+        """
+        if self._proc is None or self._proc.poll() is not None:
+            # `sg input -c dotool` fallback mirrors safe_dotool (dictee:221).
+            # Note: this fallback only covers FileNotFoundError (dotool not on
+            # PATH). Group-permission failures are expected to be prevented by
+            # the dictee shell wrapper, which runs under the 'input' group.
+            try:
+                self._proc = subprocess.Popen(["dotool"], stdin=subprocess.PIPE)
+            except FileNotFoundError:
+                self._proc = subprocess.Popen(["sg", "input", "-c", "dotool"],
+                                              stdin=subprocess.PIPE)
+            # Calibrated session pacing (text at 2/4 instead of 2/8).
+            try:
+                self._proc.stdin.write((_PACE_INIT + "\n").encode())
+                self._proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
+        return self._proc
+
+    def _dotool(self, commands):
+        if self.dry_run:
+            self._last_cmds = commands  # captured for tests
+            return
+        proc = self._dotool_proc()
+        try:
+            proc.stdin.write(commands.encode())
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            # dotool died (e.g. uinput permission hiccup): respawn once and retry.
+            self._proc = None
+            proc = self._dotool_proc()
+            try:
+                proc.stdin.write(commands.encode())
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError):
+                sys.stderr.write("dictee-stream: dotool unavailable, dropping keystrokes\n")
+
+    def close(self):
+        """Flush and terminate the persistent dotool process.
+
+        Typing is asynchronous now: dotool may still be replaying queued
+        keystrokes (default pacing is ~10 ms per key). Killing it early
+        would swallow the end of the dictation, so wait generously — it
+        exits on its own at stdin EOF once everything is typed.
+        """
+        if self._proc is not None:
+            try:
+                self._proc.stdin.close()
+                self._proc.wait(timeout=15)
+            except (OSError, subprocess.TimeoutExpired):
+                self._proc.kill()
+            self._proc = None
+
+    def type_text(self, text):
+        clean = self.sanitize(text)
+        if not clean:
+            return
+        cmds = self.build_commands(clean)
+        self._dotool("\n".join(cmds) + "\n")
+        self.typed += clean
+
+    def backspace(self, n):
+        if n <= 0:
+            return
+        self._dotool(_PACE_EDIT_ON + "\n"
+                     + "key backspace\n" * n
+                     + _PACE_EDIT_OFF + "\n")
+        self.typed = self.typed[:-n] if n <= len(self.typed) else ""
+
+    @staticmethod
+    def _common_prefix_len(a, b):
+        n = min(len(a), len(b))
+        i = 0
+        while i < n and a[i] == b[i]:
+            i += 1
+        return i
+
+    @staticmethod
+    def _common_suffix_len(a, b):
+        n = min(len(a), len(b))
+        i = 0
+        while i < n and a[len(a) - 1 - i] == b[len(b) - 1 - i]:
+            i += 1
+        return i
+
+    def rewrite(self, new_text):
+        """Replace the typed text with new_text, minimally.
+
+        Diffs against BOTH ends: the common prefix never flickers, and when
+        the change is an island in the middle (the dominant final-pass
+        case: a few corrected words inside a long dictation), the common
+        suffix is preserved too — navigate left over it, edit only the
+        island, come back. The cheaper of the two strategies (tail rewrite
+        vs island edit) is chosen by keystroke count.
+
+        Everything runs at dotool's default pacing: zero-delay bursts
+        proved unreliable on this desktop — typed characters scrambled
+        ("contrôle" → "ôcontrle", keymap-remap race for non-layout chars)
+        AND backspaces were dropped (zero-hold press/release pairs get
+        coalesced). Minimal diffs are what keep rewrites fast.
+        """
+        clean = self.sanitize(new_text)
+        if clean == self.typed:
+            return
+        keep = self._common_prefix_len(self.typed, clean)
+        old_rest = self.typed[keep:]
+        new_rest = clean[keep:]
+        suf = self._common_suffix_len(old_rest, new_rest)
+        old_mid = old_rest[:len(old_rest) - suf]
+        new_mid = new_rest[:len(new_rest) - suf]
+        # Keystroke counts are mathematically EQUAL (2×suffix both ways:
+        # traverse+return vs erase+retype), so the island edit wins on other
+        # grounds: the preserved suffix never flickers, and arrows/backspace
+        # are plain keys that a faster calibrated pacing can drive safely,
+        # while retyping text (dead-key accents) must stay at safe pacing.
+        cost_tail = len(old_rest) + len(new_rest)
+        cost_island = suf + len(old_mid) + len(new_mid) + suf
+        if suf and cost_island <= cost_tail:
+            cmds = [_PACE_EDIT_ON]
+            cmds += ["key left"] * suf
+            cmds += ["key backspace"] * len(old_mid)
+            cmds += [_PACE_EDIT_OFF]
+            cmds += self.build_commands(new_mid)
+            cmds += [_PACE_EDIT_ON]
+            cmds += ["key right"] * suf
+            cmds += [_PACE_EDIT_OFF]
+        else:
+            cmds = [_PACE_EDIT_ON]
+            cmds += ["key backspace"] * len(old_rest)
+            cmds += [_PACE_EDIT_OFF]
+            cmds += self.build_commands(new_rest)
+        if not cmds:
+            return
+        self._dotool("\n".join(cmds) + "\n")
+        self.typed = clean
+
+
+# ---------------------------------------------------------------------------
+# StreamClient
+# ---------------------------------------------------------------------------
+
+
+def frame(payload: bytes) -> bytes:
+    """4-byte big-endian length prefix + payload (matches src/stream_proto.rs)."""
+    return struct.pack(">I", len(payload)) + payload
+
+
+class StreamClient:
+    """Connection to the daemon `stream` mode. Mirror of the Rust protocol
+    in src/stream_proto.rs: framed audio out, framed text fragments in.
+    After send_sentinel(), read until EOF; the last frame is the full
+    transcript; EOF without frames after the sentinel = aborted session.
+    """
+
+    def __init__(self, sock_path, lang=None):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            self.sock.connect(sock_path)
+        except OSError as e:
+            raise SystemExit(
+                f"dictee-stream: cannot connect to daemon socket {sock_path}: {e}"
+            )
+        handshake = "stream" if not lang else f"stream\tlang:{lang}"
+        self.sock.sendall((handshake + "\n").encode())
+
+    def send_audio(self, s16_bytes: bytes):
+        self.sock.sendall(frame(s16_bytes))
+
+    def send_sentinel(self):
+        self.sock.sendall(frame(b""))
+
+    def _read_exact(self, n):
+        buf = b""
+        while len(buf) < n:
+            chunk = self.sock.recv(n - len(buf))
+            if not chunk:
+                return None
+            buf += chunk
+        return buf
+
+    def read_fragment(self):
+        """Return the next text fragment, or None on EOF (blocking)."""
+        head = self._read_exact(4)
+        if head is None:
+            return None
+        n = struct.unpack(">I", head)[0]
+        body = self._read_exact(n) if n else b""
+        if body is None:
+            return None
+        return body.decode("utf-8", "replace")
+
+    def close(self):
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.sock.close()
+
+
+# ---------------------------------------------------------------------------
+# Main loop helpers
+# ---------------------------------------------------------------------------
+
+
+def _env_true(var):
+    return os.environ.get(var, "false").lower() in ("1", "true", "yes")
+
+
+def _load_pp():
+    """Import dictee-postprocess in-process (NEVER a subprocess per unit).
+
+    Two candidates are tried in order:
+    1. dictee_postprocess.py sibling (dev tree: spec_from_file_location works).
+    2. /usr/bin/dictee-postprocess (installed: no .py extension, so
+       spec_from_file_location returns None — use SourceFileLoader directly).
+    """
+    here = os.path.dirname(os.path.realpath(__file__))
+    for cand in (os.path.join(here, "dictee_postprocess.py"),
+                 "/usr/bin/dictee-postprocess"):
+        if not os.path.exists(cand):
+            continue
+        # spec_from_file_location fails on extension-less paths (returns None).
+        # Use SourceFileLoader for those to get a valid spec regardless.
+        spec = importlib.util.spec_from_file_location("dictee_postprocess", cand)
+        if spec is None:
+            loader = importlib.machinery.SourceFileLoader("dictee_postprocess", cand)
+            spec = importlib.util.spec_from_loader("dictee_postprocess", loader,
+                                                   origin=cand)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    raise SystemExit("dictee-stream: cannot locate dictee-postprocess")
+
+
+def _active_window():
+    """Best-effort focused-window id for the rewrite focus-guard."""
+    for cmd in (["kdotool", "getactivewindow"], ["xdotool", "getactivewindow"]):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=1)
+            if out.returncode == 0:
+                return out.stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
+def _rms_s16(data: bytes):
+    a = array.array("h")
+    a.frombytes(data[: len(data) // 2 * 2])
+    if not a:
+        return 0.0
+    return math.sqrt(sum(x * x for x in a) / len(a)) / 32768.0
+
+
+_LAST_WORD_FILE = f"/dev/shm/.dictee_last_word-{os.getuid()}"
+
+
+def _build_keyword_matchers(aliases_str):
+    """Build (full_match_regex, prefix_possible_fn) for the continuation
+    voice keyword ("minuscule", aliases comma-separated — mirror of the
+    bash _CONT_KEYWORD_REGEXES build, dictee:384-403: spaces/hyphens become
+    [- ]?, an ASR plural 's' and a trailing [.,] are tolerated)."""
+    aliases = [a.strip().lower() for a in aliases_str.split(",") if a.strip()]
+    parts = []
+    for a in aliases:
+        kw = re.escape(a).replace(r"\ ", "[- ]?").replace(r"\-", "[- ]?")
+        parts.append(kw)
+    full = re.compile(r"^(?:" + "|".join(parts) + r")s?[.,]?\s*", re.IGNORECASE)
+
+    def prefix_possible(text):
+        t = text.lower()
+        for a in aliases:
+            if a.startswith(t) or t == a or t == a + "s":
+                return True
+        return False
+
+    return full, prefix_possible
+
+
+def _resolve_keyword(lang, pp_mod):
+    """Resolve the continuation keyword aliases like the bash does
+    (dictee:368-380): [keyword:LANG] then [keyword], user file first then
+    system file, default 'minuscule'."""
+    files = [pp_mod.USER_CONT] + list(pp_mod.SYSTEM_CONT_CANDIDATES)
+    for tag in (f"[keyword:{lang}]", "[keyword]"):
+        for path in files:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith(tag):
+                            return line[len(tag):].strip() or "minuscule"
+            except OSError:
+                continue
+    return "minuscule"
+
+
+def _indicator_decision(entry, closed_class_words, indicator):
+    """Decide whether to show the continuation indicator at push end.
+
+    Mirror of the bash save_last_word tail (dictee:666-694): when the push
+    ends on '.N' or '_' with a closed-class last word, the displayed
+    punctuation is erased (N keystrokes) and the indicator is typed in its
+    place; the saved marker becomes H<len>_ so the next push erases the
+    indicator. Returns (erase_n, indicator, new_entry) or None."""
+    marker, _, last_word = entry.partition(":")
+    if not indicator or last_word.lower() not in closed_class_words:
+        return None
+    if marker.startswith("."):
+        try:
+            erase = int(marker[1:] or "1")
+        except ValueError:
+            erase = 1
+        return (erase, indicator, f"H{len(indicator)}_:{last_word}")
+    if marker == "_":
+        return (0, indicator, f"H{len(indicator)}_:{last_word}")
+    return None
+
+
+def _parse_continuation_marker(saved, closed_class_words):
+    """Decode a LAST_WORD_FILE entry ("marker:last_word") into the actions
+    for the start of this push: (pre_backspaces, lead, lowercase_first).
+
+    Mirror of the bash apply_continuation marker semantics (dictee:396+):
+      ","  -> space + lowercase
+      ".N" -> if the previous push's last word is closed-class, erase the
+              period (N backspaces) and continue lowercase; else space +
+              keep case (new sentence)
+      "F"  -> space + keep case (sentence ended with ! ? ; : » ...)
+      "_"  -> space + lowercase (mid-sentence)
+      "H<n>" prefix: a continuation indicator of n chars was typed by the
+      batch path — erase it first.
+    (Refinements not mirrored: keepcaps vocative exception, the "minuscule"
+    voice-command keyword — batch-only for now.)
+    """
+    pre_bs = 0
+    marker, _, last_word = saved.partition(":")
+    m = re.match(r"^H(\d+)(.*)$", marker)
+    if m:
+        pre_bs += int(m.group(1))
+        marker = m.group(2)
+    if marker == ",":
+        return (pre_bs, " ", True)
+    if marker.startswith("."):
+        if last_word.lower() in closed_class_words:
+            try:
+                pre_bs += int(marker[1:] or "1")
+            except ValueError:
+                pre_bs += 1
+            return (pre_bs, " ", True)
+        return (pre_bs, " ", False)
+    if marker == "F":
+        return (pre_bs, " ", False)
+    # "_" or anything unknown: mid-sentence continuation
+    return (pre_bs, " ", True)
+
+
+def _continuation_marker_for(text, lang):
+    """Encode the end of this push as a LAST_WORD_FILE entry, mirroring the
+    bash save_last_word format (dictee:594+). Returns "marker:last_word" or
+    None (text containing a newline: pushes stay independent).
+    text is the post-sanitize typed text (what is on screen)."""
+    if "\n" in text:
+        return None
+    trimmed = text.rstrip(" ")
+    if not trimmed:
+        return None
+    if trimmed.endswith("..."):
+        marker, stripped = ".3", trimmed[:-3]
+    elif trimmed.endswith(".."):
+        marker, stripped = ".2", trimmed[:-2]
+    else:
+        last_char, stripped = trimmed[-1], trimmed[:-1]
+        if last_char == ".":
+            marker = ".1"
+        elif last_char == ",":
+            marker = ","
+        elif last_char == "?":
+            # French typography types an (N)NBSP before ? -> 2 backspaces
+            marker = ".2" if lang == "fr" else ".1"
+        elif last_char == "!":
+            marker = ".2" if lang == "fr" else "F"
+        elif last_char in ";:»)":
+            marker = "F"
+        else:
+            marker, stripped = "_", trimmed
+    if marker != "_":
+        stripped = stripped.rstrip(" ")
+    last_word = stripped.rsplit(" ", 1)[-1] if stripped else ""
+    if "-" in last_word:
+        last_word = last_word.rsplit("-", 1)[-1]
+    if last_word or marker != "_":
+        return f"{marker}:{last_word}"
+    return None
+
+
+def _with_lead_of(typed, new_text):
+    """Re-apply the cross-push leading whitespace to a final rewrite.
+
+    The end-of-push transforms (fix_short_text, the full final pass) work
+    on stripped text, but `typed` may start with the separator space that
+    detaches us from the previous push — losing it glues the rewritten
+    text to the previous sentence."""
+    lead_ws = typed[:len(typed) - len(typed.lstrip(" "))]
+    if lead_ws and not new_text.startswith(" "):
+        return lead_ws + new_text
+    return new_text
+
+
+def _batch_retranscribe(sock_path, wav_path, timeout=55):
+    """Re-transcribe the whole session audio through the daemon's BATCH
+    protocol (path -> one line) for full-context quality: the streaming
+    decode has limited future context (fixed 560 ms chunks) and loses on
+    homophones; the batch pass sees the entire audio. Returns the raw
+    transcript or None on any failure (callers fall back gracefully)."""
+    try:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(sock_path)
+        s.sendall((wav_path + "\n").encode())
+        data = b""
+        while True:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        s.close()
+        text = data.decode("utf-8", "replace").strip()
+        if text.startswith("ERROR:") or not text:
+            return None
+        return text
+    except OSError:
+        return None
+
+
+def _translate_via_dictee(text):
+    """Final-pass translation reuses dictee's translate() via a thin subcommand."""
+    try:
+        out = subprocess.run(["dictee", "--pp-translate"], input=text.encode(),
+                             capture_output=True, timeout=30)
+        return out.stdout.decode("utf-8", "replace").rstrip("\n") or text
+    except (OSError, subprocess.TimeoutExpired):
+        return text
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def _main(argv):
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--socket", required=True)
+    ap.add_argument("--lang", default=None)
+    ap.add_argument("--source", default=None,
+                    help="pw-record --target (mic node or app-capture node id)")
+    ap.add_argument("--granularity",
+                    choices=("sentence", "word", "live"),
+                    default=os.environ.get("DICTEE_STREAMING_GRANULARITY", "live"))
+    ap.add_argument("--final-pass", action="store_true",
+                    default=_env_true("DICTEE_STREAMING_FINAL_PASS"))
+    ap.add_argument("--pause-ms", type=int,
+                    default=int(os.environ.get("DICTEE_STREAMING_PAUSE_MS", "700")))
+    args = ap.parse_args(argv)
+    if args.granularity == "word":
+        args.granularity = "live"  # legacy conf value: word mode became live
+
+    pp = _load_pp()
+    seg = Segmenter(granularity=args.granularity)
+
+    # Cross-push continuation: the batch path records how the previous push
+    # ended in LAST_WORD_FILE; honor it (leading space, lowercase start,
+    # possibly erase the previous period after a closed-class word) and
+    # write our own entry at the end so the NEXT push continues correctly.
+    closed_words = {w.lower() for w in pp.load_continuation()}
+    cont_pre_bs, cont_lead, cont_lower = 0, "", False
+    saved_entry = ""
+    try:
+        with open(_LAST_WORD_FILE, encoding="utf-8") as f:
+            saved_entry = f.read().strip()
+        if saved_entry:
+            cont_pre_bs, cont_lead, cont_lower = _parse_continuation_marker(
+                saved_entry, closed_words)
+    except OSError:
+        pass
+    pending_pre_bs = [cont_pre_bs]
+
+    lang2 = (args.lang or os.environ.get("DICTEE_LANG_SOURCE", "") or "fr")[:2]
+
+    def _on_keyword():
+        """The push starts with the continuation keyword: erase the previous
+        push's punctuation/indicator regardless of the closed-class check
+        (mirror of the bash keyword branch, dictee:473-491)."""
+        marker = saved_entry.partition(":")[0]
+        m = re.match(r"^H(\d+)(.*)$", marker)
+        hold = int(m.group(1)) if m else 0
+        base = m.group(2) if m else marker
+        if base.startswith("."):
+            try:
+                bs = int(base[1:] or "1")
+            except ValueError:
+                bs = 1
+        elif base in (",", "F"):
+            bs = 1
+        else:
+            bs = 0
+        pending_pre_bs[0] = hold + bs  # replaces the normal-path decision
+
+    composer = (LiveComposer(lambda t: pp.run_pipeline(t, local_only=True),
+                             lead=cont_lead, continuation=cont_lower,
+                             keyword=(_resolve_keyword(lang2, pp)
+                                      if saved_entry else None),
+                             on_keyword=_on_keyword,
+                             closed_words=closed_words,
+                             fr_typography=(lang2 == "fr" and pp._env_bool(
+                                 "DICTEE_PP_TYPOGRAPHY")))
+                if args.granularity == "live" else None)
+    typist = Typist()
+    # Warm up the virtual keyboard now: uinput device registration by the
+    # compositor costs hundreds of ms, better paid during setup than on the
+    # first word.
+    typist._dotool("")
+    client = StreamClient(args.socket, lang=args.lang)
+
+    # Fix E: queue declared before the audio-thread closure that captures it.
+    frag_q = queue.Queue()
+
+    stop = threading.Event()
+    aborted = [False]
+    last_voice = [time.monotonic()]
+    last_text = [time.monotonic()]  # text-side activity (live pause boundary)
+    sentence_start = [not cont_lower]
+    # Focus guard reference: captured at the FIRST keystroke, not at process
+    # start — during startup the OSD/notification may briefly hold the
+    # (X)focus, which made the end-of-push rewrites silently skip.
+    start_window = [None]
+    first_typing_done = [False]
+
+    def _consume_pre_backspaces():
+        """Erase the previous push's trailing punctuation/indicator (raw
+        keystrokes, outside `typed` accounting — that text belongs to the
+        previous push). Runs once, just before the first real typing."""
+        if not first_typing_done[0]:
+            first_typing_done[0] = True
+            start_window[0] = _active_window()
+        if pending_pre_bs[0] > 0:
+            typist._dotool("key backspace\n" * pending_pre_bs[0])
+            pending_pre_bs[0] = 0
+
+    def _focus_unchanged(context):
+        """Focus guard for end-of-push rewrites: best effort, permissive on
+        missing data (no tool, or no reference captured), and LOUD when it
+        actually blocks — a silently skipped rewrite looks like a PP bug."""
+        if start_window[0] is None:
+            return True
+        now = _active_window()
+        if now is None or now == start_window[0]:
+            return True
+        sys.stderr.write(
+            f"dictee-stream: focus changed ({start_window[0]} -> {now}), "
+            f"skipping {context}\n")
+        return False
+
+    def _on_term(_sig, _frame):
+        stop.set()
+
+    def _on_abort(_sig, _frame):
+        aborted[0] = True
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _on_term)
+    signal.signal(signal.SIGINT, _on_term)
+    signal.signal(signal.SIGUSR1, _on_abort)
+
+    rec_cmd = ["pw-record", "--rate=16000", "--channels=1", "--format=s16"]
+    if args.source:
+        rec_cmd += ["--target", args.source]
+    rec_cmd.append("-")
+    try:
+        rec = subprocess.Popen(rec_cmd, stdout=subprocess.PIPE)
+    except FileNotFoundError:
+        raise SystemExit("dictee-stream: pw-record not found (pipewire required)")
+
+    # Session WAV tap for the optional batch re-transcription on release
+    # (DICTEE_STREAMING_RETRANSCRIBE): the streaming decode has limited
+    # future context; re-transcribing the full audio in batch mode at
+    # key-up recovers the batch-level accuracy.
+    retranscribe = _env_true("DICTEE_STREAMING_RETRANSCRIBE")
+    session_wav = None
+    wav_writer = None
+    if retranscribe:
+        run_dir = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+        session_wav = os.path.join(run_dir, f"dictee-stream-{os.getpid()}.wav")
+        atexit.register(lambda: os.path.exists(session_wav)
+                        and os.unlink(session_wav))
+        try:
+            wav_writer = wave.open(session_wav, "wb")
+            wav_writer.setnchannels(1)
+            wav_writer.setsampwidth(2)
+            wav_writer.setframerate(16000)
+        except OSError:
+            wav_writer = None
+
+    def _feed_audio():
+        rms_thresh = float(os.environ.get("DICTEE_SILENCE_RMS", "0.03"))
+        mic_eof = False
+        try:
+            while not stop.is_set():
+                data = rec.stdout.read(3200)  # 100 ms @16k mono s16
+                if not data:
+                    mic_eof = True
+                    break
+                client.send_audio(data)
+                if wav_writer:
+                    wav_writer.writeframes(data)
+                if _rms_s16(data) > rms_thresh:
+                    last_voice[0] = time.monotonic()
+            # Key-up: the recorder pipe still holds the last captured audio
+            # (the words spoken right before the key release). Drain it fully
+            # before the sentinel or those words are lost. The finaliser
+            # terminates pw-record, so EOF arrives promptly; cap at ~10 s of
+            # audio as a safety bound.
+            if not mic_eof and not aborted[0]:
+                for _ in range(100):
+                    data = rec.stdout.read(3200)
+                    if not data:
+                        break
+                    client.send_audio(data)
+                    if wav_writer:
+                        wav_writer.writeframes(data)
+        except OSError:
+            pass
+        if wav_writer:
+            try:
+                wav_writer.close()
+            except OSError:
+                pass
+        # Put the marker BEFORE sending the sentinel so that it is impossible
+        # for any post-sentinel network frame (flush fragment or final
+        # transcript) to appear in the queue before this marker.
+        frag_q.put(_SENTINEL_SENT)
+        try:
+            client.send_sentinel()
+        except OSError:
+            pass
+        # Wake the main loop promptly on mic-EOF (e.g. fake mic file ending).
+        if mic_eof and not stop.is_set():
+            stop.set()
+
+    audio_t = threading.Thread(target=_feed_audio, daemon=True)
+    audio_t.start()
+
+    def _read_loop():
+        # Fix C: guard against daemon crash / socket close mid-session so the
+        # main loop is woken promptly instead of spinning or producing traceback.
+        try:
+            while True:
+                frag = client.read_fragment()
+                frag_q.put(frag)
+                if frag is None:
+                    break
+        except OSError:
+            frag_q.put(None)
+
+    reader_t = threading.Thread(target=_read_loop, daemon=True)
+    reader_t.start()
+
+    def _commit(unit):
+        processed = pp.run_pipeline(unit, local_only=True)
+        if not processed:
+            return
+        if not sentence_start[0]:
+            processed = processed[:1].lower() + processed[1:]
+        _consume_pre_backspaces()
+        typist.type_text((" " if typist.typed_len else cont_lead) + processed)
+        sentence_start[0] = bool(_SENT_END.search(processed[-1:]))
+
+    def _feed(frag):
+        if composer is not None:
+            # Live: the composer owns the full target text; rewrite() only
+            # touches what actually changed (frozen sentences never flicker).
+            target = composer.feed(frag)
+            if target:
+                _consume_pre_backspaces()
+                typist.rewrite(target)
+        else:
+            for sentence in seg.feed(frag):
+                _commit(sentence)
+
+    eof = False
+    while not stop.is_set():
+        try:
+            frag = frag_q.get(timeout=0.1)
+        except queue.Empty:
+            frag = ""
+        if frag is _SENTINEL_SENT:
+            # Audio sentinel was sent; everything remaining in the queue is
+            # post-sentinel (flush fragments + final transcript).  Stop feeding
+            # and let the finalisation drain handle them.
+            break
+        if frag is None:
+            eof = True
+            break
+        if frag:
+            _feed(frag)
+            last_text[0] = time.monotonic()
+        if composer is not None:
+            # Live pause boundary is TEXT-side (no new ASR output for a
+            # while): freezing the tail costs no typing and shrinks the
+            # rewrite window. Mic RMS would race the ASR latency.
+            if (time.monotonic() - last_text[0]) * 1000 > args.pause_ms:
+                composer.promote()
+        elif (time.monotonic() - last_voice[0]) * 1000 > args.pause_ms:
+            for unit in seg.flush():
+                _commit(unit)
+
+    stop.set()
+    # Terminate the recorder BEFORE joining the audio thread: the thread may
+    # be blocked in rec.stdout.read() (stalled audio device); killing
+    # pw-record closes the pipe, the read returns EOF, and the thread can
+    # send the end-of-stream sentinel within the join window.
+    rec.terminate()
+    audio_t.join(timeout=2)
+
+    # Fix A (1): SIGUSR1 abort check — bail immediately after recorder teardown,
+    # before draining, typing fragments, or rewriting anything.
+    if aborted[0]:
+        typist.close()
+        client.close()
+        return 0
+
+    msgs = []
+    while not eof:
+        # Fix A (2): re-check abort at the top of each drain-loop iteration.
+        if aborted[0]:
+            client.close()
+            return 0
+        try:
+            m = frag_q.get(timeout=5)
+        except queue.Empty:
+            break
+        if m is _SENTINEL_SENT:
+            # Marker arrived here instead of in the main loop (SIGTERM fired
+            # before the audio thread enqueued it).  Skip it and keep draining.
+            continue
+        if m is None:
+            break
+        msgs.append(m)
+
+    # Fix A (3): re-check abort before feeding flush fragments / seg.flush() commits.
+    if aborted[0]:
+        typist.close()
+        client.close()
+        return 0
+
+    final_text = msgs[-1] if msgs else ""
+    for frag in msgs[:-1]:
+        _feed(frag)
+    if composer is not None:
+        # Force a last render: if the whole push was held as a possible
+        # keyword prefix (user said just "minus…"), type it now.
+        composer._kw_active = False
+        target = composer.target()
+        if target:
+            _consume_pre_backspaces()
+            typist.rewrite(target)
+    else:
+        for unit in seg.flush():
+            _commit(unit)
+
+    # Option C: batch re-transcription on release. The streaming decode has
+    # limited future context (fixed 560 ms chunks) and loses on homophones;
+    # re-transcribing the WHOLE audio through the daemon's batch protocol
+    # recovers batch-level accuracy, applied as a minimal-diff rewrite.
+    retranscribed = False
+    if (retranscribe and session_wav and typist.typed.strip()
+            and not aborted[0] and os.path.exists(session_wav)):
+        try:
+            with wave.open(session_wav, "rb") as wr:
+                duration = wr.getnframes() / 16000.0
+        except (OSError, wave.Error):
+            duration = 0.0
+        if 0.5 < duration <= 120.0:
+            batch_text = _batch_retranscribe(args.socket, session_wav)
+            if batch_text:
+                full = pp.run_pipeline(batch_text, local_only=False)
+                if _env_true("DICTEE_TRANSLATE"):
+                    full = _translate_via_dictee(full)
+                # Cross-push continuation casing (same rule as the composer:
+                # never de-capitalize an acronym).
+                if cont_lower and full and not full[1:2].isupper():
+                    full = full[:1].lower() + full[1:]
+                full = _with_lead_of(typist.typed, typist.sanitize(full))
+                if full != typist.typed and _focus_unchanged(
+                        "batch re-transcription rewrite"):
+                    typist.rewrite(full)
+                    sys.stderr.write(
+                        "dictee-stream: batch re-transcription applied "
+                        f"({duration:.1f}s audio)\n")
+                retranscribed = True
+            else:
+                sys.stderr.write(
+                    "dictee-stream: batch re-transcription failed, "
+                    "falling back to the streaming transcript\n")
+        elif duration > 120.0:
+            sys.stderr.write(
+                "dictee-stream: audio too long for re-transcription "
+                f"({duration:.0f}s > 120s), skipping\n")
+
+    if retranscribed:
+        pass  # full pipeline already applied to the batch transcript
+    elif args.final_pass and final_text.strip():
+        # Fix A (4): re-check abort before final-pass rewrite block.
+        if aborted[0]:
+            client.close()
+            return 0
+        full = pp.run_pipeline(final_text, local_only=False)
+        if _env_true("DICTEE_TRANSLATE"):
+            full = _translate_via_dictee(full)
+        full = _with_lead_of(typist.typed, typist.sanitize(full))
+        if full != typist.typed and _focus_unchanged("final rewrite"):
+            typist.rewrite(full)
+    elif typist.typed.strip():
+        # Fix A (5): re-check abort before short_text fixup rewrite block.
+        if aborted[0]:
+            client.close()
+            return 0
+        if pp._env_bool("DICTEE_PP_SHORT_TEXT"):
+            _kc_on = pp._env_bool("DICTEE_PP_KEEPCAPS")
+            _kc = pp.load_keepcaps() if _kc_on else None
+            _ext = pp._env_bool("DICTEE_PP_KEEPCAPS_EXTENDED") if _kc_on else False
+            fixed = pp.fix_short_text(typist.typed, keepcaps=_kc, extended=_ext)
+            fixed = _with_lead_of(typist.typed, typist.sanitize(fixed))
+            if fixed != typist.typed and _focus_unchanged("short-text fixup"):
+                typist.rewrite(fixed)
+
+    # Record how this push ended so the NEXT push (batch or streaming)
+    # continues correctly (same file/format as the bash save_last_word).
+    if typist.typed.strip():
+        entry = _continuation_marker_for(typist.typed, lang2)
+        # \x02 = explicit end-of-sentence ("point final" voice command):
+        # marker becomes F and the indicator is suppressed (mirror of the
+        # bash force_end). The marker byte survives in the composer's text
+        # (it is only stripped at typing time).
+        force_end = composer is not None and "\x02" in (
+            composer.stable + composer.raw_tail)
+        if entry and force_end:
+            entry = "F:" + entry.partition(":")[2]
+        elif entry:
+            d = _indicator_decision(
+                entry, closed_words,
+                os.environ.get("DICTEE_CONTINUATION_INDICATOR", ">>"))
+            if d:
+                erase_n, indicator, entry = d
+                # Replace the displayed punctuation with the indicator so
+                # the user SEES the pending continuation (bash parity).
+                typist.backspace(erase_n)
+                typist.type_text(indicator)
+        try:
+            if entry:
+                with open(_LAST_WORD_FILE, "w", encoding="utf-8") as f:
+                    f.write(entry + "\n")
+            elif os.path.exists(_LAST_WORD_FILE):
+                os.unlink(_LAST_WORD_FILE)  # \n in text: pushes independent
+        except OSError:
+            pass
+
+    typist.close()
+    client.close()
+    # Fix E: avoid zombie — wait instead of a second terminate().
+    try:
+        rec.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        rec.kill()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv[1:]))

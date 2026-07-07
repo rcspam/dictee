@@ -1,0 +1,192 @@
+.TH DICTEE 1 "Mars 2025" "dictee 1.3.0" "Commandes utilisateur"
+.SH NOM
+dictee \- dictée vocale par appui-pour-parler
+.SH SYNOPSIS
+.B dictee
+.RB [ \-\-translate ]
+.RB [ \-\-ollama ]
+.br
+.B dictee \-\-cancel
+.br
+.B dictee \-\-setup
+.br
+.B dictee \-\-help
+.SH DESCRIPTION
+.B dictee
+est un script de dictée vocale par appui-pour-parler conçu pour être associé à un raccourci clavier.
+Il fonctionne en bascule :
+.PP
+.B Premier appel :
+démarre l'enregistrement depuis le microphone, coupe la sortie audio du système (anti-retour),
+réactive automatiquement le microphone s'il est coupé, et affiche une animation optionnelle.
+.PP
+.B Second appel :
+arrête l'enregistrement, restaure l'état audio, transcrit l'enregistrement via
+.BR transcribe\-daemon (1),
+et saisit le résultat dans l'application active à l'aide de
+.BR dotool (1).
+Le texte transcrit est également copié dans le presse-papiers via
+.BR wl\-copy (1).
+.SH OPTIONS
+.TP
+.B \-\-translate
+Active la traduction après la transcription. Le texte source est transcrit, puis traduit
+de la langue source vers la langue cible avant d'être saisi.
+.TP
+.B \-\-ollama
+Utilise ollama avec le modèle translategemma pour la traduction au lieu du backend
+translate-shell par défaut. Implique une traduction locale uniquement. Le modèle est téléchargé
+automatiquement à la première utilisation.
+.TP
+.B \-\-cancel
+Annule un enregistrement en cours. Arrête le microphone, l'animation, et restaure
+l'état audio sans transcrire.
+.TP
+.B \-\-setup
+Ouvre l'interface de configuration graphique. Voir
+.BR dictee\-setup (1).
+.TP
+.BR \-\-help ", " \-h
+Affiche un résumé d'utilisation et quitte.
+.SH CONFIGURATION
+.B dictee
+lit sa configuration depuis
+.IR ~/.config/dictee.conf ,
+un fichier sourçable par le shell généré par
+.BR dictee\-setup (1).
+.PP
+Les options de la ligne de commande priment sur les valeurs du fichier de configuration.
+.PP
+Variables supportées :
+.TP
+.B DICTEE_TRANSLATE
+Active la traduction par défaut
+.RI ( true " ou " false ).
+.TP
+.B DICTEE_TRANSLATE_BACKEND
+Backend de traduction :
+.B trans
+(translate-shell, par défaut) ou
+.B ollama
+(translategemma, local).
+.TP
+.B DICTEE_LANG_SOURCE
+Code de la langue source (par défaut : locale du système, par ex.
+.IR fr ).
+.TP
+.B DICTEE_LANG_TARGET
+Code de la langue cible (par défaut :
+.IR en ).
+.SH ENVIRONNEMENT
+.TP
+.B DICTEE_LANG_SOURCE
+Langue source pour la traduction (écrasée par le fichier de configuration).
+.TP
+.B DICTEE_LANG_TARGET
+Langue cible pour la traduction (écrasée par le fichier de configuration).
+.TP
+.B DICTEE_TRANSLATE
+Définir à
+.B true
+pour activer la traduction par défaut.
+.TP
+.B DICTEE_TRANSLATE_BACKEND
+Backend de traduction :
+.B trans
+ou
+.BR ollama .
+.SH POST-TRAITEMENT
+.B dictee
+applique des substitutions de commandes vocales françaises au texte transcrit :
+.TP
+\(bu
+\(lqpoint à la ligne\(rq est remplacé par un point suivi d'un retour à la ligne.
+.TP
+\(bu
+\(lqtrois petits points\(rq est remplacé par des points de suspension (\.\.\.).
+.SH FICHIERS
+.TP
+.I ~/.config/dictee.conf
+Fichier de configuration (généré par
+.BR dictee\-setup (1)).
+.TP
+.I ~/.cache/tmp_recording_dictee.mp3
+Fichier d'enregistrement temporaire.
+.TP
+.I /tmp/recording_dictee_pid
+PID du processus pw-record actif (utilisé comme verrou de bascule).
+.TP
+.I /tmp/notify_dictee
+Identifiant de notification pour le remplacement persistant des notifications.
+.TP
+.I /tmp/mut_dictee
+Stocke l'état de sourdine original du microphone pour restauration.
+.TP
+.I /tmp/dictee_translate
+Fichier marqueur indiquant que le mode traduction est actif.
+.TP
+.I /tmp/translate_dictee_backend
+Stocke le backend de traduction choisi au démarrage de l'enregistrement.
+.SH DÉPENDANCES
+.TP
+.B transcribe-daemon
+Doit être en cours d'exécution (via systemd ou manuellement). Voir
+.BR transcribe\-daemon (1).
+.TP
+.B dotool
+Pour saisir le texte transcrit.
+.TP
+.B pw-record
+Pour l'enregistrement audio (PipeWire).
+.TP
+.B pactl
+Pour couper/réactiver l'audio (utilitaires PulseAudio).
+.TP
+.B notify-send
+Pour les notifications de bureau (libnotify).
+.PP
+.B Optionnel :
+.TP
+.B wl-clipboard
+Pour copier le texte dans le presse-papiers Wayland (bonus, non requis).
+.TP
+.B animation-speech-ctl
+Affiche une animation visuelle pendant l'enregistrement et permet l'annulation via Échap.
+L'animation est lancée avec
+.B animation\-speech\-ctl launch \-\-on\-escape
+et ne nécessite pas de gestion manuelle du PID.
+.TP
+.B translate-shell
+Requis lors de l'utilisation du backend de traduction
+.B trans
+(par défaut).
+.TP
+.B ollama
+Requis lors de l'utilisation du backend de traduction
+.BR ollama .
+.SH MISE EN ROUTE
+.TP
+1. Activer le daemon de transcription :
+.RS
+systemctl \-\-user enable \-\-now dictee
+.RE
+.TP
+2. Activer le daemon dotool :
+.RS
+systemctl \-\-user enable \-\-now dotoold
+.RE
+.TP
+3. Associer
+.B /usr/bin/dictee
+à un raccourci clavier dans votre environnement de bureau, ou utiliser
+.B dictee \-\-setup
+pour le configurer automatiquement (KDE Plasma / GNOME).
+.SH VOIR AUSSI
+.BR transcribe\-daemon (1),
+.BR transcribe\-client (1),
+.BR dictee\-setup (1),
+.BR dictee\-tray (1),
+.BR dotool (1),
+.BR pw\-record (1)
+.SH AUTEUR
+rcspam <rcspams@gmail.com>

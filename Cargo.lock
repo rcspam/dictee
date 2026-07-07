@@ -95,13 +95,13 @@ dependencies = [
  "bitflags",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
  "quote",
  "regex",
- "rustc-hash 2.1.2",
+ "rustc-hash 2.1.3",
  "shlex",
  "syn",
 ]
@@ -371,6 +371,24 @@ checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
 dependencies = [
  "derive_builder_core",
  "syn",
+]
+
+[[package]]
+name = "dictee-asr"
+version = "1.4.0-beta"
+dependencies = [
+ "ctrlc",
+ "eyre",
+ "hound",
+ "libc",
+ "ndarray",
+ "ort",
+ "pipewire",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "tokenizers",
+ "whisper-rs",
 ]
 
 [[package]]
@@ -671,15 +689,6 @@ name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
 dependencies = [
  "either",
 ]
@@ -1055,24 +1064,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parakeet-rs"
-version = "1.4.0-beta"
-dependencies = [
- "ctrlc",
- "eyre",
- "hound",
- "libc",
- "ndarray",
- "ort",
- "pipewire",
- "rustfft",
- "serde",
- "serde_json",
- "tokenizers",
- "whisper-rs",
-]
-
-[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1309,9 +1300,9 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-hash"
-version = "2.1.2"
+version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94300abf3f1ae2e2b8ffb7b58043de3d399c73fa6f4b73826402a5c457614dbe"
+checksum = "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
 
 [[package]]
 name = "rustfft"

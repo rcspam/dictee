@@ -62,6 +62,7 @@ mod parakeet_eou;
 mod parakeet_tdt;
 #[cfg(feature = "sortformer")]
 pub mod sortformer;
+pub mod stream_proto;
 mod timestamps;
 mod transcriber;
 mod vocab;
@@ -79,7 +80,7 @@ pub use decoder::{ParakeetDecoder, TimedToken, TranscriptionResult};
 pub use model::ParakeetModel;
 pub use model_eou::ParakeetEOUModel;
 pub use model_nemotron::{NemotronEncoderCache, NemotronModel, NemotronModelConfig};
-pub use nemotron::{Nemotron, SentencePieceVocab};
+pub use nemotron::{Nemotron, NemotronMode, SentencePieceVocab};
 pub use parakeet_eou::ParakeetEOU;
 pub use canary::Canary;
 

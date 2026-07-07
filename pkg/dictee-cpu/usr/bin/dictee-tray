@@ -1,0 +1,1752 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+dictee-tray — Icône de zone de notification pour dictee
+Substitut au plasmoid KDE pour les bureaux non-KDE.
+Clic gauche = dictée, Ctrl+clic gauche = traduction, clic droit = menu.
+
+Backend automatique :
+- GNOME/Unity/Cinnamon : AyatanaAppIndicator3 + GTK3
+- KDE/autres : PyQt6 QSystemTrayIcon
+"""
+
+import gettext
+import os
+import shutil
+import signal
+import subprocess
+import sys
+
+# === i18n ===
+LOCALE_DIRS = [
+    # User-space first so dev / hot translation updates win over the
+    # stale .mo shipped by the system package — avoids needing sudo
+    # to refresh translations during iteration.
+    os.path.expanduser("~/.local/share/locale"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "po"),
+    "/usr/share/locale",
+    "/usr/local/share/locale",
+]
+for _d in LOCALE_DIRS:
+    if os.path.isfile(os.path.join(_d, "fr", "LC_MESSAGES", "dictee.mo")):
+        gettext.bindtextdomain("dictee", _d)
+        break
+gettext.textdomain("dictee")
+_ = gettext.gettext
+# N_() = no-op marker used to flag translatable strings that are stored in
+# module-level data (e.g. ASR_BACKENDS) and translated later, when gettext
+# is fully initialised. xgettext picks them up via `-kN_`.
+N_ = lambda s: s
+
+
+def _tt(text):
+    """Wrap a tooltip in HTML rich-text so Qt activates word-wrap and
+    caps the width to 400px — otherwise long tooltips stretch to the
+    full screen on wide monitors. Project-wide convention (cf.
+    feedback-tooltips-width-400.md)."""
+    if len(text) > 60:
+        return ("<p style='font-size:11pt; white-space:pre-wrap; "
+                "width:400px;'>" + text + "</p>")
+    return f"<span style='font-size:11pt'>{text}</span>"
+
+
+# === Debug ===
+# Uses the same log file as shell scripts, activated by DICTEE_DEBUG=true
+
+_TRAY_DEBUG = os.environ.get("DICTEE_DEBUG") == "true"
+_DBG_LOG = f"/tmp/dictee-debug-{os.getuid()}.log"
+
+def _read_conf_debug():
+    """Read DICTEE_DEBUG from config if not already set via env."""
+    global _TRAY_DEBUG
+    if _TRAY_DEBUG:
+        return
+    conf = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+        "dictee.conf")
+    try:
+        with open(conf) as f:
+            for line in f:
+                if line.strip() == "DICTEE_DEBUG=true":
+                    _TRAY_DEBUG = True
+                    return
+    except FileNotFoundError:
+        pass
+
+_read_conf_debug()
+
+def _dbg(msg):
+    if not _TRAY_DEBUG:
+        return
+    import datetime
+    ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    with open(_DBG_LOG, "a") as f:
+        f.write(f"{ts} [dictee-tray] {msg}\n")
+
+# === Single-instance guard ===
+# Two tray instances watching the same state file + writing the same conf
+# create races (auto-uncheck diarize toggles colliding, etc.). A lockfile
+# ensures only one process owns the tray per user session. The fd is kept
+# alive for the lifetime of the process — releasing it would drop the lock.
+_SINGLETON_FD = None
+
+def _acquire_singleton_lock():
+    import fcntl
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    lock_path = os.path.join(runtime_dir, f"dictee-tray-{os.getuid()}.lock")
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        return fd
+    except (BlockingIOError, OSError):
+        try:
+            os.close(fd)
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
+        return None
+
+
+# === Configuration ===
+
+def _spawn_detached(cmd):
+    """Lance une commande détachée du cgroup systemd du parent.
+
+    Sur GNOME / KDE Plasma 6, les apps lancées depuis le menu démarrer
+    tournent dans un scope systemd transient (app-gnome-*.scope ou
+    kde-*.scope) avec KillMode=control-group : quand le process
+    principal meurt, systemd kille tout le cgroup. Conséquence pour
+    dictee-tray : si le tray fait sys.exit() juste après avoir lancé
+    dictee-setup via subprocess.Popen(), même avec start_new_session=
+    True, le child reste dans le scope et est tué.
+
+    systemd-run --user --scope --collect crée un nouveau scope
+    indépendant pour le child → il survit à la mort du parent.
+    --collect : le scope est auto-nettoyé quand le child termine.
+    """
+    if shutil.which("systemd-run"):
+        return subprocess.Popen(
+            ["systemd-run", "--user", "--scope", "--collect", "--quiet", "--"]
+            + list(cmd),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    return subprocess.Popen(
+        list(cmd),
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+STATE_FILE = "/dev/shm/.dictee_state"
+PROVIDER_FILE = "/dev/shm/.dictee_provider"
+TRANSLATE_FLAG = f"/tmp/dictee_translate-{os.getuid()}"
+APP_ID = "dictee"
+SERVICES = ("dictee", "dictee-vosk", "dictee-whisper", "dictee-canary", "dictee-nemotron")
+CONF_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "dictee.conf",
+)
+POLL_SLOW_MS = 3000
+
+
+def read_conf_value(key, default=""):
+    """Read a single value from dictee.conf."""
+    if not os.path.exists(CONF_PATH):
+        return default
+    try:
+        with open(CONF_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + "="):
+                    val = line.split("=", 1)[1].strip()
+                    # Remove surrounding quotes if present
+                    if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+                        val = val[1:-1]
+                    return val
+    except OSError:
+        pass
+    return default
+
+
+# Common evdev keycode → label mapping for the tray tooltip. DICTEE_PTT_KEY
+# stores raw evdev keycodes (e.g. 67 = F9). Covers F1-F24 + a few common keys;
+# unknown codes fall back to "key{kc}" rather than crash. Source: linux/input-event-codes.h.
+_PTT_KEY_LABELS = {
+    **{59 + i: f"F{i + 1}" for i in range(10)},      # F1..F10 = 59..68
+    87: "F11", 88: "F12",
+    **{183 + i: f"F{i + 13}" for i in range(12)},    # F13..F24 = 183..194
+    1: "Esc", 14: "BackSpace", 28: "Enter", 57: "Space",
+    103: "Up", 105: "Left", 106: "Right", 108: "Down",
+}
+
+
+def _ptt_label():
+    """Return human-readable label for the configured PTT key (e.g. 'F9')."""
+    raw = read_conf_value("DICTEE_PTT_KEY", "67")
+    try:
+        return _PTT_KEY_LABELS.get(int(raw), f"key{raw}")
+    except (ValueError, TypeError):
+        return str(raw) if raw else "F9"
+
+
+# ASR backends shown in the tray menu.
+# Format: (menu_id, label_msgid, backend_key, quant)
+# - menu_id is unique per menu entry (Parakeet appears twice — one entry
+#   per quantization variant).
+# - label_msgid is the English string passed through _() at menu build time.
+# - backend_key is what dictee-switch-backend expects (parakeet/canary/vosk/whisper).
+# - quant is "fp32" or "int8" for Parakeet variants, None otherwise. When set,
+#   selecting this entry also triggers `dictee-switch-backend quant <quant>`.
+# Note: label_msgid is NOT pre-translated at module load (gettext may not be
+# initialised yet). _() is called when the menu is constructed.
+ASR_BACKENDS = [
+    ("parakeet-fp32", N_("Parakeet (precise)"), "parakeet", "fp32"),
+    ("parakeet-int8", N_("Parakeet (fast)"),    "parakeet", "int8"),
+    ("canary",        "Canary",                  "canary",   None),
+    ("vosk",          "Vosk",                    "vosk",     None),
+    ("whisper",       "Whisper",                 "whisper",  None),
+    ("nemotron",      "Nemotron",                "nemotron", None),
+]
+
+TRANSLATE_BACKENDS = [
+    ("google", "Google Translate"),
+    ("bing", "Bing"),
+    ("ollama", "Ollama"),
+    ("libretranslate", "LibreTranslate"),
+]
+
+
+def _detect_gpu_vram_gb():
+    """Return total NVIDIA VRAM in GB, or 0.0 if no GPU / nvidia-smi missing.
+    Same probe as dictee-setup.py's get_gpu_vram_gb() (NVIDIA only — AMD path
+    not needed here since the Force CPU warning is just informative)."""
+    try:
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            mb = int(r.stdout.strip().split("\n")[0].split(",")[0].strip())
+            return round(mb / 1024, 1)
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def _force_cpu_warning(forcing_cpu, vram_gb):
+    """Return a short tooltip line for the Force CPU toggle, given the toggle
+    state and detected GPU VRAM. Kept terse on purpose — the full 6-case
+    explanation lives in dictee-setup.py (where the user has space to read
+    it). The tray and plasmoid only show the essential cue."""
+    if forcing_cpu:
+        if vram_gb >= 4:
+            return _("Force CPU (loses GPU acceleration)")
+        if vram_gb > 0:
+            return _("Force CPU")
+        return _("Force CPU (no GPU anyway)")
+    if vram_gb >= 4:
+        return _("GPU active")
+    if vram_gb > 0:
+        return _("GPU active (low VRAM)")
+    return _("No GPU detected")
+
+
+def _force_cpu_constraint(backend, parakeet_quant, vram_gb):
+    """Compute the Force CPU switch state from current settings.
+
+    Returns a dict:
+      sensitive: bool  (False = grey out / disabled)
+      forced:    "cpu" | "gpu" | None  (position to force; None = user-controlled)
+      tooltip:   str  (always set when sensitive=False, None when sensitive=True)
+    """
+    backend = (backend or "parakeet").lower()
+    quant = (parakeet_quant or "fp32").lower()
+    has_gpu = (vram_gb or 0) > 0
+
+    # Canary requires GPU regardless of GPU availability
+    if backend == "canary":
+        if has_gpu:
+            tooltip = _("Canary requires NVIDIA GPU (encoder too heavy for CPU)")
+        else:
+            tooltip = _("Canary requires NVIDIA GPU — none detected, transcription will fail")
+        return {"sensitive": False, "forced": "gpu", "tooltip": tooltip}
+
+    # Vosk is CPU only by design
+    if backend == "vosk":
+        return {"sensitive": False, "forced": "cpu",
+                "tooltip": _("Vosk runs on CPU by design")}
+
+    # Parakeet INT8 is CPU-optimized (GPU is 5× slower per 2026-05-15 bench)
+    if backend == "parakeet" and quant == "int8":
+        return {"sensitive": False, "forced": "cpu",
+                "tooltip": _("Parakeet INT8 is CPU-optimized (GPU is 5× slower)")}
+
+    # No GPU detected → can only run on CPU
+    if not has_gpu:
+        return {"sensitive": False, "forced": "cpu",
+                "tooltip": _("No NVIDIA GPU detected")}
+
+    # Backend supports both, GPU available → user has free choice
+    return {"sensitive": True, "forced": None, "tooltip": None}
+
+
+def _maybe_sync_force_cpu(constraint, want_cpu_bool, current_fc_raw):
+    """If the constraint forces a specific DICTEE_FORCE_CPU value and the conf
+    disagrees, run dictee-switch-backend to align.  Skipped when the daemon is
+    busy to avoid a mid-task restart.
+
+    Parameters
+    ----------
+    constraint : dict  — return value of _force_cpu_constraint()
+    want_cpu_bool : bool — the desired checkbox position (True = CPU)
+    current_fc_raw : str — raw DICTEE_FORCE_CPU value read from conf (lower-cased)
+    """
+    if constraint["forced"] is None:
+        # User-controlled — nothing to align
+        return
+    current_fc_bool = current_fc_raw in ("1", "true", "yes")
+    if want_cpu_bool == current_fc_bool:
+        # Already aligned
+        return
+    # Skip while daemon is busy
+    state = read_state()
+    if state in ("recording", "transcribing", "streaming", "diarizing", "preparing",
+                 "diarize-ready", "meeting-ui-open", "meeting-recording"):
+        return
+    subprocess.Popen(["dictee-switch-backend", "force_cpu",
+                      "1" if want_cpu_bool else "0"])
+
+
+def _sortformer_available():
+    """Check if the Sortformer diarization model is installed."""
+    dd = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "sortformer",
+    )
+    return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
+
+
+def _translate_backend_available(key):
+    """Check if a translation backend is usable."""
+    if key in ("google", "bing"):
+        return shutil.which("trans") is not None
+    if key == "ollama":
+        if shutil.which("ollama") is None:
+            return False
+        model = read_conf_value("DICTEE_OLLAMA_MODEL", "translategemma")
+        try:
+            result = subprocess.run(
+                ["ollama", "list"], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                base = model.split(":")[0]
+                return any(base in line for line in result.stdout.splitlines())
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return False
+    if key == "libretranslate":
+        return shutil.which("docker") is not None
+    return True
+
+
+def _current_asr_backend():
+    return read_conf_value("DICTEE_ASR_BACKEND", "parakeet")
+
+
+def _current_translate_backend():
+    backend = read_conf_value("DICTEE_TRANSLATE_BACKEND", "trans")
+    if backend == "trans":
+        engine = read_conf_value("DICTEE_TRANS_ENGINE", "google")
+        return engine  # "google" or "bing"
+    return backend  # "ollama" or "libretranslate"
+
+
+def _is_translate_enabled():
+    return read_conf_value("DICTEE_TRANSLATE", "false").lower() == "true"
+
+
+def _asr_service_exists(key):
+    """Check if an ASR backend is actually usable (binary+model/venv installed)."""
+    data_dir = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee",
+    )
+    if key == "parakeet":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        return os.path.isdir("/usr/share/dictee/tdt") or os.path.isdir(os.path.join(data_dir, "tdt"))
+    if key == "canary":
+        # Canary uses the same Rust binary as Parakeet (transcribe-daemon --canary).
+        # Canary is a heavy encoder — only usable with CUDA acceleration in
+        # practice. On CPU-only installs (no libonnxruntime_providers_cuda.so
+        # bundled) we treat Canary as not installed so it stays greyed out.
+        if not shutil.which("transcribe-daemon"):
+            return False
+        if not os.path.isfile("/usr/lib/dictee/libonnxruntime_providers_cuda.so"):
+            return False
+        return os.path.isdir("/usr/share/dictee/canary") or os.path.isfile(os.path.join(data_dir, "canary", "encoder-model.onnx"))
+    if key == "nemotron":
+        if not shutil.which("transcribe-daemon"):
+            return False
+        return os.path.isdir("/usr/share/dictee/nemotron") or \
+            os.path.isfile(os.path.join(data_dir, "nemotron", "encoder.onnx"))
+    # Vosk/Whisper: check venv
+    venv_map = {"vosk": "vosk-env", "whisper": "whisper-env"}
+    venv = venv_map.get(key)
+    if venv:
+        return os.path.isdir(os.path.join(data_dir, venv, "lib"))
+    return False
+
+
+# Icônes
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_ICON_SEARCH_DIRS = [
+    os.path.join(_SCRIPT_DIR, "icons"),
+    "/usr/share/icons/hicolor/scalable/apps",
+]
+
+ICON_DIR = None
+for _d in _ICON_SEARCH_DIRS:
+    if os.path.isfile(os.path.join(_d, "parakeet-active.svg")):
+        ICON_DIR = _d
+        break
+
+
+def _is_dark_theme():
+    """Détecte si le thème du panel est sombre (KDE/GNOME)."""
+    try:
+        result = subprocess.run(
+            ["kreadconfig6", "--group", "Colors:Window", "--key", "BackgroundNormal"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            r, g, b = (int(x) for x in result.stdout.strip().split(","))
+            return (r + g + b) / 3 < 128
+    except (FileNotFoundError, ValueError):
+        pass
+    try:
+        result = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+            capture_output=True, text=True,
+        )
+        if "dark" in result.stdout.lower():
+            return True
+    except FileNotFoundError:
+        pass
+    return False
+
+
+_DARK = _is_dark_theme()
+
+ICON_MAP = {
+    "idle": "parakeet-active-dark" if _DARK else "parakeet-active",
+    "offline": "parakeet-offline",
+    "recording": "parakeet-recording",
+    "transcribing": "parakeet-transcribing",
+    "streaming": "parakeet-streaming",
+    "diarize": "parakeet-diarize",
+    "diarizing": "parakeet-diarize",
+    "preparing": "parakeet-diarize",
+    "diarize-ready": "parakeet-diarize",
+    "switching": "parakeet-active-dark" if _DARK else "parakeet-active",
+    "meeting-ui-open": "parakeet-active-dark" if _DARK else "parakeet-active",
+    "meeting-recording": "parakeet-recording",
+}
+
+
+def _icon_path(name):
+    """Chemin absolu vers le fichier SVG d'une icône."""
+    if ICON_DIR:
+        path = os.path.join(ICON_DIR, f"{name}.svg")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _is_setup_done():
+    """Vérifie si le wizard a été complété (DICTEE_SETUP_DONE=true)."""
+    try:
+        with open(CONF_PATH) as f:
+            return "DICTEE_SETUP_DONE=true" in f.read()
+    except FileNotFoundError:
+        return False
+
+
+def daemon_is_active():
+    """Vérifie si un des services daemon est actif et la config est complète."""
+    if not _is_setup_done():
+        return False
+    for svc in SERVICES:
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "is-active", svc],
+                capture_output=True, text=True,
+            )
+            if result.stdout.strip() == "active":
+                return True
+        except FileNotFoundError:
+            return False
+    return False
+
+
+def _conf_asr_service():
+    """Lit DICTEE_ASR_BACKEND dans dictee.conf et retourne le nom du service."""
+    mapping = {"parakeet": "dictee", "vosk": "dictee-vosk",
+               "whisper": "dictee-whisper", "canary": "dictee-canary",
+               "nemotron": "dictee-nemotron"}
+    try:
+        with open(CONF_PATH) as f:
+            for line in f:
+                if line.startswith("DICTEE_ASR_BACKEND="):
+                    backend = line.strip().split("=", 1)[1].strip('"\'')
+                    return mapping.get(backend)
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _write_state(state):
+    """Écrit l'état dans le fichier partagé (sans flock — best effort)."""
+    try:
+        with open(STATE_FILE, "w") as f:
+            f.write(state + "\n")
+    except OSError:
+        pass
+
+
+def daemon_start():
+    """Démarre le service daemon configuré (enable + restart)."""
+    # 1. Lire le backend depuis dictee.conf
+    conf_svc = _conf_asr_service()
+    if conf_svc:
+        result = subprocess.run(
+            ["systemctl", "--user", "enable", "--now", conf_svc],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        if result.returncode == 0:
+            _write_state("idle")
+        return
+    # 2. Fallback: chercher un service déjà enabled
+    for svc in SERVICES:
+        try:
+            result = subprocess.run(
+                ["systemctl", "--user", "is-enabled", svc],
+                capture_output=True, text=True,
+            )
+            if result.stdout.strip() == "enabled":
+                result = subprocess.run(
+                    ["systemctl", "--user", "restart", svc],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                if result.returncode == 0:
+                    _write_state("idle")
+                return
+        except FileNotFoundError:
+            pass
+    subprocess.run(
+        ["systemctl", "--user", "restart", "dictee"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def daemon_stop():
+    """Arrête tous les services daemon, disable, et écrit offline."""
+    _write_state("offline")
+    for svc in SERVICES:
+        try:
+            subprocess.run(
+                ["systemctl", "--user", "disable", "--now", svc],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(
+                ["systemctl", "--user", "reset-failed", svc],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            pass
+
+
+def read_provider():
+    """Lit le provider effectif depuis /dev/shm/.dictee_provider.
+
+    Valeurs possibles (cf. execution::provider_status() côté Rust) :
+    - 'cuda' : GPU NVIDIA actif (paquet cuda + libs OK)
+    - 'cpu' : fallback silencieux (paquet cuda + GPU détecté + libs manquantes
+      → l'utilisateur croit être en GPU mais tourne en CPU)
+    - 'cpu-forced' : DICTEE_FORCE_CPU=1 explicite
+    - 'cpu-only' : paquet sans cuda, ou pas de GPU NVIDIA
+    - '' : daemon pas démarré
+    """
+    try:
+        with open(PROVIDER_FILE, "r") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def read_state():
+    """Lit l'état depuis /dev/shm/.dictee_state."""
+    try:
+        with open(STATE_FILE, "r") as f:
+            state = f.read().strip()
+            if state in ("recording", "transcribing", "streaming", "diarizing", "preparing",
+                         "diarize-ready", "switching", "offline",
+                         "meeting-ui-open", "meeting-recording"):
+                return state
+            if state in ("cancelled", "idle"):
+                return "idle"
+    except (FileNotFoundError, PermissionError):
+        pass
+    return None
+
+
+def _read_version():
+    """Return the version of the tray code that is actually running.
+
+    In a source checkout (dev: /usr/bin/dictee-tray is symlinked into the
+    repo), resolve the symlink and read Cargo.toml + the current git short
+    hash, so the About reflects the exact code running — not a previously
+    installed package. In a real install, fall back to the
+    /usr/share/dictee/VERSION file shipped by every package target.
+    """
+    real_dir = os.path.dirname(os.path.realpath(__file__))
+    cargo = os.path.join(real_dir, "Cargo.toml")
+    if os.path.isfile(cargo):
+        ver = None
+        try:
+            with open(cargo) as cf:
+                for line in cf:
+                    if line.startswith("version"):
+                        ver = line.split("=", 1)[1].strip().strip('"')
+                        break
+        except OSError:
+            pass
+        if ver:
+            try:
+                out = subprocess.run(
+                    ["git", "-C", real_dir, "rev-parse", "--short", "HEAD"],
+                    capture_output=True, text=True, timeout=2,
+                ).stdout.strip()
+                return f"{ver} (dev {out})" if out else f"{ver} (dev)"
+            except Exception:
+                return f"{ver} (dev)"
+    for vpath in ("/usr/share/dictee/VERSION",
+                  os.path.join(real_dir, "VERSION")):
+        if os.path.isfile(vpath):
+            try:
+                with open(vpath) as vf:
+                    return vf.read().strip()
+            except OSError:
+                pass
+    return "dev"
+
+
+def _detect_backend():
+    """Détecte le backend à utiliser : 'appindicator' ou 'qt'."""
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").upper()
+    if any(name in desktop for name in ("GNOME", "UNITY", "CINNAMON")):
+        try:
+            import gi
+            gi.require_version('AyatanaAppIndicator3', '0.1')
+            gi.require_version('Gtk', '3.0')
+            from gi.repository import AyatanaAppIndicator3  # noqa: F401
+            return "appindicator"
+        except (ImportError, ValueError):
+            pass
+    return "qt"
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Backend AppIndicator3 (GNOME / Unity / Cinnamon)
+# ═══════════════════════════════════════════════════════════════
+
+class DicteeTrayAppIndicator:
+    def __init__(self):
+        import gi
+        gi.require_version('AyatanaAppIndicator3', '0.1')
+        gi.require_version('Gtk', '3.0')
+        from gi.repository import AyatanaAppIndicator3, Gtk, GLib
+        self.Gtk = Gtk
+        self.GLib = GLib
+        self.AyatanaAppIndicator3 = AyatanaAppIndicator3
+
+        self.state = "offline"
+        self._prev_state = None
+        self.provider = ""
+        self._prev_provider = None
+        self._daemon_active = False
+        self._start_retries = 0
+
+        # Créer l'indicateur
+        icon_name = ICON_MAP.get("offline", "parakeet-offline")
+        icon_p = _icon_path(icon_name)
+        if icon_p:
+            self.indicator = AyatanaAppIndicator3.Indicator.new(
+                APP_ID, icon_p,
+                AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS)
+            self.indicator.set_icon_theme_path(ICON_DIR or "")
+        else:
+            self.indicator = AyatanaAppIndicator3.Indicator.new(
+                APP_ID, "dialog-information",
+                AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS)
+
+        self.indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
+
+        # Menu
+        self.menu = Gtk.Menu()
+        self._build_menu()
+        self.menu.connect("show", lambda _: self._refresh_backend_radios())
+        self.indicator.set_menu(self.menu)
+
+        # Premier check
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+
+        # Polling état (GLib timer)
+        GLib.timeout_add(POLL_SLOW_MS, self._poll)
+
+        # Watch fichier état via GLib.io_add_watch si disponible
+        self._setup_file_watch()
+
+    def _build_menu(self):
+        Gtk = self.Gtk
+
+        self.item_dictee = Gtk.MenuItem(label=_("Start dictation"))
+        self.item_dictee.connect("activate", lambda _: subprocess.Popen(["dictee"]))
+        self.menu.append(self.item_dictee)
+
+        self.item_translate = Gtk.MenuItem(label=_("Start translation"))
+        self.item_translate.connect("activate", lambda _: subprocess.Popen(["dictee", "--translate"]))
+        self.menu.append(self.item_translate)
+
+        self.item_cancel = Gtk.MenuItem(label=_("Cancel"))
+        self.item_cancel.connect("activate", lambda _: self._cancel())
+        self.menu.append(self.item_cancel)
+
+        self.menu.append(Gtk.SeparatorMenuItem())
+
+        self.item_daemon = Gtk.MenuItem(label="")
+        self.item_daemon.connect("activate", self._on_daemon_toggle)
+        self.menu.append(self.item_daemon)
+
+        # ASR backend submenu
+        self.submenu_asr = Gtk.Menu()
+        self.item_asr = Gtk.MenuItem(label=_("ASR backend"))
+        self.item_asr.set_submenu(self.submenu_asr)
+        self.menu.append(self.item_asr)
+
+        self._asr_radios = []
+        group = None
+        for menu_id, label_msgid, backend, quant in ASR_BACKENDS:
+            item = Gtk.RadioMenuItem(label=_(label_msgid), group=group)
+            if group is None:
+                group = item
+            # Pass backend + quant so _on_asr_toggled emits both commands when needed
+            item.connect("toggled", self._on_asr_toggled, backend, quant)
+            self.submenu_asr.append(item)
+            self._asr_radios.append((menu_id, backend, quant, item))
+
+        # Translate backend submenu
+        self.submenu_trans = Gtk.Menu()
+        self.item_trans = Gtk.MenuItem(label=_("Translation"))
+        self.item_trans.set_submenu(self.submenu_trans)
+        self.menu.append(self.item_trans)
+
+        self._trans_radios = []
+        group = None
+        for key, label in TRANSLATE_BACKENDS:
+            item = Gtk.RadioMenuItem(label=label, group=group)
+            if group is None:
+                group = item
+            item.connect("toggled", self._on_trans_toggled, key)
+            self.submenu_trans.append(item)
+            self._trans_radios.append((key, item))
+
+        self.menu.append(Gtk.SeparatorMenuItem())
+
+        item_transcribe = Gtk.MenuItem(label=_("Transcribe a file..."))
+        item_transcribe.connect("activate", lambda _: subprocess.Popen(["dictee-transcribe"]))
+        self.menu.append(item_transcribe)
+
+        self.item_meeting_gtk = Gtk.MenuItem(label=_("Meeting"))
+        self.item_meeting_gtk.connect("activate", lambda _: subprocess.Popen(["dictee-meeting-live"]))
+        self.item_meeting_gtk.set_sensitive(
+            read_state() not in ("meeting-ui-open", "meeting-recording"))
+        self.menu.append(self.item_meeting_gtk)
+
+        # LLM post-processing toggle (above Audio context)
+        self.item_llm_gtk = Gtk.CheckMenuItem(label=_("LLM post-processing"))
+        self.item_llm_gtk.set_active(
+            read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true")
+        self.item_llm_gtk.set_tooltip_text(
+            _("Enable LLM post-processing (grammar and spell correction via local Ollama model)."))
+        self.item_llm_gtk.connect("toggled", self._on_llm_toggled_gtk)
+        self.menu.append(self.item_llm_gtk)
+
+        self.item_context_gtk = Gtk.CheckMenuItem(label=_("Audio context"))
+        self.item_context_gtk.set_active(
+            read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true")
+        self.item_context_gtk.set_tooltip_text(
+            _("Accumulate audio from previous dictations to improve recognition."))
+        self.item_context_gtk.connect("toggled", self._on_context_toggled_gtk)
+        self.menu.append(self.item_context_gtk)
+
+        # Short-text fix toggle (below Audio context; OR pp_normal + pp_translate)
+        self.item_short_gtk = Gtk.CheckMenuItem(label=_("Short text fix"))
+        _pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+        _trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+        self.item_short_gtk.set_active(_pp_st or _trpp_st)
+        self.item_short_gtk.set_tooltip_text(
+            _("Enable short-text fix on both normal and translation pipelines."))
+        self.item_short_gtk.connect("toggled", self._on_short_toggled_gtk)
+        self.menu.append(self.item_short_gtk)
+
+        # Force CPU toggle (applies to all ASR backends). Tooltip is dynamic
+        # — refreshed on every menu popup by the Gtk equivalent of
+        # _refresh_menu_toggles_qt with the right 6-case message.
+        self.item_force_cpu_gtk = Gtk.CheckMenuItem(label=_("Force CPU (no GPU)"))
+        _backend = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+        _quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+        _vram = _detect_gpu_vram_gb()
+        _fc = read_conf_value("DICTEE_FORCE_CPU", "0").lower()
+        _initial_force = _fc in ("1", "true", "yes")
+        _c = _force_cpu_constraint(_backend, _quant, _vram)
+        if _c["forced"] is not None:
+            _initial_force = (_c["forced"] == "cpu")
+        self.item_force_cpu_gtk.set_active(_initial_force)
+        self.item_force_cpu_gtk.set_sensitive(_c["sensitive"])
+        self.item_force_cpu_gtk.set_tooltip_text(
+            _c["tooltip"] if not _c["sensitive"]
+            else _force_cpu_warning(_initial_force, _vram))
+        self.item_force_cpu_gtk.connect("toggled", self._on_force_cpu_toggled_gtk)
+        self.menu.append(self.item_force_cpu_gtk)
+
+        self.menu.append(Gtk.SeparatorMenuItem())
+
+        item_cheatsheet = Gtk.MenuItem(label=_("Toggle voice commands cheatsheet"))
+        item_cheatsheet.connect("activate", lambda _: subprocess.Popen(["dictee-cheatsheet", "--toggle"]))
+        self.menu.append(item_cheatsheet)
+
+        item_setup = Gtk.MenuItem(label=_("Configure Dictée"))
+        item_setup.connect("activate", lambda _: subprocess.Popen(["dictee-setup"]))
+        self.menu.append(item_setup)
+
+        self.menu.append(Gtk.SeparatorMenuItem())
+
+        item_reset = Gtk.MenuItem(label=_("! Reset"))
+        item_reset.connect("activate", lambda _: self._reset())
+        self.menu.append(item_reset)
+
+        item_about = Gtk.MenuItem(label=_("About Dictée"))
+        item_about.connect("activate", lambda _: self._show_about_gtk())
+        self.menu.append(item_about)
+
+        item_quit = Gtk.MenuItem(label=_("Quit icon"))
+        item_quit.connect("activate", lambda _: self.Gtk.main_quit())
+        self.menu.append(item_quit)
+
+        self.menu.show_all()
+        # Refresh toggles from dictee.conf every time the menu pops up.
+        self.menu.connect("show", self._refresh_menu_toggles_gtk)
+
+    def _refresh_menu_toggles_gtk(self, _menu):
+        """GTK counterpart of _refresh_menu_toggles_qt — sync on popup."""
+        def _set(item, checked, handler):
+            # handler_block_by_func prevents re-triggering the toggled callback
+            # when we just reconcile UI state from the config file.
+            try:
+                item.handler_block_by_func(handler)
+                item.set_active(checked)
+                item.handler_unblock_by_func(handler)
+            except TypeError:
+                # Fallback: best effort without block (may re-emit once)
+                item.set_active(checked)
+
+        if hasattr(self, "item_context_gtk"):
+            _set(self.item_context_gtk,
+                 read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true",
+                 self._on_context_toggled_gtk)
+        if hasattr(self, "item_llm_gtk"):
+            _set(self.item_llm_gtk,
+                 read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true",
+                 self._on_llm_toggled_gtk)
+        if hasattr(self, "item_short_gtk"):
+            pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+            trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+            _set(self.item_short_gtk, pp_st or trpp_st, self._on_short_toggled_gtk)
+        if hasattr(self, "item_force_cpu_gtk"):
+            _backend = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+            _quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+            _vram = _detect_gpu_vram_gb()
+            _fc = read_conf_value("DICTEE_FORCE_CPU", "0").lower()
+            _forcing = _fc in ("1", "true", "yes")
+            _c = _force_cpu_constraint(_backend, _quant, _vram)
+            if _c["forced"] is not None:
+                _forcing = (_c["forced"] == "cpu")
+            _set(self.item_force_cpu_gtk, _forcing, self._on_force_cpu_toggled_gtk)
+            self.item_force_cpu_gtk.set_sensitive(_c["sensitive"])
+            self.item_force_cpu_gtk.set_tooltip_text(
+                _c["tooltip"] if not _c["sensitive"]
+                else _force_cpu_warning(_forcing, _vram))
+            _maybe_sync_force_cpu(_c, _forcing, _fc)
+
+    def _on_daemon_toggle(self, _item):
+        if self.state == "offline":
+            daemon_start()
+            self._start_retries = 0
+            self.GLib.timeout_add(1000, self._poll_daemon_start)
+        else:
+            daemon_stop()
+            self.GLib.timeout_add(1000, self._delayed_refresh)
+
+    def _poll_daemon_start(self):
+        self._start_retries += 1
+        self._check_daemon()
+        if self._daemon_active:
+            self._check_state()
+            self._apply_state()
+            return False
+        if self._start_retries >= 10:
+            self._check_state()
+            self._apply_state()
+            return False
+        return True  # retry in 1s
+
+    def _setup_file_watch(self):
+        """Surveille le fichier état via inotify (GLib)."""
+        try:
+            from gi.repository import Gio
+            if os.path.isfile(STATE_FILE):
+                f = Gio.File.new_for_path(STATE_FILE)
+                self._monitor = f.monitor_file(Gio.FileMonitorFlags.NONE, None)
+                self._monitor.connect("changed", self._on_file_changed)
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
+
+    def _on_file_changed(self, _monitor, _file, _other, event):
+        self._check_state()
+        self._apply_state()
+
+    def _cancel(self, *_args):
+        """Cancel current operation."""
+        _dbg(f"cancel (gtk): state={self.state}")
+        subprocess.Popen(["dictee", "--cancel"])
+
+    def _reset(self):
+        """Reset everything — stop all processes, restart daemon."""
+        svc = _conf_asr_service()
+        _dbg(f"reset (gtk): svc={svc}")
+        subprocess.Popen(["dictee-reset", svc])
+
+    def _check_daemon(self):
+        self._daemon_active = daemon_is_active()
+
+    def _check_state(self):
+        file_state = read_state()
+        if file_state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready",
+                          "meeting-ui-open", "meeting-recording"):
+            self.state = file_state
+        elif file_state in ("idle", "switching"):
+            self.state = "idle"
+        elif self._daemon_active:
+            self.state = "idle"
+        else:
+            self.state = "offline"
+
+    def _apply_state(self):
+        if self.state == self._prev_state:
+            return
+        _dbg(f"state (gtk): {self._prev_state} → {self.state}")
+
+        # Icône
+        icon_name = ICON_MAP.get(self.state, ICON_MAP["offline"])
+        icon_p = _icon_path(icon_name)
+        if icon_p:
+            self.indicator.set_icon_full(icon_p, self.state)
+        else:
+            self.indicator.set_icon_full(icon_name, self.state)
+
+        # Menu daemon
+        if self.state in ("offline", "diarize"):
+            self.item_daemon.set_label(
+                f"▶ {_('Diarization ready')}" if self.state == "diarize"
+                else f"▶ {_('Start daemon')}")
+        else:
+            labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
+                      "transcribing": _("Transcribing…"),
+                      "streaming": _("Dictating (live)…"),
+                      "diarizing": _("Diarization in progress…"),
+                      "preparing": _("Preparing diarization…"),
+                      "diarize-ready": _("Ready for diarization")}
+            self.item_daemon.set_label(f"■ {labels.get(self.state, _('Daemon active'))}")
+
+        # Menu dictée / traduction
+        is_busy = self.state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready")
+        is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
+        # "Stop" only while actively recording/processing. When meeting mode is
+        # merely armed (diarize-ready) or switching backend (preparing), the
+        # action still STARTS the recording → it must read "Start dictation"
+        # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
+        _recording = self.state in ("recording", "transcribing", "streaming", "diarizing")
+        self.item_dictee.set_label(
+            _("Stop translation") if (_recording and is_translating)
+            else _("Stop dictation") if _recording
+            else _("Start dictation"))
+        self.item_dictee.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing"))
+        self.item_translate.set_sensitive(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
+        self.item_translate.set_visible(not is_busy)
+        self.item_cancel.set_visible(is_busy)
+
+        # Meeting item: disabled while UI is open or recording
+        self.item_meeting_gtk.set_sensitive(
+            self.state not in ("meeting-ui-open", "meeting-recording"))
+
+        self._prev_state = self.state
+
+    def _poll(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+        # Refresh sensitive/checked state of the ASR/translate submenus so
+        # newly-installed backends (user just ran « Install Whisper » from
+        # dictee-setup) become selectable without restarting the tray.
+        # The menu.show signal only fires when the menu is opened, which
+        # misses the case where the user installs something while the menu
+        # is closed.
+        self._refresh_backend_radios()
+        # Re-setup file watch si perdu
+        self._setup_file_watch()
+        return True  # GLib.SOURCE_CONTINUE
+
+    def _on_asr_toggled(self, item, backend, quant):
+        if item.get_active():
+            # Skip `asr` si déjà sur le bon backend. Si quant + asr tous deux
+            # nécessaires, chaîner `quant && asr` séquentiellement pour éviter
+            # un double load du daemon (asr restart avec ancien quant/FORCE_CPU,
+            # puis quant restart avec les bonnes valeurs → load GPU transitoire
+            # visible dans nvtop). Cf. fix 2026-05-21.
+            current_b = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+            current_q = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+            need_quant = quant in ("fp32", "int8") and current_q != quant
+            need_asr = current_b != backend
+            if need_quant and need_asr:
+                subprocess.Popen([
+                    "bash", "-c",
+                    f"dictee-switch-backend quant {quant} && "
+                    f"dictee-switch-backend asr {backend}"
+                ])
+            elif need_asr:
+                subprocess.Popen(["dictee-switch-backend", "asr", backend])
+            elif need_quant:
+                subprocess.Popen(["dictee-switch-backend", "quant", quant])
+            from gi.repository import GLib
+            GLib.timeout_add(2000, self._delayed_daemon_refresh)
+
+    def _on_trans_toggled(self, item, key):
+        if item.get_active():
+            subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _on_context_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "context", val])
+
+    def _on_llm_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "llm", val])
+
+    def _on_short_toggled_gtk(self, item):
+        val = "true" if item.get_active() else "false"
+        subprocess.Popen(["dictee-switch-backend", "short_text", val])
+
+    def _on_force_cpu_toggled_gtk(self, item):
+        val = "1" if item.get_active() else "0"
+        subprocess.Popen(["dictee-switch-backend", "force_cpu", val])
+        # Debounce: disable the menu item for 2 s to prevent rapid-fire
+        # toggling. The flock in the script serializes anyway — this is
+        # for UX clarity.
+        from gi.repository import GLib
+        item.set_sensitive(False)
+        GLib.timeout_add(2000, lambda i=item: (i.set_sensitive(True), False)[1])
+        GLib.timeout_add(2000, self._delayed_daemon_refresh)
+
+    def _delayed_daemon_refresh(self):
+        self._check_daemon()
+
+    def _show_about_gtk(self):
+        ver = _read_version()
+        dialog = self.Gtk.AboutDialog()
+        dialog.set_program_name("Dictée")
+        dialog.set_version(ver)
+        dialog.set_comments(
+            _("Voice dictation for Linux (Parakeet / Vosk / Whisper)."))
+        dialog.set_website("https://github.com/rcspam/dictee")
+        dialog.set_website_label("github.com/rcspam/dictee")
+        dialog.set_copyright("© rcspam")
+        dialog.run()
+        dialog.destroy()
+        self._check_state()
+        self._apply_state()
+        return False  # one-shot
+
+    def _refresh_backend_radios(self):
+        current_asr = _current_asr_backend()
+        current_quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+        if current_quant not in ("fp32", "int8"):
+            current_quant = "fp32"
+        for menu_id, backend, quant, item in self._asr_radios:
+            item.handler_block_by_func(self._on_asr_toggled)
+            # An entry is "active" when its backend matches AND (for Parakeet)
+            # its quant matches the conf value.
+            if quant in ("fp32", "int8"):
+                active = (backend == current_asr and quant == current_quant)
+            else:
+                active = (backend == current_asr)
+            item.set_active(active)
+            item.set_sensitive(_asr_service_exists(backend))
+            item.handler_unblock_by_func(self._on_asr_toggled)
+
+        # Disable translation submenu when using canary (built-in translation)
+        self.item_trans.set_sensitive(current_asr != "canary")
+        current_trans = _current_translate_backend()
+        for key, item in self._trans_radios:
+            item.handler_block_by_func(self._on_trans_toggled)
+            item.set_active(key == current_trans)
+            item.set_sensitive(_translate_backend_available(key))
+            item.handler_unblock_by_func(self._on_trans_toggled)
+
+    def _delayed_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+        return False  # GLib.SOURCE_REMOVE
+
+    def run(self):
+        self.Gtk.main()
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Backend Qt (KDE / Sway / Hyprland / autres)
+# ═══════════════════════════════════════════════════════════════
+
+class DicteeTrayQt:
+    def __init__(self, app):
+        from PyQt6.QtCore import Qt, QTimer, QFileSystemWatcher
+        from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
+        from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
+
+        self.Qt = Qt
+        self.QTimer = QTimer
+        self.QIcon = QIcon
+        self.QSystemTrayIcon = QSystemTrayIcon
+        self.QApplication = type(app)
+
+        self.app = app
+        self.state = "offline"
+        self._prev_state = None
+        self.provider = ""
+        self._prev_provider = None
+        self._daemon_active = False
+        self._start_retries = 0
+
+        # Charger les icônes
+        self._icons = {}
+        for state_name, icon_name in ICON_MAP.items():
+            path = _icon_path(icon_name)
+            if path:
+                self._icons[state_name] = QIcon(path)
+            else:
+                self._icons[state_name] = QIcon.fromTheme(icon_name)
+
+        # Tray icon
+        self.tray = QSystemTrayIcon(self._icons.get("offline", QIcon()), app)
+        self.tray.setToolTip(_("Dictation — offline") + f" • {_ptt_label()}")
+        self.tray.activated.connect(self._on_activated)
+
+        # Menu contextuel
+        self.menu = QMenu()
+        self._build_menu(QFont)
+        self.tray.setContextMenu(self.menu)
+
+        # Premier check
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+
+        self.tray.show()
+
+        # Watcher fichiers état + provider
+        self._watcher = QFileSystemWatcher()
+        if os.path.isfile(STATE_FILE):
+            self._watcher.addPath(STATE_FILE)
+        if os.path.isfile(PROVIDER_FILE):
+            self._watcher.addPath(PROVIDER_FILE)
+        self._watcher.fileChanged.connect(self._on_state_changed)
+
+        # Lecture initiale du provider (au cas où le daemon est déjà actif)
+        self.provider = read_provider()
+        self._apply_provider()
+
+        # Timer lent pour le check daemon
+        self._timer_slow = QTimer()
+        self._timer_slow.timeout.connect(self._poll_slow)
+        self._timer_slow.start(POLL_SLOW_MS)
+
+    def _build_menu(self, QFont):
+        self.action_dictee = self.menu.addAction(_("Start dictation"))
+        self.action_translate = self.menu.addAction(_("Start translation"))
+        self.action_cancel = self.menu.addAction(_("Cancel"))
+        self.menu.addSeparator()
+        self.action_daemon = self.menu.addAction("")
+        self.action_daemon_hint = self.menu.addAction("")
+        hint_font = self.action_daemon_hint.font() or QFont()
+        hint_font.setPointSize(8)
+        hint_font.setItalic(True)
+        self.action_daemon_hint.setFont(hint_font)
+        self.action_daemon_hint.setEnabled(False)
+        # ASR backend submenu
+        from PyQt6.QtGui import QActionGroup
+        self.menu_asr = self.menu.addMenu(_("ASR backend"))
+        self.menu_asr.aboutToShow.connect(self._refresh_asr_menu)
+        self._asr_group = QActionGroup(self.menu_asr)
+        self._asr_group.setExclusive(True)
+        # Map menu_id → (action, backend, quant) — supports 2 Parakeet entries
+        self._asr_actions = {}
+        for menu_id, label_msgid, backend, quant in ASR_BACKENDS:
+            action = self.menu_asr.addAction(_(label_msgid))
+            action.setCheckable(True)
+            # Stash (backend, quant) on the action so the triggered handler
+            # knows both pieces without looking up the dict.
+            action.setData({"backend": backend, "quant": quant, "menu_id": menu_id})
+            self._asr_group.addAction(action)
+            self._asr_actions[menu_id] = action
+        self._asr_group.triggered.connect(self._on_asr_selected)
+
+        # Translate backend submenu
+        self.menu_trans = self.menu.addMenu(_("Translation"))
+        self.menu_trans.aboutToShow.connect(self._refresh_trans_menu)
+        self._trans_group = QActionGroup(self.menu_trans)
+        self._trans_group.setExclusive(True)
+        self._trans_actions = {}
+        for key, label in TRANSLATE_BACKENDS:
+            action = self.menu_trans.addAction(label)
+            action.setCheckable(True)
+            action.setData(key)
+            self._trans_group.addAction(action)
+            self._trans_actions[key] = action
+        self._trans_group.triggered.connect(self._on_trans_selected)
+
+        self.menu.addSeparator()
+
+        self.action_transcribe = self.menu.addAction(_("Transcribe a file..."))
+        self.action_meeting_qt = self.menu.addAction(_("Meeting"))
+        self.action_meeting_qt.setEnabled(
+            read_state() not in ("meeting-ui-open", "meeting-recording"))
+        self.action_meeting_qt.setToolTip(
+            _("Open live meeting capture (record, then send to diarization)"))
+
+        # LLM post-processing toggle (above Audio context)
+        self.action_llm_qt = self.menu.addAction(_("LLM post-processing"))
+        self.action_llm_qt.setCheckable(True)
+        self.action_llm_qt.setChecked(
+            read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true")
+        self.action_llm_qt.setToolTip(
+            _("Enable LLM post-processing (grammar and spell correction via local Ollama model)."))
+        self.action_llm_qt.toggled.connect(self._on_llm_toggled_qt)
+
+        # Audio context buffer toggle
+        self.action_context_qt = self.menu.addAction(_("Audio context"))
+        self.action_context_qt.setCheckable(True)
+        self.action_context_qt.setChecked(
+            read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true")
+        self.action_context_qt.setToolTip(
+            _("Accumulate audio from previous dictations to improve recognition."))
+        self.action_context_qt.toggled.connect(self._on_context_toggled_qt)
+
+        # Short-text fix toggle (below Audio context; OR of pp_normal + pp_translate)
+        self.action_short_qt = self.menu.addAction(_("Short text fix"))
+        self.action_short_qt.setCheckable(True)
+        _pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+        _trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+        self.action_short_qt.setChecked(_pp_st or _trpp_st)
+        self.action_short_qt.setToolTip(
+            _("Enable short-text fix on both normal and translation pipelines."))
+        self.action_short_qt.toggled.connect(self._on_short_toggled_qt)
+
+        # Force CPU toggle (applies to all ASR backends; restarts the daemon
+        # so the change takes effect immediately). Tooltip is dynamic — set
+        # in _refresh_menu_toggles_qt with the right one of the 6 cases
+        # (forcing_cpu × VRAM tier).
+        self.action_force_cpu_qt = self.menu.addAction(_("Force CPU (no GPU)"))
+        self.action_force_cpu_qt.setCheckable(True)
+        _backend = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+        _quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+        _vram = _detect_gpu_vram_gb()
+        _fc = read_conf_value("DICTEE_FORCE_CPU", "0").lower()
+        _initial_force = _fc in ("1", "true", "yes")
+        _c = _force_cpu_constraint(_backend, _quant, _vram)
+        if _c["forced"] is not None:
+            _initial_force = (_c["forced"] == "cpu")
+        self.action_force_cpu_qt.setChecked(_initial_force)
+        self.action_force_cpu_qt.setEnabled(_c["sensitive"])
+        self.action_force_cpu_qt.setToolTip(
+            _c["tooltip"] if not _c["sensitive"]
+            else _force_cpu_warning(_initial_force, _vram))
+        self.action_force_cpu_qt.toggled.connect(self._on_force_cpu_toggled_qt)
+
+        self.menu.addSeparator()
+        self.action_cheatsheet = self.menu.addAction(_("Toggle voice commands cheatsheet"))
+        self.action_setup = self.menu.addAction(_("Configure Dictée"))
+        self.menu.addSeparator()
+        self.action_reset = self.menu.addAction(_("! Reset"))
+        self.action_about = self.menu.addAction(_("About Dictée"))
+        self.action_quit = self.menu.addAction(_("Quit icon"))
+        self.menu.triggered.connect(self._on_menu_triggered)
+        # Refresh toggles from dictee.conf each time the menu is about to show,
+        # so changes made by plasmoid / dictee-setup / CLI are reflected here.
+        self.menu.aboutToShow.connect(self._refresh_menu_toggles_qt)
+
+    def _dot_icon(self, color):
+        from PyQt6.QtGui import QPixmap, QPainter, QColor
+        pix = QPixmap(16, 16)
+        pix.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pix)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QColor(color))
+        p.setPen(self.Qt.PenStyle.NoPen)
+        p.drawEllipse(2, 2, 12, 12)
+        p.end()
+        return self.QIcon(pix)
+
+    def _on_menu_triggered(self, action):
+        if action == self.action_dictee:
+            subprocess.Popen(["dictee"])
+        elif action == self.action_translate:
+            subprocess.Popen(["dictee", "--translate"])
+        elif action == self.action_cancel:
+            self._cancel()
+        elif action == self.action_daemon:
+            if self.state == "offline":
+                daemon_start()
+                self._start_retries = 0
+                self._poll_timer = self.QTimer()
+                self._poll_timer.timeout.connect(self._poll_daemon_start_qt)
+                self._poll_timer.start(1000)
+            else:
+                daemon_stop()
+                self.QTimer.singleShot(1000, self._delayed_refresh)
+        elif action == self.action_transcribe:
+            subprocess.Popen(["dictee-transcribe"])
+        elif action == self.action_meeting_qt:
+            subprocess.Popen(["dictee-meeting-live"])
+        elif action == self.action_cheatsheet:
+            subprocess.Popen(["dictee-cheatsheet", "--toggle"])
+        elif action == self.action_setup:
+            _spawn_detached(["dictee-setup"])
+        elif action == self.action_reset:
+            self._reset()
+        elif action == self.action_about:
+            self._show_about()
+        elif action == self.action_quit:
+            self.app.quit()
+
+    def _show_about(self):
+        from PyQt6.QtWidgets import QMessageBox
+        ver = _read_version()
+        QMessageBox.about(
+            None,
+            _("About Dictée"),
+            _("<b>Dictée</b> {ver}<br><br>"
+              "Voice dictation for Linux "
+              "(Parakeet / Vosk / Whisper).<br>"
+              "<a href='https://github.com/rcspam/dictee'>"
+              "github.com/rcspam/dictee</a><br><br>"
+              "Maintained by rcspam.").format(ver=ver),
+        )
+
+    def _on_activated(self, reason):
+        if reason == self.QSystemTrayIcon.ActivationReason.Trigger:
+            modifiers = self.QApplication.keyboardModifiers()
+            if modifiers & self.Qt.KeyboardModifier.ControlModifier:
+                subprocess.Popen(["dictee", "--translate"])
+            else:
+                subprocess.Popen(["dictee"])
+        elif reason == self.QSystemTrayIcon.ActivationReason.MiddleClick:
+            if self.state in ("recording", "streaming", "transcribing", "diarizing", "preparing", "diarize-ready"):
+                self._cancel()
+
+    def _on_asr_selected(self, action):
+        data = action.data() or {}
+        backend = data.get("backend", "parakeet")
+        quant = data.get("quant")
+        # Skip `asr` si déjà sur le bon backend. Si quant + asr tous deux
+        # nécessaires, chaîner `quant && asr` séquentiellement (cf. fix
+        # plasmoid 2026-05-21 — évite double load du daemon Parakeet).
+        current_b = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+        current_q = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+        need_quant = quant in ("fp32", "int8") and current_q != quant
+        need_asr = current_b != backend
+        if need_quant and need_asr:
+            subprocess.Popen([
+                "bash", "-c",
+                f"dictee-switch-backend quant {quant} && "
+                f"dictee-switch-backend asr {backend}"
+            ])
+        elif need_asr:
+            subprocess.Popen(["dictee-switch-backend", "asr", backend])
+        elif need_quant:
+            subprocess.Popen(["dictee-switch-backend", "quant", quant])
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2000, self._delayed_daemon_refresh)
+
+    def _on_trans_selected(self, action):
+        key = action.data()
+        subprocess.Popen(["dictee-switch-backend", "translate", key])
+
+    def _on_context_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "context", val])
+
+    def _on_llm_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "llm", val])
+
+    def _on_short_toggled_qt(self, checked):
+        val = "true" if checked else "false"
+        subprocess.Popen(["dictee-switch-backend", "short_text", val])
+
+    def _on_force_cpu_toggled_qt(self, checked):
+        val = "1" if checked else "0"
+        subprocess.Popen(["dictee-switch-backend", "force_cpu", val])
+        # Debounce: disable the menu action for 2 s to prevent rapid-fire
+        # toggling (which would chain daemon restarts). The flock in the
+        # script serializes anyway — this is for UX clarity.
+        from PyQt6.QtCore import QTimer
+        self.action_force_cpu_qt.setEnabled(False)
+        QTimer.singleShot(2000, lambda: self.action_force_cpu_qt.setEnabled(True))
+        QTimer.singleShot(2000, self._delayed_daemon_refresh)
+
+    def _refresh_menu_toggles_qt(self):
+        """Re-read dictee.conf and sync the 3 toggles (context, LLM, short-text).
+
+        Called on menu.aboutToShow so that changes made elsewhere (plasmoid,
+        dictee-setup, CLI) are visible the next time the user opens the menu.
+        blockSignals avoids re-triggering the external `dictee-switch-backend`
+        calls when we just reconcile the UI state.
+        """
+        def _set(action, checked):
+            action.blockSignals(True)
+            action.setChecked(checked)
+            action.blockSignals(False)
+
+        if hasattr(self, "action_context_qt"):
+            _set(self.action_context_qt,
+                 read_conf_value("DICTEE_AUDIO_CONTEXT", "false").lower() == "true")
+        if hasattr(self, "action_llm_qt"):
+            _set(self.action_llm_qt,
+                 read_conf_value("DICTEE_LLM_POSTPROCESS", "false").lower() == "true")
+        if hasattr(self, "action_short_qt"):
+            pp_st = read_conf_value("DICTEE_PP_SHORT_TEXT", "true").lower() == "true"
+            trpp_st = read_conf_value("DICTEE_TRPP_SHORT_TEXT", "true").lower() == "true"
+            _set(self.action_short_qt, pp_st or trpp_st)
+        if hasattr(self, "action_force_cpu_qt"):
+            _backend = read_conf_value("DICTEE_ASR_BACKEND", "parakeet").lower()
+            _quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+            _vram = _detect_gpu_vram_gb()
+            _fc = read_conf_value("DICTEE_FORCE_CPU", "0").lower()
+            _forcing = _fc in ("1", "true", "yes")
+            _c = _force_cpu_constraint(_backend, _quant, _vram)
+            if _c["forced"] is not None:
+                _forcing = (_c["forced"] == "cpu")
+            _set(self.action_force_cpu_qt, _forcing)
+            self.action_force_cpu_qt.setEnabled(_c["sensitive"])
+            # Refresh the dynamic warning tooltip each time the menu opens so
+            # it stays accurate after external changes (setup, CLI, plasmoid).
+            self.action_force_cpu_qt.setToolTip(
+                _c["tooltip"] if not _c["sensitive"]
+                else _force_cpu_warning(_forcing, _vram))
+            _maybe_sync_force_cpu(_c, _forcing, _fc)
+
+    def _delayed_daemon_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+
+    def _refresh_asr_menu(self):
+        current = _current_asr_backend()
+        current_quant = read_conf_value("DICTEE_PARAKEET_QUANT", "fp32").lower()
+        if current_quant not in ("fp32", "int8"):
+            current_quant = "fp32"
+        for menu_id, action in self._asr_actions.items():
+            data = action.data() or {}
+            backend = data.get("backend", menu_id)
+            quant = data.get("quant")
+            if quant in ("fp32", "int8"):
+                checked = (backend == current and quant == current_quant)
+            else:
+                checked = (backend == current)
+            action.setChecked(checked)
+            action.setEnabled(_asr_service_exists(backend))
+
+    def _refresh_trans_menu(self):
+        # Disable when using canary (built-in translation)
+        self.menu_trans.setEnabled(_current_asr_backend() != "canary")
+        current = _current_translate_backend()
+        for key, action in self._trans_actions.items():
+            action.setChecked(key == current)
+            action.setEnabled(_translate_backend_available(key))
+
+    def _cancel(self):
+        """Cancel current operation."""
+        _dbg(f"cancel (qt): state={self.state}")
+        subprocess.Popen(["dictee", "--cancel"])
+
+    def _reset(self):
+        """Reset everything — stop all processes, restart daemon."""
+        svc = _conf_asr_service()
+        _dbg(f"reset (qt): svc={svc}")
+        subprocess.Popen(["dictee-reset", svc])
+
+    def _check_daemon(self):
+        self._daemon_active = daemon_is_active()
+
+    def _check_state(self):
+        file_state = read_state()
+        if file_state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready",
+                          "meeting-ui-open", "meeting-recording"):
+            self.state = file_state
+        elif file_state in ("idle", "switching"):
+            self.state = "idle"
+        elif self._daemon_active:
+            self.state = "idle"
+        else:
+            self.state = "offline"
+
+    def _apply_state(self):
+        if self.state == self._prev_state:
+            return
+        _dbg(f"state (qt): {self._prev_state} → {self.state}")
+
+        icon = self._icons.get(self.state, self._icons["offline"])
+        self.tray.setIcon(icon)
+
+        ptt = _ptt_label()
+        tooltips = {
+            "idle": _("Dictation — ready") + f" • {ptt}\n" + _("Click = dictation, Ctrl+click = translation"),
+            "offline": _("Dictation — offline") + f" • {ptt}",
+            "diarize": _("Diarization ready") + f" • {ptt}\n" + _("Use keyboard shortcut to record"),
+            "diarizing": _("Diarization in progress…"),
+            "preparing": _("Preparing diarization…"),
+            "diarize-ready": _("Ready for diarization") + f" • {ptt}",
+            "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
+            "transcribing": _("Dictation — transcribing"),
+            "streaming": _("Dictating (live)…"),
+        }
+        self.tray.setToolTip(tooltips.get(self.state, _("Dictation")))
+
+        pad = "\u2003" * 6
+        # Suffixe provider (' (sur GPU)' / ' (sur CPU)' / ''). N'appara\u00eet
+        # que sur les \u00e9tats "actifs" du daemon \u2014 pas de sens quand offline
+        # ou diarize-ready.
+        psfx = self._provider_suffix() if self.state not in ("offline", "diarize") else ""
+        if self.state == "diarize":
+            self.action_daemon.setText(f"  {_('Diarization ready')}{pad}▶")
+            self.action_daemon.setIcon(self._dot_icon("#9B59B6"))
+            self.action_daemon_hint.setText(f" {_('click to start daemon')}")
+        elif self.state == "offline":
+            self.action_daemon.setText(f"  {_('Daemon stopped')}{pad}▶")
+            self.action_daemon.setIcon(self._dot_icon("#e74c3c"))
+            self.action_daemon_hint.setText(f" {_('click to start')}")
+        else:
+            labels = {"idle": _("Daemon active"), "recording": _("Recording…"),
+                      "transcribing": _("Transcribing…"),
+                      "streaming": _("Dictating (live)…"),
+                      "diarizing": _("Diarization in progress…"),
+                      "preparing": _("Preparing diarization…"),
+                      "diarize-ready": _("Ready for diarization")}
+            self.action_daemon.setText(
+                f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■{psfx}")
+            violet_states = ("diarizing", "preparing", "diarize-ready")
+            self.action_daemon.setIcon(
+                self._dot_icon("#9B59B6" if self.state in violet_states else "#2ecc71"))
+            self.action_daemon_hint.setText(f" {_('click to stop')}")
+
+        is_busy = self.state in ("recording", "transcribing", "streaming", "diarizing", "preparing", "diarize-ready")
+        is_translating = is_busy and os.path.isfile(TRANSLATE_FLAG)
+        # "Stop" only while actively recording/processing. When meeting mode is
+        # merely armed (diarize-ready) or switching backend (preparing), the
+        # action still STARTS the recording → it must read "Start dictation"
+        # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
+        _recording = self.state in ("recording", "transcribing", "streaming", "diarizing")
+        self.action_dictee.setText(
+            _("Stop translation") if (_recording and is_translating)
+            else _("Stop dictation") if _recording
+            else _("Start dictation"))
+        self.action_dictee.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing"))
+        self.action_translate.setText(_("Start translation"))
+        self.action_translate.setEnabled(self.state not in ("offline", "diarize", "diarizing", "preparing", "diarize-ready"))
+        self.action_translate.setVisible(not is_busy)
+        self.action_cancel.setVisible(is_busy)
+
+        # Meeting item: disabled while UI is open or recording
+        self.action_meeting_qt.setEnabled(
+            self.state not in ("meeting-ui-open", "meeting-recording"))
+
+        self._prev_state = self.state
+
+    def _on_state_changed(self, path):
+        # Dispatch selon le fichier changé : state vs provider
+        if path == PROVIDER_FILE:
+            self.provider = read_provider()
+            self._apply_provider()
+        else:
+            self._check_state()
+            self._apply_state()
+        # Qt retire le path du watcher si le fichier est effacé/recréé —
+        # ré-ajouter si toujours existant pour ne pas perdre la notification.
+        if path and os.path.isfile(path) and path not in (self._watcher.files() or []):
+            self._watcher.addPath(path)
+
+    def _provider_suffix(self):
+        """Retourne un badge unicode coloré ajouté au label daemon :
+        🟢 GPU (cuda) | 🔴 panne CPU (cpu = libs CUDA cassées) |
+        🔵 CPU voulu (cpu-forced / cpu-only / cpu-int8). '' si inconnu.
+        Le menu Qt n'affiche pas de lettre colorée → on garde des cercles
+        (cohérent en COULEUR avec le badge plasmoid).
+        """
+        if self.provider == "cuda":
+            return " \U0001F7E2"  # 🟢 GPU
+        if self.provider == "cpu":
+            return " \U0001F534"  # 🔴 panne (GPU indisponible)
+        if self.provider in ("cpu-forced", "cpu-only", "cpu-int8"):
+            return " \U0001F535"  # 🔵 CPU voulu
+        return ""
+
+    def _apply_provider(self):
+        if self.provider == self._prev_provider:
+            return
+        _dbg(f"provider (qt): {self._prev_provider} → {self.provider}")
+        # Le label daemon (action_daemon.text) inclut maintenant le suffixe
+        # provider. On force re-rendu via _apply_state en invalidant le cache.
+        self._prev_state = None
+        self._apply_state()
+        self._prev_provider = self.provider
+
+    def _poll_slow(self):
+        self._check_daemon()
+        if os.path.isfile(STATE_FILE) and STATE_FILE not in (self._watcher.files() or []):
+            self._watcher.addPath(STATE_FILE)
+        if os.path.isfile(PROVIDER_FILE) and PROVIDER_FILE not in (self._watcher.files() or []):
+            self._watcher.addPath(PROVIDER_FILE)
+        # Fallback provider refresh (au cas où fileChanged a été manqué —
+        # Qt notifie pas si écriture atomique via mv -f par ex.).
+        new_provider = read_provider()
+        if new_provider != self.provider:
+            self.provider = new_provider
+            self._apply_provider()
+        self._check_state()
+        self._apply_state()
+        # Refresh the ASR/translate submenu state (enabled/checked) so newly-
+        # installed engines appear selectable without restarting the tray.
+        self._refresh_asr_menu()
+        self._refresh_trans_menu()
+
+    def _poll_daemon_start_qt(self):
+        self._start_retries += 1
+        self._check_daemon()
+        if self._daemon_active or self._start_retries >= 10:
+            self._poll_timer.stop()
+            self._check_state()
+            self._apply_state()
+
+    def _delayed_refresh(self):
+        self._check_daemon()
+        self._check_state()
+        self._apply_state()
+
+
+# ═══════════════════════════════════════════════════════════════
+
+def main():
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+    global _SINGLETON_FD
+    _SINGLETON_FD = _acquire_singleton_lock()
+    if _SINGLETON_FD is None:
+        _dbg("another dictee-tray instance is already running — exiting")
+        print("dictee-tray: another instance is already running — exiting",
+              file=sys.stderr)
+        sys.exit(0)
+
+    # First-run guard: prompt user to run setup wizard if not configured yet
+    if not os.path.exists(CONF_PATH):
+        try:
+            from PyQt6.QtWidgets import QApplication, QMessageBox
+            app = QApplication(sys.argv)
+            result = QMessageBox.question(
+                None, "Dictée",
+                _("Dictée is not configured yet.\nDo you want to run the setup wizard?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if result == QMessageBox.StandardButton.Yes:
+                _spawn_detached(["dictee-setup", "--wizard"])
+        except ImportError:
+            import gi
+            gi.require_version("Gtk", "3.0")
+            from gi.repository import Gtk
+            dialog = Gtk.MessageDialog(
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text=_("Dictée is not configured yet.\nDo you want to run the setup wizard?"),
+            )
+            dialog.set_title("Dictée")
+            if dialog.run() == Gtk.ResponseType.YES:
+                _spawn_detached(["dictee-setup", "--wizard"])
+            dialog.destroy()
+        sys.exit(0)
+
+    # Auto-show the cheatsheet card once after first install. The card itself
+    # creates the marker file when the user closes it.
+    _cheat_marker = os.path.expanduser(
+        "~/.local/state/dictee/cheatsheet-firstrun.done")
+    if not os.path.exists(_cheat_marker):
+        try:
+            subprocess.Popen(["dictee-cheatsheet", "--first-run"])
+        except FileNotFoundError:
+            # dictee-cheatsheet binary not installed (dev environment) — skip.
+            pass
+
+    backend = _detect_backend()
+
+    if backend == "appindicator":
+        tray = DicteeTrayAppIndicator()
+        tray.run()
+    else:
+        import time
+        from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
+
+        app = QApplication(sys.argv)
+        app.setQuitOnLastWindowClosed(False)
+        app.setApplicationName(APP_ID)
+        app.setDesktopFileName("dictee-tray")
+
+        retries = 10
+        while not QSystemTrayIcon.isSystemTrayAvailable() and retries > 0:
+            time.sleep(1)
+            retries -= 1
+
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            print("Error: no system tray available", file=sys.stderr)
+            sys.exit(1)
+
+        tray = DicteeTrayQt(app)
+        sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
