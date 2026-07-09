@@ -263,17 +263,61 @@ impl Transcriber for WhisperBackend {
 
         let n = self.state.full_n_segments();
         let mut text = String::new();
-        let mut tokens = Vec::new();
+        let mut tokens: Vec<TimedToken> = Vec::new();
+        // whisper.cpp pads audio to 30 s multiples: segment/token times can
+        // overshoot the real clip end (e.g. 60.0 on a 40 s meeting chunk).
+        let audio_secs = audio.len() as f32 / 16000.0;
         for i in 0..n {
             let Some(seg) = self.state.get_segment(i) else {
                 continue;
             };
             let s = seg.to_str_lossy().map(|c| c.into_owned()).unwrap_or_default();
-            tokens.push(TimedToken {
-                text: s.trim().to_string(),
-                start: seg.start_timestamp() as f32 / 100.0,
-                end: seg.end_timestamp() as f32 / 100.0,
-            });
+            let seg_start = (seg.start_timestamp() as f32 / 100.0).min(audio_secs);
+            let seg_end = (seg.end_timestamp() as f32 / 100.0).min(audio_secs);
+            // WORD-level tokens, not segment-level: diarization fusion (the
+            // meeting aligner and \tdiarize phase 2) picks ONE speaker per
+            // token by time overlap, so a sentence-sized token flattens every
+            // speaker change inside it. token_timestamps(true) above provides
+            // per-token DTW times; BPE pieces are assembled into words on the
+            // leading-space convention. DTW timing is approximate on
+            // large-v3-class models (whisper.cpp#2480) but second-accurate,
+            // which is enough for overlap attribution.
+            for t in 0..seg.n_tokens() {
+                let Some(tok) = seg.get_token(t) else { continue };
+                let piece = match tok.to_str_lossy() {
+                    Ok(p) => p.into_owned(),
+                    Err(_) => continue,
+                };
+                if piece.starts_with("[_") || piece.starts_with("<|") {
+                    continue; // special tokens ([_BEG_], <|fr|>, ...)
+                }
+                let data = tok.token_data();
+                let (mut start, mut end) = if data.t0 >= 0 && data.t1 >= data.t0 {
+                    (data.t0 as f32 / 100.0, data.t1 as f32 / 100.0)
+                } else {
+                    (seg_start, seg_end)
+                };
+                start = start.min(audio_secs);
+                end = end.min(audio_secs);
+                let starts_word = piece.starts_with(' ');
+                let trimmed = piece.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                match tokens.last_mut() {
+                    Some(last) if !starts_word => {
+                        // Intra-word continuation piece (incl. attached
+                        // punctuation): merge into the previous word.
+                        last.text.push_str(trimmed);
+                        last.end = last.end.max(end);
+                    }
+                    _ => tokens.push(TimedToken {
+                        text: trimmed.to_string(),
+                        start,
+                        end,
+                    }),
+                }
+            }
             text.push_str(&s);
         }
         Ok(TranscriptionResult { text: clean_repetitive_text(text.trim()), tokens })
