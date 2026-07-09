@@ -951,30 +951,45 @@ class _DiarizeTranscribeWorker(QThread):
             self.finished.emit(f"[0.00s - 0.00s] Speaker {dominant}: {full_text}")
             return
 
-        # Attribute each sentence to a speaker by maximum overlap, then MERGE
-        # consecutive same-speaker sentences into one turn. The whisper daemon
-        # now emits word-level tokens (needed by the meeting aligner), so
+        # Fuse the word-level transcription with the diarization timeline,
+        # then MERGE consecutive same-speaker words into turns. The whisper
+        # daemon emits word-level tokens (needed by the meeting aligner), so
         # without merging the result is one word per line and the per-segment
-        # postprocess in _finish_transcription spawns thousands of
-        # dictee-postprocess subprocesses. Mirrors the meeting aligner, which
-        # already groups consecutive same-speaker tokens into turns.
-        turns = []
+        # postprocess in _finish_transcription spawns thousands of subprocesses.
+        #
+        # Attribution: the diarization is the authoritative speaker timeline.
+        # Each word goes to the temporally NEAREST segment (distance 0 when the
+        # word midpoint falls inside a segment, else the gap to the closest
+        # edge) — the whisperX approach. Whisper's word timestamps are
+        # approximate and drift into micro-gaps between segments; nearest-
+        # segment resolves that without a threshold or neighbour guessing, and
+        # never moves a word that already sits inside a segment. A transcribed
+        # word was spoken by someone, so it always gets the best-estimate
+        # speaker; genuine non-speech (whisper hallucinations on music/silence)
+        # is a separate concern (detect & drop), not a speaker-assignment one.
+        assigned = []
         for sent in sentences:
+            mid = 0.5 * (sent["start"] + sent["end"])
             best_speaker = -1
-            best_overlap = 0.0
+            best_dist = float("inf")
             for seg in speaker_segments:
-                overlap_start = max(sent["start"], seg["start"])
-                overlap_end = min(sent["end"], seg["end"])
-                overlap = max(0.0, overlap_end - overlap_start)
-                if overlap > best_overlap:
-                    best_overlap = overlap
+                if seg["start"] <= mid <= seg["end"]:
+                    dist = 0.0
+                else:
+                    dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
+                if dist < best_dist:
+                    best_dist = dist
                     best_speaker = seg["speaker"]
-            if turns and turns[-1]["speaker"] == best_speaker:
+            assigned.append(best_speaker)
+
+        turns = []
+        for sent, spk in zip(sentences, assigned):
+            if turns and turns[-1]["speaker"] == spk:
                 turns[-1]["end"] = sent["end"]
                 turns[-1]["parts"].append(sent["text"])
             else:
                 turns.append({"start": sent["start"], "end": sent["end"],
-                              "speaker": best_speaker, "parts": [sent["text"]]})
+                              "speaker": spk, "parts": [sent["text"]]})
 
         results = []
         for turn in turns:
