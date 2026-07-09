@@ -245,12 +245,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // Detect backend
+    // Detect backend. The transcribe-daemon-whisper-rust bin target shares
+    // this source: invoked under that name it IS the whisper daemon, no env
+    // or flag needed (callers spawn it bare with just --socket).
+    let invoked_as_whisper_rust = env::args()
+        .next()
+        .map(|a| {
+            a.rsplit('/')
+                .next()
+                .unwrap_or("")
+                .contains("whisper-rust")
+        })
+        .unwrap_or(false);
+    // A whisper-rust binary without whisper support (built with the wrong
+    // feature set) must fail loudly: falling through to Parakeet silently
+    // transcribes with the wrong engine (and anglicizes French).
+    #[cfg(not(feature = "whisper"))]
+    if invoked_as_whisper_rust {
+        return Err("this transcribe-daemon-whisper-rust was built WITHOUT \
+                    whisper support — rebuild it with build-whisper-rust.sh"
+            .into());
+    }
     #[cfg(feature = "whisper")]
     let use_whisper = env::var("DICTEE_ASR_BACKEND")
         .map(|v| v == "whisper")
         .unwrap_or(false)
-        || parsed.whisper;
+        || parsed.whisper
+        || invoked_as_whisper_rust;
     let use_canary = env::var("DICTEE_ASR_BACKEND")
         .map(|v| v == "canary")
         .unwrap_or(false)

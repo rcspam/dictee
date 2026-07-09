@@ -119,14 +119,20 @@ def asr_spec_to_daemon(spec):
     # DICTEE_WHISPER_RUST_GGML): IsolatedAsrDaemon does not source
     # dictee.conf, so the recipe must carry it. Empty path = model not
     # installed; the caller surfaces the error before spawning.
+    # DICTEE_ASR_BACKEND=whisper is what actually flips transcribe-daemon*
+    # to the whisper branch (transcribe_daemon.rs use_whisper): without it a
+    # conf-level backend (e.g. parakeet, forwarded from os.environ) silently
+    # wins and the "isolated whisper-rust" daemon transcribes with Parakeet.
     if spec == "whisper-rust":
         return {"backend": "whisper-rust",
-                "env": {"DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path()}}
+                "env": {"DICTEE_ASR_BACKEND": "whisper",
+                        "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path()}}
     if spec.startswith("whisper-rust-"):
         size = spec[len("whisper-rust-"):]
         if size in _WHISPER_RUST_SIZES:
             return {"backend": "whisper-rust",
-                    "env": {"DICTEE_WHISPER_RUST_MODEL": size,
+                    "env": {"DICTEE_ASR_BACKEND": "whisper",
+                            "DICTEE_WHISPER_RUST_MODEL": size,
                             "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path(size)}}
         raise ValueError(f"unknown asr spec: {spec}")
     if spec == "whisper":

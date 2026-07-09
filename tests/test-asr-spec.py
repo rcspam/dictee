@@ -134,7 +134,11 @@ def test_whisper_rust_unsized_carries_ggml_path(monkeypatch, tmp_path):
                         lambda: {"DICTEE_WHISPER_RUST_GGML": str(ggml)})
     assert dt.asr_spec_to_daemon("whisper-rust") == {
         "backend": "whisper-rust",
-        "env": {"DICTEE_WHISPER_RUST_GGML": str(ggml)},
+        # DICTEE_ASR_BACKEND=whisper is what flips transcribe-daemon* to the
+        # whisper branch — without it a conf-level backend forwarded through
+        # os.environ silently wins and the daemon transcribes with Parakeet.
+        "env": {"DICTEE_ASR_BACKEND": "whisper",
+                "DICTEE_WHISPER_RUST_GGML": str(ggml)},
     }
 
 

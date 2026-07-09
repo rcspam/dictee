@@ -2081,6 +2081,11 @@ class MeetingWindow(QWidget):
                     f"/tmp/dictee-meeting-whisper-rust-{os.getpid()}.sock"
                 self._free_vram_for_live_daemon()
                 _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+                # Flip the daemon to its whisper branch: the conf-level
+                # DICTEE_ASR_BACKEND (e.g. parakeet) forwarded by
+                # _build_subprocess_env would silently win otherwise and the
+                # "Whisper-Rust" live preview would transcribe with Parakeet.
+                _env["DICTEE_ASR_BACKEND"] = "whisper"
                 try:
                     os.unlink(self._live_asr_sock)
                 except OSError:
