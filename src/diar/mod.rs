@@ -19,6 +19,7 @@ pub mod pipeline;
 pub mod plda;
 pub mod powerset;
 pub mod reconstruct;
+mod resilient;
 pub mod seg_model;
 pub mod segment;
 pub mod utils;

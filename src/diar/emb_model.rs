@@ -23,11 +23,32 @@ pub struct EmbeddingModel {
     waveform_buffer: Array3<f32>,
     weights_buffer: Array2<f32>,
     min_num_samples: usize,
+    resilience: crate::diar::resilient::GpuResilience,
 }
 
 impl EmbeddingModel {
     pub fn new(model_path: impl AsRef<Path>, exec_config: &ExecutionConfig) -> Result<Self> {
         let model_path = model_path.as_ref();
+        let session = Self::build_session(model_path, exec_config)?;
+
+        let metadata_path = model_path.with_extension("min_num_samples.txt");
+        let min_num_samples =
+            read_min_num_samples(&metadata_path).unwrap_or(DEFAULT_MIN_NUM_SAMPLES);
+
+        Ok(Self {
+            session,
+            waveform_buffer: Array3::zeros((1, 1, WINDOW_SAMPLES)),
+            weights_buffer: Array2::zeros((1, MASK_FRAMES)),
+            min_num_samples,
+            resilience: crate::diar::resilient::GpuResilience::new(
+                "diar embedding",
+                model_path.to_path_buf(),
+                exec_config.clone(),
+            ),
+        })
+    }
+
+    fn build_session(model_path: &Path, exec_config: &ExecutionConfig) -> Result<Session> {
         let cfg = exec_config
             .clone()
             .with_intra_threads(1)
@@ -40,18 +61,7 @@ impl EmbeddingModel {
                     .map_err(Into::into)
             });
         let mut builder = cfg.apply_to_session_builder(Session::builder()?)?;
-        let session = builder.commit_from_file(model_path)?;
-
-        let metadata_path = model_path.with_extension("min_num_samples.txt");
-        let min_num_samples =
-            read_min_num_samples(&metadata_path).unwrap_or(DEFAULT_MIN_NUM_SAMPLES);
-
-        Ok(Self {
-            session,
-            waveform_buffer: Array3::zeros((1, 1, WINDOW_SAMPLES)),
-            weights_buffer: Array2::zeros((1, MASK_FRAMES)),
-            min_num_samples,
-        })
+        Ok(builder.commit_from_file(model_path)?)
     }
 
     pub fn min_num_samples(&self) -> usize {
@@ -80,10 +90,52 @@ impl EmbeddingModel {
         }
         prepare_weights(weights, &mut self.weights_buffer);
 
-        let waveform_tensor = TensorRef::from_array_view(self.waveform_buffer.view())?;
-        let weights_tensor = TensorRef::from_array_view(self.weights_buffer.view())?;
-        let outputs = self
-            .session
+        // Degraded to CPU earlier: periodically try to move back to the GPU.
+        if self.resilience.should_probe_gpu() {
+            match Self::build_session(&self.resilience.model_path, &self.resilience.exec_config) {
+                Ok(session) => {
+                    self.session = session;
+                    self.resilience.mark_gpu();
+                    eprintln!("[dictee] {} resumed on GPU.", self.resilience.label());
+                }
+                Err(_) => self.resilience.probe_failed(),
+            }
+        }
+
+        let first = if self.resilience.inject_failure() {
+            Err(Error::Diar(
+                "injected GPU failure (DICTEE_DIAR_FAIL_WINDOW)".to_string(),
+            ))
+        } else {
+            Self::infer(&mut self.session, &self.waveform_buffer, &self.weights_buffer)
+        };
+        match first {
+            Ok(out) => Ok(out),
+            // Mid-run GPU failure (typically VRAM exhausted by another app):
+            // rebuild on CPU and retry THIS window, then keep going degraded.
+            Err(e) if !self.resilience.on_cpu && self.resilience.gpu_preferred() => {
+                eprintln!(
+                    "[dictee] {} inference failed on GPU ({}); rebuilding on CPU and retrying.",
+                    self.resilience.label(),
+                    e
+                );
+                self.session =
+                    Self::build_session(&self.resilience.model_path, &self.resilience.cpu_config())?;
+                self.resilience.mark_cpu();
+                Self::infer(&mut self.session, &self.waveform_buffer, &self.weights_buffer)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn infer(
+        session: &mut Session,
+        waveform_buffer: &Array3<f32>,
+        weights_buffer: &Array2<f32>,
+    ) -> Result<Array1<f32>> {
+        let waveform_tensor = TensorRef::from_array_view(waveform_buffer.view())?;
+        let weights_tensor = TensorRef::from_array_view(weights_buffer.view())?;
+        let outputs = session
             .run(ort::inputs!["waveform" => waveform_tensor, "weights" => weights_tensor])?;
         // Upstream v0.5.0 fix: never index outputs[0] (panics when empty).
         let output = outputs

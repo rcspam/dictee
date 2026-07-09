@@ -21,6 +21,7 @@ pub struct SegmentationModel {
     input_buffer: Array3<f32>,
     window_samples: usize,
     step_samples: usize,
+    resilience: crate::diar::resilient::GpuResilience,
 }
 
 impl SegmentationModel {
@@ -32,9 +33,24 @@ impl SegmentationModel {
     ) -> Result<Self> {
         let window_samples = (WINDOW_SECONDS * SAMPLE_RATE as f32) as usize;
         let step_samples = (step_seconds * SAMPLE_RATE as f32) as usize;
+        let session = Self::build_session(model_path.as_ref(), exec_config)?;
 
-        // Same session tuning as upstream: capped intra-op threads, one
-        // inter-op thread, memory pattern, independent thread pool.
+        Ok(Self {
+            session,
+            input_buffer: Array3::zeros((1, 1, window_samples)),
+            window_samples,
+            step_samples,
+            resilience: crate::diar::resilient::GpuResilience::new(
+                "diar segmentation",
+                model_path.as_ref().to_path_buf(),
+                exec_config.clone(),
+            ),
+        })
+    }
+
+    /// Same session tuning as upstream: capped intra-op threads, one
+    /// inter-op thread, memory pattern, independent thread pool.
+    fn build_session(model_path: &Path, exec_config: &ExecutionConfig) -> Result<Session> {
         let intra = std::thread::available_parallelism()
             .map(|n| n.get().min(6))
             .unwrap_or(1);
@@ -50,14 +66,7 @@ impl SegmentationModel {
                     .map_err(Into::into)
             });
         let mut builder = cfg.apply_to_session_builder(Session::builder()?)?;
-        let session = builder.commit_from_file(model_path.as_ref())?;
-
-        Ok(Self {
-            session,
-            input_buffer: Array3::zeros((1, 1, window_samples)),
-            window_samples,
-            step_samples,
-        })
+        Ok(builder.commit_from_file(model_path)?)
     }
 
     pub fn window_samples(&self) -> usize {
@@ -106,9 +115,49 @@ impl SegmentationModel {
         self.input_buffer
             .slice_mut(ndarray::s![0, 0, ..window.len()])
             .assign(&ndarray::ArrayView1::from(window));
-        let input_tensor = TensorRef::from_array_view(self.input_buffer.view())?;
 
-        let outputs = self.session.run(ort::inputs![input_tensor])?;
+        // Degraded to CPU earlier: periodically try to move back to the GPU
+        // (the external VRAM consumer may have unloaded by now).
+        if self.resilience.should_probe_gpu() {
+            match Self::build_session(&self.resilience.model_path, &self.resilience.exec_config) {
+                Ok(session) => {
+                    self.session = session;
+                    self.resilience.mark_gpu();
+                    eprintln!("[dictee] {} resumed on GPU.", self.resilience.label());
+                }
+                Err(_) => self.resilience.probe_failed(),
+            }
+        }
+
+        let first = if self.resilience.inject_failure() {
+            Err(Error::Diar(
+                "injected GPU failure (DICTEE_DIAR_FAIL_WINDOW)".to_string(),
+            ))
+        } else {
+            Self::infer(&mut self.session, &self.input_buffer)
+        };
+        match first {
+            Ok(out) => Ok(out),
+            // Mid-run GPU failure (typically VRAM exhausted by another app):
+            // rebuild on CPU and retry THIS window, then keep going degraded.
+            Err(e) if !self.resilience.on_cpu && self.resilience.gpu_preferred() => {
+                eprintln!(
+                    "[dictee] {} inference failed on GPU ({}); rebuilding on CPU and retrying.",
+                    self.resilience.label(),
+                    e
+                );
+                self.session =
+                    Self::build_session(&self.resilience.model_path, &self.resilience.cpu_config())?;
+                self.resilience.mark_cpu();
+                Self::infer(&mut self.session, &self.input_buffer)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn infer(session: &mut Session, input_buffer: &Array3<f32>) -> Result<Array2<f32>> {
+        let input_tensor = TensorRef::from_array_view(input_buffer.view())?;
+        let outputs = session.run(ort::inputs![input_tensor])?;
         // Upstream v0.5.0 fix: never index outputs[0] (panics when empty).
         let output = outputs
             .values()
