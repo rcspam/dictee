@@ -64,6 +64,9 @@ pub struct PipelineConfig {
     pub vbx: VbxConfig,
     /// Maximum gap in seconds between segments to merge into one
     pub merge_gap: f64,
+    /// Minimum turn duration in seconds: shorter speaker islands cleanly
+    /// bracketed by the same other speaker are absorbed (0 = disabled).
+    pub min_turn_duration: f64,
     /// Minimum speaker activity weight to keep a speaker in output
     pub speaker_keep_threshold: f64,
     /// Strategy for mapping clusters back to frame activations
@@ -77,6 +80,10 @@ impl Default for PipelineConfig {
             ahc: AhcConfig::default(),
             vbx: VbxConfig::default(),
             merge_gap: 0.0,
+            // Absorb sub-0.5 s spurious speaker islands (segmentation blips on
+            // tightly-cut audio). Only islands cleanly bracketed by the same
+            // other speaker are touched, so genuine turns are never merged.
+            min_turn_duration: 0.5,
             speaker_keep_threshold: 1e-7,
             reconstruct_method: ReconstructMethod::Smoothed { epsilon: 0.1 },
         }
@@ -715,6 +722,8 @@ pub(crate) fn post_inference(
 
     let segments = discrete_diarization.to_segments(FRAME_STEP_SECONDS, FRAME_DURATION_SECONDS);
     let segments = merge_segments(&segments, config.merge_gap);
+    let segments =
+        crate::diar::segment::enforce_min_turn(&segments, config.min_turn_duration);
 
     Ok(DiarizationResult {
         segmentations,

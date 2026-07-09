@@ -453,6 +453,10 @@ impl LiveDiarizer {
             &discrete.to_segments(FRAME_STEP_SECONDS, FRAME_DURATION_SECONDS),
             self.config.pipeline.merge_gap,
         );
+        let segments = crate::diar::segment::enforce_min_turn(
+            &segments,
+            self.config.pipeline.min_turn_duration,
+        );
 
         let mut turns = Vec::new();
         for seg in segments {

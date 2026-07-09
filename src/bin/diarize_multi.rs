@@ -46,6 +46,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Options:");
             eprintln!("  --num-speakers <N>     Force the exact speaker count (default: auto)");
             eprintln!("  --threshold <0.0-2.0>  AHC distance threshold (default: 0.6, lower = more speakers)");
+            eprintln!("  --min-turn <secs>      Absorb speaker islands shorter than this when");
+            eprintln!("                         bracketed by the same other speaker (default: 0.5, 0 = off)");
             eprintln!("  --models-dir <dir>     Model directory (default: ~/.local/share/dictee/diar");
             eprintln!("                         then /usr/share/dictee/diar)");
             eprintln!("  --rttm <file-id>       Output RTTM lines instead of 'start end id'");
@@ -64,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut rttm_id: Option<String> = None;
         let mut live = false;
         let mut overlap_secs: f64 = 10.0;
+        let mut min_turn: Option<f64> = None;
         let mut positional: Vec<String> = Vec::new();
         let mut i = 1;
         while i < args.len() {
@@ -77,6 +80,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 "--threshold" if i + 1 < args.len() => {
                     threshold = args[i + 1].parse()?;
+                    i += 1;
+                }
+                "--min-turn" if i + 1 < args.len() => {
+                    min_turn = Some(args[i + 1].parse()?);
                     i += 1;
                 }
                 "--num-speakers" if i + 1 < args.len() => {
@@ -159,6 +166,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut config = PipelineConfig::default();
         config.ahc.threshold = threshold;
         config.ahc.num_clusters = num_speakers;
+        if let Some(mt) = min_turn {
+            config.min_turn_duration = mt;
+        }
 
         let result = diarizer.diarize(&audio, &config)?;
 

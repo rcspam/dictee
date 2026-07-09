@@ -113,6 +113,43 @@ pub fn merge_segments(segments: &[Segment], max_gap: f64) -> Vec<Segment> {
     merged
 }
 
+/// Absorb spurious short speaker "islands" back into the surrounding talker.
+///
+/// The segmentation model occasionally emits a very short turn of one speaker
+/// in the middle of a continuous stretch of another (e.g. a 0.5 s Speaker-0
+/// blip inside a Speaker-1 sentence on tightly-cut produced audio). When such
+/// an island is shorter than `min_duration` AND is cleanly bracketed (no time
+/// overlap) by two segments of the SAME other speaker, drop it and let that
+/// speaker span the gap. Islands at a real boundary (the neighbours differ) or
+/// overlapping their neighbours (genuine simultaneous speech) are left intact —
+/// no guess is made where the timeline is ambiguous. Standard min-turn
+/// post-processing (pyannote/whisperX have an equivalent); segments must be
+/// start-sorted (they are, after `to_segments`).
+pub fn enforce_min_turn(segments: &[Segment], min_duration: f64) -> Vec<Segment> {
+    if min_duration <= 0.0 || segments.len() < 3 {
+        return segments.to_vec();
+    }
+    let mut segs: Vec<Segment> = segments.to_vec();
+    let mut i = 1;
+    while i + 1 < segs.len() {
+        let island = &segs[i];
+        let prev = &segs[i - 1];
+        let next = &segs[i + 1];
+        let bracketed_same = prev.speaker == next.speaker && prev.speaker != island.speaker;
+        // Clean bracket: island sits in the gap, overlapping neither neighbour
+        // (a small epsilon tolerates float boundaries touching).
+        let no_overlap = island.start >= prev.end - 1e-6 && next.start >= island.end - 1e-6;
+        if island.duration() < min_duration && bracketed_same && no_overlap {
+            segs[i - 1].end = segs[i + 1].end; // prev speaker spans the island
+            segs.drain(i..=i + 1); // remove island + merged-in next
+            i = i.saturating_sub(1).max(1); // re-examine around the merge
+        } else {
+            i += 1;
+        }
+    }
+    segs
+}
+
 /// Format segments as RTTM output
 pub fn to_rttm(segments: &[Segment], file_id: &str) -> String {
     segments
@@ -219,5 +256,54 @@ mod tests {
             display,
             "SPEAKER file 1 1.000 1.500 <NA> <NA> SPEAKER_01 <NA> <NA>"
         );
+    }
+
+    #[test]
+    fn min_turn_absorbs_short_island_between_same_speaker() {
+        // 0.5 s Speaker 0 island inside a continuous Speaker 1 stretch.
+        let segs = vec![
+            Segment::new(0.0, 10.0, "SPEAKER_01"),
+            Segment::new(10.0, 10.5, "SPEAKER_00"),
+            Segment::new(10.5, 20.0, "SPEAKER_01"),
+        ];
+        let out = enforce_min_turn(&segs, 0.6);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].speaker, "SPEAKER_01");
+        assert_eq!(out[0].start, 0.0);
+        assert_eq!(out[0].end, 20.0);
+    }
+
+    #[test]
+    fn min_turn_keeps_island_at_a_real_boundary() {
+        // Short segment with DIFFERENT neighbours = a real transition, kept.
+        let segs = vec![
+            Segment::new(0.0, 10.0, "SPEAKER_00"),
+            Segment::new(10.0, 10.4, "SPEAKER_01"),
+            Segment::new(10.4, 20.0, "SPEAKER_02"),
+        ];
+        let out = enforce_min_turn(&segs, 0.6);
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn min_turn_keeps_overlapping_island() {
+        // Genuine simultaneous speech (island overlaps its neighbours) is kept.
+        let segs = vec![
+            Segment::new(0.0, 10.5, "SPEAKER_01"),
+            Segment::new(10.0, 10.4, "SPEAKER_00"),
+            Segment::new(10.2, 20.0, "SPEAKER_01"),
+        ];
+        let out = enforce_min_turn(&segs, 0.6);
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn min_turn_disabled_is_identity() {
+        let segs = vec![
+            Segment::new(0.0, 10.0, "SPEAKER_01"),
+            Segment::new(10.0, 10.5, "SPEAKER_00"),
+            Segment::new(10.5, 20.0, "SPEAKER_01"),
+        ];
+        assert_eq!(enforce_min_turn(&segs, 0.0).len(), 3);
     }
 }
