@@ -15,6 +15,7 @@ pub mod ahc;
 pub mod binarize;
 pub mod emb_model;
 pub mod linalg;
+pub mod live;
 pub mod pipeline;
 pub mod plda;
 pub mod powerset;

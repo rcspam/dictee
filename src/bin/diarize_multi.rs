@@ -49,6 +49,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("  --models-dir <dir>     Model directory (default: ~/.local/share/dictee/diar");
             eprintln!("                         then /usr/share/dictee/diar)");
             eprintln!("  --rttm <file-id>       Output RTTM lines instead of 'start end id'");
+            eprintln!("  --live                 Streaming mode: read 'FILE: <wav>' chunk paths on");
+            eprintln!("                         stdin, print chunk-relative 'start end id' segments");
+            eprintln!("                         plus a blank terminator line per chunk (drop-in");
+            eprintln!("                         replacement for diarize-only --stream, no 4-cap)");
+            eprintln!("  --overlap-secs <S>     Live mode: seconds of overlap between consecutive");
+            eprintln!("                         chunks (default: 10)");
             std::process::exit(0);
         }
 
@@ -56,10 +62,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut num_speakers: Option<usize> = None;
         let mut models_dir: Option<PathBuf> = None;
         let mut rttm_id: Option<String> = None;
+        let mut live = false;
+        let mut overlap_secs: f64 = 10.0;
         let mut positional: Vec<String> = Vec::new();
         let mut i = 1;
         while i < args.len() {
             match args[i].as_str() {
+                "--live" => {
+                    live = true;
+                }
+                "--overlap-secs" if i + 1 < args.len() => {
+                    overlap_secs = args[i + 1].parse()?;
+                    i += 1;
+                }
                 "--threshold" if i + 1 < args.len() => {
                     threshold = args[i + 1].parse()?;
                     i += 1;
@@ -83,16 +98,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             i += 1;
         }
-        let audio_path = positional
-            .first()
-            .ok_or("missing <audio> argument (see --help)")?
-            .clone();
-
         let models_dir = match models_dir {
             Some(dir) => dir,
             None => default_models_dir()?,
         };
         dbg_print!("models dir: {}", models_dir.display());
+
+        if live {
+            return run_live_mode(&models_dir, threshold, overlap_secs, debug);
+        }
+
+        let audio_path = positional
+            .first()
+            .ok_or("missing <audio> argument (see --help)")?
+            .clone();
 
         // Convert to WAV 16kHz mono if needed (same idiom as diarize-only).
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
@@ -171,6 +190,147 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Ok(())
     }
+}
+
+/// Streaming mode: drop-in replacement for `diarize-only --stream` without
+/// the 4-speaker cap. Same wire protocol: `FILE: <wav>` per stdin line (16 kHz
+/// mono chunks that overlap the previous chunk by `overlap_secs`), chunk-
+/// relative `start end speaker_id` lines plus one blank terminator line on
+/// stdout, `RESET`/`RESET_OK`, `ERROR: ...` on chunk failure, and a stderr
+/// line containing "ready" once the models are loaded.
+#[cfg(feature = "diar")]
+fn run_live_mode(
+    models_dir: &std::path::Path,
+    threshold: f32,
+    overlap_secs: f64,
+    debug: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{BufRead, Write};
+
+    use parakeet_rs::diar::live::{LiveConfig, LiveDiarizer};
+
+    let mut config = LiveConfig::default();
+    config.pipeline.ahc.threshold = threshold;
+
+    let provider = parakeet_rs::best_provider();
+    let exec = ExecutionConfig::new().with_execution_provider(provider);
+    let mut diarizer = match LiveDiarizer::from_dir(models_dir, Some(exec), config.clone()) {
+        Ok(d) => d,
+        Err(e) if provider != parakeet_rs::ExecutionProvider::Cpu => {
+            eprintln!(
+                "[diarize-multi --live] GPU init failed ({}); retrying on CPU.",
+                e
+            );
+            let cpu = ExecutionConfig::new()
+                .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
+            LiveDiarizer::from_dir(models_dir, Some(cpu), config)?
+        }
+        Err(e) => return Err(e.into()),
+    };
+
+    let stdin = std::io::stdin();
+    let mut reader = stdin.lock();
+    let stdout_handle = std::io::stdout();
+    let mut stdout = stdout_handle.lock();
+    let mut first_chunk = true;
+
+    eprintln!("[diarize-multi --live] ready");
+
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            eprintln!("[diarize-multi --live] EOF, exiting");
+            break;
+        }
+        let cmd = line.trim();
+        if cmd.is_empty() {
+            continue;
+        }
+        if cmd == "RESET" {
+            diarizer.reset();
+            first_chunk = true;
+            writeln!(stdout, "RESET_OK")?;
+            stdout.flush()?;
+            continue;
+        }
+        if let Some(path) = cmd.strip_prefix("FILE: ") {
+            match live_chunk(&mut diarizer, path, first_chunk, overlap_secs) {
+                Ok((turns, chunk_start)) => {
+                    for t in &turns {
+                        writeln!(
+                            stdout,
+                            "{:.3} {:.3} {}",
+                            t.start - chunk_start,
+                            t.end - chunk_start,
+                            t.speaker
+                        )?;
+                    }
+                    writeln!(stdout)?;
+                    stdout.flush()?;
+                    first_chunk = false;
+                    if debug {
+                        eprintln!(
+                            "[DBG diarize-multi --live] {} turns, timeline end {:.1}s",
+                            turns.len(),
+                            diarizer.total_seconds()
+                        );
+                    }
+                }
+                Err(e) => {
+                    writeln!(stdout, "ERROR: {e}")?;
+                    stdout.flush()?;
+                }
+            }
+        } else {
+            writeln!(stdout, "ERROR: unknown command")?;
+            stdout.flush()?;
+        }
+    }
+    Ok(())
+}
+
+/// Feed one meeting chunk into the live diarizer and return its speaker
+/// turns (global timeline) plus the chunk's global start time.
+#[cfg(feature = "diar")]
+fn live_chunk(
+    diarizer: &mut parakeet_rs::diar::live::LiveDiarizer,
+    path: &str,
+    first_chunk: bool,
+    overlap_secs: f64,
+) -> Result<(Vec<parakeet_rs::diar::live::LiveTurn>, f64), Box<dyn std::error::Error>> {
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("file not found: {}", path).into());
+    }
+    let mut reader = hound::WavReader::open(path)?;
+    let spec = reader.spec();
+    if spec.sample_rate != 16000 || spec.channels != 1 {
+        return Err(format!(
+            "expected 16 kHz mono WAV chunk, got {} Hz / {} ch",
+            spec.sample_rate, spec.channels
+        )
+        .into());
+    }
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
+        hound::SampleFormat::Int => reader
+            .samples::<i16>()
+            .map(|s| s.map(|v| v as f32 / 32768.0))
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    let chunk_secs = samples.len() as f64 / 16000.0;
+    // Every chunk after the first re-sends `overlap_secs` of already-pushed
+    // audio (the meeting chunker's fixed overlap): skip it.
+    let skip = if first_chunk {
+        0
+    } else {
+        ((overlap_secs * 16000.0).round() as usize).min(samples.len())
+    };
+    diarizer.push_audio(&samples[skip..])?;
+    let end = diarizer.total_seconds();
+    let chunk_start = (end - chunk_secs).max(0.0);
+    let turns = diarizer.turns_in_range(chunk_start, end)?;
+    Ok((turns, chunk_start))
 }
 
 /// User model dir first (local overrides), then the system dir. The

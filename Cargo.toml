@@ -27,6 +27,12 @@ path = "examples/raw.rs"
 name = "streaming"
 path = "examples/streaming.rs"
 
+# Live-diarization protocol POC (not shipped; requires --features diar).
+[[example]]
+name = "live-diarize-poc"
+path = "examples/live_diarize_poc.rs"
+required-features = ["diar"]
+
 [[bin]]
 name = "transcribe"
 path = "src/bin/transcribe.rs"
