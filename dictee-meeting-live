@@ -774,34 +774,71 @@ class TranscriptionWorker(QObject):
         self.aligned_direct.emit(chunk_id, lines)
 
 
+def _diar_multi_available():
+    """Check if the in-house multi-speaker diarization engine is usable:
+    diarize-multi binary on PATH + its models installed (sentinel =
+    segmentation-3.0.onnx, same convention as the Rust default_models_dir
+    and dictee-transcribe). When available its --live mode is preferred over
+    diarize-only --stream (no 4-speaker cap)."""
+    if not shutil.which("diarize-multi"):
+        return False
+    sentinel = "segmentation-3.0.onnx"
+    dd = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "diar",
+    )
+    if os.path.isfile(os.path.join(dd, sentinel)):
+        return True
+    return os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel))
+
+
 class DiarizationWorker(QObject):
-    """Keeps diarize-only --stream alive and sends chunks via stdin.
+    """Keeps a streaming diarizer subprocess alive and sends chunks via stdin.
+
+    Engine: diarize-multi --live when installed (in-house engine, no
+    speaker-count cap, ids kept stable by centroid matching), else
+    diarize-only --stream (Sortformer, 4-speaker cap, ids kept stable by
+    its streaming state). Both speak the same wire protocol.
 
     Emits (chunk_id, segments) where segments = [{"start_s", "end_s", "speaker_id"}, ...]
-    Sortformer state is preserved between chunks → stable speaker IDs.
     """
 
     diarized = pyqtSignal(int, list)
     error = pyqtSignal(int, str)
-    ready = pyqtSignal()           # emitted once Sortformer has finished loading
+    ready = pyqtSignal()           # emitted once the model has finished loading
 
-    def __init__(self):
+    def __init__(self, overlap: int = 10, engine: str = "auto",
+                 sensitivity: float = 0.5):
         super().__init__()
         self.proc = None
+        # engine: "auto" (multi-speaker engine when installed, else
+        # Sortformer), "multi", or "sortformer" (UI combo; unavailable
+        # engines are greyed out there). sensitivity (0.0-1.0, 0.5 =
+        # engine default) maps to each engine's own knob, mirroring
+        # dictee-transcribe: multi AHC threshold = sensitivity * 1.2.
+        use_multi = engine == "multi" or (
+            engine == "auto" and _diar_multi_available())
+        if use_multi:
+            self.cmd = ["diarize-multi", "--live", "--overlap-secs", str(overlap),
+                        "--threshold", f"{sensitivity * 1.2:.2f}"]
+        else:
+            self.cmd = ["diarize-only", "--stream",
+                        "--sensitivity", f"{sensitivity:.2f}"]
+        self.label = " ".join(self.cmd[:2])
         # One persistent stdin/stdout pipe shared by the executor's workers:
         # serialize diarize() calls so two chunks can't interleave their
         # request+response (which mis-attributes segments to the wrong chunk).
         self._lock = threading.Lock()
 
     def start(self) -> bool:
-        """Launch diarize-only --stream WITHOUT blocking the caller. The model
-        load (a few seconds of Sortformer/ONNX + CUDA init) is awaited on a
-        background thread that emits `ready` (or `error`). The first live chunk
-        only arrives at chunk_duration (~40 s), so the model has ample time to
+        """Launch the diarizer WITHOUT blocking the caller. The model load
+        (a few seconds of ONNX + CUDA init) is awaited on a background
+        thread that emits `ready` (or `error`). The first live chunk only
+        arrives at chunk_duration (~40 s), so the model has ample time to
         load. Returns True if the process spawned, False on spawn failure."""
         try:
             self.proc = subprocess.Popen(
-                ["diarize-only", "--stream"],
+                self.cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -810,7 +847,7 @@ class DiarizationWorker(QObject):
                 env=_build_subprocess_env(),
             )
         except FileNotFoundError:
-            self.error.emit(0, "diarize-only binary not found. Sortformer feature built?")
+            self.error.emit(0, f"{self.cmd[0]} binary not found. Diarization feature built?")
             return False
         threading.Thread(target=self._await_ready, daemon=True).start()
         return True
@@ -822,13 +859,13 @@ class DiarizationWorker(QObject):
         while time.monotonic() < deadline:
             line = self.proc.stderr.readline()
             if not line:
-                self.error.emit(0, "diarize-only --stream stderr EOF before ready")
+                self.error.emit(0, f"{self.label} stderr EOF before ready")
                 return
             if "ready" in line:
                 self.ready.emit()
                 break
         else:
-            self.error.emit(0, "diarize-only --stream startup timeout (30s)")
+            self.error.emit(0, f"{self.label} startup timeout (30s)")
             return
         try:
             for _ in self.proc.stderr:   # drain (discard) until the proc exits
@@ -841,7 +878,7 @@ class DiarizationWorker(QObject):
             self.error.emit(chunk_id, "DiarizationWorker not started")
             return
         if self.proc.poll() is not None:
-            self.error.emit(chunk_id, f"diarize-only exited with code {self.proc.returncode}")
+            self.error.emit(chunk_id, f"{self.cmd[0]} exited with code {self.proc.returncode}")
             return
         try:
             with self._lock:
@@ -849,14 +886,14 @@ class DiarizationWorker(QObject):
                 self.proc.stdin.flush()
                 self._collect_response(chunk_id)
         except BrokenPipeError:
-            self.error.emit(chunk_id, "diarize-only stdin pipe broken")
+            self.error.emit(chunk_id, f"{self.cmd[0]} stdin pipe broken")
 
     def _collect_response(self, chunk_id: int):
         segments = []
         while True:
             line = self.proc.stdout.readline()
             if not line:
-                self.error.emit(chunk_id, "diarize-only stdout EOF unexpected")
+                self.error.emit(chunk_id, f"{self.cmd[0]} stdout EOF unexpected")
                 return
             line = line.rstrip("\n")
             if line == "":
@@ -1275,6 +1312,61 @@ class MeetingWindow(QWidget):
                                             self._model_combo.currentData()))
         model_row.addWidget(self._model_combo, 1)
         left_col.addLayout(model_row)
+
+        # Diarization engine selector: persisted in DICTEE_MEETING_DIAR_ENGINE.
+        # "auto" keeps the historical behavior (multi-speaker engine when
+        # installed, else Sortformer); the explicit entries let the user pick
+        # per meeting (e.g. Sortformer on heavily produced/musical audio).
+        diar_row = QHBoxLayout()
+        diar_row.addWidget(QLabel("Diarisation :"))
+        self._diar_combo = QComboBox()
+        _multi_ok = _diar_multi_available()
+        _sf_ok = bool(shutil.which("diarize-only"))
+        for _lbl, _key in (("Auto", "auto"),
+                           ("Multi-locuteurs (sans limite)", "multi"),
+                           ("Sortformer (4 max)", "sortformer")):
+            self._diar_combo.addItem(_lbl, _key)
+        if not _multi_ok:
+            self._diar_combo.model().item(1).setEnabled(False)
+        if not _sf_ok:
+            self._diar_combo.model().item(2).setEnabled(False)
+        self._diar_combo.setToolTip(
+            "Moteur de séparation des locuteurs pour l'aperçu live. "
+            "Auto = multi-locuteurs si installé, sinon Sortformer.")
+        _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "auto").strip()
+        _i = self._diar_combo.findData(_saved_diar)
+        if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
+            self._diar_combo.setCurrentIndex(_i)
+        self._diar_combo.currentIndexChanged.connect(
+            lambda _i: self._write_conf_key("DICTEE_MEETING_DIAR_ENGINE",
+                                            self._diar_combo.currentData()))
+        diar_row.addWidget(self._diar_combo, 1)
+        # Detection threshold, same scale as dictee-transcribe's slider
+        # (50 % = engine default). Applied at meeting start; persisted in
+        # DICTEE_MEETING_DIAR_SENSITIVITY.
+        self._diar_slider = QSlider(Qt.Orientation.Horizontal)
+        self._diar_slider.setRange(0, 100)
+        try:
+            _sens = int(_conf.get("DICTEE_MEETING_DIAR_SENSITIVITY") or 50)
+        except ValueError:
+            _sens = 50
+        self._diar_slider.setValue(max(0, min(100, _sens)))
+        self._diar_slider.setFixedWidth(100)
+        self._diar_slider.setToolTip(
+            "Seuil de détection des locuteurs (appliqué au démarrage de la "
+            "réunion). ← plus de locuteurs détectés · plus de locuteurs "
+            "fusionnés →. 50 % = défaut ; montez vers 75 % si une même "
+            "personne est éclatée en plusieurs locuteurs.")
+        self._diar_slider_val = QLabel(f"{self._diar_slider.value()}%")
+        self._diar_slider_val.setFixedWidth(35)
+        self._diar_slider.valueChanged.connect(
+            lambda v: self._diar_slider_val.setText(f"{v}%"))
+        self._diar_slider.sliderReleased.connect(
+            lambda: self._write_conf_key("DICTEE_MEETING_DIAR_SENSITIVITY",
+                                         str(self._diar_slider.value())))
+        diar_row.addWidget(self._diar_slider)
+        diar_row.addWidget(self._diar_slider_val)
+        left_col.addLayout(diar_row)
 
         # "Add mic" toggle: when an app source is selected, also mix the
         # microphone into the isolated app capture (passed to dictee-app-capture
@@ -2154,11 +2246,14 @@ class MeetingWindow(QWidget):
         _nemotron_sock = self._live_asr_sock if self._nemotron_live else None
         self.transcriber = TranscriptionWorker(whisper_sock=_whisper_sock,
                                                nemotron_sock=_nemotron_sock)
-        self.diarizer = DiarizationWorker()
+        self.diarizer = DiarizationWorker(
+            overlap=10,  # same overlap as ChunkerWorker
+            engine=self._diar_combo.currentData() or "auto",
+            sensitivity=self._diar_slider.value() / 100.0)
         self._diarizer_ready = False
         self.diarizer.ready.connect(self._on_diarizer_ready)
         if not self.diarizer.start():   # non-blocking: model loads in background
-            self._on_error_msg("Failed to start diarize-only --stream")
+            self._on_error_msg(f"Failed to start {self.diarizer.label}")
 
         self.aligner = AlignerWorker()
         self.aligner.chunk_offset = {}

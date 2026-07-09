@@ -1063,14 +1063,16 @@ class _ChunkedPipelineWorker(QThread):
                           # (repeated sentences) at every chunk boundary.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, diarize=True, parent=None, env_override=None):
+    def __init__(self, audio_path, sensitivity, diarize=True, parent=None,
+                 env_override=None, allow_diar_multi=True):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
         self._diarize = diarize
         # Engine choice is frozen at job start (availability won't change
         # mid-run): multi-speaker engine preferred, Sortformer fallback.
-        self._use_diar_multi = _diar_multi_available()
+        # allow_diar_multi=False forces Sortformer (UI engine combo).
+        self._use_diar_multi = allow_diar_multi and _diar_multi_available()
         self._duration = 0.0  # set in run(), used for the diarize timeout
         self._cancel = False
         self._tmp_dir = None
@@ -2763,11 +2765,46 @@ class TranscribeWindow(QDialog):
         # snug against the toggle in the parent row.
         self._w_threshold.setVisible(False)
 
+        # Diarization engine combo (same visibility rhythm as the threshold
+        # widget). "Auto" preserves the historical preference (multi-speaker
+        # engine when installed, else Sortformer); the explicit entries let
+        # the user force one (e.g. Sortformer on heavily produced audio).
+        # Persisted per window in QSettings, like the translate choices.
+        self._w_diar_engine = QWidget()
+        lay_diar_eng = QHBoxLayout(self._w_diar_engine)
+        lay_diar_eng.setContentsMargins(0, 0, 0, 0)
+        # Explicit label: without it the combo reads as "the model" while it
+        # only picks WHO-SPEAKS-WHEN — the transcription model is the top
+        # combo (user got bitten on 2026-07-08).
+        lay_diar_eng.addWidget(QLabel(_("Engine:")))
+        self._cmb_diar_engine = QComboBox()
+        self._cmb_diar_engine.addItem(_("Auto"), "auto")
+        self._cmb_diar_engine.addItem(_("Multi-speaker (no limit)"), "multi")
+        self._cmb_diar_engine.addItem(_("Sortformer (max 4)"), "sortformer")
+        if not diar_multi_ok:
+            self._cmb_diar_engine.model().item(1).setEnabled(False)
+        if not sortformer_ok:
+            self._cmb_diar_engine.model().item(2).setEnabled(False)
+        self._cmb_diar_engine.setToolTip(self._tip(
+            _("Diarization engine. Auto uses the multi-speaker engine when "
+              "installed, otherwise Sortformer (max 4 speakers).")))
+        _qs_diar = QSettings("dictee", "transcribe")
+        _i = self._cmb_diar_engine.findData(
+            _qs_diar.value("diarize/engine", "auto"))
+        if _i >= 0 and self._cmb_diar_engine.model().item(_i).isEnabled():
+            self._cmb_diar_engine.setCurrentIndex(_i)
+        self._cmb_diar_engine.currentIndexChanged.connect(
+            lambda _i: QSettings("dictee", "transcribe").setValue(
+                "diarize/engine", self._cmb_diar_engine.currentData()))
+        lay_diar_eng.addWidget(self._cmb_diar_engine)
+        self._w_diar_engine.setVisible(False)
+
         lay_diarize_row = QHBoxLayout()
         lay_diarize_row.setContentsMargins(0, 0, 0, 0)
         lay_diarize_row.setSpacing(12)
         lay_diarize_row.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addWidget(self._w_threshold, 0, Qt.AlignmentFlag.AlignLeft)
+        lay_diarize_row.addWidget(self._w_diar_engine, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addStretch(1)
         lay_opts.addLayout(lay_diarize_row)
         self._chk_diarize.toggled.connect(self._on_diarize_toggled)
@@ -3913,8 +3950,13 @@ class TranscribeWindow(QDialog):
 
     def _on_diarize_toggled(self, checked):
         self._w_threshold.setVisible(checked)
+        self._w_diar_engine.setVisible(checked)
         self._update_long_audio_warning()
         self._refresh_window_icon()
+
+    def _diar_allow_multi(self):
+        """False when the diarization-engine combo forces Sortformer."""
+        return (self._cmb_diar_engine.currentData() or "auto") != "sortformer"
 
     def _refresh_window_icon(self):
         """Switch the window icon between the violet 'diarize' and the
@@ -4217,7 +4259,8 @@ class TranscribeWindow(QDialog):
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
                 audio_path, sensitivity, diarize=diarize, parent=self,
-                env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None))
+                env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None),
+                allow_diar_multi=self._diar_allow_multi())
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -4263,7 +4306,7 @@ class TranscribeWindow(QDialog):
             has_transcribe=bool(shutil.which("transcribe")),
             has_diarize_only=bool(shutil.which("diarize-only")),
             has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
-            has_diarize_multi=_diar_multi_available(),
+            has_diarize_multi=self._diar_allow_multi() and _diar_multi_available(),
         )
         if cmd is None:
             self._progress.setVisible(False)
@@ -4281,7 +4324,7 @@ class TranscribeWindow(QDialog):
         # preference as the routing matrix: diarize-multi first, Sortformer
         # fallback.
         if _whisper_isolated or _whisper_rust_isolated or _nemotron_isolated:
-            if _diar_multi_available():
+            if self._diar_allow_multi() and _diar_multi_available():
                 cmd, two_phase = "diarize-multi", True
             elif shutil.which("diarize-only"):
                 cmd, two_phase = "diarize-only", True
