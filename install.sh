@@ -261,9 +261,16 @@ mode_online() {
 
     # ---- Detect GPU ----
     detect_gpu() {
+        # nvidia-smi is the strongest signal (driver present + card visible).
+        command -v nvidia-smi >/dev/null 2>&1 \
+            && nvidia-smi -L 2>/dev/null | grep -qi 'GPU' && return 0
         if command -v lspci >/dev/null 2>&1 && lspci 2>/dev/null | grep -qi 'NVIDIA'; then
             return 0
         fi
+        # sysfs PCI vendor scan: catches the card even without pciutils and
+        # without the proprietary module loaded (Fedora minimal/server/immutable
+        # where lspci is absent). 0x10de is NVIDIA's PCI vendor id.
+        grep -qi 0x10de /sys/bus/pci/devices/*/vendor 2>/dev/null && return 0
         [[ -d /proc/driver/nvidia ]] && return 0
         [[ -e /dev/nvidia0 ]] && return 0
         return 1
@@ -408,12 +415,23 @@ mode_online() {
     install_fedora() {
         local rpm_url
         if [[ "$BACKEND" == "gpu" ]]; then
-            info "Adding NVIDIA CUDA repository..."
+            # The NVIDIA CUDA repo is a NICE-TO-HAVE, not a requirement: the
+            # dictee-cuda rpm bundles its CUDA runtime via pip wheels at %post
+            # (build-rpm.sh), so it installs fine without this repo. Keep the
+            # whole block best-effort — a missing repo (NVIDIA lags on new
+            # Fedora releases) or the dnf5 API change (--add-repo dropped on
+            # Fedora 41+) must NEVER abort the script under `set -e` (#27).
             local fedora_ver="${DISTRO_VERSION}"
             local repo_url="https://developer.download.nvidia.com/compute/cuda/repos/fedora${fedora_ver}/x86_64/cuda-fedora${fedora_ver}.repo"
             if ! sudo dnf repolist 2>/dev/null | grep -qi cuda; then
-                sudo dnf config-manager --add-repo "$repo_url" \
-                    || sudo dnf config-manager addrepo --from-repofile="$repo_url"
+                if curl -fsI "$repo_url" >/dev/null 2>&1; then
+                    info "Adding NVIDIA CUDA repository..."
+                    sudo dnf config-manager --add-repo "$repo_url" 2>/dev/null \
+                        || sudo dnf config-manager addrepo --from-repofile="$repo_url" 2>/dev/null \
+                        || warn "Could not add the NVIDIA CUDA repo — continuing (dictee-cuda bundles its own CUDA runtime)."
+                else
+                    warn "NVIDIA has no CUDA repo for Fedora ${fedora_ver} yet — skipping (not required for dictee-cuda)."
+                fi
             fi
             rpm_url=$(find_asset_url "dictee-cuda-.*\\.x86_64\\.rpm\$")
         else
