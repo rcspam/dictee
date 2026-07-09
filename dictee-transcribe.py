@@ -951,8 +951,14 @@ class _DiarizeTranscribeWorker(QThread):
             self.finished.emit(f"[0.00s - 0.00s] Speaker {dominant}: {full_text}")
             return
 
-        # Match sentences to speakers by maximum overlap (same algo as transcribe-diarize)
-        results = []
+        # Attribute each sentence to a speaker by maximum overlap, then MERGE
+        # consecutive same-speaker sentences into one turn. The whisper daemon
+        # now emits word-level tokens (needed by the meeting aligner), so
+        # without merging the result is one word per line and the per-segment
+        # postprocess in _finish_transcription spawns thousands of
+        # dictee-postprocess subprocesses. Mirrors the meeting aligner, which
+        # already groups consecutive same-speaker tokens into turns.
+        turns = []
         for sent in sentences:
             best_speaker = -1
             best_overlap = 0.0
@@ -963,9 +969,20 @@ class _DiarizeTranscribeWorker(QThread):
                 if overlap > best_overlap:
                     best_overlap = overlap
                     best_speaker = seg["speaker"]
-            speaker = f"{_('Speaker')} {best_speaker}" if best_speaker >= 0 else _("UNKNOWN")
+            if turns and turns[-1]["speaker"] == best_speaker:
+                turns[-1]["end"] = sent["end"]
+                turns[-1]["parts"].append(sent["text"])
+            else:
+                turns.append({"start": sent["start"], "end": sent["end"],
+                              "speaker": best_speaker, "parts": [sent["text"]]})
+
+        results = []
+        for turn in turns:
+            speaker = (f"{_('Speaker')} {turn['speaker']}"
+                       if turn["speaker"] >= 0 else _("UNKNOWN"))
             results.append(
-                f"[{sent['start']:.2f}s - {sent['end']:.2f}s] {speaker}: {sent['text']}")
+                f"[{turn['start']:.2f}s - {turn['end']:.2f}s] "
+                f"{speaker}: {' '.join(turn['parts'])}")
 
         self.progress.emit(3, 3)  # done
         self.finished.emit("\n".join(results))
