@@ -773,12 +773,17 @@ class _DiarizeTranscribeWorker(QThread):
     error = Signal(str)            # error message
 
     def __init__(self, audio_path, diarize_output, sock_path, parent=None,
-                 socket_timeout=None, per_segment=False):
+                 socket_timeout=None, per_segment=False, audio_duration=0.0):
         super().__init__(parent)
         self._audio_path = audio_path
         self._diarize_output = diarize_output
         self._sock_path = sock_path
         self._socket_timeout = socket_timeout
+        # Full-audio transcription blocks until the daemon finishes the WHOLE
+        # file (whisper.cpp full() is not streaming), so the recv timeout must
+        # cover the entire transcription, not a fixed 120 s — a 92-min file
+        # needs 20-40 min and used to die at the 2-min mark (empty result tab).
+        self._audio_duration = audio_duration
         # Timestamp-less backends (nemotron): a full-audio '\tdiarize' request
         # returns an empty body (the daemon formats word tokens, and nemotron
         # has none) — transcribe each diarized segment separately instead.
@@ -883,12 +888,17 @@ class _DiarizeTranscribeWorker(QThread):
             self._run_per_segment(daemon_path, speaker_segments)
             return
 
-        # Transcribe full audio via daemon with timestamps (diarize mode)
-        _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path}")
+        # Transcribe full audio via daemon with timestamps (diarize mode).
+        # Duration-aware recv timeout: the daemon sends nothing until the whole
+        # file is transcribed, so the FIRST recv() blocks for the full run.
+        # max(300, 3x duration) covers large-v3 even on a mid-run CPU fallback.
+        recv_timeout = max(300, int(self._audio_duration * 3)) if self._audio_duration else 300
+        _dbg(f"DiarizeWorker: sending full audio to daemon: {daemon_path} "
+             f"(recv timeout {recv_timeout}s)")
         full_text = ""
         try:
             self._sock = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
-            self._sock.settimeout(120)
+            self._sock.settimeout(recv_timeout)
             self._sock.connect(self._sock_path)
             self._sock.sendall((daemon_path + "\tdiarize\n").encode())
             data = b""
@@ -4271,11 +4281,11 @@ class TranscribeWindow(QDialog):
             return
 
         self._process = QProcess(self)
-        if getattr(self, '_diarize_two_phase', False):
-            # Phase 1 : séparer stdout (timestamps) de stderr (warnings ONNX)
-            self._process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
-        else:
-            self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        # Channel mode is set AFTER the routing decision below: it depends on
+        # two_phase, and reading self._diarize_two_phase here picked up the
+        # PREVIOUS run's value (stale attribute) — a two-phase run following a
+        # chunked run got MergedChannels, so stderr (ONNX warnings, DBG lines)
+        # leaked into the segment stream and the result tab.
         # Set ORT_DYLIB_PATH for GPU acceleration if the lib exists
         env = self._process.processEnvironment()
         if env.isEmpty():
@@ -4339,6 +4349,13 @@ class TranscribeWindow(QDialog):
                 self._process = None
                 return
         self._diarize_two_phase = two_phase
+        if two_phase:
+            # Phase 1: keep stdout (segment lines) clean of stderr.
+            self._process.setProcessChannelMode(
+                QProcess.ProcessChannelMode.SeparateChannels)
+        else:
+            self._process.setProcessChannelMode(
+                QProcess.ProcessChannelMode.MergedChannels)
         if diarize and asr_backend.lower() == "canary" and not two_phase:
             _dbg("_on_transcribe: Canary daemon detected — using "
                  "standalone transcribe-diarize to keep diarize multilingual")
@@ -4353,11 +4370,17 @@ class TranscribeWindow(QDialog):
             else:
                 args += ["--sensitivity", f"{sensitivity:.2f}"]
         self._process.start(cmd, args)
-        # Watchdog: kill process if it hangs (5 min for long audio + GPU)
+        # Watchdog: kill the process if it hangs. Duration-aware like the
+        # chunked pipeline (max(600 s, 3x duration)): a 92-min diarize
+        # legitimately runs 15-20 min on GPU (RTF ~0.9 on CPU) and the binary
+        # prints nothing until done — the previous fixed 5-min timer killed
+        # every diarized file longer than ~25 min on this path.
+        watchdog_secs = max(600, int(self._audio_duration * 3)) if diarize else 300
+        self._watchdog_secs = watchdog_secs  # for the timeout message
         self._process_timer = QTimer(self)
         self._process_timer.setSingleShot(True)
         self._process_timer.timeout.connect(self._on_process_timeout)
-        self._process_timer.start(300_000)
+        self._process_timer.start(watchdog_secs * 1000)
 
     def _on_process_timeout(self):
         # Audit fix: previous version called self._set_status() / _set_busy()
@@ -4368,7 +4391,9 @@ class TranscribeWindow(QDialog):
             _dbg("Process timeout — killing")
             self._process.kill()
             self._process.waitForFinished(3000)
-            self._lbl_status.setText(_("Transcription timed out (5 min)."))
+            self._lbl_status.setText(
+                _("Transcription timed out ({m} min).").format(
+                    m=getattr(self, "_watchdog_secs", 300) // 60))
             self._lbl_status.setVisible(True)
             self._progress.setVisible(False)
             self._stop_all_spinners()
@@ -4439,7 +4464,8 @@ class TranscribeWindow(QDialog):
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
             audio_path, diarize_output, sock_path, self,
-            socket_timeout=_worker_timeout, per_segment=_per_segment)
+            socket_timeout=_worker_timeout, per_segment=_per_segment,
+            audio_duration=getattr(self, "_audio_duration", 0.0))
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)
         self._diarize_worker.error.connect(self._on_diarize_error)
@@ -4473,6 +4499,13 @@ class TranscribeWindow(QDialog):
         self._progress.setVisible(False)
         self._lbl_status.setText(msg)
         self._lbl_status.setVisible(True)
+        # Also surface the failure IN THE TAB: the status label alone reads as
+        # "nothing happened" against the unchanged placeholder. A phase-2
+        # failure must be visible where the user is looking.
+        try:
+            self._text_edit.setPlainText(_("Transcription failed:\n{msg}").format(msg=msg))
+        except Exception as _e:
+            _dbg(f"silenced: {_e!r}")
         self._transcription_in_progress = False
         self._update_transcribe_btn()
         # Stop the tab spinner — otherwise it keeps spinning forever on an
