@@ -139,6 +139,20 @@ DICTEE_PTT_KEY=67
 # lost. Set 1-2 s to give the compositor time to bind. Most users leave this 0.
 #DICTEE_DOTOOL_SETTLE=0
 
+# Keyboard layout for typing (dotool). dictee types via dotool, which sends raw
+# key codes that your compositor decodes with its ACTIVE keyboard layout. Since
+# v1.3.6 dictee auto-detects your active layout and variant on KDE and GNOME. On
+# other compositors (sway, Hyprland, ...), or if the wrong characters are typed
+# (e.g. commas or question marks come out as other characters on a non-US layout
+# such as Neo, or accents are dropped on US/Dvorak/AZERTY), set these to match
+# the layout you actually type under. Both lines are needed when a variant is
+# used. Setting DOTOOL_XKB_LAYOUT here turns OFF auto-detection (the value is
+# then fixed and no longer follows layout switches). Check your active layout
+# with: localectl status   (or: setxkbmap -query)
+# Examples:  German Neo -> layout=de, variant=neo   |   plain German -> layout=de
+#DOTOOL_XKB_LAYOUT=de
+#DOTOOL_XKB_VARIANT=neo
+
 # ============================================================================
 # Display and feedback
 # ============================================================================
