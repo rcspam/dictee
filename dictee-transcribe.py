@@ -34,7 +34,7 @@ try:
         QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
     )
     from PyQt6.QtGui import QFont as _QFontTip
-    from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+    from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 except ImportError:
     from PySide6.QtCore import (Qt, QProcess, QByteArray, QThread, QTimer,
                                 QProcessEnvironment, QFileSystemWatcher,
@@ -51,7 +51,7 @@ except ImportError:
         QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
     )
     from PySide6.QtGui import QFont as _QFontTip
-    from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
+    from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 
 
 # ---------------------------------------------------------------------------
@@ -2854,8 +2854,17 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_player)
 
-        # Media player backend
+        # Media player backend. QAudioOutput() binds the default output
+        # device AT CREATION TIME and never re-follows the system default:
+        # Bluetooth headphones connected after this window opened would be
+        # ignored (playback stuck on the laptop speakers). Track the device
+        # list and re-pin the system default whenever it changes; the
+        # QMediaDevices instance must be kept alive for the signal to fire.
         self._audio_output = QAudioOutput()
+        self._media_devices = QMediaDevices()
+        self._audio_output.setDevice(QMediaDevices.defaultAudioOutput())
+        self._media_devices.audioOutputsChanged.connect(
+            self._on_audio_outputs_changed)
         self._player = QMediaPlayer()
         self._player.setAudioOutput(self._audio_output)
         self._player.positionChanged.connect(self._on_player_position)
@@ -3964,6 +3973,18 @@ class TranscribeWindow(QDialog):
         else:
             self._btn_play.setText("▶")
             self._btn_play.setStyleSheet("")
+
+    def _on_audio_outputs_changed(self):
+        """Re-pin playback to the system default output device.
+
+        Fired when the audio device list changes (Bluetooth headphones
+        connect/disconnect, dock plugged...). Without this the player keeps
+        the device captured when the window was opened.
+        """
+        try:
+            self._audio_output.setDevice(QMediaDevices.defaultAudioOutput())
+        except Exception as _e:
+            _dbg(f"audio output re-pin failed: {_e!r}")
 
     @staticmethod
     def _ms_to_str(ms):
