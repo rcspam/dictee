@@ -871,6 +871,43 @@ def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
     return [speakers[j] for j in path]
 
 
+def _build_turns(words, assigned, speaker_segments):
+    """Group per-word speaker assignments into display turns.
+
+    Consecutive same-speaker words merge into one turn, but a turn ALSO
+    breaks where the word's nearest diarization segment (of its assigned
+    speaker) changes: the diarizer's own turn structure stays visible in
+    the output instead of being flattened into monolithic blocks (measured
+    on the reference interview: a 47 s subtitle cue swallowing a 3-speaker
+    exchange). Word attribution is untouched — presentation only.
+    """
+    def segment_index(spk, mid):
+        best_idx, best_dist = -1, float("inf")
+        for idx, seg in enumerate(speaker_segments):
+            if seg["speaker"] != spk:
+                continue
+            if seg["start"] <= mid <= seg["end"]:
+                dist = 0.0
+            else:
+                dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
+            if dist < best_dist:
+                best_dist, best_idx = dist, idx
+        return best_idx
+
+    turns = []
+    prev_seg = None
+    for word, spk in zip(words, assigned):
+        seg = segment_index(spk, 0.5 * (word["start"] + word["end"]))
+        if turns and turns[-1]["speaker"] == spk and seg == prev_seg:
+            turns[-1]["end"] = word["end"]
+            turns[-1]["parts"].append(word["text"])
+        else:
+            turns.append({"start": word["start"], "end": word["end"],
+                          "speaker": spk, "parts": [word["text"]]})
+        prev_seg = seg
+    return turns
+
+
 class _DiarizeTranscribeWorker(QThread):
     """Phase 2 worker: transcribe diarized segments via daemon socket."""
     progress = Signal(int, int)    # (done, total)
@@ -1073,14 +1110,7 @@ class _DiarizeTranscribeWorker(QThread):
         # speaker-assignment one.
         assigned = _assign_speakers(sentences, speaker_segments)
 
-        turns = []
-        for sent, spk in zip(sentences, assigned):
-            if turns and turns[-1]["speaker"] == spk:
-                turns[-1]["end"] = sent["end"]
-                turns[-1]["parts"].append(sent["text"])
-            else:
-                turns.append({"start": sent["start"], "end": sent["end"],
-                              "speaker": spk, "parts": [sent["text"]]})
+        turns = _build_turns(sentences, assigned, speaker_segments)
 
         results = []
         for turn in turns:

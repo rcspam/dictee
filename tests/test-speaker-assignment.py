@@ -151,4 +151,29 @@ out = _assign_speakers(words, segments)
 assert out == [1, 1, 2, 2, 1, 1], f"Test 6 FAIL: {out}"
 print("PASS: test 6 — real short answer segment kept")
 
+# ---------------------------------------------------------------------------
+# Test 7: _build_turns splits display turns at the diarizer's own segment
+# boundaries (same speaker, two of their segments -> two turns), while plain
+# same-speaker runs inside one segment stay merged.
+# ---------------------------------------------------------------------------
+_build_turns = _load_func("_build_turns")
+
+segments = [S(0.0, 5.0, 1), S(7.0, 12.0, 1), S(5.0, 7.0, 2)]
+words = [W(1.0, 1.5), W(2.0, 2.5),            # speaker 1, segment 0-5
+         W(5.5, 6.5),                          # speaker 2
+         W(7.5, 8.0), W(9.0, 9.5)]             # speaker 1 again, segment 7-12
+assigned = [1, 1, 2, 1, 1]
+out = _build_turns(words, assigned, segments)
+shapes = [(t["speaker"], len(t["parts"])) for t in out]
+assert shapes == [(1, 2), (2, 1), (1, 2)], f"Test 7a FAIL: {shapes}"
+# same speaker, no interruption, but TWO segments -> the turn still breaks
+assigned2 = [1, 1, 1, 1, 1]
+out2 = _build_turns(words, assigned2, segments)
+shapes2 = [(t["speaker"], len(t["parts"])) for t in out2]
+assert shapes2 == [(1, 3), (1, 2)], f"Test 7b FAIL: {shapes2}"
+# words and order preserved in all cases
+flat = [w for t in out2 for w in t["parts"]]
+assert flat == [w["text"] for w in words], f"Test 7c FAIL: {flat}"
+print("PASS: test 7 — turns split at diarizer segment boundaries")
+
 print("\nALL TESTS PASS")
