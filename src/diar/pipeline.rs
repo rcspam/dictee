@@ -832,6 +832,38 @@ pub(crate) fn post_inference(
         discrete_diarization
     };
 
+    // Diagnostic dump of the per-frame cluster competition (set
+    // DIAR_DUMP_FRAMES="t0:t1" in seconds). One stderr line per frame:
+    //   FRAMEDUMP <frame> <t_s> count=<n> act=[c0,c1,...] out=[c0,c1,...]
+    // Shows each cluster's aggregated activation, the rounded speaker count
+    // and which clusters the top-k reconstruction actually emitted.
+    if let Ok(range) = std::env::var("DIAR_DUMP_FRAMES") {
+        if let Some((a, b)) = range.split_once(':') {
+            if let (Ok(t0), Ok(t1)) = (a.parse::<f64>(), b.parse::<f64>()) {
+                let acts = reconstructor.frame_activations(&speaker_count);
+                let f0 = (t0 / FRAME_STEP_SECONDS) as usize;
+                let f1 = ((t1 / FRAME_STEP_SECONDS) as usize)
+                    .min(speaker_count.len())
+                    .min(discrete_diarization.0.nrows());
+                for f in f0..f1 {
+                    let act_row: Vec<String> = (0..acts.ncols())
+                        .map(|c| format!("{:.3}", acts[[f, c]]))
+                        .collect();
+                    let out_row: Vec<String> = (0..discrete_diarization.0.ncols())
+                        .map(|c| format!("{}", discrete_diarization.0[[f, c]] as i32))
+                        .collect();
+                    eprintln!(
+                        "FRAMEDUMP {f} {:.2} count={} act=[{}] out=[{}]",
+                        f as f64 * FRAME_STEP_SECONDS,
+                        speaker_count[f],
+                        act_row.join(","),
+                        out_row.join(",")
+                    );
+                }
+            }
+        }
+    }
+
     let segments = crate::diar::segment::to_segments_with_confidence(
         &discrete_diarization.0,
         &frame_confidence,
