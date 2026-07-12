@@ -766,6 +766,111 @@ def _diar_threshold_from_sensitivity(sensitivity):
     return sensitivity * 1.2
 
 
+def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
+    """Assign one speaker per word token, sequence-aware (engine-agnostic).
+
+    The diarization timeline is authoritative but locally imperfect: in fast
+    exchanges every engine tested (community-1, Sortformer, diarizen) emits
+    spurious overlapping islands or boundaries shifted by a few hundred ms,
+    and any per-word geometric rule (nearest segment, max overlap) faithfully
+    copies those defects onto the words as mid-clause speaker flips.
+
+    So words are assigned as a SEQUENCE (min-cost dynamic program):
+    - per-word cost for a speaker = temporal distance from the word midpoint
+      to that speaker's nearest segment (0 when inside — the same primitive
+      as the previous nearest-segment rule);
+    - changing speaker between consecutive words costs switch_penalty
+      (seconds-equivalent), EXCEPT at a clause boundary — previous word ends
+      with sentence-final punctuation — or after an inter-word silence
+      >= free_gap, where switching is free.
+
+    A 1-2 word island captured by a spurious segment cannot pay the switch
+    cost and stays with its clause; a genuine turn switches freely at the
+    clause boundary (even with zero pause — common in fast interviews), and
+    a genuine mid-clause interruption still switches because the per-word
+    distances of staying on the old speaker quickly exceed the penalty.
+    switch_penalty must sit between the flip cost of spurious islands
+    (<= ~0.6 s of distance mass on the reference sample) and that of the
+    shortest legitimate turn to protect (~1.75 s for a 2-word turn right
+    next to the other speaker's segment).
+    Punctuation is the boundary signal, not pauses: on the reference sample
+    the real turn had a 0.00 s gap while a 0.42 s pause sat mid-sentence.
+
+    words: [{"start", "end", "text"}] in chronological order.
+    speaker_segments: [{"start", "end", "speaker"}], may overlap.
+    Returns one speaker id per word (-1 only when speaker_segments is empty).
+    """
+    if not words:
+        return []
+    if not speaker_segments:
+        return [-1] * len(words)
+
+    def ends_clause(text):
+        return text.rstrip("\"'»«)]}").endswith((".", "!", "?", "…"))
+
+    def free_boundary(prev_word, word):
+        return (ends_clause(prev_word["text"])
+                or word["start"] - prev_word["end"] >= free_gap)
+
+    # NOTE — known limitation, deliberately NOT handled here: a WRONG
+    # diarization segment of ~2 s with real mass strictly inside a clause
+    # (e.g. a phantom speaker over "notre invité est un chercheur
+    # extrêmement connu.") cannot be told apart, on geometry + text alone,
+    # from a CORRECT segment in the mirrored configuration — a clause-
+    # enclosed-flanked-by-same-other-speaker filter was tried and rejected
+    # the true presenter segment of the reference sample (same trap as the
+    # Rust enforce_min_turn absorption, see project memory 2026-07-09).
+    # Distinguishing them needs voice-level evidence (clustering confidence
+    # / embeddings), i.e. the diarizer side, not this fusion.
+    speakers = sorted({s["speaker"] for s in speaker_segments})
+    n_spk = len(speakers)
+
+    # Per-word emission costs: distance to each speaker's nearest segment.
+    emissions = []
+    for word in words:
+        mid = 0.5 * (word["start"] + word["end"])
+        best = {spk: float("inf") for spk in speakers}
+        for seg in speaker_segments:
+            if seg["start"] <= mid <= seg["end"]:
+                dist = 0.0
+            else:
+                dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
+            if dist < best[seg["speaker"]]:
+                best[seg["speaker"]] = dist
+        emissions.append([best[spk] for spk in speakers])
+
+    # Viterbi over (word, speaker) with backpointers.
+    cost = list(emissions[0])
+    backptrs = []
+    for i in range(1, len(words)):
+        free = free_boundary(words[i - 1], words[i])
+        new_cost = []
+        new_back = []
+        for j in range(n_spk):
+            best_prev, best_cost = j, cost[j]
+            if not free:
+                for k in range(n_spk):
+                    c = cost[k] + (0.0 if k == j else switch_penalty)
+                    if c < best_cost:
+                        best_cost, best_prev = c, k
+            else:
+                for k in range(n_spk):
+                    if cost[k] < best_cost:
+                        best_cost, best_prev = cost[k], k
+            new_cost.append(best_cost + emissions[i][j])
+            new_back.append(best_prev)
+        cost = new_cost
+        backptrs.append(new_back)
+
+    j = min(range(n_spk), key=lambda x: cost[x])
+    path = [j]
+    for back in reversed(backptrs):
+        j = back[j]
+        path.append(j)
+    path.reverse()
+    return [speakers[j] for j in path]
+
+
 class _DiarizeTranscribeWorker(QThread):
     """Phase 2 worker: transcribe diarized segments via daemon socket."""
     progress = Signal(int, int)    # (done, total)
@@ -957,30 +1062,16 @@ class _DiarizeTranscribeWorker(QThread):
         # without merging the result is one word per line and the per-segment
         # postprocess in _finish_transcription spawns thousands of subprocesses.
         #
-        # Attribution: the diarization is the authoritative speaker timeline.
-        # Each word goes to the temporally NEAREST segment (distance 0 when the
-        # word midpoint falls inside a segment, else the gap to the closest
-        # edge) — the whisperX approach. Whisper's word timestamps are
-        # approximate and drift into micro-gaps between segments; nearest-
-        # segment resolves that without a threshold or neighbour guessing, and
-        # never moves a word that already sits inside a segment. A transcribed
-        # word was spoken by someone, so it always gets the best-estimate
-        # speaker; genuine non-speech (whisper hallucinations on music/silence)
-        # is a separate concern (detect & drop), not a speaker-assignment one.
-        assigned = []
-        for sent in sentences:
-            mid = 0.5 * (sent["start"] + sent["end"])
-            best_speaker = -1
-            best_dist = float("inf")
-            for seg in speaker_segments:
-                if seg["start"] <= mid <= seg["end"]:
-                    dist = 0.0
-                else:
-                    dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
-                if dist < best_dist:
-                    best_dist = dist
-                    best_speaker = seg["speaker"]
-            assigned.append(best_speaker)
+        # Attribution: sequence-aware assignment (_assign_speakers). The
+        # previous per-word nearest-segment rule copied every diarizer defect
+        # (spurious overlapping islands, boundaries a few hundred ms early)
+        # onto the words as mid-clause speaker flips — engine-agnostic bug,
+        # observed with community-1, Sortformer and diarizen alike. A
+        # transcribed word was spoken by someone, so it always gets the
+        # best-estimate speaker; genuine non-speech (whisper hallucinations
+        # on music/silence) is a separate concern (detect & drop), not a
+        # speaker-assignment one.
+        assigned = _assign_speakers(sentences, speaker_segments)
 
         turns = []
         for sent, spk in zip(sentences, assigned):
@@ -1401,23 +1492,18 @@ class _ChunkedPipelineWorker(QThread):
         return tokens_abs
 
     def _merge(self, tokens, speaker_segments):
-        """Merge speakers onto tokens via argmax_overlap.
+        """Merge speakers onto tokens via _assign_speakers (sequence-aware,
+        same fusion as the two-phase path: per-token argmax-overlap copied
+        diarizer islands/shifted boundaries onto the tokens as mid-clause
+        speaker flips, and left gap-drifted tokens UNKNOWN).
 
         Output: '[X.XXs - Y.YYs] Speaker N: text' per line.
         Speaker label is hardcoded English to stay DIARIZE_RE-compatible.
         """
+        assigned = _assign_speakers(tokens, speaker_segments)
         results = []
-        for tok in tokens:
-            best_speaker = -1
-            best_overlap = 0.0
-            for seg in speaker_segments:
-                ov_start = max(tok["start"], seg["start"])
-                ov_end = min(tok["end"], seg["end"])
-                ov = max(0.0, ov_end - ov_start)
-                if ov > best_overlap:
-                    best_overlap = ov
-                    best_speaker = seg["speaker"]
-            spk = f"Speaker {best_speaker}" if best_speaker >= 0 else "UNKNOWN"
+        for tok, speaker in zip(tokens, assigned):
+            spk = f"Speaker {speaker}" if speaker >= 0 else "UNKNOWN"
             results.append(
                 f"[{tok['start']:.2f}s - {tok['end']:.2f}s] {spk}: {tok['text']}"
             )
