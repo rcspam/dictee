@@ -48,6 +48,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("  --threshold <0.0-2.0>  AHC distance threshold (default: 0.6, lower = more speakers)");
             eprintln!("  --min-turn <secs>      Absorb speaker islands shorter than this when");
             eprintln!("                         bracketed by the same other speaker (default: 0.5, 0 = off)");
+            eprintln!("  --confidence-absorb-margin <M>");
+            eprintln!("                         Also absorb a same-speaker-bracketed island (any");
+            eprintln!("                         length) when its assignment margin < M (default: 0 = off)");
+            eprintln!("  --print-confidence     Append the assignment-margin confidence as a 4th");
+            eprintln!("                         column ('start end id confidence', inf = no signal)");
+            eprintln!("  --confidence-ramp <R>  Confidence-weighted reconstruction: scale each");
+            eprintln!("                         chunk-speaker's contribution by clamp(margin/R, 0, 1)");
+            eprintln!("                         (default: 0 = off)");
             eprintln!("  --models-dir <dir>     Model directory (default: ~/.local/share/dictee/diar");
             eprintln!("                         then /usr/share/dictee/diar)");
             eprintln!("  --rttm <file-id>       Output RTTM lines instead of 'start end id'");
@@ -67,6 +75,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut live = false;
         let mut overlap_secs: f64 = 10.0;
         let mut min_turn: Option<f64> = None;
+        let mut confidence_absorb_margin: Option<f64> = None;
+        let mut confidence_ramp: Option<f64> = None;
+        let mut print_confidence = false;
         let mut positional: Vec<String> = Vec::new();
         let mut i = 1;
         while i < args.len() {
@@ -84,6 +95,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 "--min-turn" if i + 1 < args.len() => {
                     min_turn = Some(args[i + 1].parse()?);
+                    i += 1;
+                }
+                "--confidence-absorb-margin" if i + 1 < args.len() => {
+                    confidence_absorb_margin = Some(args[i + 1].parse()?);
+                    i += 1;
+                }
+                "--print-confidence" => {
+                    print_confidence = true;
+                }
+                "--confidence-ramp" if i + 1 < args.len() => {
+                    confidence_ramp = Some(args[i + 1].parse()?);
                     i += 1;
                 }
                 "--num-speakers" if i + 1 < args.len() => {
@@ -169,6 +191,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(mt) = min_turn {
             config.min_turn_duration = mt;
         }
+        if let Some(margin) = confidence_absorb_margin {
+            config.confidence_absorb_margin = margin;
+        }
+        if let Some(ramp) = confidence_ramp {
+            config.confidence_ramp = ramp;
+        }
 
         let result = diarizer.diarize(&audio, &config)?;
 
@@ -186,7 +214,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ids.len() - 1
                     }
                 };
-                println!("{:.2} {:.2} {}", seg.start, seg.end, id);
+                if print_confidence {
+                    println!("{:.2} {:.2} {} {:.4}", seg.start, seg.end, id, seg.confidence);
+                } else {
+                    println!("{:.2} {:.2} {}", seg.start, seg.end, id);
+                }
             }
         }
 

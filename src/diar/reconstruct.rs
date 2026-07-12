@@ -1,15 +1,23 @@
 use ndarray::{Array2, s};
 
 use crate::diar::pipeline::{
-    ChunkSpeakerClusters, DecodedSegmentations, DiscreteDiarization, FrameActivations,
-    SpeakerCountTrack,
+    ChunkConfidence, ChunkSpeakerClusters, DecodedSegmentations, DiscreteDiarization,
+    FrameActivations, SpeakerCountTrack,
 };
 
 pub struct Reconstructor<'a> {
     segmentations: &'a DecodedSegmentations,
     hard_clusters: Option<&'a ChunkSpeakerClusters>,
+    confidence: Option<&'a ChunkConfidence>,
     start_frames: &'a [usize],
     warmup_frames: usize,
+    /// Confidence-weighted reconstruction ramp (0 = off). When set, each
+    /// chunk-speaker's activation contribution is scaled by
+    /// `clamp(margin / ramp, 0, 1)`: an ambiguous cluster assignment
+    /// (margin <= 0) contributes nothing, a crisp one (margin >= ramp)
+    /// contributes fully. Non-finite margins (inactive / single centroid)
+    /// keep weight 1 — absence of evidence is not evidence against.
+    confidence_ramp: f32,
 }
 
 impl<'a> Reconstructor<'a> {
@@ -21,8 +29,10 @@ impl<'a> Reconstructor<'a> {
         Self {
             segmentations,
             hard_clusters: None,
+            confidence: None,
             start_frames,
             warmup_frames,
+            confidence_ramp: 0.0,
         }
     }
 
@@ -35,9 +45,34 @@ impl<'a> Reconstructor<'a> {
         Self {
             segmentations,
             hard_clusters: Some(hard_clusters),
+            confidence: None,
             start_frames,
             warmup_frames,
+            confidence_ramp: 0.0,
         }
+    }
+
+    pub(crate) fn with_clusters_and_confidence(
+        segmentations: &'a DecodedSegmentations,
+        hard_clusters: &'a ChunkSpeakerClusters,
+        confidence: &'a ChunkConfidence,
+        start_frames: &'a [usize],
+        warmup_frames: usize,
+    ) -> Self {
+        Self {
+            segmentations,
+            hard_clusters: Some(hard_clusters),
+            confidence: Some(confidence),
+            start_frames,
+            warmup_frames,
+            confidence_ramp: 0.0,
+        }
+    }
+
+    /// Builder-style setter for the confidence-weighted reconstruction ramp.
+    pub(crate) fn with_confidence_ramp(mut self, ramp: f32) -> Self {
+        self.confidence_ramp = ramp;
+        self
     }
 
     pub fn speaker_count(&self, output_frames: usize) -> SpeakerCountTrack {
@@ -102,6 +137,31 @@ impl<'a> Reconstructor<'a> {
             let chunk_segmentations = self.segmentations.slice(s![chunk_idx, .., ..]);
             let local_cluster_mapping = build_cluster_mapping(&chunk_labels, num_clusters);
 
+            // Confidence-weighted reconstruction: scale each chunk-speaker's
+            // contribution by clamp(margin / ramp, 0, 1). An ambiguous cluster
+            // assignment (margin <= 0) stops feeding "its" cluster on the
+            // frames it covers, so a cluster supported only by ambiguous
+            // windows loses contested frames to confidently-assigned ones.
+            // Non-finite margins (inactive speaker, single centroid) keep
+            // weight 1: absence of evidence is not evidence against.
+            let num_locals = chunk_segmentations.shape()[1];
+            let weights: Vec<f32> = match (self.confidence_ramp > 0.0, self.confidence) {
+                (true, Some(confidence)) => {
+                    let margins = confidence.row(chunk_idx);
+                    (0..num_locals)
+                        .map(|local_idx| {
+                            let margin = margins[local_idx];
+                            if margin.is_finite() {
+                                (margin / self.confidence_ramp).clamp(0.0, 1.0)
+                            } else {
+                                1.0
+                            }
+                        })
+                        .collect()
+                }
+                _ => vec![1.0; num_locals],
+            };
+
             for (cluster_idx, local_indices) in local_cluster_mapping.iter().enumerate() {
                 if local_indices.is_empty() {
                     continue;
@@ -115,7 +175,8 @@ impl<'a> Reconstructor<'a> {
 
                     let mut score = 0.0f32;
                     for &local_idx in local_indices {
-                        score = score.max(chunk_segmentations[[frame_idx, local_idx]]);
+                        score =
+                            score.max(chunk_segmentations[[frame_idx, local_idx]] * weights[local_idx]);
                     }
                     activations[[out_frame, cluster_idx]] += score;
                 }
@@ -132,6 +193,65 @@ impl<'a> Reconstructor<'a> {
         }
 
         FrameActivations(activations)
+    }
+
+    /// Per-frame, per-cluster assignment confidence, shape (frames, clusters).
+    ///
+    /// A frame's confidence for a cluster is the **minimum** finite assignment
+    /// margin among the chunk-speakers of that cluster that are active on the
+    /// frame — the weakest link decides, so a single ambiguous short turn drags
+    /// the whole run down and becomes eligible for absorption. Frames with no
+    /// finite contribution stay `+INF` (never absorbed). Returns a
+    /// zero-column matrix when no confidence channel is attached.
+    pub(crate) fn frame_confidence(&self, speaker_count: &SpeakerCountTrack) -> Array2<f32> {
+        let (Some(hard_clusters), Some(confidence)) = (self.hard_clusters, self.confidence) else {
+            return Array2::from_elem((speaker_count.len(), 0), f32::INFINITY);
+        };
+        let num_chunks = self.segmentations.shape()[0];
+        let num_frames = self.segmentations.shape()[1];
+        let num_clusters = hard_clusters
+            .iter()
+            .copied()
+            .filter(|cluster| *cluster >= 0)
+            .max()
+            .map_or(0, |cluster| cluster as usize + 1);
+        let warmup_end = num_frames.saturating_sub(self.warmup_frames);
+        let mut frame_conf =
+            Array2::<f32>::from_elem((speaker_count.len(), num_clusters), f32::INFINITY);
+
+        for (chunk_idx, &start_frame) in self.start_frames.iter().enumerate().take(num_chunks) {
+            let chunk_labels = hard_clusters.row(chunk_idx);
+            let chunk_confidence = confidence.row(chunk_idx);
+            let chunk_segmentations = self.segmentations.slice(s![chunk_idx, .., ..]);
+            let local_cluster_mapping = build_cluster_mapping(&chunk_labels, num_clusters);
+
+            for (cluster_idx, local_indices) in local_cluster_mapping.iter().enumerate() {
+                if local_indices.is_empty() {
+                    continue;
+                }
+
+                for frame_idx in self.warmup_frames..warmup_end {
+                    let out_frame = start_frame + frame_idx;
+                    if out_frame >= speaker_count.len() {
+                        continue;
+                    }
+
+                    for &local_idx in local_indices {
+                        // Only speakers actually voiced on this frame count; a
+                        // NAN/inactive margin carries no evidence and is skipped.
+                        if chunk_segmentations[[frame_idx, local_idx]] > 0.0 {
+                            let margin = chunk_confidence[local_idx];
+                            if margin.is_finite() {
+                                let current = frame_conf[[out_frame, cluster_idx]];
+                                frame_conf[[out_frame, cluster_idx]] = current.min(margin);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        frame_conf
     }
 
     pub fn reconstruct(&self, speaker_count: &SpeakerCountTrack) -> DiscreteDiarization {
@@ -285,6 +405,76 @@ mod tests {
         let count = reconstructor.speaker_count(4);
 
         assert_eq!(&*count, &[1, 1, 1, 1]);
+    }
+
+    // Two overlapping windows vote on the same frame with different clusters.
+    // Chunk 0's speaker is the louder one (seg 1.0) but its cluster assignment
+    // is ambiguous (margin -0.05); chunk 1's speaker is quieter (seg 0.6) but
+    // crisply assigned (margin 0.30). Mirrors the real crop2 pattern (phantom
+    // segments built from weak-margin windows vs confident neighbours).
+    fn contested_frame_fixture() -> (
+        DecodedSegmentations,
+        ChunkSpeakerClusters,
+        crate::diar::pipeline::ChunkConfidence,
+    ) {
+        let segmentations = DecodedSegmentations(array![[[1.0]], [[0.6]]]);
+        let hard_clusters = ChunkSpeakerClusters(array![[0], [1]]);
+        let confidence = crate::diar::pipeline::ChunkConfidence(array![[-0.05f32], [0.30]]);
+        (segmentations, hard_clusters, confidence)
+    }
+
+    #[test]
+    fn confidence_ramp_off_keeps_ambiguous_winner() {
+        let (segmentations, hard_clusters, confidence) = contested_frame_fixture();
+        let reconstructor = Reconstructor::with_clusters_and_confidence(
+            &segmentations,
+            &hard_clusters,
+            &confidence,
+            &[0, 0],
+            0,
+        );
+        let result = reconstructor.reconstruct(&SpeakerCountTrack(vec![1]));
+        let expected: Array2<f32> = array![[1.0, 0.0]];
+        assert_eq!(&*result, &expected, "ramp=0 must not change behaviour");
+    }
+
+    #[test]
+    fn confidence_ramp_swaps_contested_frame_to_confident_cluster() {
+        let (segmentations, hard_clusters, confidence) = contested_frame_fixture();
+        let reconstructor = Reconstructor::with_clusters_and_confidence(
+            &segmentations,
+            &hard_clusters,
+            &confidence,
+            &[0, 0],
+            0,
+        )
+        .with_confidence_ramp(0.2);
+        let result = reconstructor.reconstruct(&SpeakerCountTrack(vec![1]));
+        // Ambiguous chunk 0 (margin -0.05 -> weight 0) stops feeding cluster 0;
+        // confident chunk 1 (margin 0.30 >= ramp -> weight 1) wins the frame.
+        let expected: Array2<f32> = array![[0.0, 1.0]];
+        assert_eq!(&*result, &expected);
+    }
+
+    #[test]
+    fn confidence_ramp_keeps_full_weight_for_non_finite_margins() {
+        let segmentations = DecodedSegmentations(array![[[1.0]], [[0.6]]]);
+        let hard_clusters = ChunkSpeakerClusters(array![[0], [1]]);
+        // NAN (no evidence) on the louder speaker, +INF (single centroid) on
+        // the quieter one: both keep weight 1, the louder cluster still wins.
+        let confidence =
+            crate::diar::pipeline::ChunkConfidence(array![[f32::NAN], [f32::INFINITY]]);
+        let reconstructor = Reconstructor::with_clusters_and_confidence(
+            &segmentations,
+            &hard_clusters,
+            &confidence,
+            &[0, 0],
+            0,
+        )
+        .with_confidence_ramp(0.2);
+        let result = reconstructor.reconstruct(&SpeakerCountTrack(vec![1]));
+        let expected: Array2<f32> = array![[1.0, 0.0]];
+        assert_eq!(&*result, &expected);
     }
 
     #[test]

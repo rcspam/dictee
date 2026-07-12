@@ -9,15 +9,35 @@ pub struct Segment {
     pub end: f64,
     /// Speaker label (e.g. "SPEAKER_00")
     pub speaker: String,
+    /// Weakest assignment margin over the segment's frames (`+INF` when no
+    /// confidence channel is available). Small values mark turns the audio did
+    /// not clearly attribute; used only by confidence-aware absorption.
+    pub confidence: f64,
 }
 
 impl Segment {
-    /// Create a new segment
+    /// Create a new segment with no confidence information (`+INF`).
     pub fn new(start: f64, end: f64, speaker: impl Into<String>) -> Self {
         Self {
             start,
             end,
             speaker: speaker.into(),
+            confidence: f64::INFINITY,
+        }
+    }
+
+    /// Create a new segment carrying an assignment-margin confidence.
+    pub fn with_confidence(
+        start: f64,
+        end: f64,
+        speaker: impl Into<String>,
+        confidence: f64,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            speaker: speaker.into(),
+            confidence,
         }
     }
 
@@ -39,13 +59,30 @@ impl std::fmt::Display for Segment {
     }
 }
 
-/// Convert binary activation matrix to speaker segments
+/// Convert binary activation matrix to speaker segments (no confidence channel).
 pub fn to_segments(
     activations: &Array2<f32>,
     frame_step: f64,
     frame_duration: f64,
 ) -> Vec<Segment> {
+    let empty = Array2::<f32>::zeros((activations.nrows(), 0));
+    to_segments_with_confidence(activations, &empty, frame_step, frame_duration)
+}
+
+/// Convert binary activations to segments, tagging each with the weakest
+/// assignment margin over its frames.
+///
+/// `frame_confidence` is `(frames, clusters)` and column-aligned with
+/// `activations`; a speaker column beyond its width (or a `+INF` entry) yields
+/// `+INF` confidence, i.e. "never absorb on confidence".
+pub fn to_segments_with_confidence(
+    activations: &Array2<f32>,
+    frame_confidence: &Array2<f32>,
+    frame_step: f64,
+    frame_duration: f64,
+) -> Vec<Segment> {
     let (_num_frames, num_speakers) = activations.dim();
+    let has_confidence = frame_confidence.ncols() > 0;
     let mut segments = Vec::new();
 
     for speaker_idx in 0..num_speakers {
@@ -56,9 +93,19 @@ pub fn to_segments(
             continue;
         }
 
+        // Confidence at a frame for this speaker; +INF means "unknown".
+        let conf_at = |frame_idx: usize| -> f64 {
+            if has_confidence && speaker_idx < frame_confidence.ncols() {
+                frame_confidence[[frame_idx, speaker_idx]] as f64
+            } else {
+                f64::INFINITY
+            }
+        };
+
         let mut start = frame_middle(0, frame_step, frame_duration);
         let mut is_active = column[0] > 0.5;
         let mut last_timestamp = start;
+        let mut run_confidence = if is_active { conf_at(0) } else { f64::INFINITY };
 
         for (frame_idx, &value) in column.iter().enumerate().skip(1) {
             let timestamp = frame_middle(frame_idx, frame_step, frame_duration);
@@ -66,18 +113,31 @@ pub fn to_segments(
 
             if is_active {
                 if value < 0.5 {
-                    segments.push(Segment::new(start, timestamp, &label));
+                    segments.push(Segment::with_confidence(
+                        start,
+                        timestamp,
+                        &label,
+                        run_confidence,
+                    ));
                     start = timestamp;
                     is_active = false;
+                } else {
+                    run_confidence = run_confidence.min(conf_at(frame_idx));
                 }
             } else if value > 0.5 {
                 start = timestamp;
                 is_active = true;
+                run_confidence = conf_at(frame_idx);
             }
         }
 
         if is_active {
-            segments.push(Segment::new(start, last_timestamp, &label));
+            segments.push(Segment::with_confidence(
+                start,
+                last_timestamp,
+                &label,
+                run_confidence,
+            ));
         }
     }
 
@@ -103,6 +163,7 @@ pub fn merge_segments(segments: &[Segment], max_gap: f64) -> Vec<Segment> {
         if let Some(last) = merged.last_mut() {
             if seg.speaker == last.speaker && (seg.start - last.end) < max_gap {
                 last.end = seg.end;
+                last.confidence = last.confidence.min(seg.confidence);
                 continue;
             }
         }
@@ -113,20 +174,32 @@ pub fn merge_segments(segments: &[Segment], max_gap: f64) -> Vec<Segment> {
     merged
 }
 
-/// Absorb spurious short speaker "islands" back into the surrounding talker.
+/// Absorb spurious speaker "islands" back into the surrounding talker.
 ///
-/// The segmentation model occasionally emits a very short turn of one speaker
-/// in the middle of a continuous stretch of another (e.g. a 0.5 s Speaker-0
-/// blip inside a Speaker-1 sentence on tightly-cut produced audio). When such
-/// an island is shorter than `min_duration` AND is cleanly bracketed (no time
-/// overlap) by two segments of the SAME other speaker, drop it and let that
-/// speaker span the gap. Islands at a real boundary (the neighbours differ) or
-/// overlapping their neighbours (genuine simultaneous speech) are left intact —
-/// no guess is made where the timeline is ambiguous. Standard min-turn
-/// post-processing (pyannote/whisperX have an equivalent); segments must be
-/// start-sorted (they are, after `to_segments`).
-pub fn enforce_min_turn(segments: &[Segment], min_duration: f64) -> Vec<Segment> {
-    if min_duration <= 0.0 || segments.len() < 3 {
+/// The segmentation/clustering stage occasionally drops a short turn of one
+/// speaker into the middle of a continuous stretch of another — either a plain
+/// blip (a 0.5 s Speaker-0 island inside a Speaker-1 sentence on tightly-cut
+/// audio) or a slightly longer turn whose short, noisy embedding was assigned
+/// to the wrong talker with a razor-thin margin. An island is absorbed (the
+/// bracketing speaker spans the gap) when it is cleanly bracketed by two
+/// segments of the SAME other speaker (no time overlap) AND either:
+///   * it is shorter than `min_duration` (duration-based, `0` disables), or
+///   * its assignment `confidence` is below `confidence_margin`
+///     (`0` disables) — this catches longer islands the audio never clearly
+///     attributed, while a longer island with a crisp embedding (large margin)
+///     is kept.
+///
+/// Islands at a real boundary (neighbours differ) or overlapping their
+/// neighbours (genuine simultaneous speech) are left intact — no guess is made
+/// where the timeline is ambiguous. Segments must be start-sorted (they are,
+/// after `to_segments`).
+pub fn enforce_min_turn(
+    segments: &[Segment],
+    min_duration: f64,
+    confidence_margin: f64,
+) -> Vec<Segment> {
+    let confidence_enabled = confidence_margin > 0.0;
+    if (min_duration <= 0.0 && !confidence_enabled) || segments.len() < 3 {
         return segments.to_vec();
     }
     let mut segs: Vec<Segment> = segments.to_vec();
@@ -139,8 +212,11 @@ pub fn enforce_min_turn(segments: &[Segment], min_duration: f64) -> Vec<Segment>
         // Clean bracket: island sits in the gap, overlapping neither neighbour
         // (a small epsilon tolerates float boundaries touching).
         let no_overlap = island.start >= prev.end - 1e-6 && next.start >= island.end - 1e-6;
-        if island.duration() < min_duration && bracketed_same && no_overlap {
+        let too_short = island.duration() < min_duration;
+        let low_confidence = confidence_enabled && island.confidence < confidence_margin;
+        if (too_short || low_confidence) && bracketed_same && no_overlap {
             segs[i - 1].end = segs[i + 1].end; // prev speaker spans the island
+            segs[i - 1].confidence = segs[i - 1].confidence.min(segs[i + 1].confidence);
             segs.drain(i..=i + 1); // remove island + merged-in next
             i = i.saturating_sub(1).max(1); // re-examine around the merge
         } else {
@@ -266,7 +342,7 @@ mod tests {
             Segment::new(10.0, 10.5, "SPEAKER_00"),
             Segment::new(10.5, 20.0, "SPEAKER_01"),
         ];
-        let out = enforce_min_turn(&segs, 0.6);
+        let out = enforce_min_turn(&segs, 0.6, 0.0);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].speaker, "SPEAKER_01");
         assert_eq!(out[0].start, 0.0);
@@ -281,7 +357,7 @@ mod tests {
             Segment::new(10.0, 10.4, "SPEAKER_01"),
             Segment::new(10.4, 20.0, "SPEAKER_02"),
         ];
-        let out = enforce_min_turn(&segs, 0.6);
+        let out = enforce_min_turn(&segs, 0.6, 0.0);
         assert_eq!(out.len(), 3);
     }
 
@@ -293,7 +369,7 @@ mod tests {
             Segment::new(10.0, 10.4, "SPEAKER_00"),
             Segment::new(10.2, 20.0, "SPEAKER_01"),
         ];
-        let out = enforce_min_turn(&segs, 0.6);
+        let out = enforce_min_turn(&segs, 0.6, 0.0);
         assert_eq!(out.len(), 3);
     }
 
@@ -304,6 +380,69 @@ mod tests {
             Segment::new(10.0, 10.5, "SPEAKER_00"),
             Segment::new(10.5, 20.0, "SPEAKER_01"),
         ];
-        assert_eq!(enforce_min_turn(&segs, 0.0).len(), 3);
+        assert_eq!(enforce_min_turn(&segs, 0.0, 0.0).len(), 3);
+    }
+
+    #[test]
+    fn confidence_absorbs_low_margin_island_longer_than_min_duration() {
+        // A 1.48 s island (longer than min_duration) with a razor-thin margin,
+        // bracketed by the same speaker: the audio never picked it, absorb it.
+        let segs = vec![
+            Segment::with_confidence(0.0, 35.8, "SPEAKER_00", 0.4),
+            Segment::with_confidence(35.8, 37.28, "SPEAKER_01", 0.02),
+            Segment::with_confidence(37.28, 50.0, "SPEAKER_00", 0.4),
+        ];
+        // Duration filter alone (0.5 s) would NOT touch the 1.48 s island.
+        let out = enforce_min_turn(&segs, 0.5, 0.1);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].speaker, "SPEAKER_00");
+        assert_eq!(out[0].start, 0.0);
+        assert_eq!(out[0].end, 50.0);
+    }
+
+    #[test]
+    fn confidence_keeps_high_margin_island() {
+        // Same geometry but a crisp margin: a real, confidently-attributed turn
+        // is preserved even with confidence absorption enabled.
+        let segs = vec![
+            Segment::with_confidence(0.0, 35.8, "SPEAKER_00", 0.4),
+            Segment::with_confidence(35.8, 37.28, "SPEAKER_01", 0.6),
+            Segment::with_confidence(37.28, 50.0, "SPEAKER_00", 0.4),
+        ];
+        let out = enforce_min_turn(&segs, 0.5, 0.1);
+        assert_eq!(out.len(), 3);
+    }
+
+    #[test]
+    fn confidence_disabled_ignores_low_margin() {
+        // margin threshold 0.0 = disabled: a low-confidence long island stays.
+        let segs = vec![
+            Segment::with_confidence(0.0, 35.8, "SPEAKER_00", 0.4),
+            Segment::with_confidence(35.8, 37.28, "SPEAKER_01", 0.02),
+            Segment::with_confidence(37.28, 50.0, "SPEAKER_00", 0.4),
+        ];
+        assert_eq!(enforce_min_turn(&segs, 0.5, 0.0).len(), 3);
+    }
+
+    #[test]
+    fn confidence_never_absorbs_at_a_real_boundary() {
+        // Low margin but DIFFERENT neighbours = a genuine transition, kept.
+        let segs = vec![
+            Segment::with_confidence(0.0, 35.8, "SPEAKER_00", 0.4),
+            Segment::with_confidence(35.8, 37.28, "SPEAKER_01", 0.02),
+            Segment::with_confidence(37.28, 50.0, "SPEAKER_02", 0.4),
+        ];
+        assert_eq!(enforce_min_turn(&segs, 0.5, 0.1).len(), 3);
+    }
+
+    #[test]
+    fn to_segments_with_confidence_tags_weakest_frame() {
+        // Speaker 0 active over 3 frames; frame confidences 0.9, 0.1, 0.8.
+        // The segment inherits the weakest link (0.1).
+        let activations = array![[1.0], [1.0], [1.0], [0.0]];
+        let frame_confidence = array![[0.9f32], [0.1], [0.8], [f32::INFINITY]];
+        let segments = to_segments_with_confidence(&activations, &frame_confidence, 0.1, 0.2);
+        assert_eq!(segments.len(), 1);
+        assert!((segments[0].confidence - 0.1).abs() < 1e-6);
     }
 }

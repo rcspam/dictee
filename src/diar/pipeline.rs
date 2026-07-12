@@ -67,6 +67,21 @@ pub struct PipelineConfig {
     /// Minimum turn duration in seconds: shorter speaker islands cleanly
     /// bracketed by the same other speaker are absorbed (0 = disabled).
     pub min_turn_duration: f64,
+    /// Confidence-aware absorption threshold (assignment margin units,
+    /// 0 = disabled). A speaker island cleanly bracketed by the same other
+    /// speaker is absorbed when its assignment margin falls below this value,
+    /// regardless of its duration — this catches longer islands that a short,
+    /// noisy embedding put on the wrong talker. Genuine short turns with a
+    /// crisp embedding (large margin) are kept.
+    pub confidence_absorb_margin: f64,
+    /// Confidence-weighted reconstruction ramp (assignment margin units,
+    /// 0 = disabled). Each chunk-speaker's activation contribution is scaled
+    /// by `clamp(margin / ramp, 0, 1)` during reconstruction: clusters
+    /// supported only by ambiguous assignments (margin <= 0) lose contested
+    /// frames to confidently-assigned ones. Operates BEFORE segments exist,
+    /// so it cannot fall into the sorted-segment topology traps that ruled
+    /// out absorption-based fixes.
+    pub confidence_ramp: f64,
     /// Minimum speaker activity weight to keep a speaker in output
     pub speaker_keep_threshold: f64,
     /// Strategy for mapping clusters back to frame activations
@@ -84,6 +99,12 @@ impl Default for PipelineConfig {
             // tightly-cut audio). Only islands cleanly bracketed by the same
             // other speaker are touched, so genuine turns are never merged.
             min_turn_duration: 0.5,
+            // Off by default: confidence-aware absorption changes segment
+            // boundaries and must be validated (DER bench) before shipping on.
+            confidence_absorb_margin: 0.0,
+            // Off by default: same validation discipline (word-accuracy on the
+            // reference sample + DER A/B) before shipping on.
+            confidence_ramp: 0.0,
             speaker_keep_threshold: 1e-7,
             reconstruct_method: ReconstructMethod::Smoothed { epsilon: 0.1 },
         }
@@ -136,6 +157,21 @@ pub struct ChunkSpeakerClusters(pub Array2<i32>);
 
 impl Deref for ChunkSpeakerClusters {
     type Target = Array2<i32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Assignment margin per chunk-speaker pair, shape (chunks, speakers)
+///
+/// Parallel to [`ChunkSpeakerClusters`]. `NAN` where the speaker is inactive or
+/// its embedding was invalid; `+INF` when a single centroid left no choice.
+#[derive(Debug, Clone)]
+pub struct ChunkConfidence(pub Array2<f32>);
+
+impl Deref for ChunkConfidence {
+    type Target = Array2<f32>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -426,12 +462,13 @@ impl TrainingEmbeddings {
         embeddings: &ChunkEmbeddings,
         plda: &PldaTransform,
         config: &PipelineConfig,
-    ) -> ChunkSpeakerClusters {
+    ) -> (ChunkSpeakerClusters, ChunkConfidence) {
         if self.0.nrows() < 2 {
             let mut clusters =
                 Array2::<i32>::zeros((segmentations.0.shape()[0], segmentations.0.shape()[2]));
             mark_inactive_speakers(&segmentations.0, &mut clusters);
-            return ChunkSpeakerClusters(clusters);
+            let confidence = Array2::<f32>::from_elem(clusters.raw_dim(), f32::NAN);
+            return (ChunkSpeakerClusters(clusters), ChunkConfidence(confidence));
         }
 
         let ahc_labels = cluster_ahc(&self.0.view(), config.ahc);
@@ -464,10 +501,14 @@ impl TrainingEmbeddings {
 
         let centroids = weighted_centroids(&self.0, &gamma, &kept_speakers);
 
-        let mut clusters = assign_chunk_embeddings(segmentations, embeddings, &centroids);
+        let (mut clusters, confidence) =
+            assign_chunk_embeddings(segmentations, embeddings, &centroids);
         mark_inactive_speakers(&segmentations.0, &mut clusters);
 
-        ChunkSpeakerClusters(clusters)
+        (
+            ChunkSpeakerClusters(clusters),
+            ChunkConfidence(confidence),
+        )
     }
 }
 
@@ -489,19 +530,33 @@ pub(crate) fn weighted_centroids(
     centroids
 }
 
+/// Assign each active chunk-speaker to its best centroid.
+///
+/// Returns `(labels, confidence)` where `labels[chunk][spk]` is the cluster id
+/// (negative for inactive/unassigned) and `confidence[chunk][spk]` is the
+/// acoustic **margin** of that assignment: the assigned centroid's similarity
+/// minus the best competing centroid's similarity, computed on the speaker's
+/// exact embedding. A large margin means the audio clearly picks one talker; a
+/// small margin means the embedding was ambiguous (typical of very short, noisy
+/// turns). The margin is `NAN` when the speaker is inactive or its embedding is
+/// invalid (no positive evidence either way) and `+INF` when there is only one
+/// centroid to choose from. Downstream absorption only ever acts on a *finite,
+/// small* margin, so `NAN`/`+INF` never trigger a merge.
 pub(crate) fn assign_chunk_embeddings(
     segmentations: &DecodedSegmentations,
     embeddings: &ChunkEmbeddings,
     centroids: &Array2<f32>,
-) -> Array2<i32> {
+) -> (Array2<i32>, Array2<f32>) {
     let num_chunks = embeddings.0.shape()[0];
     let num_speakers = embeddings.0.shape()[1];
     let num_clusters = centroids.nrows();
     let mut labels = Array2::<i32>::from_elem((num_chunks, num_speakers), -2);
+    let mut confidence = Array2::<f32>::from_elem((num_chunks, num_speakers), f32::NAN);
 
     for chunk_idx in 0..num_chunks {
         // compute similarity scores for all active speakers against all centroids
         let mut active_local = Vec::new();
+        let mut valid_speaker = vec![false; num_speakers];
         let mut scores = Array2::<f32>::from_elem((num_speakers, num_clusters), f32::NEG_INFINITY);
         for speaker_idx in 0..num_speakers {
             let is_active = segmentations.0.slice(s![chunk_idx, .., speaker_idx]).sum() > 0.0;
@@ -514,12 +569,17 @@ pub(crate) fn assign_chunk_embeddings(
             if embedding.iter().any(|value| !value.is_finite()) {
                 continue;
             }
+            valid_speaker[speaker_idx] = true;
 
             for cluster_idx in 0..num_clusters {
                 scores[[speaker_idx, cluster_idx]] =
                     1.0 + cosine_similarity(&embedding, &centroids.row(cluster_idx));
             }
         }
+
+        // The margin uses the raw similarity scores, so capture the confidence
+        // BEFORE masking overwrites the NEG_INFINITY placeholders below.
+        let raw_scores = scores.clone();
 
         // mask inactive/invalid speakers to min - 1 instead of NEG_INFINITY,
         // matching pyannote's constrained_argmax masking behavior
@@ -536,10 +596,35 @@ pub(crate) fn assign_chunk_embeddings(
         let assignments = best_assignment(&scores, &active_local, num_clusters);
         for (speaker_idx, cluster_idx) in assignments {
             labels[[chunk_idx, speaker_idx]] = cluster_idx as i32;
+            if valid_speaker[speaker_idx] {
+                confidence[[chunk_idx, speaker_idx]] =
+                    assignment_margin(&raw_scores, speaker_idx, cluster_idx, num_clusters);
+            }
         }
     }
 
-    labels
+    (labels, confidence)
+}
+
+/// Similarity gap between the assigned centroid and the best competing one for a
+/// single speaker. `+INF` when the speaker had only one centroid to choose from.
+fn assignment_margin(
+    raw_scores: &Array2<f32>,
+    speaker_idx: usize,
+    assigned_cluster: usize,
+    num_clusters: usize,
+) -> f32 {
+    let assigned_score = raw_scores[[speaker_idx, assigned_cluster]];
+    let best_other = (0..num_clusters)
+        .filter(|cluster_idx| *cluster_idx != assigned_cluster)
+        .map(|cluster_idx| raw_scores[[speaker_idx, cluster_idx]])
+        .filter(|score| score.is_finite())
+        .fold(f32::NEG_INFINITY, f32::max);
+    if best_other.is_finite() {
+        assigned_score - best_other
+    } else {
+        f32::INFINITY
+    }
 }
 
 pub(crate) fn best_assignment(
@@ -700,16 +785,43 @@ pub(crate) fn post_inference(
     }
 
     let training_embeddings = embeddings.training_set(&segmentations);
-    let hard_clusters = training_embeddings.cluster(&segmentations, &embeddings, plda, config);
+    let (hard_clusters, chunk_confidence) =
+        training_embeddings.cluster(&segmentations, &embeddings, plda, config);
 
-    let reconstructor =
-        Reconstructor::with_clusters(&segmentations, &hard_clusters, &layout.start_frames, 0);
+    // Diagnostic dump of the raw per-chunk assignment margins, BEFORE the
+    // frame/segment min-aggregation dilutes them (set DIAR_DUMP_CHUNKS=1).
+    // One stderr line per active chunk-speaker:
+    //   CHUNKCONF <chunk> <t_start_s> <local_spk> <cluster> <margin>
+    if std::env::var("DIAR_DUMP_CHUNKS").is_ok() {
+        for c in 0..hard_clusters.nrows() {
+            let t0 = layout.start_frames[c] as f64 * FRAME_STEP_SECONDS;
+            for s in 0..hard_clusters.ncols() {
+                let cl = hard_clusters[[c, s]];
+                if cl >= 0 {
+                    eprintln!(
+                        "CHUNKCONF {c} {t0:.2} {s} {cl} {:.4}",
+                        chunk_confidence[[c, s]]
+                    );
+                }
+            }
+        }
+    }
+
+    let reconstructor = Reconstructor::with_clusters_and_confidence(
+        &segmentations,
+        &hard_clusters,
+        &chunk_confidence,
+        &layout.start_frames,
+        0,
+    )
+    .with_confidence_ramp(config.confidence_ramp as f32);
     let discrete_diarization = match config.reconstruct_method {
         ReconstructMethod::Smoothed { epsilon } => {
             reconstructor.reconstruct_smoothed(&speaker_count, epsilon)
         }
         ReconstructMethod::Standard => reconstructor.reconstruct(&speaker_count),
     };
+    let frame_confidence = reconstructor.frame_confidence(&speaker_count);
 
     // apply min-duration filtering to remove single-frame speaker flickers
     let has_duration_filter =
@@ -720,10 +832,18 @@ pub(crate) fn post_inference(
         discrete_diarization
     };
 
-    let segments = discrete_diarization.to_segments(FRAME_STEP_SECONDS, FRAME_DURATION_SECONDS);
+    let segments = crate::diar::segment::to_segments_with_confidence(
+        &discrete_diarization.0,
+        &frame_confidence,
+        FRAME_STEP_SECONDS,
+        FRAME_DURATION_SECONDS,
+    );
     let segments = merge_segments(&segments, config.merge_gap);
-    let segments =
-        crate::diar::segment::enforce_min_turn(&segments, config.min_turn_duration);
+    let segments = crate::diar::segment::enforce_min_turn(
+        &segments,
+        config.min_turn_duration,
+        config.confidence_absorb_margin,
+    );
 
     Ok(DiarizationResult {
         segmentations,
@@ -795,6 +915,48 @@ mod tests {
     }
 
     #[test]
+    fn assign_confidence_is_large_when_embedding_clearly_favours_one_centroid() {
+        // One chunk, one active speaker, two centroids. The embedding points
+        // almost straight at centroid 0, so the margin (score0 - score1) is big.
+        let segmentations = DecodedSegmentations(array![[[1.0]]]);
+        let embeddings = ChunkEmbeddings(array![[[1.0, 0.1]]]);
+        let centroids = array![[1.0, 0.0], [0.0, 1.0]];
+
+        let (labels, confidence) = assign_chunk_embeddings(&segmentations, &embeddings, &centroids);
+
+        assert_eq!(labels[[0, 0]], 0);
+        assert!(confidence[[0, 0]] > 0.5, "margin = {}", confidence[[0, 0]]);
+    }
+
+    #[test]
+    fn assign_confidence_is_near_zero_when_embedding_is_ambiguous() {
+        // The embedding sits exactly between the two centroids: cosine is equal,
+        // so the margin collapses to ~0 — the audio does not pick a talker.
+        let segmentations = DecodedSegmentations(array![[[1.0]]]);
+        let embeddings = ChunkEmbeddings(array![[[1.0, 1.0]]]);
+        let centroids = array![[1.0, 0.0], [0.0, 1.0]];
+
+        let (_labels, confidence) =
+            assign_chunk_embeddings(&segmentations, &embeddings, &centroids);
+
+        assert!(confidence[[0, 0]].abs() < 1e-5, "margin = {}", confidence[[0, 0]]);
+    }
+
+    #[test]
+    fn assign_confidence_is_nan_for_inactive_speaker() {
+        // Speaker 1 never activates -> its margin stays NAN (no evidence).
+        let segmentations = DecodedSegmentations(array![[[1.0, 0.0]]]);
+        let embeddings = ChunkEmbeddings(array![[[1.0, 0.1], [0.2, 0.9]]]);
+        let centroids = array![[1.0, 0.0], [0.0, 1.0]];
+
+        let (labels, confidence) = assign_chunk_embeddings(&segmentations, &embeddings, &centroids);
+
+        assert_eq!(labels[[0, 1]], -2);
+        assert!(confidence[[0, 1]].is_nan());
+        assert!(confidence[[0, 0]].is_finite());
+    }
+
+    #[test]
     fn filter_embeddings_matches_python_fixture() {
         let segmentations: Array3<f32> = load_fixture_array3("pipeline_segmentation_data.npy");
         let embeddings: Array3<f32> = load_fixture_array3("pipeline_embeddings_data.npy");
@@ -832,7 +994,8 @@ mod tests {
         );
         let segmentations = DecodedSegmentations(segmentations);
         let embeddings = ChunkEmbeddings(embeddings);
-        let mut hard_clusters = assign_chunk_embeddings(&segmentations, &embeddings, &centroids);
+        let (mut hard_clusters, _confidence) =
+            assign_chunk_embeddings(&segmentations, &embeddings, &centroids);
         mark_inactive_speakers(&segmentations.0, &mut hard_clusters);
 
         assert_eq!(hard_clusters.dim(), expected.dim());

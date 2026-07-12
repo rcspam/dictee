@@ -453,9 +453,12 @@ impl LiveDiarizer {
             &discrete.to_segments(FRAME_STEP_SECONDS, FRAME_DURATION_SECONDS),
             self.config.pipeline.merge_gap,
         );
+        // Live segments carry no confidence channel (+INF), so the margin path
+        // is inert here; passed through for config parity with file diarization.
         let segments = crate::diar::segment::enforce_min_turn(
             &segments,
             self.config.pipeline.min_turn_duration,
+            self.config.pipeline.confidence_absorb_margin,
         );
 
         let mut turns = Vec::new();
