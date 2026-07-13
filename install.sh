@@ -83,13 +83,16 @@ safe_install() {
     }
 
     # 1. No removals → normal install.
-    remv=$(_dry "")
+    # The dry-run legitimately exits non-zero (grep finds no removals to print;
+    # `dnf install --assumeno` returns 1 when it declines a pending transaction).
+    # We only want its stdout, so never let that trip `set -e` (#26).
+    remv=$(_dry "") || true
     if [[ -z "${remv// }" ]]; then _run ""; return; fi
 
     # 2. Removals → retry without optional (weak) deps to preserve them.
     warn "Installing dictee would REMOVE existing packages: ${remv}"
     warn "Retrying without optional (recommended) packages to keep yours..."
-    remv=$(_dry "$norec")
+    remv=$(_dry "$norec") || true
     if [[ -z "${remv// }" ]]; then
         warn "Installing dictee WITHOUT optional extras to avoid the conflict."
         warn "Your packages are preserved; you can add the optional extras later."
