@@ -311,17 +311,22 @@ mode_online() {
     else
         RELEASE_JSON="$(curl -fsSL "$GITHUB_API")" || die "Cannot reach GitHub API"
     fi
-    RELEASE_TAG=$(echo "$RELEASE_JSON" | grep -Po '"tag_name"\s*:\s*"\K[^"]+' | head -1)
-    [[ -n "$RELEASE_TAG" ]] || die "Cannot parse release tag"
+    # `|| true`: grep exits 1 when the JSON has no tag_name (empty/rate-limited
+    # API response); under `set -e` that would abort before the friendly die.
+    RELEASE_TAG=$(echo "$RELEASE_JSON" | grep -Po '"tag_name"\s*:\s*"\K[^"]+' | head -1) || true
+    [[ -n "$RELEASE_TAG" ]] || die "Cannot parse release tag (GitHub API unreachable or rate-limited?)"
     ok "Target release: ${C_BOLD}${RELEASE_TAG}${C_OFF}"
 
     # Extract download URL matching a filename pattern
     find_asset_url() {
         local pattern="$1"
+        # `|| true`: grep exits 1 when no asset matches the pattern; under
+        # `set -e` a bare `url=$(find_asset_url ...)` would abort here instead
+        # of letting the caller's `[[ -n "$url" ]] || die` report it cleanly.
         echo "$RELEASE_JSON" \
             | grep -Po '"browser_download_url"\s*:\s*"\K[^"]+' \
             | grep -E "$pattern" \
-            | head -1
+            | head -1 || true
     }
 
     # Download helper with retry in bash (keeps curl's --progress-bar clean;
@@ -444,7 +449,7 @@ mode_online() {
         [[ -n "$rpm_url" ]] || die "No matching .rpm asset in release ${RELEASE_TAG}"
         local rpm_file="${rpm_url##*/}"
         info "Downloading ${rpm_file}..."
-        download_with_retry "$rpm_file" "$rpm_url"
+        download_with_retry "$rpm_file" "$rpm_url" || die "Download failed"
         ok "Downloaded"
 
         info "Installing..."
@@ -479,7 +484,7 @@ mode_online() {
         [[ -n "$rpm_url" ]] || die "No matching .rpm asset in release ${RELEASE_TAG}"
         local rpm_file="${rpm_url##*/}"
         info "Downloading ${rpm_file}..."
-        download_with_retry "$rpm_file" "$rpm_url"
+        download_with_retry "$rpm_file" "$rpm_url" || die "Download failed"
         ok "Downloaded"
 
         info "Installing (zypper)..."
@@ -720,8 +725,8 @@ mode_online() {
         [[ -n "$tar_url" ]] || die "No tarball found in release ${RELEASE_TAG}"
         local tar_file="${tar_url##*/}"
         info "Downloading ${tar_file}..."
-        download_with_retry "$tar_file" "$tar_url"
-        tar xzf "$tar_file"
+        download_with_retry "$tar_file" "$tar_url" || die "Download failed"
+        tar xzf "$tar_file" || die "Cannot extract ${tar_file}"
         local dir="${tar_file%.tar.gz}"
         cd "$dir" || die "Cannot enter extracted directory"
         info "Running install.sh (tarball mode)..."
@@ -896,7 +901,7 @@ EOF
                     nvidia-curand-cu12 \
                     nvidia-cuda-nvrtc-cu12 2>/dev/null; then
                 local _py_ver
-                _py_ver=$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1)
+                _py_ver=$(ls "$CUDA_VENV/lib/" 2>/dev/null | grep -E "^python" | head -1) || true
                 if [[ -n "$_py_ver" ]]; then
                     local _nvidia_root="$CUDA_VENV/lib/$_py_ver/site-packages/nvidia"
                     local _count=0
@@ -1083,7 +1088,9 @@ EOF
         fi
         local _asr_backend="parakeet"
         if [[ -f "$REAL_HOME/.config/dictee.conf" ]]; then
-            _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$REAL_HOME/.config/dictee.conf" | cut -d= -f2)
+            # `|| true`: grep exits 1 when the key is absent (fresh conf); the
+            # empty capture then falls through to the `*)` case below.
+            _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$REAL_HOME/.config/dictee.conf" | cut -d= -f2) || true
         fi
         local _asr_svc
         case "$_asr_backend" in
