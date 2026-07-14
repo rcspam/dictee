@@ -4404,16 +4404,16 @@ msgid "Copy to clipboard only (no typing)"
 msgstr "Solo copiar al portapapeles (sin escritura)"
 
 #: dictee-setup.py
-msgid "How the dictated text reaches your application. The paste mode works with any keyboard layout (Neo, Bépo, ...) but overwrites the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
-msgstr "Cómo llega el texto dictado a su aplicación. El modo de pegado funciona con cualquier distribución de teclado (Neo, Bépo, ...) pero sobrescribe el portapapeles y no puede pegar en terminales. Solo portapapeles nunca escribe nada; usted pega el texto."
-
-#: dictee-setup.py
 msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
 msgstr "⚠ En Wayland con wl-clipboard < 2.3.0, la opción de copia y el modo de pegado pueden perder texto en algunas aplicaciones Electron (wl-copy roba brevemente el foco). «Solo copiar al portapapeles» no está afectado."
 
 #: dictee-setup.py
 msgid "Clipboard"
 msgstr "Portapapeles"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr "Cómo llega el texto dictado a su aplicación. El modo de pegado (Mayús+Insert) funciona con cualquier distribución de teclado (Neo, Bépo, ...) y en la mayoría de terminales, pero sobrescribe el portapapeles. Solo portapapeles nunca escribe nada; usted pega el texto."
 
 #~ msgid ""
 #~ "Quick install\n"

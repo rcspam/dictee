@@ -4399,16 +4399,16 @@ msgid "Copy to clipboard only (no typing)"
 msgstr "Solo copiare negli appunti (nessuna digitazione)"
 
 #: dictee-setup.py
-msgid "How the dictated text reaches your application. The paste mode works with any keyboard layout (Neo, Bépo, ...) but overwrites the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
-msgstr "Come il testo dettato raggiunge la vostra applicazione. La modalità incolla funziona con qualsiasi disposizione di tastiera (Neo, Bépo, ...) ma sovrascrive gli appunti e non può incollare nei terminali. Solo appunti non digita mai nulla; incollate il testo voi stessi."
-
-#: dictee-setup.py
 msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
 msgstr "⚠ Su Wayland con wl-clipboard < 2.3.0, l'opzione di copia e la modalità incolla possono perdere testo in alcune applicazioni Electron (wl-copy ruba brevemente il focus). «Solo copiare negli appunti» non è interessato."
 
 #: dictee-setup.py
 msgid "Clipboard"
 msgstr "Appunti"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr "Come il testo dettato raggiunge la vostra applicazione. La modalità incolla (Maiusc+Ins) funziona con qualsiasi disposizione di tastiera (Neo, Bépo, ...) e nella maggior parte dei terminali, ma sovrascrive gli appunti. Solo appunti non digita mai nulla; incollate il testo voi stessi."
 
 #~ msgid ""
 #~ "Quick install\n"

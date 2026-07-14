@@ -20,6 +20,7 @@ LAST_WORD_FILE="$TMPDIR/last_word"
 DOTOOL_LOG="$TMPDIR/dotool_log"     # every line piped into safe_dotool
 CTRL_LOG="$TMPDIR/ctrl_log"         # every safe_dotool_key_ctrl combo
 CLIP_FILE="$TMPDIR/clipboard"       # current fake clipboard content
+PRIMARY_FILE="$TMPDIR/primary"      # current fake primary selection
 COPY_LOG="$TMPDIR/copy_log"         # one line per force_copy_to_clipboard call
 
 LANG_SOURCE="fr"
@@ -45,6 +46,9 @@ force_copy_to_clipboard() {
     printf '%s' "$1" > "$CLIP_FILE"
     printf '%s\x00' "$1" >> "$COPY_LOG"
 }
+_copy_primary() {
+    printf '%s' "$1" > "$PRIMARY_FILE"
+}
 
 # Extract the functions under test from the live dictee script
 for fn in _emit_sanitize emit_text type_text \
@@ -59,7 +63,7 @@ fail=0
 
 reset_logs() {
     : > "$DOTOOL_LOG"; : > "$CTRL_LOG"; : > "$COPY_LOG"
-    printf 'SENTINEL' > "$CLIP_FILE"
+    printf 'SENTINEL' > "$CLIP_FILE"; : > "$PRIMARY_FILE"
     rm -f "$LAST_WORD_FILE"
 }
 
@@ -121,12 +125,15 @@ OUTPUT_MODE="paste"
 emit_text $'Il pense\xe2\x80\xa6 vraiment.\x02'
 check "paste: … converti en ... (V2, décomptes backspace)" \
     "$(cat "$CLIP_FILE")" "Il pense... vraiment."
-check "paste: exactement un ctrl+v" "$(count_ctrl_v)" "1"
+check "paste: exactement un shift+insert" \
+    "$(grep -c '^key shift+insert$' "$DOTOOL_LOG")" "1"
+check "paste: la sélection primaire reçoit le même texte" \
+    "$(cat "$PRIMARY_FILE")" "Il pense... vraiment."
 
 reset_logs
 emit_text $'\x01'
-check "paste: push marqueur-seul = ni copie ni ctrl+v (V10)" \
-    "$(cat "$CLIP_FILE")|$(count_ctrl_v)" "SENTINEL|0"
+check "paste: push marqueur-seul = ni copie ni collage (V10)" \
+    "$(cat "$CLIP_FILE")|$(grep -c '^key shift+insert$' "$DOTOOL_LOG")" "SENTINEL|0"
 
 echo "── garde V1: save_last_word en mode clipboard"
 reset_logs

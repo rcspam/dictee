@@ -6515,9 +6515,9 @@ class DicteeSetupDialog(QDialog):
 
         tip = _tt(_(
             "How the dictated text reaches your application. The paste mode "
-            "works with any keyboard layout (Neo, Bépo, ...) but overwrites "
-            "the clipboard and cannot paste into terminals. Clipboard only "
-            "never types anything; you paste the text yourself."))
+            "(Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) "
+            "and in most terminals, but overwrites the clipboard. Clipboard "
+            "only never types anything; you paste the text yourself."))
         self.rad_out_type = QRadioButton(_("Type into the active window (default)"))
         self.rad_out_paste = QRadioButton(_("Paste all at once (Ctrl+V)"))
         self.rad_out_clipboard = QRadioButton(_("Copy to clipboard only (no typing)"))

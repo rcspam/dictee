@@ -337,10 +337,24 @@ _emit_sanitize() {
     _EMIT_TEXT="${text%X}"
 }
 
+# Mirror the text into the PRIMARY selection. Shift+Insert pastes the
+# CLIPBOARD in most apps (Qt, GTK, Chromium, Konsole) but the PRIMARY
+# selection in xterm-lineage terminals — feeding both makes the paste
+# chord land the same text everywhere.
+_copy_primary() {
+    if command -v wl-copy >/dev/null 2>&1 && [ -n "$WAYLAND_DISPLAY" ]; then
+        echo -n "$1" | wl-copy --primary
+    elif command -v xclip >/dev/null 2>&1; then
+        echo -n "$1" | xclip -selection primary
+    elif command -v xsel >/dev/null 2>&1; then
+        echo -n "$1" | xsel --primary --input
+    fi
+}
+
 # Single output gate for the transcription (normal, translated and
 # translation-failed branches all end here). Dispatches on OUTPUT_MODE:
 #   type      → type_text (unchanged historical path)
-#   paste     → clipboard + Ctrl+V (whole text at once)
+#   paste     → clipboard (+ primary) + Shift+Insert (whole text at once)
 #   clipboard → copy only
 # In paste/clipboard modes an empty (or marker-only) push must NOT touch
 # the clipboard — overwriting the user's clipboard with nothing would be
@@ -351,10 +365,14 @@ emit_text() {
             _emit_sanitize "$1" true
             [ -z "${_EMIT_TEXT//[[:space:]]/}" ] && return 0
             force_copy_to_clipboard "$_EMIT_TEXT"
+            _copy_primary "$_EMIT_TEXT"
             sleep 0.1
-            # lowercase v — see the non-Latin paste path: "ctrl+V" would
-            # be Ctrl+Shift+v and collide with app shortcuts.
-            safe_dotool_key_ctrl "ctrl+v"
+            # Shift+Insert instead of Ctrl+V: it pastes in terminals too
+            # (Ctrl+V there is literal-next and does not paste at all), it
+            # avoids the Ctrl+Shift+V shortcut collisions, and dotool
+            # resolves "insert" as a raw Linux keycode — no keyboard-layout
+            # dependency at all, unlike the letter v.
+            printf 'key shift+insert\n' | safe_dotool
             ;;
         clipboard)
             _emit_sanitize "$1" false
