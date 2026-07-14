@@ -4419,6 +4419,10 @@ msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Der Einfügemodus funkti
 msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
 msgstr "⚠ Unter Wayland mit wl-clipboard < 2.3.0 können die Kopieroption und der Einfügemodus in manchen Electron-Apps Text verlieren (wl-copy stiehlt kurz den Fokus). „Nur in die Zwischenablage kopieren\" ist nicht betroffen."
 
+#: dictee-setup.py
+msgid "Clipboard"
+msgstr "Zwischenablage"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

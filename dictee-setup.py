@@ -5818,8 +5818,8 @@ class DicteeSetupDialog(QDialog):
         _add(tree, _("Translation"), 2)
         _add(tree, _("Keyboard shortcut"), 3)
         _add(tree, _("Visual feedback"), 5)
-        _add(tree, _("Extra options"), 6)
         _add(tree, _("Text output"), 12)
+        _add(tree, _("Extra options"), 6)
         _add(tree, _("Notifications"), 7)
         pp_root = _add(tree, _("Post-processing"), 8)
         # Sub-items point to the same stack page but force a tab switch
@@ -6503,9 +6503,9 @@ class DicteeSetupDialog(QDialog):
         lay.addWidget(grp_visual)
 
     def _build_output_mode_group(self, lay, conf):
-        """Dedicated 'Text output' block (#28): radio buttons choosing how
-        the dictated text reaches the application, the typewriter pace, the
-        copy-to-clipboard toggle and its wl-clipboard warning. Used by both
+        """Dedicated 'Text output' block (#28), split in two group boxes:
+        the output-mode radio buttons, then a separate 'Clipboard' group
+        with the copy toggle and its wl-clipboard warning. Used by both
         the sidebar 'Text output' page and the wizard options page (each UI
         creates one instance — the attributes are read at save time)."""
         grp = QGroupBox(_("Text output"))
@@ -6537,11 +6537,18 @@ class DicteeSetupDialog(QDialog):
         if not checked:
             self.rad_out_type.setChecked(True)
 
-        # Clipboard copy (moved here from the options page: everything
-        # clipboard-related lives on this block now)
+        lay.addWidget(grp)
+
+        # Separate 'Clipboard' group: the copy toggle and its wl-clipboard
+        # warning (moved here from the options page — everything
+        # clipboard-related lives on this page now).
+        grp_clip = QGroupBox(_("Clipboard"))
+        clay = QVBoxLayout(grp_clip)
+        clay.setSpacing(6)
+        clay.setContentsMargins(16, 16, 16, 12)
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        glay.addWidget(self.chk_clipboard)
+        clay.addWidget(self.chk_clipboard)
         # wl-copy < 2.3.0 briefly steals the keyboard focus when it takes
         # the selection; Electron apps blur their input and do not refocus
         # (c101e85). This hits the copy toggle AND the paste mode.
@@ -6554,7 +6561,7 @@ class DicteeSetupDialog(QDialog):
             "affected."))
         self.lbl_clipboard_warn.setWordWrap(True)
         self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        glay.addWidget(self.lbl_clipboard_warn)
+        clay.addWidget(self.lbl_clipboard_warn)
 
         def _sync_enabled(*_a, _self=self):
             # Clipboard-only always copies: grey the copy toggle out there.
@@ -6562,7 +6569,7 @@ class DicteeSetupDialog(QDialog):
         for rad, _mode in self._out_radios:
             rad.toggled.connect(_sync_enabled)
         _sync_enabled()
-        lay.addWidget(grp)
+        lay.addWidget(grp_clip)
 
     def _selected_output_mode(self):
         """Mode string from the radio group; safe fallback."""

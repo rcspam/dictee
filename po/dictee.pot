@@ -3863,3 +3863,7 @@ msgstr ""
 msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
 msgstr ""
 
+#: dictee-setup.py
+msgid "Clipboard"
+msgstr ""
+
