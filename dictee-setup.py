@@ -474,6 +474,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
+                output_mode="type", paste_style="block",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -494,6 +495,8 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LANG_SOURCE": lang_source,
         "DICTEE_LANG_TARGET": lang_target,
         "DICTEE_CLIPBOARD": "true" if clipboard else "false",
+        "DICTEE_OUTPUT_MODE": _s(output_mode) if output_mode in ("type", "paste", "clipboard") else "type",
+        "DICTEE_PASTE_STYLE": _s(paste_style) if paste_style in ("block", "typewriter") else "block",
         "DICTEE_ANIM_SPEECH": "true" if anim_speech else "false",
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
@@ -6487,6 +6490,41 @@ class DicteeSetupDialog(QDialog):
         self._build_visual_section(lay_vis, conf)
         lay.addWidget(grp_visual)
 
+    def _build_output_mode_row(self, lay, conf):
+        """Output-mode selector (#28): how the dictated text reaches the
+        application. Recreated by both the wizard subpage and the classic
+        settings page (same pattern as chk_clipboard — last created wins).
+        The (mode, style) tuple is stored as item data and maps to
+        DICTEE_OUTPUT_MODE / DICTEE_PASTE_STYLE."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(QLabel(_("Text output")))
+        self.cmb_output_mode = QComboBox()
+        self.cmb_output_mode.addItem(_("Type into the active window (default)"), ("type", "block"))
+        self.cmb_output_mode.addItem(_("Paste all at once (Ctrl+V)"), ("paste", "block"))
+        self.cmb_output_mode.addItem(_("Paste word by word (typewriter)"), ("paste", "typewriter"))
+        self.cmb_output_mode.addItem(_("Copy to clipboard only (no typing)"), ("clipboard", "block"))
+        self.cmb_output_mode.setToolTip(_tt(_(
+            "How the dictated text reaches your application. The paste modes "
+            "work with any keyboard layout (Neo, Bépo, ...) but overwrite the "
+            "clipboard and cannot paste into terminals. Clipboard only never "
+            "types anything; you paste the text yourself.")))
+        saved_mode = conf.get("DICTEE_OUTPUT_MODE", "type")
+        saved_style = conf.get("DICTEE_PASTE_STYLE", "block")
+        for i in range(self.cmb_output_mode.count()):
+            mode, style = self.cmb_output_mode.itemData(i)
+            if mode == saved_mode and (mode != "paste" or style == saved_style):
+                self.cmb_output_mode.setCurrentIndex(i)
+                break
+        # Clipboard-only always copies: grey the copy toggle out there.
+        def _sync_clip_toggle(idx, _self=self):
+            m = _self.cmb_output_mode.itemData(idx)[0]
+            _self.chk_clipboard.setEnabled(m != "clipboard")
+        self.cmb_output_mode.currentIndexChanged.connect(_sync_clip_toggle)
+        _sync_clip_toggle(self.cmb_output_mode.currentIndex())
+        row.addWidget(self.cmb_output_mode, 1)
+        lay.addLayout(row)
+
     def _build_subpage_extra_options(self, lay, conf):
         grp_options = QGroupBox(_("Extra options"))
         lay_opt = QVBoxLayout(grp_options)
@@ -6501,6 +6539,7 @@ class DicteeSetupDialog(QDialog):
         self.lbl_clipboard_warn.setWordWrap(True)
         self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
         lay_opt.addWidget(self.lbl_clipboard_warn)
+        self._build_output_mode_row(lay_opt, conf)
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
@@ -8186,6 +8225,7 @@ class DicteeSetupDialog(QDialog):
         self.lbl_clipboard_warn.setWordWrap(True)
         self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
         lay.addWidget(self.lbl_clipboard_warn)
+        self._build_output_mode_row(lay, conf)
 
         lay.addStretch()
         scroll.setWidget(content)
@@ -18589,6 +18629,9 @@ class DicteeSetupDialog(QDialog):
         lang_src = self.combo_src.currentData()
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
+        output_mode, paste_style = ("type", "block")
+        if hasattr(self, 'cmb_output_mode'):
+            output_mode, paste_style = self.cmb_output_mode.currentData()
 
         anim_speech = self.chk_anim_speech.isChecked()
         anim_plasmoid = self.chk_plasmoid.isChecked()
@@ -18810,6 +18853,7 @@ class DicteeSetupDialog(QDialog):
                     hw_tier=(
                         self.cmb_whisper_hw_tier.currentData()
                         if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
+                    output_mode=output_mode, paste_style=paste_style,
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.

@@ -4382,6 +4382,30 @@ msgstr ""
 "Dictée non è ancora configurato.\n"
 "Vuoi avviare la configurazione guidata?"
 
+#: dictee-setup.py
+msgid "Text output"
+msgstr "Uscita del testo"
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr "Digitare nella finestra attiva (predefinito)"
+
+#: dictee-setup.py
+msgid "Paste all at once (Ctrl+V)"
+msgstr "Incollare tutto in una volta (Ctrl+V)"
+
+#: dictee-setup.py
+msgid "Paste word by word (typewriter)"
+msgstr "Incollare parola per parola (macchina da scrivere)"
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr "Solo copiare negli appunti (nessuna digitazione)"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
+msgstr "Come il testo dettato raggiunge la vostra applicazione. Le modalità incolla funzionano con qualsiasi disposizione di tastiera (Neo, Bépo, ...) ma sovrascrivono gli appunti e non possono incollare nei terminali. Solo appunti non digita mai nulla; incollate il testo voi stessi."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

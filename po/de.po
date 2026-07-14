@@ -4395,6 +4395,30 @@ msgstr ""
 "Dictée ist noch nicht konfiguriert.\n"
 "Möchten Sie den Einrichtungsassistenten starten?"
 
+#: dictee-setup.py
+msgid "Text output"
+msgstr "Textausgabe"
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr "In das aktive Fenster tippen (Standard)"
+
+#: dictee-setup.py
+msgid "Paste all at once (Ctrl+V)"
+msgstr "Alles auf einmal einfügen (Strg+V)"
+
+#: dictee-setup.py
+msgid "Paste word by word (typewriter)"
+msgstr "Wort für Wort einfügen (Schreibmaschine)"
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr "Nur in die Zwischenablage kopieren (kein Tippen)"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
+msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Die Einfügemodi funktionieren mit jeder Tastaturbelegung (Neo, Bépo, ...), überschreiben aber die Zwischenablage und können nicht in Terminals einfügen. Nur Zwischenablage tippt nie etwas; Sie fügen den Text selbst ein."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

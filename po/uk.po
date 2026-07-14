@@ -4351,6 +4351,30 @@ msgstr ""
 "Dictée ще не налаштовано.\n"
 "Бажаєте запустити майстер налаштування?"
 
+#: dictee-setup.py
+msgid "Text output"
+msgstr "Виведення тексту"
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr "Набирати в активному вікні (типово)"
+
+#: dictee-setup.py
+msgid "Paste all at once (Ctrl+V)"
+msgstr "Вставити все одразу (Ctrl+V)"
+
+#: dictee-setup.py
+msgid "Paste word by word (typewriter)"
+msgstr "Вставляти слово за словом (друкарська машинка)"
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr "Лише копіювати до буфера обміну (без набору)"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
+msgstr "Як надиктований текст потрапляє у ваш застосунок. Режими вставлення працюють з будь-якою розкладкою клавіатури (Neo, Bépo, ...), але перезаписують буфер обміну і не можуть вставляти в термінали. Лише буфер обміну нічого не набирає; ви вставляєте текст самі."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

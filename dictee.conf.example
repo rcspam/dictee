@@ -97,6 +97,27 @@ DICTEE_PTT_KEY=67
 # the transcript from being typed into some Electron apps. See README.
 DICTEE_CLIPBOARD=false
 
+# How the transcription reaches you (issue #28):
+#   type      - simulate key presses via dotool (default). Requires dotool to
+#               know your exact keyboard layout; exotic layouts (Neo, ...)
+#               may get some punctuation wrong.
+#   paste     - copy to clipboard then paste with Ctrl+V. Layout-independent:
+#               works with any keyboard layout. Overwrites the clipboard on
+#               every dictation; terminals need Ctrl+Shift+V so pasting there
+#               will not work.
+#   clipboard - copy to clipboard only, nothing is typed or pasted. You paste
+#               the text yourself. Cross-push continuation is disabled (each
+#               dictation is independent).
+DICTEE_OUTPUT_MODE=type
+
+# Paste style, only used when DICTEE_OUTPUT_MODE=paste:
+#   block      - the whole text appears at once (default)
+#   typewriter - the text is pasted word by word, like typing
+DICTEE_PASTE_STYLE=block
+
+# Pause between words in typewriter paste style (seconds).
+DICTEE_PASTE_CADENCE=0.06
+
 # Speech animation overlay (Wayland layer-shell: KDE, Sway, Hyprland)
 DICTEE_ANIM_SPEECH=true
 
