@@ -3867,3 +3867,7 @@ msgstr ""
 msgid "Typewriter pace (seconds between words)"
 msgstr ""
 
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and both paste modes can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr ""
+

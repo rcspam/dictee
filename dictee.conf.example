@@ -104,7 +104,10 @@ DICTEE_CLIPBOARD=false
 #   paste     - copy to clipboard then paste with Ctrl+V. Layout-independent:
 #               works with any keyboard layout. Overwrites the clipboard on
 #               every dictation; terminals need Ctrl+Shift+V so pasting there
-#               will not work.
+#               will not work. On Wayland with wl-clipboard < 2.3.0 the paste
+#               modes can lose text in some Electron apps (brief focus steal
+#               by wl-copy, same mechanism as the DICTEE_CLIPBOARD warning
+#               above); "clipboard" is not affected.
 #   clipboard - copy to clipboard only, nothing is typed or pasted. You paste
 #               the text yourself. Cross-push continuation is disabled (each
 #               dictation is independent).

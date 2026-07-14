@@ -6568,9 +6568,16 @@ class DicteeSetupDialog(QDialog):
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
         glay.addWidget(self.chk_clipboard)
+        # wl-copy < 2.3.0 briefly steals the keyboard focus when it takes
+        # the selection; Electron apps blur their input and do not refocus
+        # (c101e85). This hits the copy toggle AND both paste modes (the
+        # typewriter worst: one focus steal per word). Clipboard-only is
+        # safe: nothing is injected, the user refocuses by hand.
         self.lbl_clipboard_warn = QLabel(_(
-            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
-            "prevent the transcript from being typed into some Electron apps."))
+            "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and "
+            "both paste modes can lose text in some Electron apps (wl-copy "
+            "briefly steals the focus). 'Copy to clipboard only' is not "
+            "affected."))
         self.lbl_clipboard_warn.setWordWrap(True)
         self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
         glay.addWidget(self.lbl_clipboard_warn)

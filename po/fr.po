@@ -4409,6 +4409,10 @@ msgstr "Comment le texte dicté arrive dans votre application. Les modes collage
 msgid "Typewriter pace (seconds between words)"
 msgstr "Cadence machine à écrire (secondes entre les mots)"
 
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and both paste modes can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ Sous Wayland avec wl-clipboard < 2.3.0, l'option de copie et les deux modes collage peuvent perdre du texte dans certaines applications Electron (wl-copy vole brièvement le focus). « Copier dans le presse-papier uniquement » n'est pas concerné."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

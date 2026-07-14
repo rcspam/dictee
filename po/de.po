@@ -4423,6 +4423,10 @@ msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Die Einfügemodi funktio
 msgid "Typewriter pace (seconds between words)"
 msgstr "Schreibmaschinentempo (Sekunden zwischen Wörtern)"
 
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and both paste modes can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ Unter Wayland mit wl-clipboard < 2.3.0 können die Kopieroption und beide Einfügemodi in manchen Electron-Apps Text verlieren (wl-copy stiehlt kurz den Fokus). „Nur in die Zwischenablage kopieren\" ist nicht betroffen."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

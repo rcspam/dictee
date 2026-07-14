@@ -4379,6 +4379,10 @@ msgstr "Як надиктований текст потрапляє у ваш з
 msgid "Typewriter pace (seconds between words)"
 msgstr "Темп друкарської машинки (секунди між словами)"
 
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and both paste modes can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ У Wayland із wl-clipboard < 2.3.0 опція копіювання та обидва режими вставлення можуть втрачати текст у деяких застосунках Electron (wl-copy на мить перехоплює фокус). «Лише копіювати до буфера обміну» не зачеплено."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
