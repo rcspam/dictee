@@ -340,12 +340,28 @@ _emit_sanitize() {
 # whitespace + one word, so concatenating the chunks reproduces the text
 # byte-for-byte (backspace counts stay valid). The clipboard finally holds
 # the FULL text, exactly like block paste.
-# DICTEE_PASTE_CADENCE (seconds, default 0.06) is the pause between words.
-# DICTEE_DOTOOL_SETTLE (#19) is honored once, on the first chunk only —
-# the window is already focused afterwards.
+# DICTEE_PASTE_CADENCE (seconds, default 0.08) is the pause between words.
+#
+# ONE persistent dotool consumes every paste chord (it processes stdin in
+# streaming, bufio.Scanner): its built-in ~600 ms device settle is paid
+# once, not per word. A dotool per word made the typewriter crawl at
+# ~1 word/s AND raced the final clipboard write (the last word pasted
+# empty), both observed on a real KDE VM. DICTEE_DOTOOL_SETTLE (#19) is
+# honored once too, before the first chord.
 _paste_typewriter() {
-    local text="$1" rest="$1" chunk first=true
-    local cadence="${DICTEE_PASTE_CADENCE:-0.06}"
+    local text="$1" rest="$1" chunk
+    local cadence="${DICTEE_PASTE_CADENCE:-0.08}"
+    local settle="${DICTEE_DOTOOL_SETTLE:-0}"
+    local _tw_fd
+    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
+        exec {_tw_fd}> >(sg input -c 'dotool' 2>/dev/null || true)
+    else
+        exec {_tw_fd}> >(dotool 2>/dev/null || true)
+    fi
+    # Wait out dotool's own device settle (plus the user's #19 delay) so
+    # the first paste chord is not swallowed by a slow compositor bind.
+    sleep 0.7
+    [[ "$settle" != 0 ]] && sleep "$settle"
     while [ -n "$rest" ]; do
         if [[ "$rest" =~ ^([[:space:]]*[^[:space:]]+) ]]; then
             chunk="${BASH_REMATCH[1]}"
@@ -355,14 +371,14 @@ _paste_typewriter() {
         rest="${rest:${#chunk}}"
         force_copy_to_clipboard "$chunk"
         sleep 0.05
-        if [ "$first" = true ]; then
-            safe_dotool_key_ctrl "ctrl+v"
-            first=false
-        else
-            DICTEE_DOTOOL_SETTLE=0 safe_dotool_key_ctrl "ctrl+v"
-        fi
+        printf 'keyup leftctrl\nkey ctrl+v\nkeyup leftctrl\n' >&"$_tw_fd" 2>/dev/null || break
         sleep "$cadence"
     done
+    # Let the focused app consume the LAST paste before the clipboard is
+    # replaced by the full text (otherwise the final word lands empty or
+    # as the whole text — race observed on the VM).
+    sleep 0.3
+    exec {_tw_fd}>&-
     force_copy_to_clipboard "$text"
 }
 

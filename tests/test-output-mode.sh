@@ -31,7 +31,14 @@ _CONT_KEYWORD_RE=""
 
 _dbg() { :; }
 sleep() { :; }   # speed: neutralize cadence/settle pauses
+_DOTOOL_NEEDS_SG=0
 
+# dotool mock: consumed by the persistent >(dotool) process substitution
+# of _paste_typewriter (functions ARE visible in process substitutions of
+# the same shell) as well as by safe_dotool below.
+dotool() {
+    cat >> "$DOTOOL_LOG"
+}
 safe_dotool() {
     cat >> "$DOTOOL_LOG"
 }
@@ -131,14 +138,13 @@ echo "── emit_text: mode paste (typewriter)"
 reset_logs
 PASTE_STYLE="typewriter"
 emit_text "hello, how are you?"
-# 4 word-chunks + 1 final full-text copy
-check "typewriter: 4 ctrl+v (un par mot)" "$(count_ctrl_v)" "4"
+command sleep 0.3   # real sleep: let the >(dotool) substitution flush its log
+check "typewriter: 4 ctrl+v via le dotool persistant (un par mot)" \
+    "$(grep -c '^key ctrl+v$' "$DOTOOL_LOG")" "4"
 check "typewriter: 5 copies (4 chunks + texte complet final)" "$(copy_calls)" "5"
 check "typewriter: presse-papier final = texte complet" \
     "$(cat "$CLIP_FILE")" "hello, how are you?"
 # chunk concatenation must reproduce the text byte-for-byte
-chunks=$(head -c -1 "$COPY_LOG" | tr '\0' '\n' | head -n 4 | tr -d '\n'; true)
-joined=$(tr '\0' '\n' < "$COPY_LOG" | sed -n '1,4p' | paste -sd '' -)
 check "typewriter: concat(chunks) == texte" \
     "$(tr '\0' '|' < "$COPY_LOG")" \
     "hello,| how| are| you?|hello, how are you?|"

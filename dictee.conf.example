@@ -116,7 +116,7 @@ DICTEE_OUTPUT_MODE=type
 DICTEE_PASTE_STYLE=block
 
 # Pause between words in typewriter paste style (seconds).
-DICTEE_PASTE_CADENCE=0.06
+DICTEE_PASTE_CADENCE=0.08
 
 # Speech animation overlay (Wayland layer-shell: KDE, Sway, Hyprland)
 DICTEE_ANIM_SPEECH=true
