@@ -51,7 +51,7 @@ _copy_primary() {
 }
 
 # Extract the functions under test from the live dictee script
-for fn in _emit_sanitize emit_text type_text \
+for fn in _emit_sanitize _paste_text emit_text type_text \
           apply_continuation save_last_word; do
     body=$(awk "/^${fn}\(\) \{/,/^\}/" "$DICTEE_SCRIPT")
     [ -n "$body" ] || { echo "FATAL: function $fn not found in dictee"; exit 1; }

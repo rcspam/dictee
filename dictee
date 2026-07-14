@@ -263,11 +263,8 @@ release_modifiers() {
     fi
 }
 
-# Safe wrapper for modifier-using key commands — releases modifiers before and after
-safe_dotool_key_ctrl() {
-    local combo="$1"  # e.g. "ctrl+V", "ctrl+j"
-    printf 'keyup leftctrl\nkey %s\nkeyup leftctrl\n' "$combo" | safe_dotool
-}
+# (safe_dotool_key_ctrl was removed: its only caller was the non-Latin
+# Ctrl+V paste, replaced by the Shift+Insert _paste_text primitive.)
 
 # Type text via dotool, with line break handling and sanitization
 # dotool does not support: U+00A0, U+202F, …, —, –, tab
@@ -351,6 +348,20 @@ _copy_primary() {
     fi
 }
 
+# Copy the text to the clipboard (+ primary) and paste it with a single
+# Shift+Insert. The ONE paste primitive for everything paste-shaped: the
+# paste output mode AND the type-mode non-Latin fallback both use it.
+# Shift+Insert instead of Ctrl+V: it pastes in terminals too (Ctrl+V there
+# is literal-next and does not paste at all), it avoids the Ctrl+Shift+V
+# shortcut collisions, and dotool resolves "insert" as a raw Linux keycode
+# — no keyboard-layout dependency at all, unlike the letter v.
+_paste_text() {
+    force_copy_to_clipboard "$1"
+    _copy_primary "$1"
+    sleep 0.1
+    printf 'key shift+insert\n' | safe_dotool
+}
+
 # Single output gate for the transcription (normal, translated and
 # translation-failed branches all end here). Dispatches on OUTPUT_MODE:
 #   type      → type_text (unchanged historical path)
@@ -364,15 +375,7 @@ emit_text() {
         paste)
             _emit_sanitize "$1" true
             [ -z "${_EMIT_TEXT//[[:space:]]/}" ] && return 0
-            force_copy_to_clipboard "$_EMIT_TEXT"
-            _copy_primary "$_EMIT_TEXT"
-            sleep 0.1
-            # Shift+Insert instead of Ctrl+V: it pastes in terminals too
-            # (Ctrl+V there is literal-next and does not paste at all), it
-            # avoids the Ctrl+Shift+V shortcut collisions, and dotool
-            # resolves "insert" as a raw Linux keycode — no keyboard-layout
-            # dependency at all, unlike the letter v.
-            printf 'key shift+insert\n' | safe_dotool
+            _paste_text "$_EMIT_TEXT"
             ;;
         clipboard)
             _emit_sanitize "$1" false
@@ -1775,14 +1778,10 @@ if [ -f "$PIDFILE" ]; then
                 # dotool "type" cannot handle these characters, use clipboard paste
                 if echo "$translated" | grep -qP '[\p{Cyrillic}\p{Arabic}\p{Han}\p{Hangul}\p{Hiragana}\p{Katakana}\p{Thai}\p{Devanagari}\p{Bengali}\p{Georgian}]'; then
                     # Paste needs the text on the clipboard even when clipboard
-                    # mode is off (default since 1.3.5), so force it here. Proper
-                    # clipboard save/restore is deferred to 1.4.
-                    force_copy_to_clipboard "$translated"
-                    sleep 0.1
-                    # lowercase v: "ctrl+V" would be Ctrl+Shift+v (dotool has no uppercase
-                    # key → V = Shift+v), colliding with app shortcuts such as Awesome
-                    # Screenshot's Ctrl+Shift+V capture. Plain paste = ctrl+v.
-                    safe_dotool_key_ctrl "ctrl+v"
+                    # mode is off (default since 1.3.5), so it is forced here.
+                    # Proper clipboard save/restore is deferred to 1.4.
+                    # Same Shift+Insert primitive as the paste output mode.
+                    _paste_text "$translated"
                 else
                     type_text "$translated"
                 fi
