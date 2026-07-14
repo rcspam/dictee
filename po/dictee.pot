@@ -3838,3 +3838,32 @@ msgid ""
 "Dictée is not configured yet.\n"
 "Do you want to run the setup wizard?"
 msgstr ""
+
+#: dictee-setup.py
+msgid "Text output"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr ""
+
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Clipboard"
+msgstr ""
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr ""
+

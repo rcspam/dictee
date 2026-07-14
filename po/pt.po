@@ -4359,6 +4359,34 @@ msgstr ""
 "O Dictée ainda não está configurado.\n"
 "Deseja executar o assistente de configuração?"
 
+#: dictee-setup.py
+msgid "Text output"
+msgstr "Saída do texto"
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr "Digitar na janela ativa (padrão)"
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr "Apenas copiar para a área de transferência (sem digitação)"
+
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ No Wayland com wl-clipboard < 2.3.0, a opção de cópia e o modo de colagem podem perder texto em algumas aplicações Electron (o wl-copy rouba brevemente o foco). «Apenas copiar para a área de transferência» não é afetado."
+
+#: dictee-setup.py
+msgid "Clipboard"
+msgstr "Área de transferência"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr "Como o texto ditado chega à sua aplicação. O modo de colagem (Shift+Insert) funciona com qualquer disposição de teclado (Neo, Bépo, ...) e na maioria dos terminais, mas substitui a área de transferência. Apenas área de transferência nunca digita nada; você cola o texto."
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr "Colar tudo de uma vez (Shift+Insert)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
