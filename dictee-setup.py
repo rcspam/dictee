@@ -474,7 +474,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
-                output_mode="type", paste_style="block",
+                output_mode="type", paste_style="block", paste_cadence=0.06,
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -488,6 +488,11 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
     _s = _sanitize_conf_value
     reverse = {v: k for k, v in VOSK_MODELS.items()}
     vosk_code = reverse.get(vosk_model, vosk_model)
+    # Typewriter pace: plain clamped number (dictee feeds it to `sleep`).
+    try:
+        _paste_cadence_str = f"{max(0.0, min(2.0, float(paste_cadence or 0.06))):g}"
+    except (TypeError, ValueError):
+        _paste_cadence_str = "0.06"
 
     values = {
         "DICTEE_ASR_BACKEND": asr_backend,
@@ -497,6 +502,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_CLIPBOARD": "true" if clipboard else "false",
         "DICTEE_OUTPUT_MODE": _s(output_mode) if output_mode in ("type", "paste", "clipboard") else "type",
         "DICTEE_PASTE_STYLE": _s(paste_style) if paste_style in ("block", "typewriter") else "block",
+        "DICTEE_PASTE_CADENCE": _paste_cadence_str,
         "DICTEE_ANIM_SPEECH": "true" if anim_speech else "false",
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
@@ -5692,6 +5698,11 @@ class DicteeSetupDialog(QDialog):
         self._sidebar_stack.addWidget(page_extra)
         page_notif = _mk_page(self._build_subpage_notifications)
         self._sidebar_stack.addWidget(page_notif)
+        # Section 12 : Text output (dedicated clipboard/output page, #28).
+        # Appended at the END of the stack so every hardcoded index above
+        # (translation=2, mic=4, PP=8, ...) keeps its meaning; the tree
+        # order below is independent from stack indices.
+        page_output = _mk_page(self._build_page_text_output)
 
         # Section About (index will be determined after PP page below)
         # Section 9 : Post-processing — pipeline header is external,
@@ -5782,6 +5793,10 @@ class DicteeSetupDialog(QDialog):
         self._sidebar_stack.addWidget(self._about_page)
         QTimer.singleShot(0, self._ensure_about_built)
 
+        # Section 12 : Text output — appended AFTER About so all hardcoded
+        # stack indices above keep their meaning (see page_output comment).
+        self._sidebar_stack.addWidget(page_output)
+
         # --- Top: pipeline header (persistent across all sections) ---
         outer.addWidget(pipeline_header)
 
@@ -5808,6 +5823,7 @@ class DicteeSetupDialog(QDialog):
         _add(tree, _("Keyboard shortcut"), 3)
         _add(tree, _("Visual feedback"), 5)
         _add(tree, _("Extra options"), 6)
+        _add(tree, _("Text output"), 12)
         _add(tree, _("Notifications"), 7)
         pp_root = _add(tree, _("Post-processing"), 8)
         # Sub-items point to the same stack page but force a tab switch
@@ -6490,56 +6506,102 @@ class DicteeSetupDialog(QDialog):
         self._build_visual_section(lay_vis, conf)
         lay.addWidget(grp_visual)
 
-    def _build_output_mode_row(self, lay, conf):
-        """Output-mode selector (#28): how the dictated text reaches the
-        application. Recreated by both the wizard subpage and the classic
-        settings page (same pattern as chk_clipboard — last created wins).
-        The (mode, style) tuple is stored as item data and maps to
-        DICTEE_OUTPUT_MODE / DICTEE_PASTE_STYLE."""
-        row = QHBoxLayout()
-        row.setSpacing(8)
-        row.addWidget(QLabel(_("Text output")))
-        self.cmb_output_mode = QComboBox()
-        self.cmb_output_mode.addItem(_("Type into the active window (default)"), ("type", "block"))
-        self.cmb_output_mode.addItem(_("Paste all at once (Ctrl+V)"), ("paste", "block"))
-        self.cmb_output_mode.addItem(_("Paste word by word (typewriter)"), ("paste", "typewriter"))
-        self.cmb_output_mode.addItem(_("Copy to clipboard only (no typing)"), ("clipboard", "block"))
-        self.cmb_output_mode.setToolTip(_tt(_(
+    def _build_output_mode_group(self, lay, conf):
+        """Dedicated 'Text output' block (#28): radio buttons choosing how
+        the dictated text reaches the application, the typewriter pace, the
+        copy-to-clipboard toggle and its wl-clipboard warning. Used by both
+        the sidebar 'Text output' page and the wizard options page (each UI
+        creates one instance — the attributes are read at save time)."""
+        grp = QGroupBox(_("Text output"))
+        glay = QVBoxLayout(grp)
+        glay.setSpacing(6)
+        glay.setContentsMargins(16, 16, 16, 12)
+
+        tip = _tt(_(
             "How the dictated text reaches your application. The paste modes "
             "work with any keyboard layout (Neo, Bépo, ...) but overwrite the "
             "clipboard and cannot paste into terminals. Clipboard only never "
-            "types anything; you paste the text yourself.")))
-        saved_mode = conf.get("DICTEE_OUTPUT_MODE", "type")
-        saved_style = conf.get("DICTEE_PASTE_STYLE", "block")
-        for i in range(self.cmb_output_mode.count()):
-            mode, style = self.cmb_output_mode.itemData(i)
-            if mode == saved_mode and (mode != "paste" or style == saved_style):
-                self.cmb_output_mode.setCurrentIndex(i)
-                break
-        # Clipboard-only always copies: grey the copy toggle out there.
-        def _sync_clip_toggle(idx, _self=self):
-            m = _self.cmb_output_mode.itemData(idx)[0]
-            _self.chk_clipboard.setEnabled(m != "clipboard")
-        self.cmb_output_mode.currentIndexChanged.connect(_sync_clip_toggle)
-        _sync_clip_toggle(self.cmb_output_mode.currentIndex())
-        row.addWidget(self.cmb_output_mode, 1)
-        lay.addLayout(row)
+            "types anything; you paste the text yourself."))
+        self.rad_out_type = QRadioButton(_("Type into the active window (default)"))
+        self.rad_out_paste = QRadioButton(_("Paste all at once (Ctrl+V)"))
+        self.rad_out_typewriter = QRadioButton(_("Paste word by word (typewriter)"))
+        self.rad_out_clipboard = QRadioButton(_("Copy to clipboard only (no typing)"))
+        self._out_radios = (
+            (self.rad_out_type, ("type", "block")),
+            (self.rad_out_paste, ("paste", "block")),
+            (self.rad_out_typewriter, ("paste", "typewriter")),
+            (self.rad_out_clipboard, ("clipboard", "block")),
+        )
+        saved = (conf.get("DICTEE_OUTPUT_MODE", "type"),
+                 conf.get("DICTEE_PASTE_STYLE", "block"))
+        checked = False
+        for rad, (mode, style) in self._out_radios:
+            rad.setToolTip(tip)
+            glay.addWidget(rad)
+            if mode == saved[0] and (mode != "paste" or style == saved[1]):
+                rad.setChecked(True)
+                checked = True
+        if not checked:
+            self.rad_out_type.setChecked(True)
 
-    def _build_subpage_extra_options(self, lay, conf):
-        grp_options = QGroupBox(_("Extra options"))
-        lay_opt = QVBoxLayout(grp_options)
-        lay_opt.setSpacing(6)
-        lay_opt.setContentsMargins(16, 16, 16, 12)
+        # Typewriter pace, active only for the typewriter radio
+        row_pace = QHBoxLayout()
+        row_pace.setSpacing(8)
+        row_pace.addSpacing(24)
+        self.lbl_paste_cadence = QLabel(_("Typewriter pace (seconds between words)"))
+        row_pace.addWidget(self.lbl_paste_cadence)
+        self.spin_paste_cadence = QDoubleSpinBox()
+        self.spin_paste_cadence.setRange(0.0, 1.0)
+        self.spin_paste_cadence.setSingleStep(0.02)
+        self.spin_paste_cadence.setDecimals(2)
+        try:
+            self.spin_paste_cadence.setValue(
+                float(conf.get("DICTEE_PASTE_CADENCE", "0.06")))
+        except (TypeError, ValueError):
+            self.spin_paste_cadence.setValue(0.06)
+        row_pace.addWidget(self.spin_paste_cadence)
+        row_pace.addStretch(1)
+        glay.addLayout(row_pace)
+
+        # Clipboard copy (moved here from the options page: everything
+        # clipboard-related lives on this block now)
         self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
         self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        lay_opt.addWidget(self.chk_clipboard)
+        glay.addWidget(self.chk_clipboard)
         self.lbl_clipboard_warn = QLabel(_(
             "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
             "prevent the transcript from being typed into some Electron apps."))
         self.lbl_clipboard_warn.setWordWrap(True)
         self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        lay_opt.addWidget(self.lbl_clipboard_warn)
-        self._build_output_mode_row(lay_opt, conf)
+        glay.addWidget(self.lbl_clipboard_warn)
+
+        def _sync_enabled(*_a, _self=self):
+            _self.spin_paste_cadence.setEnabled(_self.rad_out_typewriter.isChecked())
+            _self.lbl_paste_cadence.setEnabled(_self.rad_out_typewriter.isChecked())
+            # Clipboard-only always copies: grey the copy toggle out there.
+            _self.chk_clipboard.setEnabled(not _self.rad_out_clipboard.isChecked())
+        for rad, _data in self._out_radios:
+            rad.toggled.connect(_sync_enabled)
+        _sync_enabled()
+        lay.addWidget(grp)
+
+    def _selected_output_mode(self):
+        """(mode, style) tuple from the radio group; safe fallback."""
+        for rad, data in getattr(self, '_out_radios', ()):
+            if rad.isChecked():
+                return data
+        return ("type", "block")
+
+    def _build_page_text_output(self, lay, conf):
+        self._build_output_mode_group(lay, conf)
+
+    def _build_subpage_extra_options(self, lay, conf):
+        # Clipboard toggle + output mode moved to the dedicated
+        # 'Text output' page (_build_page_text_output, #28).
+        grp_options = QGroupBox(_("Extra options"))
+        lay_opt = QVBoxLayout(grp_options)
+        lay_opt.setSpacing(6)
+        lay_opt.setContentsMargins(16, 16, 16, 12)
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
@@ -8214,18 +8276,8 @@ class DicteeSetupDialog(QDialog):
         lay_notif.addWidget(self.chk_notifications_text)
         lay.addWidget(grp_notif)
 
-        # Options
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setStyleSheet("font-size: 11pt;")
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        lay.addWidget(self.chk_clipboard)
-        self.lbl_clipboard_warn = QLabel(_(
-            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
-            "prevent the transcript from being typed into some Electron apps."))
-        self.lbl_clipboard_warn.setWordWrap(True)
-        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        lay.addWidget(self.lbl_clipboard_warn)
-        self._build_output_mode_row(lay, conf)
+        # Text output + clipboard (shared block, #28)
+        self._build_output_mode_group(lay, conf)
 
         lay.addStretch()
         scroll.setWidget(content)
@@ -18629,9 +18681,9 @@ class DicteeSetupDialog(QDialog):
         lang_src = self.combo_src.currentData()
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
-        output_mode, paste_style = ("type", "block")
-        if hasattr(self, 'cmb_output_mode'):
-            output_mode, paste_style = self.cmb_output_mode.currentData()
+        output_mode, paste_style = self._selected_output_mode()
+        paste_cadence = (self.spin_paste_cadence.value()
+                         if hasattr(self, 'spin_paste_cadence') else 0.06)
 
         anim_speech = self.chk_anim_speech.isChecked()
         anim_plasmoid = self.chk_plasmoid.isChecked()
@@ -18854,6 +18906,7 @@ class DicteeSetupDialog(QDialog):
                         self.cmb_whisper_hw_tier.currentData()
                         if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
                     output_mode=output_mode, paste_style=paste_style,
+                    paste_cadence=paste_cadence,
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.

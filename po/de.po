@@ -4419,6 +4419,10 @@ msgstr "Nur in die Zwischenablage kopieren (kein Tippen)"
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Die Einfügemodi funktionieren mit jeder Tastaturbelegung (Neo, Bépo, ...), überschreiben aber die Zwischenablage und können nicht in Terminals einfügen. Nur Zwischenablage tippt nie etwas; Sie fügen den Text selbst ein."
 
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr "Schreibmaschinentempo (Sekunden zwischen Wörtern)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

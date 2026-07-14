@@ -4411,6 +4411,10 @@ msgstr "Solo copiar al portapapeles (sin escritura)"
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr "Cómo llega el texto dictado a su aplicación. Los modos de pegado funcionan con cualquier distribución de teclado (Neo, Bépo, ...) pero sobrescriben el portapapeles y no pueden pegar en terminales. Solo portapapeles nunca escribe nada; usted pega el texto."
 
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr "Ritmo de máquina de escribir (segundos entre palabras)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

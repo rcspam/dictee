@@ -4375,6 +4375,10 @@ msgstr "Лише копіювати до буфера обміну (без на�
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr "Як надиктований текст потрапляє у ваш застосунок. Режими вставлення працюють з будь-якою розкладкою клавіатури (Neo, Bépo, ...), але перезаписують буфер обміну і не можуть вставляти в термінали. Лише буфер обміну нічого не набирає; ви вставляєте текст самі."
 
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr "Темп друкарської машинки (секунди між словами)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

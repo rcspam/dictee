@@ -4406,6 +4406,10 @@ msgstr "Solo copiare negli appunti (nessuna digitazione)"
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr "Come il testo dettato raggiunge la vostra applicazione. Le modalità incolla funzionano con qualsiasi disposizione di tastiera (Neo, Bépo, ...) ma sovrascrivono gli appunti e non possono incollare nei terminali. Solo appunti non digita mai nulla; incollate il testo voi stessi."
 
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr "Ritmo macchina da scrivere (secondi tra le parole)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

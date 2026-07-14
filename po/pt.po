@@ -4383,6 +4383,10 @@ msgstr "Apenas copiar para a área de transferência (sem digitação)"
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr "Como o texto ditado chega à sua aplicação. Os modos de colagem funcionam com qualquer disposição de teclado (Neo, Bépo, ...), mas substituem a área de transferência e não conseguem colar em terminais. Apenas área de transferência nunca digita nada; você cola o texto."
 
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr "Ritmo de máquina de escrever (segundos entre palavras)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

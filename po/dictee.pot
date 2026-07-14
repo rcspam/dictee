@@ -3862,3 +3862,8 @@ msgstr ""
 #: dictee-setup.py
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr ""
+
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr ""
+

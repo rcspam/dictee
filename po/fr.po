@@ -4405,6 +4405,10 @@ msgstr "Copier dans le presse-papier uniquement (aucune frappe)"
 msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr "Comment le texte dicté arrive dans votre application. Les modes collage fonctionnent avec toutes les dispositions de clavier (Neo, Bépo, ...) mais écrasent le presse-papier et ne peuvent pas coller dans les terminaux. Presse-papier uniquement ne tape jamais rien ; vous collez le texte vous-même."
 
+#: dictee-setup.py
+msgid "Typewriter pace (seconds between words)"
+msgstr "Cadence machine à écrire (secondes entre les mots)"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
