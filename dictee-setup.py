@@ -474,7 +474,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
-                output_mode="type", paste_style="block", paste_cadence=0.06,
+                output_mode="type",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -488,11 +488,6 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
     _s = _sanitize_conf_value
     reverse = {v: k for k, v in VOSK_MODELS.items()}
     vosk_code = reverse.get(vosk_model, vosk_model)
-    # Typewriter pace: plain clamped number (dictee feeds it to `sleep`).
-    try:
-        _paste_cadence_str = f"{max(0.0, min(2.0, float(paste_cadence or 0.06))):g}"
-    except (TypeError, ValueError):
-        _paste_cadence_str = "0.06"
 
     values = {
         "DICTEE_ASR_BACKEND": asr_backend,
@@ -501,8 +496,6 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LANG_TARGET": lang_target,
         "DICTEE_CLIPBOARD": "true" if clipboard else "false",
         "DICTEE_OUTPUT_MODE": _s(output_mode) if output_mode in ("type", "paste", "clipboard") else "type",
-        "DICTEE_PASTE_STYLE": _s(paste_style) if paste_style in ("block", "typewriter") else "block",
-        "DICTEE_PASTE_CADENCE": _paste_cadence_str,
         "DICTEE_ANIM_SPEECH": "true" if anim_speech else "false",
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
@@ -671,6 +664,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LLM_THINK", "DICTEE_LLM_NUM_CTX",
         "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT_MAX",
         "DICTEE_ANIMATION",  # legacy, replaced by ANIM_SPEECH + ANIM_PLASMOID
+        # legacy, word-by-word typewriter paste removed (Klipper history
+        # spam + repeated wl-copy focus steals; see feature/output-mode-1.3)
+        "DICTEE_PASTE_STYLE", "DICTEE_PASTE_CADENCE",
     }
     # Add all possible suffix keys
     for lang in ("FR", "EN", "ES", "DE", "IT", "PT", "UK"):
@@ -6518,50 +6514,28 @@ class DicteeSetupDialog(QDialog):
         glay.setContentsMargins(16, 16, 16, 12)
 
         tip = _tt(_(
-            "How the dictated text reaches your application. The paste modes "
-            "work with any keyboard layout (Neo, Bépo, ...) but overwrite the "
-            "clipboard and cannot paste into terminals. Clipboard only never "
-            "types anything; you paste the text yourself."))
+            "How the dictated text reaches your application. The paste mode "
+            "works with any keyboard layout (Neo, Bépo, ...) but overwrites "
+            "the clipboard and cannot paste into terminals. Clipboard only "
+            "never types anything; you paste the text yourself."))
         self.rad_out_type = QRadioButton(_("Type into the active window (default)"))
         self.rad_out_paste = QRadioButton(_("Paste all at once (Ctrl+V)"))
-        self.rad_out_typewriter = QRadioButton(_("Paste word by word (typewriter)"))
         self.rad_out_clipboard = QRadioButton(_("Copy to clipboard only (no typing)"))
         self._out_radios = (
-            (self.rad_out_type, ("type", "block")),
-            (self.rad_out_paste, ("paste", "block")),
-            (self.rad_out_typewriter, ("paste", "typewriter")),
-            (self.rad_out_clipboard, ("clipboard", "block")),
+            (self.rad_out_type, "type"),
+            (self.rad_out_paste, "paste"),
+            (self.rad_out_clipboard, "clipboard"),
         )
-        saved = (conf.get("DICTEE_OUTPUT_MODE", "type"),
-                 conf.get("DICTEE_PASTE_STYLE", "block"))
+        saved_mode = conf.get("DICTEE_OUTPUT_MODE", "type")
         checked = False
-        for rad, (mode, style) in self._out_radios:
+        for rad, mode in self._out_radios:
             rad.setToolTip(tip)
             glay.addWidget(rad)
-            if mode == saved[0] and (mode != "paste" or style == saved[1]):
+            if mode == saved_mode:
                 rad.setChecked(True)
                 checked = True
         if not checked:
             self.rad_out_type.setChecked(True)
-
-        # Typewriter pace, active only for the typewriter radio
-        row_pace = QHBoxLayout()
-        row_pace.setSpacing(8)
-        row_pace.addSpacing(24)
-        self.lbl_paste_cadence = QLabel(_("Typewriter pace (seconds between words)"))
-        row_pace.addWidget(self.lbl_paste_cadence)
-        self.spin_paste_cadence = QDoubleSpinBox()
-        self.spin_paste_cadence.setRange(0.0, 1.0)
-        self.spin_paste_cadence.setSingleStep(0.02)
-        self.spin_paste_cadence.setDecimals(2)
-        try:
-            self.spin_paste_cadence.setValue(
-                float(conf.get("DICTEE_PASTE_CADENCE", "0.06")))
-        except (TypeError, ValueError):
-            self.spin_paste_cadence.setValue(0.06)
-        row_pace.addWidget(self.spin_paste_cadence)
-        row_pace.addStretch(1)
-        glay.addLayout(row_pace)
 
         # Clipboard copy (moved here from the options page: everything
         # clipboard-related lives on this block now)
@@ -6570,12 +6544,12 @@ class DicteeSetupDialog(QDialog):
         glay.addWidget(self.chk_clipboard)
         # wl-copy < 2.3.0 briefly steals the keyboard focus when it takes
         # the selection; Electron apps blur their input and do not refocus
-        # (c101e85). This hits the copy toggle AND both paste modes (the
-        # typewriter worst: one focus steal per word). Clipboard-only is
-        # safe: nothing is injected, the user refocuses by hand.
+        # (c101e85). This hits the copy toggle AND the paste mode.
+        # Clipboard-only is safe: nothing is injected, the user refocuses
+        # by hand.
         self.lbl_clipboard_warn = QLabel(_(
             "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and "
-            "both paste modes can lose text in some Electron apps (wl-copy "
+            "the paste mode can lose text in some Electron apps (wl-copy "
             "briefly steals the focus). 'Copy to clipboard only' is not "
             "affected."))
         self.lbl_clipboard_warn.setWordWrap(True)
@@ -6583,21 +6557,19 @@ class DicteeSetupDialog(QDialog):
         glay.addWidget(self.lbl_clipboard_warn)
 
         def _sync_enabled(*_a, _self=self):
-            _self.spin_paste_cadence.setEnabled(_self.rad_out_typewriter.isChecked())
-            _self.lbl_paste_cadence.setEnabled(_self.rad_out_typewriter.isChecked())
             # Clipboard-only always copies: grey the copy toggle out there.
             _self.chk_clipboard.setEnabled(not _self.rad_out_clipboard.isChecked())
-        for rad, _data in self._out_radios:
+        for rad, _mode in self._out_radios:
             rad.toggled.connect(_sync_enabled)
         _sync_enabled()
         lay.addWidget(grp)
 
     def _selected_output_mode(self):
-        """(mode, style) tuple from the radio group; safe fallback."""
-        for rad, data in getattr(self, '_out_radios', ()):
+        """Mode string from the radio group; safe fallback."""
+        for rad, mode in getattr(self, '_out_radios', ()):
             if rad.isChecked():
-                return data
-        return ("type", "block")
+                return mode
+        return "type"
 
     def _build_page_text_output(self, lay, conf):
         self._build_output_mode_group(lay, conf)
@@ -18688,9 +18660,7 @@ class DicteeSetupDialog(QDialog):
         lang_src = self.combo_src.currentData()
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
-        output_mode, paste_style = self._selected_output_mode()
-        paste_cadence = (self.spin_paste_cadence.value()
-                         if hasattr(self, 'spin_paste_cadence') else 0.06)
+        output_mode = self._selected_output_mode()
 
         anim_speech = self.chk_anim_speech.isChecked()
         anim_plasmoid = self.chk_plasmoid.isChecked()
@@ -18912,8 +18882,7 @@ class DicteeSetupDialog(QDialog):
                     hw_tier=(
                         self.cmb_whisper_hw_tier.currentData()
                         if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
-                    output_mode=output_mode, paste_style=paste_style,
-                    paste_cadence=paste_cadence,
+                    output_mode=output_mode,
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.

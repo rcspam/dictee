@@ -3852,22 +3852,14 @@ msgid "Paste all at once (Ctrl+V)"
 msgstr ""
 
 #: dictee-setup.py
-msgid "Paste word by word (typewriter)"
-msgstr ""
-
-#: dictee-setup.py
 msgid "Copy to clipboard only (no typing)"
 msgstr ""
 
 #: dictee-setup.py
-msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
+msgid "How the dictated text reaches your application. The paste mode works with any keyboard layout (Neo, Bépo, ...) but overwrites the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
 msgstr ""
 
 #: dictee-setup.py
-msgid "Typewriter pace (seconds between words)"
-msgstr ""
-
-#: dictee-setup.py
-msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and both paste modes can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
 msgstr ""
 

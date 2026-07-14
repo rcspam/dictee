@@ -4408,24 +4408,16 @@ msgid "Paste all at once (Ctrl+V)"
 msgstr "Alles auf einmal einfügen (Strg+V)"
 
 #: dictee-setup.py
-msgid "Paste word by word (typewriter)"
-msgstr "Wort für Wort einfügen (Schreibmaschine)"
-
-#: dictee-setup.py
 msgid "Copy to clipboard only (no typing)"
 msgstr "Nur in die Zwischenablage kopieren (kein Tippen)"
 
 #: dictee-setup.py
-msgid "How the dictated text reaches your application. The paste modes work with any keyboard layout (Neo, Bépo, ...) but overwrite the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
-msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Die Einfügemodi funktionieren mit jeder Tastaturbelegung (Neo, Bépo, ...), überschreiben aber die Zwischenablage und können nicht in Terminals einfügen. Nur Zwischenablage tippt nie etwas; Sie fügen den Text selbst ein."
+msgid "How the dictated text reaches your application. The paste mode works with any keyboard layout (Neo, Bépo, ...) but overwrites the clipboard and cannot paste into terminals. Clipboard only never types anything; you paste the text yourself."
+msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Der Einfügemodus funktioniert mit jeder Tastaturbelegung (Neo, Bépo, ...), überschreibt aber die Zwischenablage und kann nicht in Terminals einfügen. Nur Zwischenablage tippt nie etwas; Sie fügen den Text selbst ein."
 
 #: dictee-setup.py
-msgid "Typewriter pace (seconds between words)"
-msgstr "Schreibmaschinentempo (Sekunden zwischen Wörtern)"
-
-#: dictee-setup.py
-msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and both paste modes can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
-msgstr "⚠ Unter Wayland mit wl-clipboard < 2.3.0 können die Kopieroption und beide Einfügemodi in manchen Electron-Apps Text verlieren (wl-copy stiehlt kurz den Fokus). „Nur in die Zwischenablage kopieren\" ist nicht betroffen."
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ Unter Wayland mit wl-clipboard < 2.3.0 können die Kopieroption und der Einfügemodus in manchen Electron-Apps Text verlieren (wl-copy stiehlt kurz den Fokus). „Nur in die Zwischenablage kopieren\" ist nicht betroffen."
 
 #~ msgid ""
 #~ "Quick install\n"

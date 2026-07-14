@@ -1,6 +1,6 @@
 #!/bin/bash
 # Isolated tests for the DICTEE_OUTPUT_MODE dispatch (#28): emit_text,
-# _emit_sanitize, _paste_typewriter, plus the clipboard-mode guards in
+# _emit_sanitize, plus the clipboard-mode guards in
 # apply_continuation and save_last_word.
 # Mocks safe_dotool / safe_dotool_key_ctrl / force_copy_to_clipboard so no
 # real key event or clipboard write ever happens.
@@ -30,15 +30,9 @@ CONTINUATION_WORDS_FR=" dans sur sous avec sans pour par vers depuis chez entre 
 _CONT_KEYWORD_RE=""
 
 _dbg() { :; }
-sleep() { :; }   # speed: neutralize cadence/settle pauses
+sleep() { :; }   # speed: neutralize settle pauses
 _DOTOOL_NEEDS_SG=0
 
-# dotool mock: consumed by the persistent >(dotool) process substitution
-# of _paste_typewriter (functions ARE visible in process substitutions of
-# the same shell) as well as by safe_dotool below.
-dotool() {
-    cat >> "$DOTOOL_LOG"
-}
 safe_dotool() {
     cat >> "$DOTOOL_LOG"
 }
@@ -53,7 +47,7 @@ force_copy_to_clipboard() {
 }
 
 # Extract the functions under test from the live dictee script
-for fn in _emit_sanitize _paste_typewriter emit_text type_text \
+for fn in _emit_sanitize emit_text type_text \
           apply_continuation save_last_word; do
     body=$(awk "/^${fn}\(\) \{/,/^\}/" "$DICTEE_SCRIPT")
     [ -n "$body" ] || { echo "FATAL: function $fn not found in dictee"; exit 1; }
@@ -86,7 +80,7 @@ copy_calls()   { tr -cd '\0' < "$COPY_LOG" | wc -c; }
 
 echo "── emit_text: mode type (défaut inchangé)"
 reset_logs
-OUTPUT_MODE="type"; PASTE_STYLE="block"
+OUTPUT_MODE="type"
 emit_text "Bonjour tout le monde."
 check "type: dotool reçoit un type" "$(grep -c '^type ' "$DOTOOL_LOG")" "1"
 check "type: aucune copie presse-papier" "$(copy_calls)" "0"
@@ -123,7 +117,7 @@ check "clipboard: unicode riche conservé (… intact)" \
 
 echo "── emit_text: mode paste (bloc)"
 reset_logs
-OUTPUT_MODE="paste"; PASTE_STYLE="block"
+OUTPUT_MODE="paste"
 emit_text $'Il pense\xe2\x80\xa6 vraiment.\x02'
 check "paste: … converti en ... (V2, décomptes backspace)" \
     "$(cat "$CLIP_FILE")" "Il pense... vraiment."
@@ -133,21 +127,6 @@ reset_logs
 emit_text $'\x01'
 check "paste: push marqueur-seul = ni copie ni ctrl+v (V10)" \
     "$(cat "$CLIP_FILE")|$(count_ctrl_v)" "SENTINEL|0"
-
-echo "── emit_text: mode paste (typewriter)"
-reset_logs
-PASTE_STYLE="typewriter"
-emit_text "hello, how are you?"
-command sleep 0.3   # real sleep: let the >(dotool) substitution flush its log
-check "typewriter: 4 ctrl+v via le dotool persistant (un par mot)" \
-    "$(grep -c '^key ctrl+v$' "$DOTOOL_LOG")" "4"
-check "typewriter: 5 copies (4 chunks + texte complet final)" "$(copy_calls)" "5"
-check "typewriter: presse-papier final = texte complet" \
-    "$(cat "$CLIP_FILE")" "hello, how are you?"
-# chunk concatenation must reproduce the text byte-for-byte
-check "typewriter: concat(chunks) == texte" \
-    "$(tr '\0' '|' < "$COPY_LOG")" \
-    "hello,| how| are| you?|hello, how are you?|"
 
 echo "── garde V1: save_last_word en mode clipboard"
 reset_logs
