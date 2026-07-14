@@ -4390,10 +4390,6 @@ msgid "Type into the active window (default)"
 msgstr "Taper dans la fenêtre active (par défaut)"
 
 #: dictee-setup.py
-msgid "Paste all at once (Ctrl+V)"
-msgstr "Coller d'un bloc (Ctrl+V)"
-
-#: dictee-setup.py
 msgid "Copy to clipboard only (no typing)"
 msgstr "Copier dans le presse-papier uniquement (aucune frappe)"
 
@@ -4408,6 +4404,10 @@ msgstr "Presse-papier"
 #: dictee-setup.py
 msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
 msgstr "Comment le texte dicté arrive dans votre application. Le mode collage (Maj+Inser) fonctionne avec toutes les dispositions de clavier (Neo, Bépo, ...) et dans la plupart des terminaux, mais écrase le presse-papier. Presse-papier uniquement ne tape jamais rien ; vous collez le texte vous-même."
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr "Coller d'un bloc (Maj+Inser)"
 
 #~ msgid ""
 #~ "Quick install\n"

@@ -3848,10 +3848,6 @@ msgid "Type into the active window (default)"
 msgstr ""
 
 #: dictee-setup.py
-msgid "Paste all at once (Ctrl+V)"
-msgstr ""
-
-#: dictee-setup.py
 msgid "Copy to clipboard only (no typing)"
 msgstr ""
 
@@ -3865,5 +3861,9 @@ msgstr ""
 
 #: dictee-setup.py
 msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr ""
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
 msgstr ""
 

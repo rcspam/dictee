@@ -4360,10 +4360,6 @@ msgid "Type into the active window (default)"
 msgstr "Набирати в активному вікні (типово)"
 
 #: dictee-setup.py
-msgid "Paste all at once (Ctrl+V)"
-msgstr "Вставити все одразу (Ctrl+V)"
-
-#: dictee-setup.py
 msgid "Copy to clipboard only (no typing)"
 msgstr "Лише копіювати до буфера обміну (без набору)"
 
@@ -4378,6 +4374,10 @@ msgstr "Буфер обміну"
 #: dictee-setup.py
 msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
 msgstr "Як надиктований текст потрапляє у ваш застосунок. Режим вставлення (Shift+Insert) працює з будь-якою розкладкою клавіатури (Neo, Bépo, ...) і в більшості терміналів, але перезаписує буфер обміну. Лише буфер обміну нічого не набирає; ви вставляєте текст самі."
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr "Вставити все одразу (Shift+Insert)"
 
 #~ msgid ""
 #~ "Quick install\n"

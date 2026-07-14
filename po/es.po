@@ -4396,10 +4396,6 @@ msgid "Type into the active window (default)"
 msgstr "Escribir en la ventana activa (predeterminado)"
 
 #: dictee-setup.py
-msgid "Paste all at once (Ctrl+V)"
-msgstr "Pegar todo de una vez (Ctrl+V)"
-
-#: dictee-setup.py
 msgid "Copy to clipboard only (no typing)"
 msgstr "Solo copiar al portapapeles (sin escritura)"
 
@@ -4414,6 +4410,10 @@ msgstr "Portapapeles"
 #: dictee-setup.py
 msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
 msgstr "Cómo llega el texto dictado a su aplicación. El modo de pegado (Mayús+Insert) funciona con cualquier distribución de teclado (Neo, Bépo, ...) y en la mayoría de terminales, pero sobrescribe el portapapeles. Solo portapapeles nunca escribe nada; usted pega el texto."
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr "Pegar todo de una vez (Mayús+Insert)"
 
 #~ msgid ""
 #~ "Quick install\n"
