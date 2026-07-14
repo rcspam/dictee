@@ -162,6 +162,23 @@ DICTEE_PTT_KEY=67
 # the transcript from being typed into some Electron apps. See README.
 DICTEE_CLIPBOARD=false
 
+# How the transcription reaches you (issue #28):
+#   type      - simulate key presses via dotool (default). Requires dotool to
+#               know your exact keyboard layout; exotic layouts (Neo, ...)
+#               may get some punctuation wrong.
+#   paste     - copy to clipboard then paste with Shift+Insert. Works with
+#               any keyboard layout, in GUI apps AND in most terminals
+#               (Konsole, GNOME Terminal, ...). Overwrites the clipboard
+#               (and the primary selection) on every dictation. On Wayland
+#               with wl-clipboard < 2.3.0 the paste mode can lose text in
+#               some Electron apps (brief focus steal by wl-copy, same
+#               mechanism as the DICTEE_CLIPBOARD warning above);
+#               "clipboard" is not affected.
+#   clipboard - copy to clipboard only, nothing is typed or pasted. You paste
+#               the text yourself. Cross-push continuation is disabled (each
+#               dictation is independent).
+DICTEE_OUTPUT_MODE=type
+
 # Speech animation overlay (Wayland layer-shell: KDE, Sway, Hyprland)
 DICTEE_ANIM_SPEECH=true
 

@@ -4592,6 +4592,34 @@ msgstr ""
 "Dictée ist noch nicht konfiguriert.\n"
 "Möchten Sie den Einrichtungsassistenten starten?"
 
+#: dictee-setup.py
+msgid "Text output"
+msgstr "Textausgabe"
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr "In das aktive Fenster tippen (Standard)"
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr "Nur in die Zwischenablage kopieren (kein Tippen)"
+
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ Unter Wayland mit wl-clipboard < 2.3.0 können die Kopieroption und der Einfügemodus in manchen Electron-Apps Text verlieren (wl-copy stiehlt kurz den Fokus). „Nur in die Zwischenablage kopieren\" ist nicht betroffen."
+
+#: dictee-setup.py
+msgid "Clipboard"
+msgstr "Zwischenablage"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Der Einfügemodus (Umschalt+Einfg) funktioniert mit jeder Tastaturbelegung (Neo, Bépo, ...) und in den meisten Terminals, überschreibt aber die Zwischenablage. Nur Zwischenablage tippt nie etwas; Sie fügen den Text selbst ein."
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr "Alles auf einmal einfügen (Umschalt+Einfg)"
+
 #~ msgid ""
 #~ "Multilingual transcription (25 languages, ~2.5 GB) — best accuracy, "
 #~ "recommended for GPU"

@@ -485,6 +485,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 streaming_final_pass=False,
                 streaming_retranscribe=False,
                 streaming_granularity="live",
+                output_mode="type",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -505,6 +506,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LANG_SOURCE": lang_source,
         "DICTEE_LANG_TARGET": lang_target,
         "DICTEE_CLIPBOARD": "true" if clipboard else "false",
+        "DICTEE_OUTPUT_MODE": _s(output_mode) if output_mode in ("type", "paste", "clipboard") else "type",
         "DICTEE_ANIM_SPEECH": "true" if anim_speech else "false",
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
@@ -681,6 +683,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LLM_THINK", "DICTEE_LLM_NUM_CTX",
         "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT_MAX",
         "DICTEE_ANIMATION",  # legacy, replaced by ANIM_SPEECH + ANIM_PLASMOID
+        # legacy, word-by-word typewriter paste removed (Klipper history
+        # spam + repeated wl-copy focus steals; see feature/output-mode-1.3)
+        "DICTEE_PASTE_STYLE", "DICTEE_PASTE_CADENCE",
     }
     # Add all possible suffix keys
     for lang in ("FR", "EN", "ES", "DE", "IT", "PT", "UK"):
@@ -5899,6 +5904,11 @@ class DicteeSetupDialog(QDialog):
         self._sidebar_stack.addWidget(page_extra)
         page_notif = _mk_page(self._build_subpage_notifications)
         self._sidebar_stack.addWidget(page_notif)
+        # Section 12 : Text output (dedicated clipboard/output page, #28).
+        # Appended at the END of the stack so every hardcoded index above
+        # (translation=2, mic=4, PP=8, ...) keeps its meaning; the tree
+        # order below is independent from stack indices.
+        page_output = _mk_page(self._build_page_text_output)
 
         # Section About (index will be determined after PP page below)
         # Section 9 : Post-processing — pipeline header is external,
@@ -5996,6 +6006,11 @@ class DicteeSetupDialog(QDialog):
         self._diar_models_page = self._build_page_diarization()
         self._sidebar_stack.addWidget(self._diar_models_page)
 
+        # Section 13 : Text output — appended AFTER the diarization models
+        # page for the same reason (all hardcoded stack indices keep their
+        # meaning; the tree order below is independent from stack indices).
+        self._sidebar_stack.addWidget(page_output)
+
         # --- Top: pipeline header (persistent across all sections) ---
         outer.addWidget(pipeline_header)
 
@@ -6021,6 +6036,9 @@ class DicteeSetupDialog(QDialog):
         _add(tree, _("Translation"), 2)
         _add(tree, _("Keyboard shortcut"), 3)
         _add(tree, _("Visual feedback"), 5)
+        # Text output page sits at stack index 13 on master (12 is the
+        # diarization-models page, see Section 12/13 comments above).
+        _add(tree, _("Text output"), 13)
         _add(tree, _("Extra options"), 6)
         _add(tree, _("Notifications"), 7)
         pp_root = _add(tree, _("Post-processing"), 8)
@@ -6721,20 +6739,92 @@ class DicteeSetupDialog(QDialog):
         self._build_visual_section(lay_vis, conf)
         lay.addWidget(grp_visual)
 
+    def _build_output_mode_group(self, lay, conf):
+        """Dedicated 'Text output' block (#28), split in two group boxes:
+        the output-mode radio buttons, then a separate 'Clipboard' group
+        with the copy toggle and its wl-clipboard warning. Used by both
+        the sidebar 'Text output' page and the wizard options page (each UI
+        creates one instance — the attributes are read at save time)."""
+        grp = QGroupBox(_("Text output"))
+        glay = QVBoxLayout(grp)
+        glay.setSpacing(6)
+        glay.setContentsMargins(16, 16, 16, 12)
+
+        tip = _tt(_(
+            "How the dictated text reaches your application. The paste mode "
+            "(Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) "
+            "and in most terminals, but overwrites the clipboard. Clipboard "
+            "only never types anything; you paste the text yourself."))
+        self.rad_out_type = QRadioButton(_("Type into the active window (default)"))
+        self.rad_out_paste = QRadioButton(_("Paste all at once (Shift+Insert)"))
+        self.rad_out_clipboard = QRadioButton(_("Copy to clipboard only (no typing)"))
+        self._out_radios = (
+            (self.rad_out_type, "type"),
+            (self.rad_out_paste, "paste"),
+            (self.rad_out_clipboard, "clipboard"),
+        )
+        saved_mode = conf.get("DICTEE_OUTPUT_MODE", "type")
+        checked = False
+        for rad, mode in self._out_radios:
+            rad.setToolTip(tip)
+            glay.addWidget(rad)
+            if mode == saved_mode:
+                rad.setChecked(True)
+                checked = True
+        if not checked:
+            self.rad_out_type.setChecked(True)
+
+        lay.addWidget(grp)
+
+        # Separate 'Clipboard' group: the copy toggle and its wl-clipboard
+        # warning (moved here from the options page — everything
+        # clipboard-related lives on this page now).
+        grp_clip = QGroupBox(_("Clipboard"))
+        clay = QVBoxLayout(grp_clip)
+        clay.setSpacing(6)
+        clay.setContentsMargins(16, 16, 16, 12)
+        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
+        clay.addWidget(self.chk_clipboard)
+        # wl-copy < 2.3.0 briefly steals the keyboard focus when it takes
+        # the selection; Electron apps blur their input and do not refocus
+        # (c101e85). This hits the copy toggle AND the paste mode.
+        # Clipboard-only is safe: nothing is injected, the user refocuses
+        # by hand.
+        self.lbl_clipboard_warn = QLabel(_(
+            "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and "
+            "the paste mode can lose text in some Electron apps (wl-copy "
+            "briefly steals the focus). 'Copy to clipboard only' is not "
+            "affected."))
+        self.lbl_clipboard_warn.setWordWrap(True)
+        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
+        clay.addWidget(self.lbl_clipboard_warn)
+
+        def _sync_enabled(*_a, _self=self):
+            # Clipboard-only always copies: grey the copy toggle out there.
+            _self.chk_clipboard.setEnabled(not _self.rad_out_clipboard.isChecked())
+        for rad, _mode in self._out_radios:
+            rad.toggled.connect(_sync_enabled)
+        _sync_enabled()
+        lay.addWidget(grp_clip)
+
+    def _selected_output_mode(self):
+        """Mode string from the radio group; safe fallback."""
+        for rad, mode in getattr(self, '_out_radios', ()):
+            if rad.isChecked():
+                return mode
+        return "type"
+
+    def _build_page_text_output(self, lay, conf):
+        self._build_output_mode_group(lay, conf)
+
     def _build_subpage_extra_options(self, lay, conf):
+        # Clipboard toggle + output mode moved to the dedicated
+        # 'Text output' page (_build_page_text_output, #28).
         grp_options = QGroupBox(_("Extra options"))
         lay_opt = QVBoxLayout(grp_options)
         lay_opt.setSpacing(6)
         lay_opt.setContentsMargins(16, 16, 16, 12)
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        lay_opt.addWidget(self.chk_clipboard)
-        self.lbl_clipboard_warn = QLabel(_(
-            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
-            "prevent the transcript from being typed into some Electron apps."))
-        self.lbl_clipboard_warn.setWordWrap(True)
-        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        lay_opt.addWidget(self.lbl_clipboard_warn)
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
@@ -8444,17 +8534,8 @@ class DicteeSetupDialog(QDialog):
         lay_notif.addWidget(self.chk_notifications_text)
         lay.addWidget(grp_notif)
 
-        # Options
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setStyleSheet("font-size: 11pt;")
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        lay.addWidget(self.chk_clipboard)
-        self.lbl_clipboard_warn = QLabel(_(
-            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
-            "prevent the transcript from being typed into some Electron apps."))
-        self.lbl_clipboard_warn.setWordWrap(True)
-        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        lay.addWidget(self.lbl_clipboard_warn)
+        # Text output + clipboard (shared block, #28)
+        self._build_output_mode_group(lay, conf)
 
         lay.addStretch()
         scroll.setWidget(content)
@@ -19275,6 +19356,7 @@ class DicteeSetupDialog(QDialog):
         lang_src = self.combo_src.currentData()
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
+        output_mode = self._selected_output_mode()
 
         anim_speech = self.chk_anim_speech.isChecked()
         anim_plasmoid = self.chk_plasmoid.isChecked()
@@ -19523,6 +19605,7 @@ class DicteeSetupDialog(QDialog):
                     streaming_granularity=(
                         self.cmb_streaming_granularity.currentData()
                         if hasattr(self, 'cmb_streaming_granularity') else "live"),
+                    output_mode=output_mode,
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.

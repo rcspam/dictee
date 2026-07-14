@@ -4587,6 +4587,34 @@ msgstr ""
 "Dictée n'est pas encore configurée.\n"
 "Voulez-vous lancer l'assistant de configuration ?"
 
+#: dictee-setup.py
+msgid "Text output"
+msgstr "Sortie du texte"
+
+#: dictee-setup.py
+msgid "Type into the active window (default)"
+msgstr "Taper dans la fenêtre active (par défaut)"
+
+#: dictee-setup.py
+msgid "Copy to clipboard only (no typing)"
+msgstr "Copier dans le presse-papier uniquement (aucune frappe)"
+
+#: dictee-setup.py
+msgid "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and the paste mode can lose text in some Electron apps (wl-copy briefly steals the focus). 'Copy to clipboard only' is not affected."
+msgstr "⚠ Sous Wayland avec wl-clipboard < 2.3.0, l'option de copie et le mode collage peuvent perdre du texte dans certaines applications Electron (wl-copy vole brièvement le focus). « Copier dans le presse-papier uniquement » n'est pas concerné."
+
+#: dictee-setup.py
+msgid "Clipboard"
+msgstr "Presse-papier"
+
+#: dictee-setup.py
+msgid "How the dictated text reaches your application. The paste mode (Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) and in most terminals, but overwrites the clipboard. Clipboard only never types anything; you paste the text yourself."
+msgstr "Comment le texte dicté arrive dans votre application. Le mode collage (Maj+Inser) fonctionne avec toutes les dispositions de clavier (Neo, Bépo, ...) et dans la plupart des terminaux, mais écrase le presse-papier. Presse-papier uniquement ne tape jamais rien ; vous collez le texte vous-même."
+
+#: dictee-setup.py
+msgid "Paste all at once (Shift+Insert)"
+msgstr "Coller d'un bloc (Maj+Inser)"
+
 #~ msgid ""
 #~ "Multilingual transcription (25 languages, ~2.5 GB) — best accuracy, "
 #~ "recommended for GPU"
