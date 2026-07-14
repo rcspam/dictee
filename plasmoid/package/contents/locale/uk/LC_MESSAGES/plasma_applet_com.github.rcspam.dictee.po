@@ -550,9 +550,8 @@ msgid "Force CPU (no GPU anyway)"
 msgstr ""
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:902
-#, fuzzy
 msgid "GPU active"
-msgstr "Активний"
+msgstr "GPU активний"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:904
 msgid "GPU active (low VRAM)"
@@ -568,9 +567,7 @@ msgstr "Налаштувати Dictée"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:925
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
-msgstr ""
-"Відкрити dictee-setup для налаштування ASR, перекладу і комбінаційВідкрити "
-"dictee-setup для налаштування ASR, перекладу, комбінацій клавіш"
+msgstr "Відкрити dictee-setup для налаштування ASR, перекладу, комбінацій клавіш"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:941
 msgid "Toggle voice commands cheatsheet"

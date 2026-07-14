@@ -445,9 +445,7 @@ msgstr "Liberazione della memoria GPU..."
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:519
 msgid "Click to start recording with speaker identification"
-msgstr ""
-"Clicca per avviare la registrazione con identificazione dei parlantiClicca "
-"per avviare la registrazione con identificazione degli interlocutori"
+msgstr "Clicca per avviare la registrazione con identificazione degli interlocutori"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:521
 msgid "Click to stop and identify speakers"
@@ -555,9 +553,8 @@ msgid "Force CPU (no GPU anyway)"
 msgstr ""
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:902
-#, fuzzy
 msgid "GPU active"
-msgstr "Attivo"
+msgstr "GPU attivo"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:904
 msgid "GPU active (low VRAM)"

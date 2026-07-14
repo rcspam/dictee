@@ -577,10 +577,7 @@ msgstr "Configurer Dictée"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:925
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
-msgstr ""
-"Ouvrir dictee-setup pour configurer l'ASR, la traduction et les "
-"raccourcisOuvrir dictee-setup pour configurer l'ASR, la traduction, les "
-"raccourcis"
+msgstr "Ouvrir dictee-setup pour configurer l'ASR, la traduction et les raccourcis"
 
 #: plasmoid/package/contents/ui/FullRepresentation.qml:941
 msgid "Toggle voice commands cheatsheet"
