@@ -26,8 +26,10 @@ Environment:
                          /usr/lib/dictee/transcribe-cpp/, then the user dir;
                          the ggml backend .so files must sit next to it)
 
-GPU only: MOSS runs at RTF ~0.2 on CUDA but ~1.7 on CPU (measured 2026-07-14
-on the librivox/crop2 bench) — the CPU path is not exposed in the UI.
+Any GPU, not just NVIDIA (crop2 bench, 2026-07-15): Vulkan on the NVIDIA card
+RTF 0.154 (faster than CUDA's 0.216, same output), Vulkan on an Intel Iris Xe
+iGPU RTF 0.643 — still 1.5x faster than real time on integrated graphics.
+CPU-only is RTF 1.73 (slower than real time): it works, but only for batch use.
 """
 
 import os

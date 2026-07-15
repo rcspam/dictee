@@ -761,7 +761,9 @@ def _moss_available():
     dictee-moss-diarize on PATH and its --check passing (model + native
     transcribe.cpp runtime + python bindings). Unlike the other engines MOSS
     emits the final transcript itself (ASR + speakers in a single pass).
-    GPU-only in practice (RTF ~0.2 CUDA vs ~1.7 CPU, bench 2026-07-14)."""
+    Runs on any GPU via Vulkan, not just NVIDIA (crop2 bench 2026-07-15:
+    RTF 0.154 NVIDIA/Vulkan, 0.216 CUDA, 0.643 Intel Iris Xe iGPU, 1.73 CPU
+    — same output everywhere)."""
     import shutil
     exe = shutil.which("dictee-moss-diarize")
     if not exe:
@@ -2983,7 +2985,8 @@ class TranscribeWindow(QDialog):
         self._cmb_diar_engine.addItem(_("Sortformer (max 4)"), "sortformer")
         # MOSS is a different animal: a single pass produces the transcript
         # AND the speakers (it replaces the ASR phase entirely), so the
-        # threshold slider does not apply to it. GPU only.
+        # threshold slider does not apply to it. Any GPU (Vulkan), not just
+        # NVIDIA; CPU works but is slower than real time.
         self._cmb_diar_engine.addItem(_("MOSS (integrated, GPU)"), "moss")
         if not diar_multi_ok:
             self._cmb_diar_engine.model().item(1).setEnabled(False)
@@ -2994,8 +2997,9 @@ class TranscribeWindow(QDialog):
         self._cmb_diar_engine.setToolTip(self._tip(
             _("Diarization engine. Auto uses the multi-speaker engine when "
               "installed, otherwise Sortformer (max 4 speakers). MOSS "
-              "transcribes and identifies speakers in a single pass "
-              "(own ASR, GPU required).")))
+              "transcribes and identifies speakers in a single pass (own "
+              "ASR); it needs a GPU — any brand — and is slower than real "
+              "time on the CPU.")))
         _qs_diar = QSettings("dictee", "transcribe")
         _i = self._cmb_diar_engine.findData(
             _qs_diar.value("diarize/engine", "auto"))

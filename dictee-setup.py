@@ -2181,10 +2181,14 @@ ASR_MODELS = [
     {
         "id": "tdt-int8",
         "name": "Parakeet-TDT 0.6B v3 (int8)",
+        # xgettext: no-python-format
+        # (the literal "% f" reads as a %f spec to xgettext, which then
+        # rejects any translation whose own "% x" isn't one — see e09525f)
         "desc": _("Quantized variant (~670 MB). ~3.6× smaller, ~34 % faster "
                   "on CPU. Always runs on the CPU: pick it when there is "
                   "no GPU, or too little VRAM for FP32."),
         "help": _(
+            # xgettext: no-python-format
             "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>"
             "Same architecture as FP32 with 8-bit quantized weights.<br><br>"
             "<b>~3.6× smaller</b>: 670 MB on disk / RAM (vs 2.4 GB FP32).<br>"
@@ -2282,22 +2286,25 @@ ASR_MODELS = [
     {
         # MOSS-Transcribe-Diarize (OpenMOSS, Apache-2.0) on the
         # transcribe.cpp runtime: a 0.9B audio-LLM that emits the transcript
-        # AND the speaker labels in a single pass. GPU only in practice
-        # (RTF ~0.2 CUDA vs ~1.7 CPU, librivox/crop2 bench 2026-07-14).
+        # AND the speaker labels in a single pass. Any GPU via Vulkan, not
+        # just NVIDIA (crop2 bench 2026-07-15: RTF 0.154 NVIDIA/Vulkan,
+        # 0.216 CUDA, 0.643 Intel Iris Xe iGPU, 1.73 CPU — same output).
         # The model row only manages the GGUF; the runtime (libtranscribe.so
-        # + moss-env venv) ships with the dictee CUDA package.
+        # + moss-env venv) ships with the dictee package.
         "id": "moss",
         "name": _("MOSS integrated diarization"),
         "desc": _("One-pass transcription + speaker labels (~1 GB, GPU "
-                  "required). Own ASR engine — pick it explicitly in the "
-                  "Transcribe window (Engine: MOSS)."),
+                  "recommended — any brand). Own ASR engine — pick it "
+                  "explicitly in the Transcribe window (Engine: MOSS)."),
         "help": _(
             "<b>MOSS integrated diarization</b> — one-pass engine<br><br>"
             "A compact audio language model that produces the transcript "
             "and the speaker labels <b>in a single pass</b>, with no "
             "speaker-count cap.<br>"
-            "Runs on the transcribe.cpp runtime. <b>GPU required</b> — on "
-            "CPU it is slower than real time.<br><br>"
+            "Runs on the transcribe.cpp runtime, on <b>any GPU</b> (NVIDIA, "
+            "AMD or Intel — including integrated graphics). On the CPU it "
+            "works but is slower than real time, so it only suits batch "
+            "use.<br><br>"
             "<b>Optional</b> — select it explicitly in the Transcribe "
             "window (Engine: MOSS). It replaces the ASR engine for that "
             "run.<br>"
@@ -7596,6 +7603,7 @@ class DicteeSetupDialog(QDialog):
 
         lbl_sub = QLabel(
             "<p style='font-size: 17px;'>"
+            # xgettext: no-python-format
             + _("100% local voice dictation for Linux with 25+ languages, "
                 "translation, and real-time visual feedback.") + "</p>")
         lbl_sub.setWordWrap(True)
@@ -7795,6 +7803,7 @@ class DicteeSetupDialog(QDialog):
             if lang_code != "en":
                 QMessageBox.information(
                     self, _("No local translation backend installed"),
+                    # xgettext: no-python-format
                     _("dictee aims to keep everything 100% local.\n\n"
                       "To translate your dictation locally, install one of:\n\n"
                       "  • LibreTranslate (Docker) — best quality, ~20 languages\n"
@@ -7982,6 +7991,7 @@ class DicteeSetupDialog(QDialog):
                 _("Excellent transcription quality (WER ~8% FR, ~2% EN)"),
                 _("Runs on CPU or GPU (GPU 5x faster)"),
                 _("Speaker diarization with Sortformer add-on"),
+                # xgettext: no-python-format
                 _("100% local, no internet needed"),
             ], "2.5 Go | RAM ~1.5 Go | CPU ~0.8s / GPU ~0.16s"),
             ("vosk", "Vosk", [
@@ -7989,6 +7999,7 @@ class DicteeSetupDialog(QDialog):
                 _("Very lightweight (50 Mo per language)"),
                 _("Minimal RAM usage (~200 Mo)"),
                 _("Ideal for older or low-resource machines"),
+                # xgettext: no-python-format
                 _("100% local, CPU only"),
             ], "~50 Mo | RAM ~200 Mo | CPU ~1.5s"),
             ("whisper", "faster-whisper", [
@@ -7996,6 +8007,7 @@ class DicteeSetupDialog(QDialog):
                 _("Multiple model sizes (tiny to large-v3)"),
                 _("Good for rare languages"),
                 _("Runs on CPU or GPU"),
+                # xgettext: no-python-format
                 _("100% local, no internet needed"),
             ], "39 Mo–3 Go | CPU ~0.3s (small)"),
             ("nemotron", "Nemotron 3.5", [
@@ -8011,6 +8023,7 @@ class DicteeSetupDialog(QDialog):
                     "<span style='color: #ec0;'>" + _("No external translation service needed") + "</span>",
                     _("Excellent accuracy, comparable to Parakeet"),
                     _("Speaker diarization with Sortformer add-on"),
+                    # xgettext: no-python-format
                     _("100% local, requires NVIDIA GPU (6+ Go VRAM)"),
                 ], "4.7 Go | VRAM ~5.3 Go | GPU ~0.7s"))
 
@@ -8247,6 +8260,7 @@ class DicteeSetupDialog(QDialog):
         "libretranslate": {
             "title": "LibreTranslate",
             "advantages": [
+                # xgettext: no-python-format
                 _("100% local, no data sent to the internet"),
                 _("Runs in Docker, automatic setup"),
                 _("~20 languages available"),
@@ -8257,6 +8271,7 @@ class DicteeSetupDialog(QDialog):
         "ollama": {
             "title": "Ollama",
             "advantages": [
+                # xgettext: no-python-format
                 _("100% local, no data sent to the internet"),
                 _("Uses LLM models (translategemma, etc.)"),
                 _("Good quality for common language pairs"),
@@ -9360,6 +9375,7 @@ class DicteeSetupDialog(QDialog):
             reason = _("GPU with only {:.1f} GB VRAM — too little for FP32; "
                        "int8 runs on the CPU instead").format(total_vram)
         else:
+            # xgettext: no-python-format
             reason = _("No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)")
         for model in ASR_MODELS:
             if model.get("quant") == recommended_quant:
@@ -9474,7 +9490,7 @@ class DicteeSetupDialog(QDialog):
             self._build_model_row(diar_lay, model)
         lay.addWidget(diar_box)
 
-        moss_box = QGroupBox(_("MOSS (integrated, GPU)"))
+        moss_box = QGroupBox(_("MOSS (integrated, one pass)"))
         moss_lay = QVBoxLayout(moss_box)
         moss_lay.setContentsMargins(12, 12, 12, 10)
         moss_lay.setSpacing(6)
