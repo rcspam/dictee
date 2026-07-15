@@ -1693,6 +1693,9 @@ CANARY_MODEL_FILES = [
 
 # Whisper-Rust (whisper.cpp/Vulkan GPU) ggml models — multilingual, quantized.
 # Quant per HF availability (verified): tiny/base/small = q5_1, medium/large* = q5_0.
+# large-v3-turbo-fp16 is the unquantized turbo (upstream file has no -fp16
+# suffix — see _WHISPER_RUST_URL_NAMES); it beats large-v3 q5_0 on both WER
+# (4.4% vs 5.4%) and speed (RTF 0.058 vs 0.087) on the librivox FR bench.
 # Downloaded on demand to the dictee user dir; the selected model's path is written
 # to dictee.conf (DICTEE_WHISPER_RUST_GGML), which the service reads.
 _WHISPER_RUST_DIR = os.path.join(MODEL_DIR, "whisper-rust")
@@ -1703,19 +1706,29 @@ WHISPER_RUST_MODELS = [
     ("small", "ggml-small-q5_1.bin", "small — 181 MB"),
     ("medium", "ggml-medium-q5_0.bin", "medium — 514 MB, good balance"),
     ("large-v3-turbo", "ggml-large-v3-turbo-q5_0.bin", "large-v3-turbo — 547 MB, fast, near large-v3 quality"),
-    ("large-v3", "ggml-large-v3-q5_0.bin", "large-v3 — 1.0 GB, best quality"),
+    ("large-v3-turbo-fp16", "ggml-large-v3-turbo-fp16.bin", "large-v3-turbo FP16 — 1.6 GB, best quality, fast"),
+    ("large-v3", "ggml-large-v3-q5_0.bin", "large-v3 — 1.0 GB, high quality"),
 ]
+
+
+# Local filename -> upstream filename, for models whose local name differs
+# from the HF one (the unquantized turbo is plain ggml-large-v3-turbo.bin
+# upstream; the -fp16 suffix keeps the local name unambiguous vs the q5_0).
+_WHISPER_RUST_URL_NAMES = {
+    "ggml-large-v3-turbo-fp16.bin": "ggml-large-v3-turbo.bin",
+}
 
 
 def _whisper_rust_model_dict(model_id):
     """Build a ModelDownloadThread/model_is_installed-compatible dict for a model id."""
     for mid, fname, _label in WHISPER_RUST_MODELS:
         if mid == model_id:
+            url_name = _WHISPER_RUST_URL_NAMES.get(fname, fname)
             return {
                 "id": f"whisper-rust-{mid}",
                 "dir": _WHISPER_RUST_DIR,
                 "check_file": fname,
-                "files": [(f"{_WHISPER_RUST_BASE}/{fname}", fname)],
+                "files": [(f"{_WHISPER_RUST_BASE}/{url_name}", fname)],
             }
     return None
 

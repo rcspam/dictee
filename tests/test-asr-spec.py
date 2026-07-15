@@ -55,6 +55,14 @@ def test_whisper_rust_small():
     assert dt.asr_spec_to_daemon("whisper-rust-small")["backend"] == "whisper-rust"
 
 
+def test_whisper_rust_turbo_fp16():
+    # Unquantized model: the ggml file has no -q suffix (exact-name fallback).
+    r = dt.asr_spec_to_daemon("whisper-rust-large-v3-turbo-fp16")
+    assert r["backend"] == "whisper-rust"
+    assert r["env"]["DICTEE_WHISPER_RUST_MODEL"] == "large-v3-turbo-fp16"
+    assert "DICTEE_WHISPER_RUST_GGML" in r["env"]
+
+
 def test_unknown_raises():
     import pytest
     with pytest.raises(ValueError):

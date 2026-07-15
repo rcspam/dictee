@@ -59,7 +59,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 _WHISPER_RUST_SIZES = ("tiny", "base", "small", "medium",
-                       "large-v3-turbo", "large-v3")
+                       "large-v3-turbo", "large-v3-turbo-fp16", "large-v3")
 
 ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
              "whisper", "whisper-tiny", "whisper-small", "whisper-medium",
@@ -74,7 +74,9 @@ def _whisper_rust_ggml_path(size=None):
     by dictee-setup when a model is selected), unless a specific `size` is
     requested; then a glob for ggml-<size>-q*.bin in the user and system
     model dirs (quantization suffixes vary per size, so no filename table
-    is duplicated here). Returns "" when nothing is installed.
+    is duplicated here), then the exact ggml-<size>.bin (unquantized models
+    such as large-v3-turbo-fp16 carry no -q suffix). Returns "" when nothing
+    is installed.
     """
     import glob
     conf = _read_conf()
@@ -87,9 +89,10 @@ def _whisper_rust_ggml_path(size=None):
         os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
         "dictee", "whisper-rust")
     for d in (user_dir, "/usr/share/dictee/whisper-rust"):
-        hits = sorted(glob.glob(os.path.join(d, f"ggml-{size}-q*.bin")))
-        if hits:
-            return hits[0]
+        for pat in (f"ggml-{size}-q*.bin", f"ggml-{size}.bin"):
+            hits = sorted(glob.glob(os.path.join(d, pat)))
+            if hits:
+                return hits[0]
     return ""
 
 
