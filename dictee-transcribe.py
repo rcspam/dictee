@@ -756,10 +756,29 @@ def _diar_multi_available():
             or os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel)))
 
 
+def _moss_available():
+    """True when the MOSS one-pass diarized-transcription engine is usable:
+    dictee-moss-diarize on PATH and its --check passing (model + native
+    transcribe.cpp runtime + python bindings). Unlike the other engines MOSS
+    emits the final transcript itself (ASR + speakers in a single pass).
+    GPU-only in practice (RTF ~0.2 CUDA vs ~1.7 CPU, bench 2026-07-14)."""
+    import shutil
+    exe = shutil.which("dictee-moss-diarize")
+    if not exe:
+        return False
+    try:
+        return subprocess.run(
+            [exe, "--check"], stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
 def _diarize_available():
-    """True when at least one diarization engine (multi-speaker or
-    Sortformer) is installed — gates the diarize toggle."""
-    return _diar_multi_available() or _sortformer_available()
+    """True when at least one diarization engine (multi-speaker,
+    Sortformer or MOSS) is installed — gates the diarize toggle."""
+    return (_diar_multi_available() or _sortformer_available()
+            or _moss_available())
 
 
 def _diar_threshold_from_sensitivity(sensitivity):
@@ -1721,7 +1740,8 @@ def _format_json(segments, name_map=None):
 
 def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
                            has_diarize_only, has_transcribe_diarize,
-                           has_diarize_multi=False):
+                           has_diarize_multi=False, has_moss=False,
+                           diar_engine="auto"):
     """Pick the ASR command and pipeline mode for a transcription run.
 
     Pure function (no I/O, no Qt) so the routing matrix stays
@@ -1730,6 +1750,12 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
 
     Routing rules:
       diarize=False  + transcribe binary → ("transcribe", False, None)
+      diarize=True   + engine combo forced to MOSS and MOSS usable
+                     → ("dictee-moss-diarize", False, None)
+        One-pass engine: MOSS emits the final diarized transcript itself
+        (DIARIZE_RE lines), so no phase-2 and no daemon involved. Explicit
+        user choice — it never wins under "auto". Falls through to the
+        normal matrix when MOSS is not usable.
       diarize=True   + Canary daemon     → ("transcribe-diarize", False, None)
         Canary path bypasses the daemon socket because the daemon is
         locked at DICTEE_LANG_SOURCE — phase-2 transcription would
@@ -1764,6 +1790,9 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
         if not has_transcribe:
             return None, False, "transcribe"
         return "transcribe", False, None
+
+    if diar_engine == "moss" and has_moss:
+        return "dictee-moss-diarize", False, None
 
     daemon_is_canary = (asr_backend or "").lower() == "canary"
 
@@ -2902,7 +2931,8 @@ class TranscribeWindow(QDialog):
         self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
         diar_multi_ok = _diar_multi_available()
         sortformer_ok = _sortformer_available()
-        self._chk_diarize.setEnabled(diar_multi_ok or sortformer_ok)
+        moss_ok = _moss_available()
+        self._chk_diarize.setEnabled(diar_multi_ok or sortformer_ok or moss_ok)
         if diar_multi_ok:
             self._chk_diarize.setToolTip(self._tip(
                 _("Identify speakers (no speaker-count limit). Works on "
@@ -2951,13 +2981,21 @@ class TranscribeWindow(QDialog):
         self._cmb_diar_engine.addItem(_("Auto"), "auto")
         self._cmb_diar_engine.addItem(_("Multi-speaker (no limit)"), "multi")
         self._cmb_diar_engine.addItem(_("Sortformer (max 4)"), "sortformer")
+        # MOSS is a different animal: a single pass produces the transcript
+        # AND the speakers (it replaces the ASR phase entirely), so the
+        # threshold slider does not apply to it. GPU only.
+        self._cmb_diar_engine.addItem(_("MOSS (integrated, GPU)"), "moss")
         if not diar_multi_ok:
             self._cmb_diar_engine.model().item(1).setEnabled(False)
         if not sortformer_ok:
             self._cmb_diar_engine.model().item(2).setEnabled(False)
+        if not moss_ok:
+            self._cmb_diar_engine.model().item(3).setEnabled(False)
         self._cmb_diar_engine.setToolTip(self._tip(
             _("Diarization engine. Auto uses the multi-speaker engine when "
-              "installed, otherwise Sortformer (max 4 speakers).")))
+              "installed, otherwise Sortformer (max 4 speakers). MOSS "
+              "transcribes and identifies speakers in a single pass "
+              "(own ASR, GPU required).")))
         _qs_diar = QSettings("dictee", "transcribe")
         _i = self._cmb_diar_engine.findData(
             _qs_diar.value("diarize/engine", "auto"))
@@ -2966,6 +3004,10 @@ class TranscribeWindow(QDialog):
         self._cmb_diar_engine.currentIndexChanged.connect(
             lambda _i: QSettings("dictee", "transcribe").setValue(
                 "diarize/engine", self._cmb_diar_engine.currentData()))
+        # Re-evaluate the threshold visibility when the engine changes
+        # (hidden for MOSS, which has no clustering threshold).
+        self._cmb_diar_engine.currentIndexChanged.connect(
+            lambda _i: self._on_diarize_toggled(self._chk_diarize.isChecked()))
         lay_diar_eng.addWidget(self._cmb_diar_engine)
         self._w_diar_engine.setVisible(False)
 
@@ -4131,7 +4173,10 @@ class TranscribeWindow(QDialog):
         # standard ExportDialog.
 
     def _on_diarize_toggled(self, checked):
-        self._w_threshold.setVisible(checked)
+        # The threshold drives the clustering engines only — hide it when
+        # the MOSS one-pass engine is selected (no clustering stage).
+        _is_moss = (self._cmb_diar_engine.currentData() or "auto") == "moss"
+        self._w_threshold.setVisible(checked and not _is_moss)
         self._w_diar_engine.setVisible(checked)
         self._update_long_audio_warning()
         self._refresh_window_icon()
@@ -4428,10 +4473,17 @@ class TranscribeWindow(QDialog):
                 self._update_transcribe_btn()
                 self._stop_all_spinners()
                 return
+        # A MOSS diarized run never goes through the chunked pipeline: the
+        # model ingests the whole file in one pass (upstream supports hours
+        # of audio; ~85 MB RAM per minute) and chunking would break its
+        # global speaker labels.
+        _moss_run = (diarize and _moss_available()
+                     and (self._cmb_diar_engine.currentData() or "auto") == "moss")
         if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
                 or _parakeet_isolated) and not _whisper_isolated
                 and not _whisper_rust_isolated
-                and not _nemotron_isolated):
+                and not _nemotron_isolated
+                and not _moss_run):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
@@ -4489,6 +4541,8 @@ class TranscribeWindow(QDialog):
             has_diarize_only=bool(shutil.which("diarize-only")),
             has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
             has_diarize_multi=self._diar_allow_multi() and _diar_multi_available(),
+            has_moss=_moss_available(),
+            diar_engine=self._cmb_diar_engine.currentData() or "auto",
         )
         if cmd is None:
             self._progress.setVisible(False)
@@ -4504,8 +4558,10 @@ class TranscribeWindow(QDialog):
         # two-phase path (diarization pass + phase-2 isolated daemon over a
         # private socket), regardless of the F9 backend. Same engine
         # preference as the routing matrix: diarize-multi first, Sortformer
-        # fallback.
-        if _whisper_isolated or _whisper_rust_isolated or _nemotron_isolated:
+        # fallback. MOSS is exempt: it embeds its own ASR, so the isolated
+        # ASR choice does not apply to a MOSS run.
+        if ((_whisper_isolated or _whisper_rust_isolated or _nemotron_isolated)
+                and cmd != "dictee-moss-diarize"):
             if self._diar_allow_multi() and _diar_multi_available():
                 cmd, two_phase = "diarize-multi", True
             elif shutil.which("diarize-only"):
@@ -4534,7 +4590,9 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
         self._diarize_audio_path = audio_path
         args = [audio_path]
-        if diarize:
+        # MOSS takes no tuning flag: the threshold slider drives the
+        # clustering engines only (MOSS has no clustering stage).
+        if diarize and cmd != "dictee-moss-diarize":
             sensitivity = self._sld_sensitivity.value() / 100.0
             if cmd == "diarize-multi":
                 args += ["--threshold",

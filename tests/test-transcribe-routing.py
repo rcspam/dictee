@@ -201,6 +201,49 @@ class SelectTranscribeCmdTests(unittest.TestCase):
         self.assertFalse(two_phase)
         self.assertEqual(err, "diarize-only")
 
+    # ── MOSS one-pass engine (explicit combo choice only) ──────────────
+
+    def test_moss_selected_and_available_wins(self):
+        # Explicit "moss" in the engine combo + usable install → the
+        # one-pass driver, no phase-2 (it emits the final transcript).
+        # It beats even the Canary special case: MOSS embeds its own ASR.
+        for backend in ("", "parakeet", "canary"):
+            with self.subTest(backend=backend):
+                cmd, two_phase, err = _select_transcribe_cmd(
+                    diarize=True, asr_backend=backend,
+                    has_moss=True, diar_engine="moss", **self.BASE)
+                self.assertEqual(cmd, "dictee-moss-diarize")
+                self.assertFalse(two_phase)
+                self.assertIsNone(err)
+
+    def test_moss_selected_but_unavailable_falls_back(self):
+        # Stale QSettings ("moss" persisted, engine later uninstalled):
+        # fall back to the normal matrix instead of failing.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet",
+            has_moss=False, diar_engine="moss", **self.BASE)
+        self.assertEqual(cmd, "diarize-only")   # BASE has no diarize-multi
+        self.assertTrue(two_phase)
+        self.assertIsNone(err)
+
+    def test_moss_available_but_not_selected_never_wins(self):
+        # MOSS must never be picked under "auto" — explicit choice only.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet",
+            has_moss=True, diar_engine="auto", **self.BASE)
+        self.assertEqual(cmd, "diarize-only")   # BASE has no diarize-multi
+        self.assertTrue(two_phase)
+        self.assertIsNone(err)
+
+    def test_moss_ignored_for_plain_transcription(self):
+        # The engine combo only applies to diarized runs.
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=False, asr_backend="",
+            has_moss=True, diar_engine="moss", **self.BASE)
+        self.assertEqual(cmd, "transcribe")
+        self.assertFalse(two_phase)
+        self.assertIsNone(err)
+
     # ── diarize=True with the in-house multi-speaker engine ───────────
 
     def test_diar_multi_preferred_over_sortformer(self):

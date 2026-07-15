@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""
+dictee-moss-diarize — one-pass diarized transcription (MOSS via transcribe.cpp)
+
+Runs OpenMOSS MOSS-Transcribe-Diarize (GGUF, transcribe.cpp runtime): a 0.9B
+audio-LLM that emits the transcript AND the speaker labels in a single pass,
+as generated text in the canonical format `[start][Sxx]text[end]`.
+
+Unlike diarize-multi / diarize-only (which emit speaker segments for a
+separate ASR phase), this engine replaces the whole pipeline: its stdout is
+the final diarized transcript, one DIARIZE_RE-compatible line per turn:
+
+    [12.34s - 15.67s] Speaker 0: text
+
+Consecutive turns of the same speaker closer than MERGE_GAP_S are merged.
+Logs go to stderr; stdout carries only the transcript.
+
+Usage:
+    dictee-moss-diarize <audio-file>
+    dictee-moss-diarize --check      # report what is missing, exit 0/1
+
+Environment:
+    DICTEE_MOSS_GGUF     model path override (default: moss/ in the user
+                         model dir, then /usr/share/dictee/moss/)
+    TRANSCRIBE_LIBRARY   native libtranscribe.so override (default:
+                         /usr/lib/dictee/transcribe-cpp/, then the user dir;
+                         the ggml backend .so files must sit next to it)
+
+GPU only: MOSS runs at RTF ~0.2 on CUDA but ~1.7 on CPU (measured 2026-07-14
+on the librivox/crop2 bench) — the CPU path is not exposed in the UI.
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+SAMPLE_RATE = 16000
+MERGE_GAP_S = 2.0
+
+# MOSS turn in the generated text: [start][Sxx]text[end]. The speaker tags
+# and timestamps are generated text, not special tokens (upstream docs).
+TURN_RE = re.compile(r"\[(\d+(?:\.\d+)?)\]\[S(\d+)\](.*?)\[(\d+(?:\.\d+)?)\]")
+
+USER_DATA_DIR = os.path.join(
+    os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+    "dictee")
+
+
+def _log(msg):
+    print(f"[moss-diarize] {msg}", file=sys.stderr, flush=True)
+
+
+def _inject_venv():
+    """Make the moss-env venv importable (same pattern as
+    transcribe-daemon-whisper with whisper-env)."""
+    venv_lib = os.path.join(USER_DATA_DIR, "moss-env", "lib")
+    if not os.path.isdir(venv_lib):
+        return
+    for d in os.listdir(venv_lib):
+        sp = os.path.join(venv_lib, d, "site-packages")
+        if os.path.isdir(sp) and sp not in sys.path:
+            sys.path.insert(0, sp)
+
+
+def _resolve_model():
+    """Model path: env override, then user dir, then system dir."""
+    p = (os.environ.get("DICTEE_MOSS_GGUF") or "").strip()
+    if p:
+        return p if os.path.isfile(p) else ""
+    import glob
+    for d in (os.path.join(USER_DATA_DIR, "moss"), "/usr/share/dictee/moss"):
+        hits = sorted(glob.glob(os.path.join(d, "*.gguf")))
+        if hits:
+            return hits[0]
+    return ""
+
+
+def _resolve_library():
+    """Native transcribe.cpp library: env override, then system, then user."""
+    p = (os.environ.get("TRANSCRIBE_LIBRARY") or "").strip()
+    if p:
+        return p if os.path.isfile(p) else ""
+    for d in ("/usr/lib/dictee/transcribe-cpp",
+              os.path.join(USER_DATA_DIR, "transcribe-cpp")):
+        lib = os.path.join(d, "libtranscribe.so")
+        if os.path.isfile(lib):
+            return lib
+    return ""
+
+
+def _check():
+    """Report availability on stdout; exit 0 when runnable."""
+    missing = []
+    if not _resolve_model():
+        missing.append("model (MOSS-Transcribe-Diarize GGUF)")
+    if not _resolve_library():
+        missing.append("runtime (libtranscribe.so)")
+    _inject_venv()
+    try:
+        import importlib.util
+        if importlib.util.find_spec("transcribe_cpp") is None:
+            missing.append("python bindings (transcribe_cpp)")
+    except Exception:
+        missing.append("python bindings (transcribe_cpp)")
+    if missing:
+        print("missing: " + ", ".join(missing))
+        return 1
+    print("ok")
+    return 0
+
+
+def _decode_audio(path):
+    """Decode any input to float32 16 kHz mono PCM via ffmpeg."""
+    cmd = ["ffmpeg", "-v", "error", "-i", path,
+           "-f", "f32le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-"]
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE)
+    if proc.returncode != 0 or not proc.stdout:
+        raise RuntimeError(f"ffmpeg failed to decode {path}")
+    import numpy as np
+    return np.frombuffer(proc.stdout, dtype=np.float32)
+
+
+def _parse_turns(text):
+    """Parse MOSS output into [(start, end, speaker_int, text)] turns.
+    Speaker numbering is normalized to 0-based (S01 -> 0) to match the
+    other diarization engines."""
+    turns = []
+    for m in TURN_RE.finditer(text):
+        start, sxx, words, end = m.groups()
+        words = words.strip()
+        if not words:
+            continue
+        turns.append((float(start), float(end),
+                      max(0, int(sxx) - 1), words))
+    return turns
+
+
+def _merge_turns(turns):
+    """Merge consecutive same-speaker turns separated by <= MERGE_GAP_S."""
+    merged = []
+    for start, end, spk, words in turns:
+        if (merged and merged[-1][2] == spk
+                and start - merged[-1][1] <= MERGE_GAP_S):
+            prev = merged[-1]
+            merged[-1] = (prev[0], end, spk, prev[3] + " " + words)
+        else:
+            merged.append((start, end, spk, words))
+    return merged
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    if sys.argv[1] == "--check":
+        return _check()
+
+    audio_path = sys.argv[1]
+    if not os.path.isfile(audio_path):
+        _log(f"no such file: {audio_path}")
+        return 2
+
+    model_path = _resolve_model()
+    if not model_path:
+        _log("MOSS model not found — download it from dictee-setup "
+             "(Diarization page) or set DICTEE_MOSS_GGUF")
+        return 2
+    lib_path = _resolve_library()
+    if not lib_path:
+        _log("transcribe.cpp runtime not found — install the dictee MOSS "
+             "component or set TRANSCRIBE_LIBRARY")
+        return 2
+
+    os.environ["TRANSCRIBE_LIBRARY"] = lib_path
+    _inject_venv()
+    try:
+        import transcribe_cpp
+    except Exception as e:
+        _log(f"python bindings unavailable: {e}")
+        return 2
+
+    pcm = _decode_audio(audio_path)
+    _log(f"audio: {len(pcm) / SAMPLE_RATE:.1f}s | model: {model_path}")
+
+    with transcribe_cpp.Model(model_path) as model:
+        with model.session() as session:
+            result = session.run(pcm)
+
+    turns = _merge_turns(_parse_turns(result.text))
+    if not turns:
+        _log("MOSS produced no parseable turns")
+        _log(f"raw output head: {result.text[:200]!r}")
+        return 1
+    for start, end, spk, words in turns:
+        print(f"[{start:.2f}s - {end:.2f}s] Speaker {spk}: {words}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

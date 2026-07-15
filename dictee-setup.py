@@ -2279,6 +2279,38 @@ ASR_MODELS = [
         ],
         "required": False,
     },
+    {
+        # MOSS-Transcribe-Diarize (OpenMOSS, Apache-2.0) on the
+        # transcribe.cpp runtime: a 0.9B audio-LLM that emits the transcript
+        # AND the speaker labels in a single pass. GPU only in practice
+        # (RTF ~0.2 CUDA vs ~1.7 CPU, librivox/crop2 bench 2026-07-14).
+        # The model row only manages the GGUF; the runtime (libtranscribe.so
+        # + moss-env venv) ships with the dictee CUDA package.
+        "id": "moss",
+        "name": _("MOSS integrated diarization"),
+        "desc": _("One-pass transcription + speaker labels (~1 GB, GPU "
+                  "required). Own ASR engine — pick it explicitly in the "
+                  "Transcribe window (Engine: MOSS)."),
+        "help": _(
+            "<b>MOSS integrated diarization</b> — one-pass engine<br><br>"
+            "A compact audio language model that produces the transcript "
+            "and the speaker labels <b>in a single pass</b>, with no "
+            "speaker-count cap.<br>"
+            "Runs on the transcribe.cpp runtime. <b>GPU required</b> — on "
+            "CPU it is slower than real time.<br><br>"
+            "<b>Optional</b> — select it explicitly in the Transcribe "
+            "window (Engine: MOSS). It replaces the ASR engine for that "
+            "run.<br>"
+            "Used by: <code>dictee-moss-diarize</code>"
+        ),
+        "dir": os.path.join(MODEL_DIR, "moss"),
+        "check_file": "MOSS-Transcribe-Diarize-Q8_0.gguf",
+        "files": [
+            ("https://huggingface.co/handy-computer/moss-transcribe-diarize-gguf/resolve/main/MOSS-Transcribe-Diarize-Q8_0.gguf",
+             "MOSS-Transcribe-Diarize-Q8_0.gguf"),
+        ],
+        "required": False,
+    },
 ]
 
 NEMOTRON_MODEL = next(m for m in ASR_MODELS if m["id"] == "nemotron")
@@ -9441,6 +9473,35 @@ class DicteeSetupDialog(QDialog):
         for model in [m for m in ASR_MODELS if m["id"] == "diar"]:
             self._build_model_row(diar_lay, model)
         lay.addWidget(diar_box)
+
+        moss_box = QGroupBox(_("MOSS (integrated, GPU)"))
+        moss_lay = QVBoxLayout(moss_box)
+        moss_lay.setContentsMargins(12, 12, 12, 10)
+        moss_lay.setSpacing(6)
+        for model in [m for m in ASR_MODELS if m["id"] == "moss"]:
+            self._build_model_row(moss_lay, model)
+        # The GGUF alone is not enough: dictee-moss-diarize also needs the
+        # transcribe.cpp runtime + python bindings (shipped with the CUDA
+        # package). Surface its own --check verdict so a greyed-out engine
+        # combo in the Transcribe window is explainable from here.
+        _moss_status = QLabel()
+        _moss_status.setWordWrap(True)
+        try:
+            _chk = subprocess.run(
+                ["dictee-moss-diarize", "--check"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                timeout=10, text=True)
+            if _chk.returncode == 0:
+                _moss_status.setText(_("Runtime: ready."))
+            else:
+                _moss_status.setText(
+                    _("Runtime: not ready — {details}.").format(
+                        details=_chk.stdout.strip() or "check failed"))
+        except Exception:
+            _moss_status.setText(
+                _("Runtime: dictee-moss-diarize not installed."))
+        moss_lay.addWidget(_moss_status)
+        lay.addWidget(moss_box)
 
         lay.addStretch(1)
         return page
