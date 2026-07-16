@@ -2352,9 +2352,9 @@ class MeetingWindow(QWidget):
 
     def _free_vram_for_live_daemon(self):
         """Stop the F9 daemon services when free VRAM is too tight for the
-        isolated live nemotron daemon (~3.5 GB) next to streaming Sortformer.
-        Mirrors dictee-transcribe's VRAM-free block; services are restarted in
-        _stop_live_asr_daemon()."""
+        isolated live ASR daemon (whisper-rust ~1.6 GB, nemotron ~3.5 GB)
+        next to streaming Sortformer. Mirrors dictee-transcribe's VRAM-free
+        block; services are restarted in _stop_live_asr_daemon()."""
         try:
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=memory.free",
@@ -2371,14 +2371,41 @@ class MeetingWindow(QWidget):
                  "--format=csv,noheader"],
                 capture_output=True, text=True, timeout=5)
             gpu_procs = result2.stdout.strip() if result2.returncode == 0 else ""
+            # The list MUST match dictee-transcribe.py's VRAM-free block: a
+            # missing service (dictee-whisper-rust was the bug — the user's
+            # own F9 backend kept 2 GB and the live daemon OOM'd) leaves the
+            # preview blank. Stop the daemon families, then fall back to
+            # unloading ollama, exactly like the transcribe path.
             if "transcribe-daemon" in gpu_procs:
                 self._daemon_was_active = True
                 subprocess.run(
                     ["systemctl", "--user", "stop",
                      "dictee", "dictee-vosk", "dictee-whisper",
-                     "dictee-canary", "dictee-nemotron"],
+                     "dictee-whisper-rust", "dictee-canary",
+                     "dictee-nemotron"],
                     timeout=10)
                 time.sleep(1)
+            free3 = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5)
+            free_after = (free3.stdout.strip().split("\n")[0]
+                          if free3.returncode == 0 else "")
+            free_after = int(free_after) if free_after.isdigit() else 0
+            if free_after < 5120 and "ollama" in gpu_procs:
+                conf = self._conf_dict()
+                model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+                import urllib.request
+                try:
+                    req = urllib.request.Request(
+                        "http://localhost:11434/api/generate",
+                        data=json.dumps(
+                            {"model": model, "keep_alive": 0}).encode(),
+                        headers={"Content-Type": "application/json"})
+                    urllib.request.urlopen(req, timeout=5)
+                    time.sleep(1)
+                except Exception:
+                    pass
         except Exception:
             pass
 
