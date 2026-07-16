@@ -52,13 +52,18 @@ def _flags_in_list(elts):
     return out
 
 
-def python_invocations(path):
+def python_invocations(path, binaries=None):
     """Map binary -> set of flags passed to it, from a Python source file.
 
     Handles direct list literals (``["transcribe-daemon", "--socket", x]``) and
     incrementally built commands (``cmd = ["transcribe-client"]`` then
     ``cmd += ["--json-timestamps"]`` / ``cmd.append(...)``), tracked per scope.
+
+    `binaries` restricts (and extends) the set of command names to look for;
+    it defaults to the Rust BINARIES table, and the Python-tool contract test
+    passes its own (dictee-transcribe, dictee-moss-diarize).
     """
+    binaries = BINARIES if binaries is None else binaries
     tree = ast.parse(path.read_text(), filename=str(path))
     found = {}
 
@@ -69,7 +74,7 @@ def python_invocations(path):
     for node in ast.walk(tree):
         if isinstance(node, ast.List) and node.elts \
                 and isinstance(node.elts[0], ast.Constant) \
-                and node.elts[0].value in BINARIES:
+                and node.elts[0].value in binaries:
             record(node.elts[0].value, _flags_in_list(node.elts[1:]))
 
     # Pass B (per function): incrementally built commands. var_binary is rebuilt
@@ -82,7 +87,7 @@ def python_invocations(path):
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.List) \
                     and node.value.elts \
                     and isinstance(node.value.elts[0], ast.Constant) \
-                    and node.value.elts[0].value in BINARIES:
+                    and node.value.elts[0].value in binaries:
                 for tgt in node.targets:
                     if isinstance(tgt, ast.Name):
                         var_binary[tgt.id] = node.value.elts[0].value
@@ -133,6 +138,44 @@ class CliContractTest(unittest.TestCase):
                 continue
             for binary, flags in python_invocations(p).items():
                 for f in sorted(flags - ACCEPTED_FLAGS[binary]):
+                    violations.append(f"{name}: '{binary}' does not accept '{f}'")
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_python_tools_accept_the_flags_python_callers_pass(self):
+        """Same contract, Python -> Python: meeting-live hands the meeting
+        over with `dictee-transcribe --file ... --diarize --diar-engine ...`,
+        and dictee-moss-diarize is called by dictee-transcribe. An argparse
+        script rejects an unknown flag outright (exit 2), so a drifted flag
+        breaks the handoff at Stop — after the meeting was recorded.
+
+        Accepted flags are read from each tool's own argparse calls rather
+        than mirrored in a table, so adding an option cannot desync them.
+        """
+        tools = {
+            "dictee-transcribe": REPO / "dictee-transcribe.py",
+            "dictee-moss-diarize": REPO / "dictee-moss-diarize",
+        }
+        accepted = {}
+        for name, path in tools.items():
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            flags = set()
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "add_argument"):
+                    flags |= _flags_in_list(node.args)
+            flags |= {"--help", "-h"}
+            self.assertTrue(flags - {"--help", "-h"},
+                            f"{name}: no argparse flags found — parser moved?")
+            accepted[name] = flags
+
+        violations = []
+        for name in PY_CALLERS:
+            p = REPO / name
+            if not p.exists():
+                continue
+            for binary, flags in python_invocations(p, binaries=set(tools)).items():
+                for f in sorted(flags - accepted[binary]):
                     violations.append(f"{name}: '{binary}' does not accept '{f}'")
         self.assertEqual(violations, [], "\n".join(violations))
 

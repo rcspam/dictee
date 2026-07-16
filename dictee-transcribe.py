@@ -2646,7 +2646,8 @@ class LLMProcessDialog(QDialog):
 class TranscribeWindow(QDialog):
     """Main transcription/diarization window."""
 
-    def __init__(self, file_path=None, auto_diarize=False, asr_model="", parent=None):
+    def __init__(self, file_path=None, auto_diarize=False, asr_model="",
+                 diar_engine="", parent=None):
         super().__init__(parent)
         self._asr_model = asr_model or ""
         self.setWindowTitle(_("Dictee - Transcribe file"))
@@ -2727,6 +2728,16 @@ class TranscribeWindow(QDialog):
             self._load_audio(file_path)
         if auto_diarize and _diarize_available():
             self._chk_diarize.setChecked(True)
+        # --diar-engine (meeting-live hands its own engine choice over):
+        # select it when usable, else keep the combo's persisted value
+        # rather than failing a run the user cannot see being set up.
+        if diar_engine:
+            _di = self._cmb_diar_engine.findData(diar_engine)
+            if _di >= 0 and self._cmb_diar_engine.model().item(_di).isEnabled():
+                self._cmb_diar_engine.setCurrentIndex(_di)
+            else:
+                _dbg(f"--diar-engine {diar_engine!r} unavailable — "
+                     f"keeping {self._cmb_diar_engine.currentData()!r}")
 
         # Speaker transfer from meeting-live: look for speakers.json next to
         # the audio file. Loaded now; applied after diarization completes.
@@ -6153,6 +6164,10 @@ def main():
     parser.add_argument("--file", "-f", help="Audio file to transcribe")
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
+    parser.add_argument("--diar-engine", default="",
+                        help="Diarization engine (auto|multi|sortformer|moss). "
+                             "Empty = the choice persisted in the window. "
+                             "An unavailable engine is ignored.")
     parser.add_argument("--asr-model", default="",
                         help="ASR model spec (parakeet-int8|parakeet-fp32|"
                              "whisper|whisper-rust|nemotron; whisper sizes "
@@ -6198,6 +6213,7 @@ def main():
         file_path=file_path,
         auto_diarize=args.diarize,
         asr_model=args.asr_model,
+        diar_engine=args.diar_engine,
     )
     win.show()
     sys.exit(app.exec())

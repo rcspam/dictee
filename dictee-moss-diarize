@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-dictee-moss-diarize — one-pass diarized transcription (MOSS via transcribe.cpp)
+dictee-moss-diarize — diarized transcription with MOSS (transcribe.cpp runtime)
 
 Runs OpenMOSS MOSS-Transcribe-Diarize (GGUF, transcribe.cpp runtime): a 0.9B
 audio-LLM that emits the transcript AND the speaker labels in a single pass,
@@ -15,16 +15,57 @@ the final diarized transcript, one DIARIZE_RE-compatible line per turn:
 Consecutive turns of the same speaker closer than MERGE_GAP_S are merged.
 Logs go to stderr; stdout carries only the transcript.
 
+Two execution modes:
+
+  one-pass (default)   The whole file in a single MOSS call. Simple and
+                       best-quality on short files, but RAM grows with the
+                       duration (~85 MB/min upstream) and the model's label
+                       memory degrades across long silences (identity swaps
+                       measured on produced/edited audio). Beyond what the
+                       GPU can hold it dies with an out-of-memory error (a
+                       21-min meeting already OOMs 8 GB of VRAM), so the
+                       driver retries in chunked mode instead of failing.
+
+  chunked (--chunked)  meeting-live geometry: CHUNK_S-second windows moved
+                       by CHUNK_S-OVERLAP_S. MOSS runs once per chunk (the
+                       model is loaded once), so RAM stays flat and every
+                       chunk is fast enough for live use (40 s processed in
+                       ~4 s on GPU, bench 2026-07-16). MOSS labels are LOCAL
+                       to each call, so chunks are reconciled into global
+                       speakers by (1) temporal co-occurrence in the overlap
+                       zone, then (2) voice embeddings (WeSpeaker ResNet34
+                       from the multi-speaker diarization component) matched
+                       greedily against the running speaker centroids.
+
 Usage:
     dictee-moss-diarize <audio-file>
+    dictee-moss-diarize --chunked <audio-file>
     dictee-moss-diarize --check      # report what is missing, exit 0/1
 
 Environment:
-    DICTEE_MOSS_GGUF     model path override (default: moss/ in the user
-                         model dir, then /usr/share/dictee/moss/)
-    TRANSCRIBE_LIBRARY   native libtranscribe.so override (default:
-                         /usr/lib/dictee/transcribe-cpp/, then the user dir;
-                         the ggml backend .so files must sit next to it)
+    DICTEE_MOSS_GGUF       model path override (default: moss/ in the user
+                           model dir, then /usr/share/dictee/moss/)
+    TRANSCRIBE_LIBRARY     native libtranscribe.so override (default:
+                           /usr/lib/dictee/transcribe-cpp/, then the user
+                           dir; the ggml backend .so files must sit next
+                           to it)
+    DICTEE_MOSS_CHUNKED    1/true = same as --chunked; 0/false forbids the
+                           automatic switch (see below). Unset = one-pass
+                           first, chunked on out-of-memory.
+    DICTEE_MOSS_BACKEND    compute backend: auto (default) | vulkan | cuda |
+                           cpu. Only DICTEE_* vars reach this driver from
+                           dictee.conf, hence this alias for the runtime's
+                           TRANSCRIBE_BACKEND. Vulkan is the fastest path on
+                           the same NVIDIA card (RTF 0.154 vs CUDA 0.216)
+                           and the only one for AMD/Intel GPUs.
+    DICTEE_MOSS_CHUNK_S    chunk length, default 40
+    DICTEE_MOSS_OVERLAP_S  chunk overlap, default 10
+    DICTEE_MOSS_SIM_NEW    cosine similarity below which an unmatched chunk
+                           speaker becomes a NEW global speaker (default 0.60)
+    DICTEE_MOSS_SIM_MERGE  cosine similarity for the FINAL ghost-folding
+                           pass (default 0.72 — stricter than SIM_NEW: a
+                           transitive merge chain amplifies any laxity)
+    DICTEE_DEBUG           true = reconciliation diagnostics on stderr
 
 Any GPU, not just NVIDIA (crop2 bench, 2026-07-15): Vulkan on the NVIDIA card
 RTF 0.154 (faster than CUDA's 0.216, same output), Vulkan on an Intel Iris Xe
@@ -39,6 +80,19 @@ import sys
 
 SAMPLE_RATE = 16000
 MERGE_GAP_S = 2.0
+DEFAULT_CHUNK_S = 40.0
+DEFAULT_OVERLAP_S = 10.0
+DEFAULT_SIM_NEW = 0.60
+DEFAULT_SIM_MERGE = 0.72
+# Minimum temporal co-occurrence (seconds) in the overlap zone for two chunk
+# labels to be declared the same person without consulting embeddings.
+MIN_COOCCUR_S = 0.5
+# Minimum speech per chunk label to compute a usable embedding.
+MIN_EMBED_S = 0.3
+# Warn when the output leaves a hole this long: MOSS is known to silently
+# skip spans mid-monologue (upstream HF discussion #15) and the timestamps
+# stay monotonic, so a gap is the only downstream signal.
+OMISSION_GAP_S = 10.0
 
 # MOSS turn in the generated text: [start][Sxx]text[end]. The speaker tags
 # and timestamps are generated text, not special tokens (upstream docs).
@@ -48,9 +102,16 @@ USER_DATA_DIR = os.path.join(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
     "dictee")
 
+DEBUG = (os.environ.get("DICTEE_DEBUG") or "").lower() == "true"
+
 
 def _log(msg):
     print(f"[moss-diarize] {msg}", file=sys.stderr, flush=True)
+
+
+def _dbg(msg):
+    if DEBUG:
+        _log(msg)
 
 
 def _inject_venv():
@@ -91,6 +152,17 @@ def _resolve_library():
     return ""
 
 
+def _resolve_wespeaker():
+    """WeSpeaker embedding model from the multi-speaker diar component
+    (speakrs export: frontend embedded in the graph). Optional — chunked
+    mode degrades to temporal-only reconciliation without it."""
+    for d in (os.path.join(USER_DATA_DIR, "diar"), "/usr/share/dictee/diar"):
+        p = os.path.join(d, "wespeaker-voxceleb-resnet34.onnx")
+        if os.path.isfile(p):
+            return p
+    return ""
+
+
 def _check():
     """Report availability on stdout; exit 0 when runnable."""
     missing = []
@@ -123,17 +195,18 @@ def _decode_audio(path):
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
-def _parse_turns(text):
+def _parse_turns(text, offset=0.0):
     """Parse MOSS output into [(start, end, speaker_int, text)] turns.
     Speaker numbering is normalized to 0-based (S01 -> 0) to match the
-    other diarization engines."""
+    other diarization engines. `offset` shifts timestamps to absolute
+    time for chunked runs."""
     turns = []
     for m in TURN_RE.finditer(text):
         start, sxx, words, end = m.groups()
         words = words.strip()
         if not words:
             continue
-        turns.append((float(start), float(end),
+        turns.append((offset + float(start), offset + float(end),
                       max(0, int(sxx) - 1), words))
     return turns
 
@@ -151,16 +224,350 @@ def _merge_turns(turns):
     return merged
 
 
-def main():
-    if len(sys.argv) != 2 or sys.argv[1] in ("-h", "--help"):
-        print(__doc__.strip(), file=sys.stderr)
-        return 2
-    if sys.argv[1] == "--check":
-        return _check()
+def _warn_omission_gaps(turns):
+    """Flag suspicious holes: MOSS silently skips spans mid-monologue
+    (upstream HF #15) with monotonic timestamps, so gaps are the only
+    signal. A gap can also be legitimate silence — hence a warning, not
+    an error."""
+    for (s1, e1, _l1, _t1), (s2, _e2, _l2, _t2) in zip(turns, turns[1:]):
+        if s2 - e1 > OMISSION_GAP_S:
+            _log(f"WARNING: no transcript between {e1:.1f}s and {s2:.1f}s "
+                 f"({s2 - e1:.0f}s) — silence, or a silent MOSS omission")
 
-    audio_path = sys.argv[1]
-    if not os.path.isfile(audio_path):
-        _log(f"no such file: {audio_path}")
+
+# ---------------------------------------------------------------------------
+# Chunked mode — cross-chunk speaker reconciliation
+# ---------------------------------------------------------------------------
+# MOSS labels are local to each call (S01 restarts in every chunk). The
+# reconciliation below maps them onto persistent global speakers with two
+# ordered signals:
+#   1. temporal co-occurrence: a turn in the overlap zone is transcribed by
+#      BOTH chunks — same instant, same person, whatever the labels say;
+#   2. voice embeddings: per-(chunk, label) centroids matched greedily
+#      against the running global centroids; below DICTEE_MOSS_SIM_NEW the
+#      label becomes a new speaker.
+# The functions are pure (embeddings injected as a callable) so the logic is
+# unit-tested without models — tests/test-moss-chunked.py.
+
+
+def _overlap_matches(prev_turns, next_turns, ov_lo, ov_hi,
+                     min_co=MIN_COOCCUR_S):
+    """Match chunk labels through the overlap zone by speech co-occurrence.
+
+    Both chunks transcribed the SAME audio in [ov_lo, ov_hi]; if a label of
+    the previous chunk and a label of the next one both speak during the
+    same seconds there, they are the same person. Greedy on total
+    co-occurrence, unique on both sides. Returns {next_label: prev_label}.
+    """
+    co = {}
+    for s1, e1, l1, _t in prev_turns:
+        a1, b1 = max(s1, ov_lo), min(e1, ov_hi)
+        if b1 <= a1:
+            continue
+        for s2, e2, l2, _t2 in next_turns:
+            a2, b2 = max(s2, ov_lo), min(e2, ov_hi)
+            inter = min(b1, b2) - max(a1, a2)
+            if inter > 0:
+                co[(l1, l2)] = co.get((l1, l2), 0.0) + inter
+    matches = {}
+    used_prev = set()
+    for (l1, l2), sec in sorted(co.items(), key=lambda kv: -kv[1]):
+        if sec < min_co or l2 in matches or l1 in used_prev:
+            continue
+        matches[l2] = l1
+        used_prev.add(l1)
+    return matches
+
+
+def _greedy_assign(sims, threshold, taken):
+    """Assign local labels to global speakers, greedily by similarity.
+
+    sims: {(label, person_index): cosine}. Labels not assigned (all their
+    similarities below `threshold`, or persons already `taken` in this
+    chunk) are left out. Returns {label: person_index}.
+    """
+    out = {}
+    used = set(taken)
+    for (lab, pid), sim in sorted(sims.items(), key=lambda kv: -kv[1]):
+        if sim < threshold or lab in out or pid in used:
+            continue
+        out[lab] = pid
+        used.add(pid)
+    return out
+
+
+def _keep_by_midpoint(turns, lo, hi):
+    """Overlap dedup: each instant belongs to exactly one chunk's useful
+    zone (cut in the middle of the overlap, like the batch pipeline). A
+    turn is kept by the chunk that owns its midpoint."""
+    return [t for t in turns if lo <= (t[0] + t[1]) / 2.0 < hi]
+
+
+def _reconcile_chunks(chunks, chunk_s, overlap_s, embed_fn=None,
+                      sim_new=DEFAULT_SIM_NEW, sim_merge=DEFAULT_SIM_MERGE):
+    """Map per-chunk local labels onto global speakers.
+
+    chunks: [(chunk_start, [(abs_start, abs_end, local_label, text), ...])]
+    embed_fn(intervals) -> unit vector or None; None disables the acoustic
+    signal (degraded mode: temporal continuity only, leftover labels map
+    by index with a warning).
+
+    Returns deduplicated [(abs_start, abs_end, global_id, text)].
+    """
+    people = []          # per global speaker: {"emb": vec sum or None, "dur": s}
+    out = []
+    prev_turns, prev_map, prev_start = None, None, None
+
+    for idx, (cstart, turns) in enumerate(chunks):
+        labels = []
+        for _s, _e, lab, _t in turns:
+            if lab not in labels:
+                labels.append(lab)
+        lab_dur = {lab: sum(e - s for s, e, l, _t in turns if l == lab)
+                   for lab in labels}
+
+        mapping = {}
+        # 1) temporal continuity through the overlap
+        if prev_turns is not None:
+            m = _overlap_matches(prev_turns, turns, cstart,
+                                 prev_start + chunk_s)
+            for lab, prev_lab in m.items():
+                if prev_lab in prev_map:
+                    mapping[lab] = prev_map[prev_lab]
+            _dbg(f"chunk {idx}: temporal matches {m} -> "
+                 f"{ {l: mapping[l] for l in m if l in mapping} }")
+
+        # 2) embeddings for what temporal continuity did not settle
+        embs = {}
+        if embed_fn is not None:
+            for lab in labels:
+                iv = [(s, e) for s, e, l, _t in turns if l == lab]
+                embs[lab] = embed_fn(iv)
+        unmapped = [l for l in labels if l not in mapping]
+        if unmapped and people and embed_fn is not None:
+            sims = {}
+            for lab in unmapped:
+                if embs.get(lab) is None:
+                    continue
+                for pid, p in enumerate(people):
+                    if p["emb"] is None:
+                        continue
+                    c = p["emb"] / (p["dur"] or 1.0)
+                    n = (c @ c) ** 0.5
+                    if n > 0:
+                        sims[(lab, pid)] = float(embs[lab] @ (c / n))
+            if sims:
+                _dbg(f"chunk {idx}: sims "
+                     f"{ {k: round(v, 3) for k, v in sims.items()} }")
+            mapping.update(_greedy_assign(sims, sim_new,
+                                          set(mapping.values())))
+
+        # 3) leftovers: new global speakers (or index fallback when the
+        #    acoustic signal is unavailable). Sub-embeddable blips (too
+        #    little speech for a usable voice print) never create people:
+        #    a ghost per interjection is what fragmented real meetings
+        #    (14 labels for 4 speakers, SUMM-RE calibration 2026-07-16) —
+        #    they follow the conversation instead (previous turn's person,
+        #    the least-wrong anchor available).
+        for lab in labels:
+            if lab in mapping:
+                continue
+            if embed_fn is None:
+                while len(people) <= lab:
+                    people.append({"emb": None, "dur": 0.0})
+                mapping[lab] = lab
+            elif embs.get(lab) is None and people:
+                prev_person = None
+                for s, e, l2, _t in sorted(turns):
+                    if l2 == lab:
+                        break
+                    if l2 in mapping:
+                        prev_person = mapping[l2]
+                if prev_person is None:
+                    prev_person = len(people) - 1
+                mapping[lab] = prev_person
+                _dbg(f"chunk {idx}: blip label {lab} -> follows "
+                     f"speaker {prev_person}")
+            else:
+                people.append({"emb": None, "dur": 0.0})
+                mapping[lab] = len(people) - 1
+                _dbg(f"chunk {idx}: label {lab} -> NEW speaker "
+                     f"{mapping[lab]}")
+
+        # update the running centroids (duration-weighted)
+        if embed_fn is not None:
+            for lab in labels:
+                e = embs.get(lab)
+                if e is None:
+                    continue
+                p = people[mapping[lab]]
+                d = lab_dur[lab]
+                p["emb"] = e * d if p["emb"] is None else p["emb"] + e * d
+                p["dur"] += d
+
+        # overlap dedup: cut in the middle of each overlap zone
+        lo = cstart + overlap_s / 2.0 if idx > 0 else float("-inf")
+        hi = (cstart + chunk_s - overlap_s / 2.0
+              if idx < len(chunks) - 1 else float("inf"))
+        for s, e, lab, txt in _keep_by_midpoint(turns, lo, hi):
+            out.append((s, e, mapping[lab], txt))
+
+        prev_turns, prev_map, prev_start = turns, mapping, cstart
+
+    # Final pass: fold ghost speakers. A person born early from little
+    # speech gets an unreliable centroid, so their return was often booked
+    # as a NEW person; with the full file heard, centroids are stable and
+    # same-voice persons can be merged (transitive union on cosine).
+    if embed_fn is not None and len(people) > 1:
+        cents = []
+        for p in people:
+            if p["emb"] is None or p["dur"] <= 0:
+                cents.append(None)
+                continue
+            c = p["emb"] / p["dur"]
+            n = (c @ c) ** 0.5
+            cents.append(c / n if n > 0 else None)
+        parent = list(range(len(people)))
+
+        def find(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        for i in range(len(people)):
+            for j in range(i + 1, len(people)):
+                if cents[i] is None or cents[j] is None:
+                    continue
+                if float(cents[i] @ cents[j]) >= sim_merge:
+                    a, b = find(i), find(j)
+                    if a != b:
+                        parent[max(a, b)] = min(a, b)
+                        _dbg(f"final merge: speaker {j} -> {i}")
+        remap, seen = {}, {}
+        for i in range(len(people)):
+            r = find(i)
+            if r not in seen:
+                seen[r] = len(seen)
+            remap[i] = seen[r]
+        out = [(s, e, remap[g], t) for s, e, g, t in out]
+
+    return out
+
+
+def _transcribe_chunked(pcm, model_path, chunk_s, overlap_s):
+    """Run MOSS once per chunk (model loaded once, meeting-live geometry).
+    Returns [(chunk_start, [(abs_start, abs_end, local_label, text)])]."""
+    import time
+
+    import transcribe_cpp
+
+    advance = chunk_s - overlap_s
+    dur = len(pcm) / SAMPLE_RATE
+    starts, t = [], 0.0
+    while t < dur:
+        starts.append(t)
+        t += advance
+
+    chunks = []
+    with transcribe_cpp.Model(model_path) as model:
+        with model.session() as session:
+            for st in starts:
+                seg = pcm[int(st * SAMPLE_RATE):
+                          int((st + chunk_s) * SAMPLE_RATE)]
+                if len(seg) < SAMPLE_RATE and chunks:
+                    break  # sub-second tail: fully covered by the overlap
+                t0 = time.monotonic()
+                text = session.run(seg).text
+                turns = _parse_turns(text, offset=st)
+                chunks.append((st, turns))
+                _log(f"chunk {len(chunks) - 1} "
+                     f"[{st:.0f}-{min(st + chunk_s, dur):.0f}s]: "
+                     f"{len(turns)} turns, "
+                     f"{len({t2[2] for t2 in turns})} speakers, "
+                     f"{time.monotonic() - t0:.1f}s")
+    return chunks
+
+
+class _TurnEmbedder:
+    """Voice embeddings from the speakrs WeSpeaker ResNet34 export (the
+    audio frontend is inside the graph: inputs waveform (1,1,160000) +
+    per-frame weights (1,589), output a 256-dim embedding)."""
+
+    WIN = 160000        # fixed 10 s window at 16 kHz
+    N_FRAMES = 589      # pooling weight frames per window
+
+    def __init__(self, model_path, pcm):
+        import numpy as np
+        import onnxruntime as rt
+        self._np = np
+        self._sess = rt.InferenceSession(
+            model_path, providers=["CPUExecutionProvider"])
+        self._pcm = pcm
+
+    def embed(self, intervals):
+        """Unit embedding of a chunk label from its speech intervals
+        [(abs_start, abs_end), ...]; None when there is too little speech.
+        Longest intervals first, up to one 10 s window."""
+        np = self._np
+        picked, total = [], 0.0
+        for s, e in sorted(intervals, key=lambda iv: iv[0] - iv[1]):
+            picked.append(self._pcm[int(s * SAMPLE_RATE):
+                                    int(e * SAMPLE_RATE)])
+            total += e - s
+            if total >= self.WIN / SAMPLE_RATE:
+                break
+        if total < MIN_EMBED_S:
+            return None
+        seg = np.concatenate(picked)[:self.WIN]
+        buf = np.zeros(self.WIN, dtype=np.float32)
+        buf[:len(seg)] = seg
+        w = np.zeros(self.N_FRAMES, dtype=np.float32)
+        w[:max(1, int(round(len(seg) / self.WIN * self.N_FRAMES)))] = 1.0
+        (e,) = self._sess.run(
+            ["output"], {"waveform": buf[None, None, :], "weights": w[None, :]})
+        e = e[0]
+        n = float((e @ e) ** 0.5)
+        return e / n if n > 0 else None
+
+
+def _env_flag(name):
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true")
+
+
+def _env_float(name, default):
+    try:
+        return float(os.environ.get(name, ""))
+    except ValueError:
+        return default
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="dictee-moss-diarize", add_help=True,
+        description="One-pass or chunked diarized transcription with MOSS.")
+    parser.add_argument("audio", nargs="?", help="audio file to transcribe")
+    parser.add_argument("--check", action="store_true",
+                        help="report what is missing, exit 0/1")
+    parser.add_argument("--chunked", action="store_true",
+                        help="chunk the file (meeting-live geometry) and "
+                             "reconcile speakers across chunks")
+    parser.add_argument("--chunk-secs", type=float,
+                        default=_env_float("DICTEE_MOSS_CHUNK_S",
+                                           DEFAULT_CHUNK_S))
+    parser.add_argument("--overlap-secs", type=float,
+                        default=_env_float("DICTEE_MOSS_OVERLAP_S",
+                                           DEFAULT_OVERLAP_S))
+    args = parser.parse_args()
+
+    if args.check:
+        return _check()
+    if not args.audio:
+        parser.print_usage(sys.stderr)
+        return 2
+    if not os.path.isfile(args.audio):
+        _log(f"no such file: {args.audio}")
         return 2
 
     model_path = _resolve_model()
@@ -175,25 +582,79 @@ def main():
         return 2
 
     os.environ["TRANSCRIBE_LIBRARY"] = lib_path
+    _backend = (os.environ.get("DICTEE_MOSS_BACKEND") or "").strip().lower()
+    if _backend:
+        os.environ["TRANSCRIBE_BACKEND"] = _backend
     _inject_venv()
     try:
-        import transcribe_cpp
+        import transcribe_cpp  # noqa: F401 — fail early, before decoding
     except Exception as e:
         _log(f"python bindings unavailable: {e}")
         return 2
 
-    pcm = _decode_audio(audio_path)
-    _log(f"audio: {len(pcm) / SAMPLE_RATE:.1f}s | model: {model_path}")
+    pcm = _decode_audio(args.audio)
+    dur = len(pcm) / SAMPLE_RATE
 
-    with transcribe_cpp.Model(model_path) as model:
-        with model.session() as session:
-            result = session.run(pcm)
+    def run_chunked():
+        chunks = _transcribe_chunked(pcm, model_path,
+                                     args.chunk_secs, args.overlap_secs)
+        embed_fn = None
+        we_path = _resolve_wespeaker()
+        if we_path:
+            try:
+                embed_fn = _TurnEmbedder(we_path, pcm).embed
+            except Exception as e:
+                _log(f"WARNING: embeddings unavailable ({e}) — "
+                     f"temporal-only speaker reconciliation")
+        else:
+            _log("WARNING: multi-speaker diarization component not "
+                 "installed — temporal-only speaker reconciliation "
+                 "(speakers may fragment across chunks)")
+        return _reconcile_chunks(
+            chunks, args.chunk_secs, args.overlap_secs, embed_fn,
+            sim_new=_env_float("DICTEE_MOSS_SIM_NEW", DEFAULT_SIM_NEW),
+            sim_merge=_env_float("DICTEE_MOSS_SIM_MERGE",
+                                 DEFAULT_SIM_MERGE))
 
-    turns = _merge_turns(_parse_turns(result.text))
+    # DICTEE_MOSS_CHUNKED unset = decide by outcome: one-pass (best on
+    # short files) and chunk only if the GPU can't hold the whole audio.
+    # Explicit 0/false pins one-pass (no silent mode change), 1/true pins
+    # chunked. A file shorter than one chunk is one-pass either way.
+    _forced = (os.environ.get("DICTEE_MOSS_CHUNKED") or "").strip().lower()
+    chunked = args.chunked or _forced in ("1", "true")
+    if chunked and dur <= args.chunk_secs:
+        _dbg(f"file shorter than one chunk ({dur:.0f}s) — one-pass")
+        chunked = False
+    _log(f"audio: {dur:.1f}s | model: {model_path} | "
+         f"mode: {'chunked' if chunked else 'one-pass'}")
+
+    raw_head = ""
+    if chunked:
+        turns = run_chunked()
+    else:
+        try:
+            with transcribe_cpp.Model(model_path) as model:
+                with model.session() as session:
+                    result = session.run(pcm)
+            turns = _parse_turns(result.text)
+            raw_head = result.text[:200]
+        except transcribe_cpp.errors.OutOfMemory:
+            if _forced in ("0", "false") or dur <= args.chunk_secs:
+                _log("out of memory in one-pass mode — the audio does not "
+                     "fit this device; unset DICTEE_MOSS_CHUNKED to let "
+                     "the driver chunk it")
+                return 1
+            _log(f"out of memory in one-pass mode on {dur / 60:.0f} min of "
+                 f"audio — retrying chunked")
+            turns = run_chunked()
+
+    turns = _merge_turns(turns)
     if not turns:
         _log("MOSS produced no parseable turns")
-        _log(f"raw output head: {result.text[:200]!r}")
+        if raw_head:
+            _log(f"raw output head: {raw_head!r}")
         return 1
+    _warn_omission_gaps(turns)
     for start, end, spk, words in turns:
         print(f"[{start:.2f}s - {end:.2f}s] Speaker {spk}: {words}")
     return 0

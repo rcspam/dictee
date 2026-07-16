@@ -792,6 +792,22 @@ def _diar_multi_available():
     return os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel))
 
 
+def _moss_available():
+    """Check if the MOSS one-pass engine is usable (its --check covers the
+    model, the native runtime and the python bindings). MOSS has no
+    streaming mode: it can only serve the FINAL analysis at Stop, never the
+    live preview."""
+    exe = shutil.which("dictee-moss-diarize")
+    if not exe:
+        return False
+    try:
+        return subprocess.run([exe, "--check"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL,
+                              timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
 class DiarizationWorker(QObject):
     """Keeps a streaming diarizer subprocess alive and sends chunks via stdin.
 
@@ -1280,7 +1296,8 @@ class MeetingWindow(QWidget):
         # ASR model selector: persisted in DICTEE_MEETING_ASR_MODEL, defaults to
         # the current F9 model (backend + quant from dictee.conf).
         model_row = QHBoxLayout()
-        model_row.addWidget(QLabel("Modèle :"))
+        self._model_lbl = QLabel("Modèle :")
+        model_row.addWidget(self._model_lbl)
         self._model_combo = QComboBox()
         # One entry per whisper ENGINE: the model size follows the
         # dictee-setup selection (DICTEE_WHISPER_MODEL /
@@ -1322,17 +1339,25 @@ class MeetingWindow(QWidget):
         self._diar_combo = QComboBox()
         _multi_ok = _diar_multi_available()
         _sf_ok = bool(shutil.which("diarize-only"))
+        _moss_ok = _moss_available()
         for _lbl, _key in (("Auto", "auto"),
                            ("Multi-locuteurs (sans limite)", "multi"),
-                           ("Sortformer (4 max)", "sortformer")):
+                           ("Sortformer (4 max)", "sortformer"),
+                           ("MOSS (analyse finale seule)", "moss")):
             self._diar_combo.addItem(_lbl, _key)
         if not _multi_ok:
             self._diar_combo.model().item(1).setEnabled(False)
         if not _sf_ok:
             self._diar_combo.model().item(2).setEnabled(False)
+        if not _moss_ok:
+            self._diar_combo.model().item(3).setEnabled(False)
         self._diar_combo.setToolTip(
-            "Moteur de séparation des locuteurs pour l'aperçu live. "
-            "Auto = multi-locuteurs si installé, sinon Sortformer.")
+            "Moteur de séparation des locuteurs.\n"
+            "Auto = multi-locuteurs si installé, sinon Sortformer.\n"
+            "MOSS transcrit et identifie les locuteurs en une passe, avec "
+            "son propre moteur ASR : il ne sert QUE l'analyse finale au "
+            "Stop (pas de mode flux, donc l'aperçu live garde le moteur "
+            "ci-dessus et le modèle choisi est ignoré).")
         _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "auto").strip()
         _i = self._diar_combo.findData(_saved_diar)
         if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
@@ -1340,7 +1365,10 @@ class MeetingWindow(QWidget):
         self._diar_combo.currentIndexChanged.connect(
             lambda _i: self._write_conf_key("DICTEE_MEETING_DIAR_ENGINE",
                                             self._diar_combo.currentData()))
+        self._diar_combo.currentIndexChanged.connect(
+            lambda _i: self._sync_model_combo_for_diar())
         diar_row.addWidget(self._diar_combo, 1)
+        self._sync_model_combo_for_diar()
         # Detection threshold, same scale as dictee-transcribe's slider
         # (50 % = engine default). Applied at meeting start; persisted in
         # DICTEE_MEETING_DIAR_SENSITIVITY.
@@ -1982,6 +2010,19 @@ class MeetingWindow(QWidget):
                 pass
         return out
 
+    def _sync_model_combo_for_diar(self):
+        """MOSS brings its own ASR: the model combo then only drives the
+        live preview, not the final transcript. Say so instead of letting
+        the user believe their model choice shapes the result."""
+        _moss = (self._diar_combo.currentData() or "auto") == "moss"
+        self._model_lbl.setText("Modèle (aperçu) :" if _moss else "Modèle :")
+        self._model_combo.setToolTip(
+            "Modèle ASR de l'APERÇU LIVE uniquement : MOSS transcrit le "
+            "fichier final avec son propre moteur."
+            if _moss else
+            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
+            "le choix fait dans dictee-setup.")
+
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
         conf = Path.home() / ".config/dictee.conf"
@@ -2246,9 +2287,15 @@ class MeetingWindow(QWidget):
         _nemotron_sock = self._live_asr_sock if self._nemotron_live else None
         self.transcriber = TranscriptionWorker(whisper_sock=_whisper_sock,
                                                nemotron_sock=_nemotron_sock)
+        # MOSS has no streaming mode: the live preview falls back to the
+        # streaming engines ("auto"), and MOSS is applied at Stop only —
+        # the handoff passes it to dictee-transcribe via --diar-engine.
+        _diar_live = self._diar_combo.currentData() or "auto"
+        if _diar_live == "moss":
+            _diar_live = "auto"
         self.diarizer = DiarizationWorker(
             overlap=10,  # same overlap as ChunkerWorker
-            engine=self._diar_combo.currentData() or "auto",
+            engine=_diar_live,
             sensitivity=self._diar_slider.value() / 100.0)
         self._diarizer_ready = False
         self.diarizer.ready.connect(self._on_diarizer_ready)
@@ -2667,10 +2714,14 @@ class MeetingWindow(QWidget):
             except Exception as e:
                 print(f"[meeting-live] failed to write speakers.json: {e}", file=sys.stderr)
 
-        # Hand off to dictee-transcribe
+        # Hand off to dictee-transcribe. --diar-engine carries the meeting's
+        # engine choice into the final analysis (before it existed, the combo
+        # only drove the live preview and dictee-transcribe silently reused
+        # its own persisted choice).
         try:
             subprocess.Popen(
                 ["dictee-transcribe", "--file", str(self.audio_wav), "--diarize",
+                 "--diar-engine", self._diar_combo.currentData() or "auto",
                  "--asr-model", self._model_combo.currentData()],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
