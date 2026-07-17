@@ -4615,23 +4615,57 @@ class TranscribeWindow(QDialog):
             else:
                 args += ["--sensitivity", f"{sensitivity:.2f}"]
         self._process.start(cmd, args)
+        # MOSS (one pass, own ASR) prints nothing until it finishes and can
+        # run much slower than real time on mic audio (RTF up to ~7 measured
+        # 2026-07-16), so the indeterminate bar alone reads as "frozen".
+        # Show a live elapsed-time ticker with an honest expectation.
+        self._moss_run = (cmd == "dictee-moss-diarize")
+        if self._moss_run:
+            self._moss_elapsed = 0
+            self._lbl_status.setText(
+                _("MOSS: transcription + speakers in one pass "
+                  "(0:00 — can take several times the audio length)…"))
+            self._lbl_status.setVisible(True)
+            self._moss_ticker = QTimer(self)
+            self._moss_ticker.timeout.connect(self._on_moss_tick)
+            self._moss_ticker.start(1000)
         # Watchdog: kill the process if it hangs. Duration-aware like the
-        # chunked pipeline (max(600 s, 3x duration)): a 92-min diarize
-        # legitimately runs 15-20 min on GPU (RTF ~0.9 on CPU) and the binary
-        # prints nothing until done — the previous fixed 5-min timer killed
-        # every diarized file longer than ~25 min on this path.
-        watchdog_secs = max(600, int(self._audio_duration * 3)) if diarize else 300
+        # chunked pipeline: a 92-min diarize legitimately runs 15-20 min on
+        # GPU (RTF ~0.9 on CPU) and the binary prints nothing until done —
+        # the previous fixed 5-min timer killed every diarized file longer
+        # than ~25 min on this path. MOSS needs a far wider margin: on mic
+        # audio it hit RTF ~7, so 3x duration would kill a valid run.
+        _rtf_margin = 12 if self._moss_run else 3
+        watchdog_secs = (max(600, int(self._audio_duration * _rtf_margin))
+                         if diarize else 300)
         self._watchdog_secs = watchdog_secs  # for the timeout message
         self._process_timer = QTimer(self)
         self._process_timer.setSingleShot(True)
         self._process_timer.timeout.connect(self._on_process_timeout)
         self._process_timer.start(watchdog_secs * 1000)
 
+    def _on_moss_tick(self):
+        """Update the elapsed-time counter shown during a MOSS run so the
+        window doesn't read as frozen (MOSS emits nothing until it ends)."""
+        self._moss_elapsed += 1
+        m, s = divmod(self._moss_elapsed, 60)
+        self._lbl_status.setText(
+            _("MOSS: transcription + speakers in one pass "
+              "({m}:{s:02d} — can take several times the audio length)…")
+            .format(m=m, s=s))
+
+    def _stop_moss_ticker(self):
+        t = getattr(self, "_moss_ticker", None)
+        if t is not None:
+            t.stop()
+            self._moss_ticker = None
+
     def _on_process_timeout(self):
         # Audit fix: previous version called self._set_status() / _set_busy()
         # which don't exist on TranscribeWindow → AttributeError silently
         # froze the UI when the 5-min watchdog fired (button stayed disabled,
         # _process / _transcription_in_progress never reset).
+        self._stop_moss_ticker()
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("Process timeout — killing")
             self._process.kill()
@@ -4953,6 +4987,7 @@ class TranscribeWindow(QDialog):
     def _on_finished(self, exit_code, _exit_status):
         if hasattr(self, '_process_timer'):
             self._process_timer.stop()
+        self._stop_moss_ticker()
         self._progress.setVisible(False)
         if self._process:
             self._process.deleteLater()
