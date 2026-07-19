@@ -238,6 +238,7 @@ class AudioCaptureWorker(QThread):
         self._mix_modules = []      # null-sink + 2 loopback module ids
         self._mic_input_id = None   # sink-input id of the mic loopback
         self._sys_input_id = None   # sink-input id of the system loopback
+        self._sys_pct = 100         # 🔊 slider value, composed in rebalance_sys_leg
         self._appcap_proc = None    # dictee-app-capture subprocess (app sources)
         self._appcap_sink = None    # its virtual sink name
 
@@ -395,6 +396,11 @@ class AudioCaptureWorker(QThread):
             "latency_msec=50",
             "sink_input_properties=media.name=dictee_mix_sys"))
         self._mic_input_id, self._sys_input_id = self._find_mix_inputs()
+        # Pin both leg volumes BEFORE pw-record spawns: stream-restore has
+        # already re-applied whatever volumes a past session stored for these
+        # media.names (see rebalance_sys_leg), and the GUI-side rebalance only
+        # lands a moment after recording starts.
+        self.rebalance_sys_leg()
         return "dictee_mix"
 
     def _find_mix_inputs(self):
@@ -434,8 +440,47 @@ class AudioCaptureWorker(QThread):
         self._mic_input_id = self._sys_input_id = None
 
     def set_system_volume(self, pct):
-        """Set the system/app loopback volume (mix or app+mic). The mic loopback
-        stays at 100% — the mic level is the system @DEFAULT_SOURCE@ volume."""
+        """Set the system/app loopback volume (mix or app+mic)."""
+        self._sys_pct = pct
+        self.rebalance_sys_leg()
+
+    def rebalance_sys_leg(self):
+        """Lower the SYSTEM loopback down to the mic leg's own level.
+
+        The system @DEFAULT_SOURCE@ sits well below nominal on hot input
+        stages (30% cubic = -31.4 dB here, deliberate anti-clipping for
+        dictation), while the system leg enters the mix near 0 dB — so
+        notifications/visio audio dwarfed the voice by ~30 dB in the file
+        (2026-07-19). Boosting the mic leg instead (first attempt) restored
+        the hot raw-input level and hard-clipped 15% of the samples: a
+        near-full-scale system leg plus a +31 dB mic leg cannot fit in the
+        s16 file. Attenuating the system leg keeps both legs near the mic's
+        quiet level — the sum physically cannot clip — and the stop-time
+        R128 normalization brings the whole file back up for listening.
+        The attenuation composes with the 🔊 slider via the cubic mapping
+        (dB = 60*log10(pct/100)). Capped at 40 dB so a near-muted mic
+        cannot silence the system leg.
+
+        BOTH legs are pinned explicitly: pipewire-pulse's stream-restore
+        re-applies the last stored volume per media.name to every new
+        loopback, so an untouched leg silently inherits whatever a past
+        session set (measured 2026-07-19: a fresh dictee_mix_mic came up
+        at 329% / +31 dB, resurrecting the abandoned mic-boost approach
+        and clipping the file). Never rely on loopback volume defaults."""
+        if not self._sys_input_id:
+            return
+        self._set_input_volume(self._mic_input_id, 100)
+        atten_db = 0.0
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-source-volume", "@DEFAULT_SOURCE@"],
+                text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
+            m = re.search(r"(-?[\d.]+) dB", out)
+            if m:
+                atten_db = min(40.0, max(0.0, -float(m.group(1))))
+        except Exception:
+            pass
+        pct = round(self._sys_pct * 10 ** (-atten_db / 60))
         self._set_input_volume(self._sys_input_id, pct)
 
     def _set_input_volume(self, input_id, pct):
@@ -680,9 +725,18 @@ class TranscriptionWorker(QObject):
         may not be ready for the first chunk(s); we surface that as a soft error
         and the next chunk retries."""
         import socket as _sock
-        if not os.path.exists(self._whisper_sock):
-            self.error.emit(chunk_id, "daemon Whisper live pas encore prêt (chargement du modèle)")
-            return
+        # Cold start: the isolated daemon binds its socket only after loading
+        # the model (seconds for a 1.6 GB ggml). Giving up instantly relied on
+        # "the next chunk retries" — but the TAIL chunk of a short meeting has
+        # no next chunk, so the whole preview stayed empty (2026-07-19). Wait
+        # for the socket instead, bounded under the 25 s stop-finalize
+        # watchdog; runs on an executor thread, never the GUI.
+        _deadline = time.monotonic() + 20
+        while not os.path.exists(self._whisper_sock):
+            if time.monotonic() >= _deadline:
+                self.error.emit(chunk_id, "daemon Whisper live pas encore prêt (chargement du modèle)")
+                return
+            time.sleep(0.5)
         try:
             s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
             s.settimeout(60)
@@ -1428,9 +1482,15 @@ class MeetingWindow(QWidget):
         self.btn_analyze.clicked.connect(self._on_analyze)
         btn_row.addWidget(self.btn_analyze)
 
-        self._btn_open_transcribe = QPushButton("Ouvrir l'analyse…")
+        # NOT the meeting-analysis button (that is the 🔎 next to Stop, which
+        # hands the recorded file over): this one opens an EMPTY Transcribe
+        # window. Its old label "Ouvrir l'analyse…" read as "analyse this
+        # meeting" and the window then sat there doing nothing (2026-07-19).
+        self._btn_open_transcribe = QPushButton("Analyser un autre fichier…")
         self._btn_open_transcribe.setToolTip(
-            "Ouvrir dictee-transcribe pour analyser / ré-transcrire un fichier")
+            "Ouvrir dictee-transcribe SANS la réunion en cours, pour analyser "
+            "ou ré-transcrire un fichier passé (bouton History).\n"
+            "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt.")
         self._btn_open_transcribe.clicked.connect(self._on_open_transcribe)
         btn_row.addWidget(self._btn_open_transcribe)
 
@@ -1743,9 +1803,14 @@ class MeetingWindow(QWidget):
         # The mic level IS the system @DEFAULT_SOURCE@ level — shared with the
         # plasmoid, dictee-setup and the system mixer (single source of truth).
         # Permanent, like the plasmoid (no snapshot/restore). In mix / app+mic
-        # the mic loopback stays at 100%, so this governs the captured mic too.
+        # the SYSTEM loopback is attenuated down to this level (rebalance_
+        # sys_leg), so re-align it whenever the slider moves mid-recording.
         v = self.slider_mic["slider"].value()
         self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
+        if self.audio_worker:
+            # _pactl_vol is fire-and-forget: give the volume change time to
+            # land before reading it back for the rebalance.
+            QTimer.singleShot(300, self.audio_worker.rebalance_sys_leg)
 
     def _system_mic_percent(self, default=70):
         """Current system mic volume (% of @DEFAULT_SOURCE@) so the meeting
@@ -1804,9 +1869,9 @@ class MeetingWindow(QWidget):
                 ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
 
     def _apply_mix_levels(self):
-        """Push the 🔊 slider value onto the system/app loopback. The mic is
-        governed by the system @DEFAULT_SOURCE@ level (its loopback stays at
-        100%), so it is NOT pushed here."""
+        """Push the 🔊 slider value onto the system/app loopback, attenuated
+        down to the mic leg's level so both legs record at comparable levels
+        (see rebalance_sys_leg)."""
         if self.audio_worker:
             self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
 
@@ -1875,6 +1940,13 @@ class MeetingWindow(QWidget):
         src = self.cmb_source.currentData() or ""
         if src.endswith(".monitor"):
             return src
+        # While recording through the transient mix sink (mix, or app+mic),
+        # meter the mix itself: that IS the processed signal written to disk
+        # (mic leg included). Metering the speakers here instead left the 🔊
+        # bar dead during a mic-only meeting — which read as a fault even
+        # though the recording was fine (user report 2026-07-19).
+        if self.audio_worker and self.audio_worker._mix_modules:
+            return "dictee_mix.monitor"
         if src.startswith("app:"):
             # ALWAYS isolated: while recording, the worker's private sink; before
             # recording, a dedicated preview sink (handled by _ensure_preview_appcap,
@@ -2160,6 +2232,12 @@ class MeetingWindow(QWidget):
         self.audio_worker = AudioCaptureWorker(self.audio_wav, source,
                                                self.chk_include_mic.isChecked())
         self.audio_worker.error.connect(self._on_capture_failed)
+        # KDE Do Not Disturb while recording: a notification "ding" lands on
+        # the system leg of the mix far above the mic voice (the 11.5 s
+        # transient of the 2026-07-19 test was one) — and reaches the mic
+        # acoustically in every mode. Released in _finalize_stop; a crash
+        # releases it automatically (bus-connection scoped, verified).
+        self._inhibit_notifications()
         # When the capture is actually resolved (mix inputs / app private sink
         # ready), apply mix levels and re-point the meters — driven by the
         # worker's signal, not a fixed-delay guess that races on slow systems.
@@ -2209,6 +2287,14 @@ class MeetingWindow(QWidget):
             if not (_ggml and os.path.isfile(_ggml)):
                 self._on_error_msg("Aucun modèle Whisper-Rust installé "
                                    "(voir dictee-setup) — live en Parakeet")
+            elif not shutil.which("transcribe-daemon-whisper-rust"):
+                # Checked BEFORE _free_vram_for_live_daemon(): that call
+                # stops the F9 services, so a failed Popen after it left NO
+                # live engine at all — the promised Parakeet fallback needs
+                # the F9 daemon still running (2026-07-19: a whole meeting
+                # recorded with a dead live preview and no visible error).
+                self._on_error_msg("transcribe-daemon-whisper-rust "
+                                   "introuvable — live en Parakeet")
             else:
                 self._live_asr_sock = \
                     f"/tmp/dictee-meeting-whisper-rust-{os.getpid()}.sock"
@@ -2253,6 +2339,10 @@ class MeetingWindow(QWidget):
             except FileNotFoundError:
                 self._on_error_msg("transcribe-daemon-whisper introuvable — live en Parakeet")
                 self._live_asr_sock = None
+        elif _spec == "nemotron" and not shutil.which("transcribe-daemon"):
+            # Same guard as whisper-rust: never stop the F9 services for a
+            # daemon binary that isn't there — the fallback needs them alive.
+            self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
         elif _spec == "nemotron":
             # Nemotron emits no word timestamps, so the live preview switches to
             # per-Sortformer-segment transcription on this private daemon (see
@@ -2681,6 +2771,7 @@ class MeetingWindow(QWidget):
         if getattr(self, "_finalize_watchdog", None):
             self._finalize_watchdog.stop()
         self._complete_stop_pie()   # sweep the pie around, then clear
+        self._uninhibit_notifications()
 
         if getattr(self, "diarizer", None):
             self.diarizer.stop()
@@ -2711,11 +2802,104 @@ class MeetingWindow(QWidget):
         except (OSError, AttributeError):
             pass
 
+        # Post-recording peak normalization (background thread): the mic is
+        # deliberately captured ~35 dB low (hot input stage, anti-clipping
+        # system volume — measured 2026-07-19). The ASR engines normalize
+        # internally so they don't care, but a human replay does. One
+        # constant gain at stop, dynamics untouched (a live AGC would alter
+        # them, and voice-print reconciliation is sensitive to processed
+        # audio). Atomic replace: an analysis opened meanwhile keeps reading
+        # the old inode safely.
+        threading.Thread(target=self._normalize_recording, daemon=True).start()
+
         self._set_state("stopped")
         if audio_size < 1024:
             self.status_label.setText(
                 f"Enregistrement trop court ({self.elapsed_seconds}s)")
             self.btn_analyze.setEnabled(False)
+
+    def _inhibit_notifications(self):
+        """Enable KDE Do Not Disturb for the duration of the recording.
+
+        Scoped to this process's D-Bus connection: if meeting-live dies, the
+        notification server releases the inhibition by itself (verified on
+        Plasma 6). Silently a no-op where the API is missing (non-KDE)."""
+        self._notif_cookie = None
+        try:
+            from PyQt6.QtDBus import QDBusConnection, QDBusInterface
+            self._notif_iface = QDBusInterface(
+                "org.freedesktop.Notifications",
+                "/org/freedesktop/Notifications",
+                "org.freedesktop.Notifications",
+                QDBusConnection.sessionBus())
+            reply = self._notif_iface.call(
+                "Inhibit", "dictee-meeting-live",
+                "Réunion en cours d'enregistrement", {})
+            args = reply.arguments()
+            if args and args[0] is not None:
+                self._notif_cookie = args[0]
+        except Exception as e:
+            print(f"[meeting-live] notifications inhibit failed: {e}",
+                  file=sys.stderr)
+
+    def _uninhibit_notifications(self):
+        if getattr(self, "_notif_cookie", None) is None:
+            return
+        try:
+            from PyQt6.QtCore import QMetaType, QVariant
+            # The cookie must be marshalled as UINT32: a plain python int
+            # goes out as INT32 and the call is silently ignored (verified).
+            v = QVariant(self._notif_cookie)
+            v.convert(QMetaType(QMetaType.Type.UInt.value))
+            self._notif_iface.call("UnInhibit", v)
+        except Exception:
+            pass
+        self._notif_cookie = None
+
+    def _normalize_recording(self):
+        """Bring the SPEECH loudness up to -16 LUFS (runs at stop, off the GUI).
+
+        Loudness, not peak: one keyboard click near full scale would anchor
+        a peak normalization while the speech sits 25+ dB lower (measured
+        2026-07-19: peak already at -3 dB yet only -28 LUFS integrated).
+        Constant gain from the EBU R128 integrated loudness; the limiter
+        only tames the few transients that would otherwise clip."""
+        wav = self.audio_wav
+        if not wav or not Path(wav).is_file():
+            return
+        try:
+            probe = subprocess.run(
+                ["ffmpeg", "-i", str(wav),
+                 "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+                capture_output=True, text=True, timeout=300)
+            m = re.search(r'"input_i"\s*:\s*"(-?[\d.]+)"', probe.stderr)
+            if not m:
+                return
+            gain = -16.0 - float(m.group(1))
+            # Nothing to gain, or a near-silent take (amplifying pure room
+            # noise only manufactures hiss): leave the file alone. 50 dB
+            # because a real meeting on this rig already needs +40 (voice-only
+            # take measured -55.9 LUFS integrated, 2026-07-19), and the system
+            # leg is attenuated to that same level (rebalance_sys_leg).
+            if gain <= 1.0 or gain > 50.0:
+                return
+            tmp = f"{wav}.norm.wav"
+            rc = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-i", str(wav),
+                 "-af", f"volume={gain:.1f}dB,alimiter=limit=0.708:level=false",
+                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp],
+                timeout=600).returncode
+            if rc == 0 and os.path.getsize(tmp) > 44:
+                os.replace(tmp, wav)
+                print(f"[meeting-live] audio.wav peak-normalized "
+                      f"(+{gain:.1f} dB)", file=sys.stderr)
+            else:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+        except Exception as e:
+            print(f"[meeting-live] normalization skipped: {e}", file=sys.stderr)
 
     def _on_analyze(self):
         # Launch dictee-transcribe on the recorded audio, then close.
@@ -2855,6 +3039,7 @@ class MeetingWindow(QWidget):
         self._mic_watcher.stop()
         self._stop_meters()
         self._stop_preview_appcap()
+        self._uninhibit_notifications()
         # Stop the stop-button pie + finalize watchdog if a stop was in flight.
         self._stop_stop_pie()
         if getattr(self, "_finalize_watchdog", None):
