@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
     QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
-    QLayout, QCheckBox, QMessageBox, QProgressBar,
+    QLayout, QCheckBox, QMessageBox, QProgressBar, QDialog,
 )
 
 
@@ -152,6 +152,53 @@ def meeting_dir(timestamp=None, title=""):
         n += 1
     base.mkdir(parents=True, exist_ok=True)
     return base
+
+
+def normalize_wav(wav):
+    """Bring the SPEECH loudness of a recording up to -16 LUFS (in place).
+
+    Loudness, not peak: one keyboard click near full scale would anchor
+    a peak normalization while the speech sits 25+ dB lower (measured
+    2026-07-19: peak already at -3 dB yet only -28 LUFS integrated).
+    Constant gain from the EBU R128 integrated loudness; the limiter
+    only tames the few transients that would otherwise clip.
+    Shared by the meeting stop path and the sound-test dialog so the
+    test stays representative of a real meeting."""
+    if not wav or not Path(wav).is_file():
+        return
+    try:
+        probe = subprocess.run(
+            ["ffmpeg", "-i", str(wav),
+             "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=300)
+        m = re.search(r'"input_i"\s*:\s*"(-?[\d.]+)"', probe.stderr)
+        if not m:
+            return
+        gain = -16.0 - float(m.group(1))
+        # Nothing to gain, or a near-silent take (amplifying pure room
+        # noise only manufactures hiss): leave the file alone. 50 dB
+        # because a real meeting on this rig already needs +40 (voice-only
+        # take measured -55.9 LUFS integrated, 2026-07-19), and the system
+        # leg is attenuated to that same level (rebalance_sys_leg).
+        if gain <= 1.0 or gain > 50.0:
+            return
+        tmp = f"{wav}.norm.wav"
+        rc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", str(wav),
+             "-af", f"volume={gain:.1f}dB,alimiter=limit=0.708:level=false",
+             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp],
+            timeout=600).returncode
+        if rc == 0 and os.path.getsize(tmp) > 44:
+            os.replace(tmp, wav)
+            print(f"[meeting-live] {os.path.basename(str(wav))} normalized "
+                  f"(+{gain:.1f} dB)", file=sys.stderr)
+        else:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    except Exception as e:
+        print(f"[meeting-live] normalization skipped: {e}", file=sys.stderr)
 
 
 def _parse_whisper_tokens(text):
@@ -1140,6 +1187,162 @@ class SourceVolumeWatcher(QThread):
 
 
 # ---------------------------------------------------------------------------
+# Sound-test dialog
+# ---------------------------------------------------------------------------
+
+class SoundTestDialog(QDialog):
+    """Ear-check of the capture chain before a real meeting.
+
+    Records a short take through the EXACT meeting pipeline (same
+    AudioCaptureWorker, same source/mix, same stop-time normalization),
+    then plays it back so the user can judge level and clarity by ear.
+    No transcription, no diarization — just the sound.
+
+    Non-modal; while it records, the main window's start button is
+    disabled (two captures would fight over the dictee_mix null-sink),
+    and the main window disables the test button while a meeting runs.
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Test du son")
+        self._win = parent
+        self._worker = None
+        self._play_proc = None
+        self._norm_thread = None
+        self._elapsed = 0
+        import tempfile
+        f = tempfile.NamedTemporaryFile(
+            prefix="dictee-sound-test-", suffix=".wav", delete=False)
+        f.close()
+        self._wav = f.name
+
+        col = QVBoxLayout(self)
+        self.lbl_status = QLabel(
+            "Enregistrez un court essai, puis réécoutez-le.")
+        self.lbl_status.setWordWrap(True)
+        col.addWidget(self.lbl_status)
+
+        row = QHBoxLayout()
+        self.btn_rec = QPushButton("● Enregistrer")
+        self.btn_rec.setToolTip(
+            "Capture avec la source et les niveaux de la réunion")
+        self.btn_rec.clicked.connect(self._toggle_record)
+        row.addWidget(self.btn_rec)
+        self.btn_play = QPushButton("▶ Réécouter")
+        self.btn_play.setEnabled(False)
+        self.btn_play.clicked.connect(self._toggle_play)
+        row.addWidget(self.btn_play)
+        btn_close = QPushButton("Fermer")
+        btn_close.clicked.connect(self.close)
+        row.addWidget(btn_close)
+        col.addLayout(row)
+
+        # One light poller drives the duration counter, the normalization
+        # completion and the end-of-playback reset (existing file style:
+        # polling over cross-thread signal plumbing for short-lived states).
+        self._poll = QTimer(self)
+        self._poll.timeout.connect(self._on_poll)
+        self._poll.start(250)
+
+    # ── record ──────────────────────────────────────────────────────────────
+    def _toggle_record(self):
+        if self._worker:                      # recording → stop + normalize
+            w = self._worker
+            self._worker = None
+            w.stop()
+            self.btn_rec.setEnabled(False)    # until normalization lands
+            self.lbl_status.setText("Normalisation…")
+            self._norm_thread = threading.Thread(
+                target=normalize_wav, args=(self._wav,), daemon=True)
+            self._norm_thread.start()
+            return
+        self._stop_playback()
+        try:
+            os.unlink(self._wav)              # pw-record must start clean
+        except OSError:
+            pass
+        self._elapsed = 0
+        src = self._win.cmb_source.currentData() or ""
+        self._worker = AudioCaptureWorker(
+            Path(self._wav), src, self._win.chk_include_mic.isChecked())
+        self._worker.error.connect(self._on_error)
+        # Same 🔊 level as a real meeting (the worker already pins both mix
+        # legs and rebalances before pw-record starts).
+        self._worker.ready.connect(
+            lambda: self._worker and self._worker.set_system_volume(
+                self._win.slider_sys["slider"].value()))
+        self._worker.start()
+        self.btn_rec.setText("■ Arrêter")
+        self.btn_play.setEnabled(False)
+        self.lbl_status.setText("Essai en cours — 0 s")
+        self._win.btn_start.setEnabled(False)
+
+    def _on_error(self, msg):
+        self._worker = None
+        self.btn_rec.setText("● Enregistrer")
+        self.lbl_status.setText(f"Échec de la capture : {msg}")
+        self._win._set_state(self._win._state)
+
+    # ── playback ────────────────────────────────────────────────────────────
+    def _toggle_play(self):
+        if self._play_proc and self._play_proc.poll() is None:
+            self._stop_playback()
+            return
+        try:
+            self._play_proc = subprocess.Popen(
+                ["paplay", self._wav],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.btn_play.setText("■ Arrêter la lecture")
+            self.lbl_status.setText("Lecture de l'essai…")
+        except FileNotFoundError:
+            self.lbl_status.setText("paplay introuvable.")
+
+    def _stop_playback(self):
+        if self._play_proc and self._play_proc.poll() is None:
+            self._play_proc.terminate()
+        self._play_proc = None
+        self.btn_play.setText("▶ Réécouter")
+
+    # ── poller ──────────────────────────────────────────────────────────────
+    def _on_poll(self):
+        if self._worker:
+            self._elapsed += 0.25
+            self.lbl_status.setText(
+                f"Essai en cours — {int(self._elapsed)} s")
+        if self._norm_thread and not self._norm_thread.is_alive():
+            self._norm_thread = None
+            self.btn_rec.setEnabled(True)
+            self.btn_rec.setText("● Enregistrer")
+            self.btn_play.setEnabled(os.path.getsize(self._wav) > 44
+                                     if os.path.exists(self._wav) else False)
+            self.lbl_status.setText(
+                "Prêt — réécoutez l'essai, ou refaites-en un.")
+            self._win._set_state(self._win._state)
+        if (self._play_proc and self._play_proc.poll() is not None
+                and self.btn_play.text() != "▶ Réécouter"):
+            self._stop_playback()
+            self.lbl_status.setText(
+                "Prêt — réécoutez l'essai, ou refaites-en un.")
+
+    # ── teardown ────────────────────────────────────────────────────────────
+    def closeEvent(self, event):
+        self._poll.stop()
+        if self._worker:
+            w = self._worker
+            self._worker = None
+            w.stop()
+        self._stop_playback()
+        try:
+            os.unlink(self._wav)
+        except OSError:
+            pass
+        self._win._set_state(self._win._state)   # restore main buttons
+        self._win._sound_test_dialog = None
+        event.accept()
+
+
+# ---------------------------------------------------------------------------
 # Main window
 # ---------------------------------------------------------------------------
 
@@ -1245,9 +1448,12 @@ class MeetingWindow(QWidget):
         text, tip, start_on, stop_on, analyze_on = cfg[state]
         self.btn_start.setText(text)
         self.btn_start.setToolTip(tip)
-        self.btn_start.setEnabled(start_on)
+        # A running sound test would fight over the dictee_mix null-sink.
+        dlg = getattr(self, "_sound_test_dialog", None)
+        self.btn_start.setEnabled(start_on and not (dlg and dlg._worker))
         self.btn_stop.setEnabled(stop_on)
         self.btn_analyze.setEnabled(analyze_on)
+        self.btn_sound_test.setEnabled(state in ("idle", "stopped"))
         # Source and title can't change mid-capture: only editable when idle/stopped.
         self.cmb_source.setEnabled(state in ("idle", "stopped"))
         self.chk_include_mic.setEnabled(state in ("idle", "stopped"))
@@ -1482,10 +1688,19 @@ class MeetingWindow(QWidget):
         self.btn_analyze.clicked.connect(self._on_analyze)
         btn_row.addWidget(self.btn_analyze)
 
-        # NOT the meeting-analysis button (that is the 🔎 next to Stop, which
+        self.btn_sound_test = QPushButton("Tester le son…")
+        self.btn_sound_test.setToolTip(
+            "Enregistrer un court essai avec les réglages actuels et le "
+            "réécouter, avant de lancer la vraie réunion.")
+        self.btn_sound_test.clicked.connect(self._open_sound_test)
+        btn_row.addWidget(self.btn_sound_test)
+
+        # Pushed to the far right, AWAY from the meeting controls: it is NOT
+        # the meeting-analysis button (that is the 🔎 next to Stop, which
         # hands the recorded file over): this one opens an EMPTY Transcribe
         # window. Its old label "Ouvrir l'analyse…" read as "analyse this
         # meeting" and the window then sat there doing nothing (2026-07-19).
+        btn_row.addStretch(1)
         self._btn_open_transcribe = QPushButton("Analyser un autre fichier…")
         self._btn_open_transcribe.setToolTip(
             "Ouvrir dictee-transcribe SANS la réunion en cours, pour analyser "
@@ -1493,8 +1708,6 @@ class MeetingWindow(QWidget):
             "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt.")
         self._btn_open_transcribe.clicked.connect(self._on_open_transcribe)
         btn_row.addWidget(self._btn_open_transcribe)
-
-        btn_row.addStretch(1)
         left_col.addLayout(btn_row)
         top_row.addLayout(left_col, 1)
 
@@ -2857,49 +3070,7 @@ class MeetingWindow(QWidget):
         self._notif_cookie = None
 
     def _normalize_recording(self):
-        """Bring the SPEECH loudness up to -16 LUFS (runs at stop, off the GUI).
-
-        Loudness, not peak: one keyboard click near full scale would anchor
-        a peak normalization while the speech sits 25+ dB lower (measured
-        2026-07-19: peak already at -3 dB yet only -28 LUFS integrated).
-        Constant gain from the EBU R128 integrated loudness; the limiter
-        only tames the few transients that would otherwise clip."""
-        wav = self.audio_wav
-        if not wav or not Path(wav).is_file():
-            return
-        try:
-            probe = subprocess.run(
-                ["ffmpeg", "-i", str(wav),
-                 "-af", "loudnorm=print_format=json", "-f", "null", "-"],
-                capture_output=True, text=True, timeout=300)
-            m = re.search(r'"input_i"\s*:\s*"(-?[\d.]+)"', probe.stderr)
-            if not m:
-                return
-            gain = -16.0 - float(m.group(1))
-            # Nothing to gain, or a near-silent take (amplifying pure room
-            # noise only manufactures hiss): leave the file alone. 50 dB
-            # because a real meeting on this rig already needs +40 (voice-only
-            # take measured -55.9 LUFS integrated, 2026-07-19), and the system
-            # leg is attenuated to that same level (rebalance_sys_leg).
-            if gain <= 1.0 or gain > 50.0:
-                return
-            tmp = f"{wav}.norm.wav"
-            rc = subprocess.run(
-                ["ffmpeg", "-y", "-v", "error", "-i", str(wav),
-                 "-af", f"volume={gain:.1f}dB,alimiter=limit=0.708:level=false",
-                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp],
-                timeout=600).returncode
-            if rc == 0 and os.path.getsize(tmp) > 44:
-                os.replace(tmp, wav)
-                print(f"[meeting-live] audio.wav peak-normalized "
-                      f"(+{gain:.1f} dB)", file=sys.stderr)
-            else:
-                try:
-                    os.unlink(tmp)
-                except OSError:
-                    pass
-        except Exception as e:
-            print(f"[meeting-live] normalization skipped: {e}", file=sys.stderr)
+        normalize_wav(self.audio_wav)
 
     def _on_analyze(self):
         # Launch dictee-transcribe on the recorded audio, then close.
@@ -2942,6 +3113,17 @@ class MeetingWindow(QWidget):
             return
 
         self.close()
+
+    def _open_sound_test(self):
+        # Single instance: a second click raises the existing dialog.
+        dlg = getattr(self, "_sound_test_dialog", None)
+        if dlg is None:
+            dlg = SoundTestDialog(self)
+            self._sound_test_dialog = dlg
+            dlg.show()
+        else:
+            dlg.raise_()
+            dlg.activateWindow()
 
     def _on_open_transcribe(self):
         """Open dictee-transcribe (no file pre-loaded) with the meeting's chosen
