@@ -2713,7 +2713,6 @@ class TranscribeWindow(QDialog):
         self._run_tab = None  # tab the in-flight run writes into
         self._isolated_daemon = None  # ad-hoc isolated ASR daemon (Task 5b)
         self._stdout_buf = QByteArray()
-        self._segments = []
         self._was_diarized = False  # whether last transcription used diarization
         # Per-window display map: {canonical_id -> custom_name}. Never mutates
         # seg["speaker"] — consulted only at render time by the format fns.
@@ -3584,6 +3583,14 @@ class TranscribeWindow(QDialog):
         tab's live value — copy before mutating."""
         return self._active_tab_attr('_raw_text', "")
 
+    @property
+    def _segments(self):
+        """Read-only projection: the active tab's parsed segments
+        (stored as `_diarize_segments` on the tab — historical naming).
+        Writers must target a tab's `_diarize_segments` directly.
+        Returns the tab's live list — copy before mutating."""
+        return self._active_tab_attr('_diarize_segments', [])
+
     def _on_tab_close(self, index):
         """Close a tab and abort whatever work is feeding it.
 
@@ -3950,7 +3957,7 @@ class TranscribeWindow(QDialog):
         Highlight is independent and respects _chk_highlight_current.
         Silently no-op if there are no segments in the active tab."""
         editor = self._active_editor()
-        segs = getattr(editor, '_diarize_segments', None) or self._segments
+        segs = getattr(editor, '_diarize_segments', None) or []
         if not segs:
             return
         seg = self._find_segment_for_time(t, segs)
@@ -4197,15 +4204,14 @@ class TranscribeWindow(QDialog):
         (visually inconsistent). _on_tab_changed re-syncs the markers when
         the user returns to the target.
         """
-        # Store segments on the target tab for tab switching
-        target._diarize_segments = list(self._segments)
         if self._tabs.currentWidget() is not target:
             return
-        if not self._segments:
+        segs = getattr(target, '_diarize_segments', [])
+        if not segs:
             self._sld_position.clear_markers()
             return
         markers = []
-        for seg in self._segments:
+        for seg in segs:
             # Extract speaker number for color
             spk = seg.get("speaker", "")
             try:
@@ -4221,10 +4227,8 @@ class TranscribeWindow(QDialog):
 
     def _on_prev_segment(self):
         """Jump to previous speaker segment start. Reads segments from
-        the active tab so navigation works even when the window-level
-        self._segments has been zeroed by a tab switch."""
-        segs = (getattr(self._active_editor(), '_diarize_segments', None)
-                or self._segments)
+        the active tab."""
+        segs = getattr(self._active_editor(), '_diarize_segments', None) or []
         if not segs:
             return
         pos_s = self._player.position() / 1000.0 - 0.1
@@ -4238,8 +4242,7 @@ class TranscribeWindow(QDialog):
     def _on_next_segment(self):
         """Jump to next speaker segment start. Reads segments from the
         active tab — see _on_prev_segment."""
-        segs = (getattr(self._active_editor(), '_diarize_segments', None)
-                or self._segments)
+        segs = getattr(self._active_editor(), '_diarize_segments', None) or []
         if not segs:
             return
         pos_s = self._player.position() / 1000.0 + 0.1
@@ -4247,9 +4250,7 @@ class TranscribeWindow(QDialog):
             if seg["start"] > pos_s:
                 self._player.setPosition(int(seg["start"] * 1000))
                 return
-        # Wrap to first — reuse `segs` (the active tab's list) instead
-        # of self._segments, otherwise a tab switch + wrap would jump
-        # to a different tab's first segment.
+        # Wrap to first segment of the active tab's list.
         self._player.setPosition(int(segs[0]["start"] * 1000))
 
     def _on_tab_changed(self, index):
@@ -4288,11 +4289,10 @@ class TranscribeWindow(QDialog):
         # resets the flag — otherwise downstream code (_apply_format,
         # _show_status, etc.) would still treat the active tab as diarized.
         self._was_diarized = bool(getattr(widget, '_was_diarized', False))
-        self._segments = list(segs) if segs else []
         self._speaker_name_map = dict(
             getattr(widget, "_speaker_name_map", {}) or {})
         if hasattr(self, '_grp_rename'):
-            if self._was_diarized and self._segments:
+            if self._was_diarized and segs:
                 self._populate_rename_fields()
             else:
                 self._grp_rename.setVisible(False)
@@ -4518,7 +4518,6 @@ class TranscribeWindow(QDialog):
         # transcription / diarization is running. _show_status() will
         # call _stop_all_spinners() when results land.
         self._start_tab_spinner(self._text_edit, tab_name)
-        self._segments = []
         self._stdout_buf = QByteArray()
         self._start_time = time.monotonic()
         self._translate_elapsed = 0.0
@@ -5117,7 +5116,7 @@ class TranscribeWindow(QDialog):
         if not raw_output:
             self._run_status(_("No transcription result."))
             target._raw_text = ""
-            self._segments = []
+            target._diarize_segments = []
             self._refresh_rename_panel_for_target(target)
             self._update_translate_btn()
             self._stop_all_spinners()
@@ -5129,21 +5128,21 @@ class TranscribeWindow(QDialog):
         # pipeline now also services diarize=False (long plain transcription
         # on CUDA), and that path emits plain text rather than DIARIZE_RE.
         if self._was_diarized:
-            self._segments = _parse_diarize_output(raw_output)
+            segments = _parse_diarize_output(raw_output)
             # Post-process each segment's text through dictee-postprocess
-            for seg in self._segments:
+            for seg in segments:
                 seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
             # Rebuild raw_output with post-processed text
             raw_output = "\n".join(
                 f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
-                for seg in self._segments) if self._segments else raw_output
+                for seg in segments) if segments else raw_output
         else:
-            self._segments = []
+            segments = []
             raw_output = _clean_segment_text(_postprocess(raw_output))
         # Store data on the tab widget for per-tab translation & markers
         target._raw_text = raw_output
         target._was_diarized = self._was_diarized
-        target._diarize_segments = list(self._segments)
+        target._diarize_segments = segments
         # Fresh transcription: no speaker renames to inherit. Reset the shared
         # map (a mid-run tab switch may have populated it from another tab via
         # _on_tab_changed) and the per-tab copy, so the new tab never shows
@@ -5159,12 +5158,12 @@ class TranscribeWindow(QDialog):
         # Apply speaker names transferred from meeting-live (speakers.json).
         # _populate_rename_fields has already built the QLineEdits above, so
         # _prefill_rename_panel can fill them immediately.
-        if getattr(self, "_pending_speakers_data", None) and self._was_diarized and self._segments:
+        if getattr(self, "_pending_speakers_data", None) and self._was_diarized and segments:
             try:
                 name_map = self._pending_speakers_data.get("name_map", {})
                 anchors = self._pending_speakers_data.get("anchors", {})
                 matched = self._match_anchors_to_batch_speakers(
-                    name_map, anchors, self._segments)
+                    name_map, anchors, segments)
                 if matched:
                     self._speaker_name_map.update(matched)
                     target._speaker_name_map = dict(self._speaker_name_map)
@@ -5187,7 +5186,7 @@ class TranscribeWindow(QDialog):
         # in which case self._apply_format() would format the visible tab's
         # (empty) segments and the target tab would stay blank. Mirrors the
         # pattern already used by _on_translate_done.
-        self._apply_format_to(target, self._segments, raw_output)
+        self._apply_format_to(target, segments, raw_output)
         # Make sure the player is on this tab's audio file. The user may
         # have browsed to a different file while the transcription was
         # running, so QMediaPlayer.source could point elsewhere — without
@@ -5308,7 +5307,7 @@ class TranscribeWindow(QDialog):
             if raw_output:
                 target.setPlainText(raw_output)
             target._raw_text = ""
-            self._segments = []
+            target._diarize_segments = []
             self._refresh_rename_panel_for_target(target)
             self._transcription_in_progress = False
             self._update_transcribe_btn()
@@ -5319,7 +5318,7 @@ class TranscribeWindow(QDialog):
         if not raw_output:
             self._run_status(_("No transcription result."))
             target._raw_text = ""
-            self._segments = []
+            target._diarize_segments = []
             self._refresh_rename_panel_for_target(target)
             self._transcription_in_progress = False
             self._update_transcribe_btn()
@@ -5335,21 +5334,22 @@ class TranscribeWindow(QDialog):
         self._was_diarized = self._chk_diarize.isChecked()
 
         if self._was_diarized:
-            self._segments = _parse_diarize_output(raw_output)
+            segments = _parse_diarize_output(raw_output)
             # Post-process each segment's text
-            for seg in self._segments:
+            for seg in segments:
                 seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
             raw_output = "\n".join(
                 f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
-                for seg in self._segments) if self._segments else raw_output
+                for seg in segments) if segments else raw_output
         else:
             # Post-process plain transcription
+            segments = []
             raw_output = _postprocess(raw_output)
 
         # Store data on the tab widget for per-tab translation & markers
         target._raw_text = raw_output
         target._was_diarized = self._was_diarized
-        target._diarize_segments = list(self._segments)
+        target._diarize_segments = segments
         # Fresh transcription: no speaker renames to inherit. Reset the shared
         # map (a mid-run tab switch may have populated it from another tab via
         # _on_tab_changed) and the per-tab copy, so the new tab never shows
@@ -5369,7 +5369,7 @@ class TranscribeWindow(QDialog):
         # Display in current format — render into the target tab, not the
         # active one (the user may have switched tabs during transcription).
         # See _finish_transcription for the same pattern + rationale.
-        self._apply_format_to(target, self._segments, raw_output)
+        self._apply_format_to(target, segments, raw_output)
         self._update_player_markers(target)
         self._transcribe_elapsed = time.monotonic() - self._start_time
         self._translate_elapsed = 0.0
@@ -5404,9 +5404,10 @@ class TranscribeWindow(QDialog):
         self._stop_all_spinners()
         dur = self._audio_duration
         dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
-        n_speakers = len(set(s["speaker"] for s in self._segments)) if self._segments else 0
+        segs = getattr(target, '_diarize_segments', [])
+        n_speakers = len(set(s["speaker"] for s in segs)) if segs else 0
         parts = []
-        if self._was_diarized and self._segments:
+        if self._was_diarized and segs:
             parts.append(_("{n} speaker(s)").format(n=n_speakers))
         parts.append(_("audio {dur}").format(dur=dur_str))
         parts.append(_("transcribed in {t}").format(
@@ -5432,17 +5433,14 @@ class TranscribeWindow(QDialog):
         """Translate the original transcription into the chosen target.
 
         The source is always the original transcribed text/segments,
-        never the currently active translation tab. self._segments is
-        mutated on every tab change (see _on_tab_changed L3210), so
-        we MUST NOT read it here — we'd otherwise feed the worker the
-        already-translated segments and the LLM would translate from
-        the wrong language. The original tab (self._text_edit) keeps
-        its own _raw_text / _diarize_segments / _was_diarized fixed
-        for the session, so we read from there.
+        never the currently active translation tab — otherwise we'd
+        feed the worker the already-translated segments and the LLM
+        would translate from the wrong language. The original tab
+        (self._text_edit) keeps its own _raw_text / _diarize_segments /
+        _was_diarized fixed for the session, so we read from there.
         """
         raw_text = getattr(self._text_edit, '_raw_text', '')
-        segments = (getattr(self._text_edit, '_diarize_segments', None)
-                    or self._segments)
+        segments = getattr(self._text_edit, '_diarize_segments', None) or []
         was_diarized = getattr(self._text_edit, '_was_diarized',
                                self._was_diarized)
         if not raw_text:
@@ -5899,7 +5897,7 @@ class TranscribeWindow(QDialog):
         """
         if self._tabs.currentWidget() is not target:
             return
-        if self._was_diarized and self._segments:
+        if self._was_diarized and getattr(target, '_diarize_segments', None):
             self._populate_rename_fields()
         else:
             self._grp_rename.setVisible(False)
@@ -6158,8 +6156,7 @@ class TranscribeWindow(QDialog):
         src_widget = self._tabs.currentWidget()
         if src_widget is None or getattr(src_widget, "_is_llm_result", False):
             src_widget = self._text_edit
-        raw_segments = list(getattr(src_widget, "_diarize_segments", None)
-                            or self._segments or [])
+        raw_segments = list(getattr(src_widget, "_diarize_segments", None) or [])
         is_plain = not raw_segments
         if is_plain:
             raw_text = getattr(src_widget, "_raw_text", "")
