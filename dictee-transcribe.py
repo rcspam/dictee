@@ -2713,9 +2713,6 @@ class TranscribeWindow(QDialog):
         self._run_tab = None  # tab the in-flight run writes into
         self._isolated_daemon = None  # ad-hoc isolated ASR daemon (Task 5b)
         self._stdout_buf = QByteArray()
-        # Per-window display map: {canonical_id -> custom_name}. Never mutates
-        # seg["speaker"] — consulted only at render time by the format fns.
-        self._speaker_name_map = {}
         self._rename_line_edits = {}   # filled by _populate_rename_fields
         self._translate_thread = None
         self._audio_duration = 0.0
@@ -3583,6 +3580,14 @@ class TranscribeWindow(QDialog):
         return self._active_tab_attr('_raw_text', "")
 
     @property
+    def _speaker_name_map(self):
+        """Read-only projection: the active tab's speaker display map
+        {canonical_id -> custom_name}. Writers must target a tab's
+        `_speaker_name_map` directly. Returns the tab's live dict —
+        copy before mutating."""
+        return self._active_tab_attr('_speaker_name_map', {})
+
+    @property
     def _was_diarized(self):
         """Read-only projection: whether the active tab's run used
         diarization. Writers must target a tab's `_was_diarized`."""
@@ -4293,8 +4298,6 @@ class TranscribeWindow(QDialog):
         # switching from a diarized tab to a plain-text tab correctly
         # resets the flag — otherwise downstream code (_apply_format,
         # _show_status, etc.) would still treat the active tab as diarized.
-        self._speaker_name_map = dict(
-            getattr(widget, "_speaker_name_map", {}) or {})
         if hasattr(self, '_grp_rename'):
             if bool(getattr(widget, '_was_diarized', False)) and segs:
                 self._populate_rename_fields()
@@ -5136,12 +5139,9 @@ class TranscribeWindow(QDialog):
         target._raw_text = raw_output
         target._was_diarized = was_diarized
         target._diarize_segments = segments
-        # Fresh transcription: no speaker renames to inherit. Reset the shared
-        # map (a mid-run tab switch may have populated it from another tab via
-        # _on_tab_changed) and the per-tab copy, so the new tab never shows
-        # another tab's speaker names. (A meeting-live speakers.json pre-naming,
-        # if any, is applied just below.)
-        self._speaker_name_map = {}
+        # Fresh transcription: no speaker renames to inherit — the new tab
+        # never shows another tab's speaker names. (A meeting-live
+        # speakers.json pre-naming, if any, is applied just below.)
         target._speaker_name_map = {}
 
         # Rebuild the rename panel for the new speakers — only when the
@@ -5158,8 +5158,7 @@ class TranscribeWindow(QDialog):
                 matched = self._match_anchors_to_batch_speakers(
                     name_map, anchors, segments)
                 if matched:
-                    self._speaker_name_map.update(matched)
-                    target._speaker_name_map = dict(self._speaker_name_map)
+                    target._speaker_name_map = dict(matched)
                     self._prefill_rename_panel(matched)
                     _dbg(f"speakers.json applied: {matched}")
             except Exception as _e:
@@ -5343,12 +5342,8 @@ class TranscribeWindow(QDialog):
         target._raw_text = raw_output
         target._was_diarized = was_diarized
         target._diarize_segments = segments
-        # Fresh transcription: no speaker renames to inherit. Reset the shared
-        # map (a mid-run tab switch may have populated it from another tab via
-        # _on_tab_changed) and the per-tab copy, so the new tab never shows
-        # another tab's speaker names. (A meeting-live speakers.json pre-naming,
-        # if any, is applied just below.)
-        self._speaker_name_map = {}
+        # Fresh transcription: no speaker renames to inherit — the new
+        # tab never shows another tab's speaker names.
         target._speaker_name_map = {}
 
         # Rebuild (or hide) the speaker rename panel — only when the target
@@ -5584,8 +5579,6 @@ class TranscribeWindow(QDialog):
         # tab before translation are visible immediately in the new tab.
         if source_tab and hasattr(source_tab, '_speaker_name_map'):
             editor._speaker_name_map = dict(source_tab._speaker_name_map)
-        elif self._speaker_name_map:
-            editor._speaker_name_map = dict(self._speaker_name_map)
 
         # Store and display. Always populate _raw_text and
         # _was_diarized so re-translating from this tab (without
@@ -5657,9 +5650,9 @@ class TranscribeWindow(QDialog):
     def _apply_format_to(self, editor, segments, raw_text):
         """Format and display text in the given editor.
 
-        Resolves the speaker name map per-tab (attached to editor) with a
-        fallback to the window-level map, so renaming propagates correctly
-        to translation tabs.
+        Resolves the speaker name map per-tab (attached to editor) —
+        renaming propagates to translation tabs because they inherit
+        the source tab's map.
 
         Reads `was_diarized` from the editor itself (per-tab flag set by
         _finish_transcription / _on_finished / _on_translate_done) —
@@ -5669,8 +5662,7 @@ class TranscribeWindow(QDialog):
         tabs), so the active tab's flag would be the wrong anchor.
         """
         fmt = self._cmb_format.currentData()
-        name_map = getattr(editor, "_speaker_name_map", None) \
-            or getattr(self, "_speaker_name_map", None)
+        name_map = getattr(editor, "_speaker_name_map", None)
         was_diarized = bool(getattr(editor, "_was_diarized", False))
 
         if was_diarized and segments:
@@ -5972,7 +5964,7 @@ class TranscribeWindow(QDialog):
             batch_segments: list of dicts {"speaker": "Speaker N", "start": float, "end": float, ...}
                             (segments from _parse_diarize_output — speaker is a string label)
 
-        Returns: {"Speaker N": name} mapping ready for self._speaker_name_map.
+        Returns: {"Speaker N": name} mapping ready for a tab's _speaker_name_map.
         """
         from collections import defaultdict
         # Accumulate overlap per (live_spk_str, batch_spk_str) pair
@@ -6037,7 +6029,6 @@ class TranscribeWindow(QDialog):
         active = self._tabs.currentWidget()
         if not isinstance(active, QTextEdit):
             return
-        self._speaker_name_map = new_map
         family = getattr(active, "_audio_path", None)
 
         for i in range(self._tabs.count()):
@@ -6157,8 +6148,7 @@ class TranscribeWindow(QDialog):
                     "start": 0.0, "end": 0.0,
                     "speaker": "Speaker 0", "text": raw_text,
                 }]
-        name_map = (getattr(src_widget, "_speaker_name_map", None)
-                    or getattr(self, "_speaker_name_map", None) or {})
+        name_map = getattr(src_widget, "_speaker_name_map", None) or {}
         segments = []
         for seg in raw_segments:
             seg_copy = dict(seg)
