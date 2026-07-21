@@ -140,6 +140,18 @@ fn group_by_words(tokens: &[TimedToken]) -> Vec<TimedToken> {
     words
 }
 
+// Unpunctuated-output guards (2026-07-21, SUMM-RE 004c_PAPH regression):
+// Parakeet sometimes decodes minutes of audio with zero punctuation, and a
+// grouping that only breaks on .?! then collapses a whole 180-s chunk into
+// one segment. The chunked pipeline dedups by segment midpoint inside a
+// half-overlap zone of 37.5 s, so segments MUST stay well below that or
+// overlap text gets duplicated. Split at a clear pause once the sentence is
+// already abnormally long, and cap the duration as a backstop. Healthy
+// punctuated sentences end on .?! long before 10 s and are unaffected.
+const SENTENCE_PAUSE_SPLIT_SECS: f32 = 1.5;
+const SENTENCE_PAUSE_MIN_LEN_SECS: f32 = 10.0;
+const SENTENCE_MAX_SECS: f32 = 30.0;
+
 // Group words into sentences based on punctuation
 fn group_by_sentences(tokens: &[TimedToken]) -> Vec<TimedToken> {
     // First get word-level grouping
@@ -149,9 +161,30 @@ fn group_by_sentences(tokens: &[TimedToken]) -> Vec<TimedToken> {
     }
 
     let mut sentences = Vec::new();
-    let mut current_sentence = Vec::new();
+    let mut current_sentence: Vec<TimedToken> = Vec::new();
 
     for word in words {
+        // Flush BEFORE adding the word when the model stopped punctuating:
+        // at a clear pause once the run is already long, or at the hard cap.
+        if let (Some(first), Some(last)) = (current_sentence.first(), current_sentence.last()) {
+            let run_len = last.end - first.start;
+            let pause = word.start - last.end;
+            let split_on_pause =
+                pause >= SENTENCE_PAUSE_SPLIT_SECS && run_len >= SENTENCE_PAUSE_MIN_LEN_SECS;
+            let split_on_cap = word.end - first.start > SENTENCE_MAX_SECS;
+            if split_on_pause || split_on_cap {
+                let sentence_text = format_sentence(&current_sentence);
+                if !sentence_text.is_empty() {
+                    sentences.push(TimedToken {
+                        text: sentence_text,
+                        start: first.start,
+                        end: last.end,
+                    });
+                }
+                current_sentence.clear();
+            }
+        }
+
         current_sentence.push(word.clone());
 
         // Check if word ends with sentence terminator
@@ -267,6 +300,91 @@ mod tests {
         assert_eq!(words[0].end, 0.6);
         assert_eq!(words[1].start, 0.6);
         assert_eq!(words[1].end, 1.0);
+    }
+
+    // Regression: 2026-07-21, SUMM-RE meeting 004c_PAPH. Parakeet decoded
+    // three whole 180-s chunks with ZERO punctuation (not even commas);
+    // group_by_sentences only breaks on .?! so each chunk collapsed into a
+    // single 179-s "sentence". Downstream, the chunked pipeline's midpoint
+    // dedup kept those blobs whole, duplicating the overlap zones and
+    // corrupting 7.5 of the meeting's 21 minutes. Unpunctuated output must
+    // still yield bounded segments, split at natural pauses.
+    #[test]
+    fn test_unpunctuated_sentence_splits_on_pause() {
+        // 20+ s of speech, no punctuation at all, with a 2-s silence after
+        // an 11.9-s run: expect a split at the pause, not one blob.
+        let mut tokens = Vec::new();
+        for i in 0..20 {
+            let start = if i < 12 { i as f32 } else { i as f32 + 2.0 };
+            tokens.push(TimedToken {
+                text: format!("▁mot{}", i),
+                start,
+                end: start + 0.9,
+            });
+        }
+        let sentences = group_by_sentences(&tokens);
+        assert_eq!(
+            sentences.len(),
+            2,
+            "a >=1.5-s pause in a long unpunctuated run must split: {:?}",
+            sentences.iter().map(|s| (s.start, s.end)).collect::<Vec<_>>()
+        );
+        assert!(sentences[0].end < 12.0 && sentences[1].start > 11.0);
+    }
+
+    #[test]
+    fn test_unpunctuated_sentence_duration_is_capped() {
+        // 180 s of continuous unpunctuated speech (no pause anywhere):
+        // the duration backstop must still bound every segment, otherwise
+        // the chunked pipeline's dedup (half-overlap zone = 37.5 s) breaks.
+        let tokens: Vec<TimedToken> = (0..360)
+            .map(|i| TimedToken {
+                text: format!("▁mot{}", i),
+                start: i as f32 * 0.5,
+                end: i as f32 * 0.5 + 0.5,
+            })
+            .collect();
+        let sentences = group_by_sentences(&tokens);
+        assert!(
+            sentences.len() > 1,
+            "180 s of unpunctuated speech must not be one sentence"
+        );
+        for s in &sentences {
+            assert!(
+                s.end - s.start <= 30.5,
+                "sentence {:.1}-{:.1} exceeds the 30-s cap",
+                s.start,
+                s.end
+            );
+        }
+    }
+
+    #[test]
+    fn test_punctuated_sentences_unaffected_by_split_rules() {
+        // Healthy output: short punctuated sentences with small gaps must
+        // group exactly as before the pause/cap rules.
+        let mut tokens = Vec::new();
+        for i in 0..3 {
+            let base = i as f32 * 3.0;
+            tokens.push(TimedToken {
+                text: format!("▁Phrase{}", i),
+                start: base,
+                end: base + 1.0,
+            });
+            tokens.push(TimedToken {
+                text: "▁courte".to_string(),
+                start: base + 1.0,
+                end: base + 2.0,
+            });
+            tokens.push(TimedToken {
+                text: ".".to_string(),
+                start: base + 2.0,
+                end: base + 2.1,
+            });
+        }
+        let sentences = group_by_sentences(&tokens);
+        assert_eq!(sentences.len(), 3);
+        assert_eq!(sentences[0].text, "Phrase0 courte.");
     }
 
     #[test]
