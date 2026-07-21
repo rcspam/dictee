@@ -2653,6 +2653,9 @@ class LLMProcessDialog(QDialog):
 #   _diarize_segments    parsed segments (historical naming: the window
 #                        projection of this attribute is `_segments`)
 #   _speaker_name_map    {canonical_id -> custom_name}, render-time only
+#   _rename_family       run tab this tab is a view of (itself for a run
+#                        tab, the source run for a translation tab);
+#                        speaker renames apply within one family only
 #   _status_text         live/final status line (restored on tab switch)
 #   _audio_duration      probed once at run start (seconds)
 #   _segment_positions   char ranges per segment (set by _apply_format_to)
@@ -3566,6 +3569,12 @@ class TranscribeWindow(QDialog):
         editor._status_text = ""
         editor._audio_duration = 0.0
         editor._segment_positions = []
+        # Rename family: the run tab this tab is a view of. A fresh tab
+        # is its own family; translation tabs join their source's family
+        # (_on_translate_done). Speaker renames apply per family, never
+        # across independent runs — even of the same audio file, since
+        # "Speaker N" can name a different person in every run.
+        editor._rename_family = editor
 
     def _active_tab_attr(self, name, default):
         """Read a per-tab attribute from the active tab (used by the
@@ -5586,6 +5595,11 @@ class TranscribeWindow(QDialog):
         self._init_tab_state(
             editor, getattr(self._text_edit, '_audio_path', None))
         editor._audio_duration = getattr(self._text_edit, '_audio_duration', 0.0)
+        # A translation is a view of its source run: join its rename
+        # family so speaker renames keep syncing between the two.
+        if source_tab is not None:
+            editor._rename_family = getattr(
+                source_tab, '_rename_family', source_tab)
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
@@ -6027,14 +6041,13 @@ class TranscribeWindow(QDialog):
     def _apply_speaker_rename(self):
         """Collect QLineEdit values, update the display map, re-render.
 
-        Applies to the ACTIVE tab and its sibling views of the SAME audio
-        file (translation tabs inherit _audio_path at creation), never to
-        unrelated transcriptions: "Speaker 0" names a different person in
-        every run, and the old propagate-to-every-tab loop leaked a rename
-        across independent files (found 2026-07-21 with one tab per
-        engine under test). A sibling with no _audio_path key can only be
-        matched when the active tab has one too — otherwise only the
-        active tab is touched (safe default).
+        Applies to the ACTIVE tab and the other views of the SAME run
+        (its _rename_family: a run tab and its translation tabs), never
+        to independent transcriptions — "Speaker 0" names a different
+        person in every run, even when the same audio file is
+        re-transcribed (each run assigns labels on its own). The
+        previous same-_audio_path criterion conflated the two and
+        renamed sibling runs of one file together (found 2026-07-21).
         """
         new_map = {}
         for spk, le in self._rename_line_edits.items():
@@ -6045,15 +6058,14 @@ class TranscribeWindow(QDialog):
         active = self._tabs.currentWidget()
         if not isinstance(active, QTextEdit):
             return
-        family = getattr(active, "_audio_path", None)
+        family = getattr(active, "_rename_family", active)
 
         for i in range(self._tabs.count()):
             w = self._tabs.widget(i)
             if not isinstance(w, QTextEdit):
                 continue
-            if w is not active and (
-                    family is None
-                    or getattr(w, "_audio_path", None) != family):
+            if (w is not active
+                    and getattr(w, "_rename_family", None) is not family):
                 continue
             w._speaker_name_map = dict(new_map)
             segs = getattr(w, "_diarize_segments", None)
