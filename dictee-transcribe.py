@@ -2661,8 +2661,13 @@ class LLMProcessDialog(QDialog):
 #                        is a sentinel — see _on_tab_changed)
 #   _is_llm_result, _llm_profile_name, _spinner_base_title, _llm_thread
 #                        LLM result tabs only
-# Treat per-tab lists/dicts read through projections as read-only:
-# copy before mutating.
+# The window keeps PERMANENT read-only projections of the active tab:
+# _raw_text, _segments (-> _diarize_segments), _was_diarized and
+# _speaker_name_map are getter-only @property — writing through them
+# raises AttributeError by design, so shared-state writes cannot creep
+# back in. Writers always target a specific tab's attribute. Treat
+# lists/dicts read through projections as read-only: copy before
+# mutating.
 #
 # Run-scoped attributes — on the window, valid for the single in-flight
 # run: _run_tab (the tab the run writes into; captured at run start,
