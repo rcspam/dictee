@@ -2715,7 +2715,6 @@ class TranscribeWindow(QDialog):
         self._stdout_buf = QByteArray()
         self._rename_line_edits = {}   # filled by _populate_rename_fields
         self._translate_thread = None
-        self._audio_duration = 0.0
         self._transcribe_elapsed = 0.0
         self._translate_elapsed = 0.0
         self._translate_start = 0.0
@@ -4527,7 +4526,10 @@ class TranscribeWindow(QDialog):
         self._stdout_buf = QByteArray()
         self._start_time = time.monotonic()
         self._translate_elapsed = 0.0
-        self._audio_duration = self._get_audio_duration(audio_path)
+        # Probe the duration once and store it on the run's tab (used by
+        # the routing threshold, the watchdog and the final summary).
+        dur = self._get_audio_duration(audio_path)
+        self._text_edit._audio_duration = dur
         self._progress.setVisible(True)
 
         # Free GPU VRAM if needed: only stop processes when VRAM is tight
@@ -4646,14 +4648,14 @@ class TranscribeWindow(QDialog):
         # global speaker labels.
         _moss_run = (diarize and _moss_available()
                      and (self._cmb_diar_engine.currentData() or "auto") == "moss")
-        if ((self._audio_duration > _ChunkedPipelineWorker.CHUNK_SECONDS
+        if ((dur > _ChunkedPipelineWorker.CHUNK_SECONDS
                 or _parakeet_isolated) and not _whisper_isolated
                 and not _whisper_rust_isolated
                 and not _nemotron_isolated
                 and not _moss_run):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
-                 f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
+                 f"(dur={dur:.1f}s, diarize={diarize}, "
                  f"chunk={_ChunkedPipelineWorker.CHUNK_SECONDS}s, "
                  f"sens={sensitivity:.2f})")
             self._diarize_two_phase = False  # chunked replaces two-phase
@@ -4793,7 +4795,7 @@ class TranscribeWindow(QDialog):
         # than ~25 min on this path. MOSS needs a far wider margin: on mic
         # audio it hit RTF ~7, so 3x duration would kill a valid run.
         _rtf_margin = 12 if self._moss_run else 3
-        watchdog_secs = (max(600, int(self._audio_duration * _rtf_margin))
+        watchdog_secs = (max(600, int(dur * _rtf_margin))
                          if diarize else 300)
         self._watchdog_secs = watchdog_secs  # for the timeout message
         self._process_timer = QTimer(self)
@@ -4951,7 +4953,7 @@ class TranscribeWindow(QDialog):
         self._diarize_worker = _DiarizeTranscribeWorker(
             audio_path, diarize_output, sock_path, self,
             socket_timeout=_worker_timeout, per_segment=_per_segment,
-            audio_duration=getattr(self, "_audio_duration", 0.0))
+            audio_duration=getattr(self._run_tab, "_audio_duration", 0.0))
         self._diarize_worker.progress.connect(self._on_diarize_progress)
         self._diarize_worker.finished.connect(self._on_diarize_done)
         self._diarize_worker.error.connect(self._on_diarize_error)
@@ -5390,7 +5392,7 @@ class TranscribeWindow(QDialog):
         # Any tab spinner started by transcription / diarization /
         # translation stops here.
         self._stop_all_spinners()
-        dur = self._audio_duration
+        dur = getattr(target, '_audio_duration', 0.0)
         dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
         segs = getattr(target, '_diarize_segments', [])
         was_diarized = bool(getattr(target, '_was_diarized', False))
@@ -5565,11 +5567,12 @@ class TranscribeWindow(QDialog):
         editor.setToolTip(self._tip(_("Editable translation text. Ctrl+F to search, Ctrl+Z to undo.")))
         editor.viewport().installEventFilter(self)
         self._install_modified_overlay(editor)
-        # Canonical per-tab state; the audio path is inherited from the
-        # source tab so switching to this translation reloads the right
-        # audio file in the player.
+        # Canonical per-tab state; audio path and duration are inherited
+        # from the source tab so switching to this translation reloads
+        # the right audio file and its summary shows the right length.
         self._init_tab_state(
             editor, getattr(self._text_edit, '_audio_path', None))
+        editor._audio_duration = getattr(self._text_edit, '_audio_duration', 0.0)
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
