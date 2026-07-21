@@ -5249,6 +5249,14 @@ class TranscribeWindow(QDialog):
             self._restart_daemon_and_transcribe(raw_output)
             return
 
+        # The QProcess run is over on every remaining path (cancel, error,
+        # empty, success) — only the phase-2 handoff above keeps the live
+        # clock running. Without this, a successful one-pass run leaked
+        # the 1 Hz ticker forever: the final summary grew a phantom
+        # (MM:SS) clock, and a following translation's status spinner
+        # then fought the ticker, alternating two lines every second.
+        self._stop_run_ticker()
+
         # Restart daemon if we stopped it for VRAM
         self._restart_daemon_if_stopped()
         _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
