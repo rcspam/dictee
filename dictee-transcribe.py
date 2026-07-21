@@ -2801,15 +2801,25 @@ class TranscribeWindow(QDialog):
         lbl = QLabel(_("File:"))
         lay_file.addWidget(lbl)
 
-        self._file_input = QLineEdit()
+        # Editable combo whose dropdown lists the recent files (persisted
+        # in QSettings). The embedded QLineEdit is exposed as
+        # `_file_input`, so every historical call site (.text(),
+        # .setText(), .textChanged) keeps working unchanged.
+        self._file_combo = QComboBox()
+        self._file_combo.setEditable(True)
+        self._file_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self._file_combo.setToolTip(_("Path to the audio file to transcribe "
+                                      "— the list holds the recent files"))
+        self._file_input = self._file_combo.lineEdit()
         self._file_input.setPlaceholderText(_("Select an audio file..."))
-        self._file_input.setToolTip(_("Path to the audio file to transcribe"))
         # Decline drops on the line edit itself: QLineEdit's default handler
         # inserts the raw "file://..." URI text. Letting drops bubble up to the
         # window's dropEvent (which uses QUrl.toLocalFile()) yields a clean
         # local path every time, regardless of where the file is dropped.
         self._file_input.setAcceptDrops(False)
-        lay_file.addWidget(self._file_input, 1)
+        self._file_combo.setAcceptDrops(False)
+        self._reload_recent_files()
+        lay_file.addWidget(self._file_combo, 1)
 
         self._btn_browse = QPushButton(_("Browse..."))
         self._btn_browse.setToolTip(_("Open file selection dialog"))
@@ -3026,12 +3036,45 @@ class TranscribeWindow(QDialog):
         lay_diar_eng.addWidget(self._cmb_diar_engine)
         self._w_diar_engine.setVisible(False)
 
+        # Secondary ASR for MOSS transcript holes (silent omissions and
+        # truncated runaway chunks): the recovered text lands as UNKNOWN
+        # turns — no speaker claim — so the LLM analysis never loses
+        # content. Only meaningful for a MOSS run, hence the inverted
+        # visibility rhythm vs the threshold widget. The UI choice wins
+        # over the dictee.conf DICTEE_MOSS_GAP_ASR key for runs started
+        # here (the conf key still drives meeting-live and CLI runs).
+        self._w_moss_gap = QWidget()
+        lay_moss_gap = QHBoxLayout(self._w_moss_gap)
+        lay_moss_gap.setContentsMargins(0, 0, 0, 0)
+        lay_moss_gap.addWidget(QLabel(_("Gap fill:")))
+        self._cmb_moss_gap = QComboBox()
+        self._cmb_moss_gap.addItem(_("Parakeet"), "parakeet")
+        self._cmb_moss_gap.addItem(_("MOSS retry"), "moss")
+        self._cmb_moss_gap.addItem(_("Off"), "none")
+        self._cmb_moss_gap.setToolTip(self._tip(
+            _("When MOSS leaves a hole in the transcript (a span with no "
+              "output), a secondary engine transcribes it and the text is "
+              "inserted with the UNKNOWN speaker label. Parakeet: robust "
+              "default. MOSS retry: often recovers more words but may "
+              "hallucinate on silence. Off: keep the hole, warn only.")))
+        _qs_gap = QSettings("dictee", "transcribe")
+        _ig = self._cmb_moss_gap.findData(
+            _qs_gap.value("diarize/moss_gap_asr", "parakeet"))
+        if _ig >= 0:
+            self._cmb_moss_gap.setCurrentIndex(_ig)
+        self._cmb_moss_gap.currentIndexChanged.connect(
+            lambda _i: QSettings("dictee", "transcribe").setValue(
+                "diarize/moss_gap_asr", self._cmb_moss_gap.currentData()))
+        lay_moss_gap.addWidget(self._cmb_moss_gap)
+        self._w_moss_gap.setVisible(False)
+
         lay_diarize_row = QHBoxLayout()
         lay_diarize_row.setContentsMargins(0, 0, 0, 0)
         lay_diarize_row.setSpacing(12)
         lay_diarize_row.addWidget(self._chk_diarize, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addWidget(self._w_threshold, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addWidget(self._w_diar_engine, 0, Qt.AlignmentFlag.AlignLeft)
+        lay_diarize_row.addWidget(self._w_moss_gap, 0, Qt.AlignmentFlag.AlignLeft)
         lay_diarize_row.addStretch(1)
         lay_opts.addLayout(lay_diarize_row)
         self._chk_diarize.toggled.connect(self._on_diarize_toggled)
@@ -3081,8 +3124,8 @@ class TranscribeWindow(QDialog):
 
         self._btn_cancel = QPushButton(_("Cancel"))
         self._btn_cancel.setVisible(False)
-        self._btn_cancel.setToolTip(_("Cancel the long-file chunked pipeline"))
-        self._btn_cancel.clicked.connect(self._on_cancel_chunked)
+        self._btn_cancel.setToolTip(_("Cancel the current transcription run"))
+        self._btn_cancel.clicked.connect(self._on_cancel_run)
         btn_col.addWidget(self._btn_cancel)
 
         lay_pad_h.addLayout(btn_col, 0)
@@ -3690,6 +3733,33 @@ class TranscribeWindow(QDialog):
         else:
             self.close()
 
+    def _reload_recent_files(self):
+        """Fill the file combo's dropdown from the persisted recent list
+        without touching the visible edit text."""
+        qs = QSettings("dictee", "transcribe")
+        paths = qs.value("file/recent", []) or []
+        if isinstance(paths, str):
+            paths = [paths]
+        cur = self._file_input.text()
+        self._file_combo.blockSignals(True)
+        self._file_input.blockSignals(True)
+        self._file_combo.clear()
+        self._file_combo.addItems([p for p in paths if p])
+        self._file_combo.setCurrentIndex(-1)
+        self._file_input.setText(cur)
+        self._file_input.blockSignals(False)
+        self._file_combo.blockSignals(False)
+
+    def _add_recent_file(self, path, _max=10):
+        """Move `path` to the top of the persisted recent-files list."""
+        qs = QSettings("dictee", "transcribe")
+        paths = qs.value("file/recent", []) or []
+        if isinstance(paths, str):
+            paths = [paths]
+        paths = [path] + [p for p in paths if p and p != path]
+        qs.setValue("file/recent", paths[:_max])
+        self._reload_recent_files()
+
     def _on_browse(self):
         _dbg("_on_browse: opening file dialog")
         path, _filter = QFileDialog.getOpenFileName(
@@ -4163,6 +4233,16 @@ class TranscribeWindow(QDialog):
             else:
                 self._grp_rename.setVisible(False)
 
+        # The status row follows the tabs (2026-07-21): restore this tab's
+        # last stored status — the live text of its running job, or its
+        # final summary — instead of leaving another tab's message behind.
+        _st = getattr(widget, '_status_text', "")
+        if _st:
+            self._lbl_status.setText(_st)
+            self._lbl_status.setVisible(True)
+        else:
+            self._lbl_status.setVisible(False)
+
         # Sync the format combo to whatever was last rendered on this
         # tab. Block signals so the lookup doesn't trigger a re-render
         # via _on_format_changed (the tab is already showing the right
@@ -4193,6 +4273,7 @@ class TranscribeWindow(QDialog):
         _is_moss = (self._cmb_diar_engine.currentData() or "auto") == "moss"
         self._w_threshold.setVisible(checked and not _is_moss)
         self._w_diar_engine.setVisible(checked)
+        self._w_moss_gap.setVisible(checked and _is_moss)
         self._update_long_audio_warning()
         self._refresh_window_icon()
 
@@ -4319,6 +4400,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("File not found."))
             self._lbl_status.setVisible(True)
             return
+        self._add_recent_file(audio_path)
 
         # Block if translation is running
         if self._translate_thread and self._translate_thread.isRunning():
@@ -4433,8 +4515,7 @@ class TranscribeWindow(QDialog):
         except Exception as e:
             _dbg(f"_on_transcribe: VRAM cleanup error: {e}")
 
-        self._lbl_status.setText(_("Transcribing..."))
-        self._lbl_status.setVisible(True)
+        self._run_status(_("Transcribing..."))
         # Single flag drives the whole gating logic — see _update_transcribe_btn.
         self._transcription_in_progress = True
         self._btn_translate.setEnabled(False)
@@ -4516,6 +4597,7 @@ class TranscribeWindow(QDialog):
             self._chunked_worker.error.connect(self._on_chunked_error)
             self._btn_cancel.setVisible(True)
             self._btn_cancel.setEnabled(True)
+            self._start_run_ticker()
             self._chunked_worker.start()
             return
 
@@ -4540,6 +4622,12 @@ class TranscribeWindow(QDialog):
         for _k, _v in _read_conf().items():
             if _k.startswith("DICTEE_"):
                 env.insert(_k, _v)
+        if _moss_run:
+            # UI choice for the MOSS hole-patching engine — inserted after
+            # the conf loop so the window's combo wins over dictee.conf
+            # for runs started here.
+            env.insert("DICTEE_MOSS_GAP_ASR",
+                       self._cmb_moss_gap.currentData() or "parakeet")
         self._process.setProcessEnvironment(env)
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
@@ -4622,10 +4710,9 @@ class TranscribeWindow(QDialog):
         self._moss_run = (cmd == "dictee-moss-diarize")
         if self._moss_run:
             self._moss_elapsed = 0
-            self._lbl_status.setText(
+            self._run_status(
                 _("MOSS: transcription + speakers in one pass "
                   "(0:00 — can take several times the audio length)…"))
-            self._lbl_status.setVisible(True)
             self._moss_ticker = QTimer(self)
             self._moss_ticker.timeout.connect(self._on_moss_tick)
             self._moss_ticker.start(1000)
@@ -4643,13 +4730,18 @@ class TranscribeWindow(QDialog):
         self._process_timer.setSingleShot(True)
         self._process_timer.timeout.connect(self._on_process_timeout)
         self._process_timer.start(watchdog_secs * 1000)
+        # Cancel is available for every run shape, not only the chunked
+        # pipeline (2026-07-21).
+        self._btn_cancel.setVisible(True)
+        self._btn_cancel.setEnabled(True)
+        self._start_run_ticker()
 
     def _on_moss_tick(self):
         """Update the elapsed-time counter shown during a MOSS run so the
         window doesn't read as frozen (MOSS emits nothing until it ends)."""
         self._moss_elapsed += 1
         m, s = divmod(self._moss_elapsed, 60)
-        self._lbl_status.setText(
+        self._run_status(
             _("MOSS: transcription + speakers in one pass "
               "({m}:{s:02d} — can take several times the audio length)…")
             .format(m=m, s=s))
@@ -4660,20 +4752,64 @@ class TranscribeWindow(QDialog):
             t.stop()
             self._moss_ticker = None
 
+    def _run_status(self, text):
+        """Run-scoped status: stored on the run's target tab and displayed
+        only while that tab is visible, so a background run never talks
+        over the tab the user is reading (2026-07-21 — the status row now
+        follows the tabs). Non-run messages (clipboard, exports...) keep
+        writing _lbl_status directly."""
+        tgt = getattr(self, '_text_edit', None)
+        if tgt is not None:
+            tgt._status_text = text
+        if tgt is None or self._tabs.currentWidget() is tgt:
+            self._lbl_status.setText(text)
+            self._lbl_status.setVisible(True)
+
+    def _start_run_ticker(self):
+        """Live elapsed counter appended to the run status every second —
+        the user used to get the duration only in the final message. MOSS
+        runs keep their dedicated ticker (it owns its whole message; two
+        rewriters would fight)."""
+        if getattr(self, '_moss_run', False):
+            return
+        self._stop_run_ticker()
+        self._run_ticker = QTimer(self)
+        self._run_ticker.timeout.connect(self._on_run_tick)
+        self._run_ticker.start(1000)
+
+    def _on_run_tick(self):
+        tgt = getattr(self, '_text_edit', None)
+        base = (getattr(tgt, '_status_text', "") or "") if tgt else ""
+        base = re.sub(r"\s*\(\d{2}:\d{2}(?::\d{2})?\)$", "", base)
+        if not base:
+            base = _("Transcribing...")
+        total = int(time.monotonic()
+                    - getattr(self, '_start_time', time.monotonic()))
+        h, rem = divmod(total, 3600)
+        m, s = divmod(rem, 60)
+        clock = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+        self._run_status(f"{base} ({clock})")
+
+    def _stop_run_ticker(self):
+        t = getattr(self, '_run_ticker', None)
+        if t is not None:
+            t.stop()
+            self._run_ticker = None
+
     def _on_process_timeout(self):
         # Audit fix: previous version called self._set_status() / _set_busy()
         # which don't exist on TranscribeWindow → AttributeError silently
         # froze the UI when the 5-min watchdog fired (button stayed disabled,
         # _process / _transcription_in_progress never reset).
         self._stop_moss_ticker()
+        self._stop_run_ticker()
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("Process timeout — killing")
             self._process.kill()
             self._process.waitForFinished(3000)
-            self._lbl_status.setText(
+            self._run_status(
                 _("Transcription timed out ({m} min).").format(
                     m=getattr(self, "_watchdog_secs", 300) // 60))
-            self._lbl_status.setVisible(True)
             self._progress.setVisible(False)
             self._stop_all_spinners()
             self._process.deleteLater()
@@ -4704,7 +4840,8 @@ class TranscribeWindow(QDialog):
         """Phase 2: restart daemon, then transcribe each diarized segment via socket (threaded)."""
         audio_path = getattr(self, '_diarize_audio_path', '')
         if not audio_path or not os.path.isfile(audio_path):
-            self._lbl_status.setText(_("Audio file not found for phase 2."))
+            self._stop_run_ticker()
+            self._run_status(_("Audio file not found for phase 2."))
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             return
@@ -4738,7 +4875,7 @@ class TranscribeWindow(QDialog):
             _per_segment = (_read_conf().get("DICTEE_ASR_BACKEND", "parakeet")
                             == "nemotron")
 
-        self._lbl_status.setText(_("Waiting for daemon..."))
+        self._run_status(_("Waiting for daemon..."))
 
         # Launch worker thread
         self._diarize_worker = _DiarizeTranscribeWorker(
@@ -4751,7 +4888,7 @@ class TranscribeWindow(QDialog):
         self._diarize_worker.start()
 
     def _on_diarize_progress(self, done, total):
-        self._lbl_status.setText(
+        self._run_status(
             _("Transcribing {done}/{total}...").format(done=done, total=total))
 
     def _on_diarize_done(self, raw_output):
@@ -4776,8 +4913,9 @@ class TranscribeWindow(QDialog):
         self._restart_daemon_if_stopped()
         self._diarize_worker = None
         self._progress.setVisible(False)
-        self._lbl_status.setText(msg)
-        self._lbl_status.setVisible(True)
+        self._btn_cancel.setVisible(False)
+        self._stop_run_ticker()
+        self._run_status(msg)
         # Also surface the failure IN THE TAB: the status label alone reads as
         # "nothing happened" against the unchanged placeholder. A phase-2
         # failure must be visible where the user is looking.
@@ -4797,13 +4935,13 @@ class TranscribeWindow(QDialog):
         """Phase status update from _ChunkedPipelineWorker. Label uses
         '1/2..2/2' for diarize OFF and '1/4..4/4' for diarize ON."""
         self._chunked_phase_label = label
-        self._lbl_status.setText(label)
+        self._run_status(label)
 
     def _on_chunked_progress(self, done, total):
         """Chunk-by-chunk progress during the transcription phase."""
         base = getattr(self, '_chunked_phase_label',
                        _("Chunked transcription"))
-        self._lbl_status.setText(
+        self._run_status(
             _("{base} — chunk {done}/{total}").format(
                 base=base, done=done, total=total))
 
@@ -4830,9 +4968,9 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_chunked_error: {msg}")
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
+        self._stop_run_ticker()
         self._progress.setVisible(False)
-        self._lbl_status.setText(msg)
-        self._lbl_status.setVisible(True)
+        self._run_status(msg)
         self._transcription_in_progress = False
         self._update_transcribe_btn()
         self._update_translate_btn()
@@ -4859,18 +4997,47 @@ class TranscribeWindow(QDialog):
                 _dbg(f"silenced: {_e!r}")
             self._isolated_daemon = None
 
-    def _on_cancel_chunked(self):
-        """User clicked Cancel during the chunked pipeline."""
-        if not (hasattr(self, '_chunked_worker') and self._chunked_worker):
-            return
-        _dbg("_on_cancel_chunked: requesting worker cancel")
+    def _on_cancel_run(self):
+        """User clicked Cancel — covers every run shape: chunked worker,
+        phase-1/one-pass QProcess, phase-2 socket worker. Until 2026-07-21
+        only the chunked pipeline had a cancel; a 397-segment Nemotron
+        phase 2 then ran ~35 minutes with no way out."""
         self._btn_cancel.setEnabled(False)  # avoid double clicks
-        self._lbl_status.setText(_("Cancelling..."))
-        self._chunked_worker.request_cancel()
+        self._run_status(_("Cancelling..."))
+        w = getattr(self, '_chunked_worker', None)
+        if w is not None:
+            _dbg("_on_cancel_run: requesting chunked worker cancel")
+            w.request_cancel()
+            return
+        p = getattr(self, '_process', None)
+        if p is not None and p.state() != QProcess.ProcessState.NotRunning:
+            _dbg("_on_cancel_run: killing the phase-1/one-pass process")
+            self._user_cancelled = True
+            p.kill()  # _on_finished turns this into a clean "Cancelled"
+            return
+        dw = getattr(self, '_diarize_worker', None)
+        if dw is not None and dw.isRunning():
+            _dbg("_on_cancel_run: cancelling the phase-2 worker")
+            dw.cancel()  # suppresses its own signals — reset the UI here
+            iso = getattr(self, '_isolated_daemon', None)
+            if iso is not None:
+                iso.stop()
+            self._btn_cancel.setVisible(False)
+            self._progress.setVisible(False)
+            self._stop_run_ticker()
+            self._run_status(_("Cancelled"))
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
+            self._stop_all_spinners()
+            self._restart_daemon_if_stopped()
+            return
+        _dbg("_on_cancel_run: nothing to cancel")
 
     def _finish_transcription(self, raw_output):
         """Common finish logic for both single-phase and two-phase diarization."""
         self._progress.setVisible(False)
+        self._btn_cancel.setVisible(False)
+        self._stop_run_ticker()
         # Lower the single source-of-truth flag, then route through
         # _update_transcribe_btn so the diarize toggle, auto-translate
         # checkbox and sensitivity slider come back together.
@@ -4879,7 +5046,7 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(True)
 
         if not raw_output:
-            self._lbl_status.setText(_("No transcription result."))
+            self._run_status(_("No transcription result."))
             self._raw_text = ""
             self._segments = []
             self._refresh_rename_panel_for_target()
@@ -5006,7 +5173,7 @@ class TranscribeWindow(QDialog):
         if getattr(self, '_diarize_two_phase', False) and exit_code == 0 and raw_output:
             self._diarize_two_phase = False
             _dbg(f"_on_finished: phase 1 done (diarize-only), segments:\n{raw_output}")
-            self._lbl_status.setText(_("Restarting daemon for transcription..."))
+            self._run_status(_("Restarting daemon for transcription..."))
             # Restart daemon — _diarize_worker is created here and will
             # keep _update_transcribe_btn() returning False until phase 2
             # actually completes via _on_diarize_done.
@@ -5016,6 +5183,21 @@ class TranscribeWindow(QDialog):
         # Restart daemon if we stopped it for VRAM
         self._restart_daemon_if_stopped()
         _dbg(f"_on_finished: exit_code={exit_code}, output_len={len(raw_output)}")
+
+        if getattr(self, '_user_cancelled', False):
+            # The kill came from the Cancel button: a clean stop, not an
+            # error — no failure message, no raw-output dump.
+            self._user_cancelled = False
+            _dbg("_on_finished: run cancelled by user")
+            self._btn_cancel.setVisible(False)
+            self._progress.setVisible(False)
+            self._stop_moss_ticker()
+            self._stop_run_ticker()
+            self._run_status(_("Cancelled"))
+            self._transcription_in_progress = False
+            self._update_transcribe_btn()
+            self._stop_all_spinners()
+            return
 
         if exit_code != 0:
             # GPU OOM: unload ollama and retry once
@@ -5027,8 +5209,7 @@ class TranscribeWindow(QDialog):
                 self._retry_done = True
                 _dbg(f"_on_finished: GPU OOM detected, retrying. Error: {raw_output[:200]}")
                 msg = _("GPU memory full — unloading translation model and retrying...")
-                self._lbl_status.setText(msg)
-                self._lbl_status.setVisible(True)
+                self._run_status(msg)
                 self._text_edit.setPlainText(msg)
                 self._progress.setVisible(True)
                 conf = _read_conf()
@@ -5048,10 +5229,11 @@ class TranscribeWindow(QDialog):
                 return
 
             self._retry_done = False
-            self._lbl_status.setText(
+            self._btn_cancel.setVisible(False)
+            self._stop_run_ticker()
+            self._run_status(
                 _("Transcription failed (code {code}). Check memory, backend, or audio file.").format(
                     code=exit_code))
-            self._lbl_status.setVisible(True)
             if raw_output:
                 self._text_edit.setPlainText(raw_output)
             self._raw_text = ""
@@ -5064,8 +5246,7 @@ class TranscribeWindow(QDialog):
             return
 
         if not raw_output:
-            self._lbl_status.setText(_("No transcription result."))
-            self._lbl_status.setVisible(True)
+            self._run_status(_("No transcription result."))
             self._raw_text = ""
             self._segments = []
             self._refresh_rename_panel_for_target()
@@ -5163,6 +5344,10 @@ class TranscribeWindow(QDialog):
             parts.append(_("translated in {t}").format(
                 t=_format_elapsed(self._translate_elapsed)))
         text = " — ".join(parts)
+        # The summary belongs to this run's tab: stored for the tab-switch
+        # restore (the status row follows the tabs, 2026-07-21).
+        if hasattr(self, "_text_edit"):
+            self._text_edit._status_text = text
         if self._was_diarized and hasattr(self, "_lbl_rename_status"):
             self._lbl_rename_status.setText(text)
             self._lbl_status.setText("")
@@ -5771,9 +5956,14 @@ class TranscribeWindow(QDialog):
     def _apply_speaker_rename(self):
         """Collect QLineEdit values, update the display map, re-render.
 
-        Propagates the map to ALL tabs that hold diarized segments (the
-        active transcription tab and any translation tabs) so the user
-        sees renamed labels consistently across views and exports.
+        Applies to the ACTIVE tab and its sibling views of the SAME audio
+        file (translation tabs inherit _audio_path at creation), never to
+        unrelated transcriptions: "Speaker 0" names a different person in
+        every run, and the old propagate-to-every-tab loop leaked a rename
+        across independent files (found 2026-07-21 with one tab per
+        engine under test). A sibling with no _audio_path key can only be
+        matched when the active tab has one too — otherwise only the
+        active tab is touched (safe default).
         """
         new_map = {}
         for spk, le in self._rename_line_edits.items():
@@ -5781,19 +5971,23 @@ class TranscribeWindow(QDialog):
             if name:
                 new_map[spk] = name
 
+        active = self._tabs.currentWidget()
+        if not isinstance(active, QTextEdit):
+            return
         self._speaker_name_map = new_map
-        if hasattr(self, "_text_edit"):
-            self._text_edit._speaker_name_map = dict(new_map)
+        family = getattr(active, "_audio_path", None)
 
-        # Propagate to any other tab holding diarize segments (translation
-        # tabs spawned from this transcription).
         for i in range(self._tabs.count()):
             w = self._tabs.widget(i)
             if not isinstance(w, QTextEdit):
                 continue
+            if w is not active and (
+                    family is None
+                    or getattr(w, "_audio_path", None) != family):
+                continue
+            w._speaker_name_map = dict(new_map)
             segs = getattr(w, "_diarize_segments", None)
             if segs:
-                w._speaker_name_map = dict(new_map)
                 self._apply_format_to(w, segs, getattr(w, "_raw_text", ""))
 
         # Refresh active tab explicitly too (covers the non-diarize case)
