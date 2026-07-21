@@ -315,6 +315,16 @@ DICTEE_AUDIO_CONTEXT_TIMEOUT=30
 # Managed automatically by dictee-switch-backend, do not modify
 #DICTEE_PRE_DIARIZE_BACKEND=
 
+# Secondary ASR for MOSS transcript holes (spans > 10 s with no output:
+# silent omissions, or a chunk whose decode hit the generation cap).
+# The recovered text is inserted with the UNKNOWN speaker label so the
+# LLM analysis never loses content; an empty result means the hole was
+# silence and only a warning is logged.
+#   parakeet  standalone `transcribe` binary (default)
+#   moss      retry the span with a fresh MOSS window (slower)
+#   none      no patching, warning only
+#DICTEE_MOSS_GAP_ASR=parakeet
+
 # ============================================================================
 # Internal marker — do not modify
 # ============================================================================

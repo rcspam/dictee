@@ -65,6 +65,14 @@ Environment:
     DICTEE_MOSS_SIM_MERGE  cosine similarity for the FINAL ghost-folding
                            pass (default 0.72 — stricter than SIM_NEW: a
                            transitive merge chain amplifies any laxity)
+    DICTEE_MOSS_GAP_ASR    secondary ASR for suspicious holes (> 10 s with
+                           no transcript — silent omissions and truncated
+                           runaway chunks). The recovered text is inserted
+                           with the UNKNOWN label (no speaker claim) so the
+                           LLM analysis never loses content. Values:
+                           parakeet (default, standalone `transcribe`
+                           binary) | moss (retry the span with a fresh MOSS
+                           window) | none (just warn, pre-fix behaviour).
     DICTEE_DEBUG           true = reconciliation diagnostics on stderr
 
 Any GPU, not just NVIDIA (crop2 bench, 2026-07-15): Vulkan on the NVIDIA card
@@ -77,6 +85,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 SAMPLE_RATE = 16000
 MERGE_GAP_S = 2.0
@@ -233,6 +242,104 @@ def _warn_omission_gaps(turns):
         if s2 - e1 > OMISSION_GAP_S:
             _log(f"WARNING: no transcript between {e1:.1f}s and {s2:.1f}s "
                  f"({s2 - e1:.0f}s) — silence, or a silent MOSS omission")
+
+
+def _patch_gaps(turns, gap_asr_fn, min_gap_s=OMISSION_GAP_S):
+    """Fill suspicious holes with a secondary ASR so the downstream LLM
+    analysis never loses content (user decision 2026-07-21). The patch is
+    labeled UNKNOWN — no speaker claim is made — which DIARIZE_RE already
+    accepts end to end (UI, export, LLM layer). An empty ASR result means
+    the hole was silence: nothing is inserted and the existing warning
+    stands. `gap_asr_fn(start, end)` returns the transcript of that span
+    (pure injection, so this logic is unit-tested without engines)."""
+    patches = []
+    for (s1, e1, _l1, _t1), (s2, _e2, _l2, _t2) in zip(turns, turns[1:]):
+        if s2 - e1 <= min_gap_s:
+            continue
+        text = (gap_asr_fn(e1, s2) or "").strip()
+        if text:
+            patches.append((e1, s2, None, text))
+            _log(f"gap {e1:.1f}s-{s2:.1f}s patched by the secondary ASR "
+                 f"({len(text.split())} words, UNKNOWN label)")
+    if patches:
+        turns = sorted(turns + patches, key=lambda t: t[0])
+    return turns
+
+
+def _resolve_gap_asr(pcm, model_path):
+    """Build the secondary-ASR callable for _patch_gaps, honouring the
+    user's DICTEE_MOSS_GAP_ASR choice (dictee.conf reaches this driver
+    through the UI env injection):
+      parakeet  (default) standalone `transcribe` binary — present in
+                every dictee install, loads Parakeet-TDT itself
+      moss      retry the span with a fresh MOSS window (different
+                context than the failed chunk, so a runaway decode
+                usually un-sticks; slower: reloads the model per gap)
+      none      disable patching (pre-2026-07-21 behaviour)
+    Returns None when disabled or when the engine is unavailable."""
+    import shutil
+
+    choice = (os.environ.get("DICTEE_MOSS_GAP_ASR") or "parakeet").strip().lower()
+    if choice in ("none", "off", "0", "false"):
+        return None
+
+    if choice == "moss":
+        def run_moss(start, end):
+            import transcribe_cpp
+            seg = pcm[int(start * SAMPLE_RATE):int(end * SAMPLE_RATE)]
+            try:
+                with transcribe_cpp.Model(model_path) as model:
+                    with model.session() as session:
+                        text = session.run(seg).text
+            except transcribe_cpp.errors.TranscribeError as e:
+                _log(f"gap retry with MOSS failed ({e.__class__.__name__}) "
+                     f"— hole kept")
+                return ""
+            # Labels of a fresh call are local noise; keep the words only.
+            return " ".join(t[3] for t in _parse_turns(text))
+        return run_moss
+
+    if choice != "parakeet":
+        _log(f"WARNING: unknown DICTEE_MOSS_GAP_ASR={choice!r} — "
+             f"falling back to parakeet")
+    if not shutil.which("transcribe"):
+        _log("WARNING: `transcribe` not on PATH — gap patching disabled")
+        return None
+
+    def run_parakeet(start, end):
+        import struct
+        import wave
+        seg = pcm[int(start * SAMPLE_RATE):int(end * SAMPLE_RATE)]
+        fd, wav_path = tempfile.mkstemp(prefix="dictee-moss-gap-",
+                                        suffix=".wav")
+        os.close(fd)
+        try:
+            with wave.open(wav_path, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(SAMPLE_RATE)
+                ints = [max(-32768, min(32767, int(x * 32767.0)))
+                        for x in seg]
+                w.writeframes(struct.pack(f"<{len(ints)}h", *ints))
+            env = os.environ.copy()
+            # CUDA builds resolve ORT dynamically (load-dynamic): without
+            # this the binary silently falls back to CPU.
+            ort = "/usr/lib/dictee/libonnxruntime.so"
+            if os.path.isfile(ort):
+                env.setdefault("ORT_DYLIB_PATH", ort)
+            r = subprocess.run(["transcribe", wav_path],
+                               capture_output=True, timeout=600, env=env)
+            if r.returncode != 0:
+                _log("gap retry with parakeet failed "
+                     f"(exit {r.returncode}) — hole kept")
+                return ""
+            return r.stdout.decode("utf-8", "replace").strip()
+        finally:
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
+    return run_parakeet
 
 
 # ---------------------------------------------------------------------------
@@ -478,14 +585,28 @@ def _transcribe_chunked(pcm, model_path, chunk_s, overlap_s):
                 if len(seg) < SAMPLE_RATE and chunks:
                     break  # sub-second tail: fully covered by the overlap
                 t0 = time.monotonic()
-                text = session.run(seg).text
+                truncated = False
+                try:
+                    text = session.run(seg).text
+                except transcribe_cpp.errors.OutputTruncated as e:
+                    # Runaway decode on one chunk (generation cap hit —
+                    # observed 2026-07-21 on a 17-min voice memo, chunk 9):
+                    # the C API preserves the partial transcript on the
+                    # exception. One bad chunk degrades to a partial chunk,
+                    # it must NEVER kill the whole run. The unterminated
+                    # tail is dropped by _parse_turns (no [end] tag).
+                    truncated = True
+                    text = (e.partial_result.text
+                            if getattr(e, "partial_result", None) else "")
                 turns = _parse_turns(text, offset=st)
                 chunks.append((st, turns))
                 _log(f"chunk {len(chunks) - 1} "
                      f"[{st:.0f}-{min(st + chunk_s, dur):.0f}s]: "
                      f"{len(turns)} turns, "
                      f"{len({t2[2] for t2 in turns})} speakers, "
-                     f"{time.monotonic() - t0:.1f}s")
+                     f"{time.monotonic() - t0:.1f}s"
+                     + (" — OUTPUT TRUNCATED, partial transcript kept"
+                        if truncated else ""))
     return chunks
 
 
@@ -638,13 +759,20 @@ def main():
                     result = session.run(pcm)
             turns = _parse_turns(result.text)
             raw_head = result.text[:200]
-        except transcribe_cpp.errors.OutOfMemory:
+        except (transcribe_cpp.errors.OutOfMemory,
+                transcribe_cpp.errors.OutputTruncated) as e:
+            # Same recovery for both: the file exceeds what one pass can
+            # hold on this device (KV cache VRAM, or the generation cap —
+            # the latter also preserves a partial transcript, but chunked
+            # gives the complete one, so prefer the retry).
+            _kind = ("out of memory" if isinstance(
+                e, transcribe_cpp.errors.OutOfMemory) else "output truncated")
             if _forced in ("0", "false") or dur <= args.chunk_secs:
-                _log("out of memory in one-pass mode — the audio does not "
+                _log(f"{_kind} in one-pass mode — the audio does not "
                      "fit this device; unset DICTEE_MOSS_CHUNKED to let "
                      "the driver chunk it")
                 return 1
-            _log(f"out of memory in one-pass mode on {dur / 60:.0f} min of "
+            _log(f"{_kind} in one-pass mode on {dur / 60:.0f} min of "
                  f"audio — retrying chunked")
             turns = run_chunked()
 
@@ -654,9 +782,13 @@ def main():
         if raw_head:
             _log(f"raw output head: {raw_head!r}")
         return 1
+    gap_asr = _resolve_gap_asr(pcm, model_path)
+    if gap_asr is not None:
+        turns = _patch_gaps(turns, gap_asr)
     _warn_omission_gaps(turns)
     for start, end, spk, words in turns:
-        print(f"[{start:.2f}s - {end:.2f}s] Speaker {spk}: {words}")
+        label = "UNKNOWN" if spk is None else f"Speaker {spk}"
+        print(f"[{start:.2f}s - {end:.2f}s] {label}: {words}")
     return 0
 
 
