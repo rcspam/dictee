@@ -2714,7 +2714,6 @@ class TranscribeWindow(QDialog):
         self._isolated_daemon = None  # ad-hoc isolated ASR daemon (Task 5b)
         self._stdout_buf = QByteArray()
         self._segments = []
-        self._raw_text = ""  # raw transcription output (stored for reformat)
         self._was_diarized = False  # whether last transcription used diarization
         # Per-window display map: {canonical_id -> custom_name}. Never mutates
         # seg["speaker"] — consulted only at render time by the format fns.
@@ -3569,6 +3568,22 @@ class TranscribeWindow(QDialog):
         editor._audio_duration = 0.0
         editor._segment_positions = []
 
+    def _active_tab_attr(self, name, default):
+        """Read a per-tab attribute from the active tab (used by the
+        read-only projections below). Mirrors what _on_tab_changed used
+        to copy onto the window: non-QTextEdit tabs and the pre-build
+        window yield the empty defaults."""
+        tabs = getattr(self, '_tabs', None)
+        widget = tabs.currentWidget() if tabs is not None else None
+        return getattr(widget, name, default) if widget is not None else default
+
+    @property
+    def _raw_text(self):
+        """Read-only projection: the active tab's raw engine output.
+        Writers must target a tab's `_raw_text` directly. Returns the
+        tab's live value — copy before mutating."""
+        return self._active_tab_attr('_raw_text', "")
+
     def _on_tab_close(self, index):
         """Close a tab and abort whatever work is feeding it.
 
@@ -3726,11 +3741,12 @@ class TranscribeWindow(QDialog):
         tgt = self._cmb_lang_tgt.currentData()
         translating = self._translate_thread and self._translate_thread.isRunning()
         # The translation source is always the original transcription
-        # (self._raw_text), so the button only depends on whether the
-        # original tab has produced text — not on which tab is active.
+        # (the last transcription tab, self._text_edit), so the button
+        # only depends on whether that tab has produced text — not on
+        # which tab is active.
         self._btn_translate.setEnabled(
             bool(tgt)
-            and bool(self._raw_text)
+            and bool(getattr(self._text_edit, '_raw_text', ''))
             and _translate_available(self._cmb_backend.currentData())
             and not self._chk_auto_translate.isChecked()
             and not translating)
@@ -4503,7 +4519,6 @@ class TranscribeWindow(QDialog):
         # call _stop_all_spinners() when results land.
         self._start_tab_spinner(self._text_edit, tab_name)
         self._segments = []
-        self._raw_text = ""
         self._stdout_buf = QByteArray()
         self._start_time = time.monotonic()
         self._translate_elapsed = 0.0
@@ -5101,7 +5116,7 @@ class TranscribeWindow(QDialog):
 
         if not raw_output:
             self._run_status(_("No transcription result."))
-            self._raw_text = ""
+            target._raw_text = ""
             self._segments = []
             self._refresh_rename_panel_for_target(target)
             self._update_translate_btn()
@@ -5125,7 +5140,6 @@ class TranscribeWindow(QDialog):
         else:
             self._segments = []
             raw_output = _clean_segment_text(_postprocess(raw_output))
-        self._raw_text = raw_output
         # Store data on the tab widget for per-tab translation & markers
         target._raw_text = raw_output
         target._was_diarized = self._was_diarized
@@ -5293,7 +5307,7 @@ class TranscribeWindow(QDialog):
                     code=exit_code))
             if raw_output:
                 target.setPlainText(raw_output)
-            self._raw_text = ""
+            target._raw_text = ""
             self._segments = []
             self._refresh_rename_panel_for_target(target)
             self._transcription_in_progress = False
@@ -5304,7 +5318,7 @@ class TranscribeWindow(QDialog):
 
         if not raw_output:
             self._run_status(_("No transcription result."))
-            self._raw_text = ""
+            target._raw_text = ""
             self._segments = []
             self._refresh_rename_panel_for_target(target)
             self._transcription_in_progress = False
@@ -5332,7 +5346,6 @@ class TranscribeWindow(QDialog):
             # Post-process plain transcription
             raw_output = _postprocess(raw_output)
 
-        self._raw_text = raw_output
         # Store data on the tab widget for per-tab translation & markers
         target._raw_text = raw_output
         target._was_diarized = self._was_diarized
@@ -5427,8 +5440,7 @@ class TranscribeWindow(QDialog):
         its own _raw_text / _diarize_segments / _was_diarized fixed
         for the session, so we read from there.
         """
-        raw_text = (getattr(self._text_edit, '_raw_text', '')
-                    or self._raw_text)
+        raw_text = getattr(self._text_edit, '_raw_text', '')
         segments = (getattr(self._text_edit, '_diarize_segments', None)
                     or self._segments)
         was_diarized = getattr(self._text_edit, '_was_diarized',
@@ -6150,8 +6162,7 @@ class TranscribeWindow(QDialog):
                             or self._segments or [])
         is_plain = not raw_segments
         if is_plain:
-            raw_text = (getattr(src_widget, "_raw_text", "")
-                        or self._raw_text)
+            raw_text = getattr(src_widget, "_raw_text", "")
             if raw_text:
                 raw_segments = [{
                     "start": 0.0, "end": 0.0,
