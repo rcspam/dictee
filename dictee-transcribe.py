@@ -2713,7 +2713,6 @@ class TranscribeWindow(QDialog):
         self._run_tab = None  # tab the in-flight run writes into
         self._isolated_daemon = None  # ad-hoc isolated ASR daemon (Task 5b)
         self._stdout_buf = QByteArray()
-        self._was_diarized = False  # whether last transcription used diarization
         # Per-window display map: {canonical_id -> custom_name}. Never mutates
         # seg["speaker"] — consulted only at render time by the format fns.
         self._speaker_name_map = {}
@@ -3584,6 +3583,12 @@ class TranscribeWindow(QDialog):
         return self._active_tab_attr('_raw_text', "")
 
     @property
+    def _was_diarized(self):
+        """Read-only projection: whether the active tab's run used
+        diarization. Writers must target a tab's `_was_diarized`."""
+        return bool(self._active_tab_attr('_was_diarized', False))
+
+    @property
     def _segments(self):
         """Read-only projection: the active tab's parsed segments
         (stored as `_diarize_segments` on the tab — historical naming).
@@ -4288,11 +4293,10 @@ class TranscribeWindow(QDialog):
         # switching from a diarized tab to a plain-text tab correctly
         # resets the flag — otherwise downstream code (_apply_format,
         # _show_status, etc.) would still treat the active tab as diarized.
-        self._was_diarized = bool(getattr(widget, '_was_diarized', False))
         self._speaker_name_map = dict(
             getattr(widget, "_speaker_name_map", {}) or {})
         if hasattr(self, '_grp_rename'):
-            if self._was_diarized and segs:
+            if bool(getattr(widget, '_was_diarized', False)) and segs:
                 self._populate_rename_fields()
             else:
                 self._grp_rename.setVisible(False)
@@ -4480,7 +4484,6 @@ class TranscribeWindow(QDialog):
         self._isolated_recipe = asr_spec_to_daemon(_spec)
 
         # Create a new tab for this transcription (keep previous tabs)
-        self._was_diarized = False
         # Name tab after mode + sensitivity + counter
         if not hasattr(self, '_transcription_counter'):
             self._transcription_counter = 0
@@ -4650,7 +4653,6 @@ class TranscribeWindow(QDialog):
                  f"(dur={self._audio_duration:.1f}s, diarize={diarize}, "
                  f"chunk={_ChunkedPipelineWorker.CHUNK_SECONDS}s, "
                  f"sens={sensitivity:.2f})")
-            self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
                 audio_path, sensitivity, diarize=diarize, parent=self,
@@ -4960,13 +4962,9 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_diarize_done: output_len={len(raw_output)}, btn_enabled_before={self._btn_transcribe.isEnabled()}")
         self._diarize_worker = None
         # _DiarizeTranscribeWorker is only spawned for two-phase diarize
-        # mode, so the result is always diarized text. _finish_transcription
-        # now honours the flag instead of forcing True (so the chunked
-        # diarize=False path can route through it too) — set it explicitly
-        # here, otherwise the rename panel and DIARIZE_RE parsing get
-        # skipped on every two-phase short-file diarization.
-        self._was_diarized = True
-        self._finish_transcription(raw_output, self._run_tab or self._text_edit)
+        # mode, so the result is always diarized text.
+        self._finish_transcription(
+            raw_output, self._run_tab or self._text_edit, was_diarized=True)
         # Tear down the ad-hoc isolated whisper daemon (if any) and restore
         # the F9 daemon if the VRAM-free block stopped it (no-op otherwise).
         self._stop_isolated_daemon()
@@ -5017,16 +5015,10 @@ class TranscribeWindow(QDialog):
         worker = self._chunked_worker
         self._chunked_worker = None
         self._btn_cancel.setVisible(False)
-        # self._was_diarized is a shared flag that _on_tab_changed overwrites
-        # with the visible tab's value; a tab switch during the (minutes-long)
-        # chunked run can flip it, making _finish_transcription skip DIARIZE_RE
-        # parsing — no grouping, rename panel, slider markers or speaker count,
-        # and dictee-postprocess then mangles the raw "Speaker N:" labels.
-        # Re-affirm from this run's worker, mirroring _on_diarize_done.
-        if worker is not None:
-            self._was_diarized = worker._diarize
         self._restart_daemon_if_stopped()
-        self._finish_transcription(raw_output, self._run_tab or self._text_edit)
+        self._finish_transcription(
+            raw_output, self._run_tab or self._text_edit,
+            was_diarized=worker._diarize if worker is not None else False)
 
     def _on_chunked_error(self, msg):
         """Pipeline failed at some phase (or user cancelled): surface
@@ -5099,10 +5091,12 @@ class TranscribeWindow(QDialog):
             return
         _dbg("_on_cancel_run: nothing to cancel")
 
-    def _finish_transcription(self, raw_output, target):
+    def _finish_transcription(self, raw_output, target, was_diarized):
         """Common finish logic for both single-phase and two-phase
         diarization. `target` is the run's tab, captured at run start —
-        results land there even if the user switched tabs meanwhile."""
+        results land there even if the user switched tabs meanwhile.
+        `was_diarized` comes from the run itself (caller), never from
+        shared state a tab switch could have clobbered."""
         self._progress.setVisible(False)
         self._btn_cancel.setVisible(False)
         self._stop_run_ticker()
@@ -5123,11 +5117,10 @@ class TranscribeWindow(QDialog):
             return
 
         self._retry_done = False
-        # _was_diarized is set by the caller (chunked or two-phase) before
-        # we land here — honour it instead of forcing True. The chunked
-        # pipeline now also services diarize=False (long plain transcription
-        # on CUDA), and that path emits plain text rather than DIARIZE_RE.
-        if self._was_diarized:
+        # The chunked pipeline also services diarize=False (long plain
+        # transcription on CUDA), and that path emits plain text rather
+        # than DIARIZE_RE — hence the caller-provided flag.
+        if was_diarized:
             segments = _parse_diarize_output(raw_output)
             # Post-process each segment's text through dictee-postprocess
             for seg in segments:
@@ -5141,7 +5134,7 @@ class TranscribeWindow(QDialog):
             raw_output = _clean_segment_text(_postprocess(raw_output))
         # Store data on the tab widget for per-tab translation & markers
         target._raw_text = raw_output
-        target._was_diarized = self._was_diarized
+        target._was_diarized = was_diarized
         target._diarize_segments = segments
         # Fresh transcription: no speaker renames to inherit. Reset the shared
         # map (a mid-run tab switch may have populated it from another tab via
@@ -5158,7 +5151,7 @@ class TranscribeWindow(QDialog):
         # Apply speaker names transferred from meeting-live (speakers.json).
         # _populate_rename_fields has already built the QLineEdits above, so
         # _prefill_rename_panel can fill them immediately.
-        if getattr(self, "_pending_speakers_data", None) and self._was_diarized and segments:
+        if getattr(self, "_pending_speakers_data", None) and was_diarized and segments:
             try:
                 name_map = self._pending_speakers_data.get("name_map", {})
                 anchors = self._pending_speakers_data.get("anchors", {})
@@ -5330,10 +5323,10 @@ class TranscribeWindow(QDialog):
         self._retry_done = False
         _dbg(f"_on_finished: success, diarized={self._chk_diarize.isChecked()}, raw_len={len(raw_output)}")
 
-        # Store raw result for reformatting
-        self._was_diarized = self._chk_diarize.isChecked()
+        # This run's diarize setting, read from the checkbox that drove it
+        was_diarized = self._chk_diarize.isChecked()
 
-        if self._was_diarized:
+        if was_diarized:
             segments = _parse_diarize_output(raw_output)
             # Post-process each segment's text
             for seg in segments:
@@ -5348,7 +5341,7 @@ class TranscribeWindow(QDialog):
 
         # Store data on the tab widget for per-tab translation & markers
         target._raw_text = raw_output
-        target._was_diarized = self._was_diarized
+        target._was_diarized = was_diarized
         target._diarize_segments = segments
         # Fresh transcription: no speaker renames to inherit. Reset the shared
         # map (a mid-run tab switch may have populated it from another tab via
@@ -5405,9 +5398,10 @@ class TranscribeWindow(QDialog):
         dur = self._audio_duration
         dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
         segs = getattr(target, '_diarize_segments', [])
+        was_diarized = bool(getattr(target, '_was_diarized', False))
         n_speakers = len(set(s["speaker"] for s in segs)) if segs else 0
         parts = []
-        if self._was_diarized and segs:
+        if was_diarized and segs:
             parts.append(_("{n} speaker(s)").format(n=n_speakers))
         parts.append(_("audio {dur}").format(dur=dur_str))
         parts.append(_("transcribed in {t}").format(
@@ -5419,7 +5413,7 @@ class TranscribeWindow(QDialog):
         # The summary belongs to the target tab: stored for the tab-switch
         # restore (the status row follows the tabs, 2026-07-21).
         target._status_text = text
-        if self._was_diarized and hasattr(self, "_lbl_rename_status"):
+        if was_diarized and hasattr(self, "_lbl_rename_status"):
             self._lbl_rename_status.setText(text)
             self._lbl_status.setText("")
             self._lbl_status.setVisible(False)
@@ -5441,8 +5435,7 @@ class TranscribeWindow(QDialog):
         """
         raw_text = getattr(self._text_edit, '_raw_text', '')
         segments = getattr(self._text_edit, '_diarize_segments', None) or []
-        was_diarized = getattr(self._text_edit, '_was_diarized',
-                               self._was_diarized)
+        was_diarized = getattr(self._text_edit, '_was_diarized', False)
         if not raw_text:
             return
         # Prevent concurrent translation
@@ -5669,18 +5662,16 @@ class TranscribeWindow(QDialog):
         to translation tabs.
 
         Reads `was_diarized` from the editor itself (per-tab flag set by
-        _finish_transcription / _on_finished / _on_translate_done) rather
-        than self._was_diarized — the instance flag tracks the *active*
-        tab, but this method may be called for a non-active tab (e.g. a
+        _finish_transcription / _on_finished / _on_translate_done) —
+        this method may be called for a non-active tab (e.g. a
         translation tab being rendered after the user switched away from
         the source tab, or _apply_speaker_rename's loop over all diarize
-        tabs). Anchoring on self._was_diarized would render the editor as
-        plain text with raw_text=None and yield an empty tab.
+        tabs), so the active tab's flag would be the wrong anchor.
         """
         fmt = self._cmb_format.currentData()
         name_map = getattr(editor, "_speaker_name_map", None) \
             or getattr(self, "_speaker_name_map", None)
-        was_diarized = bool(getattr(editor, "_was_diarized", self._was_diarized))
+        was_diarized = bool(getattr(editor, "_was_diarized", False))
 
         if was_diarized and segments:
             if fmt == "srt":
@@ -5897,7 +5888,8 @@ class TranscribeWindow(QDialog):
         """
         if self._tabs.currentWidget() is not target:
             return
-        if self._was_diarized and getattr(target, '_diarize_segments', None):
+        if (getattr(target, '_was_diarized', False)
+                and getattr(target, '_diarize_segments', None)):
             self._populate_rename_fields()
         else:
             self._grp_rename.setVisible(False)
