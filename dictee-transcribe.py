@@ -6152,12 +6152,11 @@ class TranscribeWindow(QDialog):
     def _on_llm_process(self):
         """Open the LLM analysis dialog.
 
-        The source is **always the original transcription** (read from
-        self._text_edit), never the currently active tab — same
-        principle as _on_translate (commit 7da1705). Analysing a
-        translated tab would feed the LLM text that has already lost
-        nuances; the original is the source of truth, and the LLM's
-        output is forced to the user's native language anyway.
+        The source is the ACTIVE tab (the one the user clicked from):
+        its segments and raw text feed the LLM. Analysing a translation
+        tab therefore analyses the translated text — acceptable since
+        the LLM's output language is forced to the user's native
+        language anyway.
 
         If the original is plain (no diarization), the raw text is
         wrapped in a single synthetic segment so global-mode profiles
@@ -6415,6 +6414,7 @@ class TranscribeWindow(QDialog):
                 segments = None
                 name_map = None
                 displayed_fmt = None
+                tab_raw = ""
                 edited = False
                 for i in range(self._tabs.count()):
                     if self._tabs.tabText(i) == tab_name:
@@ -6422,6 +6422,7 @@ class TranscribeWindow(QDialog):
                         segments = getattr(w, '_diarize_segments', None)
                         name_map = getattr(w, '_speaker_name_map', None)
                         displayed_fmt = getattr(w, '_format', None)
+                        tab_raw = getattr(w, '_raw_text', "")
                         baseline = getattr(w, '_rendered_baseline', None)
                         edited = baseline is not None and w.toPlainText() != baseline
                         break
@@ -6445,11 +6446,14 @@ class TranscribeWindow(QDialog):
                     elif segments and fmt == "json":
                         content = _format_json(segments, name_map)
                     elif fmt == "json":
-                        raw = (getattr(self._text_edit, "_raw_text", "")
+                        # Segment-less tab: export ITS raw text, never
+                        # another tab's (this used to read self._text_edit,
+                        # i.e. the last created run's transcript).
+                        raw = (tab_raw
                                if tab_name == self._tabs.tabText(0) else text)
                         content = json.dumps([{"text": raw}], ensure_ascii=False, indent=2)
                     elif fmt == "srt":
-                        raw = (getattr(self._text_edit, "_raw_text", "")
+                        raw = (tab_raw
                                if tab_name == self._tabs.tabText(0) else text)
                         content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
 
