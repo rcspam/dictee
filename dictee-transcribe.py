@@ -3451,9 +3451,6 @@ class TranscribeWindow(QDialog):
         # Original tab is not closable
         self._tabs.tabBar().setTabButton(0, self._tabs.tabBar().ButtonPosition.RightSide, None)
 
-        # Dict of translation tabs: lang_code -> {editor, segments, text}
-        self._translation_tabs = {}
-
         pad_text.addWidget(self._tabs, 1)
 
         # -- Search bar (works on active tab) --
