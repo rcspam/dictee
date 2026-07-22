@@ -5125,6 +5125,100 @@ class TranscribeWindow(QDialog):
             return
         _dbg("_on_cancel_run: nothing to cancel")
 
+    def _postprocess_run_output(self, raw_output, was_diarized):
+        """Parse and post-process a finished run's raw output into
+        (segments, cleaned_raw_output). Single code path for both
+        finishers — the QProcess path used to skip _clean_segment_text
+        on plain transcriptions, keeping stray control characters."""
+        if was_diarized:
+            segments = _parse_diarize_output(raw_output)
+            # Post-process each segment's text through dictee-postprocess
+            for seg in segments:
+                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
+            # Rebuild raw_output with post-processed text
+            raw_output = "\n".join(
+                f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
+                for seg in segments) if segments else raw_output
+        else:
+            segments = []
+            raw_output = _clean_segment_text(_postprocess(raw_output))
+        return segments, raw_output
+
+    def _apply_speakers_json(self, target, segments, was_diarized):
+        """Apply speaker names transferred from meeting-live
+        (speakers.json), once, to the run that carried them."""
+        if not (getattr(self, "_pending_speakers_data", None)
+                and was_diarized and segments):
+            return
+        try:
+            name_map = self._pending_speakers_data.get("name_map", {})
+            anchors = self._pending_speakers_data.get("anchors", {})
+            matched = self._match_anchors_to_batch_speakers(
+                name_map, anchors, segments)
+            if matched:
+                target._speaker_name_map = dict(matched)
+                # The QLineEdits belong to the ACTIVE tab
+                # (_populate_rename_fields) — prefill them only when the
+                # target is the tab on screen, otherwise the names of
+                # this run would land in another tab's visible fields.
+                if self._tabs.currentWidget() is target:
+                    self._prefill_rename_panel(matched)
+                _dbg(f"speakers.json applied: {matched}")
+        except Exception as _e:
+            _dbg(f"speakers.json apply error: {_e!r}")
+        finally:
+            self._pending_speakers_data = None  # consume once
+
+    def _land_run_results(self, target, segments, raw_output, was_diarized):
+        """Common success tail of both finishers: store the results on
+        the target tab and re-project everything that depends on them.
+        Leaves _transcription_in_progress and auto-translate to the
+        callers — their required ordering around this tail differs.
+
+        NB: language auto-detection removed deliberately. The source
+        language combo reflects the user's choice (DICTEE_LANG_SOURCE),
+        which also drives the LLM Diarization output language.
+        """
+        # Store data on the tab widget for per-tab translation & markers
+        target._raw_text = raw_output
+        target._was_diarized = was_diarized
+        target._diarize_segments = segments
+        # Fresh transcription: no speaker renames to inherit — the new tab
+        # never shows another tab's speaker names. (A meeting-live
+        # speakers.json pre-naming, if any, is applied just below.)
+        target._speaker_name_map = {}
+
+        # Rebuild the rename panel for the new speakers — only when the
+        # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
+        self._refresh_rename_panel_for_target(target)
+        self._apply_speakers_json(target, segments, was_diarized)
+
+        # Render into the target tab explicitly, not the active one — the
+        # user may have switched tabs while the transcription was running.
+        self._apply_format_to(target, segments, raw_output)
+        # Only switch the player to the target tab's audio if that tab is
+        # currently visible: yanking the audio of the tab the user is
+        # listening to would be intrusive. _on_tab_changed reloads the
+        # right audio when the user comes back to the target.
+        if self._tabs.currentWidget() is target:
+            tab_audio = getattr(target, '_audio_path', None)
+            if tab_audio and os.path.isfile(tab_audio):
+                if self._player.source().toLocalFile() != tab_audio:
+                    self._load_audio(tab_audio)
+        self._update_player_markers(target)
+        target._transcribe_elapsed = time.monotonic() - self._start_time
+        self._update_translate_btn()
+        self._show_status(target)
+
+    def _maybe_auto_translate(self, target):
+        """Kick auto-translate for the just-finished run. The source
+        language is auto-detected inside _on_translate; same-language
+        translations are short-circuited there too."""
+        if (self._chk_auto_translate.isChecked()
+                and _translate_available(self._cmb_backend.currentData())
+                and self._cmb_lang_tgt.currentData()):
+            self._on_translate(source=target)
+
     def _finish_transcription(self, raw_output, target, was_diarized):
         """Common finish logic for both single-phase and two-phase
         diarization. `target` is the run's tab, captured at run start —
@@ -5154,91 +5248,10 @@ class TranscribeWindow(QDialog):
         # The chunked pipeline also services diarize=False (long plain
         # transcription on CUDA), and that path emits plain text rather
         # than DIARIZE_RE — hence the caller-provided flag.
-        if was_diarized:
-            segments = _parse_diarize_output(raw_output)
-            # Post-process each segment's text through dictee-postprocess
-            for seg in segments:
-                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
-            # Rebuild raw_output with post-processed text
-            raw_output = "\n".join(
-                f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
-                for seg in segments) if segments else raw_output
-        else:
-            segments = []
-            raw_output = _clean_segment_text(_postprocess(raw_output))
-        # Store data on the tab widget for per-tab translation & markers
-        target._raw_text = raw_output
-        target._was_diarized = was_diarized
-        target._diarize_segments = segments
-        # Fresh transcription: no speaker renames to inherit — the new tab
-        # never shows another tab's speaker names. (A meeting-live
-        # speakers.json pre-naming, if any, is applied just below.)
-        target._speaker_name_map = {}
-
-        # Rebuild the rename panel for the new speakers — only when the
-        # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
-        self._refresh_rename_panel_for_target(target)
-
-        # Apply speaker names transferred from meeting-live (speakers.json).
-        # _populate_rename_fields has already built the QLineEdits above, so
-        # _prefill_rename_panel can fill them immediately.
-        if getattr(self, "_pending_speakers_data", None) and was_diarized and segments:
-            try:
-                name_map = self._pending_speakers_data.get("name_map", {})
-                anchors = self._pending_speakers_data.get("anchors", {})
-                matched = self._match_anchors_to_batch_speakers(
-                    name_map, anchors, segments)
-                if matched:
-                    target._speaker_name_map = dict(matched)
-                    self._prefill_rename_panel(matched)
-                    _dbg(f"speakers.json applied: {matched}")
-            except Exception as _e:
-                _dbg(f"speakers.json apply error: {_e!r}")
-            finally:
-                self._pending_speakers_data = None  # consume once
-
-        # NB: language auto-detection removed deliberately. The source
-        # language combo reflects the user's choice (and DICTEE_LANG_SOURCE
-        # in dictee.conf), which is also what drives the LLM Diarization
-        # output language. Detecting & overwriting it here used to flip
-        # the combo to the audio's language — so a French user analysing
-        # an English meeting got the LLM summary in English.
-
-        # Render into the target tab explicitly, not the active one — the
-        # user may have switched tabs while the transcription was running,
-        # in which case self._apply_format() would format the visible tab's
-        # (empty) segments and the target tab would stay blank. Mirrors the
-        # pattern already used by _on_translate_done.
-        self._apply_format_to(target, segments, raw_output)
-        # Make sure the player is on this tab's audio file. The user may
-        # have browsed to a different file while the transcription was
-        # running, so QMediaPlayer.source could point elsewhere — without
-        # this check the timeline would inherit the unrelated file's
-        # duration after the transcription lands.
-        # Only switch the player to the target tab's audio if that tab is
-        # currently visible. Otherwise the user is listening to (or about to
-        # listen to) the audio of another tab — interrupting that with the
-        # newly-finished tab's file would be intrusive. _on_tab_changed
-        # reloads the right audio when the user comes back to the target.
-        # Same target-aware family as _apply_format_to and
-        # _refresh_rename_panel_for_target.
-        if self._tabs.currentWidget() is target:
-            tab_audio = getattr(target, '_audio_path', None)
-            if tab_audio and os.path.isfile(tab_audio):
-                if self._player.source().toLocalFile() != tab_audio:
-                    self._load_audio(tab_audio)
-        self._update_player_markers(target)
-        target._transcribe_elapsed = time.monotonic() - self._start_time
-        self._update_translate_btn()
-        self._show_status(target)
-
-        # Auto-translate if checked and a target is selected. The
-        # source language is auto-detected inside _on_translate; same-
-        # language translations are short-circuited there too.
-        if (self._chk_auto_translate.isChecked()
-                and _translate_available(self._cmb_backend.currentData())
-                and self._cmb_lang_tgt.currentData()):
-            self._on_translate(source=target)
+        segments, raw_output = self._postprocess_run_output(
+            raw_output, was_diarized)
+        self._land_run_results(target, segments, raw_output, was_diarized)
+        self._maybe_auto_translate(target)
 
     def _on_finished(self, exit_code, _exit_status):
         if hasattr(self, '_process_timer'):
@@ -5361,46 +5374,12 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_finished: success, diarized={self._chk_diarize.isChecked()}, raw_len={len(raw_output)}")
 
         # This run's diarize setting, read from the checkbox that drove it
+        # (safe: the checkbox is disabled for the whole run).
         was_diarized = self._chk_diarize.isChecked()
 
-        if was_diarized:
-            segments = _parse_diarize_output(raw_output)
-            # Post-process each segment's text
-            for seg in segments:
-                seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
-            raw_output = "\n".join(
-                f"[{seg['start']:.2f}s - {seg['end']:.2f}s] {seg['speaker']}: {seg['text']}"
-                for seg in segments) if segments else raw_output
-        else:
-            # Post-process plain transcription
-            segments = []
-            raw_output = _postprocess(raw_output)
-
-        # Store data on the tab widget for per-tab translation & markers
-        target._raw_text = raw_output
-        target._was_diarized = was_diarized
-        target._diarize_segments = segments
-        # Fresh transcription: no speaker renames to inherit — the new
-        # tab never shows another tab's speaker names.
-        target._speaker_name_map = {}
-
-        # Rebuild (or hide) the speaker rename panel — only when the target
-        # tab is visible (cf. _refresh_rename_panel_for_target docstring).
-        self._refresh_rename_panel_for_target(target)
-
-        # NB: language auto-detection removed deliberately (same as in
-        # _finish_transcription). The source combo stays on the user's
-        # choice — DICTEE_LANG_SOURCE in dictee.conf — which is also
-        # what the LLM Diarization output language is bound to.
-        # Display in current format — render into the target tab, not the
-        # active one (the user may have switched tabs during transcription).
-        # See _finish_transcription for the same pattern + rationale.
-        self._apply_format_to(target, segments, raw_output)
-        self._update_player_markers(target)
-        target._transcribe_elapsed = time.monotonic() - self._start_time
-        self._update_translate_btn()
-
-        self._show_status(target)
+        segments, raw_output = self._postprocess_run_output(
+            raw_output, was_diarized)
+        self._land_run_results(target, segments, raw_output, was_diarized)
 
         # Run is genuinely done — release the gating flag and refresh
         # button states (this also enables the diarize toggle, the
@@ -5408,13 +5387,7 @@ class TranscribeWindow(QDialog):
         self._transcription_in_progress = False
         self._update_transcribe_btn()
 
-        # Auto-translate if checked and a target is selected. The
-        # source language is auto-detected inside _on_translate; same-
-        # language translations are short-circuited there too.
-        if (self._chk_auto_translate.isChecked()
-                and _translate_available(self._cmb_backend.currentData())
-                and self._cmb_lang_tgt.currentData()):
-            self._on_translate(source=target)
+        self._maybe_auto_translate(target)
 
     def _show_status(self, target):
         """Show final status with timing and speaker info; store the
