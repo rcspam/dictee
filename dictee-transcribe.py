@@ -3770,13 +3770,15 @@ class TranscribeWindow(QDialog):
     def _update_translate_btn(self):
         tgt = self._cmb_lang_tgt.currentData()
         translating = self._translate_thread and self._translate_thread.isRunning()
-        # The translation source is always the original transcription
-        # (the last transcription tab, self._text_edit), so the button
-        # only depends on whether that tab has produced text — not on
-        # which tab is active.
+        # The translation source follows the active tab (the run it is
+        # a view of, cf. _on_translate) — the button reflects whether
+        # THAT run has produced text. _on_tab_changed re-projects this
+        # on every switch.
+        src = (getattr(self._active_editor(), '_rename_family', None)
+               or self._text_edit)
         self._btn_translate.setEnabled(
             bool(tgt)
-            and bool(getattr(self._text_edit, '_raw_text', ''))
+            and bool(getattr(src, '_raw_text', ''))
             and _translate_available(self._cmb_backend.currentData())
             and not self._chk_auto_translate.isChecked()
             and not translating)
@@ -4340,6 +4342,10 @@ class TranscribeWindow(QDialog):
                     self._cmb_format.setCurrentIndex(idx)
                 finally:
                     self._cmb_format.blockSignals(False)
+
+        # The Translate button follows the active tab's run (its source
+        # family) — re-project its enabled state on every switch.
+        self._update_translate_btn()
 
         # Grey out the buttons that don't apply to LLM result tabs.
         is_llm = bool(getattr(widget, "_is_llm_result", False))
@@ -5224,7 +5230,7 @@ class TranscribeWindow(QDialog):
         if (self._chk_auto_translate.isChecked()
                 and _translate_available(self._cmb_backend.currentData())
                 and self._cmb_lang_tgt.currentData()):
-            self._on_translate()
+            self._on_translate(source=target)
 
     def _on_finished(self, exit_code, _exit_status):
         if hasattr(self, '_process_timer'):
@@ -5401,7 +5407,7 @@ class TranscribeWindow(QDialog):
         if (self._chk_auto_translate.isChecked()
                 and _translate_available(self._cmb_backend.currentData())
                 and self._cmb_lang_tgt.currentData()):
-            self._on_translate()
+            self._on_translate(source=target)
 
     def _show_status(self, target):
         """Show final status with timing and speaker info; store the
@@ -5442,19 +5448,23 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(text)
             self._lbl_status.setVisible(True)
 
-    def _on_translate(self):
-        """Translate the original transcription into the chosen target.
+    def _on_translate(self, checked=False, *, source=None):
+        """Translate a transcription into the chosen target.
 
-        The source is always the original transcribed text/segments,
-        never the currently active translation tab — otherwise we'd
-        feed the worker the already-translated segments and the LLM
-        would translate from the wrong language. The original tab
-        (self._text_edit) keeps its own _raw_text / _diarize_segments /
-        _was_diarized fixed for the session, so we read from there.
+        The source is the run tab the ACTIVE tab is a view of (its
+        _rename_family): a run tab translates itself, a translation tab
+        translates its original run — never the already-translated
+        text, otherwise the LLM would translate from the wrong
+        language. Auto-translate passes `source` explicitly (the
+        just-finished run tab) so a mid-run tab switch cannot redirect
+        it. `checked` only absorbs QPushButton.clicked's argument.
         """
-        raw_text = getattr(self._text_edit, '_raw_text', '')
-        segments = getattr(self._text_edit, '_diarize_segments', None) or []
-        was_diarized = getattr(self._text_edit, '_was_diarized', False)
+        if source is None:
+            source = (getattr(self._active_editor(), '_rename_family', None)
+                      or self._text_edit)
+        raw_text = getattr(source, '_raw_text', '')
+        segments = getattr(source, '_diarize_segments', None) or []
+        was_diarized = getattr(source, '_was_diarized', False)
         if not raw_text:
             return
         # Prevent concurrent translation
@@ -5508,7 +5518,7 @@ class TranscribeWindow(QDialog):
         # The source tab is always the original transcription tab —
         # the new translation tab is inserted right after the original
         # group regardless of which tab the user clicked from.
-        self._translate_source_tab = self._text_edit
+        self._translate_source_tab = source
         # Cleanup previous thread if any
         if self._translate_thread:
             try:
@@ -5593,8 +5603,8 @@ class TranscribeWindow(QDialog):
         # from the source tab so switching to this translation reloads
         # the right audio file and its summary shows the right length.
         self._init_tab_state(
-            editor, getattr(self._text_edit, '_audio_path', None))
-        editor._audio_duration = getattr(self._text_edit, '_audio_duration', 0.0)
+            editor, getattr(source_tab, '_audio_path', None))
+        editor._audio_duration = getattr(source_tab, '_audio_duration', 0.0)
         # A translation is a view of its source run: join its rename
         # family so speaker renames keep syncing between the two.
         if source_tab is not None:
