@@ -939,10 +939,14 @@ class _DiarizeTranscribeWorker(QThread):
     error = Signal(str)            # error message
 
     def __init__(self, audio_path, diarize_output, sock_path, parent=None,
-                 socket_timeout=None, per_segment=False, audio_duration=0.0):
+                 socket_timeout=None, per_segment=False, audio_duration=0.0,
+                 plain=False):
         super().__init__(parent)
         self._audio_path = audio_path
         self._diarize_output = diarize_output
+        # plain=True: no diarization at all — one plain full-file request
+        # (`path\n`) and the raw text back. diarize_output is unused then.
+        self._plain = plain
         self._sock_path = sock_path
         self._socket_timeout = socket_timeout
         # Full-audio transcription blocks until the daemon finishes the WHOLE
@@ -1022,6 +1026,43 @@ class _DiarizeTranscribeWorker(QThread):
         else:
             self.error.emit(
                 _("Daemon socket not available after {s}s").format(s=int(_wait_s)))
+            return
+
+        # Plain mode (isolated engine, no diarization): one request for the
+        # whole file, raw text back — same daemon protocol as PTT dictation.
+        if self._plain:
+            daemon_path = self._maybe_convert_to_wav(self._audio_path)
+            if self._cancelled:
+                return
+            recv_timeout = (max(300, int(self._audio_duration * 3))
+                            if self._audio_duration else 300)
+            _dbg(f"DiarizeWorker: plain full-file request: {daemon_path} "
+                 f"(recv timeout {recv_timeout}s)")
+            try:
+                self._sock = sock_mod.socket(sock_mod.AF_UNIX, sock_mod.SOCK_STREAM)
+                self._sock.settimeout(recv_timeout)
+                self._sock.connect(self._sock_path)
+                self._sock.sendall((daemon_path + "\n").encode())
+                data = b""
+                while True:
+                    chunk = self._sock.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                self._sock.close()
+                self._sock = None
+                full_text = data.decode("utf-8", errors="replace").strip()
+            except Exception as e:
+                if self._cancelled:
+                    return
+                self.error.emit(f"Daemon transcription failed: {e}")
+                return
+            if self._cancelled:
+                return
+            if not full_text:
+                self.error.emit(_("Empty transcription from daemon"))
+                return
+            self.finished.emit(full_text)
             return
 
         # Parse diarize-only output into speaker segments
@@ -4642,8 +4683,11 @@ class TranscribeWindow(QDialog):
         # non-diarized runs always fall through to the plain Parakeet CLI
         # (known limitation — selecting whisper/nemotron for a non-diarized
         # batch file currently yields Parakeet output via the transcribe CLI).
+        # Parakeet variants are honored for BOTH plain and diarized runs:
+        # the chunked pipeline's batch binary is Parakeet and applies the
+        # recipe env (quant/CPU) as-is.
         _parakeet_isolated = bool(
-            diarize and getattr(self, "_isolated_recipe", None)
+            getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "parakeet")
         _whisper_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
@@ -4656,7 +4700,10 @@ class TranscribeWindow(QDialog):
             and self._isolated_recipe["backend"] == "nemotron")
         # Isolated Whisper-Rust needs its ggml model: fail fast with a
         # pointer to dictee-setup instead of a daemon-socket timeout.
-        if _whisper_rust_isolated:
+        # Recipe-based (not the diarize-gated flag): plain runs use the
+        # isolated daemon too.
+        if (getattr(self, "_isolated_recipe", None)
+                and self._isolated_recipe["backend"] == "whisper-rust"):
             _ggml = self._isolated_recipe["env"].get("DICTEE_WHISPER_RUST_GGML", "")
             if not (_ggml and os.path.isfile(_ggml)):
                 self._progress.setVisible(False)
@@ -4668,6 +4715,18 @@ class TranscribeWindow(QDialog):
                 self._update_transcribe_btn()
                 self._stop_all_spinners()
                 return
+        # Plain run on an isolated whisper/whisper-rust/nemotron engine:
+        # the chunked batch binary and the standalone `transcribe` CLI are
+        # Parakeet-only, so the engine combo was silently IGNORED for plain
+        # runs (French audio came back anglicised by Parakeet). Honor it
+        # with the same ad-hoc isolated daemon phase 2 uses, plus one plain
+        # full-file request.
+        if (not diarize and getattr(self, "_isolated_recipe", None)
+                and self._isolated_recipe["backend"] in (
+                    "whisper", "whisper-rust", "nemotron")):
+            self._start_isolated_plain_transcribe(audio_path, dur)
+            return
+
         # A MOSS diarized run never goes through the chunked pipeline: the
         # model ingests the whole file in one pass (upstream supports hours
         # of audio; ~85 MB RAM per minute) and chunking would break its
@@ -4933,6 +4992,35 @@ class TranscribeWindow(QDialog):
         svc = svc_map.get(asr, "dictee")
         subprocess.Popen(["systemctl", "--user", "start", svc])
         return svc
+
+    def _start_isolated_plain_transcribe(self, audio_path, dur):
+        """Plain (no-diarize) run on an isolated whisper/whisper-rust/
+        nemotron engine: ad-hoc daemon on a private socket + one plain
+        full-file request (the F9 daemon/config/badge are untouched).
+        Same cold-load timeout rationale as the phase-2 isolated branch."""
+        self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
+        sock_path = self._isolated_daemon.start()
+        self._run_status(_("Waiting for daemon..."))
+        self._btn_cancel.setVisible(True)
+        self._btn_cancel.setEnabled(True)
+        self._start_run_ticker()
+        self._diarize_worker = _DiarizeTranscribeWorker(
+            audio_path, None, sock_path, self,
+            socket_timeout=180, audio_duration=dur, plain=True)
+        self._diarize_worker.progress.connect(self._on_diarize_progress)
+        self._diarize_worker.finished.connect(self._on_isolated_plain_done)
+        self._diarize_worker.error.connect(self._on_diarize_error)
+        self._diarize_worker.start()
+
+    def _on_isolated_plain_done(self, raw_output):
+        """Plain isolated run finished: land as a plain result, then tear
+        down the ad-hoc daemon and restore the F9 daemon if needed."""
+        _dbg(f"_on_isolated_plain_done: output_len={len(raw_output)}")
+        self._diarize_worker = None
+        self._finish_transcription(
+            raw_output, self._run_tab or self._text_edit, was_diarized=False)
+        self._stop_isolated_daemon()
+        self._restart_daemon_if_stopped()
 
     def _restart_daemon_and_transcribe(self, diarize_output):
         """Phase 2: restart daemon, then transcribe each diarized segment via socket (threaded)."""
