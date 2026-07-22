@@ -4322,8 +4322,16 @@ class TranscribeWindow(QDialog):
         # The status row follows the tabs (2026-07-21): restore this tab's
         # last stored status — the live text of its running job, or its
         # final summary — instead of leaving another tab's message behind.
+        # Mirror _show_status's split: a diarized tab's summary lives next
+        # to the rename header (bottom label hidden); plain tabs and live
+        # run status use the bottom label. Without this split the bottom
+        # label showed the summary in the wrong place while the rename
+        # header kept the LAST finished run's summary forever.
         _st = getattr(widget, '_status_text', "")
-        if _st:
+        _diarized_tab = bool(getattr(widget, '_was_diarized', False))
+        if hasattr(self, '_lbl_rename_status'):
+            self._lbl_rename_status.setText(_st if _diarized_tab else "")
+        if _st and not _diarized_tab:
             self._lbl_status.setText(_st)
             self._lbl_status.setVisible(True)
         else:
