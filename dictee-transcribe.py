@@ -2658,6 +2658,8 @@ class LLMProcessDialog(QDialog):
 #                        speaker renames apply within one family only
 #   _status_text         live/final status line (restored on tab switch)
 #   _audio_duration      probed once at run start (seconds)
+#   _transcribe_elapsed  this tab's run duration (seconds; translations
+#   _translate_elapsed   inherit the source's transcribe time)
 #   _segment_positions   char ranges per segment (set by _apply_format_to)
 #   _format, _rendered_baseline, _current_highlight_range,
 #   _modified_overlay    render bookkeeping, set lazily (_format absence
@@ -2678,7 +2680,7 @@ class LLMProcessDialog(QDialog):
 # _transcription_in_progress, _start_time, _diarize_two_phase,
 # _user_cancelled, _retry_done, _moss_run, _daemon_was_active,
 # _isolated_recipe, _diarize_audio_path, _chunked_phase_label,
-# _transcribe_elapsed, _translate_elapsed.
+# _translate_start.
 #
 # Closing a run's tab detaches but does NOT delete its editor
 # (_on_tab_close deletes LLM tabs only): a late finisher writes into
@@ -2723,8 +2725,6 @@ class TranscribeWindow(QDialog):
         self._stdout_buf = QByteArray()
         self._rename_line_edits = {}   # filled by _populate_rename_fields
         self._translate_thread = None
-        self._transcribe_elapsed = 0.0
-        self._translate_elapsed = 0.0
         self._translate_start = 0.0
         self._current_translate_lang = ""  # lang code of current translation
 
@@ -3568,6 +3568,8 @@ class TranscribeWindow(QDialog):
         editor._speaker_name_map = {}
         editor._status_text = ""
         editor._audio_duration = 0.0
+        editor._transcribe_elapsed = 0.0
+        editor._translate_elapsed = 0.0
         editor._segment_positions = []
         # Rename family: the run tab this tab is a view of. A fresh tab
         # is its own family; translation tabs join their source's family
@@ -4553,7 +4555,6 @@ class TranscribeWindow(QDialog):
         self._start_tab_spinner(self._text_edit, tab_name)
         self._stdout_buf = QByteArray()
         self._start_time = time.monotonic()
-        self._translate_elapsed = 0.0
         # Probe the duration once and store it on the run's tab (used by
         # the routing threshold, the watchdog and the final summary).
         dur = self._get_audio_duration(audio_path)
@@ -5227,8 +5228,7 @@ class TranscribeWindow(QDialog):
                 if self._player.source().toLocalFile() != tab_audio:
                     self._load_audio(tab_audio)
         self._update_player_markers(target)
-        self._transcribe_elapsed = time.monotonic() - self._start_time
-        self._translate_elapsed = 0.0
+        target._transcribe_elapsed = time.monotonic() - self._start_time
         self._update_translate_btn()
         self._show_status(target)
 
@@ -5397,8 +5397,7 @@ class TranscribeWindow(QDialog):
         # See _finish_transcription for the same pattern + rationale.
         self._apply_format_to(target, segments, raw_output)
         self._update_player_markers(target)
-        self._transcribe_elapsed = time.monotonic() - self._start_time
-        self._translate_elapsed = 0.0
+        target._transcribe_elapsed = time.monotonic() - self._start_time
         self._update_translate_btn()
 
         self._show_status(target)
@@ -5438,10 +5437,10 @@ class TranscribeWindow(QDialog):
             parts.append(_("{n} speaker(s)").format(n=n_speakers))
         parts.append(_("audio {dur}").format(dur=dur_str))
         parts.append(_("transcribed in {t}").format(
-            t=_format_elapsed(self._transcribe_elapsed)))
-        if self._translate_elapsed > 0:
+            t=_format_elapsed(getattr(target, '_transcribe_elapsed', 0.0))))
+        if getattr(target, '_translate_elapsed', 0.0) > 0:
             parts.append(_("translated in {t}").format(
-                t=_format_elapsed(self._translate_elapsed)))
+                t=_format_elapsed(target._translate_elapsed)))
         text = " — ".join(parts)
         # The summary belongs to the target tab: stored for the tab-switch
         # restore (the status row follows the tabs, 2026-07-21).
@@ -5560,7 +5559,7 @@ class TranscribeWindow(QDialog):
         self._progress.setVisible(False)
         self._update_translate_btn()
         self._update_transcribe_btn()
-        self._translate_elapsed = time.monotonic() - self._translate_start
+        translate_elapsed = time.monotonic() - self._translate_start
 
         lang = self._current_translate_lang
         # Find language name for tab title
@@ -5613,6 +5612,11 @@ class TranscribeWindow(QDialog):
         self._init_tab_state(
             editor, getattr(source_tab, '_audio_path', None))
         editor._audio_duration = getattr(source_tab, '_audio_duration', 0.0)
+        # The summary line shows the SOURCE run's transcribe time plus
+        # this translation's own duration.
+        editor._transcribe_elapsed = getattr(
+            source_tab, '_transcribe_elapsed', 0.0)
+        editor._translate_elapsed = translate_elapsed
         # A translation is a view of its source run: join its rename
         # family so speaker renames keep syncing between the two.
         if source_tab is not None:
