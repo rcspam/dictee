@@ -5376,7 +5376,11 @@ class TranscribeWindow(QDialog):
         # the 1 Hz ticker forever: the final summary grew a phantom
         # (MM:SS) clock, and a following translation's status spinner
         # then fought the ticker, alternating two lines every second.
+        # Same hole for the Cancel button: only the cancel/error branches
+        # below hid it, so a successful one-pass run (MOSS diarize among
+        # others) kept Cancel on screen next to the re-enabled Transcribe.
         self._stop_run_ticker()
+        self._btn_cancel.setVisible(False)
 
         # Restart daemon if we stopped it for VRAM
         self._restart_daemon_if_stopped()
