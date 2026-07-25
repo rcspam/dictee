@@ -325,9 +325,12 @@
 [uk] /^[,.\s]*нов[еі]\s+речення[,.\s]*/\x04/igm
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 4 — Word deduplication (Parakeet bug: "je je" → "je")
+# STEP 4 — Word deduplication (collapse 3+ stutter only)
+# Only a word repeated 3+ times in a row is a model stutter loop; a single
+# doubling is legitimate ("nous nous sommes", "très très bien") and must be
+# kept. Mirrors the Rust group_by_words / Whisper clean_repetitive_text policy.
 # ═══════════════════════════════════════════════════════════════════════
-[*] /\b(\w+)\s+\1\b/\1/ig
+[*] /\b(\w+)(?:\s+\1\b){2,}/\1/ig
 
 # ═══════════════════════════════════════════════════════════════════════
 # STEP 4b — ASR misrecognition corrections
