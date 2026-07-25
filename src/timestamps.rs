@@ -53,6 +53,58 @@ pub fn process_timestamps(tokens: &[TimedToken], mode: TimestampMode) -> Vec<Tim
     }
 }
 
+/// Absolute ceiling (in words) on the repeating block we try to collapse — a
+/// perf bound only, mirroring the Whisper backend's MAX_REPEAT_BLOCK.
+const MAX_REPEAT_BLOCK: usize = 32;
+
+/// Collapse pathological consecutive repetition to a single occurrence while
+/// leaving a legitimate single doubling ("nous nous", "très très") intact.
+///
+/// A block of 1..=MAX_REPEAT_BLOCK words repeated 3+ times in a row is reduced
+/// to one copy; anything repeated only twice is kept. This mirrors the Whisper
+/// backend's text-level `clean_repetitive_text` (src/whisper.rs) but operates
+/// on timed word tokens so word/sentence timestamps stay consistent with the
+/// rebuilt text. Comparison is case-insensitive (Parakeet-TDT capitalizes the
+/// first word of a sentence). Pure function — no model state.
+fn collapse_repeated_words(words: Vec<TimedToken>) -> Vec<TimedToken> {
+    let n = words.len();
+    if n == 0 {
+        return words;
+    }
+    let lower: Vec<String> = words.iter().map(|w| w.text.to_lowercase()).collect();
+    let mut out: Vec<TimedToken> = Vec::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        // Find the block length k whose consecutive repetition (reps*k) covers
+        // the most words, among blocks repeated 3+ times. Prefer the smallest k
+        // on ties so "a a a a" collapses as one word, not the 2-word block.
+        let max_k = MAX_REPEAT_BLOCK.min((n - i) / 3);
+        let mut best_k = 0;
+        let mut best_reps = 0;
+        for k in 1..=max_k {
+            let mut reps = 1;
+            while i + (reps + 1) * k <= n && lower[i + reps * k..i + (reps + 1) * k] == lower[i..i + k] {
+                reps += 1;
+            }
+            if reps >= 3 && reps * k > best_reps * best_k {
+                best_k = k;
+                best_reps = reps;
+            }
+        }
+        if best_k > 0 {
+            // Keep one copy of the block, skip all its repetitions.
+            for w in words[i..i + best_k].iter() {
+                out.push(w.clone());
+            }
+            i += best_reps * best_k;
+        } else {
+            out.push(words[i].clone());
+            i += 1;
+        }
+    }
+    out
+}
+
 // Group tokens into words based on word boundary markers
 fn group_by_words(tokens: &[TimedToken]) -> Vec<TimedToken> {
     if tokens.is_empty() {
@@ -62,22 +114,17 @@ fn group_by_words(tokens: &[TimedToken]) -> Vec<TimedToken> {
     let mut words = Vec::new();
     let mut current_word_text = String::new();
     let mut current_word_start = 0.0;
-    let mut last_word_lower = String::new();
 
     for (i, token) in tokens.iter().enumerate() {
         // Space-only tokens (from SentencePiece ▁ word boundaries) act as word separators
         // but don't contribute text. Save current word if we hit one.
         if token.text.trim().is_empty() {
             if !current_word_text.is_empty() {
-                let word_lower = current_word_text.to_lowercase();
-                if word_lower != last_word_lower {
-                    words.push(TimedToken {
-                        text: current_word_text.clone(),
-                        start: current_word_start,
-                        end: if i > 0 { tokens[i - 1].end } else { token.end },
-                    });
-                    last_word_lower = word_lower;
-                }
+                words.push(TimedToken {
+                    text: current_word_text.clone(),
+                    start: current_word_start,
+                    end: if i > 0 { tokens[i - 1].end } else { token.end },
+                });
                 current_word_text.clear();
             }
             continue;
@@ -102,16 +149,11 @@ fn group_by_words(tokens: &[TimedToken]) -> Vec<TimedToken> {
                 || i == 0;
 
         if starts_word && !current_word_text.is_empty() {
-            // Save previous word (with deduplication)
-            let word_lower = current_word_text.to_lowercase();
-            if word_lower != last_word_lower {
-                words.push(TimedToken {
-                    text: current_word_text.clone(),
-                    start: current_word_start,
-                    end: tokens[i - 1].end,
-                });
-                last_word_lower = word_lower;
-            }
+            words.push(TimedToken {
+                text: current_word_text.clone(),
+                start: current_word_start,
+                end: tokens[i - 1].end,
+            });
             current_word_text.clear();
         }
 
@@ -127,17 +169,14 @@ fn group_by_words(tokens: &[TimedToken]) -> Vec<TimedToken> {
 
     // Add final word
     if !current_word_text.is_empty() {
-        let word_lower = current_word_text.to_lowercase();
-        if word_lower != last_word_lower {
-            words.push(TimedToken {
-                text: current_word_text,
-                start: current_word_start,
-                end: tokens.last().unwrap().end,
-            });
-        }
+        words.push(TimedToken {
+            text: current_word_text,
+            start: current_word_start,
+            end: tokens.last().unwrap().end,
+        });
     }
 
-    words
+    collapse_repeated_words(words)
 }
 
 // Group words into sentences based on punctuation
@@ -360,5 +399,58 @@ mod tests {
         // Also test sentence formatting
         let sentence = format_sentence(&words);
         assert_eq!(sentence, "like 100");
+    }
+
+    // Regression: group_by_words dropped the second of ANY immediate
+    // duplicate word (case-insensitive), so real dictation like the French
+    // "nous nous sommes" or "très très bien" silently lost a word. A single
+    // doubling is legitimate emphasis and must survive; only pathological
+    // 3+ repeats (model stutter) are collapsed — mirroring the Whisper
+    // backend's clean_repetitive_text policy (src/whisper.rs).
+    #[test]
+    fn test_word_grouping_preserves_legitimate_doubling() {
+        let tokens = vec![
+            TimedToken { text: "▁Nous".to_string(), start: 0.0, end: 0.4 },
+            TimedToken { text: "▁nous".to_string(), start: 0.4, end: 0.8 },
+            TimedToken { text: "▁sommes".to_string(), start: 0.8, end: 1.2 },
+        ];
+        let words = group_by_words(&tokens);
+        assert_eq!(
+            words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            vec!["Nous", "nous", "sommes"]
+        );
+    }
+
+    #[test]
+    fn test_word_grouping_collapses_pathological_repeats() {
+        // 3+ identical consecutive words (model stutter loop) must still
+        // collapse to a single occurrence — the legitimate reason the old
+        // dedup existed. Timestamps of the kept copy are preserved.
+        let tokens = vec![
+            TimedToken { text: "▁le".to_string(), start: 0.0, end: 0.3 },
+            TimedToken { text: "▁le".to_string(), start: 0.3, end: 0.6 },
+            TimedToken { text: "▁le".to_string(), start: 0.6, end: 0.9 },
+            TimedToken { text: "▁le".to_string(), start: 0.9, end: 1.2 },
+            TimedToken { text: "▁chat".to_string(), start: 1.2, end: 1.6 },
+        ];
+        let words = group_by_words(&tokens);
+        assert_eq!(
+            words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>(),
+            vec!["le", "chat"]
+        );
+        assert_eq!(words[0].start, 0.0);
+    }
+
+    #[test]
+    fn test_sentence_grouping_preserves_doubling() {
+        let tokens = vec![
+            TimedToken { text: "▁très".to_string(), start: 0.0, end: 0.3 },
+            TimedToken { text: "▁très".to_string(), start: 0.3, end: 0.6 },
+            TimedToken { text: "▁bien".to_string(), start: 0.6, end: 0.9 },
+            TimedToken { text: ".".to_string(), start: 0.9, end: 1.0 },
+        ];
+        let sentences = group_by_sentences(&tokens);
+        assert_eq!(sentences.len(), 1);
+        assert_eq!(sentences[0].text, "très très bien.");
     }
 }
