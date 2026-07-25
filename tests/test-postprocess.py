@@ -654,16 +654,24 @@ class TestVoiceCommandsUK(unittest.TestCase):
 
 
 class TestDeduplication(unittest.TestCase):
-    """Étape 4 — Déduplication de mots (bug Parakeet)."""
+    """Étape 4 — Déduplication : collapse 3+ répétitions seulement, garde
+    un doublement légitime ("nous nous", "très très")."""
 
-    def test_simple_dedup(self):
-        result = run_postprocess("Je je vais au magasin.")
+    def test_collapse_triple_stutter(self):
+        # 3+ répétitions consécutives = bégaiement du modèle → une occurrence
+        result = run_postprocess("Je je je vais au magasin.")
         self.assertNotIn("je je", result.lower())
-        self.assertIn("je", result.lower())
+        self.assertIn("je vais", result.lower())
 
-    def test_double_dedup(self):
-        result = run_postprocess("Je vais au au magasin.")
+    def test_collapse_repeated_word(self):
+        result = run_postprocess("Je vais au au au magasin.")
         self.assertNotIn("au au", result.lower())
+
+    def test_preserve_legitimate_double(self):
+        # Un doublement simple est légitime et doit survivre (bug produit :
+        # l'ancienne règle 2x tuait "nous nous sommes", "très très").
+        result = run_postprocess("Nous nous sommes réunis hier.")
+        self.assertIn("nous nous", result.lower())
 
     def test_preserve_single(self):
         result = run_postprocess("Je vais bien.")
@@ -2218,8 +2226,8 @@ class TestMultiCommandInteraction(unittest.TestCase):
             self.assertIn(p, result, f"Punctuation '{p}' missing")
 
     def test_dedup_with_command(self):
-        """Mot dupliqué + commande vocale."""
-        result = run_postprocess("Je je vais bien virgule merci.")
+        """Bégaiement 3+ + commande vocale."""
+        result = run_postprocess("Je je je vais bien virgule merci.")
         self.assertNotIn("je je", result.lower())
         self.assertIn(",", result)
 
