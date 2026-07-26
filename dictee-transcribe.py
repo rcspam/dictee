@@ -5544,11 +5544,16 @@ class TranscribeWindow(QDialog):
 
         For diarized transcriptions the summary lives next to the
         rename accordion header (more visual context); for plain
-        transcriptions it stays in the bottom status label.
+        transcriptions it stays in the bottom status label. Both labels
+        are only written when `target` is the visible tab — same rule as
+        _run_status: a background run never talks over the tab the user
+        is reading. The summary is always stored on the tab, so
+        _on_tab_changed shows it when the user comes back.
         """
-        # Any tab spinner started by transcription / diarization /
-        # translation stops here.
-        self._stop_all_spinners()
+        # Only this run's spinner stops here: a concurrent LLM analysis
+        # keeps animating until its own handler lands. The translation
+        # status spinner is stopped by _on_translate_done/_error.
+        self._stop_tab_spinner(target)
         dur = getattr(target, '_audio_duration', 0.0)
         dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
         segs = getattr(target, '_diarize_segments', [])
@@ -5567,6 +5572,8 @@ class TranscribeWindow(QDialog):
         # The summary belongs to the target tab: stored for the tab-switch
         # restore (the status row follows the tabs, 2026-07-21).
         target._status_text = text
+        if self._tabs.currentWidget() is not target:
+            return
         if was_diarized and hasattr(self, "_lbl_rename_status"):
             self._lbl_rename_status.setText(text)
             self._lbl_status.setText("")
