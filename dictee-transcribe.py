@@ -2884,6 +2884,14 @@ class TranscribeWindow(QDialog):
                         w.cancel()
                     except Exception as _e:
                         _dbg(f"silenced: {_e!r}")
+        # Cancelled workers suppress their own signals, so the completion
+        # slots that normally clear these never fire — reset the run state
+        # here or _update_transcribe_btn() keeps everything greyed forever.
+        # (The phase-1 QProcess path recovers on its own: kill() above still
+        # delivers finished → _on_finished.)
+        self._diarize_worker = None
+        self._chunked_worker = None
+        self._transcription_in_progress = False
         # Hide the cancel button + reset status so the next run starts
         # from a clean slate.
         if hasattr(self, "_btn_cancel"):
@@ -4034,7 +4042,6 @@ class TranscribeWindow(QDialog):
         if not (hasattr(self, '_chunked_worker') and self._chunked_worker):
             return
         _dbg("_on_cancel_chunked: requesting worker cancel")
-        self._btn_cancel.setEnabled(False)  # avoid double clicks
         self._lbl_status.setText(_("Cancelling..."))
         self._chunked_worker.request_cancel()
 
