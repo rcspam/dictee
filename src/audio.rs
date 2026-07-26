@@ -175,6 +175,19 @@ pub fn extract_features_raw(
         audio = mono;
     }
 
+    // A header-only WAV (tap-and-release dictation) or a sub-hop clip would
+    // panic in apply_preemphasis (audio[0]) or produce a single mel frame
+    // whose Bessel-corrected normalization divides by zero (all-NaN
+    // features). Reject both upfront with a clean error; the diarization
+    // path has carried the equivalent guard in sortformer.rs all along.
+    if audio.len() < config.hop_length {
+        return Err(Error::Audio(format!(
+            "Audio too short to transcribe: {} samples (need at least {})",
+            audio.len(),
+            config.hop_length
+        )));
+    }
+
     audio = apply_preemphasis(&audio, config.preemphasis);
 
     let spectrogram = stft(&audio, config.n_fft, config.hop_length, config.win_length);
@@ -205,4 +218,44 @@ pub fn extract_features_raw(
     }
 
     Ok(mel_spectrogram)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression (audit 2026-07-25): a header-only WAV (tap-and-release
+    // dictation) reached apply_preemphasis with an empty slice and panicked
+    // on audio[0], killing the single-threaded transcribe daemon. Sub-hop
+    // inputs (1..160 samples) yielded a single mel frame whose Bessel
+    // normalization divided by zero, feeding all-NaN features to the model.
+    // Both must be a clean error, never a panic or NaN.
+
+    #[test]
+    fn empty_audio_is_a_clean_error() {
+        let cfg = PreprocessorConfig::default();
+        let res = extract_features_raw(Vec::new(), cfg.sampling_rate as u32, 1, &cfg);
+        assert!(res.is_err(), "empty audio must be rejected, not panic");
+    }
+
+    #[test]
+    fn sub_hop_audio_is_a_clean_error() {
+        let cfg = PreprocessorConfig::default();
+        let audio = vec![0.1_f32; 100]; // < hop_length (160) => 1 mel frame
+        let res = extract_features_raw(audio, cfg.sampling_rate as u32, 1, &cfg);
+        assert!(res.is_err(), "sub-hop audio must be rejected, not NaN");
+    }
+
+    #[test]
+    fn normal_audio_still_extracts_finite_features() {
+        let cfg = PreprocessorConfig::default();
+        // 100 ms of a 440 Hz tone at the expected sample rate.
+        let sr = cfg.sampling_rate as u32;
+        let audio: Vec<f32> = (0..(sr / 10))
+            .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / sr as f32).sin())
+            .collect();
+        let feats = extract_features_raw(audio, sr, 1, &cfg).expect("valid audio must pass");
+        assert!(feats.shape()[0] > 1);
+        assert!(feats.iter().all(|v| v.is_finite()), "features must be finite");
+    }
 }
