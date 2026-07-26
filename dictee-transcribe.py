@@ -6296,7 +6296,7 @@ class TranscribeWindow(QDialog):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._do_export(dlg.selected_tabs(), dlg.export_formats(),
-                        dlg.export_dir(), dlg.base_name())
+                        dlg.export_dir(), dlg.base_name(), widget=editor)
 
     def _on_export_llm_tab(self, editor):
         """Show the LLMExportDialog for an LLM result tab."""
@@ -6550,10 +6550,15 @@ class TranscribeWindow(QDialog):
         idx = self._tabs.addTab(editor, tab_name)
         self._tabs.setCurrentIndex(idx)
 
-    def _do_export(self, selected, formats, out_dir, base):
+    def _do_export(self, selected, formats, out_dir, base, widget=None):
         """Write the selected tab's text out in the chosen format(s).
         `selected` is always a single-tab list — multi-tab export was
-        removed because users found the resulting file pile confusing."""
+        removed because users found the resulting file pile confusing.
+
+        `widget` is the tab the caller already resolved. Tab titles are
+        NOT unique (two translations of one run into the same language
+        with the same backend are named identically), so re-resolving by
+        title here used to export the first namesake's data."""
         if not selected or not formats:
             self._lbl_status.setText(_("Nothing to export."))
             self._lbl_status.setVisible(True)
@@ -6574,21 +6579,25 @@ class TranscribeWindow(QDialog):
             for tab_name, text in selected:
                 # Find segments for this tab to reformat
                 content = text  # default: plain text from editor
-                # Locate the tab widget to fetch segments + per-tab name map
+                # The caller passes the resolved widget; fall back to a
+                # title lookup only for callers that have none.
                 segments = None
                 name_map = None
                 displayed_fmt = None
                 tab_raw = ""
                 edited = False
-                for i in range(self._tabs.count()):
-                    if self._tabs.tabText(i) == tab_name:
-                        w = self._tabs.widget(i)
-                        segments = getattr(w, '_diarize_segments', None)
-                        name_map = getattr(w, '_speaker_name_map', None)
-                        displayed_fmt = getattr(w, '_format', None)
-                        tab_raw = getattr(w, '_raw_text', "")
-                        edited = self._is_edited_tab(w)
-                        break
+                w = widget
+                if w is None:
+                    for i in range(self._tabs.count()):
+                        if self._tabs.tabText(i) == tab_name:
+                            w = self._tabs.widget(i)
+                            break
+                if w is not None:
+                    segments = getattr(w, '_diarize_segments', None)
+                    name_map = getattr(w, '_speaker_name_map', None)
+                    displayed_fmt = getattr(w, '_format', None)
+                    tab_raw = getattr(w, '_raw_text', "")
+                    edited = self._is_edited_tab(w)
 
                 if edited and fmt == displayed_fmt:
                     # The editor already holds this exact format with the
@@ -6598,27 +6607,36 @@ class TranscribeWindow(QDialog):
                     # less text can't be remapped onto segments); the format-
                     # locking UX that prevents that case is deferred to 1.4.
                     content = text
-                elif fmt == "text" and segments:
-                    # Re-render text format with renamed speakers so the
-                    # exported file reflects the current display map even
-                    # if the editor was never refreshed.
-                    content = _format_text(segments, name_map)
-                elif fmt != "text":
+                elif fmt == "text":
+                    if segments:
+                        # Re-render text format with renamed speakers so the
+                        # exported file reflects the current display map even
+                        # if the editor was never refreshed.
+                        content = _format_text(segments, name_map)
+                    else:
+                        # Same reasoning as the segment-less branch below:
+                        # a tab displayed as JSON must not export its
+                        # rendering as if it were the transcript.
+                        content = text if edited else (tab_raw or text)
+                else:
                     if segments and fmt == "srt":
                         content = _format_srt(segments, name_map)
                     elif segments and fmt == "json":
                         content = _format_json(segments, name_map)
-                    elif fmt == "json":
-                        # Segment-less tab: export ITS raw text, never
-                        # another tab's (this used to read self._text_edit,
-                        # i.e. the last created run's transcript).
-                        raw = (tab_raw
-                               if tab_name == self._tabs.tabText(0) else text)
-                        content = json.dumps([{"text": raw}], ensure_ascii=False, indent=2)
-                    elif fmt == "srt":
-                        raw = (tab_raw
-                               if tab_name == self._tabs.tabText(0) else text)
-                        content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
+                    else:
+                        # Segment-less tab: export ITS stored raw text, so
+                        # a tab displayed as JSON/SRT does not come out
+                        # wrapped in its own rendering. The on-screen text
+                        # is only the right source when the user edited it
+                        # (`edited` above already covers the same-format
+                        # case; a cross-format export of edited text has
+                        # no timestamps to remap, so the edits win here).
+                        raw = text if edited else (tab_raw or text)
+                        if fmt == "json":
+                            content = json.dumps([{"text": raw}],
+                                                 ensure_ascii=False, indent=2)
+                        else:
+                            content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
 
                 safe_name = re.sub(r'[^\w.-]', '_', tab_name)
                 # Sanitise the user-editable base too, otherwise a
