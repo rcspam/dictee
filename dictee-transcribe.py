@@ -2712,9 +2712,13 @@ class LLMProcessDialog(QDialog):
 #   _transcribe_elapsed  this tab's run duration (seconds; translations
 #   _translate_elapsed   inherit the source's transcribe time)
 #   _segment_positions   char ranges per segment (set by _apply_format_to)
-#   _format, _rendered_baseline, _current_highlight_range,
-#   _modified_overlay    render bookkeeping, set lazily (_format absence
-#                        is a sentinel — see _on_tab_changed)
+#   _format              display format of THIS tab (text/srt/json),
+#                        captured from the combo at creation and updated
+#                        on every render; the anchor for background
+#                        renders (_apply_format_to) and for the combo
+#                        sync on tab switch (_on_tab_changed)
+#   _rendered_baseline, _current_highlight_range,
+#   _modified_overlay    render bookkeeping, set lazily
 #   _is_llm_result, _llm_profile_name, _spinner_base_title, _llm_thread
 #                        LLM result tabs only
 # The window keeps PERMANENT read-only projections of the active tab:
@@ -3623,6 +3627,12 @@ class TranscribeWindow(QDialog):
         editor._transcribe_elapsed = 0.0
         editor._translate_elapsed = 0.0
         editor._segment_positions = []
+        # Display format owned by the tab, captured from the combo at
+        # creation time: a run that lands while the user reads another
+        # tab must be rendered in the format its run was started with,
+        # not in the one the combo happens to show (_apply_format_to).
+        editor._format = (self._cmb_format.currentData()
+                          if hasattr(self, "_cmb_format") else None)
         # Rename family: the run tab this tab is a view of. A fresh tab
         # is its own family; translation tabs join their source's family
         # (_on_translate_done). Speaker renames apply per family, never
@@ -5831,7 +5841,15 @@ class TranscribeWindow(QDialog):
         the source tab, or _apply_speaker_rename's loop over all diarize
         tabs), so the active tab's flag would be the wrong anchor.
         """
-        fmt = self._cmb_format.currentData()
+        # The format combo shows the ACTIVE tab's format. Rendering a tab
+        # the user is not looking at (a run landing in the background, a
+        # speaker rename propagating to sibling tabs) must therefore use
+        # the tab's own format, or the combo would retro-format it.
+        if self._tabs.currentWidget() is editor:
+            fmt = self._cmb_format.currentData()
+        else:
+            fmt = (getattr(editor, "_format", None)
+                   or self._cmb_format.currentData())
         name_map = getattr(editor, "_speaker_name_map", None)
         was_diarized = bool(getattr(editor, "_was_diarized", False))
 
