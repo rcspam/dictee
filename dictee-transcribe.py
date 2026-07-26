@@ -3031,7 +3031,11 @@ class TranscribeWindow(QDialog):
         diar_multi_ok = _diar_multi_available()
         sortformer_ok = _sortformer_available()
         moss_ok = _moss_available()
-        self._chk_diarize.setEnabled(diar_multi_ok or sortformer_ok or moss_ok)
+        # Cached for _update_transcribe_btn: its bare setEnabled(not_running)
+        # used to re-arm the toggle on every file-input change even when no
+        # diarization engine is installed.
+        self._diar_available = diar_multi_ok or sortformer_ok or moss_ok
+        self._chk_diarize.setEnabled(self._diar_available)
         if diar_multi_ok:
             self._chk_diarize.setToolTip(self._tip(
                 _("Identify speakers (no speaker-count limit). Works on "
@@ -3853,7 +3857,8 @@ class TranscribeWindow(QDialog):
         # is checked when results land). We never *force* them on; we
         # only block changes while a job is in-flight.
         if hasattr(self, "_chk_diarize"):
-            self._chk_diarize.setEnabled(not_running)
+            self._chk_diarize.setEnabled(
+                not_running and getattr(self, "_diar_available", True))
         if hasattr(self, "_chk_auto_translate"):
             self._chk_auto_translate.setEnabled(not_running)
         if hasattr(self, "_sld_sensitivity"):
