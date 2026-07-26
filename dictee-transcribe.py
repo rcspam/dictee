@@ -6277,6 +6277,17 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("Nothing to copy."))
             self._lbl_status.setVisible(True)
 
+    def _export_base_for(self, editor):
+        """Default export filename stem for `editor`: the tab's OWN audio
+        file. The Fichier field is only a fallback — it holds the file
+        the user last picked, which has nothing to do with an older tab
+        being exported."""
+        audio = (getattr(editor, '_audio_path', None)
+                 or getattr(editor, '_source_audio_path', None))
+        if not audio and hasattr(self, "_file_input"):
+            audio = self._file_input.text()
+        return os.path.splitext(os.path.basename(audio or ""))[0] or "transcription"
+
     def _on_export_current_tab(self):
         """Export the currently active tab. LLM result tabs use a
         dedicated dialog (PDF + Markdown); regular tabs (transcription
@@ -6296,7 +6307,7 @@ class TranscribeWindow(QDialog):
             return
         idx = self._tabs.indexOf(editor)
         tab_name = self._tabs.tabText(idx) if idx >= 0 else _("Tab")
-        base = os.path.splitext(os.path.basename(self._file_input.text()))[0] or "transcription"
+        base = self._export_base_for(editor)
         dlg = ExportDialog(
             [(tab_name, text)], self._cmb_format.currentData(), base, self,
             current_tab_index=0)
@@ -6313,8 +6324,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             return
         # Default filename: {audio_basename}-{profile_name} sanitized.
-        audio = self._file_input.text() if hasattr(self, "_file_input") else ""
-        base = os.path.splitext(os.path.basename(audio))[0] or "transcription"
+        base = self._export_base_for(editor)
         profile = getattr(editor, "_llm_profile_name", "") or "llm"
         default_name = re.sub(r"[^\w.-]", "_", f"{base}-{profile}")
         dlg = LLMExportDialog(default_name, text, self)
@@ -6486,6 +6496,10 @@ class TranscribeWindow(QDialog):
         # Synthèse". Falling back to self._text_edit only matters for
         # legacy callers that didn't pass `source_widget`.
         src = source_widget if source_widget is not None else self._text_edit
+        # Name only: which audio this analysis came from, for the export
+        # filename (_export_base_for). Not _audio_path — that one binds
+        # the player, and an LLM tab has nothing to play.
+        editor._source_audio_path = getattr(src, '_audio_path', None)
         src_idx = self._tabs.indexOf(src)
         prefix = ""
         if src_idx >= 0:
@@ -6547,6 +6561,8 @@ class TranscribeWindow(QDialog):
         # click-time (falls back to the last-touched tab for legacy
         # callers).
         src = source_widget if source_widget is not None else self._text_edit
+        # Name only, for the export filename — see _start_llm_result_tab.
+        editor._source_audio_path = getattr(src, '_audio_path', None)
         src_idx = self._tabs.indexOf(src)
         prefix = ""
         if src_idx >= 0:
