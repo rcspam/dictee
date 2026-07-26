@@ -1950,10 +1950,12 @@ class TranslateThread(QThread):
 
                 translated_segments = [dict(s) for s in self._segments]
                 failed = False
+                any_ok = False
                 for _speaker, indices in groups:
                     group_text = "\n".join(self._segments[i]["text"] for i in indices)
                     translated = _translate_text(group_text, self._lang_src, self._lang_tgt, self._backend)
                     if translated:
+                        any_ok = True
                         lines = [l.strip() for l in translated.strip().splitlines() if l.strip()]
                         for j, idx in enumerate(indices):
                             new_seg = dict(self._segments[idx])
@@ -1962,6 +1964,14 @@ class TranslateThread(QThread):
                     else:
                         failed = True
                 if self._cancelled:
+                    return
+                if failed and not any_ok:
+                    # Every group failed (dead backend): emitting the source
+                    # segments would fabricate a "translation" tab full of
+                    # untranslated text. ("", []) tells _on_translate_done
+                    # there is no result to show.
+                    self.error_signal.emit(_("Translation failed — check backend configuration."))
+                    self.finished_signal.emit("", [])
                     return
                 if failed:
                     self.error_signal.emit(_("Translation partially failed — some segments untranslated."))
@@ -1972,14 +1982,14 @@ class TranslateThread(QThread):
                     return
                 if not translated:
                     self.error_signal.emit(_("Translation failed — check backend configuration."))
-                    self.finished_signal.emit(self._raw_text, [])
+                    self.finished_signal.emit("", [])
                 else:
                     self.finished_signal.emit(translated, [])
         except Exception as e:
             if self._cancelled:
                 return
             self.error_signal.emit(str(e))
-            self.finished_signal.emit(self._raw_text, self._segments)
+            self.finished_signal.emit("", [])
 
 
 # === Export Dialog ===
@@ -5661,6 +5671,12 @@ class TranscribeWindow(QDialog):
         self._progress.setVisible(False)
         self._update_translate_btn()
         self._update_transcribe_btn()
+        if not translated_text and not translated_segments:
+            # Total translation failure: there is no result to land.
+            # _on_translate_error already put the cause in the status row —
+            # keep it visible instead of fabricating a tab with untranslated
+            # source text and overwriting the error with a success summary.
+            return
         translate_elapsed = time.monotonic() - self._translate_start
 
         lang = self._current_translate_lang
