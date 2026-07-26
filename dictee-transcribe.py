@@ -3709,6 +3709,15 @@ class TranscribeWindow(QDialog):
         # Kill the ad-hoc isolated ASR daemon too (window/main-tab closed
         # mid-run). closeEvent calls this, so the private socket is freed.
         self._stop_isolated_daemon()
+        # Cancelled workers suppress their own signals, so the completion
+        # slots that normally clear these never fire — reset the run state
+        # here or _update_transcribe_btn() keeps everything greyed forever
+        # and the 1 Hz ticker leaks. (The phase-1 QProcess path recovers on
+        # its own: kill() above still delivers finished → _on_finished.)
+        self._diarize_worker = None
+        self._chunked_worker = None
+        self._transcription_in_progress = False
+        self._stop_run_ticker()
         # Hide the cancel button + reset status so the next run starts
         # from a clean slate.
         if hasattr(self, "_btn_cancel"):
@@ -5196,6 +5205,11 @@ class TranscribeWindow(QDialog):
         if dw is not None and dw.isRunning():
             _dbg("_on_cancel_run: cancelling the phase-2 worker")
             dw.cancel()  # suppresses its own signals — reset the UI here
+            # The completion slots that normally clear the reference never
+            # fire after cancel(), and _update_transcribe_btn() gates on
+            # it being None — without this the whole run UI stays greyed
+            # until the window is reopened.
+            self._diarize_worker = None
             iso = getattr(self, '_isolated_daemon', None)
             if iso is not None:
                 iso.stop()
