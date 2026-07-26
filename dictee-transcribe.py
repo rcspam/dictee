@@ -3731,6 +3731,9 @@ class TranscribeWindow(QDialog):
     def _connect_signals(self):
         self._file_input.textChanged.connect(self._update_transcribe_btn)
         self._file_input.textChanged.connect(self._update_long_audio_warning)
+        # User picked an entry in the recent-files dropdown: reload the
+        # player like _on_browse does, or Play keeps the previous audio.
+        self._file_combo.activated.connect(self._on_recent_file_selected)
         self._cmb_format.currentIndexChanged.connect(self._on_format_changed)
         self._cmb_backend.currentIndexChanged.connect(self._on_translate_choice_changed)
         self._cmb_lang_tgt.currentIndexChanged.connect(self._on_translate_choice_changed)
@@ -3921,6 +3924,13 @@ class TranscribeWindow(QDialog):
             self._player.stop()
             self._load_audio(path)
 
+    def _on_recent_file_selected(self, _index):
+        """Recent-files dropdown selection: sync the player to the choice."""
+        path = self._file_input.text().strip()
+        if path:
+            self._player.stop()
+            self._load_audio(path)
+
     def _on_open_history(self):
         items = list_past_meetings()
         if not items:
@@ -3930,7 +3940,12 @@ class TranscribeWindow(QDialog):
         choice, ok = QInputDialog.getItem(
             self, _("Past meetings"), _("Meeting:"), labels, 0, False)
         if ok and choice:
-            self._file_input.setText(dict(zip(labels, [p for _l, p in items]))[choice])
+            path = dict(zip(labels, [p for _l, p in items]))[choice]
+            self._file_input.setText(path)
+            # Mirror _on_browse: without this the player kept its previous
+            # source and Play played the wrong recording.
+            self._player.stop()
+            self._load_audio(path)
 
     # -- Drag & drop audio file onto the window --
 
