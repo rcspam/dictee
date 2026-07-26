@@ -5886,10 +5886,17 @@ class TranscribeWindow(QDialog):
         # Remember the format used to render this tab so _on_tab_changed
         # can sync the combo back to it on switch.
         editor._format = fmt
-        # Snapshot the rendered text so _do_export can tell a real edit
-        # (content differs from this baseline) from an untouched tab, and
-        # export the edited text verbatim when the export format matches.
+        # Snapshot the rendered text so _is_edited_tab can tell a real
+        # edit (content differs from this baseline) from an untouched tab.
         editor._rendered_baseline = editor.toPlainText()
+
+    @staticmethod
+    def _is_edited_tab(editor):
+        """True when the tab holds text the user typed over the last
+        render. Tabs never rendered (no baseline) count as untouched:
+        there is nothing to lose."""
+        baseline = getattr(editor, '_rendered_baseline', None)
+        return baseline is not None and editor.toPlainText() != baseline
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
@@ -6227,8 +6234,17 @@ class TranscribeWindow(QDialog):
                 continue
             w._speaker_name_map = dict(new_map)
             segs = getattr(w, "_diarize_segments", None)
-            if segs:
-                self._apply_format_to(w, segs, getattr(w, "_raw_text", ""))
+            if not segs:
+                continue
+            # Re-rendering replaces the whole text: never do that behind
+            # the user's back on a sibling tab they have hand-corrected.
+            # The new map is stored above, so their next explicit render
+            # (format change, rename from that tab) picks the names up.
+            # The active tab is always re-rendered — showing the rename
+            # is what Apply is for, and its Modified badge is in view.
+            if w is not active and self._is_edited_tab(w):
+                continue
+            self._apply_format_to(w, segs, getattr(w, "_raw_text", ""))
 
         # Refresh active tab explicitly too (covers the non-diarize case)
         self._apply_format()
@@ -6571,8 +6587,7 @@ class TranscribeWindow(QDialog):
                         name_map = getattr(w, '_speaker_name_map', None)
                         displayed_fmt = getattr(w, '_format', None)
                         tab_raw = getattr(w, '_raw_text', "")
-                        baseline = getattr(w, '_rendered_baseline', None)
-                        edited = baseline is not None and w.toPlainText() != baseline
+                        edited = self._is_edited_tab(w)
                         break
 
                 if edited and fmt == displayed_fmt:
