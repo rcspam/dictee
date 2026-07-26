@@ -3871,13 +3871,19 @@ class TranscribeWindow(QDialog):
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             _dbg("Process timeout — killing")
             self._process.kill()
+            # waitForFinished reaps the killed process and emits finished
+            # SYNCHRONOUSLY (same-thread direct connection): _on_finished
+            # re-enters here and already deleteLater()s + nulls _process.
+            # Touching it unguarded afterwards raised AttributeError inside
+            # a QTimer slot — PyQt6 aborts the whole app on that.
             self._process.waitForFinished(3000)
             self._lbl_status.setText(_("Transcription timed out (5 min)."))
             self._lbl_status.setVisible(True)
             self._progress.setVisible(False)
             self._stop_all_spinners()
-            self._process.deleteLater()
-            self._process = None
+            if self._process is not None:
+                self._process.deleteLater()
+                self._process = None
             self._transcription_in_progress = False
             self._update_transcribe_btn()
 
