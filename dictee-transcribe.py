@@ -4582,6 +4582,11 @@ class TranscribeWindow(QDialog):
     def _on_transcribe(self):
         if not self.isVisible():
             return  # window closed, don't start new transcription
+        # Describes the run about to start, and is only set further down
+        # (after the chunked / isolated-plain early returns). Left over
+        # from a previous MOSS run it muted _start_run_ticker, so those
+        # two paths lost their elapsed clock after any MOSS run.
+        self._moss_run = False
         audio_path = self._file_input.text().strip()
         if not audio_path or not os.path.isfile(audio_path):
             self._lbl_status.setText(_("File not found."))
@@ -4860,6 +4865,11 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             self._transcription_in_progress = False
             self._update_transcribe_btn()
+            # The tab spinner was started before the routing decision:
+            # without this it spins forever on a tab that will never get
+            # a result (mirror of the missing-ggml branch above).
+            self._stop_run_spinner()
+            self._update_translate_btn()
             self._process.deleteLater()
             self._process = None
             return
@@ -4882,6 +4892,8 @@ class TranscribeWindow(QDialog):
                 self._lbl_status.setVisible(True)
                 self._transcription_in_progress = False
                 self._update_transcribe_btn()
+                self._stop_run_spinner()
+                self._update_translate_btn()
                 self._process.deleteLater()
                 self._process = None
                 return
@@ -5085,6 +5097,13 @@ class TranscribeWindow(QDialog):
             self._run_status(_("Audio file not found for phase 2."))
             self._transcription_in_progress = False
             self._update_transcribe_btn()
+            # Same teardown as _on_diarize_error: without it the tab keeps
+            # spinning, the progress bar stays up and Cancel stays on
+            # screen with nothing left to cancel.
+            self._progress.setVisible(False)
+            self._btn_cancel.setVisible(False)
+            self._stop_run_spinner()
+            self._update_translate_btn()
             return
 
         if (getattr(self, "_isolated_recipe", None)
