@@ -4613,7 +4613,15 @@ class TranscribeWindow(QDialog):
         if hasattr(self, "_lbl_long_audio_warning"):
             self._lbl_long_audio_warning.setVisible(False)
 
-    def _on_transcribe(self):
+    def _on_transcribe(self, checked=False, *, retry_of=None):
+        """Start a transcription run for the file in the Fichier field.
+
+        `retry_of` is the tab of a run being retried (GPU-OOM path): the
+        retry redoes THAT run — same tab, same audio file — instead of
+        opening a second tab and re-reading a field the user may have
+        changed in the meantime. `checked` only absorbs
+        QPushButton.clicked's argument.
+        """
         if not self.isVisible():
             return  # window closed, don't start new transcription
         # Describes the run about to start, and is only set further down
@@ -4621,7 +4629,11 @@ class TranscribeWindow(QDialog):
         # from a previous MOSS run it muted _start_run_ticker, so those
         # two paths lost their elapsed clock after any MOSS run.
         self._moss_run = False
-        audio_path = self._file_input.text().strip()
+        if retry_of is not None and self._tabs.indexOf(retry_of) < 0:
+            retry_of = None  # tab closed during the retry delay
+        audio_path = (getattr(retry_of, '_audio_path', None)
+                      if retry_of is not None else None)
+        audio_path = (audio_path or self._file_input.text()).strip()
         if not audio_path or not os.path.isfile(audio_path):
             self._lbl_status.setText(_("File not found."))
             self._lbl_status.setVisible(True)
@@ -4657,23 +4669,37 @@ class TranscribeWindow(QDialog):
                     and not self._tabs.widget(i).toPlainText().strip()):
                 self._tabs.removeTab(i)
                 break
-        # Make previous active tab read-only
-        if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
-            self._text_edit.setReadOnly(True)
-        # Create new tab at the right
-        self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
-        self._text_edit.setPlaceholderText(
-            _("Transcription results will appear here..."))
-        self._text_edit.viewport().installEventFilter(self)
-        self._install_modified_overlay(self._text_edit)
+        if retry_of is not None:
+            # Redo the failed run in its own tab: no orphan tab left
+            # showing the OOM message, and the counter does not advance.
+            self._transcription_counter -= 1
+            self._text_edit = retry_of
+            self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
+            self._text_edit.clear()
+            # The spinner is still running (the run never terminated), so
+            # the visible title carries an animation frame. Take the base
+            # title it was started with, or frames would stack up.
+            tab_name = (getattr(self, '_spinning_tabs', {}).get(retry_of)
+                        or self._tabs.tabText(self._tabs.indexOf(retry_of)))
+        else:
+            # Make previous active tab read-only
+            if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
+                self._text_edit.setReadOnly(True)
+            # Create new tab at the right
+            self._text_edit = QTextEdit()
+            self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
+            self._text_edit.setPlaceholderText(
+                _("Transcription results will appear here..."))
+            self._text_edit.viewport().installEventFilter(self)
+            self._install_modified_overlay(self._text_edit)
         # Canonical per-tab state; _audio_path lets a tab switch reload
         # the right file (and hence the right duration).
         self._init_tab_state(self._text_edit, audio_path)
         # Capture the run's target: async handlers write to this tab and
         # never re-resolve it at completion time.
         self._run_tab = self._text_edit
-        self._tabs.addTab(self._text_edit, tab_name)
+        if retry_of is None:
+            self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
         # Animate the tab title with a braille spinner while the
         # transcription / diarization is running. Every run terminator
@@ -5539,8 +5565,12 @@ class TranscribeWindow(QDialog):
                         urllib.request.urlopen(req, timeout=5)
                     except Exception as _e:
                         _dbg(f"silenced: {_e!r}")
-                # Re-trigger transcription after delay
-                QTimer.singleShot(2000, self._on_transcribe)
+                # Re-trigger the SAME run after a delay: same tab, same
+                # audio file. Re-entering _on_transcribe bare opened a
+                # second tab and re-read the Fichier field, so a path
+                # changed during these 2 s transcribed another file.
+                QTimer.singleShot(
+                    2000, lambda: self._on_transcribe(retry_of=target))
                 return
 
             self._retry_done = False
