@@ -4637,8 +4637,8 @@ class TranscribeWindow(QDialog):
         self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
         # Animate the tab title with a braille spinner while the
-        # transcription / diarization is running. _show_status() will
-        # call _stop_all_spinners() when results land.
+        # transcription / diarization is running. Every run terminator
+        # calls _stop_run_spinner() to stop this one (and only this one).
         self._start_tab_spinner(self._text_edit, tab_name)
         self._stdout_buf = QByteArray()
         self._start_time = time.monotonic()
@@ -4762,7 +4762,7 @@ class TranscribeWindow(QDialog):
                 self._lbl_status.setVisible(True)
                 self._transcription_in_progress = False
                 self._update_transcribe_btn()
-                self._stop_all_spinners()
+                self._stop_run_spinner()
                 return
         # Plain run on an isolated whisper/whisper-rust/nemotron engine:
         # the chunked batch binary and the standalone `transcribe` CLI are
@@ -5022,7 +5022,7 @@ class TranscribeWindow(QDialog):
                 _("Transcription timed out ({m} min).").format(
                     m=getattr(self, "_watchdog_secs", 300) // 60))
             self._progress.setVisible(False)
-            self._stop_all_spinners()
+            self._stop_run_spinner()
             if self._process is not None:
                 self._process.deleteLater()
                 self._process = None
@@ -5165,7 +5165,7 @@ class TranscribeWindow(QDialog):
         self._update_transcribe_btn()
         # Stop the tab spinner — otherwise it keeps spinning forever on an
         # empty/failed diarization (e.g. "Empty transcription from daemon").
-        self._stop_all_spinners()
+        self._stop_run_spinner()
 
     # === Chunked long-file pipeline slots ===
 
@@ -5206,7 +5206,7 @@ class TranscribeWindow(QDialog):
         self._transcription_in_progress = False
         self._update_transcribe_btn()
         self._update_translate_btn()
-        self._stop_all_spinners()
+        self._stop_run_spinner()
         self._restart_daemon_if_stopped()
 
     def _restart_daemon_if_stopped(self):
@@ -5265,7 +5265,7 @@ class TranscribeWindow(QDialog):
             self._run_status(_("Cancelled"))
             self._transcription_in_progress = False
             self._update_transcribe_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner()
             self._restart_daemon_if_stopped()
             return
         _dbg("_on_cancel_run: nothing to cancel")
@@ -5386,7 +5386,7 @@ class TranscribeWindow(QDialog):
             target._diarize_segments = []
             self._refresh_rename_panel_for_target(target)
             self._update_translate_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner(target)
             return
 
         self._retry_done = False
@@ -5458,7 +5458,7 @@ class TranscribeWindow(QDialog):
             self._run_status(_("Cancelled"))
             self._transcription_in_progress = False
             self._update_transcribe_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner(target)
             return
 
         if exit_code != 0:
@@ -5504,7 +5504,7 @@ class TranscribeWindow(QDialog):
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner(target)
             return
 
         if not raw_output:
@@ -5515,7 +5515,7 @@ class TranscribeWindow(QDialog):
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner(target)
             return
 
         # Reset retry flag on success
@@ -6461,13 +6461,20 @@ class TranscribeWindow(QDialog):
             self._spinning_status = False
             self._maybe_stop_timer()
 
-    def _stop_all_spinners(self):
-        """Stop every active spinner — used on _show_status when
-        results land, regardless of which workflow started them."""
-        if hasattr(self, "_spinning_tabs"):
-            for w in list(self._spinning_tabs.keys()):
-                self._stop_tab_spinner(w)
-        self._stop_translate_status_spinner()
+    def _stop_run_spinner(self, target=None):
+        """Stop the spinner of THIS run's tab and nothing else.
+
+        Every run terminator (success, error, cancel, timeout, empty
+        output) used to sweep every spinner in the window, which killed
+        the animation of a concurrent LLM analysis still generating.
+        Other jobs stop their own spinner: LLM tabs in
+        _finish_llm_result_tab / _cancel_llm_result_tab / _on_tab_close,
+        the translation status spinner in _on_translate_done / _error.
+        """
+        tab = target if target is not None else (
+            getattr(self, '_run_tab', None) or getattr(self, '_text_edit', None))
+        if tab is not None:
+            self._stop_tab_spinner(tab)
 
     def _tick_spinner(self):
         if not self._spinning_tabs and not self._spinning_status:
