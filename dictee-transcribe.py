@@ -2884,6 +2884,21 @@ class TranscribeWindow(QDialog):
               "selection.")))
         if self._asr_model:
             _i = self._asr_model_combo.findData(self._asr_model)
+            if _i < 0:
+                # A sized CLI spec (whisper-medium, whisper-rust-small…):
+                # the combo only lists the unsized engines, so findData
+                # missed and the run silently fell back to the F9 daemon.
+                # Give the spec its own entry — the run reads the combo,
+                # so that is all it takes to honour it. An unknown spec
+                # raises in asr_spec_to_daemon: keep the default then.
+                try:
+                    asr_spec_to_daemon(self._asr_model)
+                except ValueError:
+                    _dbg(f"--asr-model: unknown spec {self._asr_model!r}, ignored")
+                else:
+                    self._asr_model_combo.addItem(
+                        f"{self._asr_model} (CLI)", self._asr_model)
+                    _i = self._asr_model_combo.count() - 1
             if _i >= 0:
                 self._asr_model_combo.setCurrentIndex(_i)
         lay_file.addWidget(self._asr_model_combo)
