@@ -3849,15 +3849,34 @@ class TranscribeWindow(QDialog):
         # The translation source follows the active tab (the run it is
         # a view of, cf. _on_translate) — the button reflects whether
         # THAT run has produced text. _on_tab_changed re-projects this
-        # on every switch.
-        src = (getattr(self._active_editor(), '_rename_family', None)
-               or self._text_edit)
+        # on every switch. An LLM result tab is a view of no run: it has
+        # no _rename_family, and falling back to self._text_edit offered
+        # to translate an unrelated tab (audit m3).
+        src = self._translate_source_of(self._active_editor())
+        # A transcription in flight blocks translation (_on_transcribe
+        # refuses to start while one runs; the reverse must hold too).
+        # Without this, switching to an older finished tab mid-run
+        # re-enabled the button (audit m2).
+        run_busy = (getattr(self, "_transcription_in_progress", False)
+                    or self._process is not None
+                    or getattr(self, "_diarize_worker", None) is not None
+                    or getattr(self, "_chunked_worker", None) is not None)
         self._btn_translate.setEnabled(
             bool(tgt)
+            and src is not None
             and bool(getattr(src, '_raw_text', ''))
             and _translate_available(self._cmb_backend.currentData())
             and not self._chk_auto_translate.isChecked()
-            and not translating)
+            and not translating
+            and not run_busy)
+
+    @staticmethod
+    def _translate_source_of(editor):
+        """The run tab `editor` is a view of, or None when it is a view
+        of no run (LLM result tabs). Never guesses another tab."""
+        if editor is None or getattr(editor, "_is_llm_result", False):
+            return None
+        return getattr(editor, '_rename_family', None) or editor
 
     def _update_transcribe_btn(self):
         has_file = bool(self._file_input.text().strip())
@@ -5615,8 +5634,12 @@ class TranscribeWindow(QDialog):
         it. `checked` only absorbs QPushButton.clicked's argument.
         """
         if source is None:
-            source = (getattr(self._active_editor(), '_rename_family', None)
-                      or self._text_edit)
+            source = self._translate_source_of(self._active_editor())
+            if source is None:
+                # LLM result tab: a view of no run. Translating "the last
+                # run instead" would silently work on another tab.
+                _dbg("_on_translate: active tab is an LLM result — nothing to translate")
+                return
         raw_text = getattr(source, '_raw_text', '')
         segments = getattr(source, '_diarize_segments', None) or []
         was_diarized = getattr(source, '_was_diarized', False)
