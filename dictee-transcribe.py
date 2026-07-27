@@ -3668,10 +3668,22 @@ class TranscribeWindow(QDialog):
         if hasattr(self, "_lbl_long_audio_warning"):
             self._lbl_long_audio_warning.setVisible(False)
 
-    def _on_transcribe(self):
+    def _on_transcribe(self, checked=False, *, retry_of=None):
+        """Start a transcription run for the file in the Fichier field.
+
+        `retry_of` is the tab of a run being retried (GPU-OOM path): the
+        retry redoes THAT run — same tab, same audio file — instead of
+        opening a second tab and re-reading a field the user may have
+        changed in the meantime. `checked` only absorbs
+        QPushButton.clicked's argument.
+        """
         if not self.isVisible():
             return  # window closed, don't start new transcription
-        audio_path = self._file_input.text().strip()
+        if retry_of is not None and self._tabs.indexOf(retry_of) < 0:
+            retry_of = None  # tab closed during the retry delay
+        audio_path = (getattr(retry_of, '_audio_path', None)
+                      if retry_of is not None else None)
+        audio_path = (audio_path or self._file_input.text()).strip()
         if not audio_path or not os.path.isfile(audio_path):
             self._lbl_status.setText(_("File not found."))
             self._lbl_status.setVisible(True)
@@ -3702,24 +3714,42 @@ class TranscribeWindow(QDialog):
                     and not self._tabs.widget(i).toPlainText().strip()):
                 self._tabs.removeTab(i)
                 break
-        # Make previous active tab read-only
-        if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
-            self._text_edit.setReadOnly(True)
-        # Create new tab at the right
-        self._text_edit = QTextEdit()
-        self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
-        self._text_edit.setPlaceholderText(
-            _("Transcription results will appear here..."))
-        self._text_edit.viewport().installEventFilter(self)
-        self._install_modified_overlay(self._text_edit)
+        if retry_of is not None:
+            # Redo the failed run in its own tab: no orphan tab left
+            # showing the OOM message, and the counter does not advance.
+            self._transcription_counter -= 1
+            self._text_edit = retry_of
+            self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
+            self._text_edit.clear()
+            # The spinner is still running (the run never terminated), so
+            # the visible title carries an animation frame. Take the base
+            # title it was started with, or frames would stack up.
+            tab_name = (getattr(self, '_spinning_tabs', {}).get(retry_of)
+                        or self._tabs.tabText(self._tabs.indexOf(retry_of)))
+        else:
+            # Make previous active tab read-only
+            if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
+                self._text_edit.setReadOnly(True)
+            # Create new tab at the right
+            self._text_edit = QTextEdit()
+            self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
+            self._text_edit.setPlaceholderText(
+                _("Transcription results will appear here..."))
+            self._text_edit.viewport().installEventFilter(self)
+            self._install_modified_overlay(self._text_edit)
         # Remember which audio file this tab transcribed, so switching
         # tabs reloads the right file (and hence the right duration).
         self._text_edit._audio_path = audio_path
-        self._tabs.addTab(self._text_edit, tab_name)
+        # Display format owned by the tab, captured at creation: a run
+        # that lands while the user reads another tab must be rendered in
+        # the format its run was started with (_apply_format_to).
+        self._text_edit._format = self._cmb_format.currentData()
+        if retry_of is None:
+            self._tabs.addTab(self._text_edit, tab_name)
         self._tabs.setCurrentWidget(self._text_edit)
         # Animate the tab title with a braille spinner while the
         # transcription / diarization is running. _show_status() will
-        # call _stop_all_spinners() when results land.
+        # call _stop_run_spinner() when results land.
         self._start_tab_spinner(self._text_edit, tab_name)
         self._segments = []
         self._raw_text = ""
@@ -3866,6 +3896,11 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             self._transcription_in_progress = False
             self._update_transcribe_btn()
+            # The tab spinner was started before the routing decision:
+            # without this it spins forever on a tab that will never get
+            # a result, and Translate stays greyed out.
+            self._stop_run_spinner()
+            self._update_translate_btn()
             self._process.deleteLater()
             self._process = None
             return
@@ -3903,7 +3938,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("Transcription timed out (5 min)."))
             self._lbl_status.setVisible(True)
             self._progress.setVisible(False)
-            self._stop_all_spinners()
+            self._stop_run_spinner()
             if self._process is not None:
                 self._process.deleteLater()
                 self._process = None
@@ -3933,6 +3968,12 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("Audio file not found for phase 2."))
             self._transcription_in_progress = False
             self._update_transcribe_btn()
+            # Same teardown as _on_diarize_error: without it the tab keeps
+            # spinning and the progress bar stays up for a run that is
+            # over. (Cancel is chunked-only in 1.3, so nothing to hide.)
+            self._progress.setVisible(False)
+            self._stop_run_spinner()
+            self._update_translate_btn()
             return
 
         # Restart daemon
@@ -3977,7 +4018,7 @@ class TranscribeWindow(QDialog):
         self._update_transcribe_btn()
         # Stop the tab spinner — otherwise it keeps spinning forever on an
         # empty/failed diarization (e.g. "Empty transcription from daemon").
-        self._stop_all_spinners()
+        self._stop_run_spinner()
 
     # === Chunked long-file pipeline slots ===
 
@@ -4024,7 +4065,7 @@ class TranscribeWindow(QDialog):
         self._transcription_in_progress = False
         self._update_transcribe_btn()
         self._update_translate_btn()
-        self._stop_all_spinners()
+        self._stop_run_spinner()
         self._restart_daemon_if_stopped()
 
     def _restart_daemon_if_stopped(self):
@@ -4061,7 +4102,7 @@ class TranscribeWindow(QDialog):
             self._segments = []
             self._refresh_rename_panel_for_target()
             self._update_translate_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner()
             return
 
         self._retry_done = False
@@ -4199,8 +4240,13 @@ class TranscribeWindow(QDialog):
                         urllib.request.urlopen(req, timeout=5)
                     except Exception as _e:
                         _dbg(f"silenced: {_e!r}")
-                # Re-trigger transcription after delay
-                QTimer.singleShot(2000, self._on_transcribe)
+                # Re-trigger the SAME run after a delay: same tab, same
+                # audio file. Re-entering _on_transcribe bare opened a
+                # second tab and re-read the Fichier field, so a path
+                # changed during these 2 s transcribed another file.
+                _retry_tab = self._text_edit
+                QTimer.singleShot(
+                    2000, lambda: self._on_transcribe(retry_of=_retry_tab))
                 return
 
             self._retry_done = False
@@ -4216,7 +4262,7 @@ class TranscribeWindow(QDialog):
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner()
             return
 
         if not raw_output:
@@ -4228,7 +4274,7 @@ class TranscribeWindow(QDialog):
             self._transcription_in_progress = False
             self._update_transcribe_btn()
             self._update_translate_btn()
-            self._stop_all_spinners()
+            self._stop_run_spinner()
             return
 
         # Reset retry flag on success
@@ -4304,7 +4350,7 @@ class TranscribeWindow(QDialog):
         """
         # Any tab spinner started by transcription / diarization /
         # translation stops here.
-        self._stop_all_spinners()
+        self._stop_run_spinner()
         dur = self._audio_duration
         dur_str = f"{int(dur//60)}:{int(dur%60):02d}" if dur >= 60 else f"{dur:.1f}s"
         n_speakers = len(set(s["speaker"] for s in self._segments)) if self._segments else 0
@@ -4489,6 +4535,8 @@ class TranscribeWindow(QDialog):
         # Inherit audio path from the source tab so switching to this
         # translation reloads the right audio file in the player.
         editor._audio_path = getattr(self._text_edit, '_audio_path', None)
+        # Format owned by the tab from the start — see _on_transcribe.
+        editor._format = self._cmb_format.currentData()
         self._tabs.insertTab(insert_at, editor, tab_title)
 
         # Copy segments from source tab for marker support
@@ -4582,7 +4630,15 @@ class TranscribeWindow(QDialog):
         tabs). Anchoring on self._was_diarized would render the editor as
         plain text with raw_text=None and yield an empty tab.
         """
-        fmt = self._cmb_format.currentData()
+        # The format combo shows the ACTIVE tab's format. Rendering a tab
+        # the user is not looking at (a run landing in the background, a
+        # speaker rename propagating to the other tabs) must therefore use
+        # the tab's own format, or the combo would retro-format it.
+        if self._tabs.currentWidget() is editor:
+            fmt = self._cmb_format.currentData()
+        else:
+            fmt = (getattr(editor, "_format", None)
+                   or self._cmb_format.currentData())
         name_map = getattr(editor, "_speaker_name_map", None) \
             or getattr(self, "_speaker_name_map", None)
         was_diarized = bool(getattr(editor, "_was_diarized", self._was_diarized))
@@ -4620,10 +4676,17 @@ class TranscribeWindow(QDialog):
         # Remember the format used to render this tab so _on_tab_changed
         # can sync the combo back to it on switch.
         editor._format = fmt
-        # Snapshot the rendered text so _do_export can tell a real edit
-        # (content differs from this baseline) from an untouched tab, and
-        # export the edited text verbatim when the export format matches.
+        # Snapshot the rendered text so _is_edited_tab can tell a real
+        # edit (content differs from this baseline) from an untouched tab.
         editor._rendered_baseline = editor.toPlainText()
+
+    @staticmethod
+    def _is_edited_tab(editor):
+        """True when the tab holds text the user typed over the last
+        render. Tabs never rendered (no baseline) count as untouched:
+        there is nothing to lose."""
+        baseline = getattr(editor, '_rendered_baseline', None)
+        return baseline is not None and editor.toPlainText() != baseline
 
     def _compute_segment_positions(self, editor, segments):
         """Build [{start, end, seg}, ...] in editor.toPlainText() coordinates.
@@ -4899,9 +4962,18 @@ class TranscribeWindow(QDialog):
             if not isinstance(w, QTextEdit):
                 continue
             segs = getattr(w, "_diarize_segments", None)
-            if segs:
-                w._speaker_name_map = dict(new_map)
-                self._apply_format_to(w, segs, getattr(w, "_raw_text", ""))
+            if not segs:
+                continue
+            w._speaker_name_map = dict(new_map)
+            # Re-rendering replaces the whole text: never do that behind
+            # the user's back on a tab they have hand-corrected. The new
+            # map is stored above, so their next explicit render (format
+            # change, rename from that tab) picks the names up. The
+            # active tab is always re-rendered — showing the rename is
+            # what Apply is for, and its Modified badge is in view.
+            if w is not self._tabs.currentWidget() and self._is_edited_tab(w):
+                continue
+            self._apply_format_to(w, segs, getattr(w, "_raw_text", ""))
 
         # Refresh active tab explicitly too (covers the non-diarize case)
         self._apply_format()
@@ -4927,6 +4999,17 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setText(_("Nothing to copy."))
             self._lbl_status.setVisible(True)
 
+    def _export_base_for(self, editor):
+        """Default export filename stem for `editor`: the tab's OWN audio
+        file. The Fichier field is only a fallback — it holds the file
+        the user last picked, which has nothing to do with an older tab
+        being exported."""
+        audio = (getattr(editor, '_audio_path', None)
+                 or getattr(editor, '_source_audio_path', None))
+        if not audio and hasattr(self, "_file_input"):
+            audio = self._file_input.text()
+        return os.path.splitext(os.path.basename(audio or ""))[0] or "transcription"
+
     def _on_export_current_tab(self):
         """Export the currently active tab. LLM result tabs use a
         dedicated dialog (PDF + Markdown); regular tabs (transcription
@@ -4946,14 +5029,14 @@ class TranscribeWindow(QDialog):
             return
         idx = self._tabs.indexOf(editor)
         tab_name = self._tabs.tabText(idx) if idx >= 0 else _("Tab")
-        base = os.path.splitext(os.path.basename(self._file_input.text()))[0] or "transcription"
+        base = self._export_base_for(editor)
         dlg = ExportDialog(
             [(tab_name, text)], self._cmb_format.currentData(), base, self,
             current_tab_index=0)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self._do_export(dlg.selected_tabs(), dlg.export_formats(),
-                        dlg.export_dir(), dlg.base_name())
+                        dlg.export_dir(), dlg.base_name(), widget=editor)
 
     def _on_export_llm_tab(self, editor):
         """Show the LLMExportDialog for an LLM result tab."""
@@ -4963,8 +5046,7 @@ class TranscribeWindow(QDialog):
             self._lbl_status.setVisible(True)
             return
         # Default filename: {audio_basename}-{profile_name} sanitized.
-        audio = self._file_input.text() if hasattr(self, "_file_input") else ""
-        base = os.path.splitext(os.path.basename(audio))[0] or "transcription"
+        base = self._export_base_for(editor)
         profile = getattr(editor, "_llm_profile_name", "") or "llm"
         default_name = re.sub(r"[^\w.-]", "_", f"{base}-{profile}")
         dlg = LLMExportDialog(default_name, text, self)
@@ -5105,13 +5187,19 @@ class TranscribeWindow(QDialog):
             self._spinning_status = False
             self._maybe_stop_timer()
 
-    def _stop_all_spinners(self):
-        """Stop every active spinner — used on _show_status when
-        results land, regardless of which workflow started them."""
-        if hasattr(self, "_spinning_tabs"):
-            for w in list(self._spinning_tabs.keys()):
-                self._stop_tab_spinner(w)
-        self._stop_translate_status_spinner()
+    def _stop_run_spinner(self):
+        """Stop the spinner of THIS run's tab and nothing else.
+
+        Every run terminator (success, error, timeout, empty output) used
+        to sweep every spinner in the window, which killed the animation
+        of a concurrent LLM analysis still generating. Other jobs stop
+        their own spinner: LLM tabs in _finish_llm_result_tab /
+        _cancel_llm_result_tab / _on_tab_close, the translation status
+        spinner in _on_translate_done / _on_translate_error.
+        """
+        tab = getattr(self, '_text_edit', None)
+        if tab is not None:
+            self._stop_tab_spinner(tab)
 
     def _tick_spinner(self):
         if not self._spinning_tabs and not self._spinning_status:
@@ -5140,6 +5228,10 @@ class TranscribeWindow(QDialog):
         # Synthèse". Falling back to self._text_edit only matters for
         # legacy callers that didn't pass `source_widget`.
         src = source_widget if source_widget is not None else self._text_edit
+        # Name only: which audio this analysis came from, for the export
+        # filename (_export_base_for). Not _audio_path — that one binds
+        # the player, and an LLM tab has nothing to play.
+        editor._source_audio_path = getattr(src, '_audio_path', None)
         src_idx = self._tabs.indexOf(src)
         prefix = ""
         if src_idx >= 0:
@@ -5201,6 +5293,8 @@ class TranscribeWindow(QDialog):
         # click-time (falls back to the last-touched tab for legacy
         # callers).
         src = source_widget if source_widget is not None else self._text_edit
+        # Name only, for the export filename — see _start_llm_result_tab.
+        editor._source_audio_path = getattr(src, '_audio_path', None)
         src_idx = self._tabs.indexOf(src)
         prefix = ""
         if src_idx >= 0:
@@ -5211,10 +5305,15 @@ class TranscribeWindow(QDialog):
         idx = self._tabs.addTab(editor, tab_name)
         self._tabs.setCurrentIndex(idx)
 
-    def _do_export(self, selected, formats, out_dir, base):
+    def _do_export(self, selected, formats, out_dir, base, widget=None):
         """Write the selected tab's text out in the chosen format(s).
         `selected` is always a single-tab list — multi-tab export was
-        removed because users found the resulting file pile confusing."""
+        removed because users found the resulting file pile confusing.
+
+        `widget` is the tab the caller already resolved. Tab titles are
+        NOT unique (two translations of one run into the same language
+        with the same backend are named identically), so re-resolving by
+        title here used to export the first namesake's data."""
         if not selected or not formats:
             self._lbl_status.setText(_("Nothing to export."))
             self._lbl_status.setVisible(True)
@@ -5239,16 +5338,20 @@ class TranscribeWindow(QDialog):
                 segments = None
                 name_map = None
                 displayed_fmt = None
+                tab_raw = ""
                 edited = False
-                for i in range(self._tabs.count()):
-                    if self._tabs.tabText(i) == tab_name:
-                        w = self._tabs.widget(i)
-                        segments = getattr(w, '_diarize_segments', None)
-                        name_map = getattr(w, '_speaker_name_map', None)
-                        displayed_fmt = getattr(w, '_format', None)
-                        baseline = getattr(w, '_rendered_baseline', None)
-                        edited = baseline is not None and w.toPlainText() != baseline
-                        break
+                w = widget
+                if w is None:
+                    for i in range(self._tabs.count()):
+                        if self._tabs.tabText(i) == tab_name:
+                            w = self._tabs.widget(i)
+                            break
+                if w is not None:
+                    segments = getattr(w, '_diarize_segments', None)
+                    name_map = getattr(w, '_speaker_name_map', None)
+                    displayed_fmt = getattr(w, '_format', None)
+                    tab_raw = getattr(w, '_raw_text', "")
+                    edited = self._is_edited_tab(w)
 
                 if edited and fmt == displayed_fmt:
                     # The editor already holds this exact format with the
@@ -5258,24 +5361,34 @@ class TranscribeWindow(QDialog):
                     # less text can't be remapped onto segments); the format-
                     # locking UX that prevents that case is deferred to 1.4.
                     content = text
-                elif fmt == "text" and segments:
-                    # Re-render text format with renamed speakers so the
-                    # exported file reflects the current display map even
-                    # if the editor was never refreshed.
-                    content = _format_text(segments, name_map)
-                elif fmt != "text":
+                elif fmt == "text":
+                    if segments:
+                        # Re-render text format with renamed speakers so the
+                        # exported file reflects the current display map even
+                        # if the editor was never refreshed.
+                        content = _format_text(segments, name_map)
+                    else:
+                        # Same reasoning as the segment-less branch below:
+                        # a tab displayed as JSON must not export its
+                        # rendering as if it were the transcript.
+                        content = text if edited else (tab_raw or text)
+                else:
                     if segments and fmt == "srt":
                         content = _format_srt(segments, name_map)
                     elif segments and fmt == "json":
                         content = _format_json(segments, name_map)
-                    elif fmt == "json":
-                        raw = (getattr(self._text_edit, "_raw_text", "")
-                               if tab_name == self._tabs.tabText(0) else text)
-                        content = json.dumps([{"text": raw}], ensure_ascii=False, indent=2)
-                    elif fmt == "srt":
-                        raw = (getattr(self._text_edit, "_raw_text", "")
-                               if tab_name == self._tabs.tabText(0) else text)
-                        content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
+                    else:
+                        # Segment-less tab: export ITS OWN stored raw text.
+                        # This used to read self._text_edit (the last run's
+                        # transcript) for the first tab and the on-screen
+                        # rendering for every other one, so a tab displayed
+                        # as JSON came out as JSON inside JSON.
+                        raw = text if edited else (tab_raw or text)
+                        if fmt == "json":
+                            content = json.dumps([{"text": raw}],
+                                                 ensure_ascii=False, indent=2)
+                        else:
+                            content = f"1\n00:00:00,000 --> 99:59:59,999\n{raw}\n"
 
                 safe_name = re.sub(r'[^\w.-]', '_', tab_name)
                 # Sanitise the user-editable base too, otherwise a
