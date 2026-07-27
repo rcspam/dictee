@@ -35,6 +35,17 @@ const DECODER_LSTM_DIM: usize = 640;
 const CHUNK_SIZE: usize = 56;
 const PRE_ENCODE_CACHE: usize = 9;
 
+/// How many samples the streaming buffer may drop from its front.
+///
+/// `audio_processed / HOP_LENGTH` indexes mel frames of the CURRENT
+/// buffer, so a drop that is not a whole number of hops shifts every
+/// later frame by a fraction of a hop against the encoder cache. The
+/// buffer's keep window ends on WIN_LENGTH (400 = 2.5 hops), which made
+/// every trim land half a hop off the mel grid. Round down to the hop.
+fn aligned_trim(remove: usize, audio_processed: usize) -> usize {
+    (remove.min(audio_processed) / HOP_LENGTH) * HOP_LENGTH
+}
+
 /// Language → prompt embedding index for the multilingual model. Mirrors
 /// `cfg.model_defaults.prompt_dictionary` from the .nemo. Embedded here so
 /// we don't require a sidecar `config.json` next to the ONNX files.
@@ -638,7 +649,7 @@ impl Nemotron {
         if self.audio_buffer.len() > keep_samples * 2 {
             let remove = self.audio_buffer.len() - keep_samples;
             // Adjust processed counter since we're removing from the start
-            let actual_remove = remove.min(self.audio_processed);
+            let actual_remove = aligned_trim(remove, self.audio_processed);
             self.audio_buffer.drain(0..actual_remove);
             self.audio_processed -= actual_remove;
         }
@@ -859,4 +870,44 @@ impl Nemotron {
             .collect()
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression (audit 2026-07-25, m16): the streaming trim used
+    // `remove.min(audio_processed)` verbatim. The keep window ends on
+    // WIN_LENGTH, so `remove` carried a half-hop remainder and every trim
+    // walked audio_processed off the mel grid it indexes.
+
+    #[test]
+    fn trim_stays_on_the_hop_grid() {
+        // Realistic first trim: buffer twice the keep window, everything
+        // but the window already processed.
+        let keep = (PRE_ENCODE_CACHE + CHUNK_SIZE) * HOP_LENGTH + WIN_LENGTH;
+        let buffer_len = keep * 2 + 1;
+        let remove = buffer_len - keep;
+        assert_ne!(remove % HOP_LENGTH, 0, "the raw amount is off-grid");
+
+        let processed = 40 * CHUNK_SIZE * HOP_LENGTH; // whole chunks
+        let dropped = aligned_trim(remove, processed);
+        assert_eq!(dropped % HOP_LENGTH, 0, "trim must be a whole number of hops");
+        assert_eq!((processed - dropped) % HOP_LENGTH, 0,
+                   "audio_processed must stay on the mel grid");
+        assert!(dropped <= remove, "never drop unprocessed audio");
+        assert!(remove - dropped < HOP_LENGTH, "drop as much as the grid allows");
+    }
+
+    #[test]
+    fn trim_never_exceeds_processed_audio() {
+        let dropped = aligned_trim(100_000, 3 * HOP_LENGTH + 40);
+        assert_eq!(dropped, 3 * HOP_LENGTH);
+    }
+
+    #[test]
+    fn trim_is_zero_below_one_hop() {
+        assert_eq!(aligned_trim(HOP_LENGTH - 1, 10 * HOP_LENGTH), 0);
+        assert_eq!(aligned_trim(10 * HOP_LENGTH, HOP_LENGTH - 1), 0);
+    }
 }
