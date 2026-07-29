@@ -116,6 +116,7 @@ OWN_PIDFILE = f"/tmp/dictee-ptt{_UID_SUFFIX}.pid"
 EV_KEY = 1
 EV_REL = 2   # relative axes = mouse movement (never grab a pointer device)
 EV_ABS = 3   # absolute axes = touchpad / touchscreen / tablet
+MOTION_AXES = {0, 1}  # X, Y — same codes in REL and ABS
 KEY_DOWN = 1
 KEY_UP = 0
 KEY_REPEAT = 2
@@ -184,14 +185,15 @@ def find_keyboards_evdev():
         except (PermissionError, OSError):
             continue
         caps = dev.capabilities(verbose=False)
-        # EV_KEY present with the full key set, AND no pointer axes. A real
-        # keyboard never reports EV_REL/EV_ABS. Some mice and combined
-        # keyboard+mouse HID receivers expose a node with >30 keys that ALSO
-        # carries pointer movement; EVIOCGRAB-ing such a node freezes the
-        # system mouse (forum report: dictee 1.3.4, AMD/Wayland). Excluding
-        # EV_REL/EV_ABS keeps us from ever grabbing a pointer device.
+        # EV_KEY present with the full key set, AND no X/Y motion. Some mice and
+        # combined keyboard+mouse HID receivers expose a node with >30 keys that
+        # ALSO carries pointer movement; EVIOCGRAB-ing such a node freezes the
+        # system mouse (forum report: dictee 1.3.4, AMD/Wayland). Only motion
+        # disqualifies a node: media and voice keys (KEY_VOICECOMMAND) sit on a
+        # "Consumer Control" node declaring ABS_VOLUME or REL_HWHEEL, no pointer.
+        axes = set(caps.get(EV_REL, ())) | {c for c, _ in caps.get(EV_ABS, ())}
         if (EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30
-                and EV_REL not in caps and EV_ABS not in caps):
+                and not axes & MOTION_AXES):
             name = dev.name.lower()
             if name in EXCLUDE_KEYBOARDS:
                 dev.close()
@@ -217,25 +219,21 @@ def find_keyboards_raw():
 
     for block in content.split("\n\n"):
         lines = block.strip().splitlines()
-        name_line = handlers_line = ev_line = ""
+        name_line = handlers_line = ""
+        axis_masks = []
         for line in lines:
             if line.startswith("N:"):
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-            elif line.startswith("B: EV="):
-                ev_line = line
-        # Reject nodes that also drive a pointer — grabbing a combined
-        # keyboard+pointer HID node freezes it. Parse the EV capability bitmask
-        # and skip the node if it exposes relative (mouse) OR absolute
-        # (touchpad/touchscreen/tablet) axes. Mirrors the EV_REL/EV_ABS
-        # exclusion in find_keyboards_evdev — the H: "mouse" handler check alone
-        # misses abs-only pointers.
-        has_pointer = False
-        m_ev = re.search(r"B: EV=([0-9a-fA-F]+)", ev_line)
-        if m_ev:
-            ev_caps = int(m_ev.group(1), 16)
-            has_pointer = bool(ev_caps & (1 << EV_REL)) or bool(ev_caps & (1 << EV_ABS))
+            elif line.startswith(("B: REL=", "B: ABS=")):
+                axis_masks.append(line)
+        # Same rule as find_keyboards_evdev: only X/Y motion disqualifies a
+        # node, so read the REL/ABS masks — "B: EV=" says only THAT the node has
+        # axes, not which ones. Each mask prints as 64-bit words, most
+        # significant first, so X (bit 0) and Y (bit 1) are in the last word.
+        has_pointer = any(int(m.rsplit("=", 1)[1].split()[-1], 16) & 0b11
+                          for m in axis_masks)
         # Require the kbd handler but reject pointer devices.
         if "kbd" in handlers_line and "mouse" not in handlers_line and not has_pointer:
             name_lower = name_line.lower()

@@ -3127,6 +3127,7 @@ class ShortcutButton(QPushButton):
         super().__init__(_("Click to capture a shortcut…"), parent)
         self._capturing = False
         self._sequence = None
+        self._keycode = 0
         self._changed = False
         self.clicked.connect(self._start_capture)
 
@@ -3173,6 +3174,11 @@ class ShortcutButton(QPushButton):
         key_int = key.value if hasattr(key, "value") else int(key)
         mod_int = modifiers.value if hasattr(modifiers, "value") else int(modifiers)
         seq = QKeySequence(mod_int | key_int)
+        # X11 and Wayland both report the evdev keycode + 8 as the scan code.
+        # Media and voice keys have no Qt keysym, so key() is 0 and the
+        # QKeySequence renders empty — the scan code is the only way to read
+        # them, and it needs no per-key table.
+        self._keycode = max(event.nativeScanCode() - 8, 0)
 
         self._capturing = False
         self._sequence = seq
@@ -3191,6 +3197,10 @@ class ShortcutButton(QPushButton):
 
     def sequence(self):
         return self._sequence
+
+    def keycode(self):
+        """evdev keycode of the captured key (0 if nothing was captured)."""
+        return self._keycode
 
 
 # === Audio sources ===
@@ -16946,7 +16956,7 @@ class DicteeSetupDialog(QDialog):
     # -- Capture raccourci --
 
     def _on_ptt_key_captured(self, seq):
-        code = qt_key_to_linux_keycode(seq)
+        code = self.btn_capture.keycode() or qt_key_to_linux_keycode(seq)
         if code:
             self._ptt_key = code
             self.btn_capture.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
@@ -16968,7 +16978,7 @@ class DicteeSetupDialog(QDialog):
             self.lbl_ptt_warning.setVisible(True)
 
     def _on_ptt_key_translate_captured(self, seq):
-        code = qt_key_to_linux_keycode(seq)
+        code = self.btn_capture_translate.keycode() or qt_key_to_linux_keycode(seq)
         if code:
             self._ptt_key_translate = code
             self.btn_capture_translate.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
