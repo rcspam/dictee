@@ -1574,6 +1574,10 @@ class MeetingWindow(QWidget):
                             (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
                             ("Nemotron", "nemotron")):
             self._model_combo.addItem(_lbl, _spec)
+        # Kyutai ships in the CUDA package only — offering it where the binary
+        # cannot exist would be a dead entry (unlike whisper-rust, in both).
+        if shutil.which("transcribe-daemon-kyutai"):
+            self._model_combo.addItem("Kyutai (fr/en, GPU)", "kyutai")
         self._model_combo.setToolTip(
             "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
             "le choix fait dans dictee-setup.")
@@ -2581,8 +2585,39 @@ class MeetingWindow(QWidget):
             except FileNotFoundError:
                 self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
                 self._live_asr_sock = None
+        elif _spec == "kyutai" and not shutil.which("transcribe-daemon-kyutai"):
+            # Checked BEFORE _free_vram_for_live_daemon(), like whisper-rust:
+            # stopping the F9 services for a missing binary would leave no live
+            # engine at all, and the promised Parakeet fallback needs them up.
+            self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
+        elif _spec == "kyutai":
+            # Kyutai emits no word timestamps either, so it takes the same
+            # per-Sortformer-segment path as nemotron. Its own binary resolves
+            # the model dir itself and takes --socket (candle crate).
+            self._live_asr_sock = f"/tmp/dictee-meeting-kyutai-{os.getpid()}.sock"
+            self._free_vram_for_live_daemon()
+            _env = _build_subprocess_env()
+            _env["DICTEE_ASR_BACKEND"] = "kyutai"
+            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+            try:
+                os.unlink(self._live_asr_sock)
+            except OSError:
+                pass
+            try:
+                self._live_asr_proc = subprocess.Popen(
+                    ["transcribe-daemon-kyutai", "--socket", self._live_asr_sock],
+                    env=_env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
+                self._live_asr_sock = None
 
-        self._nemotron_live = bool(self._live_asr_sock) and _spec == "nemotron"
+        # "nemotron_live" really means "timestamp-less engine": the live preview
+        # transcribes one Sortformer segment at a time instead of splitting on
+        # word timestamps. Kyutai is in the same case (see dictee's dual-
+        # transcription list).
+        self._nemotron_live = (bool(self._live_asr_sock)
+                               and _spec in ("nemotron", "kyutai"))
         self._chunk_paths = {}            # chunk_id → wav path (nemotron live)
         # Any whisper-family private socket (faster-whisper AND whisper-rust:
         # both daemons speak the same protocol with word timestamps).

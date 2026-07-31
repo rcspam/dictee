@@ -63,7 +63,7 @@ _WHISPER_RUST_SIZES = ("tiny", "base", "small", "medium",
 
 ASR_SPECS = ("parakeet-int8", "parakeet-fp32",
              "whisper", "whisper-tiny", "whisper-small", "whisper-medium",
-             "whisper-rust", "nemotron") + tuple(
+             "whisper-rust", "nemotron", "kyutai") + tuple(
              f"whisper-rust-{s}" for s in _WHISPER_RUST_SIZES)
 
 
@@ -150,6 +150,12 @@ def asr_spec_to_daemon(spec):
     if spec == "nemotron":
         return {"backend": "nemotron",
                 "env": {"DICTEE_ASR_BACKEND": "nemotron"}}
+    if spec == "kyutai":
+        # Dedicated candle daemon (transcribe-daemon-kyutai), GPU-only. Like
+        # nemotron it emits no word timestamps, so callers fall back to
+        # per-segment transcription. The binary ships in the CUDA package only.
+        return {"backend": "kyutai",
+                "env": {"DICTEE_ASR_BACKEND": "kyutai"}}
     raise ValueError(f"unknown asr spec: {spec}")
 
 
@@ -1643,6 +1649,10 @@ class IsolatedAsrDaemon:
             # transcribe-daemon reads DICTEE_ASR_BACKEND=nemotron from env and
             # auto-selects the nemotron model directory (no positional arg needed).
             cmd = ["transcribe-daemon", "--socket", self.sock]
+        elif self.recipe["backend"] == "kyutai":
+            # Separate candle crate with its own binary, like whisper-rust. It
+            # resolves its model dir itself and takes --socket (main.rs).
+            cmd = ["transcribe-daemon-kyutai", "--socket", self.sock]
         else:  # parakeet ad-hoc (not used by the current routing, kept for completeness)
             cmd = ["transcribe-daemon", "--socket", self.sock, self.model_dir]
         return cmd, env
@@ -2878,6 +2888,11 @@ class TranscribeWindow(QDialog):
             ("Nemotron", "nemotron"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
+        # Kyutai ships in the CUDA package only — offering it where the binary
+        # cannot exist would be a dead entry (unlike whisper-rust, which is in
+        # both packages).
+        if shutil.which("transcribe-daemon-kyutai"):
+            self._asr_model_combo.addItem("Kyutai (fr/en, GPU)", "kyutai")
         self._asr_model_combo.setToolTip(self._tip(
             _("ASR model for this transcription (isolated from your F9 "
               "setting). Whisper model sizes follow your dictee-setup "
