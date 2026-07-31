@@ -3602,7 +3602,8 @@ class TranscribeWindow(QDialog):
                        "whisper": "dictee-whisper",
                        "whisper-rust": "dictee-whisper-rust",
                        "canary": "dictee-canary",
-                       "nemotron": "dictee-nemotron"}
+                       "nemotron": "dictee-nemotron",
+                       "kyutai": "dictee-kyutai"}
             subprocess.Popen(["systemctl", "--user", "enable", "--now", svc_map.get(asr, "dictee")])
         # Restaurer l'état idle pour le plasmoid
         _state_file = "/dev/shm/.dictee_state"
@@ -4745,7 +4746,7 @@ class TranscribeWindow(QDialog):
                             ["systemctl", "--user", "stop",
                              "dictee", "dictee-vosk", "dictee-whisper",
                              "dictee-whisper-rust", "dictee-canary",
-                             "dictee-nemotron"],
+                             "dictee-nemotron", "dictee-kyutai"],
                             timeout=10)
                         _time.sleep(1)
                     # Still tight? Unload ollama too
@@ -5115,7 +5116,8 @@ class TranscribeWindow(QDialog):
                    "whisper": "dictee-whisper",
                    "whisper-rust": "dictee-whisper-rust",
                    "canary": "dictee-canary",
-                   "nemotron": "dictee-nemotron"}
+                   "nemotron": "dictee-nemotron",
+                   "kyutai": "dictee-kyutai"}
         svc = svc_map.get(asr, "dictee")
         subprocess.Popen(["systemctl", "--user", "start", svc])
         return svc

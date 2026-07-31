@@ -1,13 +1,13 @@
 [Unit]
 Description=Parakeet Transcribe Daemon (ASR)
 After=network.target
-Conflicts=dictee-vosk.service dictee-whisper.service dictee-whisper-rust.service dictee-canary.service dictee-nemotron.service
+Conflicts=dictee-vosk.service dictee-whisper.service dictee-whisper-rust.service dictee-canary.service dictee-nemotron.service dictee-kyutai.service
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/transcribe-daemon
 ExecStartPost=/bin/bash -c 'echo idle > /dev/shm/.dictee_state'
-ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
+ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
 Restart=on-failure
 RestartSec=5
 EnvironmentFile=-%h/.config/dictee.conf

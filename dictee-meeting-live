@@ -2685,7 +2685,7 @@ class MeetingWindow(QWidget):
                     ["systemctl", "--user", "stop",
                      "dictee", "dictee-vosk", "dictee-whisper",
                      "dictee-whisper-rust", "dictee-canary",
-                     "dictee-nemotron"],
+                     "dictee-nemotron", "dictee-kyutai"],
                     timeout=10)
                 time.sleep(1)
             free3 = subprocess.run(
@@ -2889,7 +2889,9 @@ class MeetingWindow(QWidget):
             asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
             svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
                        "whisper": "dictee-whisper", "canary": "dictee-canary",
-                       "nemotron": "dictee-nemotron"}
+                       "whisper-rust": "dictee-whisper-rust",
+                       "nemotron": "dictee-nemotron",
+                       "kyutai": "dictee-kyutai"}
             try:
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(asr, "dictee")])

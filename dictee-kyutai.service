@@ -1,14 +1,14 @@
 [Unit]
 Description=Kyutai STT Daemon (ASR, French/English, GPU)
 After=network.target
-Conflicts=dictee.service dictee-vosk.service dictee-whisper.service dictee-canary.service dictee-nemotron.service
+Conflicts=dictee.service dictee-vosk.service dictee-whisper.service dictee-whisper-rust.service dictee-canary.service dictee-nemotron.service
 
 [Service]
 Type=simple
 EnvironmentFile=-%h/.config/dictee.conf
 ExecStart=/usr/bin/transcribe-daemon-kyutai
 ExecStartPost=/bin/bash -c 'echo idle > /dev/shm/.dictee_state'
-ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-canary dictee-nemotron dictee-kyutai; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
+ExecStopPost=/bin/bash -c 'for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do systemctl --user is-active --quiet "$s.service" 2>/dev/null && exit 0; done; echo offline > /dev/shm/.dictee_state'
 Restart=on-failure
 RestartSec=5
 Environment=XDG_RUNTIME_DIR=/run/user/%U
