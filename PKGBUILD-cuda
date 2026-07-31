@@ -144,9 +144,12 @@ build() {
     # Builds into dictee-kyutai-daemon/target/ (its own crate). Reuses the CUDA
     # runtime libs symlinked into /usr/lib/dictee by the install hook — no extra
     # libs bundled. On a clean Arch build host nvcc comes from the `cuda` package;
-    # CUDA_LOCAL lets a dev override the toolchain path (defaults to the POC one).
+    # CUDA_LOCAL lets a dev override the toolchain path.
     CUDA_LOCAL="${CUDA_LOCAL:-/opt/cuda}"
-    CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
+    # audiopus_sys (Opus, via kaudio) declares cmake_minimum_required < 3.5,
+    # which CMake 4.x refuses; without this the build dies in its build script.
+    CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}" \
+        CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
         PATH="$CUDA_LOCAL/bin:$PATH" CUDA_ROOT="$CUDA_LOCAL" \
         cargo build --release --features cuda --manifest-path dictee-kyutai-daemon/Cargo.toml
 

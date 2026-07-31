@@ -101,12 +101,17 @@ fi
 
 # Kyutai daemon — separate candle crate (CUDA-only, needs nvcc). The universal
 # tarball is CUDA-only, so it always ships kyutai. Reuses the CUDA runtime libs
-# bundled in /usr/lib/dictee; no extra libs. CUDA_LOCAL defaults to the POC-local
-# CUDA 12.8 toolchain; release/CI machines must have nvcc (override CUDA_LOCAL).
+# bundled in /usr/lib/dictee; no extra libs. nvcc 12.8 is REQUIRED on the build
+# host: a 595.x driver is CUDA 13.2 and rejects the PTX 9.3 that nvcc 13.3 emits.
+# (The old default pointed at the untracked POC tree
+# tests/poc-kyutai/cuda-12.8-local, which no longer exists.)
 echo ""
 echo "=== [TAR.GZ] Cargo build Kyutai daemon (CUDA) ==="
-CUDA_LOCAL="${CUDA_LOCAL:-$PWD/tests/poc-kyutai/cuda-12.8-local/usr/local/cuda-12.8}"
-CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
+CUDA_LOCAL="${CUDA_LOCAL:-/usr/local/cuda-12.8}"
+# audiopus_sys (Opus, via kaudio) declares cmake_minimum_required < 3.5, which
+# CMake 4.x refuses; without this the build dies in its build script.
+CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}" \
+    CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
     PATH="$CUDA_LOCAL/bin:$PATH" CUDA_ROOT="$CUDA_LOCAL" \
     cargo build --release --features cuda --manifest-path dictee-kyutai-daemon/Cargo.toml
 
