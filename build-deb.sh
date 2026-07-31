@@ -151,6 +151,19 @@ EOF
     cp target/release/transcribe-daemon-whisper-rust "$PKG_DIR/usr/bin/"
     cp target/release/dictee-app-capture "$PKG_DIR/usr/bin/"
 
+    # Kyutai daemon — separate candle crate (CUDA-only, needs nvcc). Reuses the
+    # CUDA runtime libs already bundled in /usr/lib/dictee; no extra libs here.
+    # CUDA_LOCAL defaults to the POC-local CUDA 12.8 toolchain; release/CI
+    # machines must have nvcc on PATH (override CUDA_LOCAL or rely on system).
+    CUDA_LOCAL="${CUDA_LOCAL:-$PWD/tests/poc-kyutai/cuda-12.8-local/usr/local/cuda-12.8}"
+    CUDARC_CUDA_VERSION="${CUDARC_CUDA_VERSION:-12090}" CUDA_COMPUTE_CAP="${CUDA_COMPUTE_CAP:-89}" \
+      PATH="$CUDA_LOCAL/bin:$PATH" CUDA_ROOT="$CUDA_LOCAL" \
+      cargo build --release --features cuda --manifest-path dictee-kyutai-daemon/Cargo.toml
+    install -Dm755 dictee-kyutai-daemon/target/release/transcribe-daemon-kyutai \
+      "$PKG_DIR/usr/bin/transcribe-daemon-kyutai"
+    install -Dm644 dictee-kyutai.service \
+      "$PKG_DIR/usr/lib/systemd/user/dictee-kyutai.service"
+
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "=== Copying CUDA ONNX Runtime libs ==="
     mkdir -p "$PKG_DIR/usr/lib/dictee"

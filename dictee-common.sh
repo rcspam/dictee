@@ -255,6 +255,7 @@ asr_service() {
         canary)   echo "dictee-canary" ;;
         whisper-rust) echo "dictee-whisper-rust" ;;
         nemotron) echo "dictee-nemotron" ;;
+        kyutai)   echo "dictee-kyutai" ;;
         *)        echo "dictee" ;;
     esac
 }

@@ -380,12 +380,12 @@ PlasmoidItem {
     }
 
     // Commande lente : vérifier si le daemon tourne (pour offline/idle)
-    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
+    property string daemonCheckCmd: "bash -c 'command -v dictee >/dev/null 2>&1 || { echo not-installed; exit; }; conf=${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf; [ -f \"$conf\" ] || { echo not-configured; exit; }; grep -q ^DICTEE_SETUP_DONE=true \"$conf\" || { echo not-configured; exit; }; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do systemctl --user is-active $s 2>/dev/null | grep -qx active && echo idle && exit; done; echo offline'"
 
     // Current backend state (read from config)
     property string currentAsrBackend: "parakeet"
     property string currentTranslateBackend: "google"
-    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust", "nemotron"]  // updated by checkInstalledCmd
+    property var installedAsr: ["parakeet", "canary", "vosk", "whisper", "whisper-rust", "nemotron", "kyutai"]  // updated by checkInstalledCmd
     property var installedTranslate: ["google", "bing", "ollama", "libretranslate"]  // updated by checkInstalledCmd
     property bool sortformerAvailable: false  // updated by checkInstalledCmd
     property real micVolume: 0.5  // microphone volume (0.0-1.5)
@@ -456,6 +456,15 @@ PlasmoidItem {
             return { sensitive: false, forced: "gpu",
                      tooltip: i18n("Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)") }
         }
+        if (b === "kyutai") {
+            return {
+                sensitive: false,
+                forced: "gpu",
+                tooltip: hasGpu
+                    ? i18n("Kyutai requires NVIDIA GPU (no CPU mode)")
+                    : i18n("Kyutai requires NVIDIA GPU — none detected, transcription will fail")
+            }
+        }
         if (b === "vosk") {
             return { sensitive: false, forced: "cpu",
                      tooltip: i18n("Vosk runs on CPU by design") }
@@ -496,6 +505,8 @@ PlasmoidItem {
         // model on disk (system or user dir). No venv — it's the Rust daemon.
         "{ ls /usr/share/dictee/whisper-rust/ggml-*.bin >/dev/null 2>&1 || ls \"$dd/whisper-rust\"/ggml-*.bin >/dev/null 2>&1; } && command -v transcribe-daemon >/dev/null 2>&1 && echo whisper-rust; " +
         "{ [ -d /usr/share/dictee/nemotron ] || [ -d \"$dd/nemotron\" ]; } && command -v transcribe-daemon >/dev/null 2>&1 && echo nemotron; " +
+        // Kyutai: dedicated Rust daemon (transcribe-daemon-kyutai), GPU-only
+        "{ [ -d /usr/share/dictee/kyutai ] || [ -f \"$dd/kyutai/model.safetensors\" ]; } && command -v transcribe-daemon-kyutai >/dev/null 2>&1 && echo kyutai; " +
         "echo ---; " +
         "command -v trans >/dev/null 2>&1 && echo google && echo bing; " +
         "command -v ollama >/dev/null 2>&1 && { m=$(. \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null; echo \"${DICTEE_OLLAMA_MODEL:-translategemma}\"); ollama list 2>/dev/null | grep -q \"${m%%:*}\" && echo ollama; }; " +
@@ -848,15 +859,15 @@ PlasmoidItem {
                 "svc=dictee; " +
                 "if [ -f \"$conf\" ]; then " +
                 "  b=$(grep ^DICTEE_ASR_BACKEND= \"$conf\" | cut -d= -f2); " +
-                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; whisper-rust) svc=dictee-whisper-rust;; canary) svc=dictee-canary;; nemotron) svc=dictee-nemotron;; esac; " +
+                "  case $b in vosk) svc=dictee-vosk;; whisper) svc=dictee-whisper;; whisper-rust) svc=dictee-whisper-rust;; canary) svc=dictee-canary;; nemotron) svc=dictee-nemotron;; kyutai) svc=dictee-kyutai;; esac; " +
                 "fi; " +
                 "systemctl --user enable --now $svc; echo idle > /dev/shm/.dictee_state'")
             break
         case "stop-daemon":
-            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
+            executable.run("bash -c 'echo offline > /dev/shm/.dictee_state; for s in dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai; do systemctl --user disable --now $s 2>/dev/null; systemctl --user reset-failed $s 2>/dev/null; done'")
             break
         case "reset": {
-            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron" }
+            var svcMap = { "parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron", "kyutai": "dictee-kyutai" }
             var svc = svcMap[root.currentAsrBackend] || "dictee"
             executable.run("dictee-reset " + svc)
             root.activeButton = ""

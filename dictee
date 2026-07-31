@@ -209,12 +209,12 @@ cleanup_session() {
     rm -f "$COMBINED_FILE" "$SILENCE_FILE" "$STREAM_FLAG_FILE"
 }
 
-# Decide whether to use the live streaming path (Nemotron only).
-# Streaming requires: master switch ON, backend=nemotron, no diarize, AND
+# Decide whether to use the live streaming path (Nemotron or Kyutai).
+# Streaming requires: master switch ON, backend=nemotron|kyutai, no diarize, AND
 # (final-pass ON  OR  no heavy PP active) — otherwise fall back to batch.
 use_streaming() {
     [ "${DICTEE_STREAMING:-false}" = "true" ] || return 1
-    [ "${DICTEE_ASR_BACKEND:-parakeet}" = "nemotron" ] || return 1
+    case "${DICTEE_ASR_BACKEND:-parakeet}" in nemotron|kyutai) ;; *) return 1 ;; esac
     [ "$DIARIZE" = "true" ] && return 1
     # Non-type output modes (#28): dictee-stream types incrementally through
     # its own dotool path, bypassing emit_text entirely — in paste mode the
@@ -1622,8 +1622,8 @@ if [ -f "$PIDFILE" ]; then
                 _dbg "audio-context: whisper model '${DICTEE_WHISPER_MODEL:-small}' has unreliable timestamps, skipping context"
                 used_context=false
                 rm -f "$COMBINED_FILE"
-            elif [ "$_backend" = "canary" ] || [ "$_backend" = "whisper-rust" ] || [ "$_backend" = "nemotron" ]; then
-                # Canary/Whisper-Rust/Nemotron: no word timestamps → dual
+            elif [ "$_backend" = "canary" ] || [ "$_backend" = "whisper-rust" ] || [ "$_backend" = "nemotron" ] || [ "$_backend" = "kyutai" ]; then
+                # Canary/Whisper-Rust/Nemotron/Kyutai: no word timestamps → dual
                 # transcription mode. whisper-rust (whisper.cpp, no_timestamps)
                 # returns a single [0-30s] segment, so the timestamp-split branch
                 # drops everything and fails every other push.

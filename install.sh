@@ -509,6 +509,7 @@ mode_online() {
             /usr/lib/systemd/user/dictee-whisper-rust.service
             /usr/lib/systemd/user/dictee-canary.service
             /usr/lib/systemd/user/dictee-nemotron.service
+            /usr/lib/systemd/user/dictee-kyutai.service
             /usr/lib/systemd/user-preset/90-dictee.preset
             /usr/share/applications/dictee-setup.desktop
             /usr/share/applications/dictee-transcribe.desktop
@@ -1079,7 +1080,7 @@ EOF
     if [[ -d "/run/user/$REAL_UID" ]]; then
         local _run="sudo -u $REAL_USER XDG_RUNTIME_DIR=/run/user/$REAL_UID DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
-        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai dictee-ptt dictee-tray dotoold 2>/dev/null || true
         $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
         $_run systemctl --user restart dotoold 2>/dev/null || true
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
@@ -1099,10 +1100,11 @@ EOF
             whisper-rust) _asr_svc="dictee-whisper-rust" ;;
             canary)   _asr_svc="dictee-canary" ;;
             nemotron) _asr_svc="dictee-nemotron" ;;
+            kyutai)   _asr_svc="dictee-kyutai" ;;
             *)        _asr_svc="dictee" ;;
         esac
-        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron 2>/dev/null || true
-        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron 2>/dev/null || true
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-whisper-rust dictee-canary dictee-nemotron dictee-kyutai 2>/dev/null || true
         $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
         $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
         ok "ASR daemon: ${_asr_svc} (backend: ${_asr_backend})"

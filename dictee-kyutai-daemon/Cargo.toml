@@ -1,0 +1,32 @@
+[package]
+name = "dictee-kyutai-daemon"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "transcribe-daemon-kyutai"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+candle = { version = "0.9.1", package = "candle-core" }
+candle-nn = "0.9.1"
+candle-transformers = "0.9.1"
+moshi = "0.6.1"
+sentencepiece = "0.11.3"
+kaudio = "0.2.1"
+# Direct dep for the persistent streaming resampler (Task 5). Already pulled
+# transitively via kaudio; pin the same resolved version (0.15) so the streaming
+# resampler shares kaudio's FFT-resampler implementation.
+rubato = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hound = "3.5"
+libc = "0.2"
+
+[features]
+default = []
+cuda = ["candle/cuda", "candle-nn/cuda"]
+
+[profile.release]
+debug = false

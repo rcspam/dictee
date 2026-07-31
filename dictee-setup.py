@@ -211,6 +211,7 @@ ASR_LANGUAGES = {
     "whisper": None,   # None = all languages
     "canary": CANARY_LANGUAGES,
     "nemotron": None,  # None = all languages (multilingual)
+    "kyutai": {"en", "fr"},  # Kyutai stt-1b-en_fr is English/French only
 }
 
 # Languages supported by each translation backend (pour filtrer la langue cible)
@@ -2149,6 +2150,7 @@ class _RuleTranscribeThread(QThread):
 
 NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
 DIAR_HF = "https://huggingface.co/avencera/speakrs-models/resolve/main"
+KYUTAI_HF = "https://huggingface.co/kyutai/stt-1b-en_fr-candle/resolve/main"
 
 ASR_MODELS = [
     {
@@ -2318,9 +2320,31 @@ ASR_MODELS = [
         ],
         "required": False,
     },
+    {
+        "id": "kyutai",
+        "name": "Kyutai STT 1B (fr/en)",
+        "desc": _("French/English streaming ASR — NVIDIA GPU only (~2.2 GB)"),
+        "help": _(
+            "<b>Kyutai STT 1B (en/fr)</b><br><br>"
+            "Streaming speech-to-text, French and English, with native "
+            "punctuation and word-level timestamps.<br><br>"
+            "<b>Requires an NVIDIA GPU</b> (CUDA) — no CPU mode.<br>"
+            "Used by: <code>dictee</code> (F9 streaming and batch)."
+        ),
+        "dir": os.path.join(MODEL_DIR, "kyutai"),
+        "check_file": "model.safetensors",
+        "files": [
+            (f"{KYUTAI_HF}/model.safetensors", "model.safetensors"),
+            (f"{KYUTAI_HF}/mimi-pytorch-e351c8d8@125.safetensors", "mimi-pytorch-e351c8d8@125.safetensors"),
+            (f"{KYUTAI_HF}/tokenizer_en_fr_audio_8000.model", "tokenizer_en_fr_audio_8000.model"),
+            (f"{KYUTAI_HF}/config.json", "config.json"),
+        ],
+        "required": False,
+    },
 ]
 
 NEMOTRON_MODEL = next(m for m in ASR_MODELS if m["id"] == "nemotron")
+KYUTAI_MODEL = next(m for m in ASR_MODELS if m["id"] == "kyutai")
 
 
 def model_is_installed(model):
@@ -2430,6 +2454,11 @@ LIBRETRANSLATE_PORT = 5000
 def docker_is_installed():
     """Vérifie si docker est installé et accessible."""
     return shutil.which("docker") is not None
+
+
+def _kyutai_available():
+    """Kyutai backend is offered only when its binary is installed (CUDA package)."""
+    return shutil.which("transcribe-daemon-kyutai") is not None
 
 
 def _detect_docker_sg_needed():
@@ -6728,6 +6757,8 @@ class DicteeSetupDialog(QDialog):
         self.cmb_asr_backend.addItem("Vosk", "vosk")
         self.cmb_asr_backend.addItem("faster-whisper", "whisper")
         self.cmb_asr_backend.addItem("Nemotron 3.5 (multilingual)", "nemotron")
+        if _kyutai_available():
+            self.cmb_asr_backend.addItem(_("Kyutai (fr/en, GPU)"), "kyutai")
         gpu_total, _free = get_gpu_vram_gb()
         if gpu_total > 0:
             self.cmb_asr_backend.addItem("Canary 1B v2 (GPU)", "canary")
@@ -6752,8 +6783,11 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(glay)
         self._build_whisper_options(glay)
         self._build_nemotron_options(glay)
+        if _kyutai_available():
+            self._build_kyutai_options(glay)
         self._build_canary_options(glay)
         self._build_whisper_rust_options(glay)
+        self._build_streaming_options(glay)
 
         def _on_asr_changed():
             backend = self.cmb_asr_backend.currentData()
@@ -6761,8 +6795,12 @@ class DicteeSetupDialog(QDialog):
             self.w_vosk_options.setVisible(backend == "vosk")
             self.w_whisper_options.setVisible(backend == "whisper")
             self.w_nemotron_options.setVisible(backend == "nemotron")
+            if hasattr(self, 'w_kyutai_options'):
+                self.w_kyutai_options.setVisible(backend == "kyutai")
             self.w_canary_options.setVisible(backend == "canary")
             self.w_whisper_rust_options.setVisible(backend == "whisper-rust")
+            if hasattr(self, 'w_streaming_options'):
+                self.w_streaming_options.setVisible(backend in ("nemotron", "kyutai"))
             self._update_canary_translation_visibility()
             if hasattr(self, 'combo_src'):
                 self._update_src_languages()
@@ -8016,6 +8054,14 @@ class DicteeSetupDialog(QDialog):
                 _("CPU + GPU"),
             ], "2.5 Go | CPU/GPU"),
         ]
+        if _kyutai_available():
+            backends.append(
+                ("kyutai", "Kyutai STT 1B", [
+                    _("French and English streaming"),
+                    _("Native punctuation, word-level timestamps"),
+                    # xgettext: no-python-format
+                    _("100% local, requires NVIDIA GPU"),
+                ], "2.2 Go | GPU only"))
         if gpu_total > 0:
             backends.append(
                 ("canary", "Canary 1B v2", [
@@ -8088,8 +8134,12 @@ class DicteeSetupDialog(QDialog):
         self.w_vosk_options.setVisible(asr == "vosk")
         self.w_whisper_options.setVisible(asr == "whisper")
         self.w_nemotron_options.setVisible(asr == "nemotron")
+        if hasattr(self, 'w_kyutai_options'):
+            self.w_kyutai_options.setVisible(asr == "kyutai")
         self.w_canary_options.setVisible(asr == "canary")
         self.w_whisper_rust_options.setVisible(asr == "whisper-rust")
+        if hasattr(self, 'w_streaming_options'):
+            self.w_streaming_options.setVisible(asr in ("nemotron", "kyutai"))
 
     def _on_card_click(self, backend_id):
         """Handle card click: single=select, rapid double=select+next."""
@@ -8222,8 +8272,11 @@ class DicteeSetupDialog(QDialog):
         self._build_vosk_options(lay_sub)
         self._build_whisper_options(lay_sub)
         self._build_nemotron_options(lay_sub)
+        if _kyutai_available():
+            self._build_kyutai_options(lay_sub)
         self._build_canary_options(lay_sub)
         self._build_whisper_rust_options(lay_sub)
+        self._build_streaming_options(lay_sub)
 
         lay.addWidget(self.w_wizard_asr_sub)
         self._update_asr_sub_visibility()
@@ -8713,6 +8766,8 @@ class DicteeSetupDialog(QDialog):
             return self._any_whisper_rust_model_installed()
         if backend_id == "nemotron":
             return model_is_installed(NEMOTRON_MODEL)
+        if backend_id == "kyutai":
+            return model_is_installed(KYUTAI_MODEL)
         return False
 
     def _make_asr_card_v2(self, backend_id, name, advantages, specs, is_recommended, selected):
@@ -10314,7 +10369,19 @@ class DicteeSetupDialog(QDialog):
             "btn_cancel": btn_cancel, "progress": progress, "model": NEMOTRON_MODEL,
         }
 
-        # --- Streaming settings (Nemotron only) ---
+        self.w_nemotron_options.setVisible(False)
+        parent_layout.addWidget(self.w_nemotron_options)
+
+    def _build_streaming_options(self, parent_layout):
+        """Build the shared real-time streaming settings box. The streaming
+        config keys are global and the orchestrator (dictee-stream) is backend
+        agnostic, so this box is shown for any streaming-capable backend
+        (Nemotron, Kyutai) — see use_streaming() in dictee."""
+        self.w_streaming_options = QWidget()
+        stream_outer = QVBoxLayout(self.w_streaming_options)
+        stream_outer.setContentsMargins(0, 4, 0, 0)
+        stream_outer.setSpacing(6)
+
         stream_box = QGroupBox(_("Streaming"))
         stream_lay = QVBoxLayout(stream_box)
         stream_lay.setContentsMargins(12, 12, 12, 10)
@@ -10372,10 +10439,66 @@ class DicteeSetupDialog(QDialog):
         _sync_streaming_sub(self.chk_streaming.isChecked())
         self.chk_streaming.toggled.connect(_sync_streaming_sub)
 
-        nemotron_outer.addWidget(stream_box)
+        stream_outer.addWidget(stream_box)
+        self.w_streaming_options.setVisible(False)
+        parent_layout.addWidget(self.w_streaming_options)
 
-        self.w_nemotron_options.setVisible(False)
-        parent_layout.addWidget(self.w_nemotron_options)
+    def _build_kyutai_options(self, parent_layout):
+        """Build Kyutai STT 1B model download UI (group box with install/delete
+        row). Only rendered when the Kyutai daemon binary is installed."""
+        self.w_kyutai_options = QWidget()
+        kyutai_outer = QVBoxLayout(self.w_kyutai_options)
+        kyutai_outer.setContentsMargins(0, 4, 0, 0)
+        kyutai_outer.setSpacing(6)
+
+        box = QGroupBox(_("Kyutai STT 1B"))
+        box_lay = QVBoxLayout(box)
+        box_lay.setContentsMargins(12, 12, 12, 10)
+        box_lay.setSpacing(6)
+
+        installed = model_is_installed(KYUTAI_MODEL)
+
+        lbl_desc = QLabel(KYUTAI_MODEL["desc"])
+        lbl_desc.setWordWrap(True)
+        box_lay.addWidget(lbl_desc)
+
+        row = QHBoxLayout()
+        btn = QPushButton()
+        self._update_venv_button(btn, KYUTAI_MODEL["name"], installed)
+        btn.clicked.connect(lambda checked, m=KYUTAI_MODEL: self._on_model_download(m))
+
+        btn_del = QPushButton()
+        btn_del.setIcon(QIcon.fromTheme("edit-delete"))
+        btn_del.setFixedWidth(28)
+        btn_del.setToolTip(_("Delete model"))
+        btn_del.setVisible(installed)
+        btn_del.clicked.connect(lambda checked, m=KYUTAI_MODEL: self._on_model_delete(m))
+
+        btn_cancel = QPushButton(_("Cancel"))
+        btn_cancel.setFixedWidth(80)
+        btn_cancel.setVisible(False)
+        btn_cancel.clicked.connect(lambda checked: self._on_model_cancel(KYUTAI_MODEL["id"]))
+
+        row.addWidget(btn, 1)
+        row.addWidget(btn_del)
+        row.addWidget(btn_cancel)
+        box_lay.addLayout(row)
+
+        progress = QProgressBar()
+        progress.setRange(0, 100)
+        progress.setVisible(False)
+        box_lay.addWidget(progress)
+
+        kyutai_outer.addWidget(box)
+
+        self._model_widgets[KYUTAI_MODEL["id"]] = {
+            "label": None, "desc_label": lbl_desc, "container": box,
+            "button": btn, "btn_delete": btn_del,
+            "btn_cancel": btn_cancel, "progress": progress, "model": KYUTAI_MODEL,
+        }
+
+        self.w_kyutai_options.setVisible(False)
+        parent_layout.addWidget(self.w_kyutai_options)
 
     def _canary_model_installed(self):
         """Check if Canary ONNX model files are present (user dir first, then system)."""
@@ -16488,7 +16611,8 @@ class DicteeSetupDialog(QDialog):
         svc = {"parakeet": "dictee", "vosk": "dictee-vosk",
                "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust",
                "nemotron": "dictee-nemotron",
-               "canary": "dictee-canary"}.get(asr, "dictee")
+               "canary": "dictee-canary",
+               "kyutai": "dictee-kyutai"}.get(asr, "dictee")
         # True first-run wizard (no prior dictee.conf): the service hasn't been
         # started yet (will be at Finish). Fallback to "is the unit installed".
         # Reconfig wizard or settings: check live state.
@@ -19189,7 +19313,7 @@ class DicteeSetupDialog(QDialog):
             return
 
         # Check daemon
-        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-whisper-rust.service", "dictee-canary.service", "dictee-nemotron.service"]
+        services = ["dictee.service", "dictee-vosk.service", "dictee-whisper.service", "dictee-whisper-rust.service", "dictee-canary.service", "dictee-nemotron.service", "dictee-kyutai.service"]
         active = False
         for svc in services:
             try:
@@ -19212,7 +19336,8 @@ class DicteeSetupDialog(QDialog):
                            "whisper": "dictee-whisper.service",
                            "whisper-rust": "dictee-whisper-rust.service",
                            "nemotron": "dictee-nemotron.service",
-                           "canary": "dictee-canary.service"}
+                           "canary": "dictee-canary.service",
+                           "kyutai": "dictee-kyutai.service"}
                 subprocess.Popen(["systemctl", "--user", "start",
                                   svc_map.get(backend, "dictee.service")])
             else:
@@ -19759,7 +19884,7 @@ class DicteeSetupDialog(QDialog):
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
 
         # Systemd services — ASR (active service: synchronous for error reporting)
-        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron"}
+        asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron", "kyutai": "dictee-kyutai"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
         # Disable inactive services + enable/restart tray/ptt in background

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: plasma_applet_com.github.rcspam.dictee 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-15 17:09+0200\n"
+"POT-Creation-Date: 2026-06-14 23:50+0200\n"
 "PO-Revision-Date: 2024-01-01 00:00+0000\n"
 "Last-Translator: rcspam <rcspams@gmail.com>\n"
 "Language-Team: Spanish\n"
@@ -150,6 +150,11 @@ msgid ""
 "defaults. Other preferences (polling, transcription display, audio context) "
 "are not affected."
 msgstr ""
+"Restablecer todos los ajustes de animación de icono (estilo, barras, onda, "
+"pulso, puntos, forma de onda, arcoíris, sensibilidad, envolvente, puerta de "
+"ruido) a los valores predeterminados de instalación. Otras preferencias "
+"(sondeo, visualización de transcripción, contexto de audio) no se ven "
+"afectadas."
 
 #: plasmoid/package/contents/ui/configGeneral.qml:408
 msgid "Reset icon settings"
@@ -160,6 +165,9 @@ msgid ""
 "All icon animation settings will be restored to defaults.\n"
 "Continue?"
 msgstr ""
+"Se restablecerán todos los ajustes de animación de icono a los valores "
+"predeterminados.\n"
+"¿Continuar?"
 
 #: plasmoid/package/contents/ui/configGeneral.qml:421
 msgid "Animation style:"
@@ -313,171 +321,172 @@ msgstr "Velocidad de rebote (ms):"
 msgid "Waveform settings"
 msgstr "Ajustes de forma de onda"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:74
+#: plasmoid/package/contents/ui/FullRepresentation.qml:77
 msgid "Another Dictée widget is active"
 msgstr "Otro widget Dictée está activo"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:82
+#: plasmoid/package/contents/ui/FullRepresentation.qml:85
 msgid ""
 "Two instances on the same panel or desktop cause conflicts — duplicated "
 "daemon start/stop calls and races on the backend config. This widget is "
 "passive until the other is removed."
 msgstr ""
+"Dos instancias en el mismo panel o escritorio provocan conflictos — llamadas "
+"de inicio/parada del demonio duplicadas y condiciones de carrera en la "
+"configuración del backend. Este widget permanece pasivo hasta que se elimine "
+"la otra."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:90
+#: plasmoid/package/contents/ui/FullRepresentation.qml:93
 msgid ""
 "Right-click this widget in the panel, then choose \"Remove\" to clean up."
 msgstr ""
+"Haz clic derecho en este widget del panel y luego elige «Quitar» para "
+"limpiar."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:102
+#: plasmoid/package/contents/ui/FullRepresentation.qml:105
 msgid "Take over anyway"
 msgstr "Tomar control de todos modos"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:106
+#: plasmoid/package/contents/ui/FullRepresentation.qml:109
 msgid ""
 "Force this widget to become active. The other instance will become passive "
 "at the next refresh (3 s)."
 msgstr ""
+"Forzar que este widget pase a estar activo. La otra instancia pasará a estar "
+"pasiva en la próxima actualización (3 s)."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:162
+#: plasmoid/package/contents/ui/FullRepresentation.qml:165
 msgid "Dictée"
 msgstr "Dictée"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:172
+#: plasmoid/package/contents/ui/FullRepresentation.qml:175
 msgid "Unpin popup"
 msgstr "Soltar popup"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:172
+#: plasmoid/package/contents/ui/FullRepresentation.qml:175
 msgid "Pin popup"
 msgstr "Fijar popup"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:227
+#: plasmoid/package/contents/ui/FullRepresentation.qml:232
 msgid "Not installed"
 msgstr "No instalado"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:228
+#: plasmoid/package/contents/ui/FullRepresentation.qml:233
 msgid "Not configured"
 msgstr "No configurado"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:229
+#: plasmoid/package/contents/ui/FullRepresentation.qml:234
 msgid "Stopped"
 msgstr "Detenido"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:231
+#: plasmoid/package/contents/ui/FullRepresentation.qml:236
 msgid "Active"
 msgstr "Activo"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:233
-#: plasmoid/package/contents/ui/main.qml:73
+#: plasmoid/package/contents/ui/FullRepresentation.qml:238
+#: plasmoid/package/contents/ui/main.qml:86
 msgid "Recording…"
 msgstr "Grabando…"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:235
-#: plasmoid/package/contents/ui/main.qml:75
+#: plasmoid/package/contents/ui/FullRepresentation.qml:240
+#: plasmoid/package/contents/ui/main.qml:88
 msgid "Transcribing…"
 msgstr "Transcribiendo…"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:237
+#: plasmoid/package/contents/ui/FullRepresentation.qml:242
+#: plasmoid/package/contents/ui/main.qml:90
+msgid "Dictating (live)…"
+msgstr "Dictando (en directo)…"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:244
 msgid "Switching…"
 msgstr "Cambiando…"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:239
-#: plasmoid/package/contents/ui/main.qml:79
+#: plasmoid/package/contents/ui/FullRepresentation.qml:246
+#: plasmoid/package/contents/ui/main.qml:94
 msgid "Preparing…"
 msgstr "Preparando..."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:241
-#: plasmoid/package/contents/ui/main.qml:81
+#: plasmoid/package/contents/ui/FullRepresentation.qml:248
+#: plasmoid/package/contents/ui/main.qml:96
 msgid "Diarize ready"
 msgstr "Diarización lista"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:243
-#: plasmoid/package/contents/ui/main.qml:83
+#: plasmoid/package/contents/ui/FullRepresentation.qml:250
+#: plasmoid/package/contents/ui/main.qml:98
 msgid "Diarizing…"
 msgstr "Diarizando…"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:259
+#: plasmoid/package/contents/ui/FullRepresentation.qml:266
 msgid "Start daemon"
 msgstr "Iniciar daemon"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:259
+#: plasmoid/package/contents/ui/FullRepresentation.qml:266
 msgid "Stop daemon"
 msgstr "Detener daemon"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:359
+#: plasmoid/package/contents/ui/FullRepresentation.qml:288
+msgid "Daemon running on GPU"
+msgstr "Demonio ejecutándose en la GPU"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:290
+msgid "GPU unavailable — running on CPU"
+msgstr "GPU no disponible — ejecutándose en la CPU"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:291
+msgid "Daemon running on CPU"
+msgstr "Demonio ejecutándose en la CPU"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:390
 msgid "Press the Configure Dictée button below to get started."
 msgstr "Pulse el botón Configurar Dictée de abajo para comenzar."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:380
+#: plasmoid/package/contents/ui/FullRepresentation.qml:411
 msgid "Dictation"
 msgstr "Dictado"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:417
+#: plasmoid/package/contents/ui/FullRepresentation.qml:448
 msgid "Translate"
 msgstr "Traducir"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:468
-msgid "Preparing… (click to cancel)"
-msgstr "Preparando… (clic para cancelar)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:469
-msgid "Start meeting"
-msgstr "Iniciar reunión"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:470
-msgid "Meeting in progress…"
-msgstr "Reunión en curso…"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:473
-msgid "Stop meeting"
-msgstr "Detener reunión"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:474
+#: plasmoid/package/contents/ui/FullRepresentation.qml:485
 msgid "Meeting"
 msgstr "Reunión"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:516
-msgid "Sortformer model not installed. Configure in dictee-setup."
-msgstr "Modelo Sortformer no instalado. Configure en dictee-setup."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:491
+msgid "Meeting window is open"
+msgstr "La ventana de reunión está abierta"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:518
-msgid "Freeing GPU memory..."
-msgstr "Liberando memoria GPU..."
+#: plasmoid/package/contents/ui/FullRepresentation.qml:493
+msgid "Meeting recording in progress"
+msgstr "Grabación de reunión en curso"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:519
-msgid "Click to start recording with speaker identification"
-msgstr "Haga clic para iniciar la grabación con identificación de hablantes"
+#: plasmoid/package/contents/ui/FullRepresentation.qml:494
+msgid "Open live meeting capture (record, then send to diarization)"
+msgstr ""
+"Abrir la captura de reunión en directo (grabar y enviar a la diarización)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:521
-msgid "Click to stop and identify speakers"
-msgstr "Haga clic para detener e identificar hablantes"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:522
-#: plasmoid/package/contents/ui/FullRepresentation.qml:523
-msgid "Record and identify speakers (max 4)"
-msgstr "Grabar e identificar hablantes (máx. 4)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:547
+#: plasmoid/package/contents/ui/FullRepresentation.qml:535
 msgid "Last transcription:"
 msgstr "Última transcripción:"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:574
+#: plasmoid/package/contents/ui/FullRepresentation.qml:562
 msgid "ASR:"
 msgstr "ASR:"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:589
+#: plasmoid/package/contents/ui/FullRepresentation.qml:577
 msgid "Parakeet (precise)"
-msgstr ""
+msgstr "Parakeet (preciso)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:590
+#: plasmoid/package/contents/ui/FullRepresentation.qml:578
 msgid "Parakeet (fast)"
-msgstr ""
+msgstr "Parakeet (rápido)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:644
+#: plasmoid/package/contents/ui/FullRepresentation.qml:652
 msgid "LLM"
 msgstr "LLM"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:648
+#: plasmoid/package/contents/ui/FullRepresentation.qml:656
 msgid ""
 "Enable LLM post-processing (grammar and spell correction via local Ollama "
 "model)."
@@ -485,11 +494,11 @@ msgstr ""
 "Activa el post-procesamiento LLM (corrección gramatical y ortográfica vía "
 "modelo Ollama local)."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:664
+#: plasmoid/package/contents/ui/FullRepresentation.qml:672
 msgid "Context"
 msgstr "Contexto"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:668
+#: plasmoid/package/contents/ui/FullRepresentation.qml:676
 msgid ""
 "Accumulate audio from previous dictations to improve recognition of short or "
 "technical words."
@@ -497,124 +506,191 @@ msgstr ""
 "Acumular audio de dictados anteriores para mejorar el reconocimiento de "
 "palabras cortas o técnicas."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:682
+#: plasmoid/package/contents/ui/FullRepresentation.qml:690
 msgid "Short"
 msgstr "Corto"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:686
+#: plasmoid/package/contents/ui/FullRepresentation.qml:694
 msgid "Enable short-text fix on both normal and translation pipelines."
 msgstr ""
 "Activa la corrección de texto corto en ambos canales (normal y traducción)."
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:701
+#: plasmoid/package/contents/ui/FullRepresentation.qml:709
 msgid "Translation:"
 msgstr "Traducción:"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:722
+#: plasmoid/package/contents/ui/FullRepresentation.qml:730
 msgid "LT arrêté"
 msgstr "LT detenido"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:723
+#: plasmoid/package/contents/ui/FullRepresentation.qml:731
 msgid "Ollama arrêté"
 msgstr "Ollama detenido"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:724
+#: plasmoid/package/contents/ui/FullRepresentation.qml:732
 msgid "Modèle absent"
 msgstr "Modelo ausente"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:828
+#: plasmoid/package/contents/ui/FullRepresentation.qml:836
 msgid "Target language — add languages in Configure Dictée (LibreTranslate)"
 msgstr "Idioma destino — añadir idiomas en Configurar Dictée (LibreTranslate)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:829
+#: plasmoid/package/contents/ui/FullRepresentation.qml:837
 msgid "Target language for translation"
 msgstr "Idioma destino para traducción"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:843
+#: plasmoid/package/contents/ui/FullRepresentation.qml:851
 msgid "Transcribe file"
 msgstr "Transcribir archivo"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:847
+#: plasmoid/package/contents/ui/FullRepresentation.qml:855
 msgid "Open an audio file for transcription"
 msgstr "Abrir un archivo de audio para transcripción"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:896
+#: plasmoid/package/contents/ui/FullRepresentation.qml:964
 msgid "Force CPU (loses GPU acceleration)"
-msgstr ""
+msgstr "Forzar CPU (pierde la aceleración por GPU)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:898
+#: plasmoid/package/contents/ui/FullRepresentation.qml:966
 msgid "Force CPU"
-msgstr ""
+msgstr "Forzar CPU"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:899
+#: plasmoid/package/contents/ui/FullRepresentation.qml:967
 msgid "Force CPU (no GPU anyway)"
-msgstr ""
+msgstr "Forzar CPU (no hay GPU de todos modos)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:902
-#, fuzzy
+#: plasmoid/package/contents/ui/FullRepresentation.qml:970
 msgid "GPU active"
-msgstr "Activo"
+msgstr "GPU activa"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:904
+#: plasmoid/package/contents/ui/FullRepresentation.qml:972
 msgid "GPU active (low VRAM)"
-msgstr ""
+msgstr "GPU activa (poca VRAM)"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:905
+#: plasmoid/package/contents/ui/FullRepresentation.qml:973
 msgid "No GPU detected"
-msgstr ""
+msgstr "No se detectó ninguna GPU"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:921
+#: plasmoid/package/contents/ui/FullRepresentation.qml:989
 msgid "Configure Dictée"
 msgstr "Configurar Dictée"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:925
+#: plasmoid/package/contents/ui/FullRepresentation.qml:993
 msgid "Open dictee-setup to configure ASR, translation, shortcuts"
 msgstr "Abrir dictee-setup para configurar ASR, traducción, atajos"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:941
+#: plasmoid/package/contents/ui/FullRepresentation.qml:1009
 msgid "Toggle voice commands cheatsheet"
 msgstr "Mostrar/ocultar resumen de comandos de voz"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:950
+#: plasmoid/package/contents/ui/FullRepresentation.qml:1018
 msgid "Reset everything — stop all processes, restart daemon"
 msgstr "Reiniciar todo — detener procesos, reiniciar daemon"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:959
+#: plasmoid/package/contents/ui/FullRepresentation.qml:1027
 msgid "Live microphone animation preview"
 msgstr "Vista previa de la animación del micrófono"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:1005
+#: plasmoid/package/contents/ui/FullRepresentation.qml:1073
 msgid "Microphone muted — click to unmute"
 msgstr "Micrófono silenciado — haga clic para activar"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:1005
+#: plasmoid/package/contents/ui/FullRepresentation.qml:1073
 msgid "Microphone — click to mute"
 msgstr "Micrófono — clic para silenciar"
 
-#: plasmoid/package/contents/ui/FullRepresentation.qml:1029
+#: plasmoid/package/contents/ui/FullRepresentation.qml:1109
 #, javascript-format
 msgid "Microphone volume: %1%"
 msgstr "Volumen del micrófono: %1%"
 
-#: plasmoid/package/contents/ui/main.qml:67
+#: plasmoid/package/contents/ui/main.qml:80
 msgid "Dictée not installed"
 msgstr "Dictée no instalado"
 
-#: plasmoid/package/contents/ui/main.qml:68
+#: plasmoid/package/contents/ui/main.qml:81
 msgid "Dictée not configured — run dictee-setup"
 msgstr "Dictée no configurado — ejecute dictee-setup"
 
-#: plasmoid/package/contents/ui/main.qml:69
+#: plasmoid/package/contents/ui/main.qml:82
 msgid "Daemon stopped"
 msgstr "Daemon detenido"
 
-#: plasmoid/package/contents/ui/main.qml:71
+#: plasmoid/package/contents/ui/main.qml:84
 msgid "Daemon active"
 msgstr "Daemon activo"
 
-#: plasmoid/package/contents/ui/main.qml:77
+#: plasmoid/package/contents/ui/main.qml:92
 msgid "Switching backend…"
 msgstr "Cambiando backend…"
+
+#: plasmoid/package/contents/ui/main.qml:439
+msgid "Canary requires NVIDIA GPU (encoder too heavy for CPU)"
+msgstr ""
+"Canary requiere una GPU NVIDIA (codificador demasiado pesado para la CPU)"
+
+#: plasmoid/package/contents/ui/main.qml:440
+msgid "Canary requires NVIDIA GPU — none detected, transcription will fail"
+msgstr ""
+"Canary requiere una GPU NVIDIA — no se detectó ninguna, la transcripción "
+"fallará"
+
+#: plasmoid/package/contents/ui/main.qml:448
+msgid "Kyutai requires NVIDIA GPU (no CPU mode)"
+msgstr "Kyutai requiere una GPU NVIDIA (sin modo CPU)"
+
+#: plasmoid/package/contents/ui/main.qml:449
+msgid "Kyutai requires NVIDIA GPU — none detected, transcription will fail"
+msgstr ""
+"Kyutai requiere una GPU NVIDIA — no se detectó ninguna, la transcripción "
+"fallará"
+
+#: plasmoid/package/contents/ui/main.qml:454
+msgid "Vosk runs on CPU by design"
+msgstr "Vosk funciona en la CPU por diseño"
+
+#: plasmoid/package/contents/ui/main.qml:458
+msgid "Parakeet INT8 is CPU-optimized (GPU is 5× slower)"
+msgstr "Parakeet INT8 está optimizado para CPU (la GPU es 5× más lenta)"
+
+#: plasmoid/package/contents/ui/main.qml:462
+msgid "No NVIDIA GPU detected"
+msgstr "No se detectó ninguna GPU NVIDIA"
+
+#: plasmoid/package/contents/ui/FullRepresentation.qml:286
+msgid "Daemon running on GPU (Vulkan)"
+msgstr "Daemon en ejecución en GPU (Vulkan)"
+
+#: plasmoid/package/contents/ui/main.qml:426
+msgid "Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)"
+msgstr "Whisper-Rust funciona solo en GPU (Vulkan, sin respaldo de CPU)"
+
+#~ msgid "Preparing… (click to cancel)"
+#~ msgstr "Preparando… (clic para cancelar)"
+
+#~ msgid "Start meeting"
+#~ msgstr "Iniciar reunión"
+
+#~ msgid "Meeting in progress…"
+#~ msgstr "Reunión en curso…"
+
+#~ msgid "Stop meeting"
+#~ msgstr "Detener reunión"
+
+#~ msgid "Sortformer model not installed. Configure in dictee-setup."
+#~ msgstr "Modelo Sortformer no instalado. Configure en dictee-setup."
+
+#~ msgid "Freeing GPU memory..."
+#~ msgstr "Liberando memoria GPU..."
+
+#~ msgid "Click to start recording with speaker identification"
+#~ msgstr "Haga clic para iniciar la grabación con identificación de hablantes"
+
+#~ msgid "Click to stop and identify speakers"
+#~ msgstr "Haga clic para detener e identificar hablantes"
+
+#~ msgid "Record and identify speakers (max 4)"
+#~ msgstr "Grabar e identificar hablantes (máx. 4)"
 
 #~ msgid "Start diarization"
 #~ msgstr "Iniciar diarización"
@@ -666,11 +742,3 @@ msgstr "Cambiando backend…"
 
 #~ msgid "Preview (mic test)"
 #~ msgstr "Vista previa (prueba micrófono)"
-
-#: plasmoid/package/contents/ui/FullRepresentation.qml:286
-msgid "Daemon running on GPU (Vulkan)"
-msgstr "Daemon en ejecución en GPU (Vulkan)"
-
-#: plasmoid/package/contents/ui/main.qml:426
-msgid "Whisper-Rust runs on GPU only (Vulkan, no CPU fallback)"
-msgstr "Whisper-Rust funciona solo en GPU (Vulkan, sin respaldo de CPU)"

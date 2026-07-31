@@ -4,6 +4,7 @@ disable dictee-whisper.service
 disable dictee-whisper-rust.service
 disable dictee-canary.service
 disable dictee-nemotron.service
+disable dictee-kyutai.service
 disable dictee-tray.service
 disable dictee-ptt.service
 disable dotoold.service

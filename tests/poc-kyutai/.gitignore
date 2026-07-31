@@ -1,0 +1,16 @@
+# Never commit personal content (user voice recordings, transcriptions)
+*.wav
+*.txt
+*.mp3
+*.flac
+__pycache__/
+/target
+/models
+/delayed-streams-modeling
+/cuda-12.8-local
+/moshi-server-install
+/candle
+*.safetensors
+*.gguf
+*.onnx
+*.log
