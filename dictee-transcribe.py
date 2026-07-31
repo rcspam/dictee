@@ -4828,6 +4828,9 @@ class TranscribeWindow(QDialog):
         _nemotron_isolated = bool(
             diarize and getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "nemotron")
+        _kyutai_isolated = bool(
+            diarize and getattr(self, "_isolated_recipe", None)
+            and self._isolated_recipe["backend"] == "kyutai")
         # Isolated Whisper-Rust needs its ggml model: fail fast with a
         # pointer to dictee-setup instead of a daemon-socket timeout.
         # Recipe-based (not the diarize-gated flag): plain runs use the
@@ -4853,7 +4856,7 @@ class TranscribeWindow(QDialog):
         # full-file request.
         if (not diarize and getattr(self, "_isolated_recipe", None)
                 and self._isolated_recipe["backend"] in (
-                    "whisper", "whisper-rust", "nemotron")):
+                    "whisper", "whisper-rust", "nemotron", "kyutai")):
             self._start_isolated_plain_transcribe(audio_path, dur)
             return
 
@@ -4867,6 +4870,7 @@ class TranscribeWindow(QDialog):
                 or _parakeet_isolated) and not _whisper_isolated
                 and not _whisper_rust_isolated
                 and not _nemotron_isolated
+                and not _kyutai_isolated
                 and not _moss_run):
             sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
             _dbg(f"_on_transcribe: routing to chunked pipeline "
@@ -4955,7 +4959,8 @@ class TranscribeWindow(QDialog):
         # preference as the routing matrix: diarize-multi first, Sortformer
         # fallback. MOSS is exempt: it embeds its own ASR, so the isolated
         # ASR choice does not apply to a MOSS run.
-        if ((_whisper_isolated or _whisper_rust_isolated or _nemotron_isolated)
+        if ((_whisper_isolated or _whisper_rust_isolated or _nemotron_isolated
+                or _kyutai_isolated)
                 and cmd != "dictee-moss-diarize"):
             if self._diar_allow_multi() and _diar_multi_available():
                 cmd, two_phase = "diarize-multi", True
@@ -5186,7 +5191,8 @@ class TranscribeWindow(QDialog):
         if (getattr(self, "_isolated_recipe", None)
                 and self._isolated_recipe["backend"] in ("whisper",
                                                          "whisper-rust",
-                                                         "nemotron")):
+                                                         "nemotron",
+                                                         "kyutai")):
             # Isolated whisper/whisper-rust/nemotron: spawn an ad-hoc daemon
             # on a private socket (the F9 daemon/config/badge are untouched).
             # Extended socket-wait timeout because these models cold-load
@@ -5195,7 +5201,11 @@ class TranscribeWindow(QDialog):
             self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
-            _per_segment = self._isolated_recipe["backend"] == "nemotron"
+            # Per-segment: engines whose daemon returns plain text with no word
+            # timestamps, so phase 2 must transcribe one speaker segment at a
+            # time instead of splitting a full-file result on timestamps.
+            _per_segment = self._isolated_recipe["backend"] in ("nemotron",
+                                                                "kyutai")
         else:
             # Restart daemon
             self._daemon_was_active = False
