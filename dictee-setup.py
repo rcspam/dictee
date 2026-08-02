@@ -8212,6 +8212,18 @@ class DicteeSetupDialog(QDialog):
             ],
             "specs": "2.5 Go | CPU/GPU",
         },
+        # Same strings as the page-1 Kyutai card (already _() there, so they
+        # are in the catalog); without this entry the download page silently
+        # fell back to the Parakeet header for a Kyutai install.
+        "kyutai": {
+            "title": "Kyutai STT 1B",
+            "advantages": [
+                "French and English streaming",
+                "Native punctuation, word-level timestamps",
+                "100% local, requires NVIDIA GPU",
+            ],
+            "specs": "2.2 Go | GPU only",
+        },
         "canary": {
             "title": "Canary 1B v2",
             "advantages": [

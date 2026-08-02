@@ -5217,10 +5217,13 @@ class TranscribeWindow(QDialog):
             sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
                          else f"/tmp/transcribe-{os.getuid()}.sock")
             _worker_timeout = None
-            # The F9 daemon itself may run a timestamp-less backend: a
-            # '\tdiarize' request to nemotron returns an empty body.
+            # The F9 daemon itself may run a timestamp-less backend. Nemotron
+            # answers a full-audio '\tdiarize' with an empty body; kyutai
+            # ignores the flag entirely and answers with plain text (verified:
+            # its protocol splits on '\t' and keeps only the path), which
+            # matches no DIARIZE_RE line. Both must go per-segment.
             _per_segment = (_read_conf().get("DICTEE_ASR_BACKEND", "parakeet")
-                            == "nemotron")
+                            in ("nemotron", "kyutai"))
 
         self._run_status(_("Waiting for daemon..."))
 
@@ -6817,7 +6820,7 @@ def main():
                              "An unavailable engine is ignored.")
     parser.add_argument("--asr-model", default="",
                         help="ASR model spec (parakeet-int8|parakeet-fp32|"
-                             "whisper|whisper-rust|nemotron; whisper sizes "
+                             "whisper|whisper-rust|nemotron|kyutai; whisper sizes "
                              "follow dictee-setup, or force one with "
                              "whisper-tiny|whisper-small|whisper-medium|"
                              "whisper-rust-<size>). "

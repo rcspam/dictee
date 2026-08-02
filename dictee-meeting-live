@@ -116,6 +116,8 @@ def current_f9_spec(conf):
         return "whisper-rust"
     if backend == "nemotron":
         return "nemotron"
+    if backend == "kyutai":
+        return "kyutai"
     quant = (conf.get("DICTEE_PARAKEET_QUANT") or "fp32").strip().lower()
     return "parakeet-int8" if quant == "int8" else "parakeet-fp32"
 
