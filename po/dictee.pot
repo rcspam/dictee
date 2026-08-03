@@ -3899,3 +3899,30 @@ msgid ""
 "Add it to the extra input devices (Extra options page) or the key will "
 "do nothing."
 msgstr ""
+
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr ""
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr ""
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr ""
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr ""
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr ""
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr ""

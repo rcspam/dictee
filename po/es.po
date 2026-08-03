@@ -4437,6 +4437,33 @@ msgid ""
 "do nothing."
 msgstr "Esta tecla está en «{device}», que dictee no escucha de forma predeterminada. Añádalo a los dispositivos de entrada adicionales (página Opciones adicionales) o la tecla no hará nada."
 
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "ajustar el sonido"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "ajustar la pantalla"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "ajustar la retroiluminación del teclado"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "controlar la reproducción multimedia"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "una función del sistema"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Su ordenador usa esta tecla para {what}. Elegirla para el dictado se lo quita: dictee recibe la tecla antes que su escritorio."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
@@ -5600,3 +5627,4 @@ msgstr "Esta tecla está en «{device}», que dictee no escucha de forma predete
 #~ "Esta tecla se usa para escribir. Prefiera una tecla de función (F1-F24), la "
 #~ "tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
 #~ "Insert, etc.)."
+

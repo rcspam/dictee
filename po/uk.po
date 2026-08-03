@@ -4401,6 +4401,33 @@ msgid ""
 "do nothing."
 msgstr "Ця клавіша розташована на «{device}», який dictee типово не слухає. Додайте цей пристрій до додаткових пристроїв введення (сторінка «Додаткові параметри»), інакше клавіша нічого не робитиме."
 
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "регулювання звуку"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "регулювання екрана"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "регулювання підсвічування клавіатури"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "керування відтворенням"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "системну функцію"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Комп'ютер використовує цю клавішу для {what}. Якщо вибрати її для диктування, ця функція зникне: dictee отримує клавішу раніше за стільницю."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
@@ -5559,3 +5586,4 @@ msgstr "Ця клавіша розташована на «{device}», який d
 #~ "Ця клавіша використовується для введення. Віддайте перевагу функціональній "
 #~ "клавіші (F1-F24), клавіші {key41} (верхній лівий кут) або спеціальній "
 #~ "клавіші (Home, End, Insert тощо)."
+

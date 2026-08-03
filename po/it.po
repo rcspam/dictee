@@ -4434,6 +4434,33 @@ msgid ""
 "do nothing."
 msgstr "Questo tasto si trova su «{device}», che dictee non ascolta per impostazione predefinita. Aggiungilo ai dispositivi di input aggiuntivi (pagina Opzioni aggiuntive), altrimenti il tasto non farà nulla."
 
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "regolare l'audio"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "regolare lo schermo"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "regolare la retroilluminazione della tastiera"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "controllare la riproduzione multimediale"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "una funzione di sistema"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Il computer usa questo tasto per {what}. Sceglierlo per la dettatura te lo toglie: dictee riceve il tasto prima del desktop."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
@@ -5601,3 +5628,4 @@ msgstr "Questo tasto si trova su «{device}», che dictee non ascolta per impost
 #~ "Questo tasto è usato per la digitazione. Preferisci un tasto funzione (F1-"
 #~ "F24), il tasto {key41} (in alto a sinistra) o un tasto speciale (Home, "
 #~ "Fine, Ins, ecc.)."
+

@@ -4431,6 +4431,33 @@ msgid ""
 "do nothing."
 msgstr "Cette touche est sur « {device} », que dictee n'écoute pas par défaut. Ajoutez ce périphérique aux périphériques d'entrée supplémentaires (page Options supplémentaires), sinon la touche ne fera rien."
 
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "régler le son"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "régler l'écran"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "régler le rétroéclairage du clavier"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "contrôler la lecture multimédia"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "une fonction système"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Cette touche est utilisée par votre ordinateur pour {what}. La choisir pour la dictée vous en prive : dictee reçoit la touche avant votre bureau."
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
@@ -5669,3 +5696,4 @@ msgstr "Cette touche est sur « {device} », que dictee n'écoute pas par défau
 #~ "Cette touche est utilisée pour la saisie. Préférez une touche de fonction "
 #~ "(F1-F24), la touche {key41} (en haut à gauche) ou une touche spéciale "
 #~ "(Début, Fin, Inser, etc.)."
+
