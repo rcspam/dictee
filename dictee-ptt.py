@@ -198,6 +198,20 @@ def load_config():
     return conf
 
 
+# X and Y, the only axes that mean "this device moves a pointer". Same codes
+# for relative (mouse) and absolute (touchpad, tablet) reporting.
+MOTION_AXES = {0, 1}
+
+
+def _has_motion_axes(caps):
+    """True when the device reports X/Y motion, i.e. drives a pointer.
+
+    EV_ABS entries come as (code, AbsInfo) pairs, EV_REL as plain codes.
+    """
+    axes = set(caps.get(EV_REL, ())) | {c for c, _ in caps.get(EV_ABS, ())}
+    return bool(axes & MOTION_AXES)
+
+
 def find_keyboards_evdev():
     """Trouve les claviers physiques via evdev."""
     devs = []
@@ -208,20 +222,26 @@ def find_keyboards_evdev():
             continue
         caps = dev.capabilities(verbose=False)
         # EV_KEY present with the full key set. The default path additionally
-        # rejects pointer axes: a real keyboard never reports EV_REL/EV_ABS,
-        # and some mice and combined keyboard+mouse HID receivers expose a
-        # node with >30 keys that ALSO carries pointer movement; EVIOCGRAB-ing
-        # such a node freezes the system mouse (forum report: dictee 1.3.4,
-        # AMD/Wayland). The EXTRA_KEYBOARDS whitelist bypasses that guard
-        # (issue #23): some keyboards carry pointer axes on the keyboard node
-        # (e.g. Logitech Craft's Crown dial) and the user explicitly opted in.
+        # rejects devices that can move a pointer: some mice and combined
+        # keyboard+mouse HID receivers expose a node with >30 keys that ALSO
+        # carries pointer movement, and EVIOCGRAB-ing such a node freezes the
+        # system mouse (forum report: dictee 1.3.4, AMD/Wayland).
+        #
+        # Only X/Y motion disqualifies a device, not any axis at all. A media
+        # key block declares ABS_VOLUME or REL_HWHEEL and drives no pointer;
+        # rejecting it on the mere presence of an axis made its keys
+        # unreachable (issue #30, diagnosis and fix by @gabus in PR #29).
+        #
+        # The EXTRA_KEYBOARDS whitelist still bypasses the guard entirely
+        # (issue #23): the Logitech Craft's Crown dial does report X/Y, so it
+        # is rightly refused by default and needs the user to opt in.
         if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
             name = dev.name.lower()
             if name in EXCLUDE_KEYBOARDS:
                 dev.close()
             elif any(x in name for x in EXTRA_KEYBOARDS):
                 devs.append(dev)
-            elif (EV_REL not in caps and EV_ABS not in caps
+            elif (not _has_motion_axes(caps)
                     and not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt"))):
                 devs.append(dev)
             else:
@@ -242,27 +262,28 @@ def find_keyboards_raw():
 
     for block in content.split("\n\n"):
         lines = block.strip().splitlines()
-        name_line = handlers_line = ev_line = ""
+        name_line = handlers_line = ""
+        axis_masks = []
         for line in lines:
             if line.startswith("N:"):
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-            elif line.startswith("B: EV="):
-                ev_line = line
-        # The default path rejects nodes that also drive a pointer — grabbing
-        # a combined keyboard+pointer HID node freezes it. Parse the EV
-        # capability bitmask and skip the node if it exposes relative (mouse)
-        # OR absolute (touchpad/touchscreen/tablet) axes. Mirrors the
-        # EV_REL/EV_ABS exclusion in find_keyboards_evdev — the H: "mouse"
-        # handler check alone misses abs-only pointers. The EXTRA_KEYBOARDS
-        # whitelist bypasses both pointer checks (issue #23), same as in
-        # find_keyboards_evdev.
+            elif line.startswith(("B: REL=", "B: ABS=")):
+                axis_masks.append(line)
+        # Same rule as find_keyboards_evdev: only X/Y motion disqualifies a
+        # node. "B: EV=" only says THAT the node has axes, not which ones, so
+        # it rejected media key blocks whose single axis is the volume
+        # (issue #30). Read the REL/ABS masks instead: they print as 64-bit
+        # words, most significant first, so X (bit 0) and Y (bit 1) are in the
+        # last word. The EXTRA_KEYBOARDS whitelist still bypasses this guard
+        # (issue #23), same as in find_keyboards_evdev.
         has_pointer = False
-        m_ev = re.search(r"B: EV=([0-9a-fA-F]+)", ev_line)
-        if m_ev:
-            ev_caps = int(m_ev.group(1), 16)
-            has_pointer = bool(ev_caps & (1 << EV_REL)) or bool(ev_caps & (1 << EV_ABS))
+        for mask in axis_masks:
+            words = mask.rsplit("=", 1)[1].split()
+            if words and int(words[-1], 16) & 0b11:
+                has_pointer = True
+                break
         # Require the kbd handler.
         if "kbd" in handlers_line:
             name_lower = name_line.lower()
