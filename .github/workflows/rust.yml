@@ -75,6 +75,17 @@ jobs:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
         QT_QPA_PLATFORM: offscreen
 
+  test-keyboard-detection:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install Python test deps
+      run: python3 -m pip install --user evdev
+    # Builds uinput devices matching the hardware from issues #10, #23 and #30;
+    # skips itself where /dev/uinput is absent, as on hosted runners.
+    - name: Run keyboard detection tests
+      run: python3 tests/test-keyboard-detection.py
+
   test-apply-continuation:
     runs-on: ubuntu-latest
     steps:
