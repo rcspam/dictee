@@ -305,6 +305,22 @@ LINUX_KEYCODE_NAMES = {
     1: "Escape", 102: "Home", 107: "End", 111: "Delete", 110: "Insert",
     119: "Pause", 210: "Print",
     41: "` / ²",
+    # Media and function-row keys. Not selectable from QT_TO_LINUX_KEYCODE —
+    # they have no Qt keysym — but direct capture reads them straight off
+    # /dev/input, so they need a label or the button reads "Key 164".
+    # Names are Qt's own spelling wherever one exists, because
+    # _compute_cheatsheet_keysequence feeds them back to QKeySequence to build
+    # the cheatsheet shortcut; anything Qt cannot parse yields no shortcut.
+    113: "Volume Mute", 114: "Volume Down", 115: "Volume Up",
+    163: "Media Next", 164: "Media Play", 165: "Media Previous",
+    166: "Media Stop",
+    224: "Monitor Brightness Down", 225: "Monitor Brightness Up",
+    158: "Back", 159: "Forward", 217: "Search", 172: "Home Page",
+    155: "Launch Mail", 140: "Calculator",
+    # Qt has no name for these two; the label is ours. The cheatsheet shortcut
+    # is simply not offered for them, which _compute_cheatsheet_keysequence
+    # handles by returning None on an empty render.
+    582: "Voice Command", 247: "Airplane Mode",
 }
 
 
@@ -3258,7 +3274,32 @@ class ShortcutButton(QPushButton):
             self._notifiers.append(notifier)
         if not self._devices:
             return False
+        self._grab_devices()
+        # dictee-ptt only lets go at its select() timeout, up to a second after
+        # we drop the pause marker. Retry once past that, otherwise the very
+        # keyboard the user is about to press stays ungrabbed.
+        QTimer.singleShot(1200, self._grab_devices)
         return True
+
+    def _grab_devices(self):
+        """Take the devices exclusively, so the key does not also act.
+
+        Without this the key is read AND delivered: pressing the brightness key
+        to choose it would change the screen brightness, and pressing a letter
+        would type it wherever the cursor is. A grab stops the event at the
+        kernel, before the desktop and before any application.
+
+        Failures are ignored on purpose: a device dictee-ptt has not released
+        yet raises EBUSY, and the retry above covers it. Closing the device
+        releases the grab, so every exit path already undoes this.
+        """
+        if not self._capturing:
+            return
+        for dev in self._devices:
+            try:
+                dev.grab()
+            except OSError:
+                pass
 
     def _close_devices(self):
         for n in self._notifiers:
@@ -3266,6 +3307,13 @@ class ShortcutButton(QPushButton):
             n.deleteLater()
         self._notifiers = []
         for d in self._devices:
+            # Ungrab explicitly rather than relying on close(): if anything
+            # holds a reference to the device, the keyboard would stay captured
+            # and the machine would look frozen.
+            try:
+                d.ungrab()
+            except OSError:
+                pass
             try:
                 d.close()
             except OSError:
@@ -3285,6 +3333,15 @@ class ShortcutButton(QPushButton):
             if ev.type != _ecodes.EV_KEY or ev.value != 1:  # key down only
                 continue
             code = ev.code
+            # EV_KEY also carries buttons: mouse clicks, and a touchpad's
+            # BTN_TOUCH/BTN_TOOL_FINGER which fire continuously while a finger
+            # rests on it. Resting a finger during capture would otherwise be
+            # recorded as the dictation key. Only codes the kernel names KEY_*
+            # are keys; buttons live in ecodes.BTN and are absent from
+            # ecodes.KEY. KEY_VOICECOMMAND (582) passes, BTN_TOUCH (330) does
+            # not — so this filter cannot be a simple upper bound.
+            if code not in _ecodes.KEY:
+                continue
             if code == _ecodes.KEY_ESC:
                 self._finish_capture()
                 self._cancel_capture()
@@ -3328,11 +3385,13 @@ class ShortcutButton(QPushButton):
         if not self._capturing:
             super().keyPressEvent(event)
             return
-        if self._devices:
-            # Direct capture is running; the device read decides. Swallow the
-            # Qt echo so the key is not resolved twice.
-            return
 
+        # Both paths may be live at once: dictee-ptt releases its grab while we
+        # capture, so the key reaches Qt as well. Whichever arrives first wins —
+        # they are serialised by the Qt event loop, and the winner clears
+        # _capturing so the other returns above. Keeping this path alive also
+        # covers a dictee-ptt too old to release its grab, where the device read
+        # would never fire and the button would sit dead.
         key = event.key()
 
         # Escape cancels the capture instead of being recorded. It is not a
@@ -3362,6 +3421,7 @@ class ShortcutButton(QPushButton):
         self._capturing = False
         self._sequence = seq
         self._changed = True
+        self._close_devices()
         # Capture done — let dictee-ptt resume normal behavior
         self._set_ptt_pause(False)
         # Resolve through the table here so callers only ever see a keycode.
@@ -17457,6 +17517,9 @@ class DicteeSetupDialog(QDialog):
             )
             lbl.setVisible(True)
         else:
+            # Clear as well as hide: a stale warning left in the label reappears
+            # whenever something else makes it visible again.
+            lbl.clear()
             lbl.setVisible(False)
 
     def _device_is_listened_to(self, name):

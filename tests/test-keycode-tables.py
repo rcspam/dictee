@@ -125,7 +125,12 @@ class TestLinuxKeycodeNames(unittest.TestCase):
     # Labels Qt cannot parse, and which _compute_cheatsheet_keysequence is
     # known to reject. The grave key's label falls back to "` / ²" when the
     # layout is not in _KEY41_GLYPHS, and that slash form means nothing to Qt.
-    UNPARSEABLE_BY_DESIGN = {"` / ²"}
+    UNPARSEABLE_BY_DESIGN = {
+        "` / ²",
+        # Qt has no keysym for these, so no cheatsheet shortcut can be built
+        # from them. They still need a label: direct capture can reach them.
+        "Voice Command", "Airplane Mode",
+    }
 
     def test_labels_survive_qkeysequence(self):
         """Catch any NEW label Qt cannot turn into a shortcut.
