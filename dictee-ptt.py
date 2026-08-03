@@ -43,6 +43,29 @@ except ImportError:
 
 CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
 STATE_FILE = "/dev/shm/.dictee_state"
+# Created by dictee-setup while it captures a key. We then ungrab every device
+# so setup can read them directly, and consume nothing.
+PAUSE_PATH = f"/tmp/.dictee-ptt-pause-{os.getuid()}"
+# A capture lasts seconds. If the marker outlives this, whoever wrote it died
+# without cleaning up (crash, kill -9, terminal closed) and honouring it any
+# longer would leave dictation silently dead until the next reboot.
+PAUSE_MAX_AGE = 120
+
+
+def pause_requested():
+    """True while a key capture is in progress. Stale markers are ignored."""
+    try:
+        age = time.time() - os.stat(PAUSE_PATH).st_mtime
+    except OSError:
+        return False
+    if age > PAUSE_MAX_AGE:
+        print(f"[ptt] stale pause marker ({age:.0f}s old), removing it")
+        try:
+            os.unlink(PAUSE_PATH)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def _daemon_socket_exists():
@@ -736,6 +759,28 @@ def run_evdev(ptt):
         startup_time = time.monotonic()
         STARTUP_GRACE = 0.5
 
+        # While dictee-setup captures a key, we must not only stop consuming
+        # keys but also let go of the devices: an EVIOCGRAB is exclusive, so a
+        # grabbed keyboard is invisible to anyone else, and setup would see
+        # nothing when reading /dev/input directly. Re-emitting through our
+        # uinput node is not enough — the events would carry our virtual
+        # keyboard's name, not the real one.
+        paused = False
+
+        def _release_devices():
+            for d in devices:
+                try:
+                    d.ungrab()
+                except OSError:
+                    pass
+
+        def _regrab_devices():
+            for d in devices:
+                try:
+                    d.grab()
+                except OSError as ex:
+                    print(f"[ptt] regrab échoué {d.name}: {ex}", file=sys.stderr)
+
         while running:
             # Nettoyer les devices morts
             dead = []
@@ -781,6 +826,17 @@ def run_evdev(ptt):
                 # Timeout select : aucune frappe en attente → moment sûr pour
                 # le hotplug. Rescanner ici (pas en haut de boucle) évite de
                 # figer la saisie, donc l'auto-répétition parasite (issue #8).
+                # Also the safe point to hand the devices over to dictee-setup
+                # while it captures a key, and to take them back afterwards.
+                now_paused = pause_requested()
+                if now_paused != paused:
+                    paused = now_paused
+                    if paused:
+                        print("[ptt] pause: devices released for key capture")
+                        _release_devices()
+                    else:
+                        print("[ptt] resume: devices grabbed again")
+                        _regrab_devices()
                 now_mono = time.monotonic()
                 if now_mono - last_rescan > RESCAN_INTERVAL:
                     last_rescan = now_mono
@@ -803,11 +859,16 @@ def run_evdev(ptt):
                             ui.write_event(event)
                             continue
 
-                        # Pause marker: when dictee-setup captures a shortcut
-                        # (F8/F9 etc), it creates this file so we forward every
-                        # key to Qt instead of consuming the configured PTT keys.
-                        if os.path.exists(f"/tmp/.dictee-ptt-pause-{os.getuid()}"):
-                            ui.write_event(event)
+                        # Pause marker: while dictee-setup captures a key, stay
+                        # out of the way entirely. The devices are ungrabbed at
+                        # the select timeout above, so keys already reach apps
+                        # and setup on their own — re-emitting here would type
+                        # everything twice. Checked per event as well, because
+                        # the release happens between two reads.
+                        if pause_requested():
+                            if not paused:
+                                paused = True
+                                _release_devices()
                             continue
                         consumed = ptt.handle_event(event.code, event.value)
                         if not consumed:

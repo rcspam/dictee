@@ -61,6 +61,20 @@ jobs:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
         QT_QPA_PLATFORM: offscreen
 
+  test-key-capture:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install Python test deps
+      run: python3 -m pip install --user evdev PyQt6
+    # The uinput-backed cases skip themselves when /dev/uinput is missing,
+    # which is the case on hosted runners; the Qt fallback cases still run.
+    - name: Run key capture tests
+      run: python3 tests/test-key-capture.py
+      env:
+        XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
+        QT_QPA_PLATFORM: offscreen
+
   test-apply-continuation:
     runs-on: ubuntu-latest
     steps:
