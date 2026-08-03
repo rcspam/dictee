@@ -3677,16 +3677,6 @@ msgstr "{name}  [Zeigerachsen — ignoriert, außer auf der Whitelist]"
 msgid "{name}  [virtual]"
 msgstr "{name}  [virtuell]"
 
-#: dictee-setup.py:16188
-#, python-brace-format
-msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Diese Taste wird zum Tippen verwendet. Verwenden Sie vorzugsweise eine "
-"Funktionstaste (F1-F24), die Taste {key41} (oben links) oder eine "
-"Sondertaste (Pos1, Ende, Einfg usw.)."
-
 #: dictee-setup.py:16196
 msgid "Escape is used to cancel dictation. Choose another key."
 msgstr ""
@@ -4427,6 +4417,33 @@ msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Der Einfügemodus (Umsch
 #: dictee-setup.py
 msgid "Paste all at once (Shift+Insert)"
 msgstr "Alles auf einmal einfügen (Umschalt+Einfg)"
+
+#: dictee-setup.py:16188
+#, python-brace-format
+msgid ""
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
+msgstr "Diese Taste wird zum Tippen verwendet. Bevorzugen Sie eine Funktionstaste (F1-F24) oder die Taste {key41} oben links."
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Gewünschte Taste drücken… (Esc zum Abbrechen)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "diese Taste"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Taste nicht unterstützt"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr "Diese Taste liegt auf „{device}“, das dictee standardmäßig nicht abhört. Fügen Sie das Gerät zu den zusätzlichen Eingabegeräten hinzu (Seite Zusätzliche Optionen), sonst bewirkt die Taste nichts."
 
 #~ msgid ""
 #~ "Quick install\n"
@@ -5586,3 +5603,14 @@ msgstr "Alles auf einmal einfügen (Umschalt+Einfg)"
 
 #~ msgid "click to stop"
 #~ msgstr "Klicken zum Stoppen"
+
+
+#~ #: dictee-setup.py:16188
+#~ #, python-brace-format
+#~ msgid ""
+#~ "This key is used for typing. Prefer a function key (F1-F24), the top-left "
+#~ "{key41} key or a special key (Home, End, Insert, etc.)."
+#~ msgstr ""
+#~ "Diese Taste wird zum Tippen verwendet. Verwenden Sie vorzugsweise eine "
+#~ "Funktionstaste (F1-F24), die Taste {key41} (oben links) oder eine "
+#~ "Sondertaste (Pos1, Ende, Einfg usw.)."

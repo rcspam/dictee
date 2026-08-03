@@ -3671,16 +3671,6 @@ msgstr "{name}  [axes de pointeur — ignoré sauf en liste blanche]"
 msgid "{name}  [virtual]"
 msgstr "{name}  [virtuel]"
 
-#: dictee-setup.py:16188
-#, python-brace-format
-msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Cette touche est utilisée pour la saisie. Préférez une touche de fonction "
-"(F1-F24), la touche {key41} (en haut à gauche) ou une touche spéciale "
-"(Début, Fin, Inser, etc.)."
-
 #: dictee-setup.py:16196
 msgid "Escape is used to cancel dictation. Choose another key."
 msgstr "Échap est utilisé pour annuler la dictée. Choisissez une autre touche."
@@ -4413,6 +4403,33 @@ msgstr "Comment le texte dicté arrive dans votre application. Le mode collage (
 #: dictee-setup.py
 msgid "Paste all at once (Shift+Insert)"
 msgstr "Coller d'un bloc (Maj+Inser)"
+
+#: dictee-setup.py:16188
+#, python-brace-format
+msgid ""
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
+msgstr "Cette touche sert à taper. Préférez une touche de fonction (F1-F24) ou la touche {key41} en haut à gauche."
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Appuyez sur la touche voulue… (Échap pour annuler)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "cette touche"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Touche non prise en charge"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr "Cette touche est sur « {device} », que dictee n'écoute pas par défaut. Ajoutez ce périphérique aux périphériques d'entrée supplémentaires (page Options supplémentaires), sinon la touche ne fera rien."
 
 #~ msgid ""
 #~ "Quick install\n"
@@ -5641,3 +5658,14 @@ msgstr "Coller d'un bloc (Maj+Inser)"
 
 #~ msgid "click to stop"
 #~ msgstr "cliquer pour arrêter"
+
+
+#~ #: dictee-setup.py:16188
+#~ #, python-brace-format
+#~ msgid ""
+#~ "This key is used for typing. Prefer a function key (F1-F24), the top-left "
+#~ "{key41} key or a special key (Home, End, Insert, etc.)."
+#~ msgstr ""
+#~ "Cette touche est utilisée pour la saisie. Préférez une touche de fonction "
+#~ "(F1-F24), la touche {key41} (en haut à gauche) ou une touche spéciale "
+#~ "(Début, Fin, Inser, etc.)."

@@ -38,6 +38,7 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 from PyQt6.QtCore import (
     Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
     QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+    QSocketNotifier,
     pyqtSignal as Signal, pyqtProperty as Property,
 )
 from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
@@ -62,6 +63,17 @@ try:
     HAS_QT_MULTIMEDIA = True
 except ImportError:
     HAS_QT_MULTIMEDIA = False
+
+# Optional: lets ShortcutButton read raw keycodes off /dev/input instead of
+# guessing them from the symbol Qt reports. Hard dependency of the packages
+# (python3-evdev is in Depends/Requires/depends) but kept optional here so a
+# source checkout without it still starts — capture falls back to Qt events.
+try:
+    import evdev
+    from evdev import ecodes as _ecodes
+    HAS_EVDEV = True
+except ImportError:
+    HAS_EVDEV = False
 
 # === i18n ===
 
@@ -285,6 +297,18 @@ LINUX_KEYCODE_NAMES = {
     1: "Escape", 102: "Home", 107: "End", 111: "Delete", 110: "Insert",
     119: "Pause", 210: "Print",
     41: "` / ²",
+}
+
+
+# Pressed alone these are not a shortcut, they qualify one. Direct capture
+# skips them and waits for a real key. Values from linux/input-event-codes.h;
+# hard-coded so the module still imports without evdev.
+_MODIFIER_KEYCODES = {
+    29, 97,    # LEFTCTRL, RIGHTCTRL
+    42, 54,    # LEFTSHIFT, RIGHTSHIFT
+    56, 100,   # LEFTALT, RIGHTALT (AltGr)
+    125, 126,  # LEFTMETA, RIGHTMETA
+    464,       # FN — laptops handle it in firmware, but some report it
 }
 
 
@@ -2927,15 +2951,34 @@ class InstallThread(QThread):
 
 
 class ShortcutButton(QPushButton):
-    """Bouton qui capture une combinaison de touches quand activé."""
+    """Bouton qui capture la touche de dictée.
 
-    shortcutCaptured = Signal(QKeySequence)
+    Two capture paths, and the difference matters:
+
+    - direct (preferred): the raw evdev keycode is read off /dev/input, exactly
+      where dictee-ptt reads it. Any key works — media keys, a laptop's Fn row,
+      a keyboard's mic key (#30) — because no symbol is involved and no table
+      has to know about it beforehand.
+    - Qt events (fallback): used when the input devices cannot be opened, which
+      happens right after installation, before the user has logged out and back
+      in to pick up the 'input' group. Qt reports the *symbol* produced, which
+      QT_TO_LINUX_KEYCODE turns back into a keycode — so only the keys listed
+      there can be picked. Better than a dead button.
+
+    Either way the button reports an evdev keycode, so callers never have to
+    care which path was taken.
+    """
+
+    # keycode evdev, nom du périphérique source ("" en repli Qt)
+    keyCaptured = Signal(int, str)
 
     def __init__(self, parent=None):
         super().__init__(_("Click to capture a shortcut…"), parent)
         self._capturing = False
         self._sequence = None
         self._changed = False
+        self._devices = []
+        self._notifiers = []
         self.clicked.connect(self._start_capture)
 
     # Lock file read by dictee-ptt — while it exists, the daemon forwards all
@@ -2952,17 +2995,99 @@ class ShortcutButton(QPushButton):
         except OSError:
             pass
 
+    # Our own virtual keyboards. Listening to them during capture would catch
+    # dictee typing a transcript, not the user pressing a key.
+    _OWN_DEVICES = ("dotool", "dictee-ptt")
+
+    def _open_devices(self):
+        """Open every readable keyboard node. False if none can be read.
+
+        No filtering beyond our own virtual keyboards: the whole point is to
+        see the devices dictee-ptt's detection rejects — a Consumer Control
+        node carrying a mic key (#30), a remapper's virtual keyboard (#10), a
+        keyboard with pointer axes (#23). Whether dictee-ptt will then listen
+        to that device is a separate question, answered by the whitelist.
+        """
+        if not HAS_EVDEV:
+            return False
+        for path in evdev.list_devices():
+            try:
+                dev = evdev.InputDevice(path)
+            except (OSError, PermissionError):
+                continue  # not in the 'input' group yet, or node vanished
+            name = dev.name.lower()
+            if (_ecodes.EV_KEY not in dev.capabilities(verbose=False)
+                    or any(x in name for x in self._OWN_DEVICES)):
+                dev.close()
+                continue
+            self._devices.append(dev)
+            notifier = QSocketNotifier(dev.fd, QSocketNotifier.Type.Read, self)
+            notifier.activated.connect(self._on_device_readable)
+            self._notifiers.append(notifier)
+        if not self._devices:
+            return False
+        return True
+
+    def _close_devices(self):
+        for n in self._notifiers:
+            n.setEnabled(False)
+            n.deleteLater()
+        self._notifiers = []
+        for d in self._devices:
+            try:
+                d.close()
+            except OSError:
+                pass
+        self._devices = []
+
+    def _on_device_readable(self, fd):
+        """First real key press wins; modifiers alone are ignored."""
+        dev = next((d for d in self._devices if d.fd == fd), None)
+        if dev is None or not self._capturing:
+            return
+        try:
+            events = list(dev.read())
+        except OSError:
+            return
+        for ev in events:
+            if ev.type != _ecodes.EV_KEY or ev.value != 1:  # key down only
+                continue
+            code = ev.code
+            if code == _ecodes.KEY_ESC:
+                self._finish_capture()
+                self._cancel_capture()
+                return
+            if code in _MODIFIER_KEYCODES:
+                continue
+            name = dev.name
+            self._finish_capture()
+            self._capturing = False
+            self._changed = True
+            self._set_ptt_pause(False)
+            self.keyCaptured.emit(code, name)
+            return
+
+    def _finish_capture(self):
+        """Drop the device grab side of the capture, whatever the outcome."""
+        self._close_devices()
+
     def _start_capture(self):
         self._capturing = True
         self._text_before = self.text()
-        self.setText(_("Press a key combination… (Esc to cancel)"))
         self.setFocus()
-        # Pause dictee-ptt so F8/F9 reach Qt instead of being consumed
+        # Pause dictee-ptt so the PTT keys reach us instead of being consumed
         self._set_ptt_pause(True)
+        if self._open_devices():
+            self.setText(_("Press the key you want to use… (Esc to cancel)"))
+        else:
+            # No readable input device: fall back to Qt events, which only
+            # resolve the keys listed in QT_TO_LINUX_KEYCODE.
+            self.setText(_("Press a key combination… (Esc to cancel)"))
 
     def _cancel_capture(self):
         """Leave capture mode without touching the configured key."""
         self._capturing = False
+        self._close_devices()
         self.setText(getattr(self, "_text_before", "") or
                      _("Click to capture a shortcut…"))
         self._set_ptt_pause(False)
@@ -2970,6 +3095,10 @@ class ShortcutButton(QPushButton):
     def keyPressEvent(self, event):
         if not self._capturing:
             super().keyPressEvent(event)
+            return
+        if self._devices:
+            # Direct capture is running; the device read decides. Swallow the
+            # Qt echo so the key is not resolved twice.
             return
 
         key = event.key()
@@ -3001,10 +3130,12 @@ class ShortcutButton(QPushButton):
         self._capturing = False
         self._sequence = seq
         self._changed = True
-        self.setText(_("Shortcut: {label}").format(label=seq.toString(_NATIVE_TEXT)))
         # Capture done — let dictee-ptt resume normal behavior
         self._set_ptt_pause(False)
-        self.shortcutCaptured.emit(seq)
+        # Resolve through the table here so callers only ever see a keycode.
+        # 0 means "Qt reported a key the table does not know", which the caller
+        # turns into the "cannot be used for dictation" warning.
+        self.keyCaptured.emit(qt_key_to_linux_keycode(seq), "")
 
     def focusOutEvent(self, event):
         # If user clicks away while capturing, abort and unpause dictee-ptt.
@@ -8527,7 +8658,7 @@ class DicteeSetupDialog(QDialog):
         else:
             self._ptt_key = 67
         lay_sc.addWidget(self.btn_capture)
-        self.btn_capture.shortcutCaptured.connect(self._on_ptt_key_captured)
+        self.btn_capture.keyCaptured.connect(self._on_ptt_key_captured)
 
         self.lbl_ptt_warning = QLabel()
         self.lbl_ptt_warning.setVisible(False)
@@ -8584,7 +8715,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_capture_translate.setVisible(
             self.cmb_translate_mode.currentData() == "separate")
         lay_sc.addWidget(self.btn_capture_translate)
-        self.btn_capture_translate.shortcutCaptured.connect(self._on_ptt_key_translate_captured)
+        self.btn_capture_translate.keyCaptured.connect(self._on_ptt_key_translate_captured)
 
         self.cmb_translate_mode.currentIndexChanged.connect(self._on_translate_mode_changed)
 
@@ -16211,19 +16342,22 @@ class DicteeSetupDialog(QDialog):
 
     # -- Capture raccourci --
 
-    def _on_ptt_key_captured(self, seq):
-        code = qt_key_to_linux_keycode(seq)
+    def _on_ptt_key_captured(self, code, device=""):
+        """code is an evdev keycode; 0 means the Qt fallback did not resolve it.
+
+        device is the node the key came from, empty on the fallback path.
+        """
         if code:
             self._ptt_key = code
             self.btn_capture.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture._changed = True
             self._dirty = True
-            self._check_ptt_warning(code, self.lbl_ptt_warning)
+            self._check_ptt_warning(code, self.lbl_ptt_warning, device)
             # Refresh combo item texts so "Same key + ..." labels reflect
             # the new dictation key ("Ctrl+Alt+F9", etc.).
             self._refresh_shortcut_combos_labels()
         else:
-            key_str = seq.toString() if seq else "?"
+            key_str = _("this key")
             self.lbl_ptt_warning.setText(
                 '<span style="color: red;">⚠ ' +
                 _("Key '{key}' cannot be used for dictation. Choose a function "
@@ -16234,17 +16368,17 @@ class DicteeSetupDialog(QDialog):
             )
             self.lbl_ptt_warning.setVisible(True)
 
-    def _on_ptt_key_translate_captured(self, seq):
-        code = qt_key_to_linux_keycode(seq)
+    def _on_ptt_key_translate_captured(self, code, device=""):
         if code:
             self._ptt_key_translate = code
             self.btn_capture_translate.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture_translate._changed = True
             self._dirty = True
+            # Same guard as the dictation key: this one had none, so a typing
+            # key could be set as the translation key without a word.
+            self._check_ptt_warning(code, self.lbl_ptt_warning, device)
         else:
-            key_str = seq.toString() if seq else "?"
-            self.btn_capture_translate.setText(
-                _("Key '{key}' not supported").format(key=key_str))
+            self.btn_capture_translate.setText(_("Key not supported"))
 
     def _on_detect_extra_devices(self):
         self._detect_devices_dialog("whitelist")
@@ -16385,8 +16519,15 @@ class DicteeSetupDialog(QDialog):
             field.setText(",".join(selected))
             self._dirty = True
 
-    def _check_ptt_warning(self, code, lbl):
-        """Avertit si la touche risque de poser problème."""
+    def _check_ptt_warning(self, code, lbl, device=""):
+        """Avertit si la touche risque de poser problème.
+
+        Direct capture accepts any key the keyboard can send, so this is now
+        the only thing standing between the user and picking the letter A.
+        `device` is the node the key came from, so a key living on a device
+        dictee-ptt ignores can be flagged before the user discovers it the
+        hard way.
+        """
         # Touches dangereuses : lettres, chiffres, espace, enter, tab
         dangerous = {14, 15, 28, 57}  # backspace, tab, enter, space
         dangerous.update(range(2, 12))  # 1-0
@@ -16396,9 +16537,8 @@ class DicteeSetupDialog(QDialog):
         if code in dangerous:
             lbl.setText(
                 '<span style="color: orange;">⚠ ' +
-                _("This key is used for typing. Prefer a function key (F1-F24), "
-                  "the top-left {key41} key or a special key (Home, End, Insert, "
-                  "etc.).").format(key41=_key41_label()) +
+                _("This key is used for typing. Prefer a function key (F1-F24) "
+                  "or the top-left {key41} key.").format(key41=_key41_label()) +
                 '</span>'
             )
             lbl.setVisible(True)
@@ -16409,8 +16549,48 @@ class DicteeSetupDialog(QDialog):
                 '</span>'
             )
             lbl.setVisible(True)
+        elif device and not self._device_is_listened_to(device):
+            lbl.setText(
+                '<span style="color: orange;">⚠ ' +
+                _("This key is on '{device}', which dictee does not listen to "
+                  "by default. Add it to the extra input devices (Extra options "
+                  "page) or the key will do nothing.").format(device=device) +
+                '</span>'
+            )
+            lbl.setVisible(True)
         else:
             lbl.setVisible(False)
+
+    def _device_is_listened_to(self, name):
+        """Would dictee-ptt grab this device? Mirrors find_keyboards_evdev.
+
+        Kept deliberately close to dictee-ptt.py:193-205: more than 30 keys, no
+        pointer axes, not one of the excluded names — unless the user already
+        whitelisted it.
+        """
+        if not HAS_EVDEV:
+            return True  # cannot tell; do not cry wolf
+        whitelist = [s.strip().lower()
+                     for s in self.txt_ptt_extra_devices.text().split(",")
+                     if s.strip()] if hasattr(self, "txt_ptt_extra_devices") else []
+        lowered = name.lower()
+        if any(w in lowered for w in whitelist):
+            return True
+        for path in evdev.list_devices():
+            try:
+                dev = evdev.InputDevice(path)
+            except OSError:
+                continue
+            try:
+                if dev.name != name:
+                    continue
+                caps = dev.capabilities(verbose=False)
+                return (len(caps.get(_ecodes.EV_KEY, [])) > 30
+                        and _ecodes.EV_REL not in caps
+                        and _ecodes.EV_ABS not in caps)
+            finally:
+                dev.close()
+        return True
 
     def _on_translate_mode_changed(self, _idx):
         mode = self.cmb_translate_mode.currentData()
@@ -16488,13 +16668,13 @@ class DicteeSetupDialog(QDialog):
             return None
         return seq
 
-    def _on_shortcut_captured(self, seq):
-        """Legacy — redirige vers PTT."""
-        self._on_ptt_key_captured(seq)
+    def _on_shortcut_captured(self, code, device=""):
+        """Legacy — redirige vers PTT. Aucun appelant connu."""
+        self._on_ptt_key_captured(code, device)
 
-    def _on_shortcut_translate_captured(self, seq):
-        """Legacy — redirige vers PTT."""
-        self._on_ptt_key_translate_captured(seq)
+    def _on_shortcut_translate_captured(self, code, device=""):
+        """Legacy — redirige vers PTT. Aucun appelant connu."""
+        self._on_ptt_key_translate_captured(code, device)
 
     # -- Animation-speech --
 

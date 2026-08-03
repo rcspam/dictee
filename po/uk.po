@@ -3643,16 +3643,6 @@ msgstr "{name}  [осі вказівника — ігнорується, якщ�
 msgid "{name}  [virtual]"
 msgstr "{name}  [віртуальний]"
 
-#: dictee-setup.py:16188
-#, python-brace-format
-msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Ця клавіша використовується для введення. Віддайте перевагу функціональній "
-"клавіші (F1-F24), клавіші {key41} (верхній лівий кут) або спеціальній "
-"клавіші (Home, End, Insert тощо)."
-
 #: dictee-setup.py:16196
 msgid "Escape is used to cancel dictation. Choose another key."
 msgstr "Escape використовується для скасування диктанту. Оберіть іншу клавішу."
@@ -4383,6 +4373,33 @@ msgstr "Як надиктований текст потрапляє у ваш з
 #: dictee-setup.py
 msgid "Paste all at once (Shift+Insert)"
 msgstr "Вставити все одразу (Shift+Insert)"
+
+#: dictee-setup.py:16188
+#, python-brace-format
+msgid ""
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
+msgstr "Ця клавіша використовується для набору тексту. Краще виберіть функціональну клавішу (F1-F24) або клавішу {key41} у верхньому лівому куті."
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Натисніть потрібну клавішу… (Esc — скасувати)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "ця клавіша"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Клавіша не підтримується"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr "Ця клавіша розташована на «{device}», який dictee типово не слухає. Додайте цей пристрій до додаткових пристроїв введення (сторінка «Додаткові параметри»), інакше клавіша нічого не робитиме."
 
 #~ msgid ""
 #~ "Quick install\n"
@@ -5531,3 +5548,14 @@ msgstr "Вставити все одразу (Shift+Insert)"
 
 #~ msgid "click to stop"
 #~ msgstr "натисніть для зупинки"
+
+
+#~ #: dictee-setup.py:16188
+#~ #, python-brace-format
+#~ msgid ""
+#~ "This key is used for typing. Prefer a function key (F1-F24), the top-left "
+#~ "{key41} key or a special key (Home, End, Insert, etc.)."
+#~ msgstr ""
+#~ "Ця клавіша використовується для введення. Віддайте перевагу функціональній "
+#~ "клавіші (F1-F24), клавіші {key41} (верхній лівий кут) або спеціальній "
+#~ "клавіші (Home, End, Insert тощо)."
