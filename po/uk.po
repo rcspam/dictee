@@ -525,9 +525,9 @@ msgstr "Помилка встановлення."
 msgid "Click to capture a shortcut…"
 msgstr "Натисніть для захоплення комбінації клавіш…"
 
-#: dictee-setup.py:2864
-msgid "Press a key combination…"
-msgstr "Натисніть комбінацію клавіш…"
+#: dictee-setup.py:3178
+msgid "Press a key combination… (Esc to cancel)"
+msgstr "Натисніть комбінацію клавіш… (Esc — скасувати)"
 
 #: dictee-setup.py:2895
 #, python-brace-format
@@ -3582,12 +3582,10 @@ msgstr "Переклад…"
 #: dictee-setup.py:16044
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Клавіша «{key}» не підтримується. Використовуйте функціональну клавішу (F1-"
-"F24), клавішу {key41} (верхній лівий кут) або спеціальну клавішу (Home, "
-"End, Insert тощо)."
+"Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
+"the top-left {key41} key, or Pause. Other keys are left alone because your "
+"system or your typing already needs them."
+msgstr "Клавішу «{key}» не можна використовувати для диктування. Виберіть функціональну клавішу (F1-F24), клавішу {key41} у верхньому лівому куті або Pause. Інші клавіші залишаються вільними, бо їх уже використовує система або набір тексту."
 
 #: dictee-setup.py:16060
 #, python-brace-format

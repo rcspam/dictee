@@ -528,9 +528,9 @@ msgstr "Installationsfehler."
 msgid "Click to capture a shortcut…"
 msgstr "Klicken, um eine Tastenkombination zu erfassen…"
 
-#: dictee-setup.py:2864
-msgid "Press a key combination…"
-msgstr "Druecken Sie eine Tastenkombination…"
+#: dictee-setup.py:3178
+msgid "Press a key combination… (Esc to cancel)"
+msgstr "Tastenkombination drücken… (Esc zum Abbrechen)"
 
 #: dictee-setup.py:2895
 #, python-brace-format
@@ -3615,12 +3615,10 @@ msgstr "Übersetzung…"
 #: dictee-setup.py:16044
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Die Taste „{key}“ wird nicht unterstützt. Verwenden Sie eine Funktionstaste "
-"(F1-F24), die Taste {key41} (oben links) oder eine Sondertaste (Pos1, "
-"Ende, Einfg usw.)."
+"Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
+"the top-left {key41} key, or Pause. Other keys are left alone because your "
+"system or your typing already needs them."
+msgstr "Die Taste „{key}“ kann nicht für das Diktat verwendet werden. Wählen Sie eine Funktionstaste (F1-F24), die Taste {key41} oben links oder Pause. Andere Tasten bleiben frei, weil Ihr System oder Ihre Eingabe sie bereits benötigt."
 
 #: dictee-setup.py:16060
 #, python-brace-format

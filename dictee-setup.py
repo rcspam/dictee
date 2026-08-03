@@ -259,18 +259,15 @@ QT_TO_LINUX_KEYCODE = {
     #   Print Screen (KEY_PRINT=210 / KEY_SYSRQ=99) — the desktop owns it
     #                             (Spectacle on Plasma), and which of the two
     #                             codes a keyboard emits is not settled.
+    #   Home / End / Delete / Insert — everyday editing and navigation keys.
+    #                             Grabbing one exclusively takes it away from
+    #                             typing; Insert is worse still, since
+    #                             Shift+Insert is the paste shortcut dictee
+    #                             itself relies on (see dictee, _paste_text).
     # Grabbing any of them would take a working function away from the user to
     # give another. They stay in LINUX_KEYCODE_NAMES so a config that already
     # holds one still displays a readable label.
-    # Editing keys. These four held X11 keycodes (evdev + 8) until 2026-08:
-    # picking Home stored Insert, Delete stored Pause, and so on. Values below
-    # are the evdev ones from linux/input-event-codes.h, and
-    # tests/test-keycode-tables.py now checks them against the kernel.
-    0x01000010: 102,  # Home
-    0x01000011: 107,  # End
-    0x01000016: 111,  # Delete
-    0x01000015: 110,  # Insert
-    0x01000017: 119,  # Pause/Break
+    0x01000017: 119,  # Pause/Break — no other owner, safe to grab
     # Backtick / grave accent — KEY_GRAVE=41. Useful as PTT key on
     # AZERTY/QWERTY layouts (rarely-used dedicated key).
     0x60: 41,         # ` (backtick / grave)
@@ -2957,10 +2954,18 @@ class ShortcutButton(QPushButton):
 
     def _start_capture(self):
         self._capturing = True
-        self.setText(_("Press a key combination…"))
+        self._text_before = self.text()
+        self.setText(_("Press a key combination… (Esc to cancel)"))
         self.setFocus()
         # Pause dictee-ptt so F8/F9 reach Qt instead of being consumed
         self._set_ptt_pause(True)
+
+    def _cancel_capture(self):
+        """Leave capture mode without touching the configured key."""
+        self._capturing = False
+        self.setText(getattr(self, "_text_before", "") or
+                     _("Click to capture a shortcut…"))
+        self._set_ptt_pause(False)
 
     def keyPressEvent(self, event):
         if not self._capturing:
@@ -2968,6 +2973,14 @@ class ShortcutButton(QPushButton):
             return
 
         key = event.key()
+
+        # Escape cancels the capture instead of being recorded. It is not a
+        # selectable PTT key anyway (dictee-ptt listens for it to abort a
+        # running dictation), so treating it as "abort" is what a user expects
+        # from any dialog.
+        if key == getattr(Qt, "Key", Qt).Key_Escape:
+            self._cancel_capture()
+            return
 
         # Ignorer les modificateurs seuls
         # PyQt6 : enums scoped (Qt.Key.Key_X), PySide6 : enums flat (Qt.Key_X)
@@ -2994,10 +3007,10 @@ class ShortcutButton(QPushButton):
         self.shortcutCaptured.emit(seq)
 
     def focusOutEvent(self, event):
-        # If user clicks away while capturing, abort and unpause dictee-ptt
+        # If user clicks away while capturing, abort and unpause dictee-ptt.
+        # Same path as Escape so the label is restored either way.
         if self._capturing:
-            self._capturing = False
-            self._set_ptt_pause(False)
+            self._cancel_capture()
         super().focusOutEvent(event)
 
     def sequence(self):
@@ -16213,9 +16226,10 @@ class DicteeSetupDialog(QDialog):
             key_str = seq.toString() if seq else "?"
             self.lbl_ptt_warning.setText(
                 '<span style="color: red;">⚠ ' +
-                _("Key '{key}' is not supported. Use a function key (F1-F24), "
-                  "the top-left {key41} key or a special key (Home, End, Insert, "
-                  "etc.).").format(key=key_str, key41=_key41_label()) +
+                _("Key '{key}' cannot be used for dictation. Choose a function "
+                  "key (F1-F24), the top-left {key41} key, or Pause. Other keys "
+                  "are left alone because your system or your typing already "
+                  "needs them.").format(key=key_str, key41=_key41_label()) +
                 '</span>'
             )
             self.lbl_ptt_warning.setVisible(True)
