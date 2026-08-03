@@ -535,7 +535,7 @@ msgid "Click to capture a shortcut…"
 msgstr ""
 
 #: dictee-setup.py:3178
-msgid "Press a key combination…"
+msgid "Press a key combination… (Esc to cancel)"
 msgstr ""
 
 #: dictee-setup.py:3209
@@ -3356,8 +3356,9 @@ msgstr ""
 #: dictee-setup.py:17087
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
+"Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
+"the top-left {key41} key, or Pause. Other keys are left alone because your "
+"system or your typing already needs them."
 msgstr ""
 
 #: dictee-setup.py:17104

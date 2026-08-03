@@ -617,8 +617,8 @@ msgid "Click to capture a shortcut…"
 msgstr "Haz clic para capturar un atajo…"
 
 #: dictee-setup.py:3178
-msgid "Press a key combination…"
-msgstr "Pulsa una combinación de teclas…"
+msgid "Press a key combination… (Esc to cancel)"
+msgstr "Pulse una combinación de teclas… (Esc para cancelar)"
 
 #: dictee-setup.py:3209
 #, python-brace-format
@@ -3840,12 +3840,10 @@ msgstr "Traduciendo…"
 #: dictee-setup.py:17087
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"La tecla '{key}' no es compatible. Use una tecla de función (F1-F24), la "
-"tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
-"Insertar, etc.)."
+"Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
+"the top-left {key41} key, or Pause. Other keys are left alone because your "
+"system or your typing already needs them."
+msgstr "La tecla «{key}» no puede usarse para el dictado. Elija una tecla de función (F1-F24), la tecla {key41} de arriba a la izquierda, o Pausa. Las demás teclas se dejan libres porque su sistema o su escritura ya las necesitan."
 
 #: dictee-setup.py:17104
 #, python-brace-format
