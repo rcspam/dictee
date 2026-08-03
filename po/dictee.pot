@@ -3407,8 +3407,8 @@ msgstr ""
 #: dictee-setup.py:17232
 #, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
 msgstr ""
 
 #: dictee-setup.py:17241
@@ -4124,3 +4124,24 @@ msgstr ""
 #, python-brace-format
 msgid "{name}  [pointer axes — ignored unless whitelisted]"
 msgstr ""
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr ""
+
+#: dictee-setup.py
+msgid "this key"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr ""
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr ""
+

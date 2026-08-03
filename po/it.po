@@ -3891,12 +3891,9 @@ msgstr "{name}  [virtuale]"
 #: dictee-setup.py:17232
 #, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Questo tasto è usato per la digitazione. Preferisci un tasto funzione (F1-"
-"F24), il tasto {key41} (in alto a sinistra) o un tasto speciale (Home, Fine, "
-"Ins, ecc.)."
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
+msgstr "Questo tasto serve per digitare. Preferisci un tasto funzione (F1-F24) o il tasto {key41} in alto a sinistra."
 
 #: dictee-setup.py:17241
 msgid "Escape is used to cancel dictation. Choose another key."
@@ -4759,3 +4756,24 @@ msgstr ""
 #, python-brace-format
 msgid "{name}  [pointer axes — ignored unless whitelisted]"
 msgstr "{name}  [assi del puntatore — ignorata se non in whitelist]"
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Premi il tasto che vuoi usare… (Esc per annullare)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "questo tasto"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Tasto non supportato"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr "Questo tasto si trova su «{device}», che dictee non ascolta per impostazione predefinita. Aggiungilo ai dispositivi di input aggiuntivi (pagina Opzioni aggiuntive), altrimenti il tasto non farà nulla."
+
