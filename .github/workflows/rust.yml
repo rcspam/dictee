@@ -47,6 +47,20 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
 
+  test-keycode-tables:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    # evdev supplies the kernel keycode constants the tables are checked
+    # against; PyQt6 is needed to confirm each label still yields a shortcut.
+    - name: Install Python test deps
+      run: python3 -m pip install --user evdev PyQt6
+    - name: Run keycode table tests
+      run: python3 tests/test-keycode-tables.py
+      env:
+        XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
+        QT_QPA_PLATFORM: offscreen
+
   test-apply-continuation:
     runs-on: ubuntu-latest
     steps:
