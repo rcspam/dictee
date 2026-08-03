@@ -4797,3 +4797,30 @@ msgid ""
 "do nothing."
 msgstr "Diese Taste liegt auf „{device}“, das dictee standardmäßig nicht abhört. Fügen Sie das Gerät zu den zusätzlichen Eingabegeräten hinzu (Seite Zusätzliche Optionen), sonst bewirkt die Taste nichts."
 
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "den Ton einzustellen"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "den Bildschirm einzustellen"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "die Tastaturbeleuchtung einzustellen"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "die Medienwiedergabe zu steuern"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "eine Systemfunktion auszuführen"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Diese Taste wird von Ihrem Computer verwendet, um {what}. Wenn Sie sie für das Diktat wählen, geht diese Funktion verloren: dictee erhält die Taste vor Ihrer Arbeitsumgebung."
+

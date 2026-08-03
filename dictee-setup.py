@@ -324,6 +324,23 @@ LINUX_KEYCODE_NAMES = {
 }
 
 
+# Keys the machine already uses for something. Direct capture reaches them all,
+# and dictee grabs its key before the desktop sees it — so picking one of these
+# takes that function away for good. Warn, do not forbid: what is actually bound
+# differs per desktop and per machine, and a hard-coded list of what is
+# forbidden would rot exactly like the hard-coded list of what was allowed.
+# Grouped by what the user loses, not by keycode. From input-event-codes.h.
+_SYSTEM_FUNCTION_KEYS = {
+    113: "sound", 114: "sound", 115: "sound", 248: "sound",
+    224: "screen", 225: "screen", 227: "screen", 244: "screen", 431: "screen",
+    228: "keyboard backlight", 229: "keyboard backlight",
+    230: "keyboard backlight",
+    163: "media", 164: "media", 165: "media", 166: "media", 201: "media",
+    207: "media",
+    99: "system", 116: "system", 142: "system", 205: "system", 210: "system",
+    237: "system", 238: "system", 247: "system", 530: "system",
+}
+
 # Pressed alone these are not a shortcut, they qualify one. Direct capture
 # skips them and waits for a real key. Values from linux/input-event-codes.h;
 # hard-coded so the module still imports without evdev.
@@ -17513,6 +17530,24 @@ class DicteeSetupDialog(QDialog):
                 _("This key is on '{device}', which dictee does not listen to "
                   "by default. Add it to the extra input devices (Extra options "
                   "page) or the key will do nothing.").format(device=device) +
+                '</span>'
+            )
+            lbl.setVisible(True)
+        elif code in _SYSTEM_FUNCTION_KEYS:
+            # dictee grabs its key at the kernel, before the desktop: whatever
+            # this key does today stops working the moment it is chosen.
+            what = {
+                "sound": _("adjust the sound"),
+                "screen": _("adjust the screen"),
+                "keyboard backlight": _("adjust the keyboard backlight"),
+                "media": _("control media playback"),
+                "system": _("perform a system function"),
+            }[_SYSTEM_FUNCTION_KEYS[code]]
+            lbl.setText(
+                '<span style="color: orange;">⚠ ' +
+                _("This key is used by your computer to {what}. Choosing it "
+                  "for dictation takes that away: dictee receives the key "
+                  "before your desktop does.").format(what=what) +
                 '</span>'
             )
             lbl.setVisible(True)
