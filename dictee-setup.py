@@ -17375,7 +17375,15 @@ class DicteeSetupDialog(QDialog):
         key_name = linux_keycode_name(ptt_key)
         if not key_name or key_name.startswith("Key "):
             return None
-        return QKeySequence(f"{mod}+{key_name}")
+        seq = QKeySequence(f"{mod}+{key_name}")
+        # Qt parses unknown key names into a sequence that counts one element
+        # but renders empty, and the caller only checks count() > 0 — so a label
+        # Qt does not understand used to be registered as a blank shortcut. It
+        # happens with the top-left key on a layout absent from _KEY41_GLYPHS,
+        # whose label falls back to "` / ²". No shortcut beats a broken one.
+        if not seq.toString():
+            return None
+        return seq
 
     def _on_shortcut_captured(self, seq):
         """Legacy — redirige vers PTT."""
