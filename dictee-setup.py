@@ -250,7 +250,18 @@ QT_TO_LINUX_KEYCODE = {
     0x01000045: 192,  # F22
     0x01000046: 193,  # F23
     0x01000047: 194,  # F24
-    0x01000000: 1,    # Escape
+    # Deliberately absent, though the keys exist and Qt reports them:
+    #   Escape (KEY_ESC=1)      — cancels a running dictation; dictee-ptt
+    #                             listens for it whatever the PTT key is.
+    #   Backspace (KEY_BACKSPACE=14) — a typing key, already flagged by
+    #                             _check_ptt_warning; its own comment used to
+    #                             read "pas utile".
+    #   Print Screen (KEY_PRINT=210 / KEY_SYSRQ=99) — the desktop owns it
+    #                             (Spectacle on Plasma), and which of the two
+    #                             codes a keyboard emits is not settled.
+    # Grabbing any of them would take a working function away from the user to
+    # give another. They stay in LINUX_KEYCODE_NAMES so a config that already
+    # holds one still displays a readable label.
     # Editing keys. These four held X11 keycodes (evdev + 8) until 2026-08:
     # picking Home stored Insert, Delete stored Pause, and so on. Values below
     # are the evdev ones from linux/input-event-codes.h, and
@@ -260,8 +271,6 @@ QT_TO_LINUX_KEYCODE = {
     0x01000016: 111,  # Delete
     0x01000015: 110,  # Insert
     0x01000017: 119,  # Pause/Break
-    0x01000009: 210,  # Print Screen (SysRq)
-    0x01000025: 14,   # Backspace — non, pas utile
     # Backtick / grave accent — KEY_GRAVE=41. Useful as PTT key on
     # AZERTY/QWERTY layouts (rarely-used dedicated key).
     0x60: 41,         # ` (backtick / grave)
