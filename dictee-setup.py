@@ -258,11 +258,15 @@ QT_TO_LINUX_KEYCODE = {
     0x01000046: 193,  # F23
     0x01000047: 194,  # F24
     0x01000000: 1,    # Escape
-    0x01000010: 110,  # Home
+    # Editing keys. These four held X11 keycodes (evdev + 8) until 2026-08:
+    # picking Home stored Insert, Delete stored Pause, and so on. Values below
+    # are the evdev ones from linux/input-event-codes.h, and
+    # tests/test-keycode-tables.py now checks them against the kernel.
+    0x01000010: 102,  # Home
     0x01000011: 107,  # End
-    0x01000016: 119,  # Delete
-    0x01000015: 118,  # Insert
-    0x01000017: 104,  # Pause/Break
+    0x01000016: 111,  # Delete
+    0x01000015: 110,  # Insert
+    0x01000017: 119,  # Pause/Break
     0x01000009: 210,  # Print Screen (SysRq)
     0x01000025: 14,   # Backspace — non, pas utile
     # Backtick / grave accent — KEY_GRAVE=41. Useful as PTT key on
@@ -279,8 +283,8 @@ LINUX_KEYCODE_NAMES = {
     65: "F7", 66: "F8", 67: "F9", 68: "F10", 87: "F11", 88: "F12",
     183: "F13", 184: "F14", 185: "F15", 186: "F16", 187: "F17", 188: "F18",
     189: "F19", 190: "F20", 191: "F21", 192: "F22", 193: "F23", 194: "F24",
-    1: "Escape", 110: "Home", 107: "End", 119: "Delete", 118: "Insert",
-    104: "Pause", 210: "Print",
+    1: "Escape", 102: "Home", 107: "End", 111: "Delete", 110: "Insert",
+    119: "Pause", 210: "Print",
     41: "` / ²",
 }
 
