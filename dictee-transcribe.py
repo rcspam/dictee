@@ -363,10 +363,19 @@ class _ClickSlider(QSlider):
     pointing at the exact playback position.
     """
     sliderClicked = Signal(int)
+    # (start_ms, end_ms) — either may be None for "no bound on that side"
+    trimChanged = Signal(object, object)
+
+    # Half-width, in pixels, of the grab zone around a trim handle. Below
+    # this distance a press drags the bound instead of seeking.
+    TRIM_GRAB_PX = 7
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._markers = []   # list of (start_ms, end_ms, QColor)
+        self._trim_start_ms = None
+        self._trim_end_ms = None
+        self._dragging_trim = None      # 'start' | 'end' | None
         self.setMinimumHeight(44)
         # Hide the native handle so we can render our own triangle on
         # top of the groove. The groove itself is left to the platform
@@ -386,6 +395,12 @@ class _ClickSlider(QSlider):
 
     def clear_markers(self):
         self._markers.clear()
+        self.update()
+
+    def set_trim(self, start_ms, end_ms):
+        """Set the transcription bounds (either side may be None)."""
+        self._trim_start_ms = start_ms
+        self._trim_end_ms = end_ms
         self.update()
 
     def _groove_rect(self):
@@ -437,6 +452,24 @@ class _ClickSlider(QSlider):
             p.setPen(QPen(color, 1))
             p.drawLine(x, 0, x, h - 1)
 
+        # Trim bounds: dim what will NOT be transcribed and draw a grab
+        # bar at each bound, so the excluded head/tail is obvious at a
+        # glance instead of living only in the two text fields.
+        if self._trim_start_ms is not None or self._trim_end_ms is not None:
+            excluded = QColor("#000000")
+            excluded.setAlpha(110)
+            if self._trim_start_ms is not None:
+                x = int(to_x(self._trim_start_ms))
+                p.fillRect(gx, 0, max(x - gx, 0), h, excluded)
+            if self._trim_end_ms is not None:
+                x = int(to_x(self._trim_end_ms))
+                p.fillRect(x, 0, max(gx + gw - x, 0), h, excluded)
+            p.setPen(QPen(QColor("#f0a020"), 3))
+            for ms in (self._trim_start_ms, self._trim_end_ms):
+                if ms is not None:
+                    x = int(to_x(ms))
+                    p.drawLine(x, 0, x, h - 1)
+
         # Up-pointing red triangle placed BELOW the groove so its apex
         # points up at the playback position on the timeline. (User's
         # convention: tip aimed at the groove — pointing up means
@@ -459,20 +492,77 @@ class _ClickSlider(QSlider):
         p.drawPolygon(QPolygonF([tip, left, right]))
         p.end()
 
+    def _ms_at(self, x):
+        """Slider value under the widget x coordinate, clamped to the range."""
+        groove = self._groove_rect()
+        gx, gw = groove.x(), groove.width()
+        if gw <= 0:
+            return None
+        rel = max(0.0, min(1.0, (x - gx) / gw))
+        return int(self.minimum() + rel * (self.maximum() - self.minimum()))
+
+    def _trim_handle_at(self, x):
+        """Which trim handle sits under x, if any ('start' | 'end' | None)."""
+        groove = self._groove_rect()
+        gx, gw = groove.x(), groove.width()
+        rng = self.maximum() - self.minimum()
+        if gw <= 0 or rng <= 0:
+            return None
+        best, best_dist = None, float("inf")
+        for name, ms in (("start", self._trim_start_ms),
+                         ("end", self._trim_end_ms)):
+            if ms is None:
+                continue
+            hx = gx + (ms - self.minimum()) / rng * gw
+            d = abs(x - hx)
+            if d <= self.TRIM_GRAB_PX and d < best_dist:
+                best, best_dist = name, d
+        return best
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            groove = self._groove_rect()
-            gx, gw = groove.x(), groove.width()
-            if gw > 0:
-                rel = (event.position().x() - gx) / gw
-                rel = max(0.0, min(1.0, rel))
-                rng = self.maximum() - self.minimum()
-                val = int(self.minimum() + rel * rng)
+            # A press ON a trim handle grabs it; anywhere else keeps the
+            # existing click-to-seek. Checked first so the bounds stay
+            # reachable even where they overlap the playback triangle.
+            handle = self._trim_handle_at(event.position().x())
+            if handle:
+                self._dragging_trim = handle
+                event.accept()
+                return
+            val = self._ms_at(event.position().x())
+            if val is not None:
                 self.setValue(val)
                 self.sliderClicked.emit(val)
                 event.accept()
                 return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging_trim:
+            val = self._ms_at(event.position().x())
+            if val is not None:
+                # Keep the bounds ordered while dragging rather than let one
+                # cross the other and produce an empty selection.
+                if self._dragging_trim == "start":
+                    if self._trim_end_ms is not None:
+                        val = min(val, self._trim_end_ms)
+                    self._trim_start_ms = val
+                else:
+                    if self._trim_start_ms is not None:
+                        val = max(val, self._trim_start_ms)
+                    self._trim_end_ms = val
+                self.update()
+                self.trimChanged.emit(self._trim_start_ms, self._trim_end_ms)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging_trim:
+            self._dragging_trim = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 SPEAKER_COLORS = [
@@ -1695,15 +1785,73 @@ def _clean_segment_text(text):
     return _CONTROL_CHAR_RE.sub("", text).strip()
 
 
-def _parse_diarize_output(text):
-    """Parse transcribe-diarize output into segments."""
+def _parse_hms(text):
+    """Parse a trim bound: 'H:MM:SS', 'M:SS' or plain seconds.
+
+    Returns the value in seconds, or None when the field is empty or
+    malformed — the caller treats None as "no bound", so a typo must never
+    silently become a cut. Accepts what the player displays (see
+    _ms_to_str) plus raw seconds for convenience.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None
+    parts = text.split(":")
+    if len(parts) > 3:
+        return None
+    try:
+        nums = [float(p) for p in parts]
+    except ValueError:
+        return None
+    if any(n < 0 for n in nums):
+        return None
+    if len(parts) > 1 and any(n >= 60 for n in nums[1:]):
+        return None            # 1:60 is not a time, it is a typo
+    total = 0.0
+    for n in nums:
+        total = total * 60 + n
+    return total
+
+
+def _format_hms(seconds):
+    """Format seconds the way the player's clock does (M:SS, H:MM:SS)."""
+    s = int(seconds)
+    if s >= 3600:
+        return f"{s // 3600}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+    return f"{s // 60}:{s % 60:02d}"
+
+
+def _build_trim_cmd(src, dst, start_s, end_s):
+    """ffmpeg command cutting [start_s, end_s] out of src into a 16 kHz mono
+    WAV — the format every daemon expects. Built once, before any engine
+    runs, so all paths (MOSS, two-phase, chunked, isolated) get the same
+    trimmed input instead of each having to learn about bounds.
+    `-ss` before `-i` seeks on the input (fast); an end of None means "to the
+    end of the file" and emits no `-to` at all.
+    """
+    cmd = ["ffmpeg", "-y", "-ss", f"{start_s:.3f}"]
+    if end_s is not None:
+        cmd += ["-to", f"{end_s:.3f}"]
+    cmd += ["-i", src, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", dst]
+    return cmd
+
+
+def _parse_diarize_output(text, offset=0.0):
+    """Parse transcribe-diarize output into segments.
+
+    `offset` rebases the timestamps onto the ORIGINAL file when the audio was
+    trimmed before transcription: the engines see a file starting at 0, but
+    the user set the bound on their own timeline and the player still holds
+    the untrimmed file. Every diarized path funnels through here, so this is
+    the single place where the shift has to happen.
+    """
     segments = []
     for line in text.splitlines():
         m = DIARIZE_RE.match(line.strip())
         if m:
             segments.append({
-                "start": float(m.group(1)),
-                "end": float(m.group(2)),
+                "start": float(m.group(1)) + offset,
+                "end": float(m.group(2)) + offset,
                 "speaker": m.group(3),
                 "text": _clean_segment_text(m.group(4)),
             })
@@ -3029,6 +3177,58 @@ class TranscribeWindow(QDialog):
 
         layout.addLayout(lay_player)
 
+        # -- Transcription bounds --
+        # Jingles, ads and music at the head of a recording make the
+        # diarizer invent speakers (measured 2026-08-04: six labels in the
+        # window holding a 1 min 49 s intro, against three for the same
+        # window without it), and those ghosts then feed the cross-window
+        # reconciliation. Bounds also let one transcribe an excerpt of a
+        # long file. Empty fields = whole file, so the default is unchanged.
+        lay_trim = QHBoxLayout()
+        lay_trim.addWidget(QLabel(_("Transcribe from:")))
+        self._ed_trim_start = QLineEdit()
+        self._ed_trim_start.setPlaceholderText(_("start"))
+        self._ed_trim_start.setFixedWidth(80)
+        self._ed_trim_start.setToolTip(self._tip(
+            _("Skip the beginning (jingle, ads). Format 1:49 or 0:01:49. "
+              "Empty = from the start.")))
+        self._ed_trim_start.editingFinished.connect(self._on_trim_edited)
+        lay_trim.addWidget(self._ed_trim_start)
+
+        lay_trim.addWidget(QLabel(_("to:")))
+        self._ed_trim_end = QLineEdit()
+        self._ed_trim_end.setPlaceholderText(_("end"))
+        self._ed_trim_end.setFixedWidth(80)
+        self._ed_trim_end.setToolTip(self._tip(
+            _("Stop before the end. Format 1:49 or 0:01:49. "
+              "Empty = to the end.")))
+        self._ed_trim_end.editingFinished.connect(self._on_trim_edited)
+        lay_trim.addWidget(self._ed_trim_end)
+
+        self._btn_trim_here_start = QPushButton(_("◀ here"))
+        self._btn_trim_here_start.setToolTip(self._tip(
+            _("Set the start bound at the current playback position")))
+        self._btn_trim_here_start.clicked.connect(
+            lambda: self._set_trim_from_player("start"))
+        lay_trim.addWidget(self._btn_trim_here_start)
+
+        self._btn_trim_here_end = QPushButton(_("here ▶"))
+        self._btn_trim_here_end.setToolTip(self._tip(
+            _("Set the end bound at the current playback position")))
+        self._btn_trim_here_end.clicked.connect(
+            lambda: self._set_trim_from_player("end"))
+        lay_trim.addWidget(self._btn_trim_here_end)
+
+        self._btn_trim_clear = QPushButton(_("Whole file"))
+        self._btn_trim_clear.setToolTip(self._tip(_("Clear both bounds")))
+        self._btn_trim_clear.clicked.connect(self._reset_trim)
+        lay_trim.addWidget(self._btn_trim_clear)
+
+        lay_trim.addStretch(1)
+        layout.addLayout(lay_trim)
+
+        self._sld_position.trimChanged.connect(self._on_trim_slider_changed)
+
         # Media player backend. QAudioOutput() binds the default output
         # device AT CREATION TIME and never re-follows the system default:
         # Bluetooth headphones connected after this window opened would be
@@ -4064,6 +4264,10 @@ class TranscribeWindow(QDialog):
 
     def _load_audio(self, path):
         """Load an audio file into the player."""
+        # Bounds belong to the audio they were set on: carrying them over to
+        # another file would silently cut the wrong span.
+        if self._player.source() != QUrl.fromLocalFile(path):
+            self._reset_trim()
         self._player.setSource(QUrl.fromLocalFile(path))
 
     def _on_play_pause(self):
@@ -4351,6 +4555,82 @@ class TranscribeWindow(QDialog):
             self._audio_output.setDevice(QMediaDevices.defaultAudioOutput())
         except Exception as _e:
             _dbg(f"audio output re-pin failed: {_e!r}")
+
+    # === Transcription bounds ===
+
+    def _make_trimmed_audio(self, src, start_s, end_s):
+        """Cut [start_s, end_s] out of src into a temp WAV. Returns the path,
+        or None when ffmpeg fails or produces nothing usable — the caller
+        aborts rather than transcribing the untrimmed file, which would
+        silently ignore the bounds the user set."""
+        import tempfile          # local, like the other tempfile users here
+        try:
+            fd, dst = tempfile.mkstemp(prefix="dictee-trim-", suffix=".wav")
+            os.close(fd)
+            rc = subprocess.run(
+                _build_trim_cmd(src, dst, start_s, end_s),
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=1800).returncode
+            if rc == 0 and os.path.getsize(dst) > 1024:
+                return dst
+            _dbg(f"_make_trimmed_audio: ffmpeg rc={rc}")
+        except Exception as e:
+            _dbg(f"_make_trimmed_audio: {e!r}")
+        return None
+
+    def _trim_bounds(self):
+        """Current bounds as (start_s, end_s) with end possibly None, or
+        None when the whole file is to be transcribed.
+
+        A malformed field, or an end at/before the start, yields no bound on
+        that side: cutting is destructive for the run, so a typo must never
+        silently shorten it. The fields keep the user's text either way, so
+        the mistake stays visible.
+        """
+        start = _parse_hms(self._ed_trim_start.text())
+        end = _parse_hms(self._ed_trim_end.text())
+        if end is not None and start is not None and end <= start:
+            end = None
+        if end is not None and start is None and end <= 0:
+            end = None
+        if start is None and end is None:
+            return None
+        return (start or 0.0), end
+
+    def _sync_trim_to_slider(self):
+        b = self._trim_bounds()
+        if b is None:
+            self._sld_position.set_trim(None, None)
+            return
+        start, end = b
+        raw_start = _parse_hms(self._ed_trim_start.text())
+        self._sld_position.set_trim(
+            None if raw_start is None else int(start * 1000),
+            None if end is None else int(end * 1000))
+
+    def _on_trim_edited(self):
+        self._sync_trim_to_slider()
+
+    def _on_trim_slider_changed(self, start_ms, end_ms):
+        """Dragging a handle rewrites the fields, so both views agree."""
+        self._ed_trim_start.setText(
+            "" if start_ms is None else _format_hms(start_ms / 1000.0))
+        self._ed_trim_end.setText(
+            "" if end_ms is None else _format_hms(end_ms / 1000.0))
+
+    def _set_trim_from_player(self, which):
+        pos_s = self._player.position() / 1000.0
+        target = (self._ed_trim_start if which == "start"
+                  else self._ed_trim_end)
+        target.setText(_format_hms(pos_s))
+        self._sync_trim_to_slider()
+
+    def _reset_trim(self):
+        """Clear both bounds — called when another file is loaded, since the
+        bounds belong to the audio they were set on."""
+        self._ed_trim_start.clear()
+        self._ed_trim_end.clear()
+        self._sld_position.set_trim(None, None)
 
     @staticmethod
     def _ms_to_str(ms):
@@ -4661,6 +4941,37 @@ class TranscribeWindow(QDialog):
             _dbg("_on_transcribe: blocked — translation running")
             return
 
+        # Apply the transcription bounds ONCE, here, before any engine is
+        # chosen: every path downstream (MOSS one-pass, two-phase, chunked,
+        # isolated daemons) then receives an already-trimmed file and needs
+        # to know nothing about bounds. _trim_offset rebases the timestamps
+        # on the way back so the transcript speaks the original timeline.
+        # source_path stays the file the USER picked; audio_path is what the
+        # engines consume. They differ only when bounds are set, and the two
+        # must not be confused: the tab remembers source_path (the player
+        # reloads it on tab switch, and the export name derives from it),
+        # while every engine gets the trimmed audio.
+        source_path = audio_path
+        self._trim_offset = 0.0
+        # A retry redoes the SAME run, so it must reuse the bounds that run
+        # was started with — not re-read the fields (the user may have
+        # changed them during the 2 s delay) and above all not drop them:
+        # the retry fires on GPU OOM, and transcribing the WHOLE file
+        # instead of the excerpt would make the very cause of the failure
+        # worse. The bounds are stored on the tab below, after
+        # _init_tab_state has reset it.
+        _bounds = (getattr(retry_of, "_trim_bounds_used", None)
+                   if retry_of is not None else self._trim_bounds())
+        if _bounds:
+            _trimmed = self._make_trimmed_audio(audio_path, *_bounds)
+            if _trimmed is None:
+                self._lbl_status.setText(_("Could not trim the audio file."))
+                self._lbl_status.setVisible(True)
+                return
+            audio_path, self._trim_offset = _trimmed, _bounds[0]
+            _dbg(f"_on_transcribe: trimmed to {audio_path} "
+                 f"(offset {self._trim_offset:.2f}s)")
+
         diarize = self._chk_diarize.isChecked()
         _dbg(f"_on_transcribe: file={audio_path}, diarize={diarize}")
 
@@ -4710,7 +5021,16 @@ class TranscribeWindow(QDialog):
             self._install_modified_overlay(self._text_edit)
         # Canonical per-tab state; _audio_path lets a tab switch reload
         # the right file (and hence the right duration).
-        self._init_tab_state(self._text_edit, audio_path)
+        # source_path, NOT audio_path: the tab's audio drives the player
+        # (reloaded on tab switch and after the run) and the export base
+        # name. Storing the trimmed temp file here would make the player
+        # play the excerpt while the timestamps are rebased on the original
+        # — every navigation feature would be off by the start bound — and
+        # exports would be named dictee-trim-XXXX.
+        self._init_tab_state(self._text_edit, source_path)
+        # Set AFTER _init_tab_state (which resets the tab's state, retries
+        # included) so a retry can find the bounds its run used.
+        self._text_edit._trim_bounds_used = _bounds
         # Capture the run's target: async handlers write to this tab and
         # never re-resolve it at completion time.
         self._run_tab = self._text_edit
@@ -5385,7 +5705,11 @@ class TranscribeWindow(QDialog):
         finishers — the QProcess path used to skip _clean_segment_text
         on plain transcriptions, keeping stray control characters."""
         if was_diarized:
-            segments = _parse_diarize_output(raw_output)
+            # Rebase onto the original timeline when the audio was trimmed:
+            # the engines saw a file starting at 0, the user set the bound on
+            # their own clock and the player still holds the untrimmed file.
+            segments = _parse_diarize_output(
+                raw_output, offset=getattr(self, "_trim_offset", 0.0) or 0.0)
             # Post-process each segment's text through dictee-postprocess
             for seg in segments:
                 seg["text"] = _clean_segment_text(_postprocess(seg["text"]))
