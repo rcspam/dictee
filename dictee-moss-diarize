@@ -562,6 +562,28 @@ def _reconcile_chunks(chunks, chunk_s, overlap_s, embed_fn=None,
     return out
 
 
+def _chunk_ladder(dur, floor_s):
+    """Window sizes to try, longest first, when one pass does not fit.
+
+    Falling straight from "the whole file" to the 40 s default costs speaker
+    accuracy: a 40 s window sees 2-3 of 4 participants, so the reliable
+    reconciliation signal (co-occurrence in the overlap zone) has nothing to
+    match and the driver has to trust voice embeddings instead. Measured on
+    004c_PAPH (21 min, 4 speakers) on 2026-08-04: 79,4 % of words on the right
+    speaker at 40 s versus 99,0 % at 5 min, for 47 s more compute.
+
+    So try long windows first and shorten only on failure. Rungs at least as
+    long as the audio are dropped (one pass just failed), rungs below the
+    caller's floor too, and the floor is always the last rung. Overlap is
+    kept at ~20 % of the window, the ratio the shipped 10/40 pair uses.
+
+    Returns [(chunk_s, overlap_s), ...].
+    """
+    rungs = [c for c in (600.0, 300.0, 120.0) if c > floor_s and c < dur]
+    rungs.append(floor_s)
+    return [(c, round(c / 5.0, 3)) for c in rungs]
+
+
 def _transcribe_chunked(pcm, model_path, chunk_s, overlap_s):
     """Run MOSS once per chunk (model loaded once, meeting-live geometry).
     Returns [(chunk_start, [(abs_start, abs_end, local_label, text)])]."""
@@ -716,9 +738,8 @@ def main():
     pcm = _decode_audio(args.audio)
     dur = len(pcm) / SAMPLE_RATE
 
-    def run_chunked():
-        chunks = _transcribe_chunked(pcm, model_path,
-                                     args.chunk_secs, args.overlap_secs)
+    def run_chunked(chunk_s, overlap_s):
+        chunks = _transcribe_chunked(pcm, model_path, chunk_s, overlap_s)
         embed_fn = None
         we_path = _resolve_wespeaker()
         if we_path:
@@ -732,7 +753,7 @@ def main():
                  "installed — temporal-only speaker reconciliation "
                  "(speakers may fragment across chunks)")
         return _reconcile_chunks(
-            chunks, args.chunk_secs, args.overlap_secs, embed_fn,
+            chunks, chunk_s, overlap_s, embed_fn,
             sim_new=_env_float("DICTEE_MOSS_SIM_NEW", DEFAULT_SIM_NEW),
             sim_merge=_env_float("DICTEE_MOSS_SIM_MERGE",
                                  DEFAULT_SIM_MERGE))
@@ -751,7 +772,7 @@ def main():
 
     raw_head = ""
     if chunked:
-        turns = run_chunked()
+        turns = run_chunked(args.chunk_secs, args.overlap_secs)
     else:
         try:
             with transcribe_cpp.Model(model_path) as model:
@@ -772,9 +793,26 @@ def main():
                      "fit this device; unset DICTEE_MOSS_CHUNKED to let "
                      "the driver chunk it")
                 return 1
+            # Walk DOWN the window sizes instead of dropping straight to the
+            # 40 s floor: the shorter the window, the fewer speakers it sees,
+            # and the more the reconciliation has to trust voice embeddings
+            # rather than temporal co-occurrence (see _chunk_ladder — 19,6
+            # points measured on 004c_PAPH). Only a rung that does not fit
+            # this device costs an attempt.
             _log(f"{_kind} in one-pass mode on {dur / 60:.0f} min of "
-                 f"audio — retrying chunked")
-            turns = run_chunked()
+                 f"audio — retrying chunked, longest window first")
+            turns = None
+            for _chunk_s, _overlap_s in _chunk_ladder(dur, args.chunk_secs):
+                try:
+                    _log(f"trying {_chunk_s:.0f}s windows "
+                         f"(overlap {_overlap_s:.0f}s)")
+                    turns = run_chunked(_chunk_s, _overlap_s)
+                    break
+                except transcribe_cpp.errors.OutOfMemory:
+                    _log(f"{_chunk_s:.0f}s windows do not fit either")
+            if turns is None:
+                _log("no window size fits this device — giving up")
+                return 1
 
     turns = _merge_turns(turns)
     if not turns:

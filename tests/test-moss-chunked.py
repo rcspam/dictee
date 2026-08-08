@@ -179,3 +179,39 @@ def test_parse_turns_offset():
 if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+# ── _chunk_ladder ─────────────────────────────────────────────────────────
+# The one-pass attempt failing on VRAM used to drop STRAIGHT to 40 s windows,
+# which cost 19,6 points of speaker accuracy on a 21-min meeting (79,4 % vs
+# 99,0 % at 5-min windows, measured 2026-08-04). A 40 s window sees only 2-3
+# of 4 speakers, so the reliable reconciliation signal (temporal co-occurrence
+# in the overlap) cannot match them and the driver falls back on voice
+# embeddings, the signal already known to be unreliable on edited audio.
+# The ladder tries progressively smaller windows instead.
+
+def test_chunk_ladder_tries_large_windows_first():
+    ladder = md._chunk_ladder(1263.7, 40.0)
+    assert [c for c, _o in ladder] == [600.0, 300.0, 120.0, 40.0]
+    # overlap stays ~20 % of the window, as the shipped 10/40 pair does
+    assert all(0.15 * c <= o <= 0.25 * c for c, o in ladder)
+
+
+def test_chunk_ladder_skips_windows_the_file_cannot_fill():
+    # A rung at least as long as the audio is pointless: one-pass just failed.
+    assert [c for c, _o in md._chunk_ladder(200.0, 40.0)] == [120.0, 40.0]
+    assert [c for c, _o in md._chunk_ladder(50.0, 40.0)] == [40.0]
+
+
+def test_chunk_ladder_always_ends_on_the_floor():
+    # Whatever the duration, the last rung is the caller's floor: the ladder
+    # may not silently drop the only setting known to fit everywhere.
+    for dur in (45.0, 130.0, 700.0, 5000.0):
+        assert md._chunk_ladder(dur, 40.0)[-1][0] == 40.0
+
+
+def test_chunk_ladder_honours_a_custom_floor():
+    # An explicit DICTEE_MOSS_CHUNK_S must stay the floor, and rungs shorter
+    # than it are meaningless.
+    assert [c for c, _o in md._chunk_ladder(1263.7, 300.0)] == [600.0, 300.0]
+    assert md._chunk_ladder(1263.7, 900.0) == [(900.0, 180.0)]
