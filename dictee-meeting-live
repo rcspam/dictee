@@ -1045,10 +1045,127 @@ class DiarizationWorker(QObject):
             self.proc = None
 
 
-class AlignerWorker(QObject):
-    """Aligns Parakeet tokens with Sortformer segments by timestamp overlap.
+def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
+    """Assign one speaker per word token, sequence-aware (engine-agnostic).
 
-    For each token, picks the speaker with maximum overlap on [token.start_s, token.end_s].
+    COPY of dictee-transcribe.py's _assign_speakers (a323876 then d5cafd4).
+    Both scripts are installed as standalone executables with no shared
+    module, so the fusion is duplicated rather than imported; everything below
+    this paragraph is byte-identical to the original, so a plain diff of the
+    two function bodies shows any divergence.
+
+    The diarization timeline is authoritative but locally imperfect: in fast
+    exchanges every engine tested (community-1, Sortformer, diarizen) emits
+    spurious overlapping islands or boundaries shifted by a few hundred ms,
+    and any per-word geometric rule (nearest segment, max overlap) faithfully
+    copies those defects onto the words as mid-clause speaker flips.
+
+    So words are assigned as a SEQUENCE (min-cost dynamic program):
+    - per-word cost for a speaker = temporal distance from the word midpoint
+      to that speaker's nearest segment (0 when inside — the same primitive
+      as the previous nearest-segment rule);
+    - changing speaker between consecutive words costs switch_penalty
+      (seconds-equivalent), EXCEPT at a clause boundary — previous word ends
+      with sentence-final punctuation — or after an inter-word silence
+      >= free_gap, where switching is free.
+
+    A 1-2 word island captured by a spurious segment cannot pay the switch
+    cost and stays with its clause; a genuine turn switches freely at the
+    clause boundary (even with zero pause — common in fast interviews), and
+    a genuine mid-clause interruption still switches because the per-word
+    distances of staying on the old speaker quickly exceed the penalty.
+    switch_penalty must sit between the flip cost of spurious islands
+    (<= ~0.6 s of distance mass on the reference sample) and that of the
+    shortest legitimate turn to protect (~1.75 s for a 2-word turn right
+    next to the other speaker's segment).
+    Punctuation is the boundary signal, not pauses: on the reference sample
+    the real turn had a 0.00 s gap while a 0.42 s pause sat mid-sentence.
+
+    words: [{"start", "end", "text"}] in chronological order.
+    speaker_segments: [{"start", "end", "speaker"}], may overlap.
+    Returns one speaker id per word (-1 only when speaker_segments is empty).
+    """
+    if not words:
+        return []
+    if not speaker_segments:
+        return [-1] * len(words)
+
+    def ends_clause(text):
+        return text.rstrip("\"'»«)]}").endswith((".", "!", "?", "…"))
+
+    def free_boundary(prev_word, word):
+        return (ends_clause(prev_word["text"])
+                or word["start"] - prev_word["end"] >= free_gap)
+
+    # NOTE — known limitation, deliberately NOT handled here: a WRONG
+    # diarization segment of ~2 s with real mass strictly inside a clause
+    # (e.g. a phantom speaker over "notre invité est un chercheur
+    # extrêmement connu.") cannot be told apart, on geometry + text alone,
+    # from a CORRECT segment in the mirrored configuration — a clause-
+    # enclosed-flanked-by-same-other-speaker filter was tried and rejected
+    # the true presenter segment of the reference sample (same trap as the
+    # Rust enforce_min_turn absorption, see project memory 2026-07-09).
+    # Distinguishing them needs voice-level evidence (clustering confidence
+    # / embeddings), i.e. the diarizer side, not this fusion.
+    speakers = sorted({s["speaker"] for s in speaker_segments})
+    n_spk = len(speakers)
+
+    # Per-word emission costs: distance to each speaker's nearest segment.
+    emissions = []
+    for word in words:
+        mid = 0.5 * (word["start"] + word["end"])
+        best = {spk: float("inf") for spk in speakers}
+        for seg in speaker_segments:
+            if seg["start"] <= mid <= seg["end"]:
+                dist = 0.0
+            else:
+                dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
+            if dist < best[seg["speaker"]]:
+                best[seg["speaker"]] = dist
+        emissions.append([best[spk] for spk in speakers])
+
+    # Viterbi over (word, speaker) with backpointers.
+    cost = list(emissions[0])
+    backptrs = []
+    for i in range(1, len(words)):
+        free = free_boundary(words[i - 1], words[i])
+        new_cost = []
+        new_back = []
+        for j in range(n_spk):
+            best_prev, best_cost = j, cost[j]
+            if not free:
+                for k in range(n_spk):
+                    c = cost[k] + (0.0 if k == j else switch_penalty)
+                    if c < best_cost:
+                        best_cost, best_prev = c, k
+            else:
+                for k in range(n_spk):
+                    if cost[k] < best_cost:
+                        best_cost, best_prev = cost[k], k
+            new_cost.append(best_cost + emissions[i][j])
+            new_back.append(best_prev)
+        cost = new_cost
+        backptrs.append(new_back)
+
+    j = min(range(n_spk), key=lambda x: cost[x])
+    path = [j]
+    for back in reversed(backptrs):
+        j = back[j]
+        path.append(j)
+    path.reverse()
+    return [speakers[j] for j in path]
+
+
+class AlignerWorker(QObject):
+    """Aligns transcription tokens with diarization segments, sequence-aware.
+
+    Tokens are WORDS here (the daemon is queried in 'timestamps' mode, i.e.
+    TimestampMode::Words), so the fusion is the same one the file path uses:
+    _assign_speakers scores the whole chunk at once instead of picking a
+    speaker per token in isolation. The previous per-token max-overlap rule
+    copied every diarizer blip onto the words (a 0.4 s spurious segment split
+    a continuous turn into three lines) and left a token with no overlap at
+    all speakerless.
     Consecutive tokens with the same speaker are grouped into one line.
     Local chunk timestamps are offset to absolute meeting timestamps via chunk_offset.
 
@@ -1079,14 +1196,21 @@ class AlignerWorker(QObject):
         segments = self._diarization.pop(chunk_id)
         offset = self.chunk_offset.get(chunk_id, 0.0)
 
+        # _assign_speakers speaks the file path's field names; translate both
+        # ends rather than fork the copied function.
+        assigned = _assign_speakers(
+            [{"start": t["start_s"], "end": t["end_s"], "text": t["text"]}
+             for t in tokens],
+            [{"start": s["start_s"], "end": s["end_s"], "speaker": s["speaker_id"]}
+             for s in segments])
+
         lines = []
         current_speaker = None
         current_text = []
         current_start = None
         current_end = None
 
-        for tok in tokens:
-            spk = self._find_speaker(tok["start_s"], tok["end_s"], segments)
+        for tok, spk in zip(tokens, assigned):
             if spk != current_speaker:
                 if current_speaker is not None:
                     lines.append({
@@ -1111,17 +1235,6 @@ class AlignerWorker(QObject):
             })
 
         self.aligned.emit(chunk_id, lines)
-
-    @staticmethod
-    def _find_speaker(tok_start: float, tok_end: float, segments: list) -> int:
-        best_spk = -1
-        best_overlap = 0.0
-        for seg in segments:
-            overlap = max(0.0, min(tok_end, seg["end_s"]) - max(tok_start, seg["start_s"]))
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_spk = seg["speaker_id"]
-        return best_spk
 
 
 class SourceComboBox(QComboBox):
