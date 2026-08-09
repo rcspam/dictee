@@ -126,6 +126,14 @@ jobs:
       run: |
         sudo modprobe uinput || true
         sudo chmod 666 /dev/uinput || true
+        # Opening /dev/uinput is only half of it: each fake keyboard appears as
+        # a NEW /dev/input/eventN, created during the test and root-only, so a
+        # one-off chmod cannot reach it. A udev rule covers the nodes that do
+        # not exist yet. On a real machine the input group does this job.
+        printf 'KERNEL=="event*", MODE="0666"\n' \
+          | sudo tee /etc/udev/rules.d/99-dictee-ci-input.rules > /dev/null
+        sudo udevadm control --reload-rules || true
+        sudo udevadm trigger || true
         ls -l /dev/uinput || echo "no /dev/uinput: these tests will skip"
     # Builds uinput devices matching the hardware from issues #10, #23 and #30.
     - name: Run keyboard detection tests
