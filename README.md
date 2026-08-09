@@ -247,7 +247,7 @@ curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | b
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --gpu
 
 # Pin a specific version
-curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.5
+curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --version 1.3.6
 
 # Non-interactive
 curl -fsSL https://raw.githubusercontent.com/rcspam/dictee/master/install.sh | bash -s -- --non-interactive
@@ -260,22 +260,22 @@ Download from [Releases](../../releases).
 **Ubuntu / Debian (CPU):**
 
 ```bash
-sudo apt install ./dictee-cpu_1.3.5_amd64.deb
+sudo apt install ./dictee-cpu_1.3.6-1_amd64.deb
 ```
 
 **Ubuntu / Debian (GPU):** requires the NVIDIA CUDA APT repo — see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup) for the one-time setup, then:
 
 ```bash
-sudo apt install ./dictee-cuda_1.3.5_amd64.deb
+sudo apt install ./dictee-cuda_1.3.6-1_amd64.deb
 ```
 
 **Fedora / openSUSE (CPU):**
 
 ```bash
-sudo dnf install ./dictee-cpu-1.3.5-1.x86_64.rpm
+sudo dnf install ./dictee-cpu-1.3.6-1.x86_64.rpm
 ```
 
-**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.5-1.x86_64.rpm`.
+**Fedora / openSUSE (GPU):** add the CUDA repo first (see [GPU-Setup](https://github.com/rcspam/dictee/wiki/GPU-Setup)), then `dictee-cuda-1.3.6-1.x86_64.rpm`.
 
 **Arch Linux (AUR):** `PKGBUILD` in the repo root (x86_64 + aarch64). Clone + `makepkg -si`.
 
@@ -284,8 +284,8 @@ sudo dnf install ./dictee-cpu-1.3.5-1.x86_64.rpm
 **Other distros (tarball):**
 
 ```bash
-tar xzf dictee-1.3.5_amd64.tar.gz
-cd dictee-1.3.5
+tar xzf dictee-1.3.6_amd64.tar.gz
+cd dictee-1.3.6
 sudo ./install.sh
 ```
 
@@ -424,7 +424,22 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 
 ## Roadmap
 
-**v1.3.5 (current)** — **Int8 Parakeet model + fixes + reliability**:
+**v1.4+ (planned)**
+- **Hotword boosting** — bias ASR decoding toward custom names (shallow fusion on TDT logits, Parakeet only)
+- **Whisper translate** — multi-target translation via `task="translate"` (EN-only, offline)
+- **Moonshine** CPU backend
+- **CLI speech-to-text** — pipe audio, get text
+- **VAD** — hands-free dictation without push-to-talk
+- **Streaming transcription** with live text display
+- **Built-in overlay** — replace external `animation-speech`
+- **AppImage / Flatpak** packaging
+- **COSMIC / GNOME Shell** applets (contributions welcome!)
+
+**v1.3.6 (current)**: **input-remapper compatibility + keyboard layout fix**:
+- **Works with input-remapper** ([#19](https://github.com/rcspam/dictee/issues/19), [#20](https://github.com/rcspam/dictee/issues/20)): dictation no longer drops text or breaks push-to-talk when input-remapper is installed. Two new advanced options (typing delay, exclude devices) live on the Extra options page.
+- **Correct characters on every keyboard layout**: dictee now detects your active layout (KDE/GNOME) so typed text matches it, fixing dropped accents and swapped letters on non-US layouts.
+
+**v1.3.5** — **Int8 Parakeet model + fixes + reliability**:
 - **New Int8 Parakeet model — snappier on CPU** — better out-of-the-box performance, with the compact Parakeet model now running where it's fastest.
 - **Clearer GPU/CPU switch** — the GPU/CPU toggle in settings now greys out and shows CPU whenever the GPU can't actually be used (no NVIDIA card, CPU-only build, or the int8 model), so it always reflects what really runs.
 - **Smoother model switching** — the int8 / FP32 switch becomes available as soon as both variants are installed, with a notification confirming each change.
@@ -455,17 +470,6 @@ For bug reports and workarounds, see [Troubleshooting](https://github.com/rcspam
 - **CUDA → CPU runtime fallback** + `DICTEE_FORCE_CPU=1` override (v1.3.2).
 - **Cross-distro packaging consistency** — Arch `.install` group hooks, `python-evdev` hard depends, `sg docker` / `sg input` wrappers, udev `0660` direct (v1.3.3, closes [#5](https://github.com/rcspam/dictee/issues/5) + [#6](https://github.com/rcspam/dictee/issues/6)).
 - **Short-text keepcaps exceptions** (7 languages), extended match mode, version-number dictation, multi-user safe state, plasmoid cross-process toggles, 682 postprocess + 148 pipeline tests (v1.3.0).
-
-**v1.4+ (planned)**
-- **Hotword boosting** — bias ASR decoding toward custom names (shallow fusion on TDT logits, Parakeet only)
-- **Whisper translate** — multi-target translation via `task="translate"` (EN-only, offline)
-- **Moonshine** CPU backend
-- **CLI speech-to-text** — pipe audio, get text
-- **VAD** — hands-free dictation without push-to-talk
-- **Streaming transcription** with live text display
-- **Built-in overlay** — replace external `animation-speech`
-- **AppImage / Flatpak** packaging
-- **COSMIC / GNOME Shell** applets (contributions welcome!)
 
 → Full history: [Changelog wiki](https://github.com/rcspam/dictee/wiki/Changelog)
 
