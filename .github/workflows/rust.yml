@@ -53,8 +53,14 @@ jobs:
     - uses: actions/checkout@v5
     # evdev supplies the kernel keycode constants the tables are checked
     # against; PyQt6 is needed to confirm each label still yields a shortcut.
+    # Both come from apt, not pip: the PyQt6 wheel ships no system libraries,
+    # so importing it on a hosted runner dies on a missing libEGL and the Qt
+    # check silently skipped itself. These are also the very packages dictee
+    # depends on, so the test runs against what users get.
     - name: Install Python test deps
-      run: python3 -m pip install --user evdev PyQt6
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-pyqt6 python3-evdev
     - name: Run keycode table tests
       run: python3 tests/test-keycode-tables.py
       env:
@@ -65,8 +71,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
+    # apt, not pip: this file imports QApplication at module level, and the
+    # PyQt6 wheel has no system libraries behind it, so on a hosted runner the
+    # import died on libEGL and took the whole job down.
     - name: Install Python test deps
-      run: python3 -m pip install --user evdev PyQt6
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-pyqt6 python3-evdev
     # The uinput-backed cases skip themselves when /dev/uinput is missing,
     # which is the case on hosted runners; the Qt fallback cases still run.
     - name: Run key capture tests
