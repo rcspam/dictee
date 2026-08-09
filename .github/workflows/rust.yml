@@ -85,8 +85,19 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y python3-pyqt6 python3-pyqt6.qtsvg \
                                 python3-pyqt6.qtmultimedia python3-evdev
-    # The uinput-backed cases skip themselves when /dev/uinput is missing,
-    # which is the case on hosted runners; the Qt fallback cases still run.
+    # Without this the job was green having run 1 case out of 9: every
+    # uinput-backed test skipped itself on "/dev/uinput cannot be opened for
+    # writing", leaving only the Qt fallback. The module is loadable on hosted
+    # runners, it is simply not loaded, and its node is root-only.
+    #
+    # Deliberately non-fatal: on a runner image where the module is absent,
+    # the tests skip exactly as they did before instead of turning the job
+    # red. The daemon cases stay skipped either way, no dictee-ptt here.
+    - name: Make /dev/uinput usable
+      run: |
+        sudo modprobe uinput || true
+        sudo chmod 666 /dev/uinput || true
+        ls -l /dev/uinput || echo "no /dev/uinput: the uinput cases will skip"
     - name: Run key capture tests
       run: python3 tests/test-key-capture.py
       env:
@@ -99,8 +110,16 @@ jobs:
     - uses: actions/checkout@v5
     - name: Install Python test deps
       run: python3 -m pip install --user evdev
-    # Builds uinput devices matching the hardware from issues #10, #23 and #30;
-    # skips itself where /dev/uinput is absent, as on hosted runners.
+    # This job used to report OK on 6 tests out of 6 skipped: every case here
+    # builds a fake device, so without a writable /dev/uinput it asserted
+    # nothing at all. Same non-fatal load as in test-key-capture -- if the
+    # module is unavailable the tests skip as before rather than fail.
+    - name: Make /dev/uinput usable
+      run: |
+        sudo modprobe uinput || true
+        sudo chmod 666 /dev/uinput || true
+        ls -l /dev/uinput || echo "no /dev/uinput: these tests will skip"
+    # Builds uinput devices matching the hardware from issues #10, #23 and #30.
     - name: Run keyboard detection tests
       run: python3 tests/test-keyboard-detection.py
 
