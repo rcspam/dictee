@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 # Packaging deps manifest audit — see build-deb.sh for rationale.
 python3 packaging/audit-deps.py
 
-VERSION="1.3.6"
+VERSION="1.3.7~rc1"
 PKG_DIR="pkg/dictee"
 RPMBUILD_DIR="$HOME/rpmbuild"
 

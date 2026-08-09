@@ -9,9 +9,9 @@
 # other in `conflicts=()` — pacman refuses to install both.
 
 pkgname=dictee
-pkgver=1.3.6
+pkgver=1.3.7.rc1
 pkgrel=1
-_tag=1.3.6
+_tag=1.3.7-rc1
 pkgdesc="Fast push-to-talk voice dictation for Linux (CPU build)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/rcspam/dictee"
