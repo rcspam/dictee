@@ -74,10 +74,17 @@ jobs:
     # apt, not pip: this file imports QApplication at module level, and the
     # PyQt6 wheel has no system libraries behind it, so on a hosted runner the
     # import died on libEGL and took the whole job down.
+    #
+    # This test loads dictee-setup.py whole, so it needs every Qt module the
+    # program imports outside a try: QtCore, QtSvg and QtSvgWidgets, the last
+    # two living in the .qtsvg package. QtMultimedia is optional in the code
+    # but installed anyway, so the test exercises the branch users run. This
+    # is the Qt half of the packages' Depends, verbatim.
     - name: Install Python test deps
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-pyqt6 python3-evdev
+        sudo apt-get install -y python3-pyqt6 python3-pyqt6.qtsvg \
+                                python3-pyqt6.qtmultimedia python3-evdev
     # The uinput-backed cases skip themselves when /dev/uinput is missing,
     # which is the case on hosted runners; the Qt fallback cases still run.
     - name: Run key capture tests
