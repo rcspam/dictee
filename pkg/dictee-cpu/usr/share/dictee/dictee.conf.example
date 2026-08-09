@@ -65,16 +65,25 @@ DICTEE_PTT_KEY=67
 # Translation PTT key (0 = disabled)
 #DICTEE_PTT_KEY_TRANSLATE=0
 
-# Translation modifier: alt | ctrl | shift (with same PTT key)
+# Translation modifier: alt | ctrl | shift (with same PTT key).
+# Use the bare modifier name only. Do NOT use a "same_" prefix here (e.g.
+# "same_ctrl"): that is an internal dictee-setup UI encoding, not a valid
+# config value. dictee-ptt silently ignores an unrecognized modifier, so
+# translation would never fire. Write "ctrl", not "same_ctrl".
 #DICTEE_PTT_MOD_TRANSLATE=
 
-# Extra input devices to listen to (push-to-talk via virtual keyboards).
-# By default, dictee-ptt excludes devices whose name contains "virtual",
-# "uinput", "dotool" or "dictee-ptt" to avoid feedback loops. If you remap
-# mouse buttons or keys via logiops, keyd, evsieve, kmonad, etc., add the
-# device name substring(s) here (comma-separated, case-insensitive).
+# Extra input devices to listen to (comma-separated name substrings,
+# case-insensitive). Two situations need it:
+#   - virtual keyboards created by remapping tools (logiops, keyd, evsieve,
+#     kmonad, etc.): dictee-ptt excludes devices whose name contains
+#     "virtual", "uinput", "dotool" or "dictee-ptt" to avoid feedback loops;
+#   - keyboards carrying pointer axes on their keyboard node (e.g. Logitech
+#     Craft, whose Crown dial adds EV_REL/EV_ABS): dictee-ptt ignores them by
+#     default because grabbing a combined keyboard+mouse HID node can freeze
+#     the pointer. Whitelisting here overrides that safety filter; the dial
+#     keeps working while dictee-ptt runs (its events are re-emitted).
 # Find your device name with: cat /proc/bus/input/devices
-#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,keyd virtual keyboard"
+#DICTEE_PTT_EXTRA_DEVICES="LogiOps Virtual Input,logitech craft"
 
 # Typing settle delay, in seconds (default 0 = off). dictee types the
 # transcript through a virtual keyboard it creates for each dictation. On some
@@ -92,6 +101,23 @@ DICTEE_PTT_KEY=67
 # WARNING: on Wayland with wl-clipboard < 2.3.0, enabling this can prevent
 # the transcript from being typed into some Electron apps. See README.
 DICTEE_CLIPBOARD=false
+
+# How the transcription reaches you (issue #28):
+#   type      - simulate key presses via dotool (default). Requires dotool to
+#               know your exact keyboard layout; exotic layouts (Neo, ...)
+#               may get some punctuation wrong.
+#   paste     - copy to clipboard then paste with Shift+Insert. Works with
+#               any keyboard layout, in GUI apps AND in most terminals
+#               (Konsole, GNOME Terminal, ...). Overwrites the clipboard
+#               (and the primary selection) on every dictation. On Wayland
+#               with wl-clipboard < 2.3.0 the paste mode can lose text in
+#               some Electron apps (brief focus steal by wl-copy, same
+#               mechanism as the DICTEE_CLIPBOARD warning above);
+#               "clipboard" is not affected.
+#   clipboard - copy to clipboard only, nothing is typed or pasted. You paste
+#               the text yourself. Cross-push continuation is disabled (each
+#               dictation is independent).
+DICTEE_OUTPUT_MODE=type
 
 # Speech animation overlay (Wayland layer-shell: KDE, Sway, Hyprland)
 DICTEE_ANIM_SPEECH=true

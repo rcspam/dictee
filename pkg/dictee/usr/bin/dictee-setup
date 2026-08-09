@@ -38,6 +38,7 @@ if _lib_dir not in sys.path and os.path.isdir(_lib_dir):
 from PyQt6.QtCore import (
     Qt, QThread, QTimer, QIODevice, QObject, QProcess, QSize, QRect, QRectF,
     QUrl, QPropertyAnimation, QEasingCurve, QFileSystemWatcher,
+    QSocketNotifier,
     pyqtSignal as Signal, pyqtProperty as Property,
 )
 from PyQt6.QtGui import QKeySequence, QIcon, QPainter, QColor, QBrush, QPen, QLinearGradient, QImage, QPixmap, QSyntaxHighlighter, QFont
@@ -62,6 +63,17 @@ try:
     HAS_QT_MULTIMEDIA = True
 except ImportError:
     HAS_QT_MULTIMEDIA = False
+
+# Optional: lets ShortcutButton read raw keycodes off /dev/input instead of
+# guessing them from the symbol Qt reports. Hard dependency of the packages
+# (python3-evdev is in Depends/Requires/depends) but kept optional here so a
+# source checkout without it still starts — capture falls back to Qt events.
+try:
+    import evdev
+    from evdev import ecodes as _ecodes
+    HAS_EVDEV = True
+except ImportError:
+    HAS_EVDEV = False
 
 # === i18n ===
 
@@ -105,6 +117,18 @@ CONF_PATH = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
     "dictee.conf",
 )
+
+
+def _conf_write_target():
+    """Real file to atomically replace when saving dictee.conf.
+
+    CONF_PATH may be a symlink (dotfiles managers like rcm keep the real
+    file in a versioned repo — #24): os.replace on the symlink NAME would
+    clobber the link with a regular file, so resolve it and replace the
+    TARGET instead. The temp file must live next to the target (same
+    filesystem) so the rename stays atomic.
+    """
+    return os.path.realpath(CONF_PATH)
 
 LANGUAGES = [
     ("fr", "Français"),
@@ -238,17 +262,31 @@ QT_TO_LINUX_KEYCODE = {
     0x01000045: 192,  # F22
     0x01000046: 193,  # F23
     0x01000047: 194,  # F24
-    0x01000000: 1,    # Escape
-    0x01000010: 110,  # Home
-    0x01000011: 107,  # End
-    0x01000016: 119,  # Delete
-    0x01000015: 118,  # Insert
-    0x01000017: 104,  # Pause/Break
-    0x01000009: 210,  # Print Screen (SysRq)
-    0x01000025: 14,   # Backspace — non, pas utile
+    # Deliberately absent, though the keys exist and Qt reports them:
+    #   Escape (KEY_ESC=1)      — cancels a running dictation; dictee-ptt
+    #                             listens for it whatever the PTT key is.
+    #   Backspace (KEY_BACKSPACE=14) — a typing key, already flagged by
+    #                             _check_ptt_warning; its own comment used to
+    #                             read "pas utile".
+    #   Print Screen (KEY_PRINT=210 / KEY_SYSRQ=99) — the desktop owns it
+    #                             (Spectacle on Plasma), and which of the two
+    #                             codes a keyboard emits is not settled.
+    #   Home / End / Delete / Insert — everyday editing and navigation keys.
+    #                             Grabbing one exclusively takes it away from
+    #                             typing; Insert is worse still, since
+    #                             Shift+Insert is the paste shortcut dictee
+    #                             itself relies on (see dictee, _paste_text).
+    # Grabbing any of them would take a working function away from the user to
+    # give another. They stay in LINUX_KEYCODE_NAMES so a config that already
+    # holds one still displays a readable label.
+    0x01000017: 119,  # Pause/Break — no other owner, safe to grab
     # Backtick / grave accent — KEY_GRAVE=41. Useful as PTT key on
     # AZERTY/QWERTY layouts (rarely-used dedicated key).
     0x60: 41,         # ` (backtick / grave)
+    # ² (superscript two) sits on the same physical key as the backtick, so
+    # on AZERTY layouts it also maps to KEY_GRAVE=41. Lets AZERTY users pick
+    # the top-left key for dictation from the GUI (issue #22).
+    0xb2: 41,         # ² (twosuperior, AZERTY)
 }
 
 LINUX_KEYCODE_NAMES = {
@@ -256,9 +294,54 @@ LINUX_KEYCODE_NAMES = {
     65: "F7", 66: "F8", 67: "F9", 68: "F10", 87: "F11", 88: "F12",
     183: "F13", 184: "F14", 185: "F15", 186: "F16", 187: "F17", 188: "F18",
     189: "F19", 190: "F20", 191: "F21", 192: "F22", 193: "F23", 194: "F24",
-    1: "Escape", 110: "Home", 107: "End", 119: "Delete", 118: "Insert",
-    104: "Pause", 210: "Print",
-    41: "`",
+    1: "Escape", 102: "Home", 107: "End", 111: "Delete", 110: "Insert",
+    119: "Pause", 210: "Print",
+    41: "` / ²",
+    # Media and function-row keys. Not selectable from QT_TO_LINUX_KEYCODE —
+    # they have no Qt keysym — but direct capture reads them straight off
+    # /dev/input, so they need a label or the button reads "Key 164".
+    # Names are Qt's own spelling wherever one exists, because
+    # _compute_cheatsheet_keysequence feeds them back to QKeySequence to build
+    # the cheatsheet shortcut; anything Qt cannot parse yields no shortcut.
+    113: "Volume Mute", 114: "Volume Down", 115: "Volume Up",
+    163: "Media Next", 164: "Media Play", 165: "Media Previous",
+    166: "Media Stop",
+    224: "Monitor Brightness Down", 225: "Monitor Brightness Up",
+    158: "Back", 159: "Forward", 217: "Search", 172: "Home Page",
+    155: "Launch Mail", 140: "Calculator",
+    # Qt has no name for these two; the label is ours. The cheatsheet shortcut
+    # is simply not offered for them, which _compute_cheatsheet_keysequence
+    # handles by returning None on an empty render.
+    582: "Voice Command", 247: "Airplane Mode",
+}
+
+
+# Keys the machine already uses for something. Direct capture reaches them all,
+# and dictee grabs its key before the desktop sees it — so picking one of these
+# takes that function away for good. Warn, do not forbid: what is actually bound
+# differs per desktop and per machine, and a hard-coded list of what is
+# forbidden would rot exactly like the hard-coded list of what was allowed.
+# Grouped by what the user loses, not by keycode. From input-event-codes.h.
+_SYSTEM_FUNCTION_KEYS = {
+    113: "sound", 114: "sound", 115: "sound", 248: "sound",
+    224: "screen", 225: "screen", 227: "screen", 244: "screen", 431: "screen",
+    228: "keyboard backlight", 229: "keyboard backlight",
+    230: "keyboard backlight",
+    163: "media", 164: "media", 165: "media", 166: "media", 201: "media",
+    207: "media",
+    99: "system", 116: "system", 142: "system", 205: "system", 210: "system",
+    237: "system", 238: "system", 247: "system", 530: "system",
+}
+
+# Pressed alone these are not a shortcut, they qualify one. Direct capture
+# skips them and waits for a real key. Values from linux/input-event-codes.h;
+# hard-coded so the module still imports without evdev.
+_MODIFIER_KEYCODES = {
+    29, 97,    # LEFTCTRL, RIGHTCTRL
+    42, 54,    # LEFTSHIFT, RIGHTSHIFT
+    56, 100,   # LEFTALT, RIGHTALT (AltGr)
+    125, 126,  # LEFTMETA, RIGHTMETA
+    464,       # FN — laptops handle it in firmware, but some report it
 }
 
 
@@ -272,8 +355,66 @@ def qt_key_to_linux_keycode(seq):
     return QT_TO_LINUX_KEYCODE.get(key_only, 0)
 
 
+# What the physical KEY_GRAVE=41 key (top-left, left of the 1) prints per XKB
+# layout. The evdev keycode is layout-independent (that is why the shortcut
+# works everywhere) but the legend on the keycap is not — show the user THEIR
+# character (issues #22/#25). Conservative list; unknown layouts fall back to
+# the two most common legends ("` / ²") rather than guessing wrong.
+_KEY41_GLYPHS = {
+    "us": "`", "gb": "`", "ie": "`", "pl": "`",
+    "fr": "²", "be": "²",
+    "de": "^", "at": "^",
+    "ch": "§", "se": "§", "fi": "§", "no": "§",
+    "dk": "½",
+    "es": "º", "latam": "|",
+    "pt": "\\", "it": "\\",
+    "br": "'",
+    "cz": ";", "sk": ";",
+    "hu": "0",
+    "tr": "é",
+    "ru": "ё",
+}
+_KEY41_CACHE = []
+
+
+def _key41_glyph():
+    """Character printed on the KEY_GRAVE=41 keycap for the ACTIVE layout,
+    or None when the layout is unknown. Reuses resolve_active_layout from
+    dictee-common.sh — the same 4-tier detection (conf override, KDE DBus,
+    GNOME gsettings, localectl/setxkbmap) that dotool typing relies on, so
+    label and typing always agree on the layout. Cached (one subprocess)."""
+    if _KEY41_CACHE:
+        return _KEY41_CACHE[0]
+    glyph = None
+    for p in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "dictee-common.sh"),
+              "/usr/lib/dictee/dictee-common.sh"):
+        if not os.path.isfile(p):
+            continue
+        try:
+            out = subprocess.run(
+                ["bash", "-c", 'source "$1" >/dev/null 2>&1; resolve_active_layout',
+                 "_", p],
+                capture_output=True, text=True, timeout=3,
+            ).stdout.strip()
+        except Exception:
+            out = ""
+        if out:
+            glyph = _KEY41_GLYPHS.get(out.split("|", 1)[0])
+        break
+    _KEY41_CACHE.append(glyph)
+    return glyph
+
+
+def _key41_label():
+    """Display label for keycode 41: the active layout's keycap glyph, or
+    the two most common legends when the layout is unknown."""
+    return _key41_glyph() or "` / ²"
+
+
 def linux_keycode_name(code):
     """Retourne le nom lisible d'un keycode Linux."""
+    if code == 41:
+        return _key41_label()
     return LINUX_KEYCODE_NAMES.get(code, f"Key {code}")
 ANIMATION_SPEECH_REPO = "rcspam/animation-speech"
 ANIMATION_SPEECH_BIN = "animation-speech-ctl"
@@ -400,6 +541,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
+                output_mode="type",
                 mark_setup_done=True):
     """Update dictee.conf preserving comments and structure.
 
@@ -420,6 +562,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LANG_SOURCE": lang_source,
         "DICTEE_LANG_TARGET": lang_target,
         "DICTEE_CLIPBOARD": "true" if clipboard else "false",
+        "DICTEE_OUTPUT_MODE": _s(output_mode) if output_mode in ("type", "paste", "clipboard") else "type",
         "DICTEE_ANIM_SPEECH": "true" if anim_speech else "false",
         "DICTEE_ANIM_PLASMOID": "true" if anim_plasmoid else "false",
         "DICTEE_VOSK_MODEL": _s(vosk_code),
@@ -588,6 +731,9 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_LLM_THINK", "DICTEE_LLM_NUM_CTX",
         "DICTEE_DEBUG", "DICTEE_PP_SHORT_TEXT_MAX",
         "DICTEE_ANIMATION",  # legacy, replaced by ANIM_SPEECH + ANIM_PLASMOID
+        # legacy, word-by-word typewriter paste removed (Klipper history
+        # spam + repeated wl-copy focus steals; see feature/output-mode-1.3)
+        "DICTEE_PASTE_STYLE", "DICTEE_PASTE_CADENCE",
     }
     # Add all possible suffix keys
     for lang in ("FR", "EN", "ES", "DE", "IT", "PT", "UK"):
@@ -653,14 +799,15 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
             extra.append(f"{k}={v}\n")
         new_lines[insert_idx:insert_idx] = extra
 
-    # Atomic write
-    conf_dir = os.path.dirname(CONF_PATH) or "."
+    # Atomic write, through a possible symlink (see _conf_write_target)
+    _conf_target = _conf_write_target()
+    conf_dir = os.path.dirname(_conf_target) or "."
     os.makedirs(conf_dir, exist_ok=True)
     _tmp_fd, _tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
     try:
         with os.fdopen(_tmp_fd, "w") as f:
             f.writelines(new_lines)
-        os.replace(_tmp_path, CONF_PATH)
+        os.replace(_tmp_path, _conf_target)
     except BaseException:
         try:
             os.unlink(_tmp_path)
@@ -1038,11 +1185,12 @@ def suggest_parakeet_quant():
     """Recommend Parakeet quantization variant based on detected hardware.
 
     Returns:
-      "int8" — for CPU-only systems or GPU with < 4 GB VRAM.
-              On CPU with AVX-VNNI, int8 is ~34 % faster than FP32 (measured
+      "int8" — for CPU-only systems or GPU with < 4 GB VRAM. int8 ALWAYS
+              executes on the CPU (the daemon forces it: the ORT CUDA EP is
+              broken/slow on int8, see execution.rs parakeet_provider). On
+              CPU with AVX-VNNI, int8 is ~34 % faster than FP32 (measured
               on i7-13700H, audio 16 s, 2026-05-15).
-      "fp32" — for GPU with ≥ 4 GB VRAM. On CUDA, FP32 is ~6× faster than
-              int8 (current ORT CUDA EP doesn't optimize int8 ops well).
+      "fp32" — for GPU with ≥ 4 GB VRAM; the only variant that uses the GPU.
 
     The user can always override via DICTEE_PARAKEET_QUANT env var or the
     "Active Parakeet variant" combobox in dictee-setup.
@@ -1998,15 +2146,17 @@ ASR_MODELS = [
     {
         "id": "tdt-int8",
         "name": "Parakeet-TDT 0.6B v3 (int8)",
-        "desc": _("Quantized variant (~670 MB) — recommended for CPU and low-VRAM GPU"),
+        "desc": _("Quantized variant (~670 MB), runs on the CPU. For systems "
+                  "without a GPU or with too little VRAM for FP32."),
         "help": _(
             "<b>Parakeet-TDT 0.6B v3 — int8 quantized</b><br><br>"
             "Same architecture as FP32 with 8-bit quantized weights.<br><br>"
             "<b>~3.6× smaller</b>: 670 MB on disk / RAM (vs 2.4 GB FP32).<br>"
             "<b>~38% faster on CPU</b> with AVX-VNNI (Intel Cascade Lake+ / AMD Zen 2+).<br>"
             "<b>WER loss negligible</b> (~0-1 % depending on audio).<br><br>"
-            "Recommended for: <b>CPU-only systems</b> or <b>GPU with &lt; 4 GB VRAM</b>.<br>"
-            "Note: on GPU with abundant VRAM, FP32 is faster (CUDA int8 EP is slow)."
+            "<b>Always runs on the CPU</b>: int8 is not usable on the CUDA GPU "
+            "runtime.<br>The right choice for CPU-only systems, or when the GPU "
+            "has too little VRAM for FP32 (&lt; 4 GB)."
         ),
         "dir": os.path.join(MODEL_DIR, "tdt"),  # same dir as FP32, coexistence supported
         "check_file": "encoder-model.int8.onnx",
@@ -2834,15 +2984,34 @@ class InstallThread(QThread):
 
 
 class ShortcutButton(QPushButton):
-    """Bouton qui capture une combinaison de touches quand activé."""
+    """Bouton qui capture la touche de dictée.
 
-    shortcutCaptured = Signal(QKeySequence)
+    Two capture paths, and the difference matters:
+
+    - direct (preferred): the raw evdev keycode is read off /dev/input, exactly
+      where dictee-ptt reads it. Any key works — media keys, a laptop's Fn row,
+      a keyboard's mic key (#30) — because no symbol is involved and no table
+      has to know about it beforehand.
+    - Qt events (fallback): used when the input devices cannot be opened, which
+      happens right after installation, before the user has logged out and back
+      in to pick up the 'input' group. Qt reports the *symbol* produced, which
+      QT_TO_LINUX_KEYCODE turns back into a keycode — so only the keys listed
+      there can be picked. Better than a dead button.
+
+    Either way the button reports an evdev keycode, so callers never have to
+    care which path was taken.
+    """
+
+    # keycode evdev, nom du périphérique source ("" en repli Qt)
+    keyCaptured = Signal(int, str)
 
     def __init__(self, parent=None):
         super().__init__(_("Click to capture a shortcut…"), parent)
         self._capturing = False
         self._sequence = None
         self._changed = False
+        self._devices = []
+        self._notifiers = []
         self.clicked.connect(self._start_capture)
 
     # Lock file read by dictee-ptt — while it exists, the daemon forwards all
@@ -2859,19 +3028,164 @@ class ShortcutButton(QPushButton):
         except OSError:
             pass
 
+    # Our own virtual keyboards. Listening to them during capture would catch
+    # dictee typing a transcript, not the user pressing a key.
+    _OWN_DEVICES = ("dotool", "dictee-ptt")
+
+    def _open_devices(self):
+        """Open every readable keyboard node. False if none can be read.
+
+        No filtering beyond our own virtual keyboards: the whole point is to
+        see the devices dictee-ptt's detection rejects — a Consumer Control
+        node carrying a mic key (#30), a remapper's virtual keyboard (#10), a
+        keyboard with pointer axes (#23). Whether dictee-ptt will then listen
+        to that device is a separate question, answered by the whitelist.
+        """
+        if not HAS_EVDEV:
+            return False
+        for path in evdev.list_devices():
+            try:
+                dev = evdev.InputDevice(path)
+            except (OSError, PermissionError):
+                continue  # not in the 'input' group yet, or node vanished
+            name = dev.name.lower()
+            if (_ecodes.EV_KEY not in dev.capabilities(verbose=False)
+                    or any(x in name for x in self._OWN_DEVICES)):
+                dev.close()
+                continue
+            self._devices.append(dev)
+            notifier = QSocketNotifier(dev.fd, QSocketNotifier.Type.Read, self)
+            notifier.activated.connect(self._on_device_readable)
+            self._notifiers.append(notifier)
+        if not self._devices:
+            return False
+        self._grab_devices()
+        # dictee-ptt only lets go at its select() timeout, up to a second after
+        # we drop the pause marker. Retry once past that, otherwise the very
+        # keyboard the user is about to press stays ungrabbed.
+        QTimer.singleShot(1200, self._grab_devices)
+        return True
+
+    def _grab_devices(self):
+        """Take the devices exclusively, so the key does not also act.
+
+        Without this the key is read AND delivered: pressing the brightness key
+        to choose it would change the screen brightness, and pressing a letter
+        would type it wherever the cursor is. A grab stops the event at the
+        kernel, before the desktop and before any application.
+
+        Failures are ignored on purpose: a device dictee-ptt has not released
+        yet raises EBUSY, and the retry above covers it. Closing the device
+        releases the grab, so every exit path already undoes this.
+        """
+        if not self._capturing:
+            return
+        for dev in self._devices:
+            try:
+                dev.grab()
+            except OSError:
+                pass
+
+    def _close_devices(self):
+        for n in self._notifiers:
+            n.setEnabled(False)
+            n.deleteLater()
+        self._notifiers = []
+        for d in self._devices:
+            # Ungrab explicitly rather than relying on close(): if anything
+            # holds a reference to the device, the keyboard would stay captured
+            # and the machine would look frozen.
+            try:
+                d.ungrab()
+            except OSError:
+                pass
+            try:
+                d.close()
+            except OSError:
+                pass
+        self._devices = []
+
+    def _on_device_readable(self, fd):
+        """First real key press wins; modifiers alone are ignored."""
+        dev = next((d for d in self._devices if d.fd == fd), None)
+        if dev is None or not self._capturing:
+            return
+        try:
+            events = list(dev.read())
+        except OSError:
+            return
+        for ev in events:
+            if ev.type != _ecodes.EV_KEY or ev.value != 1:  # key down only
+                continue
+            code = ev.code
+            # EV_KEY also carries buttons: mouse clicks, and a touchpad's
+            # BTN_TOUCH/BTN_TOOL_FINGER which fire continuously while a finger
+            # rests on it. Resting a finger during capture would otherwise be
+            # recorded as the dictation key. Only codes the kernel names KEY_*
+            # are keys; buttons live in ecodes.BTN and are absent from
+            # ecodes.KEY. KEY_VOICECOMMAND (582) passes, BTN_TOUCH (330) does
+            # not — so this filter cannot be a simple upper bound.
+            if code not in _ecodes.KEY:
+                continue
+            if code == _ecodes.KEY_ESC:
+                self._finish_capture()
+                self._cancel_capture()
+                return
+            if code in _MODIFIER_KEYCODES:
+                continue
+            name = dev.name
+            self._finish_capture()
+            self._capturing = False
+            self._changed = True
+            self._set_ptt_pause(False)
+            self.keyCaptured.emit(code, name)
+            return
+
+    def _finish_capture(self):
+        """Drop the device grab side of the capture, whatever the outcome."""
+        self._close_devices()
+
     def _start_capture(self):
         self._capturing = True
-        self.setText(_("Press a key combination…"))
+        self._text_before = self.text()
         self.setFocus()
-        # Pause dictee-ptt so F8/F9 reach Qt instead of being consumed
+        # Pause dictee-ptt so the PTT keys reach us instead of being consumed
         self._set_ptt_pause(True)
+        if self._open_devices():
+            self.setText(_("Press the key you want to use… (Esc to cancel)"))
+        else:
+            # No readable input device: fall back to Qt events, which only
+            # resolve the keys listed in QT_TO_LINUX_KEYCODE.
+            self.setText(_("Press a key combination… (Esc to cancel)"))
+
+    def _cancel_capture(self):
+        """Leave capture mode without touching the configured key."""
+        self._capturing = False
+        self._close_devices()
+        self.setText(getattr(self, "_text_before", "") or
+                     _("Click to capture a shortcut…"))
+        self._set_ptt_pause(False)
 
     def keyPressEvent(self, event):
         if not self._capturing:
             super().keyPressEvent(event)
             return
 
+        # Both paths may be live at once: dictee-ptt releases its grab while we
+        # capture, so the key reaches Qt as well. Whichever arrives first wins —
+        # they are serialised by the Qt event loop, and the winner clears
+        # _capturing so the other returns above. Keeping this path alive also
+        # covers a dictee-ptt too old to release its grab, where the device read
+        # would never fire and the button would sit dead.
         key = event.key()
+
+        # Escape cancels the capture instead of being recorded. It is not a
+        # selectable PTT key anyway (dictee-ptt listens for it to abort a
+        # running dictation), so treating it as "abort" is what a user expects
+        # from any dialog.
+        if key == getattr(Qt, "Key", Qt).Key_Escape:
+            self._cancel_capture()
+            return
 
         # Ignorer les modificateurs seuls
         # PyQt6 : enums scoped (Qt.Key.Key_X), PySide6 : enums flat (Qt.Key_X)
@@ -2892,16 +3206,19 @@ class ShortcutButton(QPushButton):
         self._capturing = False
         self._sequence = seq
         self._changed = True
-        self.setText(_("Shortcut: {label}").format(label=seq.toString(_NATIVE_TEXT)))
+        self._close_devices()
         # Capture done — let dictee-ptt resume normal behavior
         self._set_ptt_pause(False)
-        self.shortcutCaptured.emit(seq)
+        # Resolve through the table here so callers only ever see a keycode.
+        # 0 means "Qt reported a key the table does not know", which the caller
+        # turns into the "cannot be used for dictation" warning.
+        self.keyCaptured.emit(qt_key_to_linux_keycode(seq), "")
 
     def focusOutEvent(self, event):
-        # If user clicks away while capturing, abort and unpause dictee-ptt
+        # If user clicks away while capturing, abort and unpause dictee-ptt.
+        # Same path as Escape so the label is restored either way.
         if self._capturing:
-            self._capturing = False
-            self._set_ptt_pause(False)
+            self._cancel_capture()
         super().focusOutEvent(event)
 
     def sequence(self):
@@ -5611,6 +5928,11 @@ class DicteeSetupDialog(QDialog):
         self._sidebar_stack.addWidget(page_extra)
         page_notif = _mk_page(self._build_subpage_notifications)
         self._sidebar_stack.addWidget(page_notif)
+        # Section 12 : Text output (dedicated clipboard/output page, #28).
+        # Appended at the END of the stack so every hardcoded index above
+        # (translation=2, mic=4, PP=8, ...) keeps its meaning; the tree
+        # order below is independent from stack indices.
+        page_output = _mk_page(self._build_page_text_output)
 
         # Section About (index will be determined after PP page below)
         # Section 9 : Post-processing — pipeline header is external,
@@ -5701,6 +6023,10 @@ class DicteeSetupDialog(QDialog):
         self._sidebar_stack.addWidget(self._about_page)
         QTimer.singleShot(0, self._ensure_about_built)
 
+        # Section 12 : Text output — appended AFTER About so all hardcoded
+        # stack indices above keep their meaning (see page_output comment).
+        self._sidebar_stack.addWidget(page_output)
+
         # --- Top: pipeline header (persistent across all sections) ---
         outer.addWidget(pipeline_header)
 
@@ -5726,6 +6052,7 @@ class DicteeSetupDialog(QDialog):
         _add(tree, _("Translation"), 2)
         _add(tree, _("Keyboard shortcut"), 3)
         _add(tree, _("Visual feedback"), 5)
+        _add(tree, _("Text output"), 12)
         _add(tree, _("Extra options"), 6)
         _add(tree, _("Notifications"), 7)
         pp_root = _add(tree, _("Post-processing"), 8)
@@ -6409,20 +6736,92 @@ class DicteeSetupDialog(QDialog):
         self._build_visual_section(lay_vis, conf)
         lay.addWidget(grp_visual)
 
+    def _build_output_mode_group(self, lay, conf):
+        """Dedicated 'Text output' block (#28), split in two group boxes:
+        the output-mode radio buttons, then a separate 'Clipboard' group
+        with the copy toggle and its wl-clipboard warning. Used by both
+        the sidebar 'Text output' page and the wizard options page (each UI
+        creates one instance — the attributes are read at save time)."""
+        grp = QGroupBox(_("Text output"))
+        glay = QVBoxLayout(grp)
+        glay.setSpacing(6)
+        glay.setContentsMargins(16, 16, 16, 12)
+
+        tip = _tt(_(
+            "How the dictated text reaches your application. The paste mode "
+            "(Shift+Insert) works with any keyboard layout (Neo, Bépo, ...) "
+            "and in most terminals, but overwrites the clipboard. Clipboard "
+            "only never types anything; you paste the text yourself."))
+        self.rad_out_type = QRadioButton(_("Type into the active window (default)"))
+        self.rad_out_paste = QRadioButton(_("Paste all at once (Shift+Insert)"))
+        self.rad_out_clipboard = QRadioButton(_("Copy to clipboard only (no typing)"))
+        self._out_radios = (
+            (self.rad_out_type, "type"),
+            (self.rad_out_paste, "paste"),
+            (self.rad_out_clipboard, "clipboard"),
+        )
+        saved_mode = conf.get("DICTEE_OUTPUT_MODE", "type")
+        checked = False
+        for rad, mode in self._out_radios:
+            rad.setToolTip(tip)
+            glay.addWidget(rad)
+            if mode == saved_mode:
+                rad.setChecked(True)
+                checked = True
+        if not checked:
+            self.rad_out_type.setChecked(True)
+
+        lay.addWidget(grp)
+
+        # Separate 'Clipboard' group: the copy toggle and its wl-clipboard
+        # warning (moved here from the options page — everything
+        # clipboard-related lives on this page now).
+        grp_clip = QGroupBox(_("Clipboard"))
+        clay = QVBoxLayout(grp_clip)
+        clay.setSpacing(6)
+        clay.setContentsMargins(16, 16, 16, 12)
+        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
+        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
+        clay.addWidget(self.chk_clipboard)
+        # wl-copy < 2.3.0 briefly steals the keyboard focus when it takes
+        # the selection; Electron apps blur their input and do not refocus
+        # (c101e85). This hits the copy toggle AND the paste mode.
+        # Clipboard-only is safe: nothing is injected, the user refocuses
+        # by hand.
+        self.lbl_clipboard_warn = QLabel(_(
+            "⚠ On Wayland with wl-clipboard < 2.3.0, the copy option and "
+            "the paste mode can lose text in some Electron apps (wl-copy "
+            "briefly steals the focus). 'Copy to clipboard only' is not "
+            "affected."))
+        self.lbl_clipboard_warn.setWordWrap(True)
+        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
+        clay.addWidget(self.lbl_clipboard_warn)
+
+        def _sync_enabled(*_a, _self=self):
+            # Clipboard-only always copies: grey the copy toggle out there.
+            _self.chk_clipboard.setEnabled(not _self.rad_out_clipboard.isChecked())
+        for rad, _mode in self._out_radios:
+            rad.toggled.connect(_sync_enabled)
+        _sync_enabled()
+        lay.addWidget(grp_clip)
+
+    def _selected_output_mode(self):
+        """Mode string from the radio group; safe fallback."""
+        for rad, mode in getattr(self, '_out_radios', ()):
+            if rad.isChecked():
+                return mode
+        return "type"
+
+    def _build_page_text_output(self, lay, conf):
+        self._build_output_mode_group(lay, conf)
+
     def _build_subpage_extra_options(self, lay, conf):
+        # Clipboard toggle + output mode moved to the dedicated
+        # 'Text output' page (_build_page_text_output, #28).
         grp_options = QGroupBox(_("Extra options"))
         lay_opt = QVBoxLayout(grp_options)
         lay_opt.setSpacing(6)
         lay_opt.setContentsMargins(16, 16, 16, 12)
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        lay_opt.addWidget(self.chk_clipboard)
-        self.lbl_clipboard_warn = QLabel(_(
-            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
-            "prevent the transcript from being typed into some Electron apps."))
-        self.lbl_clipboard_warn.setWordWrap(True)
-        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        lay_opt.addWidget(self.lbl_clipboard_warn)
 
         self.chk_audio_context = ToggleSwitch(_("Audio context buffer"))
         self.chk_audio_context.setChecked(conf.get("DICTEE_AUDIO_CONTEXT", "true") == "true")
@@ -8097,17 +8496,8 @@ class DicteeSetupDialog(QDialog):
         lay_notif.addWidget(self.chk_notifications_text)
         lay.addWidget(grp_notif)
 
-        # Options
-        self.chk_clipboard = ToggleSwitch(_("Copy transcription to clipboard"))
-        self.chk_clipboard.setStyleSheet("font-size: 11pt;")
-        self.chk_clipboard.setChecked(conf.get("DICTEE_CLIPBOARD", "false") == "true")
-        lay.addWidget(self.chk_clipboard)
-        self.lbl_clipboard_warn = QLabel(_(
-            "⚠ On Wayland with wl-clipboard < 2.3.0, enabling this can "
-            "prevent the transcript from being typed into some Electron apps."))
-        self.lbl_clipboard_warn.setWordWrap(True)
-        self.lbl_clipboard_warn.setStyleSheet("color: #c4750e;")
-        lay.addWidget(self.lbl_clipboard_warn)
+        # Text output + clipboard (shared block, #28)
+        self._build_output_mode_group(lay, conf)
 
         lay.addStretch()
         scroll.setWidget(content)
@@ -8345,7 +8735,7 @@ class DicteeSetupDialog(QDialog):
         else:
             self._ptt_key = 67
         lay_sc.addWidget(self.btn_capture)
-        self.btn_capture.shortcutCaptured.connect(self._on_ptt_key_captured)
+        self.btn_capture.keyCaptured.connect(self._on_ptt_key_captured)
 
         self.lbl_ptt_warning = QLabel()
         self.lbl_ptt_warning.setVisible(False)
@@ -8402,7 +8792,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_capture_translate.setVisible(
             self.cmb_translate_mode.currentData() == "separate")
         lay_sc.addWidget(self.btn_capture_translate)
-        self.btn_capture_translate.shortcutCaptured.connect(self._on_ptt_key_translate_captured)
+        self.btn_capture_translate.keyCaptured.connect(self._on_ptt_key_translate_captured)
 
         self.cmb_translate_mode.currentIndexChanged.connect(self._on_translate_mode_changed)
 
@@ -8520,7 +8910,8 @@ class DicteeSetupDialog(QDialog):
     _MODEL_DESCRIPTIONS = {
         "tdt": _("Full precision. 25 languages with native punctuation and capitalization."),
         "tdt-int8": _("Quantized variant. ~3.6× smaller, ~34 % faster on CPU. "
-                      "Best for CPU-only or low-VRAM GPU."),
+                      "Always runs on the CPU: pick it when there is no GPU, "
+                      "or too little VRAM for FP32."),
         "sortformer": _("Speaker diarization add-on. Identifies up to 4 speakers "
                         "in a recording. Optional — only needed for speaker identification."),
     }
@@ -8603,7 +8994,7 @@ class DicteeSetupDialog(QDialog):
             elif total_vram > 0:
                 msg = ("⚠ " + _("GPU has only {:.1f} GB VRAM — Parakeet FP32 "
                                 "may OOM at load. Consider toggling CPU "
-                                "or using INT8.").format(total_vram))
+                                "or using INT8 (runs on the CPU).").format(total_vram))
                 color = "#d8a000"
             else:
                 msg = ("ℹ " + _("No GPU detected — running on CPU regardless "
@@ -8864,7 +9255,8 @@ class DicteeSetupDialog(QDialog):
         if total_vram >= 4:
             reason = _("GPU with {:.1f} GB VRAM detected — FP32 is fastest on CUDA").format(total_vram)
         elif total_vram > 0:
-            reason = _("GPU with only {:.1f} GB VRAM — FP32 may OOM, int8 fits").format(total_vram)
+            reason = _("GPU with only {:.1f} GB VRAM — too little for FP32; "
+                       "int8 runs on the CPU instead").format(total_vram)
         else:
             reason = _("No GPU detected — int8 is ~34 % faster on CPU (AVX-VNNI)")
         for model in ASR_MODELS:
@@ -9040,13 +9432,14 @@ class DicteeSetupDialog(QDialog):
                         lines.append(line)
         if not found:
             lines.append(f"DICTEE_VOSK_MODEL={code}\n")
-        conf_dir = os.path.dirname(CONF_PATH) or "."
+        conf_target = _conf_write_target()
+        conf_dir = os.path.dirname(conf_target) or "."
         os.makedirs(conf_dir, exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(dir=conf_dir, prefix=".dictee.conf.")
         try:
             with os.fdopen(tmp_fd, "w") as f:
                 f.writelines(lines)
-            os.replace(tmp_path, CONF_PATH)
+            os.replace(tmp_path, conf_target)
         except BaseException:
             try:
                 os.unlink(tmp_path)
@@ -16026,38 +16419,43 @@ class DicteeSetupDialog(QDialog):
 
     # -- Capture raccourci --
 
-    def _on_ptt_key_captured(self, seq):
-        code = qt_key_to_linux_keycode(seq)
+    def _on_ptt_key_captured(self, code, device=""):
+        """code is an evdev keycode; 0 means the Qt fallback did not resolve it.
+
+        device is the node the key came from, empty on the fallback path.
+        """
         if code:
             self._ptt_key = code
             self.btn_capture.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture._changed = True
             self._dirty = True
-            self._check_ptt_warning(code, self.lbl_ptt_warning)
+            self._check_ptt_warning(code, self.lbl_ptt_warning, device)
             # Refresh combo item texts so "Same key + ..." labels reflect
             # the new dictation key ("Ctrl+Alt+F9", etc.).
             self._refresh_shortcut_combos_labels()
         else:
-            key_str = seq.toString() if seq else "?"
+            key_str = _("this key")
             self.lbl_ptt_warning.setText(
                 '<span style="color: red;">⚠ ' +
-                _("Key '{key}' is not supported. Use a function key (F1-F24), "
-                  "the backtick (`) or a special key (Home, End, Insert, etc.).").format(key=key_str) +
+                _("Key '{key}' cannot be used for dictation. Choose a function "
+                  "key (F1-F24), the top-left {key41} key, or Pause. Other keys "
+                  "are left alone because your system or your typing already "
+                  "needs them.").format(key=key_str, key41=_key41_label()) +
                 '</span>'
             )
             self.lbl_ptt_warning.setVisible(True)
 
-    def _on_ptt_key_translate_captured(self, seq):
-        code = qt_key_to_linux_keycode(seq)
+    def _on_ptt_key_translate_captured(self, code, device=""):
         if code:
             self._ptt_key_translate = code
             self.btn_capture_translate.setText(_("Key: {name}").format(name=linux_keycode_name(code)))
             self.btn_capture_translate._changed = True
             self._dirty = True
+            # Same guard as the dictation key: this one had none, so a typing
+            # key could be set as the translation key without a word.
+            self._check_ptt_warning(code, self.lbl_ptt_warning, device)
         else:
-            key_str = seq.toString() if seq else "?"
-            self.btn_capture_translate.setText(
-                _("Key '{key}' not supported").format(key=key_str))
+            self.btn_capture_translate.setText(_("Key not supported"))
 
     def _on_detect_extra_devices(self):
         self._detect_devices_dialog("whitelist")
@@ -16067,9 +16465,12 @@ class DicteeSetupDialog(QDialog):
 
     def _detect_devices_dialog(self, mode):
         """Dialog listing input keyboards. mode='whitelist' lets the user check
-        VIRTUAL devices to listen to (DICTEE_PTT_EXTRA_DEVICES); mode='exclude'
-        lets the user check PHYSICAL devices to leave to another exclusive
-        grabber such as input-remapper (DICTEE_PTT_EXCLUDE_DEVICES, issue #20)."""
+        devices to listen to (DICTEE_PTT_EXTRA_DEVICES): virtual keyboards
+        created by remapping tools, and keyboards carrying pointer axes that
+        dictee-ptt ignores by default (issue #23, e.g. Logitech Craft).
+        mode='exclude' lets the user check PHYSICAL devices to leave to another
+        exclusive grabber such as input-remapper (DICTEE_PTT_EXCLUDE_DEVICES,
+        issue #20)."""
         try:
             with open("/proc/bus/input/devices") as f:
                 content = f.read()
@@ -16088,36 +16489,52 @@ class DicteeSetupDialog(QDialog):
         FORWARDED_PAT = re.compile(r"input-remapper|forwarded|xremap|keyd|kanata",
                                    re.IGNORECASE)
 
-        devices = []  # (name, status) where status in {'whitelistable', 'physical', 'blocked'}
+        devices = []  # (name, status) with status in
+        #             {'whitelistable', 'pointer', 'physical', 'blocked'}
         for block in content.split("\n\n"):
-            name = handlers = ""
+            name = handlers = ev_mask = ""
             for line in block.strip().splitlines():
                 if line.startswith("N: Name="):
                     name = line[8:].strip().strip('"')
                 elif line.startswith("H: Handlers="):
                     handlers = line[12:].strip()
+                elif line.startswith("B: EV="):
+                    ev_mask = line[6:].strip()
             if not name or "kbd" not in handlers:
                 continue
+            # Pointer detection mirrors dictee-ptt.find_keyboards_raw: EV_REL
+            # (bit 2) or EV_ABS (bit 3) in the EV bitmask, or a "mouse"
+            # handler. Such keyboards (e.g. Logitech Craft — its Crown dial
+            # adds pointer axes to the keyboard node) are ignored by
+            # dictee-ptt unless whitelisted (issue #23).
+            has_pointer = "mouse" in handlers
+            try:
+                ev_caps = int(ev_mask, 16)
+                has_pointer = has_pointer or bool(ev_caps & (1 << 2)) or bool(ev_caps & (1 << 3))
+            except ValueError:
+                pass
             if ALWAYS_BLOCKED.search(name):
                 devices.append((name, "blocked"))
             elif FILTER_PAT.search(name):
                 devices.append((name, "whitelistable"))
+            elif has_pointer:
+                devices.append((name, "pointer"))
             else:
                 devices.append((name, "physical"))
 
         if mode == "exclude":
             field = self.txt_ptt_exclude_devices
-            checkable = "physical"
             intro = _("Keyboards detected on your system. Check the PHYSICAL "
                       "keyboard that another tool grabs exclusively (e.g. "
                       "input-remapper): dictee push-to-talk will leave it alone "
                       "and listen to that tool's forwarded device instead.")
         else:
             field = self.txt_ptt_extra_devices
-            checkable = "whitelistable"
-            intro = _("Keyboards detected on your system. Check the virtual ones "
-                      "you want dictee to listen to (e.g. devices created by "
-                      "logiops, keyd, kanata, xremap or input-remapper).")
+            intro = _("Keyboards detected on your system. Check the ones you "
+                      "want dictee to listen to: devices created by remapping "
+                      "tools (logiops, keyd, kanata, xremap, input-remapper), "
+                      "or keyboards with pointer axes that dictee ignores by "
+                      "default (e.g. Logitech Craft and its Crown dial).")
 
         dlg = QDialog(self)
         dlg.setWindowTitle(_("Detect input devices"))
@@ -16132,13 +16549,18 @@ class DicteeSetupDialog(QDialog):
         for name, status in devices:
             # In exclude mode, only a TRUE physical keyboard is checkable: never a
             # remapper's forwarded/output device (dictee-ptt must keep listening
-            # to those). In whitelist mode, only virtual devices are checkable.
+            # to those). In whitelist mode, virtual devices and pointer-axis
+            # keyboards (ignored by default, issue #23) are checkable.
             is_forwarded = bool(FORWARDED_PAT.search(name))
             if mode == "exclude":
                 checkable_here = (status == "physical") and not is_forwarded
             else:
-                checkable_here = (status == "whitelistable")
-            if checkable_here:
+                checkable_here = status in ("whitelistable", "pointer")
+            if status == "pointer":
+                # Keep the hint even when checkable: the user must understand
+                # this keyboard is NOT listened to until whitelisted.
+                label = _("{name}  [pointer axes — ignored unless whitelisted]").format(name=name)
+            elif checkable_here:
                 label = name
             elif status == "blocked":
                 label = _("{name}  [internal — always blocked]").format(name=name)
@@ -16174,8 +16596,15 @@ class DicteeSetupDialog(QDialog):
             field.setText(",".join(selected))
             self._dirty = True
 
-    def _check_ptt_warning(self, code, lbl):
-        """Avertit si la touche risque de poser problème."""
+    def _check_ptt_warning(self, code, lbl, device=""):
+        """Avertit si la touche risque de poser problème.
+
+        Direct capture accepts any key the keyboard can send, so this is now
+        the only thing standing between the user and picking the letter A.
+        `device` is the node the key came from, so a key living on a device
+        dictee-ptt ignores can be flagged before the user discovers it the
+        hard way.
+        """
         # Touches dangereuses : lettres, chiffres, espace, enter, tab
         dangerous = {14, 15, 28, 57}  # backspace, tab, enter, space
         dangerous.update(range(2, 12))  # 1-0
@@ -16185,8 +16614,8 @@ class DicteeSetupDialog(QDialog):
         if code in dangerous:
             lbl.setText(
                 '<span style="color: orange;">⚠ ' +
-                _("This key is used for typing. Prefer a function key (F1-F24), "
-                  "the backtick (`) or a special key (Home, End, Insert, etc.).") +
+                _("This key is used for typing. Prefer a function key (F1-F24) "
+                  "or the top-left {key41} key.").format(key41=_key41_label()) +
                 '</span>'
             )
             lbl.setVisible(True)
@@ -16197,8 +16626,69 @@ class DicteeSetupDialog(QDialog):
                 '</span>'
             )
             lbl.setVisible(True)
+        elif device and not self._device_is_listened_to(device):
+            lbl.setText(
+                '<span style="color: orange;">⚠ ' +
+                _("This key is on '{device}', which dictee does not listen to "
+                  "by default. Add it to the extra input devices (Extra options "
+                  "page) or the key will do nothing.").format(device=device) +
+                '</span>'
+            )
+            lbl.setVisible(True)
+        elif code in _SYSTEM_FUNCTION_KEYS:
+            # dictee grabs its key at the kernel, before the desktop: whatever
+            # this key does today stops working the moment it is chosen.
+            what = {
+                "sound": _("adjust the sound"),
+                "screen": _("adjust the screen"),
+                "keyboard backlight": _("adjust the keyboard backlight"),
+                "media": _("control media playback"),
+                "system": _("perform a system function"),
+            }[_SYSTEM_FUNCTION_KEYS[code]]
+            lbl.setText(
+                '<span style="color: orange;">⚠ ' +
+                _("This key is used by your computer to {what}. Choosing it "
+                  "for dictation takes that away: dictee receives the key "
+                  "before your desktop does.").format(what=what) +
+                '</span>'
+            )
+            lbl.setVisible(True)
         else:
+            # Clear as well as hide: a stale warning left in the label reappears
+            # whenever something else makes it visible again.
+            lbl.clear()
             lbl.setVisible(False)
+
+    def _device_is_listened_to(self, name):
+        """Would dictee-ptt grab this device? Mirrors find_keyboards_evdev.
+
+        Kept deliberately close to dictee-ptt.py:193-205: more than 30 keys, no
+        pointer axes, not one of the excluded names — unless the user already
+        whitelisted it.
+        """
+        if not HAS_EVDEV:
+            return True  # cannot tell; do not cry wolf
+        whitelist = [s.strip().lower()
+                     for s in self.txt_ptt_extra_devices.text().split(",")
+                     if s.strip()] if hasattr(self, "txt_ptt_extra_devices") else []
+        lowered = name.lower()
+        if any(w in lowered for w in whitelist):
+            return True
+        for path in evdev.list_devices():
+            try:
+                dev = evdev.InputDevice(path)
+            except OSError:
+                continue
+            try:
+                if dev.name != name:
+                    continue
+                caps = dev.capabilities(verbose=False)
+                return (len(caps.get(_ecodes.EV_KEY, [])) > 30
+                        and _ecodes.EV_REL not in caps
+                        and _ecodes.EV_ABS not in caps)
+            finally:
+                dev.close()
+        return True
 
     def _on_translate_mode_changed(self, _idx):
         mode = self.cmb_translate_mode.currentData()
@@ -16266,15 +16756,23 @@ class DicteeSetupDialog(QDialog):
         key_name = linux_keycode_name(ptt_key)
         if not key_name or key_name.startswith("Key "):
             return None
-        return QKeySequence(f"{mod}+{key_name}")
+        seq = QKeySequence(f"{mod}+{key_name}")
+        # Qt parses unknown key names into a sequence that counts one element
+        # but renders empty, and the caller only checks count() > 0 — so a label
+        # Qt does not understand used to be registered as a blank shortcut. It
+        # happens with the top-left key on a layout absent from _KEY41_GLYPHS,
+        # whose label falls back to "` / ²". No shortcut beats a broken one.
+        if not seq.toString():
+            return None
+        return seq
 
-    def _on_shortcut_captured(self, seq):
-        """Legacy — redirige vers PTT."""
-        self._on_ptt_key_captured(seq)
+    def _on_shortcut_captured(self, code, device=""):
+        """Legacy — redirige vers PTT. Aucun appelant connu."""
+        self._on_ptt_key_captured(code, device)
 
-    def _on_shortcut_translate_captured(self, seq):
-        """Legacy — redirige vers PTT."""
-        self._on_ptt_key_translate_captured(seq)
+    def _on_shortcut_translate_captured(self, code, device=""):
+        """Legacy — redirige vers PTT. Aucun appelant connu."""
+        self._on_ptt_key_translate_captured(code, device)
 
     # -- Animation-speech --
 
@@ -16729,10 +17227,11 @@ class DicteeSetupDialog(QDialog):
                     break
             if not inserted:
                 lines.append(f"DICTEE_LIBRETRANSLATE_LANGS={langs}\n")
-        tmp_path = CONF_PATH + ".tmp"
+        conf_target = _conf_write_target()
+        tmp_path = conf_target + ".tmp"
         with open(tmp_path, "w") as f:
             f.writelines(lines)
-        os.replace(tmp_path, CONF_PATH)
+        os.replace(tmp_path, conf_target)
 
     def _on_lt_restart_langs_finished(self, success, message):
         self._lt_set_buttons_busy(False)
@@ -18505,6 +19004,7 @@ class DicteeSetupDialog(QDialog):
         lang_src = self.combo_src.currentData()
         lang_tgt = self.combo_tgt.currentData()
         clipboard = self.chk_clipboard.isChecked()
+        output_mode = self._selected_output_mode()
 
         anim_speech = self.chk_anim_speech.isChecked()
         anim_plasmoid = self.chk_plasmoid.isChecked()
@@ -18726,6 +19226,7 @@ class DicteeSetupDialog(QDialog):
                     hw_tier=(
                         self.cmb_whisper_hw_tier.currentData()
                         if hasattr(self, 'cmb_whisper_hw_tier') else "auto"),
+                    output_mode=output_mode,
                     mark_setup_done=mark_setup_done)
 
         # Register the cheatsheet shortcut.
