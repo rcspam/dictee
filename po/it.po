@@ -4404,8 +4404,8 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr "Come il testo dettato raggiunge la vostra applicazione. La modalità incolla (Maiusc+Ins) funziona con qualsiasi disposizione di tastiera (Neo, Bépo, ...) e nella maggior parte dei terminali, ma sovrascrive gli appunti. Solo appunti non digita mai nulla; incollate il testo voi stessi."
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Incollare tutto in una volta (Maiusc+Ins)"
+msgid "Paste all at once"
+msgstr "Incollare tutto in una volta"
 
 #: dictee-setup.py:16188
 #, python-brace-format

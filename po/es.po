@@ -4407,8 +4407,8 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr "Cómo llega el texto dictado a su aplicación. El modo de pegado (Mayús+Insert) funciona con cualquier distribución de teclado (Neo, Bépo, ...) y en la mayoría de terminales, pero sobrescribe el portapapeles. Solo portapapeles nunca escribe nada; usted pega el texto."
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Pegar todo de una vez (Mayús+Insert)"
+msgid "Paste all at once"
+msgstr "Pegar todo de una vez"
 
 #: dictee-setup.py:16188
 #, python-brace-format

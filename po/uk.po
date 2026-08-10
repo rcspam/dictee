@@ -4371,8 +4371,8 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr "Як надиктований текст потрапляє у ваш застосунок. Режим вставлення (Shift+Insert) працює з будь-якою розкладкою клавіатури (Neo, Bépo, ...) і в більшості терміналів, але перезаписує буфер обміну. Лише буфер обміну нічого не набирає; ви вставляєте текст самі."
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Вставити все одразу (Shift+Insert)"
+msgid "Paste all at once"
+msgstr "Вставити все одразу"
 
 #: dictee-setup.py:16188
 #, python-brace-format

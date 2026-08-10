@@ -3871,7 +3871,7 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr ""
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
+msgid "Paste all at once"
 msgstr ""
 
 #: dictee-setup.py:16188

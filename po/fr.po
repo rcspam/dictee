@@ -4401,8 +4401,8 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr "Comment le texte dicté arrive dans votre application. Le mode collage (Maj+Inser) fonctionne avec toutes les dispositions de clavier (Neo, Bépo, ...) et dans la plupart des terminaux, mais écrase le presse-papier. Presse-papier uniquement ne tape jamais rien ; vous collez le texte vous-même."
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Coller d'un bloc (Maj+Inser)"
+msgid "Paste all at once"
+msgstr "Coller d'un bloc"
 
 #: dictee-setup.py:16188
 #, python-brace-format

@@ -4415,8 +4415,8 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr "Wie der diktierte Text Ihre Anwendung erreicht. Der Einfügemodus (Umschalt+Einfg) funktioniert mit jeder Tastaturbelegung (Neo, Bépo, ...) und in den meisten Terminals, überschreibt aber die Zwischenablage. Nur Zwischenablage tippt nie etwas; Sie fügen den Text selbst ein."
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Alles auf einmal einfügen (Umschalt+Einfg)"
+msgid "Paste all at once"
+msgstr "Alles auf einmal einfügen"
 
 #: dictee-setup.py:16188
 #, python-brace-format

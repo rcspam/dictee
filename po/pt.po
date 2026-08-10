@@ -4379,8 +4379,8 @@ msgid "How the dictated text reaches your application. The paste mode (Shift+Ins
 msgstr "Como o texto ditado chega à sua aplicação. O modo de colagem (Shift+Insert) funciona com qualquer disposição de teclado (Neo, Bépo, ...) e na maioria dos terminais, mas substitui a área de transferência. Apenas área de transferência nunca digita nada; você cola o texto."
 
 #: dictee-setup.py
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Colar tudo de uma vez (Shift+Insert)"
+msgid "Paste all at once"
+msgstr "Colar tudo de uma vez"
 
 #: dictee-setup.py:16188
 #, python-brace-format
