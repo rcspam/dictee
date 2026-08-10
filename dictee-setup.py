@@ -17595,9 +17595,17 @@ class DicteeSetupDialog(QDialog):
     def _device_is_listened_to(self, name):
         """Would dictee-ptt grab this device? Mirrors find_keyboards_evdev.
 
-        Kept deliberately close to dictee-ptt.py:193-205: more than 30 keys, no
-        pointer axes, not one of the excluded names — unless the user already
-        whitelisted it.
+        A hand-written mirror drifts, and this one did: it still rejected any
+        axis at all after the daemon had been narrowed to X/Y motion only
+        (#30). A media block was then listened to AND reported as ignored,
+        sending the reporter of #30 to whitelist a device that needed nothing.
+        The order below is the daemon's own, in dictee-ptt.py's
+        find_keyboards_evdev: excluded name wins, then whitelist, then more
+        than 30 keys with no pointer motion and no virtual-device name.
+
+        Anything this cannot determine answers True: an unfounded warning is
+        worse than a missing one, since it sends the user changing settings
+        that were already right.
         """
         if not HAS_EVDEV:
             return True  # cannot tell; do not cry wolf
@@ -17605,6 +17613,11 @@ class DicteeSetupDialog(QDialog):
                      for s in self.txt_ptt_extra_devices.text().split(",")
                      if s.strip()] if hasattr(self, "txt_ptt_extra_devices") else []
         lowered = name.lower()
+        excluded = [s.strip().lower()
+                    for s in self.txt_ptt_exclude_devices.text().split(",")
+                    if s.strip()] if hasattr(self, "txt_ptt_exclude_devices") else []
+        if lowered in excluded:
+            return False
         if any(w in lowered for w in whitelist):
             return True
         for path in evdev.list_devices():
@@ -17616,9 +17629,12 @@ class DicteeSetupDialog(QDialog):
                 if dev.name != name:
                     continue
                 caps = dev.capabilities(verbose=False)
+                axes = set(caps.get(_ecodes.EV_REL, ()))
+                axes |= {c for c, _ in caps.get(_ecodes.EV_ABS, ())}
                 return (len(caps.get(_ecodes.EV_KEY, [])) > 30
-                        and _ecodes.EV_REL not in caps
-                        and _ecodes.EV_ABS not in caps)
+                        and not axes & {_ecodes.REL_X, _ecodes.REL_Y}
+                        and not any(x in lowered for x in
+                                    ("virtual", "uinput", "dotool", "dictee-ptt")))
             finally:
                 dev.close()
         return True
