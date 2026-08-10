@@ -236,7 +236,12 @@ class TestDirectCapture(unittest.TestCase):
             lambda code, dev: self.seen.append((code, dev)))
 
     def tearDown(self):
-        self.btn._close_devices()
+        # _cancel_capture, not _close_devices: the latter only releases the
+        # devices and leaves the pause marker behind, so a test that starts a
+        # capture without finishing it — pressing a modifier, which is ignored
+        # by design — keeps dictee-ptt paused for the marker's whole lifetime.
+        # The daemon class further down then finds a daemon holding nothing.
+        self.btn._cancel_capture()
         self.btn.deleteLater()
 
     def test_mic_key_is_captured(self):
