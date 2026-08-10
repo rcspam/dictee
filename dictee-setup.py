@@ -3035,11 +3035,23 @@ class ShortcutButton(QPushButton):
     def _open_devices(self):
         """Open every readable keyboard node. False if none can be read.
 
-        No filtering beyond our own virtual keyboards: the whole point is to
-        see the devices dictee-ptt's detection rejects — a Consumer Control
-        node carrying a mic key (#30), a remapper's virtual keyboard (#10), a
+        Keyboards are kept wide on purpose: the whole point is to see the
+        devices dictee-ptt's detection rejects — a Consumer Control node
+        carrying a mic key (#30), a remapper's virtual keyboard (#10), a
         keyboard with pointer axes (#23). Whether dictee-ptt will then listen
         to that device is a separate question, answered by the whitelist.
+
+        Pointers are the one exclusion, and it is not cosmetic: what is opened
+        here gets grabbed, and a grabbed pointer stops moving for the whole
+        capture. A mouse or a touchpad carries EV_KEY like any keyboard — its
+        buttons — so the capability alone cannot tell them apart.
+
+        The test is the same one _on_device_readable applies to each event:
+        membership of ecodes.KEY. NOT an upper bound on the code, which would
+        look tempting and be wrong — KEY_VOICECOMMAND is 582 and a mouse
+        button is 272, so a block exposing only that key, the hardware of #30,
+        would land on the wrong side. A device with no KEY_* at all has
+        nothing to offer a key capture anyway.
         """
         if not HAS_EVDEV:
             return False
@@ -3049,7 +3061,8 @@ class ShortcutButton(QPushButton):
             except (OSError, PermissionError):
                 continue  # not in the 'input' group yet, or node vanished
             name = dev.name.lower()
-            if (_ecodes.EV_KEY not in dev.capabilities(verbose=False)
+            keys = dev.capabilities(verbose=False).get(_ecodes.EV_KEY, ())
+            if (not any(k in _ecodes.KEY for k in keys)
                     or any(x in name for x in self._OWN_DEVICES)):
                 dev.close()
                 continue
@@ -3066,6 +3079,18 @@ class ShortcutButton(QPushButton):
         QTimer.singleShot(1200, self._grab_devices)
         return True
 
+    @staticmethod
+    def _moves_a_pointer(dev):
+        """True when the device reports X/Y motion, i.e. drives a pointer.
+
+        Same rule as dictee-ptt's own guard: only X and Y count, so a media
+        block declaring a volume axis or a horizontal wheel is not a pointer.
+        """
+        caps = dev.capabilities(verbose=False)
+        axes = set(caps.get(_ecodes.EV_REL, ()))
+        axes |= {c for c, _ in caps.get(_ecodes.EV_ABS, ())}
+        return bool(axes & {_ecodes.REL_X, _ecodes.REL_Y})
+
     def _grab_devices(self):
         """Take the devices exclusively, so the key does not also act.
 
@@ -3074,13 +3099,23 @@ class ShortcutButton(QPushButton):
         would type it wherever the cursor is. A grab stops the event at the
         kernel, before the desktop and before any application.
 
-        Failures are ignored on purpose: a device dictee-ptt has not released
-        yet raises EBUSY, and the retry above covers it. Closing the device
-        releases the grab, so every exit path already undoes this.
+        Devices that move a pointer are the exception, and it is a deliberate
+        trade. A unified receiver exposes keyboard and mouse on one node, so
+        grabbing it takes the pointer away — and someone who then wants to
+        close this dialog no longer has a cursor to do it with. That dead end
+        is worse than the key acting once while being chosen, which is all
+        that not grabbing costs. Their keys are still read: only the grab is
+        skipped, so the Craft of #23 stays choosable.
+
+        Other failures are ignored on purpose: a device dictee-ptt has not
+        released yet raises EBUSY, and the retry above covers it. Closing the
+        device releases the grab, so every exit path already undoes this.
         """
         if not self._capturing:
             return
         for dev in self._devices:
+            if self._moves_a_pointer(dev):
+                continue
             try:
                 dev.grab()
             except OSError:

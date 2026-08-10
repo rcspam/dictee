@@ -68,7 +68,8 @@ class FakeKeyboard:
     """
 
     NAME = "dictee test keyboard"
-    KEYS = [e.KEY_F9, e.KEY_A, e.KEY_LEFTSHIFT, e.KEY_ESC, e.KEY_VOICECOMMAND]
+    KEYS = [e.KEY_F9, e.KEY_A, e.KEY_LEFTSHIFT, e.KEY_ESC, e.KEY_VOICECOMMAND,
+            e.KEY_GRAVE]
 
     def __enter__(self):
         self.ui = UInput({e.EV_KEY: self.KEYS}, name=self.NAME)
@@ -94,6 +95,82 @@ class GrabbableFakeKeyboard(FakeKeyboard):
 
     NAME = "dictee test keyboard full"
     KEYS = list(range(e.KEY_ESC, e.KEY_ESC + 60)) + [e.KEY_VOICECOMMAND]
+
+
+class FakeKeyboardWithPointer:
+    """A keyboard whose node ALSO reports pointer motion.
+
+    Two real products land here: the Logitech Craft, whose Crown dial reports
+    X/Y (#23), and the unified receivers that expose keyboard and mouse on one
+    node — the hardware behind the 1.3.4 frozen-pointer report. Capture must
+    keep reading their keys whatever it decides to grab.
+    """
+
+    NAME = "dictee test keyboard with pointer"
+    KEYS = list(range(e.KEY_ESC, e.KEY_ESC + 60)) + [e.KEY_F9]
+
+    def __enter__(self):
+        self.ui = UInput({e.EV_KEY: self.KEYS,
+                          e.EV_REL: [e.REL_X, e.REL_Y]}, name=self.NAME)
+        time.sleep(0.4)
+        return self
+
+    def press(self, code):
+        self.ui.write(e.EV_KEY, code, 1)
+        self.ui.write(e.EV_KEY, code, 0)
+        self.ui.syn()
+
+    def __exit__(self, *a):
+        self.ui.close()
+
+
+class FakeMediaOnlyBlock:
+    """A Consumer Control node whose only key sits ABOVE the button range.
+
+    KEY_VOICECOMMAND is 582, higher than BTN_MISC (256), while a mouse button
+    is 272. So "is the code below BTN_MISC" separates neither, and a device
+    exposing only this key would be dropped by such a test — the very device
+    issue #30 is about.
+    """
+
+    NAME = "dictee test media only"
+    KEYS = [e.KEY_VOICECOMMAND]
+
+    def __enter__(self):
+        self.ui = UInput({e.EV_KEY: self.KEYS}, name=self.NAME)
+        time.sleep(0.4)
+        return self
+
+    def press(self, code):
+        self.ui.write(e.EV_KEY, code, 1)
+        self.ui.write(e.EV_KEY, code, 0)
+        self.ui.syn()
+
+    def __exit__(self, *a):
+        self.ui.close()
+
+
+class FakePointer:
+    """A pointer with buttons and no keyboard key at all.
+
+    BTN_* codes live in EV_KEY, so a mouse or a touchpad satisfies any "does
+    this device have keys" test; only the code VALUE tells them apart, real
+    keys sitting below BTN_MISC. This is the device the capture must leave
+    alone.
+    """
+
+    NAME = "dictee test mouse"
+
+    def __enter__(self):
+        self.ui = UInput(
+            {e.EV_KEY: [e.BTN_LEFT, e.BTN_RIGHT, e.BTN_MIDDLE],
+             e.EV_REL: [e.REL_X, e.REL_Y]},
+            name=self.NAME)
+        time.sleep(0.4)  # let the node show up in /dev/input
+        return self
+
+    def __exit__(self, *a):
+        self.ui.close()
 
 
 def daemon_is_running():
@@ -170,6 +247,80 @@ class TestDirectCapture(unittest.TestCase):
             pump()
         self.assertEqual([c for c, _ in self.seen], [e.KEY_VOICECOMMAND])
         self.assertEqual(self.seen[0][1], FakeKeyboard.NAME)
+
+    def test_the_top_left_key_is_captured(self):
+        """#22: the ² / ` key, keycode 41, must be choosable."""
+        with FakeKeyboard() as kbd:
+            self.btn._start_capture()
+            kbd.press(e.KEY_GRAVE)
+            pump()
+        self.assertEqual([c for c, _ in self.seen], [e.KEY_GRAVE])
+
+    def test_a_key_from_a_keyboard_with_pointer_is_captured(self):
+        """#23: the Craft's keys stay reachable though its dial reports X/Y.
+
+        Whatever the grab policy becomes, reading must not depend on it: this
+        is the keyboard a user opts into through the extra-devices list.
+        """
+        with FakeKeyboardWithPointer() as kbd:
+            self.btn._start_capture()
+            self.assertTrue(
+                any(d.name == kbd.NAME for d in self.btn._devices),
+                "a keyboard carrying pointer axes was not opened — #23 lost")
+            kbd.press(e.KEY_F9)
+            pump()
+        self.assertEqual([c for c, _ in self.seen], [e.KEY_F9])
+
+    def test_a_keyboard_that_moves_a_pointer_is_not_grabbed(self):
+        """A unified receiver must not cost the user their cursor.
+
+        Keyboard and mouse on one node: grabbing it to stop the key from
+        acting also takes the pointer, and whoever then wants to close this
+        dialog has nothing to click with. Reading its keys does not need the
+        grab, so the grab is what gives way.
+        """
+        with FakeKeyboardWithPointer() as kbd:
+            self.btn._start_capture()
+            pump(0.6)
+            grabbed = is_grabbed(kbd.NAME)
+            self.btn._cancel_capture()
+        self.assertIs(grabbed, False,
+                      "a keyboard+pointer node was grabbed — the cursor "
+                      "freezes and the dialog cannot be closed")
+
+    def test_a_media_only_block_is_still_captured(self):
+        """Excluding pointers must not exclude high-coded keys with them.
+
+        The guard that keeps mice out cannot be an upper bound on the code:
+        a block whose single key is KEY_VOICECOMMAND (582) would fall on the
+        same side as a mouse button (272). That block IS the hardware of #30.
+        """
+        with FakeMediaOnlyBlock() as blk:
+            self.btn._start_capture()
+            self.assertTrue(
+                any(d.name == blk.NAME for d in self.btn._devices),
+                "a media-only block was not even opened — #30 hardware lost")
+            blk.press(e.KEY_VOICECOMMAND)
+            pump()
+        self.assertEqual([c for c, _ in self.seen], [e.KEY_VOICECOMMAND])
+
+    def test_a_pointer_is_never_grabbed(self):
+        """The mouse must keep working while the user picks a key.
+
+        Capture grabs what it opens, so the chosen key does not also act while
+        it is being chosen. Opening everything that has EV_KEY sweeps in mice
+        and touchpads, whose buttons ARE keys to the kernel: the pointer then
+        freezes for the whole capture, and stays frozen if the dialog is left
+        open. Reported on a laptop touchpad, 2026-08-10.
+        """
+        with FakePointer() as ptr:
+            self.btn._start_capture()
+            pump(0.6)          # the first grab happens inside _open_devices
+            grabbed = is_grabbed(ptr.NAME)
+            self.btn._cancel_capture()
+        self.assertIs(grabbed, False,
+                      "the pointer was grabbed during capture — the mouse "
+                      "freezes until the dialog closes")
 
     def test_function_key_still_works(self):
         """F9 is what everyone uses; it must come out unchanged."""
