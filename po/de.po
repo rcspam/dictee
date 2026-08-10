@@ -1457,8 +1457,8 @@ msgid "Type into the active window (default)"
 msgstr "In das aktive Fenster tippen (Standard)"
 
 #: dictee-setup.py:6849
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Alles auf einmal einfügen (Umschalt+Einfg)"
+msgid "Paste all at once"
+msgstr "Alles auf einmal einfügen"
 
 #: dictee-setup.py:6850
 msgid "Copy to clipboard only (no typing)"

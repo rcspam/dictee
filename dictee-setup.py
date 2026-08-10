@@ -7116,7 +7116,7 @@ class DicteeSetupDialog(QDialog):
             "and in most terminals, but overwrites the clipboard. Clipboard "
             "only never types anything; you paste the text yourself."))
         self.rad_out_type = QRadioButton(_("Type into the active window (default)"))
-        self.rad_out_paste = QRadioButton(_("Paste all at once (Shift+Insert)"))
+        self.rad_out_paste = QRadioButton(_("Paste all at once"))
         self.rad_out_clipboard = QRadioButton(_("Copy to clipboard only (no typing)"))
         self._out_radios = (
             (self.rad_out_type, "type"),

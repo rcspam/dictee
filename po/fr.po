@@ -1458,8 +1458,8 @@ msgid "Type into the active window (default)"
 msgstr "Taper dans la fenêtre active (par défaut)"
 
 #: dictee-setup.py:6849
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Coller d'un bloc (Maj+Inser)"
+msgid "Paste all at once"
+msgstr "Coller d'un bloc"
 
 #: dictee-setup.py:6850
 msgid "Copy to clipboard only (no typing)"

@@ -1301,7 +1301,7 @@ msgid "Type into the active window (default)"
 msgstr ""
 
 #: dictee-setup.py:6849
-msgid "Paste all at once (Shift+Insert)"
+msgid "Paste all at once"
 msgstr ""
 
 #: dictee-setup.py:6850

@@ -1448,8 +1448,8 @@ msgid "Type into the active window (default)"
 msgstr "Digitar na janela ativa (padrão)"
 
 #: dictee-setup.py:6849
-msgid "Paste all at once (Shift+Insert)"
-msgstr "Colar tudo de uma vez (Shift+Insert)"
+msgid "Paste all at once"
+msgstr "Colar tudo de uma vez"
 
 #: dictee-setup.py:6850
 msgid "Copy to clipboard only (no typing)"
