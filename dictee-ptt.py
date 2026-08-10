@@ -43,6 +43,29 @@ except ImportError:
 
 CONF_PATH = os.path.expanduser("~/.config/dictee.conf")
 STATE_FILE = "/dev/shm/.dictee_state"
+# Created by dictee-setup while it captures a key. We then ungrab every device
+# so setup can read them directly, and consume nothing.
+PAUSE_PATH = f"/tmp/.dictee-ptt-pause-{os.getuid()}"
+# A capture lasts seconds. If the marker outlives this, whoever wrote it died
+# without cleaning up (crash, kill -9, terminal closed) and honouring it any
+# longer would leave dictation silently dead until the next reboot.
+PAUSE_MAX_AGE = 120
+
+
+def pause_requested():
+    """True while a key capture is in progress. Stale markers are ignored."""
+    try:
+        age = time.time() - os.stat(PAUSE_PATH).st_mtime
+    except OSError:
+        return False
+    if age > PAUSE_MAX_AGE:
+        print(f"[ptt] stale pause marker ({age:.0f}s old), removing it")
+        try:
+            os.unlink(PAUSE_PATH)
+        except OSError:
+            pass
+        return False
+    return True
 
 
 def _daemon_socket_exists():
@@ -175,6 +198,20 @@ def load_config():
     return conf
 
 
+# X and Y, the only axes that mean "this device moves a pointer". Same codes
+# for relative (mouse) and absolute (touchpad, tablet) reporting.
+MOTION_AXES = {0, 1}
+
+
+def _has_motion_axes(caps):
+    """True when the device reports X/Y motion, i.e. drives a pointer.
+
+    EV_ABS entries come as (code, AbsInfo) pairs, EV_REL as plain codes.
+    """
+    axes = set(caps.get(EV_REL, ())) | {c for c, _ in caps.get(EV_ABS, ())}
+    return bool(axes & MOTION_AXES)
+
+
 def find_keyboards_evdev():
     """Trouve les claviers physiques via evdev."""
     devs = []
@@ -185,20 +222,26 @@ def find_keyboards_evdev():
             continue
         caps = dev.capabilities(verbose=False)
         # EV_KEY present with the full key set. The default path additionally
-        # rejects pointer axes: a real keyboard never reports EV_REL/EV_ABS,
-        # and some mice and combined keyboard+mouse HID receivers expose a
-        # node with >30 keys that ALSO carries pointer movement; EVIOCGRAB-ing
-        # such a node freezes the system mouse (forum report: dictee 1.3.4,
-        # AMD/Wayland). The EXTRA_KEYBOARDS whitelist bypasses that guard
-        # (issue #23): some keyboards carry pointer axes on the keyboard node
-        # (e.g. Logitech Craft's Crown dial) and the user explicitly opted in.
+        # rejects devices that can move a pointer: some mice and combined
+        # keyboard+mouse HID receivers expose a node with >30 keys that ALSO
+        # carries pointer movement, and EVIOCGRAB-ing such a node freezes the
+        # system mouse (forum report: dictee 1.3.4, AMD/Wayland).
+        #
+        # Only X/Y motion disqualifies a device, not any axis at all. A media
+        # key block declares ABS_VOLUME or REL_HWHEEL and drives no pointer;
+        # rejecting it on the mere presence of an axis made its keys
+        # unreachable (issue #30, diagnosis and fix by @gabus in PR #29).
+        #
+        # The EXTRA_KEYBOARDS whitelist still bypasses the guard entirely
+        # (issue #23): the Logitech Craft's Crown dial does report X/Y, so it
+        # is rightly refused by default and needs the user to opt in.
         if EV_KEY in caps and len(caps.get(EV_KEY, [])) > 30:
             name = dev.name.lower()
             if name in EXCLUDE_KEYBOARDS:
                 dev.close()
             elif any(x in name for x in EXTRA_KEYBOARDS):
                 devs.append(dev)
-            elif (EV_REL not in caps and EV_ABS not in caps
+            elif (not _has_motion_axes(caps)
                     and not any(x in name for x in ("virtual", "uinput", "dotool", "dictee-ptt"))):
                 devs.append(dev)
             else:
@@ -219,27 +262,28 @@ def find_keyboards_raw():
 
     for block in content.split("\n\n"):
         lines = block.strip().splitlines()
-        name_line = handlers_line = ev_line = ""
+        name_line = handlers_line = ""
+        axis_masks = []
         for line in lines:
             if line.startswith("N:"):
                 name_line = line
             elif line.startswith("H:"):
                 handlers_line = line
-            elif line.startswith("B: EV="):
-                ev_line = line
-        # The default path rejects nodes that also drive a pointer — grabbing
-        # a combined keyboard+pointer HID node freezes it. Parse the EV
-        # capability bitmask and skip the node if it exposes relative (mouse)
-        # OR absolute (touchpad/touchscreen/tablet) axes. Mirrors the
-        # EV_REL/EV_ABS exclusion in find_keyboards_evdev — the H: "mouse"
-        # handler check alone misses abs-only pointers. The EXTRA_KEYBOARDS
-        # whitelist bypasses both pointer checks (issue #23), same as in
-        # find_keyboards_evdev.
+            elif line.startswith(("B: REL=", "B: ABS=")):
+                axis_masks.append(line)
+        # Same rule as find_keyboards_evdev: only X/Y motion disqualifies a
+        # node. "B: EV=" only says THAT the node has axes, not which ones, so
+        # it rejected media key blocks whose single axis is the volume
+        # (issue #30). Read the REL/ABS masks instead: they print as 64-bit
+        # words, most significant first, so X (bit 0) and Y (bit 1) are in the
+        # last word. The EXTRA_KEYBOARDS whitelist still bypasses this guard
+        # (issue #23), same as in find_keyboards_evdev.
         has_pointer = False
-        m_ev = re.search(r"B: EV=([0-9a-fA-F]+)", ev_line)
-        if m_ev:
-            ev_caps = int(m_ev.group(1), 16)
-            has_pointer = bool(ev_caps & (1 << EV_REL)) or bool(ev_caps & (1 << EV_ABS))
+        for mask in axis_masks:
+            words = mask.rsplit("=", 1)[1].split()
+            if words and int(words[-1], 16) & 0b11:
+                has_pointer = True
+                break
         # Require the kbd handler.
         if "kbd" in handlers_line:
             name_lower = name_line.lower()
@@ -736,6 +780,28 @@ def run_evdev(ptt):
         startup_time = time.monotonic()
         STARTUP_GRACE = 0.5
 
+        # While dictee-setup captures a key, we must not only stop consuming
+        # keys but also let go of the devices: an EVIOCGRAB is exclusive, so a
+        # grabbed keyboard is invisible to anyone else, and setup would see
+        # nothing when reading /dev/input directly. Re-emitting through our
+        # uinput node is not enough — the events would carry our virtual
+        # keyboard's name, not the real one.
+        paused = False
+
+        def _release_devices():
+            for d in devices:
+                try:
+                    d.ungrab()
+                except OSError:
+                    pass
+
+        def _regrab_devices():
+            for d in devices:
+                try:
+                    d.grab()
+                except OSError as ex:
+                    print(f"[ptt] regrab échoué {d.name}: {ex}", file=sys.stderr)
+
         while running:
             # Nettoyer les devices morts
             dead = []
@@ -781,6 +847,17 @@ def run_evdev(ptt):
                 # Timeout select : aucune frappe en attente → moment sûr pour
                 # le hotplug. Rescanner ici (pas en haut de boucle) évite de
                 # figer la saisie, donc l'auto-répétition parasite (issue #8).
+                # Also the safe point to hand the devices over to dictee-setup
+                # while it captures a key, and to take them back afterwards.
+                now_paused = pause_requested()
+                if now_paused != paused:
+                    paused = now_paused
+                    if paused:
+                        print("[ptt] pause: devices released for key capture")
+                        _release_devices()
+                    else:
+                        print("[ptt] resume: devices grabbed again")
+                        _regrab_devices()
                 now_mono = time.monotonic()
                 if now_mono - last_rescan > RESCAN_INTERVAL:
                     last_rescan = now_mono
@@ -808,11 +885,16 @@ def run_evdev(ptt):
                             ui.write_event(event)
                             continue
 
-                        # Pause marker: when dictee-setup captures a shortcut
-                        # (F8/F9 etc), it creates this file so we forward every
-                        # key to Qt instead of consuming the configured PTT keys.
-                        if os.path.exists(f"/tmp/.dictee-ptt-pause-{os.getuid()}"):
-                            ui.write_event(event)
+                        # Pause marker: while dictee-setup captures a key, stay
+                        # out of the way entirely. The devices are ungrabbed at
+                        # the select timeout above, so keys already reach apps
+                        # and setup on their own — re-emitting here would type
+                        # everything twice. Checked per event as well, because
+                        # the release happens between two reads.
+                        if pause_requested():
+                            if not paused:
+                                paused = True
+                                _release_devices()
                             continue
                         consumed = ptt.handle_event(event.code, event.value)
                         if not consumed:

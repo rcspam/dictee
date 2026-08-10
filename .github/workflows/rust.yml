@@ -47,6 +47,45 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
 
+  test-keycode-tables:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    # evdev supplies the kernel keycode constants the tables are checked
+    # against; PyQt6 is needed to confirm each label still yields a shortcut.
+    - name: Install Python test deps
+      run: python3 -m pip install --user evdev PyQt6
+    - name: Run keycode table tests
+      run: python3 tests/test-keycode-tables.py
+      env:
+        XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
+        QT_QPA_PLATFORM: offscreen
+
+  test-key-capture:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install Python test deps
+      run: python3 -m pip install --user evdev PyQt6
+    # The uinput-backed cases skip themselves when /dev/uinput is missing,
+    # which is the case on hosted runners; the Qt fallback cases still run.
+    - name: Run key capture tests
+      run: python3 tests/test-key-capture.py
+      env:
+        XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
+        QT_QPA_PLATFORM: offscreen
+
+  test-keyboard-detection:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - name: Install Python test deps
+      run: python3 -m pip install --user evdev
+    # Builds uinput devices matching the hardware from issues #10, #23 and #30;
+    # skips itself where /dev/uinput is absent, as on hosted runners.
+    - name: Run keyboard detection tests
+      run: python3 tests/test-keyboard-detection.py
+
   test-apply-continuation:
     runs-on: ubuntu-latest
     steps:

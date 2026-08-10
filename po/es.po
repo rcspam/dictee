@@ -617,8 +617,8 @@ msgid "Click to capture a shortcut…"
 msgstr "Haz clic para capturar un atajo…"
 
 #: dictee-setup.py:3178
-msgid "Press a key combination…"
-msgstr "Pulsa una combinación de teclas…"
+msgid "Press a key combination… (Esc to cancel)"
+msgstr "Pulse una combinación de teclas… (Esc para cancelar)"
 
 #: dictee-setup.py:3209
 #, python-brace-format
@@ -3840,12 +3840,10 @@ msgstr "Traduciendo…"
 #: dictee-setup.py:17087
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"La tecla '{key}' no es compatible. Use una tecla de función (F1-F24), la "
-"tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
-"Insertar, etc.)."
+"Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
+"the top-left {key41} key, or Pause. Other keys are left alone because your "
+"system or your typing already needs them."
+msgstr "La tecla «{key}» no puede usarse para el dictado. Elija una tecla de función (F1-F24), la tecla {key41} de arriba a la izquierda, o Pausa. Las demás teclas se dejan libres porque su sistema o su escritura ya las necesitan."
 
 #: dictee-setup.py:17104
 #, python-brace-format
@@ -3900,12 +3898,9 @@ msgstr "{name}  [virtual]"
 #: dictee-setup.py:17232
 #, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Esta tecla se usa para escribir. Prefiera una tecla de función (F1-F24), la "
-"tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
-"Insertar, etc.)."
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
+msgstr "Esta tecla se usa para escribir. Prefiera una tecla de función (F1-F24) o la tecla {key41} de arriba a la izquierda."
 
 #: dictee-setup.py:17241
 msgid "Escape is used to cancel dictation. Choose another key."
@@ -4776,3 +4771,51 @@ msgstr ""
 #, python-brace-format
 msgid "{name}  [pointer axes — ignored unless whitelisted]"
 msgstr "{name}  [ejes de puntero — ignorado salvo en lista blanca]"
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Pulse la tecla que desee… (Esc para cancelar)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "esta tecla"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Tecla no admitida"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr "Esta tecla está en «{device}», que dictee no escucha de forma predeterminada. Añádalo a los dispositivos de entrada adicionales (página Opciones adicionales) o la tecla no hará nada."
+
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "ajustar el sonido"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "ajustar la pantalla"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "ajustar la retroiluminación del teclado"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "controlar la reproducción multimedia"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "una función del sistema"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Su ordenador usa esta tecla para {what}. Elegirla para el dictado se lo quita: dictee recibe la tecla antes que su escritorio."
+

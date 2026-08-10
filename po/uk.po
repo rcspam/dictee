@@ -617,8 +617,8 @@ msgid "Click to capture a shortcut…"
 msgstr "Натисніть для захоплення комбінації клавіш…"
 
 #: dictee-setup.py:3178
-msgid "Press a key combination…"
-msgstr "Натисніть комбінацію клавіш…"
+msgid "Press a key combination… (Esc to cancel)"
+msgstr "Натисніть комбінацію клавіш… (Esc — скасувати)"
 
 #: dictee-setup.py:3209
 #, python-brace-format
@@ -3807,12 +3807,10 @@ msgstr "Переклад…"
 #: dictee-setup.py:17087
 #, python-brace-format
 msgid ""
-"Key '{key}' is not supported. Use a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Клавіша '{key}' не підтримується. Використайте функціональну клавішу (F1-"
-"F24), клавішу {key41} (верхній лівий кут) або спеціальну клавішу (Home, End, "
-"Insert тощо)."
+"Key '{key}' cannot be used for dictation. Choose a function key (F1-F24), "
+"the top-left {key41} key, or Pause. Other keys are left alone because your "
+"system or your typing already needs them."
+msgstr "Клавішу «{key}» не можна використовувати для диктування. Виберіть функціональну клавішу (F1-F24), клавішу {key41} у верхньому лівому куті або Pause. Інші клавіші залишаються вільними, бо їх уже використовує система або набір тексту."
 
 #: dictee-setup.py:17104
 #, python-brace-format
@@ -3866,12 +3864,9 @@ msgstr "{name}  [віртуальний]"
 #: dictee-setup.py:17232
 #, python-brace-format
 msgid ""
-"This key is used for typing. Prefer a function key (F1-F24), the top-left "
-"{key41} key or a special key (Home, End, Insert, etc.)."
-msgstr ""
-"Ця клавіша використовується для введення тексту. Краще вибрати функціональну "
-"клавішу (F1-F24), клавішу {key41} (верхній лівий кут) або спеціальну клавішу "
-"(Home, End, Insert тощо)."
+"This key is used for typing. Prefer a function key (F1-F24) or the top-left "
+"{key41} key."
+msgstr "Ця клавіша використовується для набору тексту. Краще виберіть функціональну клавішу (F1-F24) або клавішу {key41} у верхньому лівому куті."
 
 #: dictee-setup.py:17241
 msgid "Escape is used to cancel dictation. Choose another key."
@@ -4728,3 +4723,51 @@ msgstr ""
 #, python-brace-format
 msgid "{name}  [pointer axes — ignored unless whitelisted]"
 msgstr "{name}  [осі вказівника — ігнорується, якщо не в білому списку]"
+
+#: dictee-setup.py
+msgid "Press the key you want to use… (Esc to cancel)"
+msgstr "Натисніть потрібну клавішу… (Esc — скасувати)"
+
+#: dictee-setup.py
+msgid "this key"
+msgstr "ця клавіша"
+
+#: dictee-setup.py
+msgid "Key not supported"
+msgstr "Клавіша не підтримується"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is on '{device}', which dictee does not listen to by default. "
+"Add it to the extra input devices (Extra options page) or the key will "
+"do nothing."
+msgstr "Ця клавіша розташована на «{device}», який dictee типово не слухає. Додайте цей пристрій до додаткових пристроїв введення (сторінка «Додаткові параметри»), інакше клавіша нічого не робитиме."
+
+#: dictee-setup.py
+msgid "adjust the sound"
+msgstr "регулювання звуку"
+
+#: dictee-setup.py
+msgid "adjust the screen"
+msgstr "регулювання екрана"
+
+#: dictee-setup.py
+msgid "adjust the keyboard backlight"
+msgstr "регулювання підсвічування клавіатури"
+
+#: dictee-setup.py
+msgid "control media playback"
+msgstr "керування відтворенням"
+
+#: dictee-setup.py
+msgid "perform a system function"
+msgstr "системну функцію"
+
+#: dictee-setup.py
+#, python-brace-format
+msgid ""
+"This key is used by your computer to {what}. Choosing it for dictation takes "
+"that away: dictee receives the key before your desktop does."
+msgstr "Комп'ютер використовує цю клавішу для {what}. Якщо вибрати її для диктування, ця функція зникне: dictee отримує клавішу раніше за стільницю."
+
