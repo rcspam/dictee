@@ -15,11 +15,13 @@ CI without the device does not fail.
 
 Run: python3 tests/test-key-capture.py
 """
+import importlib.machinery
 import importlib.util
 import os
 import subprocess
 import sys
 import time
+import types
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -372,6 +374,68 @@ class TestDirectCapture(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_EVDEV, "python3-evdev not installed")
+@unittest.skipUnless(HAS_EVDEV, "python3-evdev not installed")
+class TestListenedMirrorAgreesWithTheDaemon(unittest.TestCase):
+    """The warning must not contradict what dictee-ptt actually does.
+
+    _device_is_listened_to decides whether to tell the user "this key is on a
+    device dictee does not listen to". It mirrors find_keyboards_evdev by
+    hand, and a hand-written mirror drifts: the daemon stopped rejecting every
+    axis when #30 was fixed, the mirror did not. A media block was then
+    listened to AND reported as ignored, sending the reporter of #30 to add a
+    whitelist entry they never needed.
+    """
+
+    NAME = "dictee test media block audit"
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            UInput().close()
+        except Exception as ex:  # noqa: BLE001
+            raise unittest.SkipTest(f"/dev/uinput not usable: {ex}")
+
+    def _mirror_says_listened(self, name):
+        """Call the real method with the minimum of a dialog it needs."""
+        class _NoWhitelist:
+            @staticmethod
+            def text():
+                return ""
+
+        stub = types.SimpleNamespace(txt_ptt_extra_devices=_NoWhitelist())
+        return setup.DicteeSetupDialog._device_is_listened_to(stub, name)
+
+    def test_a_media_block_is_reported_as_listened(self):
+        """#30 hardware: volume axis, no X/Y motion, plenty of keys."""
+        caps = {e.EV_KEY: list(range(e.KEY_ESC, e.KEY_ESC + 60))
+                          + [e.KEY_VOICECOMMAND],
+                e.EV_ABS: [(e.ABS_VOLUME, (0, 0, 100, 0, 0, 0))],
+                e.EV_REL: [e.REL_HWHEEL]}
+        with UInput(caps, name=self.NAME):
+            time.sleep(0.5)
+            daemon_listens = self._daemon_listens(self.NAME)
+            mirror = self._mirror_says_listened(self.NAME)
+        self.assertTrue(daemon_listens,
+                        "the daemon stopped listening to a media block — #30")
+        self.assertEqual(
+            mirror, daemon_listens,
+            "the warning contradicts the daemon: the user is told to "
+            "whitelist a device that is already listened to")
+
+    @staticmethod
+    def _daemon_listens(name):
+        loader = importlib.machinery.SourceFileLoader("ptt_mod", os.path.join(ROOT, "dictee-ptt.py"))
+        spec = importlib.util.spec_from_loader("ptt_mod", loader)
+        ptt = importlib.util.module_from_spec(spec)
+        loader.exec_module(ptt)
+        devs = ptt.find_keyboards_evdev()
+        try:
+            return any(d.name == name for d in devs)
+        finally:
+            for d in devs:
+                d.close()
+
+
 class TestQtPathStaysAliveWhileDevicesAreOpen(unittest.TestCase):
     """Regression: the Qt path must keep working with devices open.
 
