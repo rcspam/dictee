@@ -20295,13 +20295,21 @@ class DicteeSetupDialog(QDialog):
         asr_services = {"parakeet": "dictee", "vosk": "dictee-vosk", "whisper": "dictee-whisper", "whisper-rust": "dictee-whisper-rust", "canary": "dictee-canary", "nemotron": "dictee-nemotron", "kyutai": "dictee-kyutai"}
         active_svc = asr_services.get(asr_backend, "dictee")
         svc_error = ""
-        # Disable inactive services + enable/restart tray/ptt in background
+        # Disable inactive services + enable/restart tray/ptt in background.
+        # systemctl takes several units per call, and systemd handles the
+        # requests one after another whatever we do, so one process per unit
+        # buys nothing and just hammers the manager: measured on 9 throwaway
+        # units, 9 parallel calls 2.30 s against 0.30 s for a single grouped
+        # one. --now and its absence cannot share a call, so group by verb.
+        # A group is all-or-nothing (see the retry below the wait).
+        stop_units = [s for s in asr_services.values() if s != active_svc]
+        start_units = []
+        (start_units if self.chk_tray.isChecked() else stop_units).append("dictee-tray")
         bg_cmds = []
-        for svc_name in asr_services.values():
-            if svc_name != active_svc:
-                bg_cmds.append(["systemctl", "--user", "disable", "--now", svc_name])
-        tray_action = "enable" if self.chk_tray.isChecked() else "disable"
-        bg_cmds.append(["systemctl", "--user", tray_action, "--now", "dictee-tray"])
+        for verb, units in (("disable", stop_units), ("enable", start_units)):
+            if units:
+                bg_cmds.append(["systemctl", "--user", verb, "--now", *units])
+        # Boot-time only: no --now here, dictee-ptt must not be started by Apply.
         bg_cmds.append(["systemctl", "--user", "enable", "dictee-ptt"])
         # Only restart dictee-ptt when a PTT-related key actually changed.
         # Otherwise the restart loses the first F9 press (keyboard grab
@@ -20332,7 +20340,9 @@ class DicteeSetupDialog(QDialog):
             _dbg_setup(f"_on_apply: dictee-ptt restart (PTT changed: {_old_ptt_normalized} -> {_new_ptt})")
         else:
             _dbg_setup("_on_apply: skipping dictee-ptt restart (PTT unchanged)")
-        bg_procs = [subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for cmd in bg_cmds]
+        bg_procs = [(subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                      stderr=subprocess.DEVNULL), cmd)
+                    for cmd in bg_cmds]
 
         # Active ASR service: always ensure it's enabled (boot). Restart it
         # only when an ASR-related key actually changed — otherwise the
@@ -20420,8 +20430,22 @@ class DicteeSetupDialog(QDialog):
         else:
             _dbg_setup(f"_on_apply: skipping {active_svc} restart (ASR unchanged and running)")
 
-        # Wait for background processes (non-blocking, they should be done by now)
-        for p in bg_procs:
+        # Wait for background processes (non-blocking, they should be done by now).
+        # A grouped call is all-or-nothing: systemctl aborts on the first unit it
+        # cannot resolve and leaves the ones named beside it untouched (measured).
+        # That is not exotic — a CPU install ships no dictee-kyutai.service. So
+        # instead of probing what exists beforehand, fall back to the pre-grouping
+        # shape when a group fails: one call per unit, all at once. Re-asking for
+        # a unit the group already handled is a no-op, so this is safe whether the
+        # group aborted upfront or gave up halfway.
+        retry_cmds = []
+        for p, cmd in bg_procs:
+            units = cmd[4:] if len(cmd) > 4 and cmd[3] == "--now" else []
+            if p.wait() != 0 and len(units) > 1:
+                _dbg_setup(f"_on_apply: grouped '{' '.join(cmd)}' failed, retrying one by one")
+                retry_cmds += [[*cmd[:4], u] for u in units]
+        for p in [subprocess.Popen(c, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL) for c in retry_cmds]:
             p.wait()
 
         # Supprimer les anciens raccourcis KDE/GNOME (dictee-ptt les remplace)
