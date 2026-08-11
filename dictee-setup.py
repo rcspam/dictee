@@ -6082,6 +6082,32 @@ class DicteeSetupDialog(QDialog):
         _set_chk("chk_pp_short_text", pp_st)
         _set_chk("chk_trpp_short_text", trpp_st)
 
+        # Translation backend: the plasmoid and dictee-switch-backend rewrite
+        # DICTEE_TRANSLATE_BACKEND (plus DICTEE_TRANS_ENGINE for the two cloud
+        # engines). Unlike the checkboxes above, do NOT block the signals here:
+        # the combo's index handler is what shows the LibreTranslate/ollama
+        # panels and refreshes the target languages, so a silent update would
+        # leave the page describing the previous backend. Restore _dirty
+        # afterwards instead -- the user edited nothing, so OK must not re-run
+        # Apply because of this. An empty value means "no translation"
+        # (issue #5): leave the UI alone rather than guess.
+        tb = (fresh.get("DICTEE_TRANSLATE_BACKEND", "") or "").strip()
+        eng = (fresh.get("DICTEE_TRANS_ENGINE", "google") or "google").strip()
+        card = {"ollama": "ollama", "libretranslate": "libretranslate"}.get(tb)
+        if tb == "trans":
+            card = "bing" if eng == "bing" else "google"
+        data = {"google": "trans:google", "bing": "trans:bing"}.get(card, card)
+        cmb = getattr(self, "cmb_trans_backend", None)
+        if card and cmb is not None and cmb.currentData() != data and cmb.findData(data) >= 0:
+            _was_dirty = self._dirty
+            if card in getattr(self, "_trans_cards", {}):
+                # Keeps the selectable cards and the combo in step
+                self._select_trans_radio(card)
+            else:
+                cmb.setCurrentIndex(cmb.findData(data))
+            self._dirty = _was_dirty
+            _dbg_setup(f"_resync_external_toggles: translate backend -> {data}")
+
         # Mirror into the state dicts + refresh SVG pipelines so the diagrams
         # reflect the external change, not just the checkboxes.
         if hasattr(self, "_pp_state"):
