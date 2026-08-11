@@ -1058,9 +1058,13 @@ def _activate_kde_shortcut_dbus(desktop_name, label, key_sequence):
     action_id = f"['{desktop_name}', '_launch', '{label}', '{label}']"
 
     # 1. Enregistrer le composant
+    # --timeout: on Plasma 6 kglobalaccel is served by KWin itself. A stuck KWin
+    # main thread keeps the bus name registered but never replies, and gdbus
+    # would then wait the 25 s DBus default on every call, freezing Apply for
+    # minutes. Fail fast instead: the shortcut is best-effort here.
     subprocess.run(
         [
-            "gdbus", "call", "--session",
+            "gdbus", "call", "--session", "--timeout", "3",
             "--dest", "org.kde.kglobalaccel",
             "--object-path", "/kglobalaccel",
             "--method", "org.kde.KGlobalAccel.doRegister",
@@ -1073,7 +1077,7 @@ def _activate_kde_shortcut_dbus(desktop_name, label, key_sequence):
     keys = f"[([{qt_key_int}, 0, 0, 0],)]"
     subprocess.run(
         [
-            "gdbus", "call", "--session",
+            "gdbus", "call", "--session", "--timeout", "3",
             "--dest", "org.kde.kglobalaccel",
             "--object-path", "/kglobalaccel",
             "--method", "org.kde.KGlobalAccel.setForeignShortcutKeys",
@@ -1096,8 +1100,10 @@ def remove_kde_shortcut(desktop_name):
     # Disable via D-Bus (empty key = no shortcut)
     action_id = f"['{desktop_name}', '_launch', '', '']"
     keys = "[([0, 0, 0, 0],)]"
+    # --timeout: see _activate_kde_shortcut_dbus. _on_apply calls this once per
+    # desktop file, so an unresponsive kglobalaccel used to cost 25 s each.
     subprocess.run(
-        ["gdbus", "call", "--session",
+        ["gdbus", "call", "--session", "--timeout", "3",
          "--dest", "org.kde.kglobalaccel",
          "--object-path", "/kglobalaccel",
          "--method", "org.kde.KGlobalAccel.setForeignShortcutKeys",
