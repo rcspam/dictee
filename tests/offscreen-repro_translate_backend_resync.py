@@ -93,6 +93,14 @@ assert now == "libretranslate", \
 # Reconciling from disk is not a user edit: OK must not re-run Apply for it
 assert dlg._dirty is False, "the resync marked the window dirty"
 
+# And it must not write the conf back: the watcher would fire again, and the
+# resync would feed itself forever.
+mtime_after_resync = os.path.getmtime(SANDBOX_CONF)
+QTimer.singleShot(1200, app.quit)
+app.exec()
+assert os.path.getmtime(SANDBOX_CONF) == mtime_after_resync, \
+    "the resync rewrote dictee.conf -- watcher feedback loop"
+
 # The panels that depend on the backend must follow, not just the combo text.
 # isHidden(), not isVisible(): the translation page is not the one on screen,
 # so every widget it holds is invisible regardless of the backend. What we
