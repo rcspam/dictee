@@ -6108,6 +6108,50 @@ class DicteeSetupDialog(QDialog):
             self._dirty = _was_dirty
             _dbg_setup(f"_resync_external_toggles: translate backend -> {data}")
 
+        # ASR backend: written by `dictee-switch-backend asr`, which both the
+        # plasmoid and the tray run. Same rule as the translation combo above:
+        # the index handler is what swaps the per-backend option blocks and
+        # refreshes the source languages, so let it run. Unlike
+        # _select_trans_radio, _select_asr_radio does NOT touch the combo, so
+        # both surfaces must be updated: the combo is what _on_apply reads in
+        # settings mode, _wizard_asr what it reads in wizard mode.
+        asr = (fresh.get("DICTEE_ASR_BACKEND", "") or "").strip()
+        cmb_asr = getattr(self, "cmb_asr_backend", None)
+        if asr and cmb_asr is not None and cmb_asr.currentData() != asr \
+                and cmb_asr.findData(asr) >= 0:
+            _was_dirty = self._dirty
+            cmb_asr.setCurrentIndex(cmb_asr.findData(asr))
+            if asr in getattr(self, "_asr_cards", {}):
+                self._select_asr_radio(asr)
+            self._dirty = _was_dirty
+            _dbg_setup(f"_resync_external_toggles: asr backend -> {asr}")
+
+        # Parakeet variant. Greyed out when both variants are not installed —
+        # its state is then imposed by _refresh_tdt_active_badge, not ours to
+        # force. Done before Force CPU: flipping it re-pins that toggle.
+        quant_int8 = (fresh.get("DICTEE_PARAKEET_QUANT", "fp32") or "fp32").strip() == "int8"
+        tgl_q = getattr(self, "tgl_quant", None)
+        if tgl_q is not None and tgl_q.isEnabled() and tgl_q.isChecked() != quant_int8:
+            _was_dirty = self._dirty
+            tgl_q.setChecked(quant_int8)
+            self._dirty = _was_dirty
+            _dbg_setup(f"_resync_external_toggles: parakeet quant int8={quant_int8}")
+
+        # Force CPU. _on_apply writes _force_cpu_pref, NOT the toggle state,
+        # and _on_force_cpu_toggled only records the preference while the
+        # toggle is interactive — so reconciling the toggle alone would leave
+        # Apply writing the stale preference back. Set the preference, then let
+        # _refresh_force_cpu_toggle_state paint it: it knows when the toggle is
+        # pinned to CPU (no GPU, CPU-only package, int8) and must stay cosmetic.
+        force_cpu = (fresh.get("DICTEE_FORCE_CPU", "0") or "0").lower() in ("1", "true", "yes")
+        if hasattr(self, "_force_cpu_pref") and self._force_cpu_pref != force_cpu:
+            _was_dirty = self._dirty
+            self._force_cpu_pref = force_cpu
+            if hasattr(self, "_refresh_force_cpu_toggle_state"):
+                self._refresh_force_cpu_toggle_state()
+            self._dirty = _was_dirty
+            _dbg_setup(f"_resync_external_toggles: force_cpu -> {force_cpu}")
+
         # Mirror into the state dicts + refresh SVG pipelines so the diagrams
         # reflect the external change, not just the checkboxes.
         if hasattr(self, "_pp_state"):
