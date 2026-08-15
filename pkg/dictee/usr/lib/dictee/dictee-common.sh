@@ -88,9 +88,14 @@ resolve_active_layout() {
 
     # KDE Plasma (X11 + Wayland): active index via DBus, codes via kxkbrc
     # (the DBus interface does not expose the variant, only the layout list).
+    # Hard timeout: under Wayland org.kde.keyboard is served by KWin itself. A
+    # KWin main thread stuck on a synchronous DBus call keeps the bus name
+    # registered but never answers, so an untimed call hangs forever and blocks
+    # every dictation before it even starts recording. Fall through to the
+    # static fallback instead of waiting.
     if [ -n "$_qdbus" ]; then
         local _idx
-        _idx=$("$_qdbus" org.kde.keyboard /Layouts getLayout 2>/dev/null)
+        _idx=$(timeout 1 "$_qdbus" org.kde.keyboard /Layouts getLayout 2>/dev/null || true)
         if [ -n "$_idx" ] && [ "$_idx" -ge 0 ] 2>/dev/null; then
             local _kxkb="${XDG_CONFIG_HOME:-$HOME/.config}/kxkbrc" _i=$((_idx + 1))
             if [ -f "$_kxkb" ]; then
