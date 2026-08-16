@@ -13,10 +13,9 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
         $_run systemctl --user daemon-reload 2>/dev/null || true
     done
 
-    # Clean locales
-    for lang in fr de es it uk pt; do
-        rm -f "/usr/share/locale/$lang/LC_MESSAGES/dictee.mo"
-    done
+    # Locales ship inside the package, so dpkg removes them on its own. Doing it
+    # here too would wipe the files the OTHER variant just installed when
+    # switching dictee-cpu <-> dictee-cuda (both own the same paths).
 
     # Reload udev rules
     udevadm control --reload-rules 2>/dev/null || true

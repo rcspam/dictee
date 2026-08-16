@@ -454,10 +454,10 @@ if [ "\$1" -eq 0 ]; then
         \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
-    # Clean locales
-    for lang in fr de es it uk pt; do
-        rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
-    done
+    # Locales are listed in %files, so rpm already removes them. Deleting them
+    # here too wipes the files the OTHER variant just installed: dnf swaps
+    # dictee-cpu <-> dictee-cuda by installing the new one FIRST and erasing the
+    # old one after, and both own the same /usr/share/locale paths.
 fi
 EOF
 
@@ -654,9 +654,8 @@ if [ "\$1" -eq 0 ]; then
         \$_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
         \$_run systemctl --user daemon-reload 2>/dev/null || true
     done
-    for lang in fr de es it uk pt; do
-        rm -f "/usr/share/locale/\$lang/LC_MESSAGES/dictee.mo"
-    done
+    # Locales are listed in %files, so rpm already removes them. See the CUDA
+    # %postun above: cleaning them here breaks the cpu <-> cuda swap.
 fi
 EOF
 
