@@ -2303,6 +2303,38 @@ def docker_is_installed():
     return shutil.which("docker") is not None
 
 
+def docker_install_hint():
+    """Shell command that installs Docker on THIS distro.
+
+    The LibreTranslate panel used to print "sudo apt install docker.io"
+    everywhere, which is wrong advice on the two families that ship no apt at
+    all. Same detection as the translate-shell hint above. Returns a command,
+    not a sentence, so nothing new lands in the .po files; unknown distros get
+    the three commands they can pick from.
+    """
+    ids = []
+    try:
+        with open("/etc/os-release") as f:
+            for line in f:
+                # ID_LIKE matters as much as ID here: this very machine reports
+                # ID=tuxedo, and KDE neon reports ID=neon — both are Ubuntu and
+                # would otherwise fall through to the generic answer.
+                if line.startswith("ID=") or line.startswith("ID_LIKE="):
+                    ids += line.strip().split("=", 1)[1].strip('"').split()
+    except OSError:
+        pass
+    if any(i in ("ubuntu", "debian", "linuxmint", "pop") for i in ids):
+        return "sudo apt install docker.io"
+    if any(i in ("fedora", "nobara", "rhel", "centos") for i in ids):
+        return "sudo dnf install moby-engine"
+    if any(i in ("arch", "manjaro", "endeavouros") for i in ids):
+        return "sudo pacman -S docker"
+    if any(i in ("opensuse-tumbleweed", "opensuse-leap", "suse", "opensuse") for i in ids):
+        return "sudo zypper install docker"
+    return ("sudo apt install docker.io &nbsp;|&nbsp; "
+            "sudo dnf install moby-engine &nbsp;|&nbsp; sudo pacman -S docker")
+
+
 def _detect_docker_sg_needed():
     """User belongs to docker group in /etc/group but not in this process's
     effective groups → group was added in a session ancestor (install.sh
@@ -17028,7 +17060,7 @@ class DicteeSetupDialog(QDialog):
             self.lbl_lt_status.setText(
                 '<span style="color: red;">⚠ ' +
                 _("Docker is not installed") + '</span><br>'
-                '<small>sudo apt install docker.io</small>')
+                '<small>' + docker_install_hint() + '</small>')
             self.btn_lt_pull.setVisible(False)
             self.btn_lt_start.setVisible(False)
             self.btn_lt_stop.setVisible(False)
