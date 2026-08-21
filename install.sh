@@ -16,12 +16,17 @@
 
 set -euo pipefail
 
-REPO="rcspam/dictee"
+REPO="${DICTEE_REPO:-rcspam/dictee}"
+# DICTEE_API_BASE exists so this installer can be exercised against a local
+# release server before anything is published — the whole online path (API call,
+# asset matching, download, safe_install) then runs for real. Unset in normal
+# use, which leaves the URL below byte-identical to what users get.
+API_BASE="${DICTEE_API_BASE:-https://api.github.com/repos/${REPO}}"
 # Use /releases/latest (newest stable, skips prereleases and drafts) so that
 # curl|bash always lands on the latest STABLE release. Prereleases stay opt-in:
 # reachable from the Releases page / a direct link (e.g. targeted user testing),
 # but never auto-installed for everyone. Override a specific version with --version.
-GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
+GITHUB_API="${API_BASE}/releases/latest"
 
 # ---- Colors ----
 if [[ -t 1 ]]; then
@@ -298,7 +303,7 @@ mode_online() {
     # ---- Fetch release info ----
     local RELEASE_JSON RELEASE_TAG
     if [[ -n "$REQUESTED_VERSION" ]]; then
-        RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/tags/v${REQUESTED_VERSION}")" \
+        RELEASE_JSON="$(curl -fsSL "${API_BASE}/releases/tags/v${REQUESTED_VERSION}")" \
             || die "Cannot fetch release v${REQUESTED_VERSION}"
     else
         RELEASE_JSON="$(curl -fsSL "$GITHUB_API")" || die "Cannot reach GitHub API"
