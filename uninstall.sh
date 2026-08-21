@@ -142,15 +142,29 @@ ask_yes_no "Proceed with uninstall?" "y"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(eval echo "~$REAL_USER")
 
+# `systemctl --user` needs XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS to reach
+# the user's session manager; `su user -c` passes neither, so every call below
+# used to fail with "Failed to connect to user scope bus" — silently, since the
+# errors were sent to /dev/null. The services then kept running after uninstall,
+# with dictee-ptt looping on auto-restart over a binary that no longer exists.
+# Same shape as the deb postrm / rpm %postun, which always got this right.
+user_systemctl() {
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        local uid
+        uid=$(id -u "$REAL_USER" 2>/dev/null) || return 0
+        sudo -u "$REAL_USER" \
+            XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user "$@" 2>/dev/null || true
+    else
+        systemctl --user "$@" 2>/dev/null || true
+    fi
+}
+
 info "Stopping user services..."
 for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
-    if [[ -n "${SUDO_USER:-}" ]]; then
-        su "$REAL_USER" -c "systemctl --user stop $svc 2>/dev/null || true"
-        su "$REAL_USER" -c "systemctl --user disable $svc 2>/dev/null || true"
-    else
-        systemctl --user stop "$svc" 2>/dev/null || true
-        systemctl --user disable "$svc" 2>/dev/null || true
-    fi
+    user_systemctl stop "$svc"
+    user_systemctl disable "$svc"
 done
 
 # ---- Remove distro packages ----
@@ -200,22 +214,32 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
     sudo udevadm control --reload-rules 2>/dev/null || true
     sudo udevadm trigger /dev/uinput 2>/dev/null || true
 
-    # Man pages
+    # Man pages — same list as the binaries above: the shorter list used here
+    # before left dictee-reset.1, dictee-transcribe.1 and dictee-audio-sources.1
+    # behind. `rm -f` on a name that ships no man page is a no-op.
     for m in transcribe transcribe-daemon transcribe-client transcribe-diarize \
-             transcribe-stream-diarize dictee dictee-setup dictee-tray \
-             dictee-switch-backend dictee-test-rules dictee-postprocess; do
+             transcribe-stream-diarize dictee dictee-setup dictee-tray dictee-ptt \
+             dictee-postprocess dictee-diarize-llm dictee-switch-backend \
+             dictee-test-rules dictee-transcribe dictee-reset \
+             dictee-translate-langs dictee-audio-sources; do
         sudo rm -f "$PREFIX/share/man/man1/$m.1" "$PREFIX/share/man/fr/man1/$m.1"
     done
 
-    # .desktop entries
+    # .desktop entries. The cheatsheet one is written by dictee-setup into the
+    # user's own directory, so it survived every previous uninstall.
     sudo rm -f "$PREFIX/share/applications/dictee-setup.desktop" \
                "$PREFIX/share/applications/dictee-tray.desktop"
+    rm -f "$REAL_HOME/.local/share/applications/dictee-cheatsheet-toggle.desktop"
+
+    # Shared data + the text2num venv the installer builds there. install.sh
+    # hardcodes /usr/share/dictee even when PREFIX is /usr/local, so clear both.
+    sudo rm -rf /usr/share/dictee "$PREFIX/share/dictee"
 
     # systemd user units
     for svc in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
         rm -f "$REAL_HOME/.config/systemd/user/$svc.service"
     done
-    [[ -n "${SUDO_USER:-}" ]] && su "$REAL_USER" -c "systemctl --user daemon-reload 2>/dev/null || true"
+    user_systemctl daemon-reload
 
     # systemd preset
     sudo rm -f /usr/lib/systemd/user-preset/90-dictee.preset
