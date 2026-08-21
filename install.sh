@@ -953,7 +953,9 @@ EOF
         install -Dm644 "$SCRIPT_DIR/usr/share/dictee/dictee.plasmoid" "$MODEL_DIR/dictee.plasmoid"
         if command -v kpackagetool6 >/dev/null 2>&1; then
             info "Installing KDE Plasma widget"
-            sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -u "$MODEL_DIR/dictee.plasmoid" 2>/dev/null \
+            # `-u` on a first install prints "Error: Plugin … is not installed."
+            # on STDOUT (not stderr) and exits 2 — hence >/dev/null here.
+            sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -u "$MODEL_DIR/dictee.plasmoid" >/dev/null 2>&1 \
                 || sudo -u "$REAL_USER" kpackagetool6 -t Plasma/Applet -i "$MODEL_DIR/dictee.plasmoid" 2>/dev/null \
                 || true
         fi

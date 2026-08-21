@@ -190,7 +190,10 @@ if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.pla
     for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
         [ "$user" = "root" ] && continue
-        sudo -u "$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid 2>/dev/null || \
+        # `-u` on a first install prints "Error: Plugin … is not installed." on
+        # STDOUT (not stderr) and exits 2, so the old 2>/dev/null let a red
+        # Error scroll past every fresh install before the -i below succeeded.
+        sudo -u "$user" kpackagetool6 -t Plasma/Applet -u /usr/share/dictee/dictee.plasmoid >/dev/null 2>&1 || \
         sudo -u "$user" kpackagetool6 -t Plasma/Applet -i /usr/share/dictee/dictee.plasmoid 2>/dev/null || true
         echo "✓ Plasmoid installé pour $user"
     done
