@@ -69,7 +69,7 @@ docker_missing_notice() {
     echo
     echo "${C_RED}${C_BOLD}⚠ Docker is not installed${C_OFF}"
     echo "  LibreTranslate (offline, fully local translation) will stay unavailable."
-    echo "  Everything else works without it — dictation, and the Google, Bing and"
+    echo "  Everything else works without it — dictee itself, and the Google, Bing and"
     echo "  Ollama translation backends."
     echo "  To enable it later:  ${C_BOLD}${hint}${C_OFF}"
     echo "  Then reopen dictee-setup, Translation page."
