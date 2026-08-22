@@ -948,11 +948,18 @@ EOF
     chown -R "$REAL_USER:" "$REAL_HOME/.local/share/icons"
 
     # --- systemd user units (rewrite /usr/bin to /usr/local/bin) ---
+    # Only OUR binaries move to $PREFIX. A blanket s|/usr/bin/| rewrote
+    # /usr/bin/sg too — the group-switch helper from shadow, which exists only
+    # in /usr/bin — so dictee-ptt died at every start with
+    # "Unable to locate executable /usr/local/bin/sg" (203/EXEC) and the
+    # push-to-talk key never worked. Match the leading '=' or '"' so the
+    # command being rewritten is the one we ship.
     info "Installing systemd user units"
     install -d "$SYSTEMD_USER_DIR"
     for svc in "$SCRIPT_DIR/usr/lib/systemd/user/"*.service; do
         [[ -f "$svc" ]] || continue
-        sed "s|/usr/bin/|$PREFIX/bin/|g" "$svc" > "$SYSTEMD_USER_DIR/$(basename "$svc")"
+        sed -E "s#(=|\")/usr/bin/(dictee|transcribe|diarize|dotool)#\1$PREFIX/bin/\2#g" \
+            "$svc" > "$SYSTEMD_USER_DIR/$(basename "$svc")"
     done
     chown -R "$REAL_USER:" "$SYSTEMD_USER_DIR"
 
