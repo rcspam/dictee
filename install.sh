@@ -42,6 +42,39 @@ err()  { echo "${C_RED}✗${C_OFF} $*" >&2; }
 die()  { err "$@"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
 
+# Closing notice when Docker is absent. Docker is shipped as `Suggests:` since
+# #21 and must NOT auto-install, and it is missing from the rpm dependencies
+# altogether — so nothing installs it and, until now, nothing told the user
+# either: only the pacman branch asked the question. Everyone else discovered
+# the gap much later, in the setup's LibreTranslate page.
+# LibreTranslate is the ONLY feature that needs it; dictation, diarization,
+# post-processing, and the Google/Bing/Ollama translation backends all work
+# without Docker.
+docker_missing_notice() {
+    command -v docker >/dev/null 2>&1 && return 0
+
+    # Same ID + ID_LIKE detection as dictee-setup: this host reports ID=tuxedo
+    # and KDE neon reports ID=neon, both Ubuntu underneath.
+    local ids="" hint="sudo apt install docker.io / sudo dnf install moby-engine / sudo pacman -S docker"
+    if [[ -r /etc/os-release ]]; then
+        ids="$( . /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}" )"
+    fi
+    case " $ids " in
+        *" ubuntu "*|*" debian "*|*" linuxmint "*|*" pop "*) hint="sudo apt install docker.io" ;;
+        *" fedora "*|*" nobara "*|*" rhel "*|*" centos "*)   hint="sudo dnf install moby-engine" ;;
+        *" arch "*|*" manjaro "*|*" endeavouros "*)          hint="sudo pacman -S docker" ;;
+        *" suse "*|*" opensuse "*)                           hint="sudo zypper install docker" ;;
+    esac
+
+    echo
+    echo "${C_RED}${C_BOLD}⚠ Docker is not installed${C_OFF}"
+    echo "  LibreTranslate (offline, fully local translation) will stay unavailable."
+    echo "  Everything else works without it — dictation, and the Google, Bing and"
+    echo "  Ollama translation backends."
+    echo "  To enable it later:  ${C_BOLD}${hint}${C_OFF}"
+    echo "  Then reopen dictee-setup, Translation page."
+}
+
 # Parse a package manager's dry-run output and echo the THIRD-PARTY packages it
 # would REMOVE (manager-specific). Empty output = nothing of yours removed.
 # dictee's own packages are filtered out: dictee-cuda Conflicts dictee-cpu (and
@@ -706,6 +739,8 @@ mode_online() {
     echo
     echo "Documentation: https://github.com/${REPO}"
 
+    docker_missing_notice
+
     auto_reset_services
     launch_wizard
 }
@@ -1015,6 +1050,8 @@ EOF
     echo "  ${C_BOLD}dictee --help${C_OFF}   # CLI usage"
     echo
     echo "Uninstall: sudo ./uninstall.sh"
+
+    docker_missing_notice
 
     auto_reset_services "${SUDO_USER:-}"
     launch_wizard "${SUDO_USER:-}"
