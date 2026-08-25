@@ -122,15 +122,23 @@ if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
             }')
         printf '%s' "$chunk" > "$BANDS_FILE"
     done &
-    PAREC_PID=$!
-    wait $PAREC_PID
+    # See the note below: $! is the reader, parec is what `jobs -p` reports.
+    FFT_PID=$!
+    PAREC_PID=$(jobs -p %+)
+    wait $FFT_PID
     cleanup
 fi
 
 # FFT mode: parec -> dictee-plasmoid-level-fft
 parec $PAREC_ARGS 2>/dev/null | \
     dictee-plasmoid-level-fft "$N_BARS" "$BANDS_FILE" &
-PAREC_PID=$!
+# For `a | b &` bash sets $! to the LAST element — the FFT, not parec. Reading
+# it as PAREC_PID meant cleanup() killed the FFT and left the microphone
+# capture running: parec only notices through SIGPIPE, which never comes when
+# the stream is suspended (system sleep). Observed still recording 21 h later.
+# `jobs -p %+` reports the job leader, which is parec.
+FFT_PID=$!
+PAREC_PID=$(jobs -p %+)
 
-wait $PAREC_PID
+wait $FFT_PID
 cleanup
