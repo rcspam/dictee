@@ -696,12 +696,26 @@ PlasmoidItem {
         running: true
         repeat: true
         triggeredOnStart: true
+        // Ticks since the last background refreshBackends().
+        property int backendsTick: 0
         onTriggered: {
             // Provider polling embarqué ici (changement rare, slow poll OK).
             root.providerSlot = 1 - root.providerSlot
             executable.run(root.providerCmds[root.providerSlot])
             executable.run(daemonCheckCmd)
-            refreshBackends()
+            // refreshBackends() fans out to seven external commands — wpctl,
+            // two dictee scripts, nvidia-smi, plus `sg docker … docker inspect`
+            // or an `ollama list`. At the 1.5 s default that is ~400 000
+            // processes a day, for values read only by FullRepresentation,
+            // i.e. only while the popup is open (and total VRAM, which cannot
+            // change at all). onExpandedChanged already refreshes on open, so
+            // poll at full rate while expanded and keep a ~30 s background pass
+            // so a backend started meanwhile is still noticed.
+            var every = Math.max(1, Math.round(30000 / Math.max(1, interval)))
+            if (root.expanded || ++backendsTick >= every) {
+                backendsTick = 0
+                refreshBackends()
+            }
         }
     }
 
@@ -948,6 +962,17 @@ PlasmoidItem {
 
     // Load debug flag — daemon level lancé à la demande via onExpandedChanged/onEffectiveStateChanged
     Component.onCompleted: {
+        // Clear a level daemon left over from a previous plasmashell. It is
+        // only ever stopped from a QML signal, and none of them fires when the
+        // process hosting them dies (crash, restart, logout): onDestruction
+        // cannot run a command through a DataSource that is being destroyed
+        // with it. On a fresh load no signal fires either, since nothing
+        // *changes* — so without this the daemon and its microphone capture
+        // survive indefinitely (observed: 21 h). Skipped in preview mode,
+        // whose state is pinned to "recording" and would never restart it.
+        if (root.effectiveState !== "recording") {
+            executable.run("dictee-plasmoid-level stop")
+        }
         executable.run("bash -c 'grep -q \"^DICTEE_DEBUG=true\" \"${XDG_CONFIG_HOME:-$HOME/.config}/dictee.conf\" 2>/dev/null && echo DICTEE_DEBUG_ON'")
         refreshBackends()
     }
