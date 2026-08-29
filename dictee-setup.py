@@ -10864,9 +10864,13 @@ class DicteeSetupDialog(QDialog):
             from dictee_models import canary_model_installed
             return canary_model_installed()
         except ImportError:
-            user_path = os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")
-            sys_path = os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx")
-            return os.path.isfile(user_path) or os.path.isfile(sys_path)
+            # Mirrors dictee_models.canary_model_installed(): either the fp32
+            # or the int8 encoder counts as installed. Keep the two in sync.
+            for d in (os.path.join(DICTEE_DATA_DIR, "canary"), CANARY_MODEL_DIR):
+                if os.path.isfile(os.path.join(d, "encoder-model.onnx")) \
+                        or os.path.isfile(os.path.join(d, "encoder-model.int8.onnx")):
+                    return True
+            return False
 
     def _update_canary_model_status(self):
         """Update Canary model status button."""
@@ -18619,9 +18623,14 @@ class DicteeSetupDialog(QDialog):
         if backend == "canary":
             # Canary uses the transcribe-daemon binary shared with parakeet.
             # It also needs the CUDA providers for reasonable speed.
+            # The user dir may hold either the fp32 or the int8 encoder, so
+            # both names count (cf. dictee_models.canary_model_installed).
+            _user_canary = os.path.join(DICTEE_DATA_DIR, "canary")
             if not os.path.isdir("/usr/share/dictee/canary") \
                     and not os.path.isfile(
-                        os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")):
+                        os.path.join(_user_canary, "encoder-model.onnx")) \
+                    and not os.path.isfile(
+                        os.path.join(_user_canary, "encoder-model.int8.onnx")):
                 return False, _(
                     "The Canary model is not installed.\n\n"
                     "Download it from the ASR backend page before enabling Canary.")

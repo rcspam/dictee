@@ -71,7 +71,7 @@ echo ""
 echo "=== Model check ==="
 echo ""
 
-if [ -f "$TDT_DIR/encoder-model.onnx" ]; then
+if [ -f "$TDT_DIR/encoder-model.onnx" ] || [ -f "$TDT_DIR/encoder-model.int8.onnx" ]; then
     echo "✓ TDT model present"
 else
     echo "⚠ TDT model missing — required for transcription"
@@ -89,7 +89,7 @@ else
     echo "  Nemotron model missing (optional, multilingual streaming)"
 fi
 
-if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
+if [ ! -f "$TDT_DIR/encoder-model.onnx" ] && [ ! -f "$TDT_DIR/encoder-model.int8.onnx" ]; then
     echo ""
     echo "Run 'dictee-setup' to download the models."
 fi
