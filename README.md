@@ -146,10 +146,15 @@ Parakeet-TDT v3 wins particularly on **French**, Greek, Estonian and Maltese. Fo
 | Backend | Privacy | Speed | Quality | Languages |
 |---------|---------|-------|---------|-----------|
 | **Canary-1B** | 🔒 Local | Built-in | Excellent | 4 |
-| **LibreTranslate** | 🔒 Local | 0.1–0.3s | Good | 30+ |
+| **LibreTranslate** \* | 🔒 Local | 0.1–0.3s | Good | 30+ |
 | **Ollama** | 🔒 Local | 2–3s | Excellent | Any (LLM) |
 | **Google Translate** | 🌐 Cloud | 0.2–0.7s | Excellent | 130+ |
 | **Bing Translator** | 🌐 Cloud | 1.7–2.2s | Very good | 100+ |
+
+\* **LibreTranslate needs Docker**, which dictee does not install for you.
+Install it with `sudo apt install docker.io` (Debian/Ubuntu), `sudo dnf install moby-engine`
+(Fedora) or `sudo pacman -S docker` (Arch), then reopen the Translation page of
+`dictee-setup`. Every other backend, and dictee itself, works without Docker.
 
 → [Translation wiki](https://github.com/rcspam/dictee/wiki/Translation) · [Ollama-Setup](https://github.com/rcspam/dictee/wiki/Ollama-Setup)
 
