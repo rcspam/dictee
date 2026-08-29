@@ -109,7 +109,7 @@ build_cuda() {
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cuda
-Version: 1.3.7~rc3-1
+Version: 1.3.7~rc3-2
 Section: sound
 Priority: optional
 Architecture: amd64
@@ -245,7 +245,7 @@ build_cpu() {
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
 Package: dictee-cpu
-Version: 1.3.7~rc3-1
+Version: 1.3.7~rc3-2
 Section: sound
 Priority: optional
 Architecture: amd64
