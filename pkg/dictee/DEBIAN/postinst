@@ -71,7 +71,7 @@ echo ""
 echo "=== Vérification des modèles ==="
 echo ""
 
-if [ -f "$TDT_DIR/encoder-model.onnx" ]; then
+if [ -f "$TDT_DIR/encoder-model.onnx" ] || [ -f "$TDT_DIR/encoder-model.int8.onnx" ]; then
     echo "✓ Modèle TDT présent"
 else
     echo "⚠ Modèle TDT absent — nécessaire pour la transcription"
@@ -89,7 +89,7 @@ else
     echo "  Modèle Nemotron absent (optionnel, streaming anglais)"
 fi
 
-if [ ! -f "$TDT_DIR/encoder-model.onnx" ]; then
+if [ ! -f "$TDT_DIR/encoder-model.onnx" ] && [ ! -f "$TDT_DIR/encoder-model.int8.onnx" ]; then
     echo ""
     echo "Lancez 'dictee-setup' pour télécharger les modèles."
 fi
