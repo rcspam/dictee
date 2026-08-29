@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 # Prevents silent regressions (cf. ffmpeg removed in d4d1fff "fix v1.1.1").
 python3 packaging/audit-deps.py
 
-VERSION="1.3.7~rc3-1"
+VERSION="1.3.7~rc3-2"
 PKG_DIR="pkg/dictee"
 
 # Final artefacts go in .dev/dist/ (gitignored), keeping the repo root clean.
