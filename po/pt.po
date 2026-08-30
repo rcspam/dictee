@@ -4779,3 +4779,11 @@ msgid ""
 "that away: dictee receives the key before your desktop does."
 msgstr "O seu computador usa esta tecla para {what}. Escolhê-la para o ditado retira-lhe essa função: o dictee recebe a tecla antes do seu ambiente de trabalho."
 
+
+#: dictee-setup.py:6632
+msgid "Documentation"
+msgstr "Documentação"
+
+#: dictee-setup.py:6634
+msgid "Open the wiki page for the current section in your browser"
+msgstr "Abrir no navegador a página da wiki desta secção"

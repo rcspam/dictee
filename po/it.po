@@ -4804,3 +4804,11 @@ msgid ""
 "that away: dictee receives the key before your desktop does."
 msgstr "Il computer usa questo tasto per {what}. Sceglierlo per la dettatura te lo toglie: dictee riceve il tasto prima del desktop."
 
+
+#: dictee-setup.py:6632
+msgid "Documentation"
+msgstr "Documentazione"
+
+#: dictee-setup.py:6634
+msgid "Open the wiki page for the current section in your browser"
+msgstr "Apri nel browser la pagina del wiki di questa sezione"

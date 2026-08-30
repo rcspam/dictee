@@ -117,6 +117,55 @@ def _tt(text):
 
 _NATIVE_TEXT = QKeySequence.SequenceFormat.NativeText
 
+# === Wiki help links ===
+
+WIKI_BASE = "https://github.com/rcspam/dictee/wiki"
+
+# Sidebar stack index -> wiki page slug. Indices are the ones used by
+# _build_sidebar_ui / the tree items; keep both in sync when adding a
+# section. Pages with no dedicated wiki article point at the closest
+# one rather than dropping the button.
+WIKI_PAGE_SLUGS = {
+    0: "Home",                     # Welcome -> wiki landing page
+    1: "ASR-Backends",
+    2: "Translation",
+    3: "Keyboard-Shortcuts",
+    4: "Configuration",            # Microphone
+    5: "Tray-Icon",                # Visual feedback
+    6: "Configuration",            # Extra options
+    7: "Configuration",            # Notifications
+    8: "Post-Processing-Overview",
+    9: "LLM-Diarization",
+    10: "Diarization",             # Live meeting
+    11: "Home",                    # About
+    12: "Diarization",             # Diarization models
+    13: "Configuration",           # Text output
+}
+
+# Post-processing is one stack page with five tabs, each with its own
+# wiki article. Resolved at click time from the active tab index.
+WIKI_PP_TAB_SLUGS = {
+    0: "Rules-and-Dictionary",         # Regex rules
+    1: "Numbers-Dates-Continuation",   # Continuation
+    2: "Post-Processing-Overview",     # Language rules
+    3: "Rules-and-Dictionary",         # Dictionary
+    4: "LLM-Correction",               # LLM
+}
+
+
+def _wiki_lang_prefix():
+    """Return the wiki slug prefix matching the UI language.
+
+    French wiki pages are named `fr-<Slug>`; every other locale falls
+    back to the English pages, which are the only complete set.
+    """
+    for var in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        val = os.environ.get(var)
+        if val:
+            return "fr-" if val.lower().startswith("fr") else ""
+    return ""
+
+
 # === Configuration ===
 
 CONF_PATH = os.path.join(
@@ -6577,6 +6626,14 @@ class DicteeSetupDialog(QDialog):
         btn_wizard.clicked.connect(self._on_launch_wizard)
         lay_buttons.addWidget(btn_wizard)
 
+        # Centred help button: single button for the whole window, its
+        # target follows the section the user is on.
+        lay_buttons.addStretch()
+        btn_wiki = QPushButton(_("Documentation"))
+        btn_wiki.setToolTip(_tt(_(
+            "Open the wiki page for the current section in your browser")))
+        btn_wiki.clicked.connect(self._on_open_wiki)
+        lay_buttons.addWidget(btn_wiki)
         lay_buttons.addStretch()
 
         btn_cancel = QPushButton(_("Cancel"))
@@ -6603,6 +6660,28 @@ class DicteeSetupDialog(QDialog):
         # Build phase done — any QTimer.singleShot(0)-deferred probe will
         # now run its real body when the event loop ticks (after show()).
         self._build_phase = False
+
+    def _wiki_url_for_current_page(self):
+        """Wiki URL matching the section currently shown in the stack.
+
+        Falls back to the wiki landing page for any index missing from
+        WIKI_PAGE_SLUGS, so a section added without updating the map
+        still opens something useful.
+        """
+        idx = self._sidebar_stack.currentIndex()
+        slug = WIKI_PAGE_SLUGS.get(idx)
+        # Post-processing: one page, five tabs, five articles.
+        if idx == 8 and hasattr(self, "_pp_tabs"):
+            slug = WIKI_PP_TAB_SLUGS.get(self._pp_tabs.currentIndex(), slug)
+        if not slug:
+            return WIKI_BASE
+        return f"{WIKI_BASE}/{_wiki_lang_prefix()}{slug}"
+
+    def _on_open_wiki(self):
+        """Open the current section's wiki page in the default browser."""
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+        QDesktopServices.openUrl(QUrl(self._wiki_url_for_current_page()))
 
     def _ensure_pp_built(self):
         """Lazy-build the post-processing section the first time it is needed.

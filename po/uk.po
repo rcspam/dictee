@@ -4771,3 +4771,11 @@ msgid ""
 "that away: dictee receives the key before your desktop does."
 msgstr "Комп'ютер використовує цю клавішу для {what}. Якщо вибрати її для диктування, ця функція зникне: dictee отримує клавішу раніше за стільницю."
 
+
+#: dictee-setup.py:6632
+msgid "Documentation"
+msgstr "Документація"
+
+#: dictee-setup.py:6634
+msgid "Open the wiki page for the current section in your browser"
+msgstr "Відкрити сторінку вікі для цього розділу в браузері"

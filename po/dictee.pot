@@ -4172,3 +4172,11 @@ msgid ""
 "that away: dictee receives the key before your desktop does."
 msgstr ""
 
+
+#: dictee-setup.py:6632
+msgid "Documentation"
+msgstr ""
+
+#: dictee-setup.py:6634
+msgid "Open the wiki page for the current section in your browser"
+msgstr ""
