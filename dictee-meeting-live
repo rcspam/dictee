@@ -114,7 +114,7 @@ class StopButton(QPushButton):
 # release/1.3 the Rust side does not have them yet: the window must say so
 # instead of spawning workers that die on an unknown flag.
 LIVE_ENGINE_CHECKS = (
-    ("transcribe-client", "json-timestamps"),
+    ("transcribe-client", "--json-timestamps"),
     ("diarize-only", "--stream"),
 )
 
