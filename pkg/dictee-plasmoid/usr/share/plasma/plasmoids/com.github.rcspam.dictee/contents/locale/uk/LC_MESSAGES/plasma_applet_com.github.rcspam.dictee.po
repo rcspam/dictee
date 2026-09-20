@@ -456,6 +456,22 @@ msgstr "Швидкість стрибка (мс):"
 msgid "Waveform settings"
 msgstr "Налаштування хвильової форми"
 
+#: contents/ui/FullRepresentation.qml
+msgid "Live meeting"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Meeting window is open"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Meeting recording in progress"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Open live meeting capture (record, then send to diarization)"
+msgstr ""
+
 #~ msgid "Start diarization"
 #~ msgstr "Почати діаризацію"
 

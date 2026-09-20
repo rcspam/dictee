@@ -2943,8 +2943,17 @@ class _DockerActionThread(QThread):
 
 
 class InstallThread(QThread):
+    # done(ok, message). On success the message is empty after an install, or
+    # carries the "nothing to do" text when the installed version is already
+    # the published one.
     done = Signal(bool, str)
     progress = Signal(str)
+
+    def __init__(self, installed_version="", parent=None):
+        super().__init__(parent)
+        # Empty when animation-speech is absent, or when no package manager
+        # nor the zipapp would say which version is installed.
+        self.installed_version = installed_version
 
     def run(self):
         import json
@@ -2959,6 +2968,18 @@ class InstallThread(QThread):
                     release = json.loads(resp.read().decode())
             except urllib.error.URLError as e:
                 self.done.emit(False, _("Cannot reach GitHub: {err}").format(err=str(e)))
+                return
+
+            # Nothing to download when the published version is the one
+            # already on disk. Only skip on a clear match: an unreadable
+            # local version means we reinstall rather than stay silent.
+            published = (release.get("tag_name") or "").strip().lstrip("vV")
+            if (self.installed_version and published
+                    and DicteeSetupDialog._parse_version(published)
+                    <= DicteeSetupDialog._parse_version(self.installed_version)):
+                self.done.emit(True, _("animation-speech {version} is already "
+                                       "the latest release.").format(
+                                           version=self.installed_version))
                 return
 
             assets = release.get("assets", [])
@@ -10009,9 +10030,13 @@ class DicteeSetupDialog(QDialog):
             from dictee_models import canary_model_installed
             return canary_model_installed()
         except ImportError:
-            user_path = os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")
-            sys_path = os.path.join(CANARY_MODEL_DIR, "encoder-model.onnx")
-            return os.path.isfile(user_path) or os.path.isfile(sys_path)
+            # Mirrors dictee_models.canary_model_installed(): either the fp32
+            # or the int8 encoder counts as installed. Keep the two in sync.
+            for d in (os.path.join(DICTEE_DATA_DIR, "canary"), CANARY_MODEL_DIR):
+                if os.path.isfile(os.path.join(d, "encoder-model.onnx")) \
+                        or os.path.isfile(os.path.join(d, "encoder-model.int8.onnx")):
+                    return True
+            return False
 
     def _update_canary_model_status(self):
         """Update Canary model status button."""
@@ -16865,6 +16890,41 @@ class DicteeSetupDialog(QDialog):
 
     # -- Animation-speech --
 
+    @staticmethod
+    def _animation_speech_version():
+        """Installed animation-speech version, or "" when it cannot be told.
+
+        Each package manager only answers on the distro that did the install,
+        and a tarball install answers to none of them, so fall back to the
+        zipapp, which carries __version__ wherever it came from. Without this
+        the version was read through dpkg-query alone and every non-Debian
+        user was simply told "installed".
+        """
+        for cmd in (["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
+                    ["rpm", "-q", "--qf", "%{VERSION}", "animation-speech"],
+                    ["pacman", "-Q", "animation-speech"]):
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if r.returncode == 0 and r.stdout.strip():
+                # pacman answers "name version"; deb and rpm carry a packaging
+                # release suffix we do not compare on.
+                return r.stdout.strip().split()[-1].split("-")[0]
+
+        app = shutil.which("animation-speech")
+        if app:
+            try:
+                import zipfile
+                with zipfile.ZipFile(app) as z:
+                    src = z.read("animation_speech/__init__.py").decode()
+                m = re.search(r"__version__\s*=\s*['\"]([^'\"]+)", src)
+                if m:
+                    return m.group(1)
+            except Exception:  # noqa: BLE001 — not a zipapp, unreadable, …
+                pass
+        return ""
+
     def _check_animation_speech(self):
         # _build_visual_section fires this synchronously during build path
         # (~50 ms: shutil.which + dpkg-query subprocess). Defer to first
@@ -16878,27 +16938,25 @@ class DicteeSetupDialog(QDialog):
         parts = []
         has_anim = shutil.which(ANIMATION_SPEECH_BIN)
         if has_anim:
-            try:
-                result = subprocess.run(
-                    ["dpkg-query", "-W", "-f", "${Version}", "animation-speech"],
-                    capture_output=True, text=True,
-                )
-                v = result.stdout.strip() if result.returncode == 0 else ""
-                if v:
-                    parts.append('<span style="color: green;">' +
-                                 _("animation-speech {version} installed").format(version=v) +
-                                 '</span>')
-                else:
-                    parts.append('<span style="color: green;">' +
-                                 _("animation-speech installed") + '</span>')
-            except FileNotFoundError:
+            v = self._animation_speech_version()
+            if v:
+                parts.append('<span style="color: green;">' +
+                             _("animation-speech {version} installed").format(version=v) +
+                             '</span>')
+            else:
                 parts.append('<span style="color: green;">' +
                              _("animation-speech installed") + '</span>')
-            self.btn_install_anim.setVisible(False)
-        else:
+            # Keep the button: hiding it as soon as the binary existed left
+            # everyone stuck on whatever version they first installed, with
+            # no way to pick up a fix from here.
+            self.btn_install_anim.setText(_("Check for animation-speech updates"))
             self.btn_install_anim.setVisible(True)
-            if self.de_type == "gnome":
-                self.btn_install_anim.setEnabled(False)
+            self.btn_install_anim.setEnabled(True)
+        else:
+            self.btn_install_anim.setText(_("Install animation-speech"))
+            self.btn_install_anim.setVisible(True)
+            # Re-enabled here so a failed attempt leaves a usable button.
+            self.btn_install_anim.setEnabled(self.de_type != "gnome")
 
         has_plasmoid = os.path.isdir(
             os.path.expanduser("~/.local/share/plasma/plasmoids/com.github.rcspam.dictee")
@@ -16916,7 +16974,7 @@ class DicteeSetupDialog(QDialog):
         self.btn_install_anim.setText(_("Downloading…"))
         self.progress_anim.setVisible(True)
 
-        self._install_thread = InstallThread()
+        self._install_thread = InstallThread(self._animation_speech_version())
         self._install_thread.progress.connect(lambda text: self.btn_install_anim.setText(text))
         self._install_thread.done.connect(self._on_install_finished)
         self._install_thread.start()
@@ -16926,9 +16984,11 @@ class DicteeSetupDialog(QDialog):
         self.progress_anim.setVisible(False)
         if success:
             self._check_animation_speech()
+            if message:
+                # Nothing was downloaded: already on the published version.
+                QMessageBox.information(self, _("animation-speech"), message)
         else:
-            self.btn_install_anim.setText(_("Install animation-speech"))
-            self.btn_install_anim.setEnabled(True)
+            self._check_animation_speech()
             QMessageBox.critical(self, _("Installation error"), message)
 
     # -- Ollama backend --
@@ -17682,9 +17742,14 @@ class DicteeSetupDialog(QDialog):
         if backend == "canary":
             # Canary uses the transcribe-daemon binary shared with parakeet.
             # It also needs the CUDA providers for reasonable speed.
+            # The user dir may hold either the fp32 or the int8 encoder, so
+            # both names count (cf. dictee_models.canary_model_installed).
+            _user_canary = os.path.join(DICTEE_DATA_DIR, "canary")
             if not os.path.isdir("/usr/share/dictee/canary") \
                     and not os.path.isfile(
-                        os.path.join(DICTEE_DATA_DIR, "canary", "encoder-model.onnx")):
+                        os.path.join(_user_canary, "encoder-model.onnx")) \
+                    and not os.path.isfile(
+                        os.path.join(_user_canary, "encoder-model.int8.onnx")):
                 return False, _(
                     "The Canary model is not installed.\n\n"
                     "Download it from the ASR backend page before enabling Canary.")
