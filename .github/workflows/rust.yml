@@ -111,11 +111,22 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
         QT_QPA_PLATFORM: offscreen
+    # Rides in this job for its Qt packages: it loads dictee-setup.py whole
+    # too. No network, no uinput, GitHub is stubbed out.
+    - name: Run animation-speech update tests
+      run: python3 tests/offscreen-check_anim_speech_update.py
+      env:
+        QT_QPA_PLATFORM: offscreen
 
   test-keyboard-detection:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v5
+    # Fully faked evdev: no /dev/input, no /dev/uinput, no module needed, so it
+    # runs before the setup below and never skips. Guards the rescan cost that
+    # froze the keyboard for a second every 10 s (issue #33).
+    - name: Run keyboard rescan tests
+      run: python3 tests/test-keyboard-rescan.py
     - name: Install Python test deps
       run: python3 -m pip install --user evdev
     # This job used to report OK on 6 tests out of 6 skipped: every case here
