@@ -54,7 +54,7 @@ Les numéros de lignes du script sont ceux du commit 03d3ad8 ; après la Task 1 
 **Interfaces:**
 - Produces: le module chargé expose `MeetingWindow` (QWidget) avec `_state` (str, `"idle"` après construction), `status_label` (QLabel), `cmb_source` (QComboBox), `btn_start`, `btn_stop`, `btn_analyze`, `btn_sound_test` (QPushButton), `chk_include_mic` (QCheckBox), `_title_edit` (QLineEdit), `audio_worker` (`None` au repos) ; la fonction module `_` (gettext) ; la constante module `STATE_FILE` (pathlib.Path).
 
-- [ ] **Step 1 : copier le script depuis le commit fixe**
+- [x] **Step 1 : copier le script depuis le commit fixe**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -65,7 +65,7 @@ grep -c 'Path("/dev/shm/.dictee_state")' dictee-meeting-live
 ```
 Attendu : `3431 dictee-meeting-live` puis `5`.
 
-- [ ] **Step 2 : écrire le test de construction**
+- [x] **Step 2 : écrire le test de construction**
 
 Fichier `tests/offscreen-check_meeting_live_window.py` :
 
@@ -187,7 +187,7 @@ finish()
 
 `win.btn_stop.isEnabled()` vaut `False` au repos parce que la table `cfg` de `_set_state` donne `"idle": ("▶", "Démarrer", True, False, False)`, lue au commit 03d3ad8. Les tâches 2 et 3 insèrent leurs sections avant l'appel final `finish()`.
 
-- [ ] **Step 3 : lancer, vérifier que le test s'arrête avant de construire**
+- [x] **Step 3 : lancer, vérifier que le test s'arrête avant de construire**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -195,7 +195,7 @@ QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2
 ```
 Attendu, dans l'ordre : `FAIL module has a gettext _()`, `FAIL script exposes STATE_FILE`, `refusing to build the window: it would write the real state file`, `2 FAILED`. Puis `cat /dev/shm/.dictee_state` montre le même contenu qu'avant.
 
-- [ ] **Step 4 : amorce gettext et constante d'état**
+- [x] **Step 4 : amorce gettext et constante d'état**
 
 Dans `dictee-meeting-live`, le bloc d'imports PyQt6 se ferme par `)` seul à la ligne 38, suivi de deux lignes vides puis, ligne 41, `# ---------------------------------------------------------------------------`. Insérer entre la ligne 38 et cette ligne 41 (les quinze premières lignes sont la copie de dictee-transcribe.py lignes 174 à 190) :
 
@@ -227,7 +227,7 @@ STATE_FILE = Path("/dev/shm/.dictee_state")
 
 `os` est importé à la ligne 14, `Path` à la ligne 25.
 
-- [ ] **Step 5 : les cinq écritures passent par la constante**
+- [x] **Step 5 : les cinq écritures passent par la constante**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -236,14 +236,14 @@ grep -c 'Path("/dev/shm/.dictee_state")' dictee-meeting-live; grep -c 'STATE_FIL
 ```
 Attendu : `0` puis `5`. Les cinq sites sont le constructeur (`meeting-ui-open`), `start_meeting` (`meeting-recording`), `stop_meeting`, `_on_capture_failed` et `closeEvent` (`idle`).
 
-- [ ] **Step 6 : relancer**
+- [x] **Step 6 : relancer**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2>&1 | grep -E '^(FAIL|OK|[0-9]+ FAILED)'
 ```
 Attendu : `OK` seul.
 
-- [ ] **Step 7 : commit**
+- [x] **Step 7 : commit**
 
 ```bash
 git add dictee-meeting-live tests/offscreen-check_meeting_live_window.py
@@ -269,7 +269,7 @@ until they do."
 - Produces: `missing_live_engine_features() -> list[str]`, fonction module ; vide quand tout est là.
 - Consumes: `win.status_label`, `win._state`, le nom de module `QMessageBox`, `_`.
 
-- [ ] **Step 1 : ajouter les tests du refus et de la sonde**
+- [x] **Step 1 : ajouter les tests du refus et de la sonde**
 
 Dans `tests/offscreen-check_meeting_live_window.py`, avant l'appel final `finish()` :
 
@@ -330,14 +330,14 @@ mod.QMessageBox = saved_box
 
 Aucun `start_meeting` n'est appelé avec les faux moteurs « master » : la fenêtre lancerait `pw-record`.
 
-- [ ] **Step 2 : lancer, vérifier l'échec attendu**
+- [x] **Step 2 : lancer, vérifier l'échec attendu**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2>&1 | grep -E 'AttributeError' | head -1
 ```
 Attendu : `AttributeError: module 'meeting_live' has no attribute 'missing_live_engine_features'`
 
-- [ ] **Step 3 : écrire la sonde**
+- [x] **Step 3 : écrire la sonde**
 
 Dans `dictee-meeting-live`, juste avant la ligne `def _acquire_singleton_lock():` (elle suit une ligne `# ----…` et une ligne vide) :
 
@@ -377,7 +377,7 @@ def missing_live_engine_features():
 
 `shutil` (ligne 17) et `subprocess` (ligne 24) sont déjà importés ; `_` vient de la Task 1 et se trouve plus haut dans le fichier.
 
-- [ ] **Step 4 : brancher le refus au début de `start_meeting`**
+- [x] **Step 4 : brancher le refus au début de `start_meeting`**
 
 Le corps de `MeetingWindow.start_meeting` (ligne 2511 au commit 03d3ad8) commence par :
 
@@ -402,14 +402,14 @@ Insérer immédiatement après ce `return`, avant le commentaire `# Guard rail: 
             return
 ```
 
-- [ ] **Step 5 : relancer**
+- [x] **Step 5 : relancer**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2>&1 | grep -E '^(FAIL|OK|[0-9]+ FAILED)'
 ```
 Attendu : `OK` seul.
 
-- [ ] **Step 6 : vérifier la sonde contre les vrais binaires de la 1.3**
+- [x] **Step 6 : vérifier la sonde contre les vrais binaires de la 1.3**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -422,7 +422,7 @@ EOF
 ```
 Attendu : `['transcribe-client json-timestamps', 'diarize-only --stream']`. Les deux textes d'aide de la 1.3 ne contiennent ni l'un ni l'autre (vérifié le 2026-09-19 : zéro occurrence chacun), ceux de master les contiennent (transcribe_client.rs:83, diarize_only.rs:38 et 46). Ce script ne construit pas la fenêtre, donc n'écrit aucun état.
 
-- [ ] **Step 7 : commit**
+- [x] **Step 7 : commit**
 
 ```bash
 git add dictee-meeting-live tests/offscreen-check_meeting_live_window.py
@@ -451,7 +451,7 @@ Le premier inventaire, fait par motif de constructeur de widget, ne voyait que 3
 
 Le vérificateur a un angle mort connu : un mot seul en minuscules sans accent n'est pas reconnu comme de la prose. Il en existe un dans ce script, `"diarisation"` (ligne 2784), traité explicitement dans la table et par un contrôle textuel dédié.
 
-- [ ] **Step 1 : le vérificateur par tokens, le rendu français, les placeholders**
+- [x] **Step 1 : le vérificateur par tokens, le rendu français, les placeholders**
 
 Dans `tests/offscreen-check_meeting_live_window.py`, avant l'appel final `finish()` :
 
@@ -551,14 +551,14 @@ check("French catalog keeps every {placeholder}", bad, [])
 
 Le sous-processus hérite de `HOME=_HOME`, où `po/fr.mo` a été copié au démarrage du test : c'est la première entrée de `LOCALE_DIRS` du script, donc la liaison se fait sur ce fichier et jamais sur un `.mo` installé sur la machine. Il détourne aussi `STATE_FILE` avant de construire.
 
-- [ ] **Step 2 : lancer, vérifier les échecs**
+- [x] **Step 2 : lancer, vérifier les échecs**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2>&1 | grep -E '^FAIL' | cut -c1-120
 ```
 Attendu : `FAIL no user-facing string outside _(): got [(…), …]` avec 142 couples (compte obtenu le 2026-09-20 sur le script de master avec exactement ce vérificateur ; les ajouts des tâches 1 et 2 n'en introduisent aucun), `FAIL loading status pulls 'diarization' from the catalog`, puis les deux échecs de rendu français. Le contrôle des placeholders passe déjà.
 
-- [ ] **Step 3 : envelopper chaque chaîne, la table est le contrat**
+- [x] **Step 3 : envelopper chaque chaîne, la table est le contrat**
 
 Numéros du commit 03d3ad8, texte d'ancrage à retrouver par `grep`. Le msgstr français est le texte actuel à l'octet près, sauf dans la dernière table (diagnostics des workers, en anglais aujourd'hui). Pour les concaténations, les morceaux sont joints tels quels. Les msgid marqués « existe » sont déjà dans le catalogue, avec la traduction indiquée : rien à ajouter au `.po`.
 
@@ -736,14 +736,14 @@ L'enregistrement n'a pas démarré pour éviter de capter le micro à la place d
 
 Hors traduction, à laisser tels quels : `"00:00"` (1650), les noms de moteurs du combo (1686-1690, 1695) et de la ligne 2786, les pourcentages et durées (`f"{v}%"`, `f"{h:02d}:{m:02d}:{s:02d}"`, `f"{since}s / {period}s"`, `f"{ctx_into}s / {overlap}s"`), les feuilles de style, l'aide argparse (3411-3413, non traduite dans dictee-transcribe.py non plus), `"Inhibit"` et `"UnInhibit"` (méthodes D-Bus, 3201 et 3219), `"Content-Type"` (2857), le format du transcript (2892), les `print(…, file=sys.stderr)`.
 
-- [ ] **Step 4 : relancer le vérificateur jusqu'à la liste vide**
+- [x] **Step 4 : relancer le vérificateur jusqu'à la liste vide**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2>&1 | grep -E '^FAIL (no user-facing|loading status)' | cut -c1-200
 ```
 Tant qu'une ligne s'affiche, chaque couple `(ligne, texte)` est soit une chaîne oubliée à envelopper, soit un faux positif à ajouter à `NON_UI` avec justification dans le commit. La fin attendue : plus aucune ligne.
 
-- [ ] **Step 5 : les catalogues**
+- [x] **Step 5 : les catalogues**
 
 Pour `po/dictee.pot` et chacun des six `po/<lang>.po`, un bloc par msgid nouveau en fin de fichier, sur ce modèle ; les msgid contenant `{…}` portent le drapeau que le reste du catalogue utilise (154 occurrences dans `po/fr.po`) :
 
@@ -763,7 +763,7 @@ msgunfmt po/fr.mo | grep -c -E 'Prêt à enregistrer|Tester le son…|Réécoute
 ```
 Attendu : aucun `ECHEC`, et `3`.
 
-- [ ] **Step 6 : relancer le test complet**
+- [x] **Step 6 : relancer le test complet**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/offscreen-check_meeting_live_window.py 2>&1 | grep -E '^(FAIL|OK|[0-9]+ FAILED)'
@@ -775,7 +775,7 @@ cd /home/rapha/SOURCES/RAPHA_STT/dictee-137 && LANGUAGE=fr python3 /tmp/claude-1
 ```
 Le rendu doit reproduire celui de master pris le 2026-09-19, mêmes libellés français, moteurs absents mis à part.
 
-- [ ] **Step 7 : commit**
+- [x] **Step 7 : commit**
 
 ```bash
 git add dictee-meeting-live po/dictee.pot po/*.po po/*.mo tests/offscreen-check_meeting_live_window.py
@@ -803,7 +803,7 @@ and a catalog check keeps every {placeholder} in the French msgstr."
 - Produces: `keys_pass_through(state: str) -> bool`.
 - Consumes: `read_state()` (ligne 77), `ui.write_event(event)`.
 
-- [ ] **Step 1 : le test**
+- [x] **Step 1 : le test**
 
 Fichier `tests/test-ptt-meeting-passthrough.py` :
 
@@ -868,14 +868,14 @@ if __name__ == "__main__":
 
 `def run_evdev(` est à la ligne 748 et `def run_raw(` à la ligne 963 de dictee-ptt.py sur la 1.3, dans cet ordre ; `ptt.handle_event(event.code, event.value)` est à la ligne 925.
 
-- [ ] **Step 2 : lancer, vérifier l'échec**
+- [x] **Step 2 : lancer, vérifier l'échec**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137 && python3 tests/test-ptt-meeting-passthrough.py 2>&1 | tail -3
 ```
 Attendu : `FAILED (errors=2, failures=1)`, les erreurs étant `AttributeError: … 'keys_pass_through'`.
 
-- [ ] **Step 3 : la fonction et le branchement**
+- [x] **Step 3 : la fonction et le branchement**
 
 Après la définition de `read_state()` (elle commence ligne 77) et avant `def read_state_with_cleanup():` (ligne 111) :
 
@@ -913,7 +913,7 @@ Insérer entre le `continue` et le commentaire `# Pause marker` :
 
 ```
 
-- [ ] **Step 4 : relancer**
+- [x] **Step 4 : relancer**
 
 ```bash
 python3 tests/test-ptt-meeting-passthrough.py 2>&1 | tail -1
@@ -922,7 +922,7 @@ python3 -m py_compile dictee-ptt.py && echo compile OK
 ```
 Attendu : `OK`, `OK`, `compile OK`.
 
-- [ ] **Step 5 : commit**
+- [x] **Step 5 : commit**
 
 ```bash
 git add dictee-ptt.py tests/test-ptt-meeting-passthrough.py
@@ -947,7 +947,7 @@ it is pinned by a test without touching a keyboard."
 - Produces: `ICON_MAP["meeting-ui-open"]`, `ICON_MAP["meeting-recording"]` ; `self.item_meeting_live_gtk` (Gtk.MenuItem) ; `self.action_meeting_live_qt` (QAction) ; msgid `Open the live meeting window (capture, then diarization)`, `Live meeting window open`, `Live meeting recording…` (`Live meeting` existe déjà).
 - Consumes: `read_state()` (dictee-tray.py:430), `subprocess` (ligne 17).
 
-- [ ] **Step 1 : le test**
+- [x] **Step 1 : le test**
 
 Fichier `tests/test-meeting-live-wiring.py` :
 
@@ -1019,14 +1019,14 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2 : lancer, vérifier les échecs**
+- [x] **Step 2 : lancer, vérifier les échecs**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137 && QT_QPA_PLATFORM=offscreen python3 tests/test-meeting-live-wiring.py 2>&1 | tail -3
 ```
 Attendu : `FAILED (failures=4, errors=1)`, l'erreur étant le `KeyError` sur `ICON_MAP`.
 
-- [ ] **Step 3 : `ICON_MAP` (lignes 306-316)**
+- [x] **Step 3 : `ICON_MAP` (lignes 306-316)**
 
 Après `    "switching": "parakeet-active-dark" if _DARK else "parakeet-active",` (ligne 315) et avant `}` :
 
@@ -1036,7 +1036,7 @@ Après `    "switching": "parakeet-active-dark" if _DARK else "parakeet-active",
     "meeting-recording": "parakeet-recording",
 ```
 
-- [ ] **Step 4 : menu GTK (ancrage ligne 593)**
+- [x] **Step 4 : menu GTK (ancrage ligne 593)**
 
 Après `        self.menu.append(self.item_diarize_lock_gtk)` (ligne 593) et avant `        # LLM post-processing toggle (above Audio context)` (ligne 595) :
 
@@ -1054,7 +1054,7 @@ Après `        self.menu.append(self.item_diarize_lock_gtk)` (ligne 593) et ava
 
 ```
 
-- [ ] **Step 5 : libellés, occupé et rafraîchissement GTK**
+- [x] **Step 5 : libellés, occupé et rafraîchissement GTK**
 
 Lignes 757-761, remplacer le dictionnaire entier :
 
@@ -1098,7 +1098,7 @@ ajouter :
             self.state not in ("meeting-ui-open", "meeting-recording"))
 ```
 
-- [ ] **Step 6 : côté Qt**
+- [x] **Step 6 : côté Qt**
 
 Après `        self.action_diarize_lock_qt.toggled.connect(self._on_diarize_lock_toggled_qt)` (ligne 1013) et avant `        # LLM post-processing toggle (above Audio context)` (ligne 1015) :
 
@@ -1144,7 +1144,7 @@ Après le bloc lignes 1270-1272 (`self.action_diarize_lock_qt.setEnabled(…)`) 
             self.state not in ("meeting-ui-open", "meeting-recording"))
 ```
 
-- [ ] **Step 7 : catalogues**
+- [x] **Step 7 : catalogues**
 
 Sept catalogues, même schéma qu'en Task 3 avec `#: dictee-tray.py`, trois msgid nouveaux :
 
@@ -1160,7 +1160,7 @@ Sept catalogues, même schéma qu'en Task 3 avec `#: dictee-tray.py`, trois msgi
 for l in fr de es it pt uk; do msgfmt --check -o po/$l.mo po/$l.po || echo "ECHEC $l"; done
 ```
 
-- [ ] **Step 8 : relancer**
+- [x] **Step 8 : relancer**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/test-meeting-live-wiring.py 2>&1 | tail -1
@@ -1169,7 +1169,7 @@ python3 -m py_compile dictee-tray.py && echo compile OK
 ```
 Attendu : `OK`, `OK (skipped=2)`, `compile OK`.
 
-- [ ] **Step 9 : commit**
+- [x] **Step 9 : commit**
 
 ```bash
 git add dictee-tray.py po/dictee.pot po/*.po po/*.mo tests/test-meeting-live-wiring.py
@@ -1196,7 +1196,7 @@ is untouched."
 - Consumes: `signal actionRequested(string action)` (FullRepresentation.qml:23), `executable.run(cmd)` (main.qml:691), `ThemedButton` avec `tooltipText` (ThemedButton.qml:20), `icon.name`, `leftPadding`, `text`, `enabled`.
 - Produces: action `"meeting-live"` dans le `switch` de `main.qml`.
 
-- [ ] **Step 1 : la section plasmoid du test**
+- [x] **Step 1 : la section plasmoid du test**
 
 Dans `tests/test-meeting-live-wiring.py`, avant `if __name__ == "__main__":` :
 
@@ -1255,14 +1255,14 @@ class TestPlasmoid(unittest.TestCase):
 
 Structure lue le 2026-09-20 : `// Boutons dictee` ligne 366, `RowLayout {` ligne 367, `id: btnDiarize` 447, la seule fermeture à quatre espaces entre 367 et 530 est la ligne 530 elle-même, `// Separateur avant transcription` ligne 533. Le catalogue du plasmoid connaît déjà `Meeting`, `Start meeting`, `Meeting in progress…`, `Stop meeting`, pas `Live meeting`.
 
-- [ ] **Step 2 : lancer, vérifier les sept échecs**
+- [x] **Step 2 : lancer, vérifier les sept échecs**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/test-meeting-live-wiring.py 2>&1 | grep -E '^(FAIL|ERROR):' | wc -l
 ```
 Attendu : `7`.
 
-- [ ] **Step 3 : le bouton, copié de master, avec son id et son libellé propres**
+- [x] **Step 3 : le bouton, copié de master, avec son id et son libellé propres**
 
 Point d'insertion, c'est le piège de cette tâche. Structure lue le 2026-09-20 :
 
@@ -1324,7 +1324,7 @@ Le nouveau bloc va entre la ligne 529 et la ligne 530, donc à l'intérieur du `
 
 `Easing.InOutSine` est la valeur de `translateDotAnim` lignes 441 et 442 du même fichier.
 
-- [ ] **Step 4 : main.qml, trois lignes**
+- [x] **Step 4 : main.qml, trois lignes**
 
 Ligne 22, remplacer :
 ```qml
@@ -1353,7 +1353,7 @@ ajouter :
             break
 ```
 
-- [ ] **Step 5 : catalogues du plasmoid**
+- [x] **Step 5 : catalogues du plasmoid**
 
 Dans `plasmoid/package/contents/locale/template.pot` et chacun des six `<lang>/LC_MESSAGES/plasma_applet_com.github.rcspam.dictee.po`, quatre blocs avant les entrées `#~` obsolètes (le `.po` français en a 53 en fin de fichier) :
 
@@ -1371,7 +1371,7 @@ for l in fr de es it pt uk; do msgfmt --check -o $l/LC_MESSAGES/plasma_applet_co
 ```
 Attendu : aucun `ECHEC`. Les `.mo` du plasmoid sont suivis par git (six fichiers), ils font partie du commit.
 
-- [ ] **Step 6 : relancer, et la syntaxe QML**
+- [x] **Step 6 : relancer, et la syntaxe QML**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -1381,7 +1381,7 @@ if command -v qmllint >/dev/null; then qmllint plasmoid/package/contents/ui/main
 ```
 Attendu : `OK`, `OK (skipped=2)`, et aucune ligne `error` de qmllint. Sans qmllint, compter les accolades du bloc inséré : 10 ouvrantes, 10 fermantes.
 
-- [ ] **Step 7 : commit**
+- [x] **Step 7 : commit**
 
 ```bash
 git add plasmoid/package/contents/ui/FullRepresentation.qml plasmoid/package/contents/ui/main.qml plasmoid/package/contents/locale tests/test-meeting-live-wiring.py
@@ -1404,7 +1404,7 @@ two meeting states as a dead daemon."
 **Interfaces:**
 - Produces: `/usr/bin/dictee-meeting-live` dans le .deb, le .rpm, le tarball et le paquet Arch.
 
-- [ ] **Step 1 : la section packaging du test**
+- [x] **Step 1 : la section packaging du test**
 
 Avant `if __name__ == "__main__":` :
 
@@ -1432,14 +1432,14 @@ class TestPackaging(unittest.TestCase):
 
 Les six lignes attendues sont celles de master, lues le 2026-09-20 (build-common.sh 34 et 53, build-rpm.sh 78 et 105, build-tar.sh 191, PKGBUILD 145, PKGBUILD-cuda 244, install.sh 833).
 
-- [ ] **Step 2 : lancer, vérifier l'échec sur build-common.sh**
+- [x] **Step 2 : lancer, vérifier l'échec sur build-common.sh**
 
 ```bash
 QT_QPA_PLATFORM=offscreen python3 tests/test-meeting-live-wiring.py 2>&1 | grep -c 'does not ship'
 ```
 Attendu : `1` (le test s'arrête au premier fichier).
 
-- [ ] **Step 3 : les huit lignes**
+- [x] **Step 3 : les huit lignes**
 
 `build-common.sh`, après la ligne 98 `    cp ./dictee-transcribe.py    "$PKG_DIR/usr/bin/dictee-transcribe"` :
 ```bash
@@ -1468,7 +1468,7 @@ et après la ligne 103 `        "$buildroot/usr/bin/dictee-transcribe" \` :
 
 `install.sh` ligne 814, remplacer `        dictee-translate-langs dictee-audio-sources` par `        dictee-translate-langs dictee-audio-sources dictee-meeting-live`.
 
-- [ ] **Step 4 : test, syntaxe, audit, build réel**
+- [x] **Step 4 : test, syntaxe, audit, build réel**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -1481,7 +1481,7 @@ dpkg-deb --fsys-tarfile .dev/dist/dictee-cpu_1.3.7~rc3-2_amd64.deb | tar -xO ./u
 ```
 Attendu : `OK`, `syntaxe OK`, une ligne `✓ packaging deps audit OK …`, deux `glibc check OK` et trois `Built:`, une ligne `-rwxr-xr-x … ./usr/bin/dictee-meeting-live`, et la même première ligne que `… | tar -xO ./usr/bin/dictee-transcribe | head -1` (shebang patché). `VERSION="1.3.7~rc3-2"` est dans build-deb.sh ligne 11.
 
-- [ ] **Step 5 : le script livré démarre sur Debian 12**
+- [x] **Step 5 : le script livré démarre sur Debian 12**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137 && timeout 600 podman run --rm -v "$PWD/.dev/dist:/d:ro" docker.io/library/debian:12 sh -c '
@@ -1492,7 +1492,7 @@ QT_QPA_PLATFORM=offscreen timeout 30 dictee-meeting-live --help 2>&1 | head -3
 ```
 Attendu : `usage: dictee-meeting-live [-h] [--start] [--stop]` sans traceback. `--help` sort avant toute construction de fenêtre, donc n'écrit aucun état.
 
-- [ ] **Step 6 : commit**
+- [x] **Step 6 : commit**
 
 ```bash
 git add build-common.sh build-rpm.sh build-tar.sh PKGBUILD PKGBUILD-cuda install.sh tests/test-meeting-live-wiring.py
@@ -1514,7 +1514,7 @@ pins the line in each file so the next new binary cannot skip a target."
 **Interfaces:**
 - Consumes: les quatre fichiers de test des tâches 1 à 7.
 
-- [ ] **Step 1 : les fonctions pures, portées de master en style unittest**
+- [x] **Step 1 : les fonctions pures, portées de master en style unittest**
 
 Fichier `tests/test-meeting-slug.py`, mêmes assertions que master (tests/test-meeting-slug.py, lu le 2026-09-20), réécrites pour unittest :
 
@@ -1577,7 +1577,7 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 ```
 
-- [ ] **Step 2 : les quatre suites en local**
+- [x] **Step 2 : les quatre suites en local**
 
 ```bash
 cd /home/rapha/SOURCES/RAPHA_STT/dictee-137
@@ -1585,7 +1585,7 @@ for t in tests/test-meeting-slug.py tests/test-ptt-meeting-passthrough.py tests/
 ```
 Attendu : quatre `OK`.
 
-- [ ] **Step 3 : le job qui a déjà PyQt6**
+- [x] **Step 3 : le job qui a déjà PyQt6**
 
 Dans `.github/workflows/rust.yml`, job `test-key-capture`, après l'étape (lignes 116 à 119) :
 ```yaml
@@ -1610,13 +1610,13 @@ ajouter :
         QT_QPA_PLATFORM: offscreen
 ```
 
-- [ ] **Step 4 : valider le YAML**
+- [x] **Step 4 : valider le YAML**
 
 ```bash
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/rust.yml')); print('yaml OK')"
 ```
 
-- [ ] **Step 5 : commit**
+- [x] **Step 5 : commit**
 
 ```bash
 git add .github/workflows/rust.yml tests/test-meeting-slug.py
@@ -1640,5 +1640,12 @@ git commit -m "ci: run the live meeting window tests"
 - Le rendu français liait le domaine gettext avant de charger le script, que le script relie ensuite sur le `.mo` installé de la machine s'il en trouve un. Il passe maintenant par le premier répertoire de `LOCALE_DIRS`, sous le HOME jetable du test, avec le `po/fr.mo` suivi par git.
 - `Close` existait dans les six `.po` comme entrée obsolète (`#~`), et msgfmt compte un doublon entre une entrée obsolète et une entrée vivante : le script de catalogue ressuscite l'entrée (avec sa traduction, « Schließen » en allemand) au lieu d'en ajouter une. Le format strftime `%Y-%m-%d %H:%M` est passé en liste blanche. Les deux contrôles de rendu français passent avant l'enveloppement (les libellés sont alors des littéraux français), échouent après, et repassent avec le catalogue. Un `_` jetable dans `_build_ui` (`self._bar_ctx, self._ctx_val, _ = …`) masquait gettext dans toute la méthode : quatre `_` jetables renommés `_unused`.
 - La copie du script n'était pas épinglée ; elle l'est sur le commit 03d3ad8. Le test des fonctions pures omettait trois assertions de master ; elles sont reprises.
+
+**Écarts constatés à l'exécution (2026-09-20), sans effet sur le résultat.**
+- Task 1 étape 5 : le `grep -c` du littéral rend `1` et non `0`, la définition de `STATE_FILE` contient elle-même le littéral.
+- Task 3 étape 2 : les deux contrôles de rendu français passent avant l'enveloppement (les libellés sont encore des littéraux français) ; ils échouent après, et repassent une fois le catalogue compilé. Le heredoc Python du plan pour ajouter la section au test contient `'''`, il faut passer par un heredoc shell.
+- Task 6 : le bloc QML inséré a 9 accolades ouvrantes et 9 fermantes, pas 10.
+- Task 7 étape 2 : le `grep -c 'does not ship'` rend `2` (le message apparaît sur deux lignes du rapport unittest), pas `1`. Le rpm et le tarball ont aussi été construits et vérifiés (`rpm -qlp`, `tar -tzf`).
+- Task 8 : tests/test-meeting-slug.py de master est périmé, `test_current_f9_spec` y attend des specs Whisper avec la taille (`whisper-medium`) alors que `current_f9_spec` rend des specs par moteur (`whisper`) depuis l'ajout de `normalize_asr_spec` ; il échoue sur master même. Le port épingle le comportement actuel et couvre `normalize_asr_spec`.
 
 **Cohérence des noms.** `missing_live_engine_features` et `LIVE_ENGINE_CHECKS` (Task 2) sont ceux du test. `STATE_FILE` (Task 1) est le nom que dictee-ptt.py utilise déjà pour le même fichier. `keys_pass_through` (Task 4) est le nom attendu par le test textuel. `item_meeting_live_gtk` et `action_meeting_live_qt` (Task 5) apparaissent dans les lignes exactes que le test cherche. `btnMeetingLive` et `meetingDot` (Task 6) sont ceux du test. `_Msg` (Task 2) suit la convention des tests de master.
