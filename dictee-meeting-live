@@ -1,0 +1,3455 @@
+#!/usr/bin/env python3
+"""dictee-meeting-live — Capture audio for a live meeting, then hand off to dictee-transcribe.
+
+Captures audio with pw-record into audio.wav until the user clicks Stop, then
+launches `dictee-transcribe --file <audio.wav> --diarize` which handles
+transcription + diarization + LLM analysis + export.
+
+A collapsible live preview accordion streams chunk-by-chunk transcript during
+recording (bonus preview — the real analysis is done by dictee-transcribe at Stop).
+"""
+
+import fcntl
+import json
+import os
+import re
+import select
+import shutil
+import signal
+import struct
+import sys
+import threading
+import time
+import argparse
+import subprocess
+from pathlib import Path
+from datetime import datetime
+
+from PyQt6.QtCore import (
+    QObject, QThread, pyqtSignal, QFileSystemWatcher, QTimer, Qt,
+    QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF,
+)
+from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QTextEdit, QToolButton, QFrame,
+    QFormLayout, QLineEdit, QGroupBox, QComboBox, QSlider, QSizePolicy,
+    QLayout, QCheckBox, QMessageBox, QProgressBar, QDialog,
+)
+
+import gettext
+
+LOCALE_DIRS = [
+    # User-space first so dev / hot translation updates win over the
+    # stale .mo shipped by the system package — avoids needing sudo
+    # to refresh translations during iteration.
+    os.path.expanduser("~/.local/share/locale"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "share", "locale"),
+    "/usr/local/share/locale",
+    "/usr/share/locale",
+]
+
+for _d in LOCALE_DIRS:
+    if os.path.isfile(os.path.join(_d, "fr", "LC_MESSAGES", "dictee.mo")):
+        gettext.bindtextdomain("dictee", _d)
+        break
+
+gettext.textdomain("dictee")
+_ = gettext.gettext
+
+# Shared state file read by dictee-ptt, the tray and the plasmoid. A module
+# constant so tests can point it elsewhere: building the window writes here.
+STATE_FILE = Path("/dev/shm/.dictee_state")
+
+
+# ---------------------------------------------------------------------------
+# Widgets
+# ---------------------------------------------------------------------------
+
+class StopButton(QPushButton):
+    """Stop button that can overlay a pie-sector progress in its corner — used
+    to show the final ('tail') chunk being flushed and transcribed after the
+    user stops. setPie(0..1); 0 hides the overlay. `pie` is a Qt property so a
+    QPropertyAnimation can drive it smoothly."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._pie = 0.0
+
+    def getPie(self):
+        return self._pie
+
+    def setPie(self, value):
+        self._pie = max(0.0, min(1.0, float(value)))
+        self.update()
+
+    pie = pyqtProperty(float, getPie, setPie)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._pie <= 0.0:
+            return
+        side = min(self.width(), self.height()) * 0.42
+        margin = 5.0
+        rect = QRectF(self.width() - side - margin,
+                      self.height() - side - margin, side, side)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 0, 0, 40))            # faint track
+        p.drawEllipse(rect)
+        p.setBrush(QColor(39, 174, 96, 230))       # green filled sector
+        # Sweep clockwise from 12 o'clock (Qt angles: 1/16°, CCW-positive).
+        p.drawPie(rect, 90 * 16, -int(360 * self._pie) * 16)
+        p.end()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _acquire_singleton_lock():
+    """Ensure a single meeting window per user via an flock'd lock file.
+
+    The lock is released automatically when the process dies, so there is no
+    stale-file problem — unlike the previous os.path.exists guard, which never
+    triggered because nothing ever created the file it checked. Returns the
+    open file object (keep it alive for the whole process lifetime) or None if
+    another instance already holds the lock.
+    """
+    lock_path = f"/tmp/dictee-meeting-live-{os.getuid()}.lock"
+    fd = open(lock_path, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fd.close()
+        return None
+    return fd
+
+
+def current_f9_spec(conf):
+    """Map the F9 dictee.conf settings to an --asr-model spec (combo default).
+
+    Whisper specs are per ENGINE ("whisper" / "whisper-rust"): the model
+    size follows the dictee-setup selection in dictee.conf, so the combo
+    doesn't duplicate the size choice."""
+    backend = (conf.get("DICTEE_ASR_BACKEND") or "parakeet").strip().lower()
+    if backend == "whisper":
+        return "whisper"
+    if backend == "whisper-rust":
+        return "whisper-rust"
+    if backend == "nemotron":
+        return "nemotron"
+    if backend == "kyutai":
+        return "kyutai"
+    quant = (conf.get("DICTEE_PARAKEET_QUANT") or "fp32").strip().lower()
+    return "parakeet-int8" if quant == "int8" else "parakeet-fp32"
+
+
+def normalize_asr_spec(spec):
+    """Fold the sized whisper specs saved by older versions into the
+    engine-level specs the combo exposes now."""
+    s = (spec or "").strip()
+    if s.startswith("whisper-rust"):
+        return "whisper-rust"
+    if s.startswith("whisper-"):
+        return "whisper"
+    return s
+
+
+def slug_title(title):
+    """Lowercase, spaces/non-alnum → '-', collapse repeats, trim, max 40 chars."""
+    s = (title or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s[:40].strip("-")
+
+
+def meeting_dir(timestamp=None, title=""):
+    base_dir = os.environ.get("DICTEE_MEETING_DIR",
+                              os.path.join(os.path.expanduser("~"),
+                                           ".local/share/dictee/meetings"))
+    ts = timestamp or datetime.now().strftime("%Y-%m-%d-%H%M")
+    sl = slug_title(title)
+    name = f"{ts}_{sl}" if sl else ts
+    base = Path(base_dir) / name
+    n = 2
+    while base.exists():                      # collision on date+slug → suffix -2, -3…
+        base = Path(base_dir) / f"{name}-{n}"
+        n += 1
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def normalize_wav(wav):
+    """Bring the SPEECH loudness of a recording up to -16 LUFS (in place).
+
+    Loudness, not peak: one keyboard click near full scale would anchor
+    a peak normalization while the speech sits 25+ dB lower (measured
+    2026-07-19: peak already at -3 dB yet only -28 LUFS integrated).
+    Constant gain from the EBU R128 integrated loudness; the limiter
+    only tames the few transients that would otherwise clip.
+    Shared by the meeting stop path and the sound-test dialog so the
+    test stays representative of a real meeting."""
+    if not wav or not Path(wav).is_file():
+        return
+    try:
+        probe = subprocess.run(
+            ["ffmpeg", "-i", str(wav),
+             "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=300)
+        m = re.search(r'"input_i"\s*:\s*"(-?[\d.]+)"', probe.stderr)
+        if not m:
+            return
+        gain = -16.0 - float(m.group(1))
+        # Nothing to gain, or a near-silent take (amplifying pure room
+        # noise only manufactures hiss): leave the file alone. 50 dB
+        # because a real meeting on this rig already needs +40 (voice-only
+        # take measured -55.9 LUFS integrated, 2026-07-19), and the system
+        # leg is attenuated to that same level (rebalance_sys_leg).
+        if gain <= 1.0 or gain > 50.0:
+            return
+        tmp = f"{wav}.norm.wav"
+        rc = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", str(wav),
+             "-af", f"volume={gain:.1f}dB,alimiter=limit=0.708:level=false",
+             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp],
+            timeout=600).returncode
+        if rc == 0 and os.path.getsize(tmp) > 44:
+            os.replace(tmp, wav)
+            print(f"[meeting-live] {os.path.basename(str(wav))} normalized "
+                  f"(+{gain:.1f} dB)", file=sys.stderr)
+        else:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    except Exception as e:
+        print(f"[meeting-live] normalization skipped: {e}", file=sys.stderr)
+
+
+def _parse_whisper_tokens(text):
+    """Parse the whisper daemon's '\\ttimestamps' output ('[start s - end s]
+    word' lines) into live-preview tokens [{'text', 'start_s', 'end_s'}, ...]."""
+    out = []
+    pat = re.compile(r"^\[(\d+\.?\d*)s?\s*-\s*(\d+\.?\d*)s?\]\s*(.+)$")
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = pat.match(line)
+        if m:
+            out.append({"text": m.group(3).strip(),
+                        "start_s": float(m.group(1)),
+                        "end_s": float(m.group(2))})
+    return out
+
+
+def _build_subprocess_env():
+    """Returns os.environ + ORT_DYLIB_PATH + all DICTEE_* keys from
+    ~/.config/dictee.conf. Used for Rust binaries that need to see
+    DICTEE_FORCE_CPU and friends.
+    """
+    env = os.environ.copy()
+    ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+    if os.path.isfile(ort_lib):
+        env["ORT_DYLIB_PATH"] = ort_lib
+    conf_path = Path.home() / ".config/dictee.conf"
+    if conf_path.is_file():
+        try:
+            for line in conf_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                if k.startswith("DICTEE_"):
+                    env[k] = v.strip().strip('"').strip("'")
+        except OSError:
+            pass
+    return env
+
+
+def _meeting_icon(recording):
+    """Window icon: red 'team-meeting.svg' while recording, black otherwise.
+    Resolved from the repo (dev) or /usr/share/dictee/assets (installed)."""
+    from PyQt6.QtGui import QIcon
+    name = "team-meeting.svg" if recording else "team-meeting-black.svg"
+    for p in (os.path.join(os.path.dirname(os.path.realpath(__file__)), "assets", name),
+              os.path.join("/usr/share/dictee/assets", name)):
+        if os.path.isfile(p):
+            return QIcon(p)
+    return QIcon()
+
+
+# ---------------------------------------------------------------------------
+# Workers
+# ---------------------------------------------------------------------------
+
+class AudioCaptureWorker(QThread):
+    """Continuous audio capture via pw-record into a growing WAV file.
+
+    Honors the selected meeting source: a node.name (mic / *.monitor), an
+    'app:<name>' resolved to the sink the app plays to (captured via its
+    monitor), an empty value (default mic), or 'mix' — a transient null-sink
+    fed by two loopbacks (microphone + system monitor) torn down when capture
+    ends. Sink captures use 'pw-record -P stream.capture.sink=true'.
+    """
+
+    error = pyqtSignal(str)
+    ready = pyqtSignal()   # emitted (worker thread) once the source is resolved
+                           #   and _appcap_sink / mix sink-input ids are set
+
+    def __init__(self, output_wav: Path, source: str = "",
+                 include_mic: bool = False):
+        super().__init__()
+        self.output_wav = output_wav
+        self.source = source or ""
+        self._include_mic = include_mic   # add mic to isolated app capture
+        self.proc = None
+        self._stop = False
+        # mix lifecycle (populated by _setup_mix_sink, cleared by _teardown_mix)
+        self._mix_modules = []      # null-sink + 2 loopback module ids
+        self._mic_input_id = None   # sink-input id of the mic loopback
+        self._sys_input_id = None   # sink-input id of the system loopback
+        self._sys_pct = 100         # 🔊 slider value, composed in rebalance_sys_leg
+        self._appcap_proc = None    # dictee-app-capture subprocess (app sources)
+        self._appcap_sink = None    # its virtual sink name
+
+    def run(self):
+        try:
+            target, capture_sink = self._resolve_target(self.source)
+        except Exception as exc:
+            self.error.emit(f"audio source setup failed: {exc}")
+            self._teardown_mix()
+            self._stop_app_capture()
+            return
+        if target is None:
+            # App capture failed — do NOT record anything (never the mic).
+            self._teardown_mix()
+            self._stop_app_capture()
+            return
+        # Source resolved: _appcap_sink / mix sink-input ids are now set, so the
+        # GUI can safely point meters + apply mix volumes (no fixed-delay guess).
+        self.ready.emit()
+        cmd = ["pw-record", "--format=s16", "--rate=16000", "--channels=1"]
+        if capture_sink:
+            # Capturing a sink's monitor (system audio / an app / the mix
+            # null-sink) REQUIRES this property. 'pw-record --target=<X>.monitor'
+            # does NOT tap the monitor — it silently falls back to the default
+            # microphone — so per-app / system / mix capture would be empty.
+            cmd += ["-P", "stream.capture.sink=true"]
+        cmd += [f"--target={target}", str(self.output_wav)]
+        try:
+            self.proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            rc = self.proc.wait()
+            if rc != 0 and not self._stop:
+                err = self.proc.stderr.read().decode("utf-8", "replace")
+                self.error.emit(f"pw-record exit {rc}: {err}")
+        except FileNotFoundError:
+            self.error.emit("pw-record not found. Is PipeWire installed?")
+        finally:
+            self._teardown_mix()
+            self._stop_app_capture()
+
+    # ── source resolution ──────────────────────────────────────────────────
+    def _resolve_target(self, source):
+        """Resolve a meeting source value to (pw-record target, capture_sink).
+
+        capture_sink=True means the target is a SINK whose monitor we tap with
+        'stream.capture.sink=true' (system audio, an app's sink, or the mix
+        null-sink). False means a normal capture source (a microphone).
+        """
+        if source == "mix":
+            return self._setup_mix_sink(), True
+        if not source:
+            return "@DEFAULT_AUDIO_SOURCE@", False
+        if source.startswith("app:"):
+            # Capture the app ISOLATED (app-only, never the mic) so its meter
+            # and its level stay independent of the microphone.
+            sink = self._start_app_capture(source[4:], include_mic=False)
+            if not sink:
+                # NEVER fall back to the mic for an app source — that would
+                # silently record the wrong thing. None → run() aborts (the
+                # error was already emitted by _start_app_capture).
+                return None, False
+            if self._include_mic:
+                # 'Add mic': mix the isolated app audio with the mic through two
+                # independently-controllable loopbacks (same machinery as 'mix'),
+                # so the two levels — and the two meters — stay separate.
+                return self._setup_mix_sink(system_source=f"{sink}.monitor"), True
+            return sink, True
+        if source.endswith(".monitor"):
+            return source[:-len(".monitor")], True   # tap that sink's monitor
+        return source, False                         # microphone node.name
+
+    def _start_app_capture(self, name, include_mic=False):
+        """Spawn dictee-app-capture for app `name`; return its private sink
+        name once READY, else None (caller falls back to the default mic)."""
+        sink = f"dictee_cap_{os.getpid()}"
+        cmd = ["dictee-app-capture", "--sink-name", sink, "--match", name]
+        if include_mic:
+            cmd.append("--include-mic")
+        try:
+            self._appcap_proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except FileNotFoundError:
+            self.error.emit(
+                f"Capture de « {name} » impossible : composant "
+                "dictee-app-capture introuvable")
+            return None
+        deadline = time.time() + 4
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            if self._appcap_proc.poll() is not None:
+                break
+            rlist, _, _ = select.select(
+                [self._appcap_proc.stdout], [], [], remaining)
+            if not rlist:
+                continue  # timeout slice; loop re-checks remaining/poll
+            line = self._appcap_proc.stdout.readline()
+            if not line:           # EOF — process closed stdout
+                break
+            if line.startswith("READY"):
+                self._appcap_sink = sink
+                return sink
+        self._stop_app_capture()
+        self.error.emit(
+            f"Capture de « {name} » impossible : la capture d'application "
+            "n'a pas démarré")
+        return None
+
+    def _stop_app_capture(self):
+        if self._appcap_proc and self._appcap_proc.poll() is None:
+            self._appcap_proc.terminate()
+            try:
+                self._appcap_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._appcap_proc.kill()
+        self._appcap_proc = None
+        self._appcap_sink = None
+
+    def _setup_mix_sink(self, system_source=None):
+        """Build a transient null-sink fed by two loopbacks (mic + a 'system'
+        source) and return the null-sink name 'dictee_mix' (captured by run()
+        with stream.capture.sink=true).
+
+        system_source is the second loopback's source: the default sink's
+        monitor for the plain 'mix' source, or an isolated app sink's monitor
+        for an 'app:' source with 'add mic' (so app + mic mix with independent
+        levels). Each loopback's sink-input is tagged with a findable media.name
+        so its volume can be controlled independently (set_mic/system_volume).
+        Modules are unloaded in _teardown_mix().
+        """
+        if system_source is None:
+            sink = subprocess.check_output(
+                ["pactl", "get-default-sink"], text=True, timeout=3).strip()
+            system_source = f"{sink}.monitor"
+        src = subprocess.check_output(
+            ["pactl", "get-default-source"], text=True, timeout=3).strip()
+
+        def load(*args):
+            return subprocess.check_output(
+                ["pactl", "load-module", *args], text=True, timeout=3).strip()
+
+        self._mix_modules.append(load(
+            "module-null-sink", "sink_name=dictee_mix",
+            "sink_properties=device.description=DicteeMix"))
+        self._mix_modules.append(load(
+            "module-loopback", f"source={src}", "sink=dictee_mix",
+            "latency_msec=50",
+            "sink_input_properties=media.name=dictee_mix_mic"))
+        self._mix_modules.append(load(
+            "module-loopback", f"source={system_source}", "sink=dictee_mix",
+            "latency_msec=50",
+            "sink_input_properties=media.name=dictee_mix_sys"))
+        self._mic_input_id, self._sys_input_id = self._find_mix_inputs()
+        # Pin both leg volumes BEFORE pw-record spawns: stream-restore has
+        # already re-applied whatever volumes a past session stored for these
+        # media.names (see rebalance_sys_leg), and the GUI-side rebalance only
+        # lands a moment after recording starts.
+        self.rebalance_sys_leg()
+        return "dictee_mix"
+
+    def _find_mix_inputs(self):
+        """Map the two tagged loopback sink-inputs to their ids.
+
+        Loopbacks take a moment to attach, so poll briefly. pactl list output
+        is LOCALIZED (FR shows 'Entrée de la destination' instead of 'Sink
+        Input') → force LC_ALL=C so the parse works on non-English systems.
+        """
+        env = dict(os.environ, LC_ALL="C")
+        for _attempt in range(20):           # up to ~2 s
+            out = subprocess.check_output(
+                ["pactl", "list", "sink-inputs"], text=True, env=env, timeout=3)
+            cur = mic = sysid = None
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith("Sink Input #"):
+                    cur = line.split("#", 1)[1].strip()
+                elif line == 'media.name = "dictee_mix_mic"':
+                    mic = cur
+                elif line == 'media.name = "dictee_mix_sys"':
+                    sysid = cur
+            if mic and sysid:
+                return mic, sysid
+            self.msleep(100)
+        return None, None
+
+    def _teardown_mix(self):
+        """Unload all mix modules (idempotent)."""
+        while self._mix_modules:
+            mod = self._mix_modules.pop()
+            try:
+                subprocess.run(["pactl", "unload-module", mod],
+                               timeout=3, capture_output=True)
+            except Exception:
+                pass
+        self._mic_input_id = self._sys_input_id = None
+
+    def set_system_volume(self, pct):
+        """Set the system/app loopback volume (mix or app+mic)."""
+        self._sys_pct = pct
+        self.rebalance_sys_leg()
+
+    def rebalance_sys_leg(self):
+        """Lower the SYSTEM loopback down to the mic leg's own level.
+
+        The system @DEFAULT_SOURCE@ sits well below nominal on hot input
+        stages (30% cubic = -31.4 dB here, deliberate anti-clipping for
+        dictation), while the system leg enters the mix near 0 dB — so
+        notifications/visio audio dwarfed the voice by ~30 dB in the file
+        (2026-07-19). Boosting the mic leg instead (first attempt) restored
+        the hot raw-input level and hard-clipped 15% of the samples: a
+        near-full-scale system leg plus a +31 dB mic leg cannot fit in the
+        s16 file. Attenuating the system leg keeps both legs near the mic's
+        quiet level — the sum physically cannot clip — and the stop-time
+        R128 normalization brings the whole file back up for listening.
+        The attenuation composes with the 🔊 slider via the cubic mapping
+        (dB = 60*log10(pct/100)). Capped at 40 dB so a near-muted mic
+        cannot silence the system leg.
+
+        BOTH legs are pinned explicitly: pipewire-pulse's stream-restore
+        re-applies the last stored volume per media.name to every new
+        loopback, so an untouched leg silently inherits whatever a past
+        session set (measured 2026-07-19: a fresh dictee_mix_mic came up
+        at 329% / +31 dB, resurrecting the abandoned mic-boost approach
+        and clipping the file). Never rely on loopback volume defaults."""
+        if not self._sys_input_id:
+            return
+        self._set_input_volume(self._mic_input_id, 100)
+        atten_db = 0.0
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-source-volume", "@DEFAULT_SOURCE@"],
+                text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
+            m = re.search(r"(-?[\d.]+) dB", out)
+            if m:
+                atten_db = min(40.0, max(0.0, -float(m.group(1))))
+        except Exception:
+            pass
+        pct = round(self._sys_pct * 10 ** (-atten_db / 60))
+        self._set_input_volume(self._sys_input_id, pct)
+
+    def _set_input_volume(self, input_id, pct):
+        if not input_id:
+            return
+        try:
+            subprocess.run(
+                ["pactl", "set-sink-input-volume", input_id, f"{int(pct)}%"],
+                timeout=2, capture_output=True)
+        except Exception:
+            pass
+
+    def stop(self):
+        self._stop = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self._stop_app_capture()
+        self.wait(5000)   # join the QThread so run()'s teardown is done
+
+    def pause(self):
+        # Freeze the WAV: SIGSTOP pw-record (it stops writing). SIGCONT resumes.
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.send_signal(signal.SIGSTOP)
+            except (ProcessLookupError, OSError):
+                pass
+
+    def resume(self):
+        if self.proc and self.proc.poll() is None:
+            try:
+                self.proc.send_signal(signal.SIGCONT)
+            except (ProcessLookupError, OSError):
+                pass
+
+
+class LevelMeterWorker(QThread):
+    """Reads the live peak level of a single audio flow via parec and emits it
+    (0.0-1.0). One instance per metered flow (🎤 mic / 🔊 selected output) —
+    independent of the shared plasmoid level daemon, so they never conflict.
+
+    `device` is a parec --device value (a source or '<sink>.monitor' name);
+    None records the default source (the microphone).
+    """
+
+    level = pyqtSignal(float)
+
+    def __init__(self, device=None):
+        super().__init__()
+        self.device = device
+        self.proc = None
+        self._stop = False
+
+    def run(self):
+        cmd = ["parec", "--rate=16000", "--channels=1", "--format=s16le",
+               "--latency-msec=50"]
+        if self.device:
+            cmd.append(f"--device={self.device}")
+        try:
+            self.proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        except FileNotFoundError:
+            return
+        chunk = 1600          # 800 samples * 2 bytes ≈ 50 ms at 16 kHz
+        while not self._stop:
+            data = self.proc.stdout.read(chunk)
+            if not data:
+                break
+            n = len(data) // 2
+            if not n:
+                continue
+            samples = struct.unpack(f"<{n}h", data[:n * 2])
+            peak = max(abs(s) for s in samples) / 32768.0
+            self.level.emit(peak)
+
+    def stop(self):
+        self._stop = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.wait(2500)   # join the QThread (terminate closed the pipe → run() exits)
+
+
+class ChunkerWorker(QThread):
+    """Splits the growing audio.wav into chunks with overlap via ffmpeg.
+
+    Emits `chunk_ready(int chunk_id, str path)` once each chunk is extracted.
+    Strategy: poll every 1 s; once duration >= start_t + chunk_duration,
+    extract [start_t, start_t+chunk_duration] into chunk_NNN.wav and advance
+    start_t by (chunk_duration - overlap).
+    """
+
+    chunk_ready = pyqtSignal(int, str)
+    error = pyqtSignal(str)
+
+    def __init__(self, audio_wav: Path, chunks_dir: Path,
+                 chunk_duration: int = 40, overlap: int = 10):
+        super().__init__()
+        self.audio_wav = audio_wav
+        self.chunks_dir = chunks_dir
+        self.chunk_duration = chunk_duration
+        self.overlap = overlap
+        self.advance = chunk_duration - overlap
+        self._stop = False
+        self.chunk_id = 0
+
+    def run(self):
+        self.chunks_dir.mkdir(parents=True, exist_ok=True)
+        start_t = 0
+        while not self._stop:
+            duration = self._wav_duration(self.audio_wav)
+            if duration >= start_t + self.chunk_duration:
+                chunk_path = self.chunks_dir / f"chunk_{self.chunk_id:04d}.wav"
+                rc = self._extract(start_t, self.chunk_duration, chunk_path)
+                if rc == 0:
+                    self.chunk_ready.emit(self.chunk_id, str(chunk_path))
+                    self.chunk_id += 1
+                    start_t += self.advance
+                else:
+                    self.error.emit(f"ffmpeg extract failed (chunk {self.chunk_id})")
+                    return
+            time.sleep(1)
+        # Stopped: flush the final partial chunk so the live preview captures
+        # the tail (audio recorded after the last full chunk).
+        self._flush_tail(start_t)
+
+    def _flush_tail(self, start_t):
+        """Emit a final partial chunk [start_t, end] on stop, but only if there
+        is NEW content beyond the overlap the last full chunk already covered."""
+        duration = self._wav_duration(self.audio_wav)
+        if duration <= start_t + self.overlap:
+            return
+        chunk_path = self.chunks_dir / f"chunk_{self.chunk_id:04d}.wav"
+        if self._extract(start_t, duration - start_t, chunk_path) == 0:
+            self.chunk_ready.emit(self.chunk_id, str(chunk_path))
+            self.chunk_id += 1
+
+    def _wav_duration(self, path: Path) -> float:
+        # 44 byte header + raw PCM s16le mono 16 kHz = 32000 B/s
+        try:
+            size = path.stat().st_size
+            return max(0.0, (size - 44) / 32000.0)
+        except FileNotFoundError:
+            return 0.0
+
+    def _extract(self, start_s: int, dur_s: int, out_path: Path) -> int:
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_s),
+            "-t", str(dur_s),
+            "-i", str(self.audio_wav),
+            "-ar", "16000", "-ac", "1",
+            "-c:a", "pcm_s16le",
+            str(out_path),
+        ]
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return proc.returncode
+
+    def stop(self):
+        self._stop = True
+        self.wait(3000)   # join the QThread (run() checks _stop within ~1 s)
+
+
+class TranscriptionWorker(QObject):
+    """For each ready chunk, calls transcribe-client and emits (chunk_id, tokens).
+
+    tokens = [{"text": str, "start_s": float, "end_s": float}, ...]
+    Uses the existing transcribe-daemon (Parakeet already in RAM via systemd).
+    """
+
+    transcribed = pyqtSignal(int, list)
+    error = pyqtSignal(int, str)
+
+    # Nemotron mode only: pre-aligned lines emitted straight to the preview
+    # (same contract as AlignerWorker.aligned — the aligner is bypassed).
+    aligned_direct = pyqtSignal(int, list)
+
+    def __init__(self, whisper_sock=None, nemotron_sock=None):
+        super().__init__()
+        # When set, the live preview transcribes via a dedicated isolated whisper
+        # daemon on this private socket (chosen model = Whisper) instead of the F9
+        # Parakeet daemon — so the live text matches the final-analysis language.
+        self._whisper_sock = whisper_sock
+        # When set, the live preview runs per-Sortformer-segment transcription
+        # via an isolated nemotron daemon (transcribe_segments); transcribe()
+        # is never called in that mode.
+        self._nemotron_sock = nemotron_sock
+        xdg = os.environ.get("XDG_RUNTIME_DIR")
+        if xdg:
+            self.daemon_socket = os.path.join(xdg, "transcribe.sock")
+        else:
+            # Must match the daemon's fallback (transcribe_daemon.rs): the dash
+            # goes before the uid, not after ".sock".
+            self.daemon_socket = f"/tmp/transcribe-{os.getuid()}.sock"
+
+    def transcribe(self, chunk_id: int, chunk_path: str):
+        if self._whisper_sock:
+            self._transcribe_whisper(chunk_id, chunk_path)
+            return
+        if not os.path.exists(self.daemon_socket):
+            self.error.emit(
+                chunk_id,
+                f"socket transcribe-daemon absente ({self.daemon_socket})",
+            )
+            return
+        try:
+            proc = subprocess.run(
+                ["transcribe-client", chunk_path, "--json-timestamps"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                env=_build_subprocess_env(),
+            )
+            if proc.returncode != 0:
+                self.error.emit(
+                    chunk_id,
+                    f"transcribe-client exit {proc.returncode}: {proc.stderr.strip()}",
+                )
+                return
+            data = json.loads(proc.stdout)
+            tokens = data.get("tokens", [])
+            self.transcribed.emit(chunk_id, tokens)
+        except subprocess.TimeoutExpired:
+            self.error.emit(chunk_id, "transcribe-client timeout (>20 s)")
+        except json.JSONDecodeError as e:
+            self.error.emit(chunk_id, f"JSON parse error: {e}")
+
+    def _transcribe_whisper(self, chunk_id: int, chunk_path: str):
+        """Live transcription via the isolated whisper daemon (private socket).
+        Speaks the python daemon protocol directly: '<path>\\ttimestamps' →
+        '[start s - end s] word' lines → tokens. The daemon's cold model load
+        may not be ready for the first chunk(s); we surface that as a soft error
+        and the next chunk retries."""
+        import socket as _sock
+        # Cold start: the isolated daemon binds its socket only after loading
+        # the model (seconds for a 1.6 GB ggml). Giving up instantly relied on
+        # "the next chunk retries" — but the TAIL chunk of a short meeting has
+        # no next chunk, so the whole preview stayed empty (2026-07-19). Wait
+        # for the socket instead, bounded under the 25 s stop-finalize
+        # watchdog; runs on an executor thread, never the GUI.
+        _deadline = time.monotonic() + 20
+        while not os.path.exists(self._whisper_sock):
+            if time.monotonic() >= _deadline:
+                self.error.emit(chunk_id, "daemon Whisper live pas encore prêt (chargement du modèle)")
+                return
+            time.sleep(0.5)
+        try:
+            s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+            s.settimeout(60)
+            s.connect(self._whisper_sock)
+            s.sendall((chunk_path + "\ttimestamps\n").encode("utf-8"))
+            data = b""
+            while True:
+                buf = s.recv(4096)
+                if not buf:
+                    break
+                data += buf
+            s.close()
+            text = data.decode("utf-8", errors="replace").strip()
+            if text.startswith("ERROR:"):
+                self.error.emit(chunk_id, f"Whisper live: {text}")
+                return
+            self.transcribed.emit(chunk_id, _parse_whisper_tokens(text))
+        except (ConnectionRefusedError, OSError) as e:
+            self.error.emit(chunk_id, f"Whisper live: {e}")
+
+    def transcribe_segments(self, chunk_id: int, chunk_path: str,
+                            segments: list, offset: float = 0.0):
+        """Nemotron live: the daemon has no word timestamps (empty tokens), so
+        timestamp-overlap alignment is impossible. Instead, cut the chunk wav
+        on the Sortformer segments and transcribe each piece separately on the
+        private socket — speaker attribution is exact by construction. Emits
+        aligned_direct(chunk_id, lines); ALWAYS emits (even empty) because the
+        tail-chunk stop-finalize waits on that signal."""
+        import socket as _sock
+        import tempfile
+        import wave as _wave
+        if not os.path.exists(self._nemotron_sock):
+            self.error.emit(chunk_id,
+                            "daemon Nemotron live pas encore prêt (chargement du modèle)")
+            self.aligned_direct.emit(chunk_id, [])
+            return
+        lines = []
+        try:
+            with _wave.open(chunk_path, "rb") as wf:
+                rate = wf.getframerate()
+                width = wf.getsampwidth()
+                channels = wf.getnchannels()
+                total = wf.getnframes()
+                for seg in segments:
+                    start = max(0.0, float(seg["start_s"]))
+                    end = min(float(seg["end_s"]), total / rate)
+                    if end - start < 0.3:       # too short to transcribe (noise)
+                        continue
+                    wf.setpos(int(start * rate))
+                    frames = wf.readframes(int((end - start) * rate))
+                    tmp = tempfile.NamedTemporaryFile(
+                        prefix="dictee-meeting-seg-", suffix=".wav", delete=False)
+                    try:
+                        with _wave.open(tmp, "wb") as out:
+                            out.setnchannels(channels)
+                            out.setsampwidth(width)
+                            out.setframerate(rate)
+                            out.writeframes(frames)
+                        tmp.close()
+                        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
+                        s.settimeout(60)
+                        s.connect(self._nemotron_sock)
+                        s.sendall((tmp.name + "\n").encode("utf-8"))
+                        data = b""
+                        while True:
+                            buf = s.recv(4096)
+                            if not buf:
+                                break
+                            data += buf
+                        s.close()
+                        text = data.decode("utf-8", errors="replace").strip()
+                    finally:
+                        try:
+                            os.unlink(tmp.name)
+                        except OSError:
+                            pass
+                    if text.startswith("ERROR:"):
+                        self.error.emit(chunk_id, f"Nemotron live: {text}")
+                        continue
+                    if text:
+                        lines.append({
+                            "speaker": seg["speaker_id"],
+                            "text": text,
+                            "start_s": start + offset,
+                            "end_s": end + offset,
+                        })
+        except (ConnectionRefusedError, OSError, _wave.Error) as e:
+            self.error.emit(chunk_id, f"Nemotron live: {e}")
+        self.aligned_direct.emit(chunk_id, lines)
+
+
+def _diar_multi_available():
+    """Check if the in-house multi-speaker diarization engine is usable:
+    diarize-multi binary on PATH + its models installed (sentinel =
+    segmentation-3.0.onnx, same convention as the Rust default_models_dir
+    and dictee-transcribe). When available its --live mode is preferred over
+    diarize-only --stream (no 4-speaker cap)."""
+    if not shutil.which("diarize-multi"):
+        return False
+    sentinel = "segmentation-3.0.onnx"
+    dd = os.path.join(
+        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+        "dictee", "diar",
+    )
+    if os.path.isfile(os.path.join(dd, sentinel)):
+        return True
+    return os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel))
+
+
+def _moss_available():
+    """Check if the MOSS one-pass engine is usable (its --check covers the
+    model, the native runtime and the python bindings). MOSS has no
+    streaming mode: it can only serve the FINAL analysis at Stop, never the
+    live preview."""
+    exe = shutil.which("dictee-moss-diarize")
+    if not exe:
+        return False
+    try:
+        return subprocess.run([exe, "--check"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL,
+                              timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
+class DiarizationWorker(QObject):
+    """Keeps a streaming diarizer subprocess alive and sends chunks via stdin.
+
+    Engine: diarize-multi --live when installed (in-house engine, no
+    speaker-count cap, ids kept stable by centroid matching), else
+    diarize-only --stream (Sortformer, 4-speaker cap, ids kept stable by
+    its streaming state). Both speak the same wire protocol.
+
+    Emits (chunk_id, segments) where segments = [{"start_s", "end_s", "speaker_id"}, ...]
+    """
+
+    diarized = pyqtSignal(int, list)
+    error = pyqtSignal(int, str)
+    ready = pyqtSignal()           # emitted once the model has finished loading
+
+    def __init__(self, overlap: int = 10, engine: str = "auto",
+                 sensitivity: float = 0.5):
+        super().__init__()
+        self.proc = None
+        # engine: "auto" (multi-speaker engine when installed, else
+        # Sortformer), "multi", or "sortformer" (UI combo; unavailable
+        # engines are greyed out there). sensitivity (0.0-1.0, 0.5 =
+        # engine default) maps to each engine's own knob, mirroring
+        # dictee-transcribe: multi AHC threshold = sensitivity * 1.2.
+        use_multi = engine == "multi" or (
+            engine == "auto" and _diar_multi_available())
+        if use_multi:
+            self.cmd = ["diarize-multi", "--live", "--overlap-secs", str(overlap),
+                        "--threshold", f"{sensitivity * 1.2:.2f}"]
+        else:
+            self.cmd = ["diarize-only", "--stream",
+                        "--sensitivity", f"{sensitivity:.2f}"]
+        self.label = " ".join(self.cmd[:2])
+        # One persistent stdin/stdout pipe shared by the executor's workers:
+        # serialize diarize() calls so two chunks can't interleave their
+        # request+response (which mis-attributes segments to the wrong chunk).
+        self._lock = threading.Lock()
+
+    def start(self) -> bool:
+        """Launch the diarizer WITHOUT blocking the caller. The model load
+        (a few seconds of ONNX + CUDA init) is awaited on a background
+        thread that emits `ready` (or `error`). The first live chunk only
+        arrives at chunk_duration (~40 s), so the model has ample time to
+        load. Returns True if the process spawned, False on spawn failure."""
+        try:
+            self.proc = subprocess.Popen(
+                self.cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                env=_build_subprocess_env(),
+            )
+        except FileNotFoundError:
+            self.error.emit(0, f"{self.cmd[0]} binary not found. Diarization feature built?")
+            return False
+        threading.Thread(target=self._await_ready, daemon=True).start()
+        return True
+
+    def _await_ready(self):
+        """Background: wait for the 'ready' line on stderr, then keep draining
+        stderr so its pipe never fills and blocks the daemon."""
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            line = self.proc.stderr.readline()
+            if not line:
+                self.error.emit(0, f"{self.label} stderr EOF before ready")
+                return
+            if "ready" in line:
+                self.ready.emit()
+                break
+        else:
+            self.error.emit(0, f"{self.label} startup timeout (30s)")
+            return
+        try:
+            for _ in self.proc.stderr:   # drain (discard) until the proc exits
+                pass
+        except Exception:
+            pass
+
+    def diarize(self, chunk_id: int, chunk_path: str):
+        if not self.proc:
+            self.error.emit(chunk_id, "DiarizationWorker not started")
+            return
+        if self.proc.poll() is not None:
+            self.error.emit(chunk_id, f"{self.cmd[0]} exited with code {self.proc.returncode}")
+            return
+        try:
+            with self._lock:
+                self.proc.stdin.write(f"FILE: {chunk_path}\n")
+                self.proc.stdin.flush()
+                self._collect_response(chunk_id)
+        except BrokenPipeError:
+            self.error.emit(chunk_id, f"{self.cmd[0]} stdin pipe broken")
+
+    def _collect_response(self, chunk_id: int):
+        segments = []
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                self.error.emit(chunk_id, f"{self.cmd[0]} stdout EOF unexpected")
+                return
+            line = line.rstrip("\n")
+            if line == "":
+                self.diarized.emit(chunk_id, segments)
+                return
+            if line.startswith("ERROR:"):
+                self.error.emit(chunk_id, line)
+                return
+            parts = line.split()
+            if len(parts) == 3:
+                try:
+                    segments.append({
+                        "start_s": float(parts[0]),
+                        "end_s": float(parts[1]),
+                        "speaker_id": int(parts[2]),
+                    })
+                except ValueError:
+                    self.error.emit(chunk_id, f"malformed segment line: {line}")
+                    return
+
+    def stop(self):
+        if self.proc:
+            try:
+                if self.proc.stdin and not self.proc.stdin.closed:
+                    self.proc.stdin.close()
+                self.proc.wait(timeout=5)
+            except (subprocess.TimeoutExpired, BrokenPipeError):
+                self.proc.kill()
+                self.proc.wait()
+            self.proc = None
+
+
+def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
+    """Assign one speaker per word token, sequence-aware (engine-agnostic).
+
+    COPY of dictee-transcribe.py's _assign_speakers (a323876 then d5cafd4).
+    Both scripts are installed as standalone executables with no shared
+    module, so the fusion is duplicated rather than imported; everything below
+    this paragraph is byte-identical to the original, so a plain diff of the
+    two function bodies shows any divergence.
+
+    The diarization timeline is authoritative but locally imperfect: in fast
+    exchanges every engine tested (community-1, Sortformer, diarizen) emits
+    spurious overlapping islands or boundaries shifted by a few hundred ms,
+    and any per-word geometric rule (nearest segment, max overlap) faithfully
+    copies those defects onto the words as mid-clause speaker flips.
+
+    So words are assigned as a SEQUENCE (min-cost dynamic program):
+    - per-word cost for a speaker = temporal distance from the word midpoint
+      to that speaker's nearest segment (0 when inside — the same primitive
+      as the previous nearest-segment rule);
+    - changing speaker between consecutive words costs switch_penalty
+      (seconds-equivalent), EXCEPT at a clause boundary — previous word ends
+      with sentence-final punctuation — or after an inter-word silence
+      >= free_gap, where switching is free.
+
+    A 1-2 word island captured by a spurious segment cannot pay the switch
+    cost and stays with its clause; a genuine turn switches freely at the
+    clause boundary (even with zero pause — common in fast interviews), and
+    a genuine mid-clause interruption still switches because the per-word
+    distances of staying on the old speaker quickly exceed the penalty.
+    switch_penalty must sit between the flip cost of spurious islands
+    (<= ~0.6 s of distance mass on the reference sample) and that of the
+    shortest legitimate turn to protect (~1.75 s for a 2-word turn right
+    next to the other speaker's segment).
+    Punctuation is the boundary signal, not pauses: on the reference sample
+    the real turn had a 0.00 s gap while a 0.42 s pause sat mid-sentence.
+
+    words: [{"start", "end", "text"}] in chronological order.
+    speaker_segments: [{"start", "end", "speaker"}], may overlap.
+    Returns one speaker id per word (-1 only when speaker_segments is empty).
+    """
+    if not words:
+        return []
+    if not speaker_segments:
+        return [-1] * len(words)
+
+    def ends_clause(text):
+        return text.rstrip("\"'»«)]}").endswith((".", "!", "?", "…"))
+
+    def free_boundary(prev_word, word):
+        return (ends_clause(prev_word["text"])
+                or word["start"] - prev_word["end"] >= free_gap)
+
+    # NOTE — known limitation, deliberately NOT handled here: a WRONG
+    # diarization segment of ~2 s with real mass strictly inside a clause
+    # (e.g. a phantom speaker over "notre invité est un chercheur
+    # extrêmement connu.") cannot be told apart, on geometry + text alone,
+    # from a CORRECT segment in the mirrored configuration — a clause-
+    # enclosed-flanked-by-same-other-speaker filter was tried and rejected
+    # the true presenter segment of the reference sample (same trap as the
+    # Rust enforce_min_turn absorption, see project memory 2026-07-09).
+    # Distinguishing them needs voice-level evidence (clustering confidence
+    # / embeddings), i.e. the diarizer side, not this fusion.
+    speakers = sorted({s["speaker"] for s in speaker_segments})
+    n_spk = len(speakers)
+
+    # Per-word emission costs: distance to each speaker's nearest segment.
+    emissions = []
+    for word in words:
+        mid = 0.5 * (word["start"] + word["end"])
+        best = {spk: float("inf") for spk in speakers}
+        for seg in speaker_segments:
+            if seg["start"] <= mid <= seg["end"]:
+                dist = 0.0
+            else:
+                dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
+            if dist < best[seg["speaker"]]:
+                best[seg["speaker"]] = dist
+        emissions.append([best[spk] for spk in speakers])
+
+    # Viterbi over (word, speaker) with backpointers.
+    cost = list(emissions[0])
+    backptrs = []
+    for i in range(1, len(words)):
+        free = free_boundary(words[i - 1], words[i])
+        new_cost = []
+        new_back = []
+        for j in range(n_spk):
+            best_prev, best_cost = j, cost[j]
+            if not free:
+                for k in range(n_spk):
+                    c = cost[k] + (0.0 if k == j else switch_penalty)
+                    if c < best_cost:
+                        best_cost, best_prev = c, k
+            else:
+                for k in range(n_spk):
+                    if cost[k] < best_cost:
+                        best_cost, best_prev = cost[k], k
+            new_cost.append(best_cost + emissions[i][j])
+            new_back.append(best_prev)
+        cost = new_cost
+        backptrs.append(new_back)
+
+    j = min(range(n_spk), key=lambda x: cost[x])
+    path = [j]
+    for back in reversed(backptrs):
+        j = back[j]
+        path.append(j)
+    path.reverse()
+    return [speakers[j] for j in path]
+
+
+class AlignerWorker(QObject):
+    """Aligns transcription tokens with diarization segments, sequence-aware.
+
+    Tokens are WORDS here (the daemon is queried in 'timestamps' mode, i.e.
+    TimestampMode::Words), so the fusion is the same one the file path uses:
+    _assign_speakers scores the whole chunk at once instead of picking a
+    speaker per token in isolation. The previous per-token max-overlap rule
+    copied every diarizer blip onto the words (a 0.4 s spurious segment split
+    a continuous turn into three lines) and left a token with no overlap at
+    all speakerless.
+    Consecutive tokens with the same speaker are grouped into one line.
+    Local chunk timestamps are offset to absolute meeting timestamps via chunk_offset.
+
+    Emits aligned(chunk_id, lines) where:
+      lines = [{"speaker": int, "text": str, "start_s": float, "end_s": float}, ...]
+    """
+
+    aligned = pyqtSignal(int, list)
+
+    def __init__(self):
+        super().__init__()
+        self.chunk_offset = {}      # chunk_id → absolute offset in seconds
+        self._transcription = {}    # chunk_id → tokens
+        self._diarization = {}      # chunk_id → segments
+
+    def on_transcribed(self, chunk_id: int, tokens: list):
+        self._transcription[chunk_id] = tokens
+        self._try_align(chunk_id)
+
+    def on_diarized(self, chunk_id: int, segments: list):
+        self._diarization[chunk_id] = segments
+        self._try_align(chunk_id)
+
+    def _try_align(self, chunk_id: int):
+        if chunk_id not in self._transcription or chunk_id not in self._diarization:
+            return
+        tokens = self._transcription.pop(chunk_id)
+        segments = self._diarization.pop(chunk_id)
+        offset = self.chunk_offset.get(chunk_id, 0.0)
+
+        # _assign_speakers speaks the file path's field names; translate both
+        # ends rather than fork the copied function.
+        assigned = _assign_speakers(
+            [{"start": t["start_s"], "end": t["end_s"], "text": t["text"]}
+             for t in tokens],
+            [{"start": s["start_s"], "end": s["end_s"], "speaker": s["speaker_id"]}
+             for s in segments])
+
+        lines = []
+        current_speaker = None
+        current_text = []
+        current_start = None
+        current_end = None
+
+        for tok, spk in zip(tokens, assigned):
+            if spk != current_speaker:
+                if current_speaker is not None:
+                    lines.append({
+                        "speaker": current_speaker,
+                        "text": " ".join(current_text).strip(),
+                        "start_s": current_start + offset,
+                        "end_s": current_end + offset,
+                    })
+                current_speaker = spk
+                current_text = [tok["text"]]
+                current_start = tok["start_s"]
+            else:
+                current_text.append(tok["text"])
+            current_end = tok["end_s"]
+
+        if current_speaker is not None:
+            lines.append({
+                "speaker": current_speaker,
+                "text": " ".join(current_text).strip(),
+                "start_s": current_start + offset,
+                "end_s": current_end + offset,
+            })
+
+        self.aligned.emit(chunk_id, lines)
+
+
+class SourceComboBox(QComboBox):
+    """Audio-source combo that re-scans the system each time its dropdown opens,
+    so apps/sources that appeared after the window opened show up without
+    restarting it. `refresh` rebuilds the items while preserving the selection."""
+
+    def __init__(self, refresh):
+        super().__init__()
+        self._refresh = refresh
+
+    def showPopup(self):
+        try:
+            self._refresh()
+        except Exception:
+            pass
+        super().showPopup()
+
+
+class SourceVolumeWatcher(QThread):
+    """Emits source_changed whenever a PulseAudio/PipeWire *source* changes
+    (volume/mute), via 'pactl subscribe'. Lets the 🎤 slider refresh instantly
+    on an external change (plasmoid, system mixer) instead of polling."""
+
+    source_changed = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self.proc = None
+        self._stop = False
+
+    def run(self):
+        # 'stdbuf -oL' forces pactl to LINE-buffer its stdout — a pipe is
+        # otherwise block-buffered, so events would arrive in delayed bursts
+        # (the lag). bufsize=1 + iter(readline) keeps delivery line-by-line on
+        # our side. Fall back to plain pactl if stdbuf is missing.
+        for cmd in (["stdbuf", "-oL", "pactl", "subscribe"],
+                    ["pactl", "subscribe"]):
+            try:
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                    text=True, bufsize=1, env=dict(os.environ, LC_ALL="C"))
+                break
+            except (FileNotFoundError, OSError):
+                self.proc = None
+        if self.proc is None:
+            return
+        for line in iter(self.proc.stdout.readline, ""):
+            if self._stop:
+                break
+            # "Event 'change' on source #62" — exclude 'source-output' (its line
+            # reads 'on source-output #', so 'on source #' never matches it).
+            if "'change'" in line and "on source #" in line:
+                self.source_changed.emit()
+
+    def stop(self):
+        self._stop = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.wait(2000)
+
+
+# ---------------------------------------------------------------------------
+# Sound-test dialog
+# ---------------------------------------------------------------------------
+
+class SoundTestDialog(QDialog):
+    """Ear-check of the capture chain before a real meeting.
+
+    Records a short take through the EXACT meeting pipeline (same
+    AudioCaptureWorker, same source/mix, same stop-time normalization),
+    then plays it back so the user can judge level and clarity by ear.
+    No transcription, no diarization — just the sound.
+
+    Non-modal; while it records, the main window's start button is
+    disabled (two captures would fight over the dictee_mix null-sink),
+    and the main window disables the test button while a meeting runs.
+    """
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Test du son")
+        self._win = parent
+        self._worker = None
+        self._play_proc = None
+        self._norm_thread = None
+        self._elapsed = 0
+        import tempfile
+        f = tempfile.NamedTemporaryFile(
+            prefix="dictee-sound-test-", suffix=".wav", delete=False)
+        f.close()
+        self._wav = f.name
+
+        col = QVBoxLayout(self)
+        self.lbl_status = QLabel(
+            "Enregistrez un court essai, puis réécoutez-le.")
+        self.lbl_status.setWordWrap(True)
+        col.addWidget(self.lbl_status)
+
+        row = QHBoxLayout()
+        self.btn_rec = QPushButton("● Enregistrer")
+        self.btn_rec.setToolTip(
+            "Capture avec la source et les niveaux de la réunion")
+        self.btn_rec.clicked.connect(self._toggle_record)
+        row.addWidget(self.btn_rec)
+        self.btn_play = QPushButton("▶ Réécouter")
+        self.btn_play.setEnabled(False)
+        self.btn_play.clicked.connect(self._toggle_play)
+        row.addWidget(self.btn_play)
+        btn_close = QPushButton("Fermer")
+        btn_close.clicked.connect(self.close)
+        row.addWidget(btn_close)
+        col.addLayout(row)
+
+        # One light poller drives the duration counter, the normalization
+        # completion and the end-of-playback reset (existing file style:
+        # polling over cross-thread signal plumbing for short-lived states).
+        self._poll = QTimer(self)
+        self._poll.timeout.connect(self._on_poll)
+        self._poll.start(250)
+
+    # ── record ──────────────────────────────────────────────────────────────
+    def _toggle_record(self):
+        if self._worker:                      # recording → stop + normalize
+            w = self._worker
+            self._worker = None
+            w.stop()
+            self.btn_rec.setEnabled(False)    # until normalization lands
+            self.lbl_status.setText("Normalisation…")
+            self._norm_thread = threading.Thread(
+                target=normalize_wav, args=(self._wav,), daemon=True)
+            self._norm_thread.start()
+            return
+        self._stop_playback()
+        try:
+            os.unlink(self._wav)              # pw-record must start clean
+        except OSError:
+            pass
+        self._elapsed = 0
+        src = self._win.cmb_source.currentData() or ""
+        self._worker = AudioCaptureWorker(
+            Path(self._wav), src, self._win.chk_include_mic.isChecked())
+        self._worker.error.connect(self._on_error)
+        # Same 🔊 level as a real meeting (the worker already pins both mix
+        # legs and rebalances before pw-record starts).
+        self._worker.ready.connect(
+            lambda: self._worker and self._worker.set_system_volume(
+                self._win.slider_sys["slider"].value()))
+        self._worker.start()
+        self.btn_rec.setText("■ Arrêter")
+        self.btn_play.setEnabled(False)
+        self.lbl_status.setText("Essai en cours — 0 s")
+        self._win.btn_start.setEnabled(False)
+
+    def _on_error(self, msg):
+        self._worker = None
+        self.btn_rec.setText("● Enregistrer")
+        self.lbl_status.setText(f"Échec de la capture : {msg}")
+        self._win._set_state(self._win._state)
+
+    # ── playback ────────────────────────────────────────────────────────────
+    def _toggle_play(self):
+        if self._play_proc and self._play_proc.poll() is None:
+            self._stop_playback()
+            return
+        try:
+            self._play_proc = subprocess.Popen(
+                ["paplay", self._wav],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.btn_play.setText("■ Arrêter la lecture")
+            self.lbl_status.setText("Lecture de l'essai…")
+        except FileNotFoundError:
+            self.lbl_status.setText("paplay introuvable.")
+
+    def _stop_playback(self):
+        if self._play_proc and self._play_proc.poll() is None:
+            self._play_proc.terminate()
+        self._play_proc = None
+        self.btn_play.setText("▶ Réécouter")
+
+    # ── poller ──────────────────────────────────────────────────────────────
+    def _on_poll(self):
+        if self._worker:
+            self._elapsed += 0.25
+            self.lbl_status.setText(
+                f"Essai en cours — {int(self._elapsed)} s")
+        if self._norm_thread and not self._norm_thread.is_alive():
+            self._norm_thread = None
+            self.btn_rec.setEnabled(True)
+            self.btn_rec.setText("● Enregistrer")
+            self.btn_play.setEnabled(os.path.getsize(self._wav) > 44
+                                     if os.path.exists(self._wav) else False)
+            self.lbl_status.setText(
+                "Prêt — réécoutez l'essai, ou refaites-en un.")
+            self._win._set_state(self._win._state)
+        if (self._play_proc and self._play_proc.poll() is not None
+                and self.btn_play.text() != "▶ Réécouter"):
+            self._stop_playback()
+            self.lbl_status.setText(
+                "Prêt — réécoutez l'essai, ou refaites-en un.")
+
+    # ── teardown ────────────────────────────────────────────────────────────
+    def closeEvent(self, event):
+        self._poll.stop()
+        if self._worker:
+            w = self._worker
+            self._worker = None
+            w.stop()
+        self._stop_playback()
+        try:
+            os.unlink(self._wav)
+        except OSError:
+            pass
+        self._win._set_state(self._win._state)   # restore main buttons
+        self._win._sound_test_dialog = None
+        event.accept()
+
+
+# ---------------------------------------------------------------------------
+# Main window
+# ---------------------------------------------------------------------------
+
+class MeetingWindow(QWidget):
+    """Minimal meeting capture window with collapsible live preview accordion.
+
+    Captures audio with pw-record until the user clicks Stop, then launches
+    `dictee-transcribe --file <audio.wav> --diarize` to open the familiar
+    transcription window for diarization + LLM analysis + export.
+
+    The live preview accordion streams chunk-by-chunk transcript during
+    recording — it is a bonus preview only.
+    """
+
+    SPEAKER_COLORS = [
+        "#1976D2",  # blue
+        "#388E3C",  # green
+        "#F57C00",  # orange
+        "#C62828",  # red
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Réunion live — capture")
+        # Minimum width 800; compact height while the accordion is collapsed,
+        # 800 tall when it opens (see _on_preview_toggled). The window stays
+        # user-resizable beyond these.
+        self.setMinimumWidth(800)
+        self.resize(800, 220)
+
+        self.audio_worker = None
+        self._meter_mic = None       # LevelMeterWorker for the 🎤 flow
+        self._meter_sys = None       # LevelMeterWorker for the 🔊 flow
+        # Dedicated dictee-app-capture for an app source's ISOLATED 🔊 meter
+        # preview (before recording) — so the meter shows only that app.
+        self._preview_proc = None    # QProcess
+        self._preview_app = None
+        self._preview_sink = None
+        self._preview_ready = False
+        self.meeting_dir = None
+        self.audio_wav = None
+        self.transcript_path = None
+        self.elapsed_seconds = 0
+        self.speakers_seen = set()
+        self._state = "idle"         # idle | recording | paused | stopped
+
+        # Speaker naming (purely visual for live preview)
+        self._speaker_name_map = {}      # {speaker_id: user_provided_name}
+        self._speaker_row_widgets = {}   # {speaker_id: QLineEdit} for dynamic update
+
+        self.chunker = None
+        self.transcriber = None
+        self.diarizer = None
+        self.aligner = None
+
+        self._tick_timer = QTimer(self)
+        self._tick_timer.timeout.connect(self._tick)
+        self._tick_timer.setInterval(1000)
+
+        self._build_ui()
+        self._populate_sources()
+        self._init_levels()            # 🎤 ← system mic, 🔊 ← remembered level
+        self._update_level_sliders()   # reflect the populated/selected source
+        self._apply_window_behavior()
+        self._set_state("idle")
+
+        # Signal to plasmoid/tray that meeting-live UI is open
+        try:
+            STATE_FILE.write_text("meeting-ui-open\n")
+        except OSError:
+            pass
+
+    def _apply_icon(self, recording):
+        # Red icon while recording, black otherwise — on the window AND the
+        # QApplication (taskbar). Works because we don't call setDesktopFileName.
+        icon = _meeting_icon(recording)
+        self.setWindowIcon(icon)
+        app = QApplication.instance()
+        if app is not None:
+            app.setWindowIcon(icon)
+
+    def _blink_rec_dot(self):
+        # Blink the COLOR (not visibility) so the dot keeps its width and the
+        # status text never shifts. Red while recording, themed while paused.
+        self._dot_on = not getattr(self, "_dot_on", True)
+        on_color = "#E53935" if self._state == "recording" else "#EF9A9A"  # red / pale-red
+        self.rec_dot.setStyleSheet(
+            (f"color: {on_color};" if self._dot_on else "color: transparent;")
+            + " font-size: 16pt;")
+
+    def _set_state(self, state):
+        self._state = state
+        recording = state == "recording"
+        paused = state == "paused"
+
+        # (btn_start text, tooltip, start_enabled, stop_enabled, analyze_enabled)
+        cfg = {
+            "idle":      ("▶", "Démarrer",  True,  False, False),
+            "recording": ("⏸", "Pause",     True,  True,  False),
+            "paused":    ("▶", "Reprendre", True,  True,  False),
+            "stopped":   ("▶", "Démarrer",  False, False, True),
+        }
+        text, tip, start_on, stop_on, analyze_on = cfg[state]
+        self.btn_start.setText(text)
+        self.btn_start.setToolTip(tip)
+        # A running sound test would fight over the dictee_mix null-sink.
+        dlg = getattr(self, "_sound_test_dialog", None)
+        self.btn_start.setEnabled(start_on and not (dlg and dlg._worker))
+        self.btn_stop.setEnabled(stop_on)
+        self.btn_analyze.setEnabled(analyze_on)
+        self.btn_sound_test.setEnabled(state in ("idle", "stopped"))
+        # Source and title can't change mid-capture: only editable when idle/stopped.
+        self.cmb_source.setEnabled(state in ("idle", "stopped"))
+        self.chk_include_mic.setEnabled(state in ("idle", "stopped"))
+        self._title_edit.setEnabled(state in ("idle", "stopped"))
+        # Live chunking indicators: only meaningful while capturing.
+        if getattr(self, "_chunk_indicators", None) is not None:
+            self._chunk_indicators.setVisible(state in ("recording", "paused"))
+
+        self.status_label.setText({
+            "idle": "Prêt à enregistrer",
+            "recording": "Enregistrement en cours",
+            "paused": "Enregistrement en pause",
+            "stopped": "Enregistrement arrêté",
+        }[state])
+
+        if recording or paused:
+            # Glyph only; _blink_rec_dot owns the colour (red vs pale-red).
+            self.rec_dot.setText("●" if recording else "❚❚")
+            self.rec_dot.setVisible(True)
+            self._dot_on = False
+            self._blink_rec_dot()        # paint lit immediately
+            self._blink_timer.start()
+        else:
+            self._blink_timer.stop()
+            self.rec_dot.setVisible(False)
+
+        self._apply_icon(recording)      # red icon only while recording
+
+    def _on_start_pause(self):
+        if self._state == "idle":
+            self.start_meeting()
+        elif self._state == "recording":
+            if self.audio_worker:
+                self.audio_worker.pause()
+            self._tick_timer.stop()
+            self._set_state("paused")
+        elif self._state == "paused":
+            if self.audio_worker:
+                self.audio_worker.resume()
+            self._tick_timer.start()
+            self._set_state("recording")
+
+    def _build_ui(self):
+        # No SetFixedSize here: the window must stay user-resizable. We grow it
+        # when the preview accordion opens and shrink it back when it closes
+        # (in _on_preview_toggled). NOTE: any transient "stretch" of the top
+        # zone during the resize is KWin's "Geometry Change" desktop effect
+        # animating the window resize — NOT this layout (the top zone measures
+        # rock-steady). Disable that effect (globally, or via a KWin window
+        # rule on this window) to remove it.
+        layout = QVBoxLayout(self)
+
+        # ── Top zone: left controls column + right "Niveaux" column ──
+        top_row = QHBoxLayout()
+        left_col = QVBoxLayout()
+
+        status_row = QHBoxLayout()
+        self.rec_dot = QLabel("●")
+        self.rec_dot.setStyleSheet("color: #E53935; font-size: 16pt;")
+        self.rec_dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Reserve a fixed slot so the glyph (●/❚❚) and its show/hide never shift
+        # the status text — picto and text don't fight over each other's space.
+        self.rec_dot.setFixedWidth(34)
+        _rdsp = self.rec_dot.sizePolicy()
+        _rdsp.setRetainSizeWhenHidden(True)
+        self.rec_dot.setSizePolicy(_rdsp)
+        self.rec_dot.setVisible(False)
+        status_row.addWidget(self.rec_dot)
+        self.status_label = QLabel("Prêt à enregistrer")
+        self.status_label.setStyleSheet("font-size: 14pt; padding: 12px;")
+        status_row.addWidget(self.status_label, 1)
+        left_col.addLayout(status_row)
+
+        # Blinking red dot timer (active only while recording)
+        self._blink_timer = QTimer(self)
+        self._blink_timer.setInterval(500)
+        self._blink_timer.timeout.connect(self._blink_rec_dot)
+
+        self.duration_label = QLabel("00:00")
+        self.duration_label.setStyleSheet("font-size: 24pt; font-family: monospace; padding: 8px;")
+        left_col.addWidget(self.duration_label)
+
+        # Title field: editable before/after capture, frozen during recording
+        title_row = QHBoxLayout()
+        title_row.addWidget(QLabel("Titre :"))
+        self._title_edit = QLineEdit()
+        self._title_edit.setPlaceholderText("Titre de la réunion (optionnel)")
+        self._title_edit.setText("Réunion " + datetime.now().strftime("%Y-%m-%d %H:%M"))
+        title_row.addWidget(self._title_edit, 1)
+        left_col.addLayout(title_row)
+
+        # Audio source selector (populated from dictee-audio-sources)
+        src_row = QHBoxLayout()
+        src_row.addWidget(QLabel("Source :"))
+        self.cmb_source = SourceComboBox(self._populate_sources)
+        self.cmb_source.currentIndexChanged.connect(self._on_source_changed)
+        src_row.addWidget(self.cmb_source, 1)
+        left_col.addLayout(src_row)
+
+        # ASR model selector: persisted in DICTEE_MEETING_ASR_MODEL, defaults to
+        # the current F9 model (backend + quant from dictee.conf).
+        model_row = QHBoxLayout()
+        self._model_lbl = QLabel("Modèle :")
+        model_row.addWidget(self._model_lbl)
+        self._model_combo = QComboBox()
+        # One entry per whisper ENGINE: the model size follows the
+        # dictee-setup selection (DICTEE_WHISPER_MODEL /
+        # DICTEE_WHISPER_RUST_MODEL in dictee.conf). The configured size is
+        # shown in parentheses (snapshot at window build).
+        _conf = self._conf_dict()
+        _wh_size = (_conf.get("DICTEE_WHISPER_MODEL") or "small").strip()
+        if _wh_size not in ("tiny", "small", "medium"):
+            _wh_size = "small"
+        _wr_size = (_conf.get("DICTEE_WHISPER_RUST_MODEL") or "large-v3").strip()
+        for _lbl, _spec in (("Parakeet int8", "parakeet-int8"),
+                            ("Parakeet fp32", "parakeet-fp32"),
+                            (f"faster-whisper ({_wh_size})", "whisper"),
+                            (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
+                            ("Nemotron", "nemotron")):
+            self._model_combo.addItem(_lbl, _spec)
+        # Kyutai ships in the CUDA package only — offering it where the binary
+        # cannot exist would be a dead entry (unlike whisper-rust, in both).
+        if shutil.which("transcribe-daemon-kyutai"):
+            self._model_combo.addItem("Kyutai (fr/en, GPU)", "kyutai")
+        self._model_combo.setToolTip(
+            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
+            "le choix fait dans dictee-setup.")
+        # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper specs
+        # folded into the engine-level ones), else the current F9 model.
+        _saved = normalize_asr_spec(
+            _conf.get("DICTEE_MEETING_ASR_MODEL") or current_f9_spec(_conf))
+        _i = self._model_combo.findData(_saved)
+        if _i >= 0:
+            self._model_combo.setCurrentIndex(_i)
+        self._model_combo.currentIndexChanged.connect(
+            lambda _i: self._write_conf_key("DICTEE_MEETING_ASR_MODEL",
+                                            self._model_combo.currentData()))
+        model_row.addWidget(self._model_combo, 1)
+        left_col.addLayout(model_row)
+
+        # Diarization engine selector: persisted in DICTEE_MEETING_DIAR_ENGINE.
+        # "auto" keeps the historical behavior (multi-speaker engine when
+        # installed, else Sortformer); the explicit entries let the user pick
+        # per meeting (e.g. Sortformer on heavily produced/musical audio).
+        diar_row = QHBoxLayout()
+        diar_row.addWidget(QLabel("Diarisation :"))
+        self._diar_combo = QComboBox()
+        _multi_ok = _diar_multi_available()
+        _sf_ok = bool(shutil.which("diarize-only"))
+        _moss_ok = _moss_available()
+        for _lbl, _key in (("Auto", "auto"),
+                           ("Multi-locuteurs (sans limite)", "multi"),
+                           ("Sortformer (4 max)", "sortformer"),
+                           ("MOSS (analyse finale seule)", "moss")):
+            self._diar_combo.addItem(_lbl, _key)
+        if not _multi_ok:
+            self._diar_combo.model().item(1).setEnabled(False)
+        if not _sf_ok:
+            self._diar_combo.model().item(2).setEnabled(False)
+        if not _moss_ok:
+            self._diar_combo.model().item(3).setEnabled(False)
+        self._diar_combo.setToolTip(
+            "Moteur de séparation des locuteurs.\n"
+            "Auto = multi-locuteurs si installé, sinon Sortformer.\n"
+            "MOSS transcrit et identifie les locuteurs en une passe, avec "
+            "son propre moteur ASR : il ne sert QUE l'analyse finale au "
+            "Stop (pas de mode flux, donc l'aperçu live garde le moteur "
+            "ci-dessus et le modèle choisi est ignoré).")
+        _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "auto").strip()
+        _i = self._diar_combo.findData(_saved_diar)
+        if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
+            self._diar_combo.setCurrentIndex(_i)
+        self._diar_combo.currentIndexChanged.connect(
+            lambda _i: self._write_conf_key("DICTEE_MEETING_DIAR_ENGINE",
+                                            self._diar_combo.currentData()))
+        self._diar_combo.currentIndexChanged.connect(
+            lambda _i: self._sync_model_combo_for_diar())
+        diar_row.addWidget(self._diar_combo, 1)
+        self._sync_model_combo_for_diar()
+        # Detection threshold, same scale as dictee-transcribe's slider
+        # (50 % = engine default). Applied at meeting start; persisted in
+        # DICTEE_MEETING_DIAR_SENSITIVITY.
+        self._diar_slider = QSlider(Qt.Orientation.Horizontal)
+        self._diar_slider.setRange(0, 100)
+        try:
+            _sens = int(_conf.get("DICTEE_MEETING_DIAR_SENSITIVITY") or 50)
+        except ValueError:
+            _sens = 50
+        self._diar_slider.setValue(max(0, min(100, _sens)))
+        self._diar_slider.setFixedWidth(100)
+        self._diar_slider.setToolTip(
+            "Seuil de détection des locuteurs (appliqué au démarrage de la "
+            "réunion). ← plus de locuteurs détectés · plus de locuteurs "
+            "fusionnés →. 50 % = défaut ; montez vers 75 % si une même "
+            "personne est éclatée en plusieurs locuteurs.")
+        self._diar_slider_val = QLabel(f"{self._diar_slider.value()}%")
+        self._diar_slider_val.setFixedWidth(35)
+        self._diar_slider.valueChanged.connect(
+            lambda v: self._diar_slider_val.setText(f"{v}%"))
+        self._diar_slider.sliderReleased.connect(
+            lambda: self._write_conf_key("DICTEE_MEETING_DIAR_SENSITIVITY",
+                                         str(self._diar_slider.value())))
+        diar_row.addWidget(self._diar_slider)
+        diar_row.addWidget(self._diar_slider_val)
+        left_col.addLayout(diar_row)
+
+        # "Add mic" toggle: when an app source is selected, also mix the
+        # microphone into the isolated app capture (passed to dictee-app-capture
+        # as --include-mic). Harmless for other sources.
+        self.chk_include_mic = QCheckBox("Ajouter le micro")
+        self.chk_include_mic.setChecked(self._meeting_include_mic())
+        self.chk_include_mic.toggled.connect(self._on_include_mic_toggled)
+        left_col.addWidget(self.chk_include_mic)
+
+        btn_row = QHBoxLayout()
+        self.btn_start = QPushButton("▶")
+        self.btn_start.setToolTip("Démarrer")
+        self.btn_start.setFixedSize(64, 64)
+        self.btn_start.setStyleSheet("font-size: 22pt;")
+        self.btn_start.clicked.connect(self._on_start_pause)
+        btn_row.addWidget(self.btn_start)
+
+        self.btn_stop = StopButton("⏹")
+        self.btn_stop.setToolTip("Arrêter")
+        self.btn_stop.setFixedSize(64, 64)
+        self.btn_stop.setStyleSheet("font-size: 22pt;")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self._on_stop)
+        btn_row.addWidget(self.btn_stop)
+
+        self.btn_analyze = QPushButton("🔎")
+        self.btn_analyze.setToolTip("Démarrer l'analyse")
+        self.btn_analyze.setFixedSize(64, 64)
+        self.btn_analyze.setStyleSheet("font-size: 22pt;")
+        self.btn_analyze.setEnabled(False)
+        self.btn_analyze.clicked.connect(self._on_analyze)
+        btn_row.addWidget(self.btn_analyze)
+
+        self.btn_sound_test = QPushButton("Tester le son…")
+        self.btn_sound_test.setToolTip(
+            "Enregistrer un court essai avec les réglages actuels et le "
+            "réécouter, avant de lancer la vraie réunion.")
+        self.btn_sound_test.clicked.connect(self._open_sound_test)
+        btn_row.addWidget(self.btn_sound_test)
+
+        # Pushed to the far right, AWAY from the meeting controls: it is NOT
+        # the meeting-analysis button (that is the 🔎 next to Stop, which
+        # hands the recorded file over): this one opens an EMPTY Transcribe
+        # window. Its old label "Ouvrir l'analyse…" read as "analyse this
+        # meeting" and the window then sat there doing nothing (2026-07-19).
+        btn_row.addStretch(1)
+        self._btn_open_transcribe = QPushButton("Analyser un autre fichier…")
+        self._btn_open_transcribe.setToolTip(
+            "Ouvrir dictee-transcribe SANS la réunion en cours, pour analyser "
+            "ou ré-transcrire un fichier passé (bouton History).\n"
+            "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt.")
+        self._btn_open_transcribe.clicked.connect(self._on_open_transcribe)
+        btn_row.addWidget(self._btn_open_transcribe)
+        left_col.addLayout(btn_row)
+        top_row.addLayout(left_col, 1)
+
+        # Right column — "Niveaux": per-flow volume sliders + meters.
+        # Backend (per-source volume + live peak meter) not wired yet → greyed.
+        levels_group = QGroupBox("Niveaux")
+        levels_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        levels_layout = QHBoxLayout(levels_group)
+        self.slider_mic = self._build_level_slider("🎤")
+        self.slider_sys = self._build_level_slider("🔊")
+        self.slider_mic["slider"].valueChanged.connect(self._on_mic_slider)
+        self.slider_sys["slider"].valueChanged.connect(self._on_sys_slider)
+        # Debounce the (subprocess) volume application so dragging stays smooth:
+        # the label tracks live, pactl/wpctl runs only when the drag pauses.
+        self._mic_vol_timer = QTimer(self)
+        self._mic_vol_timer.setSingleShot(True)
+        self._mic_vol_timer.setInterval(60)
+        self._mic_vol_timer.timeout.connect(self._apply_mic_vol)
+        self._sys_vol_timer = QTimer(self)
+        self._sys_vol_timer.setSingleShot(True)
+        self._sys_vol_timer.setInterval(60)
+        self._sys_vol_timer.timeout.connect(self._apply_sys_vol)
+        # Live-sync the 🎤 slider with the system mic level so an external change
+        # (plasmoid, system mixer, dictee-setup) is reflected here too. Instant
+        # via 'pactl subscribe'; the timer is a slow safety-net fallback.
+        self._mic_sync_timer = QTimer(self)
+        self._mic_sync_timer.setInterval(2000)
+        self._mic_sync_timer.timeout.connect(self._poll_mic_level)
+        self._mic_sync_timer.start()
+        self._mic_watcher = SourceVolumeWatcher()
+        self._mic_watcher.source_changed.connect(self._poll_mic_level)
+        self._mic_watcher.start()
+        levels_layout.addLayout(self.slider_mic["col"])
+        levels_layout.addLayout(self.slider_sys["col"])
+        top_row.addWidget(levels_group)
+
+        # Wrap the top zone so it does NOT stretch vertically — only the
+        # accordion below absorbs extra height. The vertical level sliders
+        # (Expanding) then track the left column's height instead of inflating
+        # the window. (kde-plasmoid skill: "constrain aux columns to the main
+        # content height" — Qt-widgets equivalent of binding to implicitHeight.)
+        header = QWidget()
+        header.setLayout(top_row)
+        # Fixed vertical policy: the top zone keeps EXACTLY its sizeHint height
+        # and can neither stretch nor compress during the accordion's show/hide
+        # relayout — so it never moves, open or closed.
+        header.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        layout.addWidget(header)
+
+        # Live preview accordion (clickable header + collapsible content)
+        self.preview_toggle = QToolButton()
+        self.preview_toggle.setText("Aperçu en direct")
+        self.preview_toggle.setCheckable(True)
+        self.preview_toggle.setChecked(False)
+        self.preview_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.preview_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.preview_toggle.setStyleSheet(
+            "QToolButton { border: none; font-weight: bold; padding: 6px; text-align: left; }"
+            "QToolButton:hover { background-color: rgba(0,0,0,0.05); }"
+        )
+
+        # Live chunking indicators (thin bars + small fonts) just above the
+        # "Aperçu en direct" accordion. Bar 1 ("Chunk en cours") = the new audio
+        # accumulating toward the next live update (also = the tail still pending
+        # if you stop now). Bar 2 ("Contexte") = the overlap window reused as
+        # look-back context by the model. Driven by _tick, visible while recording.
+        self._chunk_indicators = QWidget()
+        _ind = QVBoxLayout(self._chunk_indicators)
+        _ind.setContentsMargins(6, 0, 6, 2)
+        _ind.setSpacing(1)
+        _SMALL = "font-size: 8pt; color: gray;"
+
+        def _ind_row(caption, color):
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            cap = QLabel(caption)
+            cap.setStyleSheet(_SMALL)
+            cap.setFixedWidth(90)
+            bar = QProgressBar()
+            bar.setTextVisible(False)
+            bar.setRange(0, 100)
+            bar.setFixedHeight(5)
+            bar.setStyleSheet(
+                "QProgressBar { border: none; background: rgba(0,0,0,0.08); "
+                "border-radius: 2px; }"
+                f"QProgressBar::chunk {{ background-color: {color}; border-radius: 2px; }}")
+            val = QLabel("")
+            val.setStyleSheet(_SMALL)
+            val.setFixedWidth(70)
+            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(cap)
+            row.addWidget(bar, 1)
+            row.addWidget(val)
+            _ind.addLayout(row)
+            return bar, val, cap
+
+        # Chunk caption is dynamic ("Chunk N", updated in _update_chunk_indicators);
+        # its fixed width reserves space so the bar never shifts as N grows.
+        self._bar_chunk, self._chunk_val, self._lbl_chunk = _ind_row("Chunk 1", "#e74c3c")
+        self._bar_ctx, self._ctx_val, _ = _ind_row("Contexte", "#27ae60")
+        # Smooth the per-second jumps: animate each bar toward its new target
+        # over ~1 s (linear) instead of snapping. _update_chunk_indicators sets
+        # the targets once per tick; these slide there continuously.
+        self._anim_chunk = QPropertyAnimation(self._bar_chunk, b"value")
+        self._anim_chunk.setDuration(950)
+        self._anim_chunk.setEasingCurve(QEasingCurve.Type.Linear)
+        self._anim_ctx = QPropertyAnimation(self._bar_ctx, b"value")
+        self._anim_ctx.setDuration(950)
+        self._anim_ctx.setEasingCurve(QEasingCurve.Type.Linear)
+        self._chunk_indicators.setVisible(False)   # only while recording
+        layout.addWidget(self._chunk_indicators)
+
+        layout.addWidget(self.preview_toggle)
+
+        self.preview_content = QFrame()
+        self.preview_content.setFrameShape(QFrame.Shape.StyledPanel)
+        preview_layout = QVBoxLayout(self.preview_content)
+        preview_layout.setContentsMargins(4, 4, 4, 4)
+        self.transcript_view = QTextEdit()
+        self.transcript_view.setReadOnly(True)
+        self.transcript_view.setStyleSheet("font-family: monospace; font-size: 10pt;")
+        self.transcript_view.setMinimumHeight(180)
+        # stretch=1: the transcript fills the accordion's vertical space (the
+        # speakers panel below keeps its sizeHint), so it grows with the window.
+        preview_layout.addWidget(self.transcript_view, 1)
+
+        # Speakers naming panel (inside accordion, below transcript view)
+        speakers_group = QGroupBox("Speakers détectés")
+        speakers_group.setStyleSheet("QGroupBox { font-weight: bold; }")
+        self._speakers_form = QFormLayout(speakers_group)
+        self._speakers_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        # Empty by default — filled dynamically by _on_aligned
+        preview_layout.addWidget(speakers_group)
+
+        # stretch=1: the accordion absorbs all extra window height. When OPEN it
+        # makes the transcript fill down to the bottom and resize with the
+        # window; when CLOSED (hidden, size 0) its stretchy empty cell still
+        # soaks up any slack so the top zone stays pinned and never stretches.
+        # This replaces the previous bottom addStretch(1).
+        layout.addWidget(self.preview_content, 1)
+
+        # Plain show/hide, exactly like dictee-setup's accordions (_on_info_toggled:
+        # just box.setVisible(on) — no animation, no manual resize). The central
+        # layout's SetFixedSize then snaps the window to the new content size.
+        self.preview_content.setVisible(False)
+        self.preview_toggle.toggled.connect(self._on_preview_toggled)
+
+        self._update_level_sliders()   # set initial enabled/greyed state
+
+    def _build_level_slider(self, emoji):
+        """A native QSlider (volume) next to a vertical QProgressBar (live VU
+        meter) + % label. Enabled/greyed per source by _update_level_sliders."""
+        col = QVBoxLayout()
+        top = QLabel(emoji)
+        top.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        col.addWidget(top)
+
+        row = QHBoxLayout()
+        row.setSpacing(3)
+        slider = QSlider(Qt.Orientation.Vertical)
+        slider.setRange(0, 100)
+        slider.setValue(70)
+        slider.setMinimumHeight(130)
+        meter = QProgressBar()
+        meter.setOrientation(Qt.Orientation.Vertical)
+        meter.setRange(0, 100)
+        meter.setValue(0)
+        meter.setTextVisible(False)
+        meter.setFixedWidth(10)
+        meter.setMinimumHeight(130)
+        # green → yellow → red gradient, bottom-to-top
+        meter.setStyleSheet(
+            "QProgressBar { background: palette(base); border: 1px solid "
+            "palette(mid); border-radius: 3px; }"
+            "QProgressBar::chunk { border-radius: 3px; background: "
+            "qlineargradient(x1:0, y1:1, x2:0, y2:0, stop:0 #2ecc71, "
+            "stop:0.6 #f1c40f, stop:0.85 #e67e22, stop:1 #e74c3c); }"
+        )
+        slider.setFixedWidth(20)
+        row.addWidget(slider, 0, Qt.AlignmentFlag.AlignHCenter)
+        row.addWidget(meter, 0, Qt.AlignmentFlag.AlignHCenter)
+        col.addLayout(row, 1)
+
+        pct = QLabel("—")
+        pct.setEnabled(False)
+        pct.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        # Fixed width so the "70%"→"100%"→"5%" text changes during a drag don't
+        # reflow the column (which made the Niveaux pad jitter horizontally).
+        pct.setFixedWidth(48)
+        col.addWidget(pct)
+        return {"col": col, "slider": slider, "meter": meter, "label": pct}
+
+    def _meeting_source(self):
+        """Read DICTEE_MEETING_AUDIO_SOURCE from conf (default 'mix')."""
+        conf = Path.home() / ".config/dictee.conf"
+        if conf.is_file():
+            try:
+                for line in conf.read_text(encoding="utf-8").splitlines():
+                    s = line.strip()
+                    if s.startswith("DICTEE_MEETING_AUDIO_SOURCE="):
+                        v = s.split("=", 1)[1].strip().strip('"').strip("'")
+                        return v or "mix"
+            except OSError:
+                pass
+        return "mix"
+
+    def _meeting_include_mic(self):
+        conf = Path.home() / ".config/dictee.conf"
+        if conf.is_file():
+            try:
+                for line in conf.read_text(encoding="utf-8").splitlines():
+                    s = line.strip()
+                    if s.startswith("DICTEE_MEETING_INCLUDE_MIC="):
+                        return s.split("=", 1)[1].strip().strip('"').strip("'").lower() in ("true", "1", "yes")
+            except OSError:
+                pass
+        return False
+
+    def _populate_sources(self):
+        """Fill the source combo from the single source of truth
+        (dictee-audio-sources), then select the saved meeting source."""
+        self.cmb_source.blockSignals(True)
+        self.cmb_source.clear()
+        # 'mix' is meeting-only — added here, NOT in the shared
+        # dictee-audio-sources helper (which also feeds the F9 selector, where
+        # 'mix' would be invalid and break dictee's source resolution).
+        self.cmb_source.addItem("🎙 Mix micro + audio système", "mix")
+        try:
+            out = subprocess.check_output(
+                ["dictee-audio-sources"], timeout=3, text=True,
+                stderr=subprocess.DEVNULL)
+        except Exception:
+            out = ""
+        for line in out.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            value, _icon, label = parts
+            if value == "mix":          # guard, should never come from helper
+                continue
+            self.cmb_source.addItem(label, value)
+        idx = self.cmb_source.findData(self._meeting_source())
+        if idx >= 0:
+            self.cmb_source.setCurrentIndex(idx)
+        self.cmb_source.blockSignals(False)
+
+    def _on_source_changed(self, _idx):
+        value = self.cmb_source.currentData()
+        if value is not None:
+            self._write_conf_key("DICTEE_MEETING_AUDIO_SOURCE", value)
+        self._load_sys_level_for_source()   # restore this source's 🔊 level
+        self._update_level_sliders()
+
+    def _on_include_mic_toggled(self, on):
+        self._write_conf_key("DICTEE_MEETING_INCLUDE_MIC",
+                             "true" if on else "false")
+        self._update_level_sliders()
+
+    # ── Level sliders (🎤 mic / 🔊 selected output) ─────────────────────────
+    def _active_flows(self):
+        """Return (mic_active, sys_active) for the current source + add-mic.
+
+        mix → both; app: → system (+ mic if 'add mic'); *.monitor → system;
+        microphone / default → mic only.
+        """
+        src = self.cmb_source.currentData() or ""
+        if src == "mix":
+            return True, True
+        if src.startswith("app:"):
+            return self.chk_include_mic.isChecked(), True
+        if src.endswith(".monitor"):
+            return False, True
+        return True, False
+
+    def _update_level_sliders(self):
+        """Enable/grey each slider+meter for the current source; refresh labels,
+        then (re)start the live meters for the active flows."""
+        mic_on, sys_on = self._active_flows()
+        for d, on in ((self.slider_mic, mic_on), (self.slider_sys, sys_on)):
+            d["slider"].setEnabled(on)
+            d["meter"].setEnabled(on)
+            d["label"].setEnabled(on)
+            d["label"].setText(f"{d['slider'].value()}%" if on else "—")
+            if not on:
+                d["meter"].setValue(0)
+        self._refresh_meters()
+
+    def _pactl_vol(self, args):
+        # Fire-and-forget so the GUI thread never blocks on the subprocess.
+        try:
+            subprocess.Popen(["pactl", *args],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+    def _on_mic_slider(self, v):
+        # Live label only; the actual volume change is debounced (see __init__).
+        self.slider_mic["label"].setText(f"{v}%")
+        self._mic_vol_timer.start()
+
+    def _on_sys_slider(self, v):
+        self.slider_sys["label"].setText(f"{v}%")
+        self._sys_vol_timer.start()
+
+    def _apply_mic_vol(self):
+        # The mic level IS the system @DEFAULT_SOURCE@ level — shared with the
+        # plasmoid, dictee-setup and the system mixer (single source of truth).
+        # Permanent, like the plasmoid (no snapshot/restore). In mix / app+mic
+        # the SYSTEM loopback is attenuated down to this level (rebalance_
+        # sys_leg), so re-align it whenever the slider moves mid-recording.
+        v = self.slider_mic["slider"].value()
+        self._pactl_vol(["set-source-volume", "@DEFAULT_SOURCE@", f"{v}%"])
+        if self.audio_worker:
+            # _pactl_vol is fire-and-forget: give the volume change time to
+            # land before reading it back for the rebalance.
+            QTimer.singleShot(300, self.audio_worker.rebalance_sys_leg)
+
+    def _system_mic_percent(self, default=70):
+        """Current system mic volume (% of @DEFAULT_SOURCE@) so the meeting
+        slider starts aligned with the plasmoid / dictee-setup / system mixer."""
+        try:
+            out = subprocess.check_output(
+                ["wpctl", "get-volume", "@DEFAULT_SOURCE@"], text=True, timeout=2)
+            m = re.search(r"([0-9]+(?:\.[0-9]+)?)", out)   # "Volume: 0.60"
+            if m:
+                return max(0, min(150, round(float(m.group(1)) * 100)))
+        except Exception:
+            pass
+        try:
+            out = subprocess.check_output(
+                ["pactl", "get-source-volume", "@DEFAULT_SOURCE@"],
+                text=True, env=dict(os.environ, LC_ALL="C"), timeout=2)
+            m = re.search(r"(\d+)%", out)
+            if m:
+                return max(0, min(150, int(m.group(1))))
+        except Exception:
+            pass
+        return default
+
+    def _poll_mic_level(self):
+        """Keep the 🎤 slider live-synced with the system mic level (shared with
+        the plasmoid / system mixer): an external change (plasmoid, mixer) is
+        reflected here too. Skipped while the user drags the slider."""
+        s = self.slider_mic["slider"]
+        if s.isSliderDown():
+            return
+        cur = self._system_mic_percent(default=s.value())
+        if cur != s.value():
+            s.blockSignals(True)
+            s.setValue(cur)
+            s.blockSignals(False)
+            if s.isEnabled():
+                self.slider_mic["label"].setText(f"{cur}%")
+
+    def _apply_sys_vol(self):
+        v = self.slider_sys["slider"].value()
+        src = self.cmb_source.currentData() or ""
+        self._save_source_level(src, v)   # remember across sessions
+        w = self.audio_worker
+        if w and w._sys_input_id:
+            # mix, or app+mic: the system/app contribution is a dedicated
+            # loopback whose volume is independent of the mic.
+            w.set_system_volume(v)
+        elif src.startswith("app:"):
+            # app-only (no mic): attenuate the private isolated capture sink
+            # (does NOT touch the app's real playback).
+            if w and w._appcap_sink:
+                self._pactl_vol(
+                    ["set-sink-volume", w._appcap_sink, f"{v}%"])
+        elif src.endswith(".monitor"):
+            self._pactl_vol(
+                ["set-sink-volume", src[:-len(".monitor")], f"{v}%"])
+
+    def _apply_mix_levels(self):
+        """Push the 🔊 slider value onto the system/app loopback, attenuated
+        down to the mic leg's level so both legs record at comparable levels
+        (see rebalance_sys_leg)."""
+        if self.audio_worker:
+            self.audio_worker.set_system_volume(self.slider_sys["slider"].value())
+
+    # ── Per-source 🔊 level persistence (meeting-only JSON, not dictee.conf
+    #    which is bash-sourced) ────────────────────────────────────────────────
+    def _levels_path(self):
+        return Path.home() / ".config/dictee/meeting-levels.json"
+
+    def _load_source_level(self, source, default=70):
+        try:
+            data = json.loads(self._levels_path().read_text(encoding="utf-8"))
+            return max(0, min(100, int(data.get(source, default))))
+        except Exception:
+            return default
+
+    def _save_source_level(self, source, level):
+        p = self._levels_path()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        except Exception:
+            data = {}
+        data[source] = max(0, min(100, int(level)))
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                         encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_sys_level_for_source(self):
+        """Set the 🔊 slider to the remembered level for the current source."""
+        lvl = self._load_source_level(self.cmb_source.currentData() or "")
+        s = self.slider_sys["slider"]
+        s.blockSignals(True)
+        s.setValue(lvl)
+        s.blockSignals(False)
+        self.slider_sys["label"].setText(f"{lvl}%")
+
+    def _init_levels(self):
+        """Start the 🎤 slider aligned with the system mic and the 🔊 slider at
+        the remembered level for the selected source. Labels are refreshed by
+        the _update_level_sliders() call that follows."""
+        m = self.slider_mic["slider"]
+        m.blockSignals(True)
+        m.setRange(0, 150)                       # mic can be boosted past 100%
+        m.setValue(self._system_mic_percent())
+        m.blockSignals(False)
+        s = self.slider_sys["slider"]
+        s.blockSignals(True)
+        s.setValue(self._load_source_level(self.cmb_source.currentData() or ""))
+        s.blockSignals(False)
+
+    def _on_capture_ready(self):
+        """Capture resolved (worker signal): apply mix levels + re-point meters
+        (for an app source the 🔊 meter now reads the private isolated sink)."""
+        if self.audio_worker and self.audio_worker._sys_input_id:
+            # mix, or app+mic: push the initial 🔊 level onto the system loopback.
+            self._apply_mix_levels()
+        self._refresh_meters()
+
+    # ── Live VU meters (one parec reader per active flow) ───────────────────
+    def _sys_meter_device(self):
+        """parec --device for the 🔊 flow: the monitor of the captured sink.
+        mix/system → default sink monitor; app: → the app's sink monitor;
+        a '*.monitor' source → itself. None if unresolved."""
+        src = self.cmb_source.currentData() or ""
+        if src.endswith(".monitor"):
+            return src
+        # While recording through the transient mix sink (mix, or app+mic),
+        # meter the mix itself: that IS the processed signal written to disk
+        # (mic leg included). Metering the speakers here instead left the 🔊
+        # bar dead during a mic-only meeting — which read as a fault even
+        # though the recording was fine (user report 2026-07-19).
+        if self.audio_worker and self.audio_worker._mix_modules:
+            return "dictee_mix.monitor"
+        if src.startswith("app:"):
+            # ALWAYS isolated: while recording, the worker's private sink; before
+            # recording, a dedicated preview sink (handled by _ensure_preview_appcap,
+            # not here). Never the whole device sink, so other apps never move it.
+            if self.audio_worker and self.audio_worker._appcap_sink:
+                return f"{self.audio_worker._appcap_sink}.monitor"
+            return None
+        try:
+            sink = subprocess.check_output(
+                ["pactl", "get-default-sink"], text=True, timeout=3).strip()
+            return f"{sink}.monitor"
+        except Exception:
+            return None
+
+    def _meter_apply(self, meter, level):
+        """VU ballistics: instant attack, smooth decay (×1.5 like the plasmoid)."""
+        target = int(min(100, level * 150))
+        cur = meter.value()
+        meter.setValue(target if target >= cur else int(cur * 0.82))
+
+    def _on_mic_level(self, level):
+        self._meter_apply(self.slider_mic["meter"], level)
+
+    def _on_sys_level(self, level):
+        self._meter_apply(self.slider_sys["meter"], level)
+
+    def _refresh_meters(self):
+        """(Re)start a parec peak-meter per active flow — runs live whenever the
+        window is visible, so the VU bars move even before recording."""
+        self._stop_meters()
+        if not self.isVisible():
+            self._stop_preview_appcap()
+            return
+        mic_on, sys_on = self._active_flows()
+        if mic_on:
+            self._meter_mic = LevelMeterWorker(None)   # None = default mic
+            self._meter_mic.level.connect(self._on_mic_level)
+            self._meter_mic.start()
+        if sys_on:
+            src = self.cmb_source.currentData() or ""
+            recording = bool(self.audio_worker and self.audio_worker._appcap_sink)
+            if src.startswith("app:") and not recording:
+                # Isolated preview: run a dedicated dictee-app-capture for this
+                # app so the 🔊 meter shows ONLY it (not every app on the sink).
+                self._ensure_preview_appcap(src[4:])
+            else:
+                self._stop_preview_appcap()
+                dev = self._sys_meter_device()
+                # None would make parec read the DEFAULT SOURCE (the mic) — only
+                # start when a real sink/monitor is resolved.
+                if dev:
+                    self._start_sys_meter_on(dev)
+
+    def _start_sys_meter_on(self, device):
+        if self._meter_sys:
+            return
+        self._meter_sys = LevelMeterWorker(device)
+        self._meter_sys.level.connect(self._on_sys_level)
+        self._meter_sys.start()
+
+    def _ensure_preview_appcap(self, name):
+        """Keep a dedicated dictee-app-capture running for app `name` and meter
+        its private sink — the isolated 🔊 preview before recording."""
+        if self._preview_app == name and self._preview_proc is not None:
+            if self._preview_ready:
+                self._start_sys_meter_on(f"{self._preview_sink}.monitor")
+            return
+        self._stop_preview_appcap()
+        if shutil.which("dictee-app-capture") is None:
+            return
+        from PyQt6.QtCore import QProcess
+        self._preview_app = name
+        self._preview_sink = f"dictee_cap_prev_{os.getpid()}"
+        self._preview_ready = False
+        self._preview_proc = QProcess(self)
+        self._preview_proc.readyReadStandardOutput.connect(self._on_preview_output)
+        self._preview_proc.start(
+            "dictee-app-capture", ["--sink-name", self._preview_sink, "--match", name])
+
+    def _on_preview_output(self):
+        if not self._preview_proc:
+            return
+        out = bytes(self._preview_proc.readAllStandardOutput()).decode("utf-8", "replace")
+        if "READY" in out and not self._preview_ready:
+            self._preview_ready = True
+            self._start_sys_meter_on(f"{self._preview_sink}.monitor")
+
+    def _stop_preview_appcap(self):
+        if self._preview_proc is not None:
+            try:
+                self._preview_proc.readyReadStandardOutput.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            self._preview_proc.terminate()
+            if not self._preview_proc.waitForFinished(1000):
+                self._preview_proc.kill()
+                self._preview_proc.waitForFinished(500)
+            self._preview_proc = None
+        self._preview_app = None
+        self._preview_sink = None
+        self._preview_ready = False
+
+    def _stop_meters(self):
+        for attr in ("_meter_mic", "_meter_sys"):
+            m = getattr(self, attr, None)
+            if m:
+                m.stop()
+                setattr(self, attr, None)
+        self.slider_mic["meter"].setValue(0)
+        self.slider_sys["meter"].setValue(0)
+
+    def showEvent(self, e):
+        super().showEvent(e)
+        self._refresh_meters()
+
+    def hideEvent(self, e):
+        super().hideEvent(e)
+        self._stop_meters()
+        self._stop_preview_appcap()
+
+    def _conf_dict(self):
+        """Parse ~/.config/dictee.conf into a {KEY: value} dict (DICTEE_* keys)."""
+        conf = Path.home() / ".config/dictee.conf"
+        out = {}
+        if conf.is_file():
+            try:
+                for line in conf.read_text(encoding="utf-8").splitlines():
+                    s = line.strip()
+                    if s.startswith("DICTEE_") and "=" in s:
+                        k, v = s.split("=", 1)
+                        out[k.strip()] = v.strip().strip('"').strip("'")
+            except OSError:
+                pass
+        return out
+
+    def _sync_model_combo_for_diar(self):
+        """MOSS brings its own ASR: the model combo then only drives the
+        live preview, not the final transcript. Say so instead of letting
+        the user believe their model choice shapes the result."""
+        _moss = (self._diar_combo.currentData() or "auto") == "moss"
+        self._model_lbl.setText("Modèle (aperçu) :" if _moss else "Modèle :")
+        self._model_combo.setToolTip(
+            "Modèle ASR de l'APERÇU LIVE uniquement : MOSS transcrit le "
+            "fichier final avec son propre moteur."
+            if _moss else
+            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
+            "le choix fait dans dictee-setup.")
+
+    def _write_conf_key(self, key, value):
+        """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
+        conf = Path.home() / ".config/dictee.conf"
+        lines = []
+        if conf.is_file():
+            try:
+                lines = conf.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                return
+        prefix = key + "="
+        replaced = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith(prefix):
+                lines[i] = prefix + value
+                replaced = True
+                break
+        if not replaced:
+            lines.append(prefix + value)
+        try:
+            conf.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+    def _apply_window_behavior(self):
+        """Apply always-on-top and all-virtual-desktops options from conf."""
+        conf_path = Path.home() / ".config/dictee.conf"
+        always_on_top = True   # default
+        all_desktops = False   # default
+        if conf_path.is_file():
+            try:
+                for line in conf_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("DICTEE_MEETING_ALWAYS_ON_TOP="):
+                        v = line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                        always_on_top = v in ("true", "1", "yes")
+                    elif line.startswith("DICTEE_MEETING_ALL_DESKTOPS="):
+                        v = line.split("=", 1)[1].strip().strip('"').strip("'").lower()
+                        all_desktops = v in ("true", "1", "yes")
+            except OSError:
+                pass
+
+        if always_on_top:
+            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+
+        if all_desktops:
+            QTimer.singleShot(100, self._set_on_all_desktops)
+
+    def _set_on_all_desktops(self):
+        """Set the window visible on all virtual desktops.
+
+        On X11: uses wmctrl (add,sticky).
+        On Wayland/KDE: not yet supported — shows a notify-send notice.
+        Silently no-ops on unsupported platforms.
+        """
+        try:
+            win_id = int(self.winId())
+        except Exception:
+            return
+
+        if os.environ.get("XDG_SESSION_TYPE", "") == "x11":
+            try:
+                subprocess.run(
+                    ["wmctrl", "-i", "-r", str(win_id), "-b", "add,sticky"],
+                    timeout=2, capture_output=True,
+                )
+                return
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+
+        # Wayland: no reliable cross-compositor API without KWindowSystem (PyKF5).
+        try:
+            subprocess.run(
+                ["notify-send", "-t", "5000",
+                 "dictee-meeting-live",
+                 "All desktops option not yet supported on Wayland — "
+                 "window will only show on current desktop."],
+                timeout=2, capture_output=True,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    def start_meeting(self):
+        # Re-entrancy guard: never start a second capture over a live one
+        # (would orphan the previous worker/chunker/diarizer/executor).
+        if self._state in ("recording", "paused") or self.audio_worker:
+            return
+        # Guard rail: an "app:" source needs the dictee-app-capture helper.
+        # If it's missing (not installed / not in PATH), refuse to start with a
+        # clear message instead of silently recording the microphone in place of
+        # the chosen application (which looks like it "works" but captures the
+        # wrong source).
+        # Single source of truth = the combo the user sees (not the conf, which
+        # can name a source that vanished from the rescanned list).
+        source = self.cmb_source.currentData() or ""
+        if source.startswith("app:") and shutil.which("dictee-app-capture") is None:
+            QMessageBox.critical(
+                self,
+                "Capture d'application indisponible",
+                "Le composant « dictee-app-capture » est introuvable sur le "
+                "système.\n\nL'enregistrement n'a pas démarré pour éviter de "
+                "capter le micro à la place de l'application. Réinstallez dictee, "
+                "ou choisissez une autre source audio (micro, audio système…).",
+            )
+            return
+
+        self.meeting_dir = meeting_dir(title=self._title_edit.text())
+        self._title = self._title_edit.text().strip()
+        self.audio_wav = self.meeting_dir / "audio.wav"
+        chunks_dir = self.meeting_dir / "chunks"
+        self.transcript_path = self.meeting_dir / "transcript-live.md"
+
+        # Init transcript markdown header
+        _header = self._title or ("Réunion " + datetime.now().strftime("%Y-%m-%d %H:%M"))
+        self.transcript_path.write_text(
+            f"# {_header}\n\n",
+            encoding="utf-8",
+        )
+
+        # PTT mutex
+        try:
+            STATE_FILE.write_text("meeting-recording\n")
+        except OSError:
+            pass
+
+        self.elapsed_seconds = 0
+
+        # Reset speaker state for new meeting
+        self._speaker_name_map.clear()
+        for le in self._speaker_row_widgets.values():
+            self._speakers_form.removeRow(le)
+        self._speaker_row_widgets.clear()
+        self.speakers_seen = set()
+
+        # Audio capture — honor the selected meeting source (incl. 'mix')
+        self.audio_worker = AudioCaptureWorker(self.audio_wav, source,
+                                               self.chk_include_mic.isChecked())
+        self.audio_worker.error.connect(self._on_capture_failed)
+        # KDE Do Not Disturb while recording: a notification "ding" lands on
+        # the system leg of the mix far above the mic voice (the 11.5 s
+        # transient of the 2026-07-19 test was one) — and reaches the mic
+        # acoustically in every mode. Released in _finalize_stop; a crash
+        # releases it automatically (bus-connection scoped, verified).
+        self._inhibit_notifications()
+        # When the capture is actually resolved (mix inputs / app private sink
+        # ready), apply mix levels and re-point the meters — driven by the
+        # worker's signal, not a fixed-delay guess that races on slow systems.
+        self.audio_worker.ready.connect(self._on_capture_ready)
+        self.audio_worker.start()
+
+        # Read chunk duration from conf (default 40s, range 20-60)
+        chunk_duration = 40
+        try:
+            conf_path = Path.home() / ".config/dictee.conf"
+            if conf_path.exists():
+                for line in conf_path.read_text().splitlines():
+                    if line.startswith("DICTEE_MEETING_CHUNK_S="):
+                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        chunk_duration = max(20, min(60, int(val)))
+                        break
+        except (OSError, ValueError):
+            pass
+        self.chunk_duration = chunk_duration
+        self._last_emit_elapsed = 0   # for the "chunk en cours" indicator bar
+        self._finalized = False       # stop-finalize guard (tail flush flow)
+        self._finalizing = False
+        self._tail_chunk_id = None
+
+        # Workers for live preview
+        self.chunker = ChunkerWorker(self.audio_wav, chunks_dir,
+                                     chunk_duration=chunk_duration, overlap=10)
+        self.chunker.chunk_ready.connect(self._on_chunk_ready)
+        self.chunker.error.connect(self._on_error_msg)
+        self.chunker.start()
+
+        # If the chosen ASR model is Whisper or Nemotron, spawn a dedicated
+        # isolated daemon (private socket) for the live preview so the live text
+        # comes out in the right language — the F9 daemon is Parakeet, which
+        # anglicizes French. Other models keep using the F9 daemon for the live
+        # preview.
+        self._live_asr_proc = None
+        self._live_asr_sock = None
+        self._daemon_was_active = False   # F9 services stopped to free VRAM
+        _spec = self._model_combo.currentData()
+        if _spec == "whisper-rust":
+            # Isolated whisper.cpp daemon on a private socket. The ggml model
+            # is the one selected in dictee-setup: _build_subprocess_env()
+            # forwards DICTEE_WHISPER_RUST_GGML from dictee.conf.
+            _env = _build_subprocess_env()
+            _ggml = _env.get("DICTEE_WHISPER_RUST_GGML", "")
+            if not (_ggml and os.path.isfile(_ggml)):
+                self._on_error_msg("Aucun modèle Whisper-Rust installé "
+                                   "(voir dictee-setup) — live en Parakeet")
+            elif not shutil.which("transcribe-daemon-whisper-rust"):
+                # Checked BEFORE _free_vram_for_live_daemon(): that call
+                # stops the F9 services, so a failed Popen after it left NO
+                # live engine at all — the promised Parakeet fallback needs
+                # the F9 daemon still running (2026-07-19: a whole meeting
+                # recorded with a dead live preview and no visible error).
+                self._on_error_msg("transcribe-daemon-whisper-rust "
+                                   "introuvable — live en Parakeet")
+            else:
+                self._live_asr_sock = \
+                    f"/tmp/dictee-meeting-whisper-rust-{os.getpid()}.sock"
+                self._free_vram_for_live_daemon()
+                _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+                # Flip the daemon to its whisper branch: the conf-level
+                # DICTEE_ASR_BACKEND (e.g. parakeet) forwarded by
+                # _build_subprocess_env would silently win otherwise and the
+                # "Whisper-Rust" live preview would transcribe with Parakeet.
+                _env["DICTEE_ASR_BACKEND"] = "whisper"
+                try:
+                    os.unlink(self._live_asr_sock)
+                except OSError:
+                    pass
+                try:
+                    self._live_asr_proc = subprocess.Popen(
+                        ["transcribe-daemon-whisper-rust",
+                         "--socket", self._live_asr_sock],
+                        env=_env,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    self._on_error_msg("transcribe-daemon-whisper-rust "
+                                       "introuvable — live en Parakeet")
+                    self._live_asr_sock = None
+        elif _spec == "whisper" or (_spec and _spec.startswith("whisper-")):
+            self._live_asr_sock = f"/tmp/dictee-meeting-whisper-{os.getpid()}.sock"
+            _env = _build_subprocess_env()
+            if _spec != "whisper":
+                # Legacy sized spec (saved before the engine-level combo);
+                # plain "whisper" follows DICTEE_WHISPER_MODEL from the conf.
+                _env["DICTEE_WHISPER_MODEL"] = _spec.split("-", 1)[1]
+            _env["DICTEE_TRANSCRIBE_SOCKET"] = self._live_asr_sock
+            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+            try:
+                os.unlink(self._live_asr_sock)
+            except OSError:
+                pass
+            try:
+                self._live_asr_proc = subprocess.Popen(
+                    ["transcribe-daemon-whisper"], env=_env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                self._on_error_msg("transcribe-daemon-whisper introuvable — live en Parakeet")
+                self._live_asr_sock = None
+        elif _spec == "nemotron" and not shutil.which("transcribe-daemon"):
+            # Same guard as whisper-rust: never stop the F9 services for a
+            # daemon binary that isn't there — the fallback needs them alive.
+            self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
+        elif _spec == "nemotron":
+            # Nemotron emits no word timestamps, so the live preview switches to
+            # per-Sortformer-segment transcription on this private daemon (see
+            # TranscriptionWorker.transcribe_segments). Recipe mirrors
+            # dictee-transcribe's IsolatedAsrDaemon.
+            self._live_asr_sock = f"/tmp/dictee-meeting-nemotron-{os.getpid()}.sock"
+            self._free_vram_for_live_daemon()
+            _env = _build_subprocess_env()
+            _env["DICTEE_ASR_BACKEND"] = "nemotron"
+            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+            _ort = "/usr/lib/dictee/libonnxruntime.so"
+            if os.path.isfile(_ort):
+                _env.setdefault("ORT_DYLIB_PATH", _ort)
+            try:
+                os.unlink(self._live_asr_sock)
+            except OSError:
+                pass
+            try:
+                self._live_asr_proc = subprocess.Popen(
+                    ["transcribe-daemon", "--socket", self._live_asr_sock],
+                    env=_env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
+                self._live_asr_sock = None
+        elif _spec == "kyutai" and not shutil.which("transcribe-daemon-kyutai"):
+            # Checked BEFORE _free_vram_for_live_daemon(), like whisper-rust:
+            # stopping the F9 services for a missing binary would leave no live
+            # engine at all, and the promised Parakeet fallback needs them up.
+            self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
+        elif _spec == "kyutai":
+            # Kyutai emits no word timestamps either, so it takes the same
+            # per-Sortformer-segment path as nemotron. Its own binary resolves
+            # the model dir itself and takes --socket (candle crate).
+            self._live_asr_sock = f"/tmp/dictee-meeting-kyutai-{os.getpid()}.sock"
+            self._free_vram_for_live_daemon()
+            _env = _build_subprocess_env()
+            _env["DICTEE_ASR_BACKEND"] = "kyutai"
+            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
+            try:
+                os.unlink(self._live_asr_sock)
+            except OSError:
+                pass
+            try:
+                self._live_asr_proc = subprocess.Popen(
+                    ["transcribe-daemon-kyutai", "--socket", self._live_asr_sock],
+                    env=_env,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except FileNotFoundError:
+                self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
+                self._live_asr_sock = None
+
+        # "nemotron_live" really means "timestamp-less engine": the live preview
+        # transcribes one Sortformer segment at a time instead of splitting on
+        # word timestamps. Kyutai is in the same case (see dictee's dual-
+        # transcription list).
+        self._nemotron_live = (bool(self._live_asr_sock)
+                               and _spec in ("nemotron", "kyutai"))
+        self._chunk_paths = {}            # chunk_id → wav path (nemotron live)
+        # Any whisper-family private socket (faster-whisper AND whisper-rust:
+        # both daemons speak the same protocol with word timestamps).
+        _whisper_sock = None if self._nemotron_live else self._live_asr_sock
+        _nemotron_sock = self._live_asr_sock if self._nemotron_live else None
+        self.transcriber = TranscriptionWorker(whisper_sock=_whisper_sock,
+                                               nemotron_sock=_nemotron_sock)
+        # MOSS has no streaming mode: the live preview falls back to the
+        # streaming engines ("auto"), and MOSS is applied at Stop only —
+        # the handoff passes it to dictee-transcribe via --diar-engine.
+        _diar_live = self._diar_combo.currentData() or "auto"
+        if _diar_live == "moss":
+            _diar_live = "auto"
+        self.diarizer = DiarizationWorker(
+            overlap=10,  # same overlap as ChunkerWorker
+            engine=_diar_live,
+            sensitivity=self._diar_slider.value() / 100.0)
+        self._diarizer_ready = False
+        self.diarizer.ready.connect(self._on_diarizer_ready)
+        if not self.diarizer.start():   # non-blocking: model loads in background
+            self._on_error_msg(f"Failed to start {self.diarizer.label}")
+
+        self.aligner = AlignerWorker()
+        self.aligner.chunk_offset = {}
+
+        self.transcriber.transcribed.connect(self.aligner.on_transcribed)
+        if self._nemotron_live:
+            # Per-segment mode: the diarizer drives transcription and the
+            # aligner is bypassed (Nemotron has no word timestamps).
+            self.diarizer.diarized.connect(self._on_diarized_nemotron)
+            self.transcriber.aligned_direct.connect(self._on_aligned)
+        else:
+            self.diarizer.diarized.connect(self.aligner.on_diarized)
+        self.aligner.aligned.connect(self._on_aligned)
+        self.transcriber.error.connect(self._on_chunk_error)
+        self.diarizer.error.connect(self._on_chunk_error)
+
+        # Background executor for blocking subprocess calls
+        import concurrent.futures
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+
+        # File watcher for the preview view
+        self.watcher = QFileSystemWatcher([str(self.transcript_path)])
+        self.watcher.fileChanged.connect(self._reload_transcript)
+
+        self._tick_timer.start()
+        self._set_state("recording")
+        # Models load in the background (no UI freeze); keep the user informed.
+        _loading = ["diarisation"]
+        if self._live_asr_proc is not None:
+            _loading.append("Nemotron" if self._nemotron_live else "Whisper")
+        self.status_label.setText("⏳ Chargement du modèle : " + " + ".join(_loading) + "…")
+
+    def _on_diarizer_ready(self):
+        self._diarizer_ready = True
+        if self._state == "recording":
+            self.status_label.setText("Enregistrement en cours — modèles prêts")
+
+    def _on_diarized_nemotron(self, chunk_id: int, segments: list):
+        """Nemotron live: a chunk's Sortformer segments just arrived — launch
+        the per-segment transcription (the aligner is bypassed)."""
+        if getattr(self, "_finalized", False):
+            return
+        chunk_path = self._chunk_paths.pop(chunk_id, None)
+        if chunk_path is None:
+            return
+        offset = self.aligner.chunk_offset.get(chunk_id, 0.0)
+        self._executor.submit(self.transcriber.transcribe_segments,
+                              chunk_id, chunk_path, segments, offset)
+
+    def _free_vram_for_live_daemon(self):
+        """Stop the F9 daemon services when free VRAM is too tight for the
+        isolated live ASR daemon (whisper-rust ~1.6 GB, nemotron ~3.5 GB)
+        next to streaming Sortformer. Mirrors dictee-transcribe's VRAM-free
+        block; services are restarted in _stop_live_asr_daemon()."""
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5)
+            free_str = (result.stdout.strip().split("\n")[0]
+                        if result.returncode == 0 else "")
+            if not (free_str and free_str.isdigit()):
+                return
+            if int(free_str) >= 5120:   # nemotron ~3.5 GB + Sortformer margin
+                return
+            result2 = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=name",
+                 "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=5)
+            gpu_procs = result2.stdout.strip() if result2.returncode == 0 else ""
+            # The list MUST match dictee-transcribe.py's VRAM-free block: a
+            # missing service (dictee-whisper-rust was the bug — the user's
+            # own F9 backend kept 2 GB and the live daemon OOM'd) leaves the
+            # preview blank. Stop the daemon families, then fall back to
+            # unloading ollama, exactly like the transcribe path.
+            if "transcribe-daemon" in gpu_procs:
+                self._daemon_was_active = True
+                subprocess.run(
+                    ["systemctl", "--user", "stop",
+                     "dictee", "dictee-vosk", "dictee-whisper",
+                     "dictee-whisper-rust", "dictee-canary",
+                     "dictee-nemotron", "dictee-kyutai"],
+                    timeout=10)
+                time.sleep(1)
+            free3 = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.free",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5)
+            free_after = (free3.stdout.strip().split("\n")[0]
+                          if free3.returncode == 0 else "")
+            free_after = int(free_after) if free_after.isdigit() else 0
+            if free_after < 5120 and "ollama" in gpu_procs:
+                conf = self._conf_dict()
+                model = conf.get("DICTEE_OLLAMA_MODEL", "translategemma")
+                import urllib.request
+                try:
+                    req = urllib.request.Request(
+                        "http://localhost:11434/api/generate",
+                        data=json.dumps(
+                            {"model": model, "keep_alive": 0}).encode(),
+                        headers={"Content-Type": "application/json"})
+                    urllib.request.urlopen(req, timeout=5)
+                    time.sleep(1)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
+        # Guard against a tail chunk_ready that arrives after the pipeline was
+        # already finalized (e.g. the chunker join timed out and _on_stop took
+        # the no-tail path): submitting to the shut-down executor would raise.
+        if getattr(self, "_finalized", False):
+            return
+        # A chunk was just extracted → reset the "chunk en cours" bar baseline.
+        self._last_emit_elapsed = self.elapsed_seconds
+        # Compute absolute offset for aligner: chunk N starts at N * advance
+        self.aligner.chunk_offset[chunk_id] = chunk_id * (self.chunk_duration - 10)
+        if getattr(self, "_nemotron_live", False):
+            # Per-segment mode: transcription waits for this chunk's Sortformer
+            # segments (_on_diarized_nemotron); only the diarizer runs now.
+            self._chunk_paths[chunk_id] = chunk_path
+        else:
+            self._executor.submit(self.transcriber.transcribe, chunk_id, chunk_path)
+        self._executor.submit(self.diarizer.diarize, chunk_id, chunk_path)
+        if not getattr(self, "_finalizing", False):
+            self.status_label.setText(
+                f"⚙ Chunk {chunk_id + 1} : transcription + diarisation…")
+
+    def _on_aligned(self, chunk_id: int, lines: list):
+        with open(self.transcript_path, "a", encoding="utf-8") as f:
+            for ln in lines:
+                spk = ln["speaker"]
+                if spk == -1:
+                    continue
+                f.write(f"[{ln['start_s']:.3f}s - {ln['end_s']:.3f}s] Speaker {spk}: {ln['text']}\n")
+
+                # NEW: if this is a brand-new speaker, add a naming row in the panel
+                if spk not in self.speakers_seen:
+                    self.speakers_seen.add(spk)
+                    self._add_speaker_row(spk)
+        if not getattr(self, "_finalizing", False):
+            self.status_label.setText(f"✓ Chunk {chunk_id + 1} ajouté à l'aperçu")
+        # The tail chunk (flushed on stop) just landed → finalize the stop.
+        if getattr(self, "_finalizing", False) and chunk_id == getattr(self, "_tail_chunk_id", None):
+            self._finalize_stop()
+
+    def _add_speaker_row(self, spk_id: int):
+        """Add a QLineEdit row for naming a newly detected speaker."""
+        if spk_id in self._speaker_row_widgets:
+            return
+        label_text = f"Speaker {spk_id}"
+        line_edit = QLineEdit()
+        line_edit.setPlaceholderText("(nommer ce locuteur…)")
+        line_edit.editingFinished.connect(
+            lambda sid=spk_id, le=line_edit: self._on_speaker_renamed(sid, le.text().strip())
+        )
+        self._speakers_form.addRow(label_text, line_edit)
+        self._speaker_row_widgets[spk_id] = line_edit
+
+    def _on_speaker_renamed(self, spk_id: int, name: str):
+        if name:
+            self._speaker_name_map[spk_id] = name
+        else:
+            self._speaker_name_map.pop(spk_id, None)
+        # Trigger transcript view re-render to reflect the new name
+        self._reload_transcript()
+
+    def _on_chunk_error(self, chunk_id: int, msg: str):
+        print(f"[meeting-live] chunk {chunk_id}: {msg}", file=sys.stderr)
+        # Surface transient chunk issues (e.g. Whisper model still cold-loading)
+        # in the status bar so the user knows what's happening.
+        if not getattr(self, "_finalizing", False):
+            self.status_label.setText(f"⚠ Chunk {chunk_id + 1} : {msg}")
+
+    def _reload_transcript(self):
+        if not self.transcript_path:
+            return
+        spk_pattern = re.compile(
+            r"^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*Speaker\s+(\d+):\s*(.*)$"
+        )
+        try:
+            content = self.transcript_path.read_text(encoding="utf-8")
+            html_lines = []
+            for line in content.split("\n"):
+                m = spk_pattern.match(line)
+                if m:
+                    start_s, _end_s, spk_id, text = m.groups()
+                    spk_id = int(spk_id)
+                    color = self.SPEAKER_COLORS[spk_id % len(self.SPEAKER_COLORS)]
+                    t = self._fmt_time(float(start_s))
+                    display_name = self._speaker_name_map.get(spk_id, f"Speaker {spk_id}")
+                    html_lines.append(
+                        f'<p style="color:{color}"><b>[{display_name}]</b> '
+                        f'<span style="color:#888">({t})</span> {text}</p>'
+                    )
+                else:
+                    html_lines.append(f"<p>{line}</p>")
+            self.transcript_view.setHtml("\n".join(html_lines))
+            sb = self.transcript_view.verticalScrollBar()
+            sb.setValue(sb.maximum())
+        except FileNotFoundError:
+            pass
+
+    @staticmethod
+    def _fmt_time(seconds: float) -> str:
+        m = int(seconds) // 60
+        s = int(seconds) % 60
+        return f"{m:02d}:{s:02d}"
+
+    def _on_preview_toggled(self, checked: bool):
+        # Resize the (user-resizable) window with the accordion: open to 800 px
+        # tall, shrink back to the collapsed height on close. The preview_content
+        # stretch keeps the top zone pinned; the transcript fills the space.
+        self.preview_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+        )
+        if checked:
+            self._collapsed_h = self.height()
+            self.preview_content.setVisible(True)
+            # Open to a fixed 800 px height (still user-resizable afterwards;
+            # the transcript fills the extra space). Width is kept (>= 800 min).
+            self.resize(self.width(), 800)
+        else:
+            self.preview_content.setVisible(False)
+            target = getattr(self, "_collapsed_h", None) or 220
+            QTimer.singleShot(0, lambda: self.resize(self.width(), target))
+
+    def _extract_speaker_anchors(self, min_duration_s: float = 1.5, max_anchors_per_speaker: int = 5) -> dict:
+        """Parse transcript-live.md to extract temporal anchors per speaker_id.
+
+        Returns {speaker_id: [{"start": float, "end": float}, ...]}
+        Only keeps segments >= min_duration_s (filters short interjections).
+        Sorted by duration descending, capped at max_anchors_per_speaker.
+        """
+        anchors = {}
+        try:
+            content = self.transcript_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return anchors
+        line_re = re.compile(r"^\[(\d+\.?\d*)s\s*-\s*(\d+\.?\d*)s\]\s*Speaker\s+(\d+):")
+        for line in content.splitlines():
+            m = line_re.match(line)
+            if not m:
+                continue
+            start = float(m.group(1))
+            end = float(m.group(2))
+            spk_id = int(m.group(3))
+            duration = end - start
+            if duration < min_duration_s:
+                continue
+            anchors.setdefault(spk_id, []).append({"start": start, "end": end})
+        # Sort by duration desc, keep top N per speaker
+        for spk_id in list(anchors.keys()):
+            anchors[spk_id].sort(key=lambda a: a["end"] - a["start"], reverse=True)
+            anchors[spk_id] = anchors[spk_id][:max_anchors_per_speaker]
+        return anchors
+
+    def _stop_live_asr_daemon(self):
+        """Stop the meeting's isolated live ASR daemon (whisper or nemotron),
+        remove its socket, and restart the F9 services if the VRAM guard
+        stopped them. Idempotent (safe when no daemon was spawned)."""
+        proc = getattr(self, "_live_asr_proc", None)
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        self._live_asr_proc = None
+        sock = getattr(self, "_live_asr_sock", None)
+        if sock:
+            try:
+                os.unlink(sock)
+            except OSError:
+                pass
+        self._live_asr_sock = None
+        if getattr(self, "_daemon_was_active", False):
+            # Restart the daemon matching the configured F9 backend (same
+            # service map as dictee-transcribe's VRAM-free restore).
+            self._daemon_was_active = False
+            conf = self._conf_dict()
+            asr = conf.get("DICTEE_ASR_BACKEND", "parakeet")
+            svc_map = {"parakeet": "dictee", "vosk": "dictee-vosk",
+                       "whisper": "dictee-whisper", "canary": "dictee-canary",
+                       "whisper-rust": "dictee-whisper-rust",
+                       "nemotron": "dictee-nemotron",
+                       "kyutai": "dictee-kyutai"}
+            try:
+                subprocess.Popen(["systemctl", "--user", "start",
+                                  svc_map.get(asr, "dictee")])
+            except OSError:
+                pass
+
+    def _on_stop(self):
+        # Stop the recording and freeze the WAV. Does NOT launch the analysis —
+        # the user clicks "Démarrer l'analyse" (btn_analyze) for that.
+        # The chunker flushes a final partial chunk; we keep the live pipeline
+        # alive until that tail is transcribed (so the live preview captures the
+        # end), showing a pie on the stop button meanwhile, then finalize.
+        self._tick_timer.stop()
+
+        if self.audio_worker:
+            self.audio_worker.resume()   # ensure not paused so stop() is clean
+            self.audio_worker.stop()
+            self.audio_worker = None
+        self._refresh_meters()           # private app sink gone → re-resolve meters
+
+        # Stop the chunker → it flushes the tail (queued chunk_ready). chunk_id
+        # grows iff a tail chunk was actually emitted.
+        tail_id = None
+        if getattr(self, "chunker", None):
+            before = self.chunker.chunk_id
+            self.chunker.stop()
+            if self.chunker.chunk_id > before:
+                tail_id = self.chunker.chunk_id - 1
+
+        if tail_id is not None:
+            # Keep diarizer / executor / live ASR daemon ALIVE so the queued tail chunk
+            # gets transcribed + diarized; finalize when it aligns (or watchdog).
+            self.btn_stop.setEnabled(False)
+            self._blink_timer.stop()
+            self.rec_dot.setVisible(False)
+            self._apply_icon(False)
+            self._tail_chunk_id = tail_id
+            self._finalizing = True
+            self._start_stop_pie()
+            self._finalize_watchdog = QTimer(self)
+            self._finalize_watchdog.setSingleShot(True)
+            self._finalize_watchdog.timeout.connect(self._finalize_stop)
+            self._finalize_watchdog.start(25000)   # safety net
+            self.status_label.setText("Finalisation du dernier segment…")
+        else:
+            self._finalize_stop()
+
+    def _start_stop_pie(self):
+        """Animate the stop button's pie while the last chunk is processed.
+        Creeps toward (but never reaches) full over a few seconds (we lack
+        granular daemon progress); _complete_stop_pie sweeps it the rest of the
+        way and clears it when the tail actually lands."""
+        self._pie_anim = QPropertyAnimation(self.btn_stop, b"pie")
+        self._pie_anim.setStartValue(0.0)
+        self._pie_anim.setEndValue(0.75)
+        self._pie_anim.setDuration(6000)
+        self._pie_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._pie_anim.start()
+
+    def _complete_stop_pie(self):
+        """Sweep the pie to a full circle (completion gesture) then clear — so
+        it always 'fait le tour' even when the tail finished before the slow
+        creep did. Called from _finalize_stop."""
+        if getattr(self, "_pie_anim", None):
+            self._pie_anim.stop()
+        self._pie_anim = QPropertyAnimation(self.btn_stop, b"pie")
+        self._pie_anim.setStartValue(self.btn_stop.getPie())
+        self._pie_anim.setEndValue(1.0)
+        self._pie_anim.setDuration(450)
+        self._pie_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        # Hold the full circle briefly, then clear (guard: the button may be
+        # gone if the window closed in the meantime).
+        self._pie_anim.finished.connect(
+            lambda: QTimer.singleShot(
+                250, lambda: self.btn_stop.setPie(0.0) if self.btn_stop else None))
+        self._pie_anim.start()
+
+    def _stop_stop_pie(self):
+        if getattr(self, "_pie_anim", None):
+            self._pie_anim.stop()
+        self.btn_stop.setPie(0.0)
+
+    def _finalize_stop(self):
+        """Tear down the live pipeline and switch to 'stopped'. Idempotent:
+        runs when the tail chunk aligns, on the watchdog, or directly when
+        there was no tail to flush."""
+        if getattr(self, "_finalized", False):
+            return
+        self._finalized = True
+        self._finalizing = False
+        self._tail_chunk_id = None
+        if getattr(self, "_finalize_watchdog", None):
+            self._finalize_watchdog.stop()
+        self._complete_stop_pie()   # sweep the pie around, then clear
+        self._uninhibit_notifications()
+
+        if getattr(self, "diarizer", None):
+            self.diarizer.stop()
+        if getattr(self, "_executor", None):
+            self._executor.shutdown(wait=False)
+        self._stop_live_asr_daemon()
+        try:
+            STATE_FILE.write_text("idle\n")
+        except OSError:
+            pass
+
+        # Write meeting metadata
+        try:
+            audio_size = self.audio_wav.stat().st_size if self.audio_wav else 0
+        except FileNotFoundError:
+            audio_size = 0
+        meta = {
+            "title": self._title,
+            "ended_at": datetime.now().isoformat(),
+            "duration_s": self.elapsed_seconds,
+            "audio_bytes": audio_size,
+        }
+        try:
+            (self.meeting_dir / "meeting.meta.json").write_text(
+                json.dumps(meta, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except (OSError, AttributeError):
+            pass
+
+        # Post-recording peak normalization (background thread): the mic is
+        # deliberately captured ~35 dB low (hot input stage, anti-clipping
+        # system volume — measured 2026-07-19). The ASR engines normalize
+        # internally so they don't care, but a human replay does. One
+        # constant gain at stop, dynamics untouched (a live AGC would alter
+        # them, and voice-print reconciliation is sensitive to processed
+        # audio). Atomic replace: an analysis opened meanwhile keeps reading
+        # the old inode safely.
+        threading.Thread(target=self._normalize_recording, daemon=True).start()
+
+        self._set_state("stopped")
+        if audio_size < 1024:
+            self.status_label.setText(
+                f"Enregistrement trop court ({self.elapsed_seconds}s)")
+            self.btn_analyze.setEnabled(False)
+
+    def _inhibit_notifications(self):
+        """Enable KDE Do Not Disturb for the duration of the recording.
+
+        Scoped to this process's D-Bus connection: if meeting-live dies, the
+        notification server releases the inhibition by itself (verified on
+        Plasma 6). Silently a no-op where the API is missing (non-KDE)."""
+        self._notif_cookie = None
+        try:
+            from PyQt6.QtDBus import QDBusConnection, QDBusInterface
+            self._notif_iface = QDBusInterface(
+                "org.freedesktop.Notifications",
+                "/org/freedesktop/Notifications",
+                "org.freedesktop.Notifications",
+                QDBusConnection.sessionBus())
+            reply = self._notif_iface.call(
+                "Inhibit", "dictee-meeting-live",
+                "Réunion en cours d'enregistrement", {})
+            args = reply.arguments()
+            if args and args[0] is not None:
+                self._notif_cookie = args[0]
+        except Exception as e:
+            print(f"[meeting-live] notifications inhibit failed: {e}",
+                  file=sys.stderr)
+
+    def _uninhibit_notifications(self):
+        if getattr(self, "_notif_cookie", None) is None:
+            return
+        try:
+            from PyQt6.QtCore import QMetaType, QVariant
+            # The cookie must be marshalled as UINT32: a plain python int
+            # goes out as INT32 and the call is silently ignored (verified).
+            v = QVariant(self._notif_cookie)
+            v.convert(QMetaType(QMetaType.Type.UInt.value))
+            self._notif_iface.call("UnInhibit", v)
+        except Exception:
+            pass
+        self._notif_cookie = None
+
+    def _normalize_recording(self):
+        normalize_wav(self.audio_wav)
+
+    def _on_analyze(self):
+        # Launch dictee-transcribe on the recorded audio, then close.
+        self.status_label.setText("Ouverture de l'analyse…")
+
+        # Write speakers.json next to audio.wav so dictee-transcribe can
+        # pre-fill the rename panel with live-session speaker names.
+        if self._speaker_name_map and self.transcript_path and self.transcript_path.is_file():
+            try:
+                anchors = self._extract_speaker_anchors()
+                speakers_data = {
+                    "name_map": {str(k): v for k, v in self._speaker_name_map.items()},
+                    "anchors": {
+                        str(k): v for k, v in anchors.items()
+                        if k in self._speaker_name_map  # only named speakers
+                    },
+                }
+                speakers_json_path = self.meeting_dir / "speakers.json"
+                speakers_json_path.write_text(
+                    json.dumps(speakers_data, indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                print(f"[meeting-live] failed to write speakers.json: {e}", file=sys.stderr)
+
+        # Hand off to dictee-transcribe. --diar-engine carries the meeting's
+        # engine choice into the final analysis (before it existed, the combo
+        # only drove the live preview and dictee-transcribe silently reused
+        # its own persisted choice).
+        try:
+            subprocess.Popen(
+                ["dictee-transcribe", "--file", str(self.audio_wav), "--diarize",
+                 "--diar-engine", self._diar_combo.currentData() or "auto",
+                 "--asr-model", self._model_combo.currentData()],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            self.status_label.setText("Erreur : dictee-transcribe introuvable")
+            return
+
+        self.close()
+
+    def _open_sound_test(self):
+        # Single instance: a second click raises the existing dialog.
+        dlg = getattr(self, "_sound_test_dialog", None)
+        if dlg is None:
+            dlg = SoundTestDialog(self)
+            self._sound_test_dialog = dlg
+            dlg.show()
+        else:
+            dlg.raise_()
+            dlg.activateWindow()
+
+    def _on_open_transcribe(self):
+        """Open dictee-transcribe (no file pre-loaded) with the meeting's chosen
+        model pre-set; the user picks a past meeting via its History button."""
+        try:
+            subprocess.Popen(
+                ["dictee-transcribe", "--asr-model", self._model_combo.currentData()],
+                env=_build_subprocess_env(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            self.status_label.setText("Erreur : dictee-transcribe introuvable")
+
+    def _tick(self):
+        self.elapsed_seconds += 1
+        m, s = divmod(self.elapsed_seconds, 60)
+        h, m = divmod(m, 60)
+        if h > 0:
+            self.duration_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
+        else:
+            self.duration_label.setText(f"{m:02d}:{s:02d}")
+        self._update_chunk_indicators()
+
+    def _update_chunk_indicators(self):
+        """Drive the two thin bars above the accordion (called every second).
+        Bar 1 fills over the inter-chunk period (chunk_duration for the very
+        first chunk, then the advance = chunk_duration - overlap); at full a new
+        live block lands. Bar 2 shows the overlap context buffer (fills once,
+        then stays full)."""
+        ch = getattr(self, "chunker", None)
+        if ch is None or getattr(self, "_chunk_indicators", None) is None:
+            return
+        advance = ch.advance
+        overlap = max(0, self.chunk_duration - advance)
+        period = self.chunk_duration if ch.chunk_id == 0 else advance
+        since = max(0, self.elapsed_seconds - getattr(self, "_last_emit_elapsed", 0))
+        since = min(since, period)
+        # 1-indexed current chunk number (chunk_id is the next chunk to emit).
+        self._lbl_chunk.setText(f"Chunk {ch.chunk_id + 1}")
+        self._smooth_bar(self._anim_chunk, self._bar_chunk,
+                         int(100 * since / period) if period else 0)
+        self._chunk_val.setText(f"{since}s / {period}s")
+        # Contexte = the LAST `overlap` seconds of the current chunk — the slice
+        # that overlaps into (and becomes the look-back context of) the next
+        # chunk. Empty until the chunk enters its final `overlap` seconds.
+        ctx_into = max(0, since - (period - overlap))
+        self._smooth_bar(self._anim_ctx, self._bar_ctx,
+                         int(100 * ctx_into / overlap) if overlap else 100)
+        self._ctx_val.setText(f"{ctx_into}s / {overlap}s")
+
+    @staticmethod
+    def _smooth_bar(anim, bar, target):
+        """Animate a progress bar toward `target` from its current value."""
+        anim.stop()
+        anim.setStartValue(bar.value())
+        anim.setEndValue(int(target))
+        anim.start()
+
+    def _on_error_msg(self, msg: str):
+        self.status_label.setText(f"Erreur : {msg}")
+        print(f"[meeting-live] {msg}", file=sys.stderr)
+
+    def _on_capture_failed(self, msg: str):
+        """Fatal audio-capture error (setup failed, app-capture never became
+        READY, or pw-record died): nothing is being recorded, so abort cleanly
+        back to idle instead of leaving the window stuck in 'recording'.
+
+        Distinct from _on_error_msg, which handles non-fatal preview/chunk
+        errors that must NOT tear down an ongoing recording."""
+        self.status_label.setText(f"Erreur : {msg}")
+        print(f"[meeting-live] capture failed: {msg}", file=sys.stderr)
+        if self._state not in ("recording", "paused"):
+            return  # already idle/stopped — nothing to abort
+        self._tick_timer.stop()
+        if self.audio_worker:
+            self.audio_worker.resume()   # unfreeze if paused so stop() is clean
+            self.audio_worker.stop()
+            self.audio_worker = None
+        if getattr(self, "chunker", None):
+            self.chunker.stop()
+        if getattr(self, "diarizer", None):
+            self.diarizer.stop()
+        if getattr(self, "_executor", None):
+            self._executor.shutdown(wait=False)
+        try:
+            STATE_FILE.write_text("idle\n")
+        except OSError:
+            pass
+        self._refresh_meters()
+        self._set_state("idle")
+
+    def closeEvent(self, event):
+        self._mic_sync_timer.stop()
+        self._mic_watcher.stop()
+        self._stop_meters()
+        self._stop_preview_appcap()
+        self._uninhibit_notifications()
+        # Stop the stop-button pie + finalize watchdog if a stop was in flight.
+        self._stop_stop_pie()
+        if getattr(self, "_finalize_watchdog", None):
+            self._finalize_watchdog.stop()
+        if self.btn_stop.isEnabled() or getattr(self, "_finalizing", False):
+            # Capture still running/paused, OR we were finalizing the tail —
+            # tear the live pipeline down cleanly either way.
+            self._tick_timer.stop()
+            if self.audio_worker:
+                self.audio_worker.resume()   # unfreeze if paused so stop() works
+                self.audio_worker.stop()
+                self.audio_worker = None
+            # Also tear down the analysis pipeline (else diarize-only --stream,
+            # a model subprocess possibly holding VRAM, is orphaned on close).
+            if getattr(self, "chunker", None):
+                self.chunker.stop()
+            if getattr(self, "diarizer", None):
+                self.diarizer.stop()
+            if getattr(self, "_executor", None):
+                self._executor.shutdown(wait=False)
+            self._stop_live_asr_daemon()
+        # Reset state on window close (regardless of recording state)
+        try:
+            STATE_FILE.write_text("idle\n")
+        except OSError:
+            pass
+        super().closeEvent(event)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="Live meeting capture for dictee")
+    parser.add_argument("--start", action="store_true", help="Start capture immediately")
+    parser.add_argument("--stop", action="store_true", help="Stop running meeting")
+    args = parser.parse_args()
+
+    # Keep the lock fd alive for the whole process lifetime (released on exit).
+    lock_fd = _acquire_singleton_lock()
+    if lock_fd is None:
+        print("[meeting-live] already running", file=sys.stderr)
+        sys.exit(1)
+
+    app = QApplication(sys.argv)
+    win = MeetingWindow()   # sets its own black/idle icon (red while recording)
+    win.show()
+    if args.start:
+        win.start_meeting()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
