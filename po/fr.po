@@ -4873,6 +4873,18 @@ msgstr "Erreur : dictee-transcribe introuvable"
 msgid "Error: {msg}"
 msgstr "Erreur : {msg}"
 
+#: dictee-tray.py
+msgid "Open the live meeting window (capture, then diarization)"
+msgstr "Ouvrir la fenêtre de réunion en direct (capture, puis diarisation)"
+
+#: dictee-tray.py
+msgid "Live meeting window open"
+msgstr "Fenêtre de réunion en direct ouverte"
+
+#: dictee-tray.py
+msgid "Live meeting recording…"
+msgstr "Réunion en direct, enregistrement…"
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"

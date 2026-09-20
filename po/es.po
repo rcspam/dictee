@@ -4871,6 +4871,18 @@ msgstr ""
 msgid "Error: {msg}"
 msgstr ""
 
+#: dictee-tray.py
+msgid "Open the live meeting window (capture, then diarization)"
+msgstr ""
+
+#: dictee-tray.py
+msgid "Live meeting window open"
+msgstr ""
+
+#: dictee-tray.py
+msgid "Live meeting recording…"
+msgstr ""
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
