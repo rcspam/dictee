@@ -421,6 +421,44 @@ def _read_conf():
     return conf
 
 
+def _asr_model_env(spec):
+    """Env overrides for an `--asr-model` spec passed by dictee-meeting-live.
+
+    Only the Parakeet variants exist on this line: int8 / fp32 map onto
+    DICTEE_PARAKEET_QUANT, which the Rust binaries read (execution.rs,
+    model_tdt.rs). Anything else (whisper, nemotron...) is ignored and the
+    conf's own model applies.
+    """
+    if spec == "parakeet-int8":
+        return {"DICTEE_PARAKEET_QUANT": "int8"}
+    if spec == "parakeet-fp32":
+        return {"DICTEE_PARAKEET_QUANT": "fp32"}
+    return {}
+
+
+def _build_arg_parser():
+    parser = argparse.ArgumentParser(description="Dictee - Transcribe audio files")
+    parser.add_argument("--file", "-f", help="Audio file to transcribe")
+    parser.add_argument("--diarize", "-d", action="store_true",
+                        help="Enable speaker diarization")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
+    # Passed by dictee-meeting-live at the end of a meeting. Only Sortformer
+    # exists on this line, so the engine is accepted and logged, nothing more.
+    parser.add_argument("--diar-engine", default=None,
+                        help="Diarization engine requested by the caller (accepted, ignored)")
+    # parakeet-int8 / parakeet-fp32 are honoured (DICTEE_PARAKEET_QUANT);
+    # other specs are ignored and the configured model applies.
+    parser.add_argument("--asr-model", default=None,
+                        help="ASR model spec (parakeet-int8, parakeet-fp32)")
+    # Positional args: receive %F from .desktop / file-manager open-with /
+    # CLI usage like `dictee-transcribe foo.wav`. Only the first one is
+    # used (the UI handles a single file at a time).
+    parser.add_argument("files", nargs="*",
+                        help="Audio file path(s); first one is opened.")
+    return parser
+
+
 def _postprocess(text):
     """Apply dictee-postprocess rules to transcribed text."""
     if not text or not shutil.which("dictee-postprocess"):
@@ -818,7 +856,7 @@ class _ChunkedPipelineWorker(QThread):
                           # (repeated sentences) at every chunk boundary.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, diarize=True, parent=None):
+    def __init__(self, audio_path, sensitivity, diarize=True, parent=None, extra_env=None):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
@@ -839,6 +877,9 @@ class _ChunkedPipelineWorker(QThread):
         for _k, _v in _read_conf().items():
             if _k.startswith("DICTEE_"):
                 self._subprocess_env[_k] = _v
+        # --asr-model overrides from the meeting handoff, on top of the conf.
+        for _k, _v in (extra_env or {}).items():
+            self._subprocess_env[_k] = _v
 
     def request_cancel(self):
         self._cancel = True
@@ -2111,8 +2152,18 @@ class LLMProcessDialog(QDialog):
 class TranscribeWindow(QDialog):
     """Main transcription/diarization window."""
 
-    def __init__(self, file_path=None, auto_diarize=False, parent=None):
+    def __init__(self, file_path=None, auto_diarize=False, parent=None,
+                 asr_model=None, diar_engine=None):
         super().__init__(parent)
+        # Overrides for the Rust binaries, from --asr-model (meeting handoff).
+        # Applied on top of dictee.conf in every launch path that builds an
+        # env for them: _on_transcribe (QProcess) and _ChunkedPipelineWorker.
+        # The two-phase daemon path uses whatever model the daemon loaded.
+        self._asr_model_env = _asr_model_env(asr_model)
+        if asr_model and not self._asr_model_env:
+            _dbg(f"--asr-model {asr_model!r} not available on this line, ignored")
+        if diar_engine:
+            _dbg(f"--diar-engine {diar_engine!r} accepted, Sortformer is the only engine here")
         self.setWindowTitle(_("Dictee - Transcribe file"))
         self.setMinimumSize(600, 500)
         self.resize(980, 800)
@@ -3668,6 +3719,25 @@ class TranscribeWindow(QDialog):
         if hasattr(self, "_lbl_long_audio_warning"):
             self._lbl_long_audio_warning.setVisible(False)
 
+    def _build_process_env(self):
+        """Env for the Rust binaries launched through QProcess.
+
+        ORT_DYLIB_PATH for CUDA builds (load-dynamic), then every DICTEE_*
+        key of ~/.config/dictee.conf (the systemd services get them via
+        EnvironmentFile=, a QProcess only inherits the shell env), then the
+        --asr-model overrides on top so the meeting's choice wins.
+        """
+        env = QProcessEnvironment.systemEnvironment()
+        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
+        if os.path.isfile(ort_lib):
+            env.insert("ORT_DYLIB_PATH", ort_lib)
+        for _k, _v in _read_conf().items():
+            if _k.startswith("DICTEE_"):
+                env.insert(_k, _v)
+        for _k, _v in self._asr_model_env.items():
+            env.insert(_k, _v)
+        return env
+
     def _on_transcribe(self, checked=False, *, retry_of=None):
         """Start a transcription run for the file in the Fichier field.
 
@@ -3842,7 +3912,8 @@ class TranscribeWindow(QDialog):
             self._was_diarized = diarize
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
-                audio_path, sensitivity, diarize=diarize, parent=self)
+                audio_path, sensitivity, diarize=diarize, parent=self,
+                extra_env=self._asr_model_env)
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -3858,22 +3929,7 @@ class TranscribeWindow(QDialog):
             self._process.setProcessChannelMode(QProcess.ProcessChannelMode.SeparateChannels)
         else:
             self._process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        # Set ORT_DYLIB_PATH for GPU acceleration if the lib exists
-        env = self._process.processEnvironment()
-        if env.isEmpty():
-            env = QProcessEnvironment.systemEnvironment()
-        ort_lib = "/usr/lib/dictee/libonnxruntime.so"
-        if os.path.isfile(ort_lib):
-            env.insert("ORT_DYLIB_PATH", ort_lib)
-        # Propagate DICTEE_* keys from ~/.config/dictee.conf so the Rust
-        # binary sees DICTEE_FORCE_CPU, DICTEE_PARAKEET_QUANT,
-        # DICTEE_INTRA_THREADS, etc. The systemd services get them via
-        # EnvironmentFile=, but a QProcess launched from this Python UI
-        # only inherits the user shell env, which doesn't source the conf.
-        for _k, _v in _read_conf().items():
-            if _k.startswith("DICTEE_"):
-                env.insert(_k, _v)
-        self._process.setProcessEnvironment(env)
+        self._process.setProcessEnvironment(self._build_process_env())
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.finished.connect(self._on_finished)
 
@@ -5415,18 +5471,7 @@ class TranscribeWindow(QDialog):
 # === Main ===
 
 def main():
-    parser = argparse.ArgumentParser(description="Dictee - Transcribe audio files")
-    parser.add_argument("--file", "-f", help="Audio file to transcribe")
-    parser.add_argument("--diarize", "-d", action="store_true",
-                        help="Enable speaker diarization")
-    parser.add_argument("--debug", action="store_true",
-                        help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
-    # Positional args: receive %F from .desktop / file-manager open-with /
-    # CLI usage like `dictee-transcribe foo.wav`. Only the first one is
-    # used (the UI handles a single file at a time).
-    parser.add_argument("files", nargs="*",
-                        help="Audio file path(s); first one is opened.")
-    args = parser.parse_args()
+    args = _build_arg_parser().parse_args()
 
     global DEBUG
     if args.debug or os.environ.get("DICTEE_DEBUG") == "true":
@@ -5456,6 +5501,8 @@ def main():
     win = TranscribeWindow(
         file_path=file_path,
         auto_diarize=args.diarize,
+        asr_model=args.asr_model,
+        diar_engine=args.diar_engine,
     )
     win.show()
     sys.exit(app.exec())
