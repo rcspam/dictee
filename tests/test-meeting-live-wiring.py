@@ -61,5 +61,57 @@ class TestTray(unittest.TestCase):
             self.assertIn('"meeting-recording"', h)
 
 
+class TestPlasmoid(unittest.TestCase):
+
+    def setUp(self):
+        self.full = read("plasmoid/package/contents/ui/FullRepresentation.qml")
+        self.main = read("plasmoid/package/contents/ui/main.qml")
+
+    def test_popup_keeps_the_diarize_toggle_and_adds_the_live_button(self):
+        self.assertIn('id: btnDiarize', self.full, "the 1.3.6 diarize toggle must stay")
+        self.assertIn('id: btnMeetingLive', self.full)
+        self.assertIn('fullRep.actionRequested("meeting-live")', self.full)
+        self.assertLess(self.full.index('id: btnDiarize'), self.full.index('id: btnMeetingLive'))
+
+    def test_live_button_sits_inside_the_button_row(self):
+        """The row is the RowLayout right after '// Boutons dictee'; a block
+        pasted after its closing brace would render outside the row."""
+        row_start = self.full.index("RowLayout {", self.full.index("// Boutons dictee"))
+        live = self.full.index("id: btnMeetingLive")
+        sep = self.full.index("// Separateur avant transcription")
+        self.assertLess(row_start, live)
+        self.assertLess(live, sep)
+        self.assertNotIn("\n    }\n", self.full[row_start:live],
+                         "the row closed before the live button: it is outside")
+        self.assertEqual(self.full[live:sep].count("\n    }\n"), 1,
+                         "exactly one 4-space closing brace (the row's) between the live button and the separator")
+
+    def test_button_is_greyed_while_the_window_is_up(self):
+        self.assertIn('enabled: fullRep.state !== "meeting-ui-open" && fullRep.state !== "meeting-recording"',
+                      self.full)
+
+    def test_red_dot_follows_the_recording_state(self):
+        self.assertIn('property bool active: fullRep.state === "meeting-recording"', self.full)
+
+    def test_main_runs_the_window_on_the_action(self):
+        self.assertIn('case "meeting-live":', self.main)
+        self.assertIn('executable.run("dictee-meeting-live")', self.main)
+
+    def test_offline_poll_leaves_the_meeting_states_alone(self):
+        guard = [l for l in self.main.splitlines() if 'stdout === "offline" && root.state' in l]
+        self.assertEqual(len(guard), 1)
+        self.assertIn('root.state !== "meeting-recording"', guard[0])
+        self.assertIn('root.state !== "meeting-ui-open"', guard[0])
+
+    def test_plasmoid_catalog_carries_the_new_strings(self):
+        pot = read("plasmoid/package/contents/locale/template.pot")
+        fr = read("plasmoid/package/contents/locale/fr/LC_MESSAGES/plasma_applet_com.github.rcspam.dictee.po")
+        for msgid in ("Live meeting", "Meeting window is open", "Meeting recording in progress",
+                      "Open live meeting capture (record, then send to diarization)"):
+            self.assertIn(f'msgid "{msgid}"', pot, msgid)
+            self.assertIn(f'msgid "{msgid}"', fr, msgid)
+        self.assertIn('msgstr "Réunion en direct"', fr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
