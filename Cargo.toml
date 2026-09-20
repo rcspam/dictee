@@ -65,6 +65,9 @@ rustfft = "6.4"
 ctrlc = "3.4"
 libc = "0.2"
 
+[build-dependencies]
+cc = "1"
+
 [dev-dependencies]
 
 [features]

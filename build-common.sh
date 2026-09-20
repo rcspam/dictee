@@ -7,10 +7,75 @@
 #   - DIST_DIR   (default: .dev/dist)
 #
 # Provides:
+#   - CARGO / REL_DIR         portable cargo wrapper and its release dir
+#   - dict_check_glibc        refuses binaries needing a too-recent glibc
 #   - dict_prepare_pkg_dir   populates $PKG_DIR with all .py wrappers,
 #                            shell scripts, default configs, assets,
 #                            compiled .mo locales and a VERSION file.
 #                            Idempotent — safe to re-run.
+
+# Release binaries are compiled inside a Debian 12 container (glibc 2.36)
+# so they load on every supported distro (issue #32: host-linked binaries
+# imported GLIBC_2.39 and failed on Debian 12). $CARGO replaces `cargo` in
+# the builders and $REL_DIR replaces target/release/ for the binaries, so
+# portable builds never mix with host builds. PKGBUILD is unaffected: Arch
+# compiles natively on the user's machine.
+CARGO="./packaging/cargo-glibc236.sh"
+REL_DIR="target/glibc236/release"
+
+# Oldest libc among the distros we support: Ubuntu 22.04 (2.35), ahead of
+# Debian 12 (2.36). KDE neon follows its Ubuntu base. Bump only when 22.04
+# is dropped from the tested list in README.md.
+GLIBC_MAX="2.35"
+
+# The Rust binaries every package ships, in $REL_DIR after a build.
+DICT_BINS="transcribe transcribe-daemon transcribe-client transcribe-diarize
+           transcribe-stream-diarize transcribe-diarize-batch diarize-only"
+
+# dict_check_built_bins — run dict_check_glibc over $DICT_BINS in $REL_DIR.
+dict_check_built_bins() {
+    local _b _paths=""
+    for _b in $DICT_BINS; do _paths="$_paths $REL_DIR/$_b"; done
+    # shellcheck disable=SC2086
+    dict_check_glibc $_paths
+}
+
+# dict_check_glibc <binary>... — abort when a binary imports a symbol from a
+# glibc newer than $GLIBC_MAX. Issue #32 shipped twice unnoticed (1.3.6 and
+# 1.3.7~rc3): the binaries ran fine on the maintainer's machine and died at
+# startup on Debian 12. Called right after every release cargo build.
+dict_check_glibc() {
+    # Refuse to pass for lack of a tool: a silent OK here is exactly how #32
+    # shipped twice.
+    command -v objdump >/dev/null 2>&1 || {
+        echo "FATAL: objdump not found (install binutils): the glibc floor" \
+             "cannot be checked, and shipping unchecked is what issue #32 was" >&2
+        exit 1
+    }
+    local bin ver bad=""
+    for bin in "$@"; do
+        [ -f "$bin" ] || { echo "FATAL: $bin missing, cannot check glibc" >&2; exit 1; }
+        ver=$(objdump -T "$bin" 2>/dev/null \
+              | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+        if [ -z "$ver" ]; then
+            # Every binary we ship links libc dynamically, so no versioned
+            # GLIBC_ symbol at all means objdump did not read this file.
+            echo "FATAL: no GLIBC_ symbol in $bin — objdump could not read it," \
+                 "so the glibc floor is unverified (issue #32)" >&2
+            exit 1
+        fi
+        if [ "$(printf '%s\n%s\n' "$GLIBC_MAX" "$ver" | sort -V | tail -1)" != "$GLIBC_MAX" ]; then
+            bad="$bad  $(basename "$bin") needs GLIBC_$ver\n"
+        fi
+    done
+    if [ -n "$bad" ]; then
+        echo "FATAL: binaries require a glibc newer than $GLIBC_MAX (issue #32):" >&2
+        printf "%b\n" "$bad" >&2
+        echo "They would not start on Debian 12. Build via \$CARGO (packaging/cargo-glibc236.sh)." >&2
+        exit 1
+    fi
+    echo "glibc check OK (≤ $GLIBC_MAX): $# binaries"
+}
 
 dict_prepare_pkg_dir() {
     : "${PKG_DIR:?PKG_DIR must be set before sourcing build-common}"

@@ -35,11 +35,11 @@ if ! command -v rpmbuild >/dev/null 2>&1; then
 fi
 
 # Vérifier que les binaires existent (compilés par build-deb.sh)
-if [ ! -f "target/release/transcribe" ]; then
+if [ ! -f "$REL_DIR/transcribe" ]; then
     echo "Binaires non trouvés. Lancez d'abord :"
     echo "  ./build-deb.sh"
     echo "  # ou"
-    echo "  cargo build --release --features sortformer"
+    echo "  ./packaging/cargo-glibc236.sh build --release --features sortformer"
     exit 1
 fi
 
@@ -57,7 +57,7 @@ prepare_buildroot() {
     # Binaires
     mkdir -p "$buildroot/usr/bin"
     for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize transcribe-stream-diarize transcribe-diarize-batch diarize-only; do
-        cp "target/release/$bin" "$buildroot/usr/bin/"
+        cp "$REL_DIR/$bin" "$buildroot/usr/bin/"
     done
     cp "$PKG_DIR/usr/bin/dictee" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-setup" "$buildroot/usr/bin/"
@@ -192,7 +192,7 @@ build_rpm_cuda() {
     echo "Recompilation CUDA (forcée)..."
     # CRITICAL: --no-default-features disables ort-defaults (static linking)
     # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
-    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
+    "$CARGO" build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -200,6 +200,9 @@ build_rpm_cuda() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only
+
+    # Refuse binaries that would not start on Debian 12 (issue #32).
+    dict_check_built_bins
     # Hard guard: if the CUDA provider lib isn't there after the
     # build, abort rather than silently shipping CPU binaries.
     if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
@@ -505,7 +508,7 @@ build_rpm_cpu() {
     echo "=== [RPM CPU] Building dictee-cpu ==="
 
     # Recompiler en CPU
-    cargo build --release --features "sortformer" \
+    "$CARGO" build --release --features "sortformer" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -513,6 +516,9 @@ build_rpm_cpu() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only
+
+    # Refuse binaries that would not start on Debian 12 (issue #32).
+    dict_check_built_bins
 
     local buildroot="$RPMBUILD_DIR/BUILDROOT/dictee-cpu-$VERSION-1.x86_64"
     prepare_buildroot "$buildroot"

@@ -26,7 +26,8 @@ echo "  Building dictee $VERSION"
 echo "========================================"
 echo ""
 echo "Build dependencies:"
-echo "  sudo apt install golang-go scdoc libxkbcommon-dev"
+echo "  sudo apt install golang-go scdoc libxkbcommon-dev podman"
+echo "  (podman: Rust binaries are linked in a Debian 12 container, issue #32)"
 echo ""
 
 # Wrappers Python / shell, configs, locales, VERSION, assets.
@@ -97,7 +98,7 @@ build_cuda() {
 
     # CRITICAL: --no-default-features disables ort-defaults (static linking)
     # load-dynamic enables runtime loading of libonnxruntime.so for CUDA
-    cargo build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
+    "$CARGO" build --release --no-default-features --features "cuda,sortformer,load-dynamic" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -105,6 +106,9 @@ build_cuda() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only
+
+    # Refuse binaries that would not start on Debian 12 (issue #32).
+    dict_check_built_bins
 
     # Update control file for CUDA
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -132,13 +136,13 @@ Description: Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
 EOF
 
     # Copy binaries
-    cp target/release/transcribe "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-daemon "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-client "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
-    cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-daemon "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-client "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-diarize "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/diarize-only "$PKG_DIR/usr/bin/"
 
     # ONNX Runtime CUDA libs (load-dynamic: libonnxruntime.so not in target/release)
     echo "=== Copying CUDA ONNX Runtime libs ==="
@@ -233,7 +237,7 @@ build_cpu() {
     rm -rf "$PKG_DIR"
     cp -a pkg/dictee "$PKG_DIR"
 
-    cargo build --release --features "sortformer" \
+    "$CARGO" build --release --features "sortformer" \
         --bin transcribe \
         --bin transcribe-daemon \
         --bin transcribe-client \
@@ -241,6 +245,9 @@ build_cpu() {
         --bin transcribe-stream-diarize \
         --bin transcribe-diarize-batch \
         --bin diarize-only
+
+    # Refuse binaries that would not start on Debian 12 (issue #32).
+    dict_check_built_bins
 
     # Update control file for CPU
     cat > "$PKG_DIR/DEBIAN/control" << 'EOF'
@@ -267,13 +274,13 @@ Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
 EOF
 
     # Copy binaries
-    cp target/release/transcribe "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-daemon "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-client "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-diarize "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
-    cp target/release/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
-    cp target/release/diarize-only "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-daemon "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-client "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-diarize "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-stream-diarize "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/transcribe-diarize-batch "$PKG_DIR/usr/bin/"
+    cp "$REL_DIR"/diarize-only "$PKG_DIR/usr/bin/"
 
     chmod 755 "$PKG_DIR/usr/bin/"*
 
@@ -357,9 +364,10 @@ EOF
 
 # Build all Debian variants
 # Order matters: CPU first, CUDA last → cargo build for CUDA finishes the
-# pass, so target/release/ ends with CUDA-build binaries. That way the dev
-# host symlinks /usr/bin/transcribe-{daemon,…} → target/release/* keep
-# working in GPU mode after the script returns.
+# pass, so $REL_DIR ends with CUDA-build binaries. Note: since the
+# portable build (issue #32) that dir is target/glibc236/release/, so dev
+# host symlinks /usr/bin/transcribe-{daemon,…} → target/release/* are no
+# longer refreshed by this script.
 build_cpu
 build_cuda
 build_plasmoid_deb

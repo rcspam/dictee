@@ -73,7 +73,7 @@ fi
 #    build-rpm.sh:185 for why we don't trust target/release/ contents.
 echo ""
 echo "=== [TAR.GZ] Cargo build CUDA (forced) ==="
-cargo build --release --no-default-features \
+"$CARGO" build --release --no-default-features \
     --features "cuda,sortformer,load-dynamic" \
     --bin transcribe \
     --bin transcribe-daemon \
@@ -82,6 +82,9 @@ cargo build --release --no-default-features \
     --bin transcribe-stream-diarize \
     --bin transcribe-diarize-batch \
     --bin diarize-only
+
+# Refuse binaries that would not start on Debian 12 (issue #32).
+dict_check_built_bins
 
 # Hard guard: only the load-dynamic CUDA build emits this provider lib.
 # Without it the binaries would silently fall back to CPU at runtime.
@@ -152,7 +155,7 @@ done
 for bin in transcribe transcribe-daemon transcribe-client \
            transcribe-diarize transcribe-stream-diarize \
            transcribe-diarize-batch diarize-only; do
-    cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"
+    cp "$REL_DIR/$bin" "$TARBALL_DIR/usr/bin/"
 done
 
 # Wrappers + scripts (from $PKG_DIR populated by dict_prepare_pkg_dir)

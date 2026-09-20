@@ -1,0 +1,21 @@
+# Build image for the release binaries (issue #32).
+#
+# Debian 12 ships glibc 2.36, the oldest libc we support. Linking there
+# guarantees the binaries load on Debian 12+, Ubuntu 24.04+, Fedora 39+.
+# Built on the maintainer's host (Ubuntu 24.04, glibc 2.39) the very same
+# sources import GLIBC_2.39 symbols and fail to start on Debian 12.
+#
+# Built once by packaging/cargo-glibc236.sh, never pushed anywhere.
+FROM docker.io/library/debian:12
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates curl git pkg-config libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN curl -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile minimal --default-toolchain stable --no-modify-path

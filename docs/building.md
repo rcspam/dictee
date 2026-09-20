@@ -9,6 +9,9 @@
 - **Rust** (edition 2021)
 - **ffmpeg** (pour la conversion des formats audio)
 - **Go** + **scdoc** + **libxkbcommon-dev** (pour dotool)
+- **podman** (ou docker) pour les paquets : les binaires Rust des paquets
+  sont compilés dans un conteneur Debian 12 (glibc 2.36) afin de démarrer
+  sur toute distribution supportée (issue #32)
 
 ## Build
 
@@ -22,6 +25,14 @@ cargo build --release --features "cuda,sortformer"
 # Paquets Debian (CPU + CUDA)
 ./build-deb.sh
 ```
+
+`build-deb.sh`, `build-rpm.sh` et `build-tar.sh` n'appellent pas `cargo`
+directement mais `packaging/cargo-glibc236.sh`, qui construit une fois
+l'image `dictee-build-glibc236` puis compile dans `target/glibc236/`.
+Compilés sur l'hôte (Ubuntu 24.04, glibc 2.39), les mêmes binaires
+importent `GLIBC_2.39` et refusent de se lancer sur Debian 12. Le
+`PKGBUILD` Arch n'est pas concerné : il compile sur la machine de
+l'utilisateur.
 
 ## Features Cargo
 
