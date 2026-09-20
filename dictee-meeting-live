@@ -108,6 +108,39 @@ class StopButton(QPushButton):
 # Helpers
 # ---------------------------------------------------------------------------
 
+# The live pipeline drives `transcribe-client <chunk> --json-timestamps` and
+# `diarize-only --stream`. Both flags document themselves in --help, and a
+# build without them prints neither, so --help is the capability probe. On
+# release/1.3 the Rust side does not have them yet: the window must say so
+# instead of spawning workers that die on an unknown flag.
+LIVE_ENGINE_CHECKS = (
+    ("transcribe-client", "json-timestamps"),
+    ("diarize-only", "--stream"),
+)
+
+
+def missing_live_engine_features():
+    """Engine features this window needs and this install lacks, as labels.
+
+    Empty list when everything is there. Each label names the binary and
+    either the flag it does not document or why it could not be asked.
+    """
+    missing = []
+    for binary, marker in LIVE_ENGINE_CHECKS:
+        if shutil.which(binary) is None:
+            missing.append(_("{bin} (not installed)").format(bin=binary))
+            continue
+        try:
+            proc = subprocess.run([binary, "--help"], capture_output=True,
+                                  text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            missing.append(_("{bin} (cannot run --help)").format(bin=binary))
+            continue
+        if marker not in proc.stdout + proc.stderr:
+            missing.append(f"{binary} {marker}")
+    return missing
+
+
 def _acquire_singleton_lock():
     """Ensure a single meeting window per user via an flock'd lock file.
 
@@ -2536,6 +2569,15 @@ class MeetingWindow(QWidget):
         # Re-entrancy guard: never start a second capture over a live one
         # (would orphan the previous worker/chunker/diarizer/executor).
         if self._state in ("recording", "paused") or self.audio_worker:
+            return
+        # This branch ships the window ahead of its engine: refuse with the
+        # reason rather than letting the workers fail on an unknown flag.
+        missing = missing_live_engine_features()
+        if missing:
+            msg = _("Live meeting engine not available in this version: {what}").format(
+                what=", ".join(missing))
+            self.status_label.setText(msg)
+            QMessageBox.critical(self, _("Live meeting"), msg)
             return
         # Guard rail: an "app:" source needs the dictee-app-capture helper.
         # If it's missing (not installed / not in PATH), refuse to start with a

@@ -110,4 +110,57 @@ check("start button enabled at rest", win.btn_start.isEnabled(), True)
 check("stop button disabled at rest", win.btn_stop.isEnabled(), False)
 check("title is prefilled", bool(win._title_edit.text().strip()), True)
 
+# --- 2. engine capability gate -----------------------------------------------
+
+def fake_bin_dir(with_markers):
+    """A PATH entry holding transcribe-client and diarize-only stand-ins whose
+    --help either documents the streaming flags (master build) or not (1.3)."""
+    d = tempfile.mkdtemp(prefix="dictee-fake-engines-")
+    help_client = "transcribe-client <file> --json-timestamps  JSON output" if with_markers \
+        else "transcribe-client <file>  plain output"
+    help_diar = "diarize-only --stream [OPTIONS]" if with_markers \
+        else "diarize-only <file> [OPTIONS]"
+    for name, text in (("transcribe-client", help_client), ("diarize-only", help_diar)):
+        p = os.path.join(d, name)
+        with open(p, "w") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' \"" + text + "\" >&2\nexit 1\n")
+        os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
+    return d
+
+
+class _Msg:
+    """Stand-in for QMessageBox: records instead of blocking on a dialog."""
+    calls = []
+
+    @staticmethod
+    def critical(*a, **k):
+        _Msg.calls.append(a)
+
+
+saved_path = os.environ["PATH"]
+saved_box = mod.QMessageBox
+mod.QMessageBox = _Msg
+
+os.environ["PATH"] = fake_bin_dir(with_markers=False)
+missing = mod.missing_live_engine_features()
+check("1.3 engines: both features reported missing", len(missing), 2)
+
+win.start_meeting()
+check("start refused: state still idle", win._state, "idle")
+check("start refused: no capture worker spawned", win.audio_worker, None)
+check("start refused: one error box", len(_Msg.calls), 1)
+check("start refused: status names the missing engine",
+      "not available" in win.status_label.text(), True)
+check("start refused: sandbox state untouched", mod.STATE_FILE.read_text(), "meeting-ui-open\n")
+
+os.environ["PATH"] = fake_bin_dir(with_markers=True)
+check("master engines: nothing missing", mod.missing_live_engine_features(), [])
+
+os.environ["PATH"] = tempfile.mkdtemp(prefix="dictee-no-engines-")
+check("no engines at all: both reported as not installed",
+      all("not installed" in m for m in mod.missing_live_engine_features()), True)
+
+os.environ["PATH"] = saved_path
+mod.QMessageBox = saved_box
+
 finish()
