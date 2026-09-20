@@ -47,6 +47,7 @@ _asr_model_env = _load_func("_asr_model_env")
 _build_arg_parser = _load_func("_build_arg_parser", {"argparse": argparse})
 _load_speakers_json = _load_func("_load_speakers_json", {"os": os, "json": json, "_dbg": lambda *a: None})
 _match_anchors = _load_func("_match_anchors_to_batch_speakers")
+list_past_meetings = _load_func("list_past_meetings", {"os": os, "json": json})
 
 
 class AsrModelEnvTests(unittest.TestCase):
@@ -147,6 +148,59 @@ class MatchAnchorsTests(unittest.TestCase):
 
     def test_empty_segments(self):
         self.assertEqual(_match_anchors({"0": "Alice"}, {"0": [{"start": 0, "end": 1}]}, []), {})
+
+
+class ListPastMeetingsTests(unittest.TestCase):
+
+    def _mk(self, base, name, title=None, audio=True):
+        d = os.path.join(base, name)
+        os.makedirs(d)
+        if audio:
+            open(os.path.join(d, "audio.wav"), "wb").close()
+        if title is not None:
+            with open(os.path.join(d, "meeting.meta.json"), "w", encoding="utf-8") as f:
+                json.dump({"title": title}, f)
+        return os.path.join(d, "audio.wav")
+
+    def test_recent_first_with_titles(self):
+        with tempfile.TemporaryDirectory() as base:
+            a = self._mk(base, "2026-09-01_10-00", "Kickoff")
+            b = self._mk(base, "2026-09-20_15-44", "Weekly")
+            self.assertEqual(list_past_meetings(base),
+                             [("2026-09-20_15-44: Weekly", b), ("2026-09-01_10-00: Kickoff", a)])
+
+    def test_missing_meta_uses_folder_name(self):
+        with tempfile.TemporaryDirectory() as base:
+            a = self._mk(base, "2026-09-01_10-00")
+            self.assertEqual(list_past_meetings(base), [("2026-09-01_10-00", a)])
+
+    def test_folder_without_audio_is_skipped(self):
+        with tempfile.TemporaryDirectory() as base:
+            self._mk(base, "2026-09-01_10-00", "Empty", audio=False)
+            self.assertEqual(list_past_meetings(base), [])
+
+    def test_corrupt_meta_uses_folder_name(self):
+        with tempfile.TemporaryDirectory() as base:
+            a = self._mk(base, "2026-09-01_10-00")
+            with open(os.path.join(base, "2026-09-01_10-00", "meeting.meta.json"), "w") as f:
+                f.write("{")
+            self.assertEqual(list_past_meetings(base), [("2026-09-01_10-00", a)])
+
+    def test_missing_base_is_empty(self):
+        self.assertEqual(list_past_meetings("/nonexistent/dictee-meetings"), [])
+
+    def test_env_dir_is_honoured(self):
+        with tempfile.TemporaryDirectory() as base:
+            a = self._mk(base, "2026-09-01_10-00", "Kickoff")
+            old = os.environ.get("DICTEE_MEETING_DIR")
+            os.environ["DICTEE_MEETING_DIR"] = base
+            try:
+                self.assertEqual(list_past_meetings(), [("2026-09-01_10-00: Kickoff", a)])
+            finally:
+                if old is None:
+                    del os.environ["DICTEE_MEETING_DIR"]
+                else:
+                    os.environ["DICTEE_MEETING_DIR"] = old
 
 
 if __name__ == "__main__":

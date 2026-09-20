@@ -111,6 +111,70 @@ for fn in ("_finish_transcription", "_on_finished"):
     check(f"{fn}: apply sits after the reset and before the panel refresh",
           reset != -1 and reset < apply_ < refresh, True)
 
+# --- 3. History picks a meeting and loads it like a drop would ------------------
+
+_hist = tempfile.mkdtemp(prefix="dictee-history-")
+os.makedirs(os.path.join(_hist, "2026-09-20_15-44"))
+_hist_audio = os.path.join(_hist, "2026-09-20_15-44", "audio.wav")
+open(_hist_audio, "wb").close()
+with open(os.path.join(_hist, "2026-09-20_15-44", "meeting.meta.json"), "w") as f:
+    json.dump({"title": "Weekly"}, f)
+with open(os.path.join(_hist, "2026-09-20_15-44", "speakers.json"), "w") as f:
+    json.dump({"name_map": {"0": "Carol"}, "anchors": {"0": [{"start": 0.0, "end": 1.0}]}}, f)
+os.environ["DICTEE_MEETING_DIR"] = _hist
+
+h = mod.TranscribeWindow()
+check("History button exists", hasattr(h, "_btn_history"), True)
+check("no file at start: no pending speakers", h._pending_speakers_data, None)
+
+loaded = []
+h._load_audio = lambda p: loaded.append(p)
+
+
+class _Pick:
+    @staticmethod
+    def getItem(parent, title, label, items, current=0, editable=True):
+        return items[0], True
+
+
+mod.QInputDialog = _Pick
+h._on_open_history()
+check("History sets the file field", h._file_input.text(), _hist_audio)
+check("History loads the player", loaded, [_hist_audio])
+check("History picks up the meeting's speakers.json",
+      (h._pending_speakers_data or {}).get("name_map"), {"0": "Carol"})
+
+
+class _Cancel:
+    @staticmethod
+    def getItem(parent, title, label, items, current=0, editable=True):
+        return "", False
+
+
+mod.QInputDialog = _Cancel
+h._file_input.setText("")
+loaded.clear()
+h._on_open_history()
+check("cancelled dialog changes nothing", (h._file_input.text(), loaded), ("", []))
+
+shown = []
+
+
+class _Msg:
+    """Stands in for the module-level QMessageBox name (never patch the Qt
+    class itself): records the information box instead of showing it."""
+    @staticmethod
+    def information(parent, title, text, *a, **k):
+        shown.append(text)
+
+
+_real_msgbox = mod.QMessageBox
+mod.QMessageBox = _Msg
+os.environ["DICTEE_MEETING_DIR"] = tempfile.mkdtemp(prefix="dictee-history-empty-")
+h._on_open_history()
+mod.QMessageBox = _real_msgbox
+check("no meeting: one information box", len(shown), 1)
+
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")
     sys.exit(1)

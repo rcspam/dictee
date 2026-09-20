@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QComboBox, QProgressBar, QCheckBox, QSlider,
     QTextEdit, QFileDialog, QLineEdit, QWidget, QTabWidget, QGroupBox,
-    QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip,
+    QMessageBox, QToolButton, QSizePolicy, QFrame, QToolTip, QInputDialog,
 )
 from PyQt6.QtGui import QFont as _QFontTip
 
@@ -515,6 +515,36 @@ def _match_anchors_to_batch_speakers(name_map, anchors, batch_segments):
         result[best] = name_map[live_id]
         used.add(best)
     return result
+
+
+def list_past_meetings(base=None):
+    """[(label, audio_path)] of the meetings dictee-meeting-live recorded,
+    most recent first (folder names start with the date). base defaults to
+    DICTEE_MEETING_DIR, then ~/.local/share/dictee/meetings. A folder counts
+    when it holds audio.wav; the label takes the title of meeting.meta.json
+    when there is one.
+    """
+    base = base or os.environ.get(
+        "DICTEE_MEETING_DIR",
+        os.path.join(os.path.expanduser("~"), ".local/share/dictee/meetings"))
+    out = []
+    if not os.path.isdir(base):
+        return out
+    for name in sorted(os.listdir(base), reverse=True):
+        d = os.path.join(base, name)
+        audio = os.path.join(d, "audio.wav")
+        if not os.path.isfile(audio):
+            continue
+        title = None
+        meta = os.path.join(d, "meeting.meta.json")
+        if os.path.isfile(meta):
+            try:
+                with open(meta, encoding="utf-8") as f:
+                    title = json.load(f).get("title") or None
+            except Exception:
+                title = None
+        out.append((f"{name}: {title}" if title else name, audio))
+    return out
 
 
 def _postprocess(text):
@@ -2330,6 +2360,13 @@ class TranscribeWindow(QDialog):
         self._btn_browse.clicked.connect(self._on_browse)
         lay_file.addWidget(self._btn_browse)
 
+        # Past meetings recorded by dictee-meeting-live (its "Analyze another
+        # file" button opens this window empty and counts on History).
+        self._btn_history = QPushButton(_("History"))
+        self._btn_history.setToolTip(_("Open a past meeting"))
+        self._btn_history.clicked.connect(self._on_open_history)
+        lay_file.addWidget(self._btn_history)
+
         layout.addLayout(lay_file)
 
         # -- Audio player --
@@ -3173,6 +3210,28 @@ class TranscribeWindow(QDialog):
             if self._player is not None:
                 self._player.stop()
             self._load_audio(path)
+
+    def _on_open_history(self):
+        """Pick a past meeting and load it exactly like a drop does: field,
+        player stopped, audio loaded. Master shipped History without the
+        player load and had to fix it (2026-07-26). The meeting folder also
+        holds speakers.json, so the live names come back with it."""
+        items = list_past_meetings()
+        if not items:
+            QMessageBox.information(self, _("History"), _("No past meeting found."))
+            return
+        labels = [lbl for lbl, _p in items]
+        choice, ok = QInputDialog.getItem(
+            self, _("Past meetings"), _("Meeting:"), labels, 0, False)
+        if not ok or not choice:
+            return
+        path = dict(items)[choice]
+        _dbg(f"_on_open_history: {path}")
+        self._pending_speakers_data = _load_speakers_json(path)
+        self._file_input.setText(path)
+        if self._player is not None:
+            self._player.stop()
+        self._load_audio(path)
 
     # -- Drag & drop audio file onto the window --
 
