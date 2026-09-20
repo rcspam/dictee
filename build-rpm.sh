@@ -75,6 +75,7 @@ prepare_buildroot() {
     cp "$PKG_DIR/usr/bin/transcribe-daemon-whisper" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-test-rules" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-transcribe" "$buildroot/usr/bin/"
+    cp "$PKG_DIR/usr/bin/dictee-meeting-live" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-cheatsheet" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-reset" "$buildroot/usr/bin/"
     cp "$PKG_DIR/usr/bin/dictee-translate-langs" "$buildroot/usr/bin/"
@@ -101,6 +102,7 @@ prepare_buildroot() {
         "$buildroot/usr/bin/transcribe-daemon-vosk" \
         "$buildroot/usr/bin/transcribe-daemon-whisper" \
         "$buildroot/usr/bin/dictee-transcribe" \
+        "$buildroot/usr/bin/dictee-meeting-live" \
         "$buildroot/usr/bin/dictee-audio-sources" \
         "$buildroot/usr/bin/dictee-plasmoid-level" \
         "$buildroot/usr/bin/dictee-plasmoid-level-daemon" \

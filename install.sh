@@ -811,7 +811,7 @@ EOF
         dictee-transcribe transcribe-daemon-vosk transcribe-daemon-whisper
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
-        dictee-translate-langs dictee-audio-sources
+        dictee-translate-langs dictee-audio-sources dictee-meeting-live
     )
     for b in "${bins[@]}"; do
         [[ -f "$SCRIPT_DIR/usr/bin/$b" ]] && install -Dm755 "$SCRIPT_DIR/usr/bin/$b" "$PREFIX/bin/$b"

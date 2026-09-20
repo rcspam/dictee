@@ -113,5 +113,26 @@ class TestPlasmoid(unittest.TestCase):
         self.assertIn('msgstr "Réunion en direct"', fr)
 
 
+class TestPackaging(unittest.TestCase):
+    """One line per target, and the shebang list too: the Python scripts are
+    shipped without their .py suffix and get their interpreter patched."""
+
+    def test_every_target_ships_the_window(self):
+        expectations = {
+            "build-common.sh": ['cp ./dictee-meeting-live     "$PKG_DIR/usr/bin/dictee-meeting-live"',
+                                '"$PKG_DIR/usr/bin/dictee-meeting-live" \\'],
+            "build-rpm.sh": ['cp "$PKG_DIR/usr/bin/dictee-meeting-live" "$buildroot/usr/bin/"',
+                             '"$buildroot/usr/bin/dictee-meeting-live" \\'],
+            "build-tar.sh": ["dictee-transcribe dictee-meeting-live dictee-cheatsheet"],
+            "PKGBUILD": ['install -Dm755 dictee-meeting-live "$pkgdir/usr/bin/dictee-meeting-live"'],
+            "PKGBUILD-cuda": ['install -Dm755 dictee-meeting-live "$pkgdir/usr/bin/dictee-meeting-live"'],
+            "install.sh": ["dictee-audio-sources dictee-meeting-live"],
+        }
+        for path, needles in expectations.items():
+            src = read(path)
+            for needle in needles:
+                self.assertIn(needle, src, f"{path} does not ship dictee-meeting-live: {needle!r}")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
