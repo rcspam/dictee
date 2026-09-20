@@ -462,6 +462,22 @@ msgstr "Vitesse de rebond (ms) :"
 msgid "Waveform settings"
 msgstr "Paramètres de la forme d'onde"
 
+#: contents/ui/FullRepresentation.qml
+msgid "Live meeting"
+msgstr "Réunion en direct"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Meeting window is open"
+msgstr "Fenêtre de réunion ouverte"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Meeting recording in progress"
+msgstr "Enregistrement de la réunion en cours"
+
+#: contents/ui/FullRepresentation.qml
+msgid "Open live meeting capture (record, then send to diarization)"
+msgstr "Ouvrir la capture de réunion en direct (enregistrer, puis envoyer à la diarisation)"
+
 #~ msgid "Start diarization"
 #~ msgstr "Démarrer la diarisation"
 

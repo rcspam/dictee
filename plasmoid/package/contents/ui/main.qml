@@ -19,7 +19,7 @@ PlasmoidItem {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
     Kirigami.Theme.inherit: false
 
-    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing"
+    // State: "offline", "idle", "recording", "transcribing", "switching", "preparing", "diarize-ready", "diarizing", "meeting-ui-open", "meeting-recording"
     property string state: "offline"
 
     property bool dicteeInstalled: true
@@ -114,7 +114,7 @@ PlasmoidItem {
                     root.dicteeInstalled = true
                     root.dicteeConfigured = true
                     // Polling lent : offline/idle — jamais pendant recording/transcribing
-                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing") {
+                    if (stdout === "offline" && root.state !== "recording" && root.state !== "transcribing" && root.state !== "switching" && root.state !== "preparing" && root.state !== "diarize-ready" && root.state !== "diarizing" && root.state !== "meeting-ui-open" && root.state !== "meeting-recording") {
                         console.log("[dictee-plasmoid] daemonCheck: OFFLINE (root.state=" + root.state + ")")
                         root.state = "offline"
                     } else if (stdout !== "offline" && root.state === "offline") {
@@ -689,6 +689,9 @@ PlasmoidItem {
         }
         case "cheatsheet":
             executable.run("dictee-cheatsheet --toggle")
+            break
+        case "meeting-live":
+            executable.run("dictee-meeting-live")
             break
         case "transcribe-file":
             executable.run("env QT_QPA_PLATFORMTHEME=kde dictee-transcribe")

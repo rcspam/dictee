@@ -534,3 +534,19 @@ msgstr ""
 #: package/contents/ui/main.qml:75
 msgid "Switching backend…"
 msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Live meeting"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Meeting window is open"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Meeting recording in progress"
+msgstr ""
+
+#: contents/ui/FullRepresentation.qml
+msgid "Open live meeting capture (record, then send to diarization)"
+msgstr ""

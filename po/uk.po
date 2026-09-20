@@ -4428,6 +4428,425 @@ msgid ""
 "that away: dictee receives the key before your desktop does."
 msgstr "Комп'ютер використовує цю клавішу для {what}. Якщо вибрати її для диктування, ця функція зникне: dictee отримує клавішу раніше за стільницю."
 
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{bin} (not installed)"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{bin} (cannot run --help)"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "audio source setup failed: {err}"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "pw-record exit {rc}: {err}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "pw-record not found. Is PipeWire installed?"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Cannot capture « {name} »: dictee-app-capture component not found"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Cannot capture « {name} »: the application capture did not start"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "ffmpeg extract failed (chunk {n})"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "transcribe-daemon socket missing ({sock})"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "transcribe-client exit {rc}: {err}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "transcribe-client timeout (>20 s)"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "JSON parse error: {err}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Whisper live daemon not ready yet (model loading)"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Whisper live: {err}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Nemotron live daemon not ready yet (model loading)"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Nemotron live: {err}"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{bin} binary not found. Diarization feature built?"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{what} stderr EOF before ready"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{what} startup timeout (30s)"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "DiarizationWorker not started"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{bin} exited with code {rc}"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{bin} stdin pipe broken"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "{bin} stdout EOF unexpected"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "malformed segment line: {line}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Sound test"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Record a short test, then play it back."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "● Record"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Captures with the meeting's source and levels"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "▶ Play back"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Normalising…"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "■ Stop"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Test in progress, {s} s"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Capture failed: {msg}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "■ Stop playback"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Playing the test…"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "paplay not found."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Ready, play the test back or record another."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Live meeting, capture"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Resume"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Ready to record"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Recording"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Recording paused"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Recording stopped"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Title:"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Meeting title (optional)"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Source:"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "ASR model for this meeting. Whisper sizes follow the choice made in dictee-setup."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Diarization:"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Auto"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Multi-speaker (no limit)"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Sortformer (4 max)"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "MOSS (final analysis only)"
+msgstr ""
+
+#: dictee-meeting-live
+msgid ""
+"Speaker separation engine.\n"
+"Auto = multi-speaker if installed, otherwise Sortformer.\n"
+"MOSS transcribes and identifies speakers in one pass, with its own ASR engine: it only serves the final analysis at Stop (no streaming mode, so the live preview keeps the engine above and the chosen model is ignored)."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Speaker detection threshold (applied when the meeting starts). ← more speakers detected · more speakers merged →. 50 % = default; go up to 75 % if one person is split into several speakers."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Add the microphone"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Start the analysis"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Test the sound…"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Record a short test with the current settings and play it back, before starting the real meeting."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Analyze another file…"
+msgstr ""
+
+#: dictee-meeting-live
+msgid ""
+"Open dictee-transcribe WITHOUT the current meeting, to analyze or re-transcribe a past file (History button).\n"
+"To analyze THIS meeting: the 🔎 button after stopping."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Levels"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Live preview"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Chunk {n}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Context"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Detected speakers"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "🎙 Mic + system audio mix"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Model (preview):"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "ASR model of the LIVE PREVIEW only: MOSS transcribes the final file with its own engine."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "All desktops option not yet supported on Wayland, window will only show on current desktop."
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Live meeting engine not available in this version: {what}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Application capture unavailable"
+msgstr ""
+
+#: dictee-meeting-live
+msgid ""
+"The « dictee-app-capture » component is not on this system.\n"
+"\n"
+"Recording did not start, to avoid capturing the microphone instead of the application. Reinstall dictee, or pick another audio source (microphone, system audio…)."
+msgstr ""
+
+#: dictee-meeting-live
+msgid "No Whisper-Rust model installed (see dictee-setup), live falls back to Parakeet"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "transcribe-daemon-whisper-rust not found, live falls back to Parakeet"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "transcribe-daemon-whisper not found, live falls back to Parakeet"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "transcribe-daemon not found, live falls back to Parakeet"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "transcribe-daemon-kyutai not found, live falls back to Parakeet"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Failed to start {what}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "diarization"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "⏳ Loading model: {what}…"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Recording, models ready"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "⚙ Chunk {n}: transcription + diarization…"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "✓ Chunk {n} added to the preview"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Speaker {n}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "(name this speaker…)"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "⚠ Chunk {n}: {msg}"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Finalising the last segment…"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Recording too short ({s}s)"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Meeting being recorded"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Opening the analysis…"
+msgstr ""
+
+#: dictee-meeting-live
+msgid "Error: dictee-transcribe not found"
+msgstr ""
+
+#: dictee-meeting-live
+#, python-brace-format
+msgid "Error: {msg}"
+msgstr ""
+
+#: dictee-tray.py
+msgid "Open the live meeting window (capture, then diarization)"
+msgstr ""
+
+#: dictee-tray.py
+msgid "Live meeting window open"
+msgstr ""
+
+#: dictee-tray.py
+msgid "Live meeting recording…"
+msgstr ""
+
 #~ msgid ""
 #~ "Quick install\n"
 #~ "(no translation)"
@@ -4578,8 +4997,9 @@ msgstr "Комп'ютер використовує цю клавішу для {w
 #~ msgid "Generate"
 #~ msgstr "Згенерувати"
 
-#~ msgid "Close"
-#~ msgstr "Закрити"
+#: dictee-meeting-live
+msgid "Close"
+msgstr "Закрити"
 
 #, python-brace-format
 #~ msgid "Couldn't auto-load models ({err}). Click Refresh."
@@ -5576,7 +5996,6 @@ msgstr "Комп'ютер використовує цю клавішу для {w
 #~ msgid "click to stop"
 #~ msgstr "натисніть для зупинки"
 
-
 #~ #: dictee-setup.py:16188
 #~ #, python-brace-format
 #~ msgid ""
@@ -5586,7 +6005,6 @@ msgstr "Комп'ютер використовує цю клавішу для {w
 #~ "Ця клавіша використовується для введення. Віддайте перевагу функціональній "
 #~ "клавіші (F1-F24), клавіші {key41} (верхній лівий кут) або спеціальній "
 #~ "клавіші (Home, End, Insert тощо)."
-
 
 #: dictee-setup.py:2980
 msgid "animation-speech {version} is already the latest release."

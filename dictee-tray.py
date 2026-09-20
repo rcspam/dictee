@@ -313,6 +313,9 @@ ICON_MAP = {
     "preparing": "parakeet-diarize",
     "diarize-ready": "parakeet-diarize",
     "switching": "parakeet-active-dark" if _DARK else "parakeet-active",
+    # Live meeting window (dictee-meeting-live): open, then capturing.
+    "meeting-ui-open": "parakeet-active-dark" if _DARK else "parakeet-active",
+    "meeting-recording": "parakeet-recording",
 }
 
 
@@ -592,6 +595,17 @@ class DicteeTrayAppIndicator:
         self.item_diarize_lock_gtk.connect("toggled", self._on_diarize_lock_toggled_gtk)
         self.menu.append(self.item_diarize_lock_gtk)
 
+        # Live meeting window (dictee-meeting-live). Distinct from the
+        # "Meeting" toggle above, which is the diarized F9 recording.
+        self.item_meeting_live_gtk = Gtk.MenuItem(label=_("Live meeting"))
+        self.item_meeting_live_gtk.set_tooltip_text(
+            _("Open the live meeting window (capture, then diarization)"))
+        self.item_meeting_live_gtk.connect(
+            "activate", lambda _w: subprocess.Popen(["dictee-meeting-live"]))
+        self.item_meeting_live_gtk.set_sensitive(
+            read_state() not in ("meeting-ui-open", "meeting-recording"))
+        self.menu.append(self.item_meeting_live_gtk)
+
         # LLM post-processing toggle (above Audio context)
         self.item_llm_gtk = Gtk.CheckMenuItem(label=_("LLM post-processing"))
         self.item_llm_gtk.set_active(
@@ -758,7 +772,9 @@ class DicteeTrayAppIndicator:
                       "transcribing": _("Transcribing…"),
                       "diarizing": _("Diarization in progress…"),
                       "preparing": _("Preparing diarization…"),
-                      "diarize-ready": _("Ready for diarization")}
+                      "diarize-ready": _("Ready for diarization"),
+                      "meeting-ui-open": _("Live meeting window open"),
+                      "meeting-recording": _("Live meeting recording…")}
             self.item_daemon.set_label(f"■ {labels.get(self.state, _('Daemon active'))}")
 
         # Menu dictée / traduction
@@ -768,7 +784,8 @@ class DicteeTrayAppIndicator:
         # merely armed (diarize-ready) or switching backend (preparing), the
         # action still STARTS the recording → it must read "Start dictation"
         # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
-        _recording = self.state in ("recording", "transcribing", "diarizing")
+        _recording = self.state in ("recording", "transcribing", "diarizing",
+                                    "meeting-recording")
         self.item_dictee.set_label(
             _("Stop translation") if (_recording and is_translating)
             else _("Stop dictation") if _recording
@@ -782,6 +799,8 @@ class DicteeTrayAppIndicator:
         self.item_diarize_gtk.set_sensitive(_sortformer_available() and not is_busy)
         self.item_diarize_lock_gtk.set_sensitive(
             _sortformer_available() and not is_busy and self.item_diarize_gtk.get_active())
+        self.item_meeting_live_gtk.set_sensitive(
+            self.state not in ("meeting-ui-open", "meeting-recording"))
         if not _sortformer_available():
             self.item_diarize_gtk.set_tooltip_text(
                 _("Sortformer model not installed. Configure in dictee-setup."))
@@ -1012,6 +1031,14 @@ class DicteeTrayQt:
             _("When unchecked, meeting mode is disabled after each recording."))
         self.action_diarize_lock_qt.toggled.connect(self._on_diarize_lock_toggled_qt)
 
+        # Live meeting window (dictee-meeting-live). Distinct from the
+        # "Meeting" toggle above, which is the diarized F9 recording.
+        self.action_meeting_live_qt = self.menu.addAction(_("Live meeting"))
+        self.action_meeting_live_qt.setToolTip(
+            _("Open the live meeting window (capture, then diarization)"))
+        self.action_meeting_live_qt.setEnabled(
+            read_state() not in ("meeting-ui-open", "meeting-recording"))
+
         # LLM post-processing toggle (above Audio context)
         self.action_llm_qt = self.menu.addAction(_("LLM post-processing"))
         self.action_llm_qt.setCheckable(True)
@@ -1082,6 +1109,8 @@ class DicteeTrayQt:
                 self.QTimer.singleShot(1000, self._delayed_refresh)
         elif action == self.action_transcribe:
             subprocess.Popen(["dictee-transcribe"])
+        elif action == self.action_meeting_live_qt:
+            subprocess.Popen(["dictee-meeting-live"])
         elif action == self.action_cheatsheet:
             subprocess.Popen(["dictee-cheatsheet", "--toggle"])
         elif action == self.action_setup:
@@ -1224,6 +1253,8 @@ class DicteeTrayQt:
             "diarize-ready": _("Ready for diarization"),
             "recording": _("Dictation — recording") + "\n" + _("Click = stop, Middle = cancel"),
             "transcribing": _("Dictation — transcribing"),
+            "meeting-ui-open": _("Live meeting window open"),
+            "meeting-recording": _("Live meeting recording…"),
         }
         self.tray.setToolTip(tooltips.get(self.state, _("Dictation")))
 
@@ -1241,7 +1272,9 @@ class DicteeTrayQt:
                       "transcribing": _("Transcribing…"),
                       "diarizing": _("Diarization in progress…"),
                       "preparing": _("Preparing diarization…"),
-                      "diarize-ready": _("Ready for diarization")}
+                      "diarize-ready": _("Ready for diarization"),
+                      "meeting-ui-open": _("Live meeting window open"),
+                      "meeting-recording": _("Live meeting recording…")}
             self.action_daemon.setText(
                 f"{labels.get(self.state, '  ' + _('Daemon active'))}{pad}■")
             violet_states = ("diarizing", "preparing", "diarize-ready")
@@ -1255,7 +1288,8 @@ class DicteeTrayQt:
         # merely armed (diarize-ready) or switching backend (preparing), the
         # action still STARTS the recording → it must read "Start dictation"
         # (mirrors the plasmoid: diarize-ready → Start, recording → Stop).
-        _recording = self.state in ("recording", "transcribing", "diarizing")
+        _recording = self.state in ("recording", "transcribing", "diarizing",
+                                    "meeting-recording")
         self.action_dictee.setText(
             _("Stop translation") if (_recording and is_translating)
             else _("Stop dictation") if _recording
@@ -1270,6 +1304,8 @@ class DicteeTrayQt:
         self.action_diarize_qt.setEnabled(_sortformer_available() and not is_busy)
         self.action_diarize_lock_qt.setEnabled(
             _sortformer_available() and not is_busy and self.action_diarize_qt.isChecked())
+        self.action_meeting_live_qt.setEnabled(
+            self.state not in ("meeting-ui-open", "meeting-recording"))
         if not _sortformer_available():
             self.action_diarize_qt.setToolTip(
                 _("Sortformer model not installed. Configure in dictee-setup."))

@@ -527,6 +527,50 @@ RowLayout {
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.delay: 500
         }
+
+        // Live meeting window (dictee-meeting-live). Sits next to the diarize
+        // toggle above, which stays: that one is the diarized F9 recording.
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 0
+            implicitHeight: btnMeetingLive.implicitHeight
+
+            ThemedButton {
+                id: btnMeetingLive
+                anchors.fill: parent
+                text: i18n("Live meeting")
+                icon.name: "meeting-attending"
+                enabled: fullRep.state !== "meeting-ui-open" && fullRep.state !== "meeting-recording"
+                onClicked: fullRep.actionRequested("meeting-live")
+                leftPadding: meetingDot.visible ? 20 : undefined
+                tooltipText: fullRep.state === "meeting-ui-open"
+                    ? i18n("Meeting window is open")
+                    : fullRep.state === "meeting-recording"
+                    ? i18n("Meeting recording in progress")
+                    : i18n("Open live meeting capture (record, then send to diarization)")
+            }
+
+            Rectangle {
+                id: meetingDot
+                property bool active: fullRep.state === "meeting-recording"
+                visible: active
+                width: 10; height: 10; radius: 5
+                color: "#ff0000"
+                z: 100
+                anchors.verticalCenter: parent.verticalCenter
+                x: 6
+                onActiveChanged: {
+                    if (active) { meetingDotAnim.start() }
+                    else { meetingDotAnim.stop(); opacity = 1.0 }
+                }
+            }
+            SequentialAnimation {
+                id: meetingDotAnim
+                loops: Animation.Infinite
+                NumberAnimation { target: meetingDot; property: "opacity"; to: 0.2; duration: 600; easing.type: Easing.InOutSine }
+                NumberAnimation { target: meetingDot; property: "opacity"; to: 1.0; duration: 600; easing.type: Easing.InOutSine }
+            }
+        }
     }
 
 

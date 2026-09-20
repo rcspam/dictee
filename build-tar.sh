@@ -161,7 +161,7 @@ done
 # Wrappers + scripts (from $PKG_DIR populated by dict_prepare_pkg_dir)
 for f in dictee dictee-setup dictee-tray dictee-ptt dictee-postprocess \
          dictee-diarize-llm dictee-switch-backend dictee-test-rules \
-         dictee-transcribe dictee-cheatsheet dictee-reset \
+         dictee-transcribe dictee-meeting-live dictee-cheatsheet dictee-reset \
          dictee-translate-langs dictee-audio-sources \
          dictee-plasmoid-level dictee-plasmoid-level-daemon \
          dictee-plasmoid-level-fft; do

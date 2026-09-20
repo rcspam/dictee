@@ -108,6 +108,17 @@ def _transcribe_client_running():
         return False
 
 
+def keys_pass_through(state):
+    """True while the live meeting window owns the keyboard.
+
+    dictee-meeting-live writes "meeting-ui-open" when it shows and
+    "meeting-recording" while it captures. In both cases every key must
+    reach the applications untouched, the dictation key included: starting a
+    dictation on top of a meeting capture is never what the user meant.
+    """
+    return state in ("meeting-recording", "meeting-ui-open")
+
+
 def read_state_with_cleanup():
     """Read state file, with stale-state self-healing.
 
@@ -908,6 +919,12 @@ def run_evdev(ptt):
 
                         if event.type != EV_KEY:
                             # Ré-émettre les événements non-clavier (SYN, MSC, etc.)
+                            ui.write_event(event)
+                            continue
+
+                        # Live meeting window open or recording: forward every
+                        # key, the dictation key included, and consume nothing.
+                        if keys_pass_through(read_state()):
                             ui.write_event(event)
                             continue
 

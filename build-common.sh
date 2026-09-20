@@ -96,6 +96,7 @@ dict_prepare_pkg_dir() {
     cp ./dictee-switch-backend   "$PKG_DIR/usr/bin/dictee-switch-backend"
     cp ./dictee-test-rules       "$PKG_DIR/usr/bin/dictee-test-rules"
     cp ./dictee-transcribe.py    "$PKG_DIR/usr/bin/dictee-transcribe"
+    cp ./dictee-meeting-live     "$PKG_DIR/usr/bin/dictee-meeting-live"
     cp ./dictee-reset            "$PKG_DIR/usr/bin/dictee-reset"
     cp ./dictee-translate-langs  "$PKG_DIR/usr/bin/dictee-translate-langs"
     cp ./dictee-audio-sources    "$PKG_DIR/usr/bin/dictee-audio-sources"
@@ -118,6 +119,7 @@ dict_prepare_pkg_dir() {
         "$PKG_DIR/usr/bin/dictee-switch-backend" \
         "$PKG_DIR/usr/bin/dictee-test-rules" \
         "$PKG_DIR/usr/bin/dictee-transcribe" \
+        "$PKG_DIR/usr/bin/dictee-meeting-live" \
         "$PKG_DIR/usr/bin/dictee-reset" \
         "$PKG_DIR/usr/bin/dictee-translate-langs" \
         "$PKG_DIR/usr/bin/dictee-audio-sources" \
