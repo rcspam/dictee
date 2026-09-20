@@ -118,6 +118,19 @@ jobs:
       env:
         QT_QPA_PLATFORM: offscreen
 
+    # The live meeting window and everything that points at it. Offscreen,
+    # no capture is ever started, the engine probe is fed fake binaries, the
+    # state file is redirected, and the French rendering reads the tracked
+    # po/fr.mo: no gettext tooling.
+    - name: Run live meeting window tests
+      run: |
+        python3 tests/test-meeting-slug.py
+        python3 tests/test-ptt-meeting-passthrough.py
+        python3 tests/test-meeting-live-wiring.py
+        python3 tests/offscreen-check_meeting_live_window.py
+      env:
+        QT_QPA_PLATFORM: offscreen
+
   test-keyboard-detection:
     runs-on: ubuntu-latest
     steps:
