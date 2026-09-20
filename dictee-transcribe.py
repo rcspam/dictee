@@ -459,6 +459,64 @@ def _build_arg_parser():
     return parser
 
 
+def _load_speakers_json(file_path):
+    """speakers.json written by dictee-meeting-live next to the audio file.
+
+    {"name_map": {"0": "Alice"}, "anchors": {"0": [{"start", "end"}, ...]}}.
+    None when there is no file path, no file, or it does not parse.
+    """
+    if not file_path:
+        return None
+    path = os.path.join(os.path.dirname(os.path.abspath(file_path)), "speakers.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        _dbg(f"speakers.json load error: {e!r}")
+        return None
+    if not isinstance(data, dict):
+        return None
+    _dbg(f"loaded speakers.json from {path}")
+    return data
+
+
+def _match_anchors_to_batch_speakers(name_map, anchors, batch_segments):
+    """Match live-named speakers to batch speaker labels by overlap on anchors.
+
+    name_map: {"0": "Alice"} (live speaker ids as strings), anchors:
+    {"0": [{"start", "end"}, ...]}, batch_segments: output of
+    _parse_diarize_output ({"speaker": "Speaker N", "start", "end", ...}).
+    Greedy: the live speaker with the largest single overlap is assigned
+    first, and a batch label is taken once. Returns {"Speaker N": name}.
+    Same algorithm as master 488171a.
+    """
+    from collections import defaultdict
+    overlap = defaultdict(lambda: defaultdict(float))
+    for live_id, live_anchors in anchors.items():
+        for anchor in live_anchors:
+            a_start, a_end = anchor["start"], anchor["end"]
+            for seg in batch_segments:
+                ov = max(0.0, min(a_end, seg["end"]) - max(a_start, seg["start"]))
+                if ov > 0:
+                    overlap[live_id][seg["speaker"]] += ov
+    used = set()
+    result = {}
+    by_confidence = sorted(
+        name_map.keys(),
+        key=lambda s: max(overlap[s].values()) if overlap[s] else 0,
+        reverse=True)
+    for live_id in by_confidence:
+        candidates = [(label, ov) for label, ov in overlap[live_id].items() if label not in used]
+        if not candidates:
+            continue
+        best = max(candidates, key=lambda c: c[1])[0]
+        result[best] = name_map[live_id]
+        used.add(best)
+    return result
+
+
 def _postprocess(text):
     """Apply dictee-postprocess rules to transcribed text."""
     if not text or not shutil.which("dictee-postprocess"):
@@ -2236,6 +2294,9 @@ class TranscribeWindow(QDialog):
             return
 
         # Pre-fill from CLI args
+        # Speaker names from a live meeting (speakers.json next to the audio):
+        # loaded now, applied once the diarized run has its segments.
+        self._pending_speakers_data = _load_speakers_json(file_path)
         if file_path:
             self._file_input.setText(file_path)
             self._load_audio(file_path)
@@ -4142,6 +4203,31 @@ class TranscribeWindow(QDialog):
         self._lbl_status.setText(_("Cancelling..."))
         self._chunked_worker.request_cancel()
 
+    def _apply_pending_speakers(self):
+        """Pour the live meeting's speaker names into the fresh run's maps.
+
+        Called by both finishers right after they reset the maps and before
+        _refresh_rename_panel_for_target / _apply_format_to, which read
+        self._speaker_name_map and self._text_edit._speaker_name_map: the
+        rename panel and the rendered text pick the names up without more
+        code. Consumed on the first diarized run; a plain run keeps it.
+        """
+        data = getattr(self, "_pending_speakers_data", None)
+        if not data or not self._was_diarized or not self._segments:
+            return
+        try:
+            matched = _match_anchors_to_batch_speakers(
+                data.get("name_map", {}) or {}, data.get("anchors", {}) or {}, self._segments)
+        except Exception as e:
+            _dbg(f"speakers.json apply error: {e!r}")
+            matched = {}
+        finally:
+            self._pending_speakers_data = None
+        if matched:
+            self._speaker_name_map.update(matched)
+            self._text_edit._speaker_name_map = dict(self._speaker_name_map)
+            _dbg(f"speakers.json applied: {matched}")
+
     def _finish_transcription(self, raw_output):
         """Common finish logic for both single-phase and two-phase diarization."""
         self._progress.setVisible(False)
@@ -4189,6 +4275,7 @@ class TranscribeWindow(QDialog):
         # another tab's speaker names.
         self._speaker_name_map = {}
         self._text_edit._speaker_name_map = {}
+        self._apply_pending_speakers()
 
         # Rebuild the rename panel for the new speakers — only when the
         # target tab is visible (cf. _refresh_rename_panel_for_target docstring).
@@ -4363,6 +4450,7 @@ class TranscribeWindow(QDialog):
         # another tab's speaker names.
         self._speaker_name_map = {}
         self._text_edit._speaker_name_map = {}
+        self._apply_pending_speakers()
 
         # Rebuild (or hide) the speaker rename panel — only when the target
         # tab is visible (cf. _refresh_rename_panel_for_target docstring).

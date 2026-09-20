@@ -63,6 +63,54 @@ check("no --asr-model: conf value kept in worker env",
       mod._ChunkedPipelineWorker("/nonexistent/a.wav", 0.5).
       _subprocess_env.get("DICTEE_PARAKEET_QUANT"), "int8")
 
+# --- 2. speakers.json fills the maps in both finishers ------------------------
+
+_meeting = tempfile.mkdtemp(prefix="dictee-meeting-")
+_audio = os.path.join(_meeting, "audio.wav")
+open(_audio, "wb").close()
+with open(os.path.join(_meeting, "speakers.json"), "w", encoding="utf-8") as f:
+    json.dump({"name_map": {"0": "Alice", "1": "Bob"},
+               "anchors": {"0": [{"start": 0.5, "end": 4.0}],
+                           "1": [{"start": 6.0, "end": 9.0}]}}, f)
+
+SEGS = [{"speaker": "Speaker 0", "start": 0.0, "end": 5.0, "text": "a"},
+        {"speaker": "Speaker 1", "start": 5.0, "end": 10.0, "text": "b"}]
+
+w = mod.TranscribeWindow(file_path=_audio)
+check("speakers.json loaded at construction",
+      (w._pending_speakers_data or {}).get("name_map"), {"0": "Alice", "1": "Bob"})
+
+w._was_diarized = True
+w._segments = list(SEGS)
+w._speaker_name_map = {}
+w._text_edit._speaker_name_map = {}
+w._apply_pending_speakers()
+check("names applied to the window map", w._speaker_name_map, {"Speaker 0": "Alice", "Speaker 1": "Bob"})
+check("names applied to the target tab map", w._text_edit._speaker_name_map, {"Speaker 0": "Alice", "Speaker 1": "Bob"})
+check("consumed once", w._pending_speakers_data, None)
+
+w._speaker_name_map = {}
+w._apply_pending_speakers()
+check("second call is a no-op", w._speaker_name_map, {})
+
+w2 = mod.TranscribeWindow(file_path=_audio)
+w2._was_diarized = False
+w2._segments = []
+w2._apply_pending_speakers()
+check("plain (non diarized) run: nothing applied, data kept for a later diarized run",
+      (w2._pending_speakers_data or {}).get("name_map"), {"0": "Alice", "1": "Bob"})
+
+# Both finishers reset the maps then build the panel: the apply call must sit
+# between the two. Read the source rather than run a fake transcription.
+src = open(SCRIPT, encoding="utf-8").read()
+for fn in ("_finish_transcription", "_on_finished"):
+    body = src.split(f"    def {fn}(")[1].split("\n    def ")[0]
+    reset = body.find("self._text_edit._speaker_name_map = {}")
+    apply_ = body.find("self._apply_pending_speakers()")
+    refresh = body.find("self._refresh_rename_panel_for_target()", reset)
+    check(f"{fn}: apply sits after the reset and before the panel refresh",
+          reset != -1 and reset < apply_ < refresh, True)
+
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")
     sys.exit(1)

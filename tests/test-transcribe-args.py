@@ -45,6 +45,8 @@ def _load_func(name, ns_extra=None):
 
 _asr_model_env = _load_func("_asr_model_env")
 _build_arg_parser = _load_func("_build_arg_parser", {"argparse": argparse})
+_load_speakers_json = _load_func("_load_speakers_json", {"os": os, "json": json, "_dbg": lambda *a: None})
+_match_anchors = _load_func("_match_anchors_to_batch_speakers")
 
 
 class AsrModelEnvTests(unittest.TestCase):
@@ -86,6 +88,65 @@ class ArgParserTests(unittest.TestCase):
     def test_positional_files_still_work(self):
         args = _build_arg_parser().parse_args(["a.wav", "b.wav"])
         self.assertEqual(args.files, ["a.wav", "b.wav"])
+
+
+class LoadSpeakersJsonTests(unittest.TestCase):
+
+    def test_reads_file_next_to_audio(self):
+        with tempfile.TemporaryDirectory() as d:
+            data = {"name_map": {"0": "Alice"}, "anchors": {"0": [{"start": 0.0, "end": 1.0}]}}
+            with open(os.path.join(d, "speakers.json"), "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            self.assertEqual(_load_speakers_json(os.path.join(d, "audio.wav")), data)
+
+    def test_missing_file_gives_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(_load_speakers_json(os.path.join(d, "audio.wav")))
+
+    def test_no_path_gives_none(self):
+        self.assertIsNone(_load_speakers_json(None))
+
+    def test_corrupt_file_gives_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "speakers.json"), "w") as f:
+                f.write("{not json")
+            self.assertIsNone(_load_speakers_json(os.path.join(d, "audio.wav")))
+
+
+class MatchAnchorsTests(unittest.TestCase):
+
+    SEGS = [
+        {"speaker": "Speaker 0", "start": 0.0, "end": 5.0, "text": "a"},
+        {"speaker": "Speaker 1", "start": 5.0, "end": 10.0, "text": "b"},
+        {"speaker": "Speaker 0", "start": 10.0, "end": 12.0, "text": "c"},
+    ]
+
+    def test_max_overlap_wins(self):
+        name_map = {"0": "Alice", "1": "Bob"}
+        anchors = {"0": [{"start": 0.5, "end": 4.0}], "1": [{"start": 6.0, "end": 9.0}]}
+        self.assertEqual(_match_anchors(name_map, anchors, self.SEGS),
+                         {"Speaker 0": "Alice", "Speaker 1": "Bob"})
+
+    def test_one_batch_speaker_is_taken_once(self):
+        # Both live speakers overlap Speaker 0; the more confident one gets it,
+        # the other falls back to the next free label.
+        name_map = {"0": "Alice", "1": "Bob"}
+        anchors = {"0": [{"start": 0.0, "end": 5.0}],
+                   "1": [{"start": 4.0, "end": 6.0}]}
+        got = _match_anchors(name_map, anchors, self.SEGS)
+        self.assertEqual(got["Speaker 0"], "Alice")
+        self.assertEqual(got.get("Speaker 1"), "Bob")
+
+    def test_no_overlap_no_name(self):
+        name_map = {"0": "Alice"}
+        anchors = {"0": [{"start": 50.0, "end": 60.0}]}
+        self.assertEqual(_match_anchors(name_map, anchors, self.SEGS), {})
+
+    def test_named_speaker_without_anchors_is_skipped(self):
+        self.assertEqual(_match_anchors({"0": "Alice"}, {}, self.SEGS), {})
+
+    def test_empty_segments(self):
+        self.assertEqual(_match_anchors({"0": "Alice"}, {"0": [{"start": 0, "end": 1}]}, []), {})
 
 
 if __name__ == "__main__":
