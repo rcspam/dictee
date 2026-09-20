@@ -352,7 +352,7 @@ class AudioCaptureWorker(QThread):
         try:
             target, capture_sink = self._resolve_target(self.source)
         except Exception as exc:
-            self.error.emit(f"audio source setup failed: {exc}")
+            self.error.emit(_("audio source setup failed: {err}").format(err=exc))
             self._teardown_mix()
             self._stop_app_capture()
             return
@@ -381,9 +381,9 @@ class AudioCaptureWorker(QThread):
             rc = self.proc.wait()
             if rc != 0 and not self._stop:
                 err = self.proc.stderr.read().decode("utf-8", "replace")
-                self.error.emit(f"pw-record exit {rc}: {err}")
+                self.error.emit(_("pw-record exit {rc}: {err}").format(rc=rc, err=err))
         except FileNotFoundError:
-            self.error.emit("pw-record not found. Is PipeWire installed?")
+            self.error.emit(_("pw-record not found. Is PipeWire installed?"))
         finally:
             self._teardown_mix()
             self._stop_app_capture()
@@ -431,8 +431,8 @@ class AudioCaptureWorker(QThread):
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         except FileNotFoundError:
             self.error.emit(
-                f"Capture de « {name} » impossible : composant "
-                "dictee-app-capture introuvable")
+                _("Cannot capture « {name} »: dictee-app-capture component "
+                  "not found").format(name=name))
             return None
         deadline = time.time() + 4
         while True:
@@ -441,7 +441,7 @@ class AudioCaptureWorker(QThread):
                 break
             if self._appcap_proc.poll() is not None:
                 break
-            rlist, _, _ = select.select(
+            rlist, _unused, _unused = select.select(
                 [self._appcap_proc.stdout], [], [], remaining)
             if not rlist:
                 continue  # timeout slice; loop re-checks remaining/poll
@@ -453,8 +453,8 @@ class AudioCaptureWorker(QThread):
                 return sink
         self._stop_app_capture()
         self.error.emit(
-            f"Capture de « {name} » impossible : la capture d'application "
-            "n'a pas démarré")
+            _("Cannot capture « {name} »: the application capture "
+              "did not start").format(name=name))
         return None
 
     def _stop_app_capture(self):
@@ -712,7 +712,7 @@ class ChunkerWorker(QThread):
                     self.chunk_id += 1
                     start_t += self.advance
                 else:
-                    self.error.emit(f"ffmpeg extract failed (chunk {self.chunk_id})")
+                    self.error.emit(_("ffmpeg extract failed (chunk {n})").format(n=self.chunk_id))
                     return
             time.sleep(1)
         # Stopped: flush the final partial chunk so the live preview captures
@@ -799,7 +799,7 @@ class TranscriptionWorker(QObject):
         if not os.path.exists(self.daemon_socket):
             self.error.emit(
                 chunk_id,
-                f"socket transcribe-daemon absente ({self.daemon_socket})",
+                _("transcribe-daemon socket missing ({sock})").format(sock=self.daemon_socket),
             )
             return
         try:
@@ -813,16 +813,17 @@ class TranscriptionWorker(QObject):
             if proc.returncode != 0:
                 self.error.emit(
                     chunk_id,
-                    f"transcribe-client exit {proc.returncode}: {proc.stderr.strip()}",
+                    _("transcribe-client exit {rc}: {err}").format(
+                        rc=proc.returncode, err=proc.stderr.strip()),
                 )
                 return
             data = json.loads(proc.stdout)
             tokens = data.get("tokens", [])
             self.transcribed.emit(chunk_id, tokens)
         except subprocess.TimeoutExpired:
-            self.error.emit(chunk_id, "transcribe-client timeout (>20 s)")
+            self.error.emit(chunk_id, _("transcribe-client timeout (>20 s)"))
         except json.JSONDecodeError as e:
-            self.error.emit(chunk_id, f"JSON parse error: {e}")
+            self.error.emit(chunk_id, _("JSON parse error: {err}").format(err=e))
 
     def _transcribe_whisper(self, chunk_id: int, chunk_path: str):
         """Live transcription via the isolated whisper daemon (private socket).
@@ -840,7 +841,7 @@ class TranscriptionWorker(QObject):
         _deadline = time.monotonic() + 20
         while not os.path.exists(self._whisper_sock):
             if time.monotonic() >= _deadline:
-                self.error.emit(chunk_id, "daemon Whisper live pas encore prêt (chargement du modèle)")
+                self.error.emit(chunk_id, _("Whisper live daemon not ready yet (model loading)"))
                 return
             time.sleep(0.5)
         try:
@@ -857,11 +858,11 @@ class TranscriptionWorker(QObject):
             s.close()
             text = data.decode("utf-8", errors="replace").strip()
             if text.startswith("ERROR:"):
-                self.error.emit(chunk_id, f"Whisper live: {text}")
+                self.error.emit(chunk_id, _("Whisper live: {err}").format(err=text))
                 return
             self.transcribed.emit(chunk_id, _parse_whisper_tokens(text))
         except (ConnectionRefusedError, OSError) as e:
-            self.error.emit(chunk_id, f"Whisper live: {e}")
+            self.error.emit(chunk_id, _("Whisper live: {err}").format(err=e))
 
     def transcribe_segments(self, chunk_id: int, chunk_path: str,
                             segments: list, offset: float = 0.0):
@@ -876,7 +877,7 @@ class TranscriptionWorker(QObject):
         import wave as _wave
         if not os.path.exists(self._nemotron_sock):
             self.error.emit(chunk_id,
-                            "daemon Nemotron live pas encore prêt (chargement du modèle)")
+                            _("Nemotron live daemon not ready yet (model loading)"))
             self.aligned_direct.emit(chunk_id, [])
             return
         lines = []
@@ -920,7 +921,7 @@ class TranscriptionWorker(QObject):
                         except OSError:
                             pass
                     if text.startswith("ERROR:"):
-                        self.error.emit(chunk_id, f"Nemotron live: {text}")
+                        self.error.emit(chunk_id, _("Nemotron live: {err}").format(err=text))
                         continue
                     if text:
                         lines.append({
@@ -930,7 +931,7 @@ class TranscriptionWorker(QObject):
                             "end_s": end + offset,
                         })
         except (ConnectionRefusedError, OSError, _wave.Error) as e:
-            self.error.emit(chunk_id, f"Nemotron live: {e}")
+            self.error.emit(chunk_id, _("Nemotron live: {err}").format(err=e))
         self.aligned_direct.emit(chunk_id, lines)
 
 
@@ -1023,7 +1024,8 @@ class DiarizationWorker(QObject):
                 env=_build_subprocess_env(),
             )
         except FileNotFoundError:
-            self.error.emit(0, f"{self.cmd[0]} binary not found. Diarization feature built?")
+            self.error.emit(0, _("{bin} binary not found. Diarization feature built?")
+                            .format(bin=self.cmd[0]))
             return False
         threading.Thread(target=self._await_ready, daemon=True).start()
         return True
@@ -1035,26 +1037,27 @@ class DiarizationWorker(QObject):
         while time.monotonic() < deadline:
             line = self.proc.stderr.readline()
             if not line:
-                self.error.emit(0, f"{self.label} stderr EOF before ready")
+                self.error.emit(0, _("{what} stderr EOF before ready").format(what=self.label))
                 return
             if "ready" in line:
                 self.ready.emit()
                 break
         else:
-            self.error.emit(0, f"{self.label} startup timeout (30s)")
+            self.error.emit(0, _("{what} startup timeout (30s)").format(what=self.label))
             return
         try:
-            for _ in self.proc.stderr:   # drain (discard) until the proc exits
+            for _unused in self.proc.stderr:   # drain (discard) until the proc exits
                 pass
         except Exception:
             pass
 
     def diarize(self, chunk_id: int, chunk_path: str):
         if not self.proc:
-            self.error.emit(chunk_id, "DiarizationWorker not started")
+            self.error.emit(chunk_id, _("DiarizationWorker not started"))
             return
         if self.proc.poll() is not None:
-            self.error.emit(chunk_id, f"{self.cmd[0]} exited with code {self.proc.returncode}")
+            self.error.emit(chunk_id, _("{bin} exited with code {rc}").format(
+                bin=self.cmd[0], rc=self.proc.returncode))
             return
         try:
             with self._lock:
@@ -1062,14 +1065,14 @@ class DiarizationWorker(QObject):
                 self.proc.stdin.flush()
                 self._collect_response(chunk_id)
         except BrokenPipeError:
-            self.error.emit(chunk_id, f"{self.cmd[0]} stdin pipe broken")
+            self.error.emit(chunk_id, _("{bin} stdin pipe broken").format(bin=self.cmd[0]))
 
     def _collect_response(self, chunk_id: int):
         segments = []
         while True:
             line = self.proc.stdout.readline()
             if not line:
-                self.error.emit(chunk_id, f"{self.cmd[0]} stdout EOF unexpected")
+                self.error.emit(chunk_id, _("{bin} stdout EOF unexpected").format(bin=self.cmd[0]))
                 return
             line = line.rstrip("\n")
             if line == "":
@@ -1087,7 +1090,7 @@ class DiarizationWorker(QObject):
                         "speaker_id": int(parts[2]),
                     })
                 except ValueError:
-                    self.error.emit(chunk_id, f"malformed segment line: {line}")
+                    self.error.emit(chunk_id, _("malformed segment line: {line}").format(line=line))
                     return
 
     def stop(self):
@@ -1377,7 +1380,7 @@ class SoundTestDialog(QDialog):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("Test du son")
+        self.setWindowTitle(_("Sound test"))
         self._win = parent
         self._worker = None
         self._play_proc = None
@@ -1391,21 +1394,21 @@ class SoundTestDialog(QDialog):
 
         col = QVBoxLayout(self)
         self.lbl_status = QLabel(
-            "Enregistrez un court essai, puis réécoutez-le.")
+            _("Record a short test, then play it back."))
         self.lbl_status.setWordWrap(True)
         col.addWidget(self.lbl_status)
 
         row = QHBoxLayout()
-        self.btn_rec = QPushButton("● Enregistrer")
+        self.btn_rec = QPushButton(_("● Record"))
         self.btn_rec.setToolTip(
-            "Capture avec la source et les niveaux de la réunion")
+            _("Captures with the meeting's source and levels"))
         self.btn_rec.clicked.connect(self._toggle_record)
         row.addWidget(self.btn_rec)
-        self.btn_play = QPushButton("▶ Réécouter")
+        self.btn_play = QPushButton(_("▶ Play back"))
         self.btn_play.setEnabled(False)
         self.btn_play.clicked.connect(self._toggle_play)
         row.addWidget(self.btn_play)
-        btn_close = QPushButton("Fermer")
+        btn_close = QPushButton(_("Close"))
         btn_close.clicked.connect(self.close)
         row.addWidget(btn_close)
         col.addLayout(row)
@@ -1424,7 +1427,7 @@ class SoundTestDialog(QDialog):
             self._worker = None
             w.stop()
             self.btn_rec.setEnabled(False)    # until normalization lands
-            self.lbl_status.setText("Normalisation…")
+            self.lbl_status.setText(_("Normalising…"))
             self._norm_thread = threading.Thread(
                 target=normalize_wav, args=(self._wav,), daemon=True)
             self._norm_thread.start()
@@ -1445,15 +1448,15 @@ class SoundTestDialog(QDialog):
             lambda: self._worker and self._worker.set_system_volume(
                 self._win.slider_sys["slider"].value()))
         self._worker.start()
-        self.btn_rec.setText("■ Arrêter")
+        self.btn_rec.setText(_("■ Stop"))
         self.btn_play.setEnabled(False)
-        self.lbl_status.setText("Essai en cours — 0 s")
+        self.lbl_status.setText(_("Test in progress, {s} s").format(s=0))
         self._win.btn_start.setEnabled(False)
 
     def _on_error(self, msg):
         self._worker = None
-        self.btn_rec.setText("● Enregistrer")
-        self.lbl_status.setText(f"Échec de la capture : {msg}")
+        self.btn_rec.setText(_("● Record"))
+        self.lbl_status.setText(_("Capture failed: {msg}").format(msg=msg))
         self._win._set_state(self._win._state)
 
     # ── playback ────────────────────────────────────────────────────────────
@@ -1465,37 +1468,37 @@ class SoundTestDialog(QDialog):
             self._play_proc = subprocess.Popen(
                 ["paplay", self._wav],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.btn_play.setText("■ Arrêter la lecture")
-            self.lbl_status.setText("Lecture de l'essai…")
+            self.btn_play.setText(_("■ Stop playback"))
+            self.lbl_status.setText(_("Playing the test…"))
         except FileNotFoundError:
-            self.lbl_status.setText("paplay introuvable.")
+            self.lbl_status.setText(_("paplay not found."))
 
     def _stop_playback(self):
         if self._play_proc and self._play_proc.poll() is None:
             self._play_proc.terminate()
         self._play_proc = None
-        self.btn_play.setText("▶ Réécouter")
+        self.btn_play.setText(_("▶ Play back"))
 
     # ── poller ──────────────────────────────────────────────────────────────
     def _on_poll(self):
         if self._worker:
             self._elapsed += 0.25
             self.lbl_status.setText(
-                f"Essai en cours — {int(self._elapsed)} s")
+                _("Test in progress, {s} s").format(s=int(self._elapsed)))
         if self._norm_thread and not self._norm_thread.is_alive():
             self._norm_thread = None
             self.btn_rec.setEnabled(True)
-            self.btn_rec.setText("● Enregistrer")
+            self.btn_rec.setText(_("● Record"))
             self.btn_play.setEnabled(os.path.getsize(self._wav) > 44
                                      if os.path.exists(self._wav) else False)
             self.lbl_status.setText(
-                "Prêt — réécoutez l'essai, ou refaites-en un.")
+                _("Ready, play the test back or record another."))
             self._win._set_state(self._win._state)
         if (self._play_proc and self._play_proc.poll() is not None
-                and self.btn_play.text() != "▶ Réécouter"):
+                and self.btn_play.text() != _("▶ Play back")):
             self._stop_playback()
             self.lbl_status.setText(
-                "Prêt — réécoutez l'essai, ou refaites-en un.")
+                _("Ready, play the test back or record another."))
 
     # ── teardown ────────────────────────────────────────────────────────────
     def closeEvent(self, event):
@@ -1538,7 +1541,7 @@ class MeetingWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Réunion live — capture")
+        self.setWindowTitle(_("Live meeting, capture"))
         # Minimum width 800; compact height while the accordion is collapsed,
         # 800 tall when it opens (see _on_preview_toggled). The window stays
         # user-resizable beyond these.
@@ -1612,10 +1615,10 @@ class MeetingWindow(QWidget):
 
         # (btn_start text, tooltip, start_enabled, stop_enabled, analyze_enabled)
         cfg = {
-            "idle":      ("▶", "Démarrer",  True,  False, False),
-            "recording": ("⏸", "Pause",     True,  True,  False),
-            "paused":    ("▶", "Reprendre", True,  True,  False),
-            "stopped":   ("▶", "Démarrer",  False, False, True),
+            "idle":      ("▶", _("Start"),  True,  False, False),
+            "recording": ("⏸", _("Pause"),     True,  True,  False),
+            "paused":    ("▶", _("Resume"), True,  True,  False),
+            "stopped":   ("▶", _("Start"),  False, False, True),
         }
         text, tip, start_on, stop_on, analyze_on = cfg[state]
         self.btn_start.setText(text)
@@ -1635,10 +1638,10 @@ class MeetingWindow(QWidget):
             self._chunk_indicators.setVisible(state in ("recording", "paused"))
 
         self.status_label.setText({
-            "idle": "Prêt à enregistrer",
-            "recording": "Enregistrement en cours",
-            "paused": "Enregistrement en pause",
-            "stopped": "Enregistrement arrêté",
+            "idle": _("Ready to record"),
+            "recording": _("Recording"),
+            "paused": _("Recording paused"),
+            "stopped": _("Recording stopped"),
         }[state])
 
         if recording or paused:
@@ -1694,7 +1697,7 @@ class MeetingWindow(QWidget):
         self.rec_dot.setSizePolicy(_rdsp)
         self.rec_dot.setVisible(False)
         status_row.addWidget(self.rec_dot)
-        self.status_label = QLabel("Prêt à enregistrer")
+        self.status_label = QLabel(_("Ready to record"))
         self.status_label.setStyleSheet("font-size: 14pt; padding: 12px;")
         status_row.addWidget(self.status_label, 1)
         left_col.addLayout(status_row)
@@ -1710,16 +1713,16 @@ class MeetingWindow(QWidget):
 
         # Title field: editable before/after capture, frozen during recording
         title_row = QHBoxLayout()
-        title_row.addWidget(QLabel("Titre :"))
+        title_row.addWidget(QLabel(_("Title:")))
         self._title_edit = QLineEdit()
-        self._title_edit.setPlaceholderText("Titre de la réunion (optionnel)")
-        self._title_edit.setText("Réunion " + datetime.now().strftime("%Y-%m-%d %H:%M"))
+        self._title_edit.setPlaceholderText(_("Meeting title (optional)"))
+        self._title_edit.setText(_("Meeting") + " " + datetime.now().strftime("%Y-%m-%d %H:%M"))
         title_row.addWidget(self._title_edit, 1)
         left_col.addLayout(title_row)
 
         # Audio source selector (populated from dictee-audio-sources)
         src_row = QHBoxLayout()
-        src_row.addWidget(QLabel("Source :"))
+        src_row.addWidget(QLabel(_("Source:")))
         self.cmb_source = SourceComboBox(self._populate_sources)
         self.cmb_source.currentIndexChanged.connect(self._on_source_changed)
         src_row.addWidget(self.cmb_source, 1)
@@ -1728,7 +1731,7 @@ class MeetingWindow(QWidget):
         # ASR model selector: persisted in DICTEE_MEETING_ASR_MODEL, defaults to
         # the current F9 model (backend + quant from dictee.conf).
         model_row = QHBoxLayout()
-        self._model_lbl = QLabel("Modèle :")
+        self._model_lbl = QLabel(_("Model:"))
         model_row.addWidget(self._model_lbl)
         self._model_combo = QComboBox()
         # One entry per whisper ENGINE: the model size follows the
@@ -1751,8 +1754,8 @@ class MeetingWindow(QWidget):
         if shutil.which("transcribe-daemon-kyutai"):
             self._model_combo.addItem("Kyutai (fr/en, GPU)", "kyutai")
         self._model_combo.setToolTip(
-            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
-            "le choix fait dans dictee-setup.")
+            _("ASR model for this meeting. Whisper sizes follow "
+              "the choice made in dictee-setup."))
         # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper specs
         # folded into the engine-level ones), else the current F9 model.
         _saved = normalize_asr_spec(
@@ -1771,15 +1774,15 @@ class MeetingWindow(QWidget):
         # installed, else Sortformer); the explicit entries let the user pick
         # per meeting (e.g. Sortformer on heavily produced/musical audio).
         diar_row = QHBoxLayout()
-        diar_row.addWidget(QLabel("Diarisation :"))
+        diar_row.addWidget(QLabel(_("Diarization:")))
         self._diar_combo = QComboBox()
         _multi_ok = _diar_multi_available()
         _sf_ok = bool(shutil.which("diarize-only"))
         _moss_ok = _moss_available()
-        for _lbl, _key in (("Auto", "auto"),
-                           ("Multi-locuteurs (sans limite)", "multi"),
-                           ("Sortformer (4 max)", "sortformer"),
-                           ("MOSS (analyse finale seule)", "moss")):
+        for _lbl, _key in ((_("Auto"), "auto"),
+                           (_("Multi-speaker (no limit)"), "multi"),
+                           (_("Sortformer (4 max)"), "sortformer"),
+                           (_("MOSS (final analysis only)"), "moss")):
             self._diar_combo.addItem(_lbl, _key)
         if not _multi_ok:
             self._diar_combo.model().item(1).setEnabled(False)
@@ -1788,12 +1791,12 @@ class MeetingWindow(QWidget):
         if not _moss_ok:
             self._diar_combo.model().item(3).setEnabled(False)
         self._diar_combo.setToolTip(
-            "Moteur de séparation des locuteurs.\n"
-            "Auto = multi-locuteurs si installé, sinon Sortformer.\n"
-            "MOSS transcrit et identifie les locuteurs en une passe, avec "
-            "son propre moteur ASR : il ne sert QUE l'analyse finale au "
-            "Stop (pas de mode flux, donc l'aperçu live garde le moteur "
-            "ci-dessus et le modèle choisi est ignoré).")
+            _("Speaker separation engine.\n"
+              "Auto = multi-speaker if installed, otherwise Sortformer.\n"
+              "MOSS transcribes and identifies speakers in one pass, with "
+              "its own ASR engine: it only serves the final analysis at "
+              "Stop (no streaming mode, so the live preview keeps the "
+              "engine above and the chosen model is ignored)."))
         _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "auto").strip()
         _i = self._diar_combo.findData(_saved_diar)
         if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
@@ -1817,10 +1820,10 @@ class MeetingWindow(QWidget):
         self._diar_slider.setValue(max(0, min(100, _sens)))
         self._diar_slider.setFixedWidth(100)
         self._diar_slider.setToolTip(
-            "Seuil de détection des locuteurs (appliqué au démarrage de la "
-            "réunion). ← plus de locuteurs détectés · plus de locuteurs "
-            "fusionnés →. 50 % = défaut ; montez vers 75 % si une même "
-            "personne est éclatée en plusieurs locuteurs.")
+            _("Speaker detection threshold (applied when the meeting "
+              "starts). ← more speakers detected · more speakers merged →. "
+              "50 % = default; go up to 75 % if one person is split into "
+              "several speakers."))
         self._diar_slider_val = QLabel(f"{self._diar_slider.value()}%")
         self._diar_slider_val.setFixedWidth(35)
         self._diar_slider.valueChanged.connect(
@@ -1835,21 +1838,21 @@ class MeetingWindow(QWidget):
         # "Add mic" toggle: when an app source is selected, also mix the
         # microphone into the isolated app capture (passed to dictee-app-capture
         # as --include-mic). Harmless for other sources.
-        self.chk_include_mic = QCheckBox("Ajouter le micro")
+        self.chk_include_mic = QCheckBox(_("Add the microphone"))
         self.chk_include_mic.setChecked(self._meeting_include_mic())
         self.chk_include_mic.toggled.connect(self._on_include_mic_toggled)
         left_col.addWidget(self.chk_include_mic)
 
         btn_row = QHBoxLayout()
         self.btn_start = QPushButton("▶")
-        self.btn_start.setToolTip("Démarrer")
+        self.btn_start.setToolTip(_("Start"))
         self.btn_start.setFixedSize(64, 64)
         self.btn_start.setStyleSheet("font-size: 22pt;")
         self.btn_start.clicked.connect(self._on_start_pause)
         btn_row.addWidget(self.btn_start)
 
         self.btn_stop = StopButton("⏹")
-        self.btn_stop.setToolTip("Arrêter")
+        self.btn_stop.setToolTip(_("Stop"))
         self.btn_stop.setFixedSize(64, 64)
         self.btn_stop.setStyleSheet("font-size: 22pt;")
         self.btn_stop.setEnabled(False)
@@ -1857,17 +1860,17 @@ class MeetingWindow(QWidget):
         btn_row.addWidget(self.btn_stop)
 
         self.btn_analyze = QPushButton("🔎")
-        self.btn_analyze.setToolTip("Démarrer l'analyse")
+        self.btn_analyze.setToolTip(_("Start the analysis"))
         self.btn_analyze.setFixedSize(64, 64)
         self.btn_analyze.setStyleSheet("font-size: 22pt;")
         self.btn_analyze.setEnabled(False)
         self.btn_analyze.clicked.connect(self._on_analyze)
         btn_row.addWidget(self.btn_analyze)
 
-        self.btn_sound_test = QPushButton("Tester le son…")
+        self.btn_sound_test = QPushButton(_("Test the sound…"))
         self.btn_sound_test.setToolTip(
-            "Enregistrer un court essai avec les réglages actuels et le "
-            "réécouter, avant de lancer la vraie réunion.")
+            _("Record a short test with the current settings and play it "
+              "back, before starting the real meeting."))
         self.btn_sound_test.clicked.connect(self._open_sound_test)
         btn_row.addWidget(self.btn_sound_test)
 
@@ -1877,11 +1880,11 @@ class MeetingWindow(QWidget):
         # window. Its old label "Ouvrir l'analyse…" read as "analyse this
         # meeting" and the window then sat there doing nothing (2026-07-19).
         btn_row.addStretch(1)
-        self._btn_open_transcribe = QPushButton("Analyser un autre fichier…")
+        self._btn_open_transcribe = QPushButton(_("Analyze another file…"))
         self._btn_open_transcribe.setToolTip(
-            "Ouvrir dictee-transcribe SANS la réunion en cours, pour analyser "
-            "ou ré-transcrire un fichier passé (bouton History).\n"
-            "Pour analyser CETTE réunion : le bouton 🔎 après l'arrêt.")
+            _("Open dictee-transcribe WITHOUT the current meeting, to analyze "
+              "or re-transcribe a past file (History button).\n"
+              "To analyze THIS meeting: the 🔎 button after stopping."))
         self._btn_open_transcribe.clicked.connect(self._on_open_transcribe)
         btn_row.addWidget(self._btn_open_transcribe)
         left_col.addLayout(btn_row)
@@ -1889,7 +1892,7 @@ class MeetingWindow(QWidget):
 
         # Right column — "Niveaux": per-flow volume sliders + meters.
         # Backend (per-source volume + live peak meter) not wired yet → greyed.
-        levels_group = QGroupBox("Niveaux")
+        levels_group = QGroupBox(_("Levels"))
         levels_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         levels_layout = QHBoxLayout(levels_group)
         self.slider_mic = self._build_level_slider("🎤")
@@ -1935,7 +1938,7 @@ class MeetingWindow(QWidget):
 
         # Live preview accordion (clickable header + collapsible content)
         self.preview_toggle = QToolButton()
-        self.preview_toggle.setText("Aperçu en direct")
+        self.preview_toggle.setText(_("Live preview"))
         self.preview_toggle.setCheckable(True)
         self.preview_toggle.setChecked(False)
         self.preview_toggle.setArrowType(Qt.ArrowType.RightArrow)
@@ -1982,8 +1985,9 @@ class MeetingWindow(QWidget):
 
         # Chunk caption is dynamic ("Chunk N", updated in _update_chunk_indicators);
         # its fixed width reserves space so the bar never shifts as N grows.
-        self._bar_chunk, self._chunk_val, self._lbl_chunk = _ind_row("Chunk 1", "#e74c3c")
-        self._bar_ctx, self._ctx_val, _ = _ind_row("Contexte", "#27ae60")
+        self._bar_chunk, self._chunk_val, self._lbl_chunk = _ind_row(
+            _("Chunk {n}").format(n=1), "#e74c3c")
+        self._bar_ctx, self._ctx_val, _unused = _ind_row(_("Context"), "#27ae60")
         # Smooth the per-second jumps: animate each bar toward its new target
         # over ~1 s (linear) instead of snapping. _update_chunk_indicators sets
         # the targets once per tick; these slide there continuously.
@@ -2011,7 +2015,7 @@ class MeetingWindow(QWidget):
         preview_layout.addWidget(self.transcript_view, 1)
 
         # Speakers naming panel (inside accordion, below transcript view)
-        speakers_group = QGroupBox("Speakers détectés")
+        speakers_group = QGroupBox(_("Detected speakers"))
         speakers_group.setStyleSheet("QGroupBox { font-weight: bold; }")
         self._speakers_form = QFormLayout(speakers_group)
         self._speakers_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -2110,7 +2114,7 @@ class MeetingWindow(QWidget):
         # 'mix' is meeting-only — added here, NOT in the shared
         # dictee-audio-sources helper (which also feeds the F9 selector, where
         # 'mix' would be invalid and break dictee's source resolution).
-        self.cmb_source.addItem("🎙 Mix micro + audio système", "mix")
+        self.cmb_source.addItem(_("🎙 Mic + system audio mix"), "mix")
         try:
             out = subprocess.check_output(
                 ["dictee-audio-sources"], timeout=3, text=True,
@@ -2476,13 +2480,13 @@ class MeetingWindow(QWidget):
         live preview, not the final transcript. Say so instead of letting
         the user believe their model choice shapes the result."""
         _moss = (self._diar_combo.currentData() or "auto") == "moss"
-        self._model_lbl.setText("Modèle (aperçu) :" if _moss else "Modèle :")
+        self._model_lbl.setText(_("Model (preview):") if _moss else _("Model:"))
         self._model_combo.setToolTip(
-            "Modèle ASR de l'APERÇU LIVE uniquement : MOSS transcrit le "
-            "fichier final avec son propre moteur."
+            _("ASR model of the LIVE PREVIEW only: MOSS transcribes the "
+              "final file with its own engine.")
             if _moss else
-            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
-            "le choix fait dans dictee-setup.")
+            _("ASR model for this meeting. Whisper sizes follow "
+              "the choice made in dictee-setup."))
 
     def _write_conf_key(self, key, value):
         """Replace-or-append a key in ~/.config/dictee.conf, no duplicate line."""
@@ -2558,8 +2562,8 @@ class MeetingWindow(QWidget):
             subprocess.run(
                 ["notify-send", "-t", "5000",
                  "dictee-meeting-live",
-                 "All desktops option not yet supported on Wayland — "
-                 "window will only show on current desktop."],
+                 _("All desktops option not yet supported on Wayland, "
+                   "window will only show on current desktop.")],
                 timeout=2, capture_output=True,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -2590,11 +2594,11 @@ class MeetingWindow(QWidget):
         if source.startswith("app:") and shutil.which("dictee-app-capture") is None:
             QMessageBox.critical(
                 self,
-                "Capture d'application indisponible",
-                "Le composant « dictee-app-capture » est introuvable sur le "
-                "système.\n\nL'enregistrement n'a pas démarré pour éviter de "
-                "capter le micro à la place de l'application. Réinstallez dictee, "
-                "ou choisissez une autre source audio (micro, audio système…).",
+                _("Application capture unavailable"),
+                _("The « dictee-app-capture » component is not on this "
+                  "system.\n\nRecording did not start, to avoid capturing the "
+                  "microphone instead of the application. Reinstall dictee, "
+                  "or pick another audio source (microphone, system audio…)."),
             )
             return
 
@@ -2605,7 +2609,7 @@ class MeetingWindow(QWidget):
         self.transcript_path = self.meeting_dir / "transcript-live.md"
 
         # Init transcript markdown header
-        _header = self._title or ("Réunion " + datetime.now().strftime("%Y-%m-%d %H:%M"))
+        _header = self._title or (_("Meeting") + " " + datetime.now().strftime("%Y-%m-%d %H:%M"))
         self.transcript_path.write_text(
             f"# {_header}\n\n",
             encoding="utf-8",
@@ -2683,16 +2687,16 @@ class MeetingWindow(QWidget):
             _env = _build_subprocess_env()
             _ggml = _env.get("DICTEE_WHISPER_RUST_GGML", "")
             if not (_ggml and os.path.isfile(_ggml)):
-                self._on_error_msg("Aucun modèle Whisper-Rust installé "
-                                   "(voir dictee-setup) — live en Parakeet")
+                self._on_error_msg(_("No Whisper-Rust model installed (see dictee-setup), "
+                                     "live falls back to Parakeet"))
             elif not shutil.which("transcribe-daemon-whisper-rust"):
                 # Checked BEFORE _free_vram_for_live_daemon(): that call
                 # stops the F9 services, so a failed Popen after it left NO
                 # live engine at all — the promised Parakeet fallback needs
                 # the F9 daemon still running (2026-07-19: a whole meeting
                 # recorded with a dead live preview and no visible error).
-                self._on_error_msg("transcribe-daemon-whisper-rust "
-                                   "introuvable — live en Parakeet")
+                self._on_error_msg(_("transcribe-daemon-whisper-rust not found, "
+                                     "live falls back to Parakeet"))
             else:
                 self._live_asr_sock = \
                     f"/tmp/dictee-meeting-whisper-rust-{os.getpid()}.sock"
@@ -2714,8 +2718,8 @@ class MeetingWindow(QWidget):
                         env=_env,
                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except FileNotFoundError:
-                    self._on_error_msg("transcribe-daemon-whisper-rust "
-                                       "introuvable — live en Parakeet")
+                    self._on_error_msg(_("transcribe-daemon-whisper-rust not found, "
+                                         "live falls back to Parakeet"))
                     self._live_asr_sock = None
         elif _spec == "whisper" or (_spec and _spec.startswith("whisper-")):
             self._live_asr_sock = f"/tmp/dictee-meeting-whisper-{os.getpid()}.sock"
@@ -2735,12 +2739,13 @@ class MeetingWindow(QWidget):
                     ["transcribe-daemon-whisper"], env=_env,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except FileNotFoundError:
-                self._on_error_msg("transcribe-daemon-whisper introuvable — live en Parakeet")
+                self._on_error_msg(_("transcribe-daemon-whisper not found, "
+                                     "live falls back to Parakeet"))
                 self._live_asr_sock = None
         elif _spec == "nemotron" and not shutil.which("transcribe-daemon"):
             # Same guard as whisper-rust: never stop the F9 services for a
             # daemon binary that isn't there — the fallback needs them alive.
-            self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
+            self._on_error_msg(_("transcribe-daemon not found, live falls back to Parakeet"))
         elif _spec == "nemotron":
             # Nemotron emits no word timestamps, so the live preview switches to
             # per-Sortformer-segment transcription on this private daemon (see
@@ -2764,13 +2769,14 @@ class MeetingWindow(QWidget):
                     env=_env,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except FileNotFoundError:
-                self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
+                self._on_error_msg(_("transcribe-daemon not found, live falls back to Parakeet"))
                 self._live_asr_sock = None
         elif _spec == "kyutai" and not shutil.which("transcribe-daemon-kyutai"):
             # Checked BEFORE _free_vram_for_live_daemon(), like whisper-rust:
             # stopping the F9 services for a missing binary would leave no live
             # engine at all, and the promised Parakeet fallback needs them up.
-            self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
+            self._on_error_msg(_("transcribe-daemon-kyutai not found, "
+                                 "live falls back to Parakeet"))
         elif _spec == "kyutai":
             # Kyutai emits no word timestamps either, so it takes the same
             # per-Sortformer-segment path as nemotron. Its own binary resolves
@@ -2790,7 +2796,8 @@ class MeetingWindow(QWidget):
                     env=_env,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except FileNotFoundError:
-                self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
+                self._on_error_msg(_("transcribe-daemon-kyutai not found, "
+                                     "live falls back to Parakeet"))
                 self._live_asr_sock = None
 
         # "nemotron_live" really means "timestamp-less engine": the live preview
@@ -2819,7 +2826,7 @@ class MeetingWindow(QWidget):
         self._diarizer_ready = False
         self.diarizer.ready.connect(self._on_diarizer_ready)
         if not self.diarizer.start():   # non-blocking: model loads in background
-            self._on_error_msg(f"Failed to start {self.diarizer.label}")
+            self._on_error_msg(_("Failed to start {what}").format(what=self.diarizer.label))
 
         self.aligner = AlignerWorker()
         self.aligner.chunk_offset = {}
@@ -2847,15 +2854,15 @@ class MeetingWindow(QWidget):
         self._tick_timer.start()
         self._set_state("recording")
         # Models load in the background (no UI freeze); keep the user informed.
-        _loading = ["diarisation"]
+        _loading = [_("diarization")]
         if self._live_asr_proc is not None:
             _loading.append("Nemotron" if self._nemotron_live else "Whisper")
-        self.status_label.setText("⏳ Chargement du modèle : " + " + ".join(_loading) + "…")
+        self.status_label.setText(_("⏳ Loading model: {what}…").format(what=" + ".join(_loading)))
 
     def _on_diarizer_ready(self):
         self._diarizer_ready = True
         if self._state == "recording":
-            self.status_label.setText("Enregistrement en cours — modèles prêts")
+            self.status_label.setText(_("Recording, models ready"))
 
     def _on_diarized_nemotron(self, chunk_id: int, segments: list):
         """Nemotron live: a chunk's Sortformer segments just arrived — launch
@@ -2947,7 +2954,7 @@ class MeetingWindow(QWidget):
         self._executor.submit(self.diarizer.diarize, chunk_id, chunk_path)
         if not getattr(self, "_finalizing", False):
             self.status_label.setText(
-                f"⚙ Chunk {chunk_id + 1} : transcription + diarisation…")
+                _("⚙ Chunk {n}: transcription + diarization…").format(n=chunk_id + 1))
 
     def _on_aligned(self, chunk_id: int, lines: list):
         with open(self.transcript_path, "a", encoding="utf-8") as f:
@@ -2962,7 +2969,7 @@ class MeetingWindow(QWidget):
                     self.speakers_seen.add(spk)
                     self._add_speaker_row(spk)
         if not getattr(self, "_finalizing", False):
-            self.status_label.setText(f"✓ Chunk {chunk_id + 1} ajouté à l'aperçu")
+            self.status_label.setText(_("✓ Chunk {n} added to the preview").format(n=chunk_id + 1))
         # The tail chunk (flushed on stop) just landed → finalize the stop.
         if getattr(self, "_finalizing", False) and chunk_id == getattr(self, "_tail_chunk_id", None):
             self._finalize_stop()
@@ -2971,9 +2978,9 @@ class MeetingWindow(QWidget):
         """Add a QLineEdit row for naming a newly detected speaker."""
         if spk_id in self._speaker_row_widgets:
             return
-        label_text = f"Speaker {spk_id}"
+        label_text = _("Speaker {n}").format(n=spk_id)
         line_edit = QLineEdit()
-        line_edit.setPlaceholderText("(nommer ce locuteur…)")
+        line_edit.setPlaceholderText(_("(name this speaker…)"))
         line_edit.editingFinished.connect(
             lambda sid=spk_id, le=line_edit: self._on_speaker_renamed(sid, le.text().strip())
         )
@@ -2993,7 +3000,7 @@ class MeetingWindow(QWidget):
         # Surface transient chunk issues (e.g. Whisper model still cold-loading)
         # in the status bar so the user knows what's happening.
         if not getattr(self, "_finalizing", False):
-            self.status_label.setText(f"⚠ Chunk {chunk_id + 1} : {msg}")
+            self.status_label.setText(_("⚠ Chunk {n}: {msg}").format(n=chunk_id + 1, msg=msg))
 
     def _reload_transcript(self):
         if not self.transcript_path:
@@ -3011,7 +3018,8 @@ class MeetingWindow(QWidget):
                     spk_id = int(spk_id)
                     color = self.SPEAKER_COLORS[spk_id % len(self.SPEAKER_COLORS)]
                     t = self._fmt_time(float(start_s))
-                    display_name = self._speaker_name_map.get(spk_id, f"Speaker {spk_id}")
+                    display_name = self._speaker_name_map.get(
+                        spk_id, _("Speaker {n}").format(n=spk_id))
                     html_lines.append(
                         f'<p style="color:{color}"><b>[{display_name}]</b> '
                         f'<span style="color:#888">({t})</span> {text}</p>'
@@ -3151,7 +3159,7 @@ class MeetingWindow(QWidget):
             self._finalize_watchdog.setSingleShot(True)
             self._finalize_watchdog.timeout.connect(self._finalize_stop)
             self._finalize_watchdog.start(25000)   # safety net
-            self.status_label.setText("Finalisation du dernier segment…")
+            self.status_label.setText(_("Finalising the last segment…"))
         else:
             self._finalize_stop()
 
@@ -3246,7 +3254,7 @@ class MeetingWindow(QWidget):
         self._set_state("stopped")
         if audio_size < 1024:
             self.status_label.setText(
-                f"Enregistrement trop court ({self.elapsed_seconds}s)")
+                _("Recording too short ({s}s)").format(s=self.elapsed_seconds))
             self.btn_analyze.setEnabled(False)
 
     def _inhibit_notifications(self):
@@ -3265,7 +3273,7 @@ class MeetingWindow(QWidget):
                 QDBusConnection.sessionBus())
             reply = self._notif_iface.call(
                 "Inhibit", "dictee-meeting-live",
-                "Réunion en cours d'enregistrement", {})
+                _("Meeting being recorded"), {})
             args = reply.arguments()
             if args and args[0] is not None:
                 self._notif_cookie = args[0]
@@ -3292,7 +3300,7 @@ class MeetingWindow(QWidget):
 
     def _on_analyze(self):
         # Launch dictee-transcribe on the recorded audio, then close.
-        self.status_label.setText("Ouverture de l'analyse…")
+        self.status_label.setText(_("Opening the analysis…"))
 
         # Write speakers.json next to audio.wav so dictee-transcribe can
         # pre-fill the rename panel with live-session speaker names.
@@ -3327,7 +3335,7 @@ class MeetingWindow(QWidget):
                 stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            self.status_label.setText("Erreur : dictee-transcribe introuvable")
+            self.status_label.setText(_("Error: dictee-transcribe not found"))
             return
 
         self.close()
@@ -3354,7 +3362,7 @@ class MeetingWindow(QWidget):
                 stderr=subprocess.DEVNULL,
             )
         except FileNotFoundError:
-            self.status_label.setText("Erreur : dictee-transcribe introuvable")
+            self.status_label.setText(_("Error: dictee-transcribe not found"))
 
     def _tick(self):
         self.elapsed_seconds += 1
@@ -3381,7 +3389,7 @@ class MeetingWindow(QWidget):
         since = max(0, self.elapsed_seconds - getattr(self, "_last_emit_elapsed", 0))
         since = min(since, period)
         # 1-indexed current chunk number (chunk_id is the next chunk to emit).
-        self._lbl_chunk.setText(f"Chunk {ch.chunk_id + 1}")
+        self._lbl_chunk.setText(_("Chunk {n}").format(n=ch.chunk_id + 1))
         self._smooth_bar(self._anim_chunk, self._bar_chunk,
                          int(100 * since / period) if period else 0)
         self._chunk_val.setText(f"{since}s / {period}s")
@@ -3402,7 +3410,7 @@ class MeetingWindow(QWidget):
         anim.start()
 
     def _on_error_msg(self, msg: str):
-        self.status_label.setText(f"Erreur : {msg}")
+        self.status_label.setText(_("Error: {msg}").format(msg=msg))
         print(f"[meeting-live] {msg}", file=sys.stderr)
 
     def _on_capture_failed(self, msg: str):
@@ -3412,7 +3420,7 @@ class MeetingWindow(QWidget):
 
         Distinct from _on_error_msg, which handles non-fatal preview/chunk
         errors that must NOT tear down an ongoing recording."""
-        self.status_label.setText(f"Erreur : {msg}")
+        self.status_label.setText(_("Error: {msg}").format(msg=msg))
         print(f"[meeting-live] capture failed: {msg}", file=sys.stderr)
         if self._state not in ("recording", "paused"):
             return  # already idle/stopped — nothing to abort

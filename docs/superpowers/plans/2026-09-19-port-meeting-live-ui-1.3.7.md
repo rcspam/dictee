@@ -466,12 +466,12 @@ import tokenize  # noqa: E402
 # Literals that look like prose but are never shown to the user, listed from
 # a scan of the script with no allowlist at all: stylesheet fragments, engine
 # names in the model combo, an HTTP header, the D-Bus inhibit methods, a
-# pactl line marker, HTML markup of the preview. Adding to this list is
+# pactl line marker, HTML markup of the preview, strftime formats. Adding to this list is
 # allowed only for a string nobody ever reads on screen, and the commit
 # message must say which one and why.
 NON_UI = re.compile(
     r"^(font-|color:|border|palette\(|stop:|qlineargradient|QGroupBox|QToolButton|QProgressBar|[;{}<]|"
-    r"on source #|Content-Type$|(Un)?Inhibit$|"
+    r"on source #|Content-Type$|(Un)?Inhibit$|%[A-Za-z]|"
     r"Parakeet (int8|fp32)$|faster-whisper \($|Whisper-Rust \($|Nemotron$|Whisper$|Kyutai \(fr/en, GPU\)$)")
 # Whole lines that are not UI: stderr prints, stylesheets, argparse, file
 # writes (the transcript format is parsed back later), pactl output parsing.
@@ -1638,6 +1638,7 @@ git commit -m "ci: run the live meeting window tests"
 - Le test du tray comptait trois occurrences de chaque attribut ; le code en produit six et cinq. Remplacé par des assertions sur les lignes exactes. Deux numéros de lignes du tray étaient faux (593 et 1013, pas 596 et 1015), comme un de build-rpm.sh (103, pas 104).
 - Le bouton du plasmoid était placé après la fermeture du `RowLayout`. Le point exact est écrit avec ses lignes de contexte, et un test vérifie que la rangée n'est pas fermée avant le bouton.
 - Le rendu français liait le domaine gettext avant de charger le script, que le script relie ensuite sur le `.mo` installé de la machine s'il en trouve un. Il passe maintenant par le premier répertoire de `LOCALE_DIRS`, sous le HOME jetable du test, avec le `po/fr.mo` suivi par git.
+- `Close` existait dans les six `.po` comme entrée obsolète (`#~`), et msgfmt compte un doublon entre une entrée obsolète et une entrée vivante : le script de catalogue ressuscite l'entrée (avec sa traduction, « Schließen » en allemand) au lieu d'en ajouter une. Le format strftime `%Y-%m-%d %H:%M` est passé en liste blanche. Les deux contrôles de rendu français passent avant l'enveloppement (les libellés sont alors des littéraux français), échouent après, et repassent avec le catalogue. Un `_` jetable dans `_build_ui` (`self._bar_ctx, self._ctx_val, _ = …`) masquait gettext dans toute la méthode : quatre `_` jetables renommés `_unused`.
 - La copie du script n'était pas épinglée ; elle l'est sur le commit 03d3ad8. Le test des fonctions pures omettait trois assertions de master ; elles sont reprises.
 
 **Cohérence des noms.** `missing_live_engine_features` et `LIVE_ENGINE_CHECKS` (Task 2) sont ceux du test. `STATE_FILE` (Task 1) est le nom que dictee-ptt.py utilise déjà pour le même fichier. `keys_pass_through` (Task 4) est le nom attendu par le test textuel. `item_meeting_live_gtk` et `action_meeting_live_qt` (Task 5) apparaissent dans les lignes exactes que le test cherche. `btnMeetingLive` et `meetingDot` (Task 6) sont ceux du test. `_Msg` (Task 2) suit la convention des tests de master.

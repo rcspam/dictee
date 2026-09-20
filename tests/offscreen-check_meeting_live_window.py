@@ -163,4 +163,96 @@ check("no engines at all: both reported as not installed",
 os.environ["PATH"] = saved_path
 mod.QMessageBox = saved_box
 
+# --- 3. no user-facing string left outside _() -------------------------------
+
+import gettext  # noqa: E402
+import io  # noqa: E402
+import re  # noqa: E402
+import tokenize  # noqa: E402
+
+# Literals that look like prose but are never shown to the user, listed from
+# a scan of the script with no allowlist at all: stylesheet fragments, engine
+# names in the model combo, an HTTP header, the D-Bus inhibit methods, a
+# pactl line marker, HTML markup of the preview, strftime formats. Adding to this list is
+# allowed only for a string nobody ever reads on screen, and the commit
+# message must say which one and why.
+NON_UI = re.compile(
+    r"^(font-|color:|border|palette\(|stop:|qlineargradient|QGroupBox|QToolButton|QProgressBar|[;{}<]|"
+    r"on source #|Content-Type$|(Un)?Inhibit$|%[A-Za-z]|"
+    r"Parakeet (int8|fp32)$|faster-whisper \($|Whisper-Rust \($|Nemotron$|Whisper$|Kyutai \(fr/en, GPU\)$)")
+# Whole lines that are not UI: stderr prints, stylesheets, argparse, file
+# writes (the transcript format is parsed back later), pactl output parsing.
+SKIP_LINE = re.compile(
+    r"print\(|StyleSheet|add_argument\(|ArgumentParser\(|\.write\(|"
+    r"re\.search\(|\.startswith\(|== '")
+
+
+def bare_ui_strings(path):
+    """(line, text) for every prose literal not inside a _() call."""
+    src = open(path, encoding="utf-8").read()
+    lines = src.splitlines()
+    found, depth, gettext_depth, prev = [], 0, None, None
+    fstring_middle = getattr(tokenize, "FSTRING_MIDDLE", None)
+    for tok in tokenize.generate_tokens(io.StringIO(src).readline):
+        if tok.type == tokenize.OP:
+            if tok.string == "(":
+                depth += 1
+                if prev is not None and prev.type == tokenize.NAME and prev.string == "_":
+                    gettext_depth = depth
+            elif tok.string == ")":
+                if gettext_depth == depth:
+                    gettext_depth = None
+                depth -= 1
+        elif tok.type == tokenize.STRING or (fstring_middle and tok.type == fstring_middle):
+            line = lines[tok.start[0] - 1].strip()
+            body = tok.string if tok.type != tokenize.STRING else tok.string.lstrip("rbfuRBFU").strip("\"'")
+            body = body.strip()
+            prose = (len(body) >= 4 and re.search(r"[a-zà-ÿ]", body)
+                     and (" " in body or "…" in body or body[0].isupper()
+                          or re.search(r"[àâéèêîôùûç]", body)))
+            if (prose and gettext_depth is None
+                    and not line.startswith(("#", '"""', "'''"))
+                    and not SKIP_LINE.search(line) and not NON_UI.search(body)):
+                found.append((tok.start[0], body[:50]))
+        if tok.type not in (tokenize.NL, tokenize.NEWLINE, tokenize.COMMENT):
+            prev = tok
+    return found
+
+
+check("no user-facing string outside _()", bare_ui_strings(SCRIPT), [])
+# Blind spot of the scan above: a lone lowercase word. The loading status
+# builds "diarisation + Whisper" from such a word; pin its catalog form.
+check("loading status pulls 'diarization' from the catalog",
+      '[_("diarization")]' in open(SCRIPT, encoding="utf-8").read(), True)
+
+# --- 4. French rendering through the tracked catalog -------------------------
+
+import subprocess  # noqa: E402
+
+fr = subprocess.run(
+    [sys.executable, "-c",
+     "import os, sys, pathlib, importlib.machinery, importlib.util\n"
+     "os.environ['LANGUAGE'] = 'fr'\n"
+     "os.environ['LC_ALL'] = 'C.UTF-8'\n"
+     "os.environ['LANG'] = 'C.UTF-8'\n"
+     "os.environ['QT_QPA_PLATFORM'] = 'offscreen'\n"
+     f"l = importlib.machinery.SourceFileLoader('ml', {SCRIPT!r})\n"
+     "s = importlib.util.spec_from_loader('ml', l); m = importlib.util.module_from_spec(s)\n"
+     "s.loader.exec_module(m)\n"
+     "m.STATE_FILE = pathlib.Path(os.environ['HOME']) / 'dictee_state_fr'\n"
+     "from PyQt6.QtWidgets import QApplication; a = QApplication([])\n"
+     "w = m.MeetingWindow(); print(w.status_label.text()); print(w.btn_sound_test.text())"],
+    capture_output=True, text=True, timeout=60, env=os.environ)
+check("status label renders in French", fr.stdout.splitlines()[:1], ["Prêt à enregistrer"])
+check("sound test button renders in French", fr.stdout.splitlines()[1:2], ["Tester le son…"])
+
+# msgfmt 0.21 does not validate python-brace-format placeholders: a French
+# msgstr missing a {name} would raise KeyError at .format() time, in French
+# only. The whole catalog passes this today (125 brace msgids, 0 mismatches).
+catalog = gettext.GNUTranslations(open(os.path.join(ROOT, "po", "fr.mo"), "rb"))._catalog
+bad = [k for k, v in catalog.items()
+       if isinstance(k, str) and "{" in k and v
+       and set(re.findall(r"\{\w+\}", k)) != set(re.findall(r"\{\w+\}", v))]
+check("French catalog keeps every {placeholder}", bad, [])
+
 finish()
