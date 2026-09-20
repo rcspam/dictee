@@ -221,7 +221,7 @@ Les trois interfaces partagent leur état via un surveillant de fichier — tout
 </p>
 
 ```bash
-sudo dpkg -i animation-speech_1.2.0_all.deb
+sudo dpkg -i animation-speech_1.2.1_all.deb
 ```
 
 > Téléchargement : [releases animation-speech](https://github.com/rcspam/animation-speech/releases)

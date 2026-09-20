@@ -5629,3 +5629,11 @@ msgstr "Il computer usa questo tasto per {what}. Sceglierlo per la dettatura te 
 #~ "F24), il tasto {key41} (in alto a sinistra) o un tasto speciale (Home, "
 #~ "Fine, Ins, ecc.)."
 
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr ""
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr ""

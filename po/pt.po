@@ -5598,3 +5598,11 @@ msgstr "O seu computador usa esta tecla para {what}. Escolhê-la para o ditado r
 #~ "tecla {key41} (canto superior esquerdo) ou uma tecla especial (Home, End, "
 #~ "Insert, etc.)."
 
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr ""
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr ""

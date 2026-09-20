@@ -221,7 +221,7 @@ All three share state via a filesystem watcher — any change is reflected insta
 </p>
 
 ```bash
-sudo dpkg -i animation-speech_1.2.0_all.deb
+sudo dpkg -i animation-speech_1.2.1_all.deb
 ```
 
 > Download: [animation-speech releases](https://github.com/rcspam/animation-speech/releases)

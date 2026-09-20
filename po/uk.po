@@ -5587,3 +5587,11 @@ msgstr "Комп'ютер використовує цю клавішу для {w
 #~ "клавіші (F1-F24), клавіші {key41} (верхній лівий кут) або спеціальній "
 #~ "клавіші (Home, End, Insert тощо)."
 
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr ""
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr ""

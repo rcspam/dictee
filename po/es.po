@@ -5628,3 +5628,11 @@ msgstr "Su ordenador usa esta tecla para {what}. Elegirla para el dictado se lo 
 #~ "tecla {key41} (arriba a la izquierda) o una tecla especial (Inicio, Fin, "
 #~ "Insert, etc.)."
 
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr ""
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr ""

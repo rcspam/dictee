@@ -3926,3 +3926,11 @@ msgid ""
 "This key is used by your computer to {what}. Choosing it for dictation takes "
 "that away: dictee receives the key before your desktop does."
 msgstr ""
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr ""
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr ""

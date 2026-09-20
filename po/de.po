@@ -5642,3 +5642,11 @@ msgstr "Diese Taste wird von Ihrem Computer verwendet, um {what}. Wenn Sie sie f
 #~ "Funktionstaste (F1-F24), die Taste {key41} (oben links) oder eine "
 #~ "Sondertaste (Pos1, Ende, Einfg usw.)."
 
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr ""
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr ""

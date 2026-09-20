@@ -5697,3 +5697,11 @@ msgstr "Cette touche est utilisée par votre ordinateur pour {what}. La choisir 
 #~ "(F1-F24), la touche {key41} (en haut à gauche) ou une touche spéciale "
 #~ "(Début, Fin, Inser, etc.)."
 
+
+#: dictee-setup.py:2980
+msgid "animation-speech {version} is already the latest release."
+msgstr "animation-speech {version} est déjà la dernière version publiée."
+
+#: dictee-setup.py:16952
+msgid "Check for animation-speech updates"
+msgstr "Rechercher une mise à jour d'animation-speech"
