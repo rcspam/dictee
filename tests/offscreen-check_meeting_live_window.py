@@ -242,7 +242,9 @@ fr = subprocess.run(
      "m.STATE_FILE = pathlib.Path(os.environ['HOME']) / 'dictee_state_fr'\n"
      "from PyQt6.QtWidgets import QApplication; a = QApplication([])\n"
      "w = m.MeetingWindow(); print(w.status_label.text()); print(w.btn_sound_test.text())"],
-    capture_output=True, text=True, timeout=60, env=os.environ)
+    # The child prints UTF-8 whatever the parent's locale: a C/ASCII runner
+    # (GitHub Actions) must not decode "Prêt" with the ascii codec.
+    capture_output=True, encoding="utf-8", timeout=60, env=os.environ)
 check("status label renders in French", fr.stdout.splitlines()[:1], ["Prêt à enregistrer"])
 check("sound test button renders in French", fr.stdout.splitlines()[1:2], ["Tester le son…"])
 
