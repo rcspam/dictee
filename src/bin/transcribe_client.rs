@@ -28,6 +28,9 @@ struct ClientArgs {
     socket: Option<String>,
     /// Optional positional audio file. None means stdin or mic mode.
     audio: Option<String>,
+    /// `--json-timestamps`: ask the daemon for word timestamps and print them
+    /// as one JSON line. File mode only (what dictee-meeting-live drives).
+    json_timestamps: bool,
 }
 
 /// Parse argv into [`ClientArgs`], rejecting unknown options loudly so a flag
@@ -45,6 +48,7 @@ fn parse_client_args(args: &[String]) -> Result<ClientArgs, String> {
                 out.socket = Some(path.clone());
                 i += 1;
             }
+            "--json-timestamps" => out.json_timestamps = true,
             s if s.starts_with('-') => {
                 return Err(format!("unknown option '{}'", s));
             }
@@ -84,6 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!();
         eprintln!("Options:");
         eprintln!("  --socket <path>  Daemon socket path (default: $XDG_RUNTIME_DIR/transcribe.sock)");
+        eprintln!("  --json-timestamps  With <fichier>: print word timestamps as one JSON line");
         eprintln!();
         eprintln!("Mode micro:");
         eprintln!("  Sans TRANSCRIBE_DURATION : enregistrement jusqu'à Entrée");
@@ -101,12 +106,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(audio) = parsed.audio.as_deref() {
         let audio_path = resolve_path(audio)?;
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
-        let text = send_to_daemon(&wav_path, &socket_path);
+        let result = if parsed.json_timestamps {
+            send_to_daemon_with_mode(&wav_path, "timestamps", &socket_path)
+                .map(|raw| parse_timestamps_to_json(&raw))
+        } else {
+            send_to_daemon(&wav_path, &socket_path)
+        };
         if needs_cleanup {
             let _ = fs::remove_file(&wav_path);
         }
-        println!("{}", text?);
+        println!("{}", result?);
         return Ok(());
+    }
+
+    // --json-timestamps only makes sense with a file: refuse loudly rather
+    // than transcribe stdin or the mic and print plain text under a JSON flag.
+    if parsed.json_timestamps {
+        eprintln!("transcribe-client: --json-timestamps requires an audio file argument");
+        std::process::exit(2);
     }
 
     // Mode 2: Audio piped via stdin
@@ -419,6 +436,66 @@ fn send_to_daemon(audio_path: &str, socket_path: &str) -> Result<String, Box<dyn
     }
 }
 
+/// Same round trip as `send_to_daemon`, with a mode word after the path
+/// (`<path>\t<mode>`): the daemon then answers several lines and closes
+/// the connection, so read to EOF instead of one line.
+fn send_to_daemon_with_mode(audio_path: &str, mode: &str, socket_path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let mut stream = UnixStream::connect(socket_path).map_err(|e| {
+        format!(
+            "Cannot connect to daemon at {}. Is transcribe-daemon running? Error: {}",
+            socket_path, e
+        )
+    })?;
+    stream.set_read_timeout(Some(Duration::from_secs(120)))?;
+
+    writeln!(stream, "{}\t{}", audio_path, mode)?;
+    stream.flush()?;
+
+    let mut response = String::new();
+    let reader = BufReader::new(&stream);
+    for line in reader.lines() {
+        let l = line?;
+        if !response.is_empty() { response.push('\n'); }
+        response.push_str(&l);
+    }
+
+    if response.starts_with("ERROR:") {
+        Err(response.into())
+    } else {
+        Ok(response)
+    }
+}
+
+/// Turn the daemon's timestamp lines (`[0.50s - 1.20s] word`) into one JSON
+/// line `{"tokens":[{"text","start_s","end_s"},…]}`. Lines that do not fit
+/// the shape are skipped. Copied from master (ca6fdc1) so the window reads
+/// the same contract on both lines.
+fn parse_timestamps_to_json(raw: &str) -> String {
+    let mut tokens = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix('[') {
+            if let Some(close) = rest.find(']') {
+                let ts_part = &rest[..close];
+                let text = rest[close + 1..].trim();
+                let parts: Vec<&str> = ts_part.splitn(2, " - ").collect();
+                if parts.len() == 2 {
+                    let start_s: f64 = parts[0].trim_end_matches('s').parse().unwrap_or(0.0);
+                    let end_s: f64 = parts[1].trim_end_matches('s').parse().unwrap_or(0.0);
+                    // Escape for JSON: backslash and double quote are all the
+                    // daemon can emit in a token; control characters never occur.
+                    let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+                    tokens.push(format!(
+                        "{{\"text\":\"{}\",\"start_s\":{:.3},\"end_s\":{:.3}}}",
+                        escaped, start_s, end_s
+                    ));
+                }
+            }
+        }
+    }
+    format!("{{\"tokens\":[{}]}}", tokens.join(","))
+}
+
 #[cfg(test)]
 mod arg_tests {
     use super::*;
@@ -471,5 +548,71 @@ mod arg_tests {
     #[test]
     fn help_flag_is_parsed() {
         assert!(parse_client_args(&argv(&["--help"])).unwrap().help);
+    }
+
+    #[test]
+    fn json_timestamps_flag_is_parsed() {
+        let p = parse_client_args(&argv(&["rec.wav", "--json-timestamps"])).unwrap();
+        assert!(p.json_timestamps);
+        assert_eq!(p.audio.as_deref(), Some("rec.wav"));
+    }
+
+    #[test]
+    fn json_timestamps_with_socket() {
+        let p = parse_client_args(&argv(&["--socket", "/tmp/x.sock", "--json-timestamps", "rec.wav"])).unwrap();
+        assert!(p.json_timestamps);
+        assert_eq!(p.socket.as_deref(), Some("/tmp/x.sock"));
+        assert_eq!(p.audio.as_deref(), Some("rec.wav"));
+    }
+
+    #[test]
+    fn json_timestamps_default_off() {
+        assert!(!parse_client_args(&argv(&["rec.wav"])).unwrap().json_timestamps);
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+
+    #[test]
+    fn empty_input_gives_empty_tokens() {
+        assert_eq!(parse_timestamps_to_json(""), r#"{"tokens":[]}"#);
+    }
+
+    #[test]
+    fn two_words() {
+        let raw = "[0.50s - 1.20s] Hello\n[1.20s - 1.80s] world";
+        assert_eq!(
+            parse_timestamps_to_json(raw),
+            r#"{"tokens":[{"text":"Hello","start_s":0.500,"end_s":1.200},{"text":"world","start_s":1.200,"end_s":1.800}]}"#
+        );
+    }
+
+    #[test]
+    fn quotes_and_backslashes_are_escaped() {
+        let raw = r#"[0.00s - 0.10s] say "hi" \ bye"#;
+        assert_eq!(
+            parse_timestamps_to_json(raw),
+            r#"{"tokens":[{"text":"say \"hi\" \\ bye","start_s":0.000,"end_s":0.100}]}"#
+        );
+    }
+
+    #[test]
+    fn malformed_lines_are_skipped() {
+        let raw = "garbage\n[broken\n[0.10s - 0.20s] ok\n\n[1.00s] nope";
+        assert_eq!(
+            parse_timestamps_to_json(raw),
+            r#"{"tokens":[{"text":"ok","start_s":0.100,"end_s":0.200}]}"#
+        );
+    }
+
+    #[test]
+    fn output_is_valid_json_shape() {
+        // The window does json.loads(stdout)["tokens"]: one line, no trailing newline.
+        let out = parse_timestamps_to_json("[0.00s - 0.50s] a");
+        assert!(out.starts_with("{\"tokens\":["));
+        assert!(out.ends_with("]}"));
+        assert!(!out.contains('\n'));
     }
 }
