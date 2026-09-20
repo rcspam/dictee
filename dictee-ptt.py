@@ -184,6 +184,15 @@ EXCLUDE_KEYBOARDS = []
 # main() from DICTEE_DEBUG ("Debug mode" checkbox in dictee-setup / dictee.conf).
 DEBUG = False
 
+# /dev/input nodes already examined by find_keyboards_evdev(). What a node can
+# do never changes, so opening it a second time only buys its close() back, and
+# closing an evdev node costs 10 to 20 ms (RCU grace period in the kernel). With
+# two dozen input devices that was a full second of frozen keyboard every
+# RESCAN_INTERVAL (issue #33). Rebuilt from evdev.list_devices() on every scan,
+# so a node that goes away is forgotten and a recycled event number is examined
+# again.
+_scanned_paths = set()
+
 
 def load_config():
     """Charge dictee.conf et retourne un dict."""
@@ -212,13 +221,26 @@ def _has_motion_axes(caps):
     return bool(axes & MOTION_AXES)
 
 
-def find_keyboards_evdev():
-    """Trouve les claviers physiques via evdev."""
+def find_keyboards_evdev(new_only=False):
+    """Trouve les claviers physiques via evdev.
+
+    new_only : n'examine que les nœuds apparus depuis le dernier appel, les
+    autres ayant déjà livré leurs capacités (issue #33). Les claviers déjà
+    connus ne sont donc pas renvoyés — c'est ce que veut le rescan hotplug,
+    et uniquement lui.
+    """
+    global _scanned_paths
+    paths = evdev.list_devices()
+    todo = [p for p in paths if p not in _scanned_paths] if new_only else paths
+    _scanned_paths = set(paths)
     devs = []
-    for path in evdev.list_devices():
+    for path in todo:
         try:
             dev = InputDevice(path)
         except (PermissionError, OSError):
+            # Souvent transitoire : le nœud existe avant que udev ne lui donne
+            # le groupe 'input'. Le réexaminer au prochain passage.
+            _scanned_paths.discard(path)
             continue
         caps = dev.capabilities(verbose=False)
         # EV_KEY present with the full key set. The default path additionally
@@ -672,11 +694,13 @@ def _passthrough_covers(ui, dev):
 def _rescan_keyboards(devices, ui=None):
     """Detect and grab newly plugged keyboards (hotplug).
 
-    Opens every /dev/input/event* (expensive: ~30 ms/keyboard). Call ONLY
-    when the event loop is idle — otherwise the scan freezes key handling,
-    and a KEY_UP delivered late makes the compositor believe the key is held
-    down → spurious auto-repeat (issue #8). Mutates `devices` in place. Logs
-    the duration when abnormal (DEBUG mode / DICTEE_DEBUG only).
+    Only opens /dev/input nodes that appeared since the last scan, so a quiet
+    rescan costs one list_devices() and nothing else (issue #33). A scan that
+    does find new hardware still pays ~30 ms per node, so call this ONLY when
+    the event loop is idle — otherwise the scan freezes key handling, and a
+    KEY_UP delivered late makes the compositor believe the key is held down →
+    spurious auto-repeat (issue #8). Mutates `devices` in place. Logs the
+    duration when abnormal (DEBUG mode / DICTEE_DEBUG only).
 
     Returns the passthrough uinput device, recreated when a hotplugged
     keyboard carries event types the current one doesn't declare (whitelisted
@@ -685,17 +709,19 @@ def _rescan_keyboards(devices, ui=None):
     t0 = time.monotonic()
     known_paths = {d.path for d in devices}
     needs_recreate = False
-    for new_dev in find_keyboards_evdev():
-        if new_dev.path not in known_paths:
-            try:
-                new_dev.grab()
-                devices.append(new_dev)
-                print(f"[ptt] hotplug grab: {new_dev.name}")
-                if ui is not None and not _passthrough_covers(ui, new_dev):
-                    needs_recreate = True
-            except OSError:
-                new_dev.close()
-        else:
+    for new_dev in find_keyboards_evdev(new_only=True):
+        if new_dev.path in known_paths:
+            # Nœud réapparu sous un numéro qu'on tient déjà : on garde celui
+            # qu'on a grabbé.
+            new_dev.close()
+            continue
+        try:
+            new_dev.grab()
+            devices.append(new_dev)
+            print(f"[ptt] hotplug grab: {new_dev.name}")
+            if ui is not None and not _passthrough_covers(ui, new_dev):
+                needs_recreate = True
+        except OSError:
             new_dev.close()
     if needs_recreate:
         try:
@@ -812,6 +838,10 @@ def run_evdev(ptt):
                     dead.append(dev)
             for dev in dead:
                 print(f"[ptt] clavier perdu: {dev.path}")
+                # Le nœud peut très bien exister encore (fd perdu, pas le
+                # périphérique). Le rendre « neuf » pour que le prochain
+                # rescan le réexamine et le re-grabbe (issue #33).
+                _scanned_paths.discard(dev.path)
                 devices.remove(dev)
 
             if not devices:
@@ -836,6 +866,7 @@ def run_evdev(ptt):
                         bad.append(dev)
                 for dev in bad:
                     print(f"[ptt] clavier perdu: {dev.path}")
+                    _scanned_paths.discard(dev.path)
                     try:
                         dev.close()
                     except OSError:
@@ -899,6 +930,10 @@ def run_evdev(ptt):
                 except OSError:
                     # Device déconnecté
                     print(f"[ptt] clavier déconnecté: {dev.path}")
+                    # Même raison qu'aux deux autres retraits : si le nœud
+                    # existe encore (erreur de lecture passagère), il doit
+                    # redevenir examinable, sinon plus jamais re-grabbé.
+                    _scanned_paths.discard(dev.path)
                     try:
                         dev.close()
                     except OSError:
