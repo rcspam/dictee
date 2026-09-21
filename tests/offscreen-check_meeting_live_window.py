@@ -160,6 +160,53 @@ os.environ["PATH"] = tempfile.mkdtemp(prefix="dictee-no-engines-")
 check("no engines at all: both reported as not installed",
       all("not installed" in m for m in mod.missing_live_engine_features()), True)
 
+# --- 2b. model combo only offers the engines this install carries ------------
+# Whisper-Rust needs its own daemon binary; Nemotron needs a transcribe-daemon
+# that documents --nemotron in --help (the 1.3 daemon only knows Parakeet and
+# Canary and would silently run Parakeet under the Nemotron label).
+
+def fake_asr_dir(nemotron, whisper_rust):
+    d = tempfile.mkdtemp(prefix="dictee-fake-asr-")
+    help_daemon = "Usage: transcribe-daemon [model_dir] [--canary|--nemotron] [--socket <path>]" \
+        if nemotron else "Usage: transcribe-daemon [model_dir] [--canary] [--socket <path>]"
+    names = [("transcribe-daemon", help_daemon)]
+    if whisper_rust:
+        names.append(("transcribe-daemon-whisper-rust", "Usage: transcribe-daemon-whisper-rust"))
+    for name, text in names:
+        p = os.path.join(d, name)
+        with open(p, "w") as f:
+            f.write("#!/bin/sh\nprintf '%s\\n' \"" + text + "\" >&2\nexit 1\n")
+        os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
+    return d
+
+
+def model_item_enabled(w, spec):
+    i = w._model_combo.findData(spec)
+    return i >= 0 and w._model_combo.model().item(i).isEnabled()
+
+
+_conf_path = os.path.join(os.environ["XDG_CONFIG_HOME"], "dictee.conf")
+with open(_conf_path, "w", encoding="utf-8") as f:
+    f.write("DICTEE_MEETING_ASR_MODEL=nemotron\n")
+
+os.environ["PATH"] = fake_asr_dir(nemotron=False, whisper_rust=False)
+w13 = mod.MeetingWindow()
+check("1.3 engines: Parakeet entries enabled",
+      (model_item_enabled(w13, "parakeet-int8"), model_item_enabled(w13, "parakeet-fp32")), (True, True))
+check("1.3 engines: Whisper-Rust entry greyed out", model_item_enabled(w13, "whisper-rust"), False)
+check("1.3 engines: Nemotron entry greyed out", model_item_enabled(w13, "nemotron"), False)
+check("1.3 engines: a saved Nemotron choice does not land on the greyed entry",
+      w13._model_combo.currentData() != "nemotron", True)
+w13.close()
+
+os.environ["PATH"] = fake_asr_dir(nemotron=True, whisper_rust=True)
+wm = mod.MeetingWindow()
+check("master engines: Whisper-Rust entry enabled", model_item_enabled(wm, "whisper-rust"), True)
+check("master engines: Nemotron entry enabled", model_item_enabled(wm, "nemotron"), True)
+check("master engines: the saved Nemotron choice is honoured", wm._model_combo.currentData(), "nemotron")
+wm.close()
+os.remove(_conf_path)
+
 os.environ["PATH"] = saved_path
 mod.QMessageBox = saved_box
 

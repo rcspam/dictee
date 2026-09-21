@@ -969,6 +969,27 @@ def _moss_available():
         return False
 
 
+def _whisper_rust_available():
+    """The Whisper-Rust live engine is its own daemon binary; start_meeting
+    would otherwise refuse it at Start with a fallback message."""
+    return bool(shutil.which("transcribe-daemon-whisper-rust"))
+
+
+def _nemotron_available():
+    """Nemotron rides on transcribe-daemon with DICTEE_ASR_BACKEND=nemotron.
+    A daemon without the backend ignores that and serves Parakeet under the
+    Nemotron label, so probe --help for the flag the backend documents,
+    like missing_live_engine_features() does for the streaming flags."""
+    exe = shutil.which("transcribe-daemon")
+    if not exe:
+        return False
+    try:
+        proc = subprocess.run([exe, "--help"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "--nemotron" in proc.stdout + proc.stderr
+
+
 class DiarizationWorker(QObject):
     """Keeps a streaming diarizer subprocess alive and sends chunks via stdin.
 
@@ -1749,6 +1770,16 @@ class MeetingWindow(QWidget):
                             (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
                             ("Nemotron", "nemotron")):
             self._model_combo.addItem(_lbl, _spec)
+        # Grey out the engines this install does not carry, like the
+        # diarization combo below: Whisper-Rust and Nemotron are optional
+        # (absent from the 1.3 line), and a dead entry would only fail at
+        # Start or, for Nemotron, run Parakeet under the wrong label.
+        if not _whisper_rust_available():
+            self._model_combo.model().item(
+                self._model_combo.findData("whisper-rust")).setEnabled(False)
+        if not _nemotron_available():
+            self._model_combo.model().item(
+                self._model_combo.findData("nemotron")).setEnabled(False)
         # Kyutai ships in the CUDA package only — offering it where the binary
         # cannot exist would be a dead entry (unlike whisper-rust, in both).
         if shutil.which("transcribe-daemon-kyutai"):
@@ -1758,10 +1789,12 @@ class MeetingWindow(QWidget):
               "the choice made in dictee-setup."))
         # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper specs
         # folded into the engine-level ones), else the current F9 model.
+        # A saved choice that points at a greyed-out engine is skipped and
+        # the first entry (Parakeet int8) stays selected.
         _saved = normalize_asr_spec(
             _conf.get("DICTEE_MEETING_ASR_MODEL") or current_f9_spec(_conf))
         _i = self._model_combo.findData(_saved)
-        if _i >= 0:
+        if _i >= 0 and self._model_combo.model().item(_i).isEnabled():
             self._model_combo.setCurrentIndex(_i)
         self._model_combo.currentIndexChanged.connect(
             lambda _i: self._write_conf_key("DICTEE_MEETING_ASR_MODEL",
