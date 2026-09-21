@@ -48,6 +48,63 @@ _drop_stale_user_units() {
     done
 }
 
+_restart_user_services() {
+    # Same block as the .deb postinst and the .rpm %post: for every logged-in
+    # user, reload the user manager, apply the presets, enable the essential
+    # services, restart them so they pick up the binaries just installed, and
+    # start the ASR daemon the user's dictee.conf asks for. Without it an
+    # upgrade leaves the previous daemon running, and a move from a tarball
+    # install to this package (whose stale units _drop_stale_user_units just
+    # removed) leaves no daemon at all: tray offline, nothing transcribes.
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        [ -d "/run/user/$uid" ] || continue
+        _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+        $_run systemctl --user daemon-reload 2>/dev/null || true
+        $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
+        $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+        $_run systemctl --user restart dotoold 2>/dev/null || true
+        $_run systemctl --user restart dictee-ptt 2>/dev/null || true
+        _user_home=$(getent passwd "$user" | cut -d: -f6)
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            $_run systemctl --user restart dictee-tray 2>/dev/null || true
+        else
+            echo "  dictee-tray: waiting for configuration (dictee-setup)"
+        fi
+        # Start the ASR daemon the user configured, never a hardcoded one.
+        _asr_backend="parakeet"
+        if [ -f "$_user_home/.config/dictee.conf" ]; then
+            _asr_backend=$(grep -s '^DICTEE_ASR_BACKEND=' "$_user_home/.config/dictee.conf" | cut -d= -f2)
+        fi
+        case "$_asr_backend" in
+            vosk)    _asr_svc="dictee-vosk" ;;
+            whisper) _asr_svc="dictee-whisper" ;;
+            canary)  _asr_svc="dictee-canary" ;;
+            *)       _asr_svc="dictee" ;;
+        esac
+        $_run systemctl --user stop dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user disable dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user enable "$_asr_svc" 2>/dev/null || true
+        $_run systemctl --user start "$_asr_svc" 2>/dev/null || true
+        echo "✓ services restarted for $user ($_asr_svc, backend: $_asr_backend)"
+    done
+}
+
+_stop_user_services() {
+    # Same as the .deb postrm: stop and disable the user services before the
+    # binaries go, so nothing keeps running against deleted files.
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        [ -d "/run/user/$uid" ] || continue
+        _run="sudo -u $user XDG_RUNTIME_DIR=/run/user/$uid DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus"
+        $_run systemctl --user stop dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user disable dictee-ptt dictee-tray dotoold dictee dictee-vosk dictee-whisper dictee-canary 2>/dev/null || true
+        $_run systemctl --user daemon-reload 2>/dev/null || true
+    done
+}
+
 _setup_user_groups() {
     # Add logged-in users to the 'input' group (dotool / dictee-ptt
     # need /dev/uinput access) and 'docker' group when docker is
@@ -79,6 +136,7 @@ post_install() {
     _install_uinput_drop_in
     _drop_stale_user_units
     _setup_user_groups
+    _restart_user_services
 
     # Create Python venv for text2num (number conversion)
     PP_VENV="/usr/share/dictee/postprocess-env"
@@ -99,6 +157,7 @@ post_upgrade() {
     _install_uinput_drop_in
     _drop_stale_user_units
     _setup_user_groups
+    _restart_user_services
 
     PP_VENV="/usr/share/dictee/postprocess-env"
     if [ -d "$PP_VENV" ] && command -v python3 >/dev/null 2>&1; then
@@ -110,6 +169,7 @@ post_upgrade() {
 }
 
 pre_remove() {
+    _stop_user_services
     rm -rf /usr/share/dictee/postprocess-env
     rm -f /etc/udev/rules.d/81-dictee-uinput.rules
 }
