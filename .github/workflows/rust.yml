@@ -144,6 +144,10 @@ jobs:
       run: python3 tests/test-keyboard-rescan.py
     - name: Run input group bridge tests
       run: python3 tests/test-ptt-group-bridge.py -v
+    # The sandboxed evdev loop on fake uinput keyboards: no key may stay
+    # pressed on the passthrough after a key capture, a hotplug or a stop.
+    - name: Run stuck-keys tests (sandboxed dictee-ptt)
+      run: python3 tests/test-ptt-stuck-keys.py -v
     - name: Install Python test deps
       run: python3 -m pip install --user evdev
     # This job used to report OK on 6 tests out of 6 skipped: every case here

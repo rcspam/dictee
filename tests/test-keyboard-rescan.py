@@ -40,6 +40,12 @@ class FakeDevice:
     def capabilities(self, verbose=False):
         return self._caps
 
+    def active_keys(self, verbose=False):
+        # The rescan reads this before grabbing: a keyboard with a key held
+        # is left for the next pass, so its release is not stolen from the
+        # compositor. Nothing is held in these tests.
+        return []
+
     def grab(self):
         self.grabbed = True
 
