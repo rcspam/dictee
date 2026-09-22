@@ -365,7 +365,41 @@ class StuckKeysTests(unittest.TestCase):
             self.assertTrue(wait_until(lambda: is_grabbed(kbd_b.name) is True, 8),
                             "hotplugged keyboard never grabbed after the key was released")
 
-    # 6. stopping the daemon -----------------------------------------------------
+    # 6. the dictation key under a modifier the daemon does not own -----------------
+
+    def test_dictation_key_release_follows_its_press_through(self):
+        """Ctrl+F9 is none of the daemon's chords (Alt selects translation
+        here), so the press is passed to the applications; the release must
+        follow it, or the compositor keeps F9 down and autorepeats it without
+        end (measured on the host with Alt+PTT: a burst of the PTT character
+        until another key was pressed)."""
+        watcher = find_node(PASSTHROUGH)
+        self.kbd.down(e.KEY_LEFTCTRL)
+        time.sleep(0.2)
+        self.kbd.down(e.KEY_F9)
+        time.sleep(0.2)
+        self.kbd.up(e.KEY_F9)
+        time.sleep(0.2)
+        self.kbd.up(e.KEY_LEFTCTRL)
+        time.sleep(0.5)
+        seen = []
+        try:
+            while True:
+                ev = watcher.read_one()
+                if ev is None:
+                    break
+                if ev.type == e.EV_KEY and ev.code == e.KEY_F9:
+                    seen.append(ev.value)
+        except BlockingIOError:
+            pass
+        finally:
+            watcher.close()
+        self.assertEqual(seen, [1, 0],
+                         "the press of the dictation key was passed through but not its release")
+        self.assertEqual(virtual_keys_down(), [],
+                         f"keys left pressed on the passthrough: {virtual_keys_down()}")
+
+    # 7. stopping the daemon -----------------------------------------------------
 
     def test_shutdown_releases_the_keys(self):
         self._hold_and_check_reemitted(e.KEY_LEFTSHIFT)
