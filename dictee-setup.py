@@ -15545,19 +15545,23 @@ class DicteeSetupDialog(QDialog):
         Only called in non-wizard mode (regular setup).
         """
         # Silence threshold slider (anti-hallucination)
-        # Range 10..60 → 0.010..0.060. Default 30 (= 0.030).
+        # Range 3..60 → 0.003..0.060. Default 30 (= 0.030). The floor was
+        # 0.010 until 1.3.7: on an interface with the gain knob low, speech
+        # measures below that (0.013 to 0.018 on the setup of issue #37,
+        # against a calibrated 0.023), so everything was dropped as silence
+        # and a hand-written 0.008 was clamped back on the next setup run.
         try:
             _saved_rms = float(conf.get("DICTEE_SILENCE_RMS", "0.03"))
         except ValueError:
             _saved_rms = 0.03
-        _saved_rms_int = max(10, min(60, int(round(_saved_rms * 1000))))
+        _saved_rms_int = max(3, min(60, int(round(_saved_rms * 1000))))
 
         lay_sil = QHBoxLayout()
         lay_sil.setSpacing(8)
         lbl_sil = QLabel(_("Silence threshold:"))
         lbl_sil.setToolTip(_tt(_("RMS level below which the recording is considered silent and transcription is skipped. Prevents ASR hallucinations (parasitic phrases invented on background noise).")))
         self.slider_silence = QSlider(Qt.Orientation.Horizontal)
-        self.slider_silence.setRange(10, 60)
+        self.slider_silence.setRange(3, 60)
         self.slider_silence.setValue(_saved_rms_int)
         self.slider_silence.setTickInterval(10)
         self.slider_silence.setTickPosition(QSlider.TickPosition.TicksBelow)
@@ -15566,7 +15570,7 @@ class DicteeSetupDialog(QDialog):
         self.lbl_silence_val.setStyleSheet("font-family: monospace;")
 
         def _rms_to_meter_level(rms_int):
-            # rms_int is the slider value (10..60, representing 0.010..0.060).
+            # rms_int is the slider value (3..60, representing 0.003..0.060).
             # Meter level uses: level = (20*log10(rms_norm) + 50) * 2, same
             # formula as AudioLevelMonitor, so the marker lines up with
             # actual VU readings.

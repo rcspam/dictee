@@ -129,6 +129,7 @@ jobs:
         python3 tests/test-meeting-live-wiring.py
         python3 tests/offscreen-check_meeting_live_window.py
         python3 tests/offscreen-check_transcribe_handoff.py
+        python3 tests/offscreen-check_silence_floor.py
       env:
         QT_QPA_PLATFORM: offscreen
 
