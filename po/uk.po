@@ -6065,3 +6065,27 @@ msgstr "0 вимикає звук, як раніше. Будь-яке інше �
 #: dictee-setup.py
 msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
 msgstr "Навушники ніколи не вимикаються: ніщо з того, що вони грають, не потрапляє в мікрофон. 0 їх не чіпає, інше значення обмежує їх під час запису."
+
+#: dictee-setup.py
+msgid "Playback while recording:"
+msgstr "Звук під час запису:"
+
+#: dictee-setup.py
+msgid "Muted"
+msgstr "Вимкнено"
+
+#: dictee-setup.py
+msgid "Untouched"
+msgstr "Без змін"
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate."
+msgstr "Не дає звуку з колонок потрапити в запис. Ліворуч вимикає, праворуч не змінює, посередині обмежує цим рівнем."
+
+#: dictee-setup.py
+msgid "Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."
+msgstr "Колонки: за замовчуванням вимкнені, бо їхній звук потрапляє в мікрофон і в транскрипцію."
+
+#: dictee-setup.py
+msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
+msgstr "Навушники: за замовчуванням без змін, ніщо з них не потрапляє в мікрофон. Знизьте, щоб тихіше чути дзвінок."

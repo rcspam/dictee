@@ -76,30 +76,35 @@ check("slider range still ends at 60", d.slider_silence.maximum(), 60)
 d.slider_silence.setValue(5)
 check("label follows a low value", d.lbl_silence_val.text(), "0.005")
 
-# --- the two duck levels sit next to the mute choice -------------------------
-# Without them, DICTEE_DUCK_LEVEL could only be set by hand in dictee.conf and
-# nothing in the window hinted that it existed. Sliders, like the threshold
-# below. A headset has its own level: auto leaves it alone otherwise.
+# --- what happens to the playback, one row per kind of output ----------------
+# Left is muted, right is untouched. Speakers default to a mute, a headset to
+# untouched: nothing it plays reaches the microphone.
 
-d = page(DICTEE_MUTE_OUTPUT="true", DICTEE_DUCK_LEVEL="10", DICTEE_DUCK_LEVEL_HEADSET="30")
-check("the speaker level has a slider", hasattr(d, "slider_duck"), True)
-check("the headset level has a slider", hasattr(d, "slider_duck_headset"), True)
+d = page(DICTEE_DUCK_LEVEL="10", DICTEE_DUCK_LEVEL_HEADSET="30")
+check("the speakers have a slider", hasattr(d, "slider_duck"), True)
+check("the headset has a slider", hasattr(d, "slider_duck_headset"), True)
 check("the speaker level is read back", d.slider_duck.value(), 10)
 check("the headset level is read back", d.slider_duck_headset.value(), 30)
-check("the speaker slider reads Mute at 0", page().lbl_duck_val.text(), "Mute")
-check("the headset slider reads nothing at 0", page().lbl_duck_headset_val.text(), "Off")
-check("a level out of range falls back to 0",
-      page(DICTEE_DUCK_LEVEL="900").slider_duck.value(), 0)
-check("garbage falls back to 0", page(DICTEE_DUCK_LEVEL="abc").slider_duck.value(), 0)
-check("the label follows the slider",
-      (d.slider_duck.setValue(25), d.lbl_duck_val.text())[1], "25 %")
 
-# Never muting means there is nothing to lower on speakers; a headset level
-# stays usable, since it is the one thing auto would not have done anyway.
-d = page(DICTEE_MUTE_OUTPUT="false", DICTEE_DUCK_LEVEL="10")
-check("speaker slider disabled when the mute is off", d.slider_duck.isEnabled(), False)
-d.cmb_mute_output.setCurrentIndex(d.cmb_mute_output.findData("auto"))
-check("re-enabled when the mute comes back", d.slider_duck.isEnabled(), True)
+d = page()
+check("speakers default to muted", d.slider_duck.value(), 0)
+check("and say so", d.lbl_duck_val.text(), "Muted")
+check("a headset defaults to untouched", d.slider_duck_headset.value(), 100)
+check("and says so", d.lbl_duck_headset_val.text(), "Untouched")
+
+check("both sliders start at 0", d.slider_duck.minimum(), 0)
+check("both sliders end at 100", d.slider_duck.maximum(), 100)
+check("a level out of range falls back to the default",
+      page(DICTEE_DUCK_LEVEL="900").slider_duck.value(), 0)
+check("garbage falls back to the default",
+      page(DICTEE_DUCK_LEVEL_HEADSET="abc").slider_duck_headset.value(), 100)
+
+d.slider_duck.setValue(25)
+check("the label follows the slider", d.lbl_duck_val.text(), "25 %")
+d.slider_duck_headset.setValue(0)
+check("a headset can be muted from here too", d.lbl_duck_headset_val.text(), "Muted")
+
+check("the mute combo is gone", hasattr(d, "cmb_mute_output"), False)
 
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")
