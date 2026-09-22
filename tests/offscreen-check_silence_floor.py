@@ -106,6 +106,30 @@ check("a headset can be muted from here too", d.lbl_duck_headset_val.text(), "Mu
 
 check("the mute combo is gone", hasattr(d, "cmb_mute_output"), False)
 
+# The icon carries a bar across it at the muted end. Needs a real icon theme:
+# the offscreen platform has an empty themeSearchPaths, so point it at the
+# system one. Skipped where no theme is installed (a bare CI runner).
+from PyQt6.QtGui import QIcon  # noqa: E402
+
+QIcon.setThemeSearchPaths(["/usr/share/icons"])
+QIcon.setThemeName("breeze")
+if QIcon.fromTheme("audio-speakers").isNull():
+    print("SKIP the muted icon is slashed: no icon theme here")
+else:
+    d = page()
+    d.slider_duck.setValue(50)
+    _on = d.ico_duck.pixmap().cacheKey()
+    d.slider_duck.setValue(0)
+    check("the speaker icon changes when muted",
+          d.ico_duck.pixmap().cacheKey() != _on, True)
+    d.slider_duck.setValue(50)
+    check("and changes back when it is not",
+          d.ico_duck.pixmap().cacheKey(), _on)
+    d.slider_duck_headset.setValue(0)
+    check("the headset icon is slashed too",
+          d.ico_duck_headset.pixmap().cacheKey()
+          != page().ico_duck_headset.pixmap().cacheKey(), True)
+
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")
     sys.exit(1)
