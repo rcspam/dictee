@@ -588,6 +588,10 @@ mode_online() {
             "/usr/bin/diarize-multi"
             "/usr/bin/transcribe"
             "/usr/bin/transcribe-"*
+            # Everything mode_tarball puts in /usr/lib/dictee: the two
+            # helpers, and on the CUDA tarball the ONNX Runtime libraries
+            # and setup-cuda-venv.sh, which PKGBUILD-cuda ships too.
+            "/usr/lib/dictee/"*
             "/usr/share/dictee/assets/banner-"*.svg
             "/usr/share/dictee/assets/logos/"*.svg
             "/usr/share/dictee/assets/icons/"*.svg
