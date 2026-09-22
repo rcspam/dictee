@@ -15587,11 +15587,28 @@ class DicteeSetupDialog(QDialog):
         # output, icon first (issue #37). Left is muted, right is untouched.
         # Speakers default to a mute, the historical behaviour; a headset is
         # left alone, nothing it plays reaches the microphone.
+        def _slashed(pm):
+            # No theme ships audio-speakers-muted or audio-headphones-muted,
+            # so the bar is drawn here, corner to corner.
+            if pm.isNull():
+                return pm
+            out = QPixmap(pm)
+            p = QPainter(out)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            w, h = out.width(), out.height()
+            p.setPen(QPen(QColor("#e74c3c"), max(2, w // 9),
+                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.drawLine(int(w * 0.15), int(h * 0.15),
+                       int(w * 0.85), int(h * 0.85))
+            p.end()
+            return out
+
         def _duck_row(icon_name, tip, key, default):
             lay = QHBoxLayout()
             lay.setSpacing(8)
             ico = QLabel()
-            ico.setPixmap(QIcon.fromTheme(icon_name).pixmap(22, 22))
+            pm_on = QIcon.fromTheme(icon_name).pixmap(22, 22)
+            pm_off = _slashed(pm_on)
             ico.setToolTip(_tt(tip))
             sld = QSlider(Qt.Orientation.Horizontal)
             sld.setRange(0, 100)
@@ -15608,6 +15625,7 @@ class DicteeSetupDialog(QDialog):
             val.setStyleSheet("font-family: monospace;")
 
             def _show(v):
+                ico.setPixmap(pm_off if v == 0 else pm_on)
                 val.setText(_("Muted") if v == 0 else
                             _("Untouched") if v == 100 else f"{v} %")
 
@@ -15620,16 +15638,17 @@ class DicteeSetupDialog(QDialog):
             # takes as much room as the slider itself.
             lay.addStretch(1)
             lay_mic.addLayout(lay)
-            return sld, val
+            return sld, val, ico
 
         lbl_duck = QLabel(_("Playback while recording:"))
         lbl_duck.setToolTip(_tt(_("Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate.")))
         lay_mic.addWidget(lbl_duck)
-        self.slider_duck, self.lbl_duck_val = _duck_row(
+        self.slider_duck, self.lbl_duck_val, self.ico_duck = _duck_row(
             "audio-speakers",
             _("Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."),
             "DICTEE_DUCK_LEVEL", 0)
-        self.slider_duck_headset, self.lbl_duck_headset_val = _duck_row(
+        (self.slider_duck_headset, self.lbl_duck_headset_val,
+         self.ico_duck_headset) = _duck_row(
             "audio-headphones",
             _("Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."),
             "DICTEE_DUCK_LEVEL_HEADSET", 100)
