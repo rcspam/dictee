@@ -15616,6 +15616,9 @@ class DicteeSetupDialog(QDialog):
             lay.addWidget(ico)
             lay.addWidget(sld, 1)
             lay.addWidget(val)
+            # Half the width of the silence slider above: the trailing stretch
+            # takes as much room as the slider itself.
+            lay.addStretch(1)
             lay_mic.addLayout(lay)
             return sld, val
 
