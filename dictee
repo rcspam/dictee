@@ -250,11 +250,10 @@ _should_mute_output() {
 _output_action() {
     local setting="$1" is_headset="$2" level="$3" head_level="$4" current="$5"
     if [ "$is_headset" = "yes" ]; then
-        # Its own level wins wherever it is set, and never mutes.
+        # 0 means the user asked for a mute here too; empty means the level
+        # was never set, and auto then leaves the headset alone.
         if [ -n "$head_level" ]; then
-            local t
-            t=$(_duck_target "$head_level" "$current")
-            [ "$t" = "mute" ] && echo "keep" || echo "$t"
+            _duck_target "$head_level" "$current"
             return
         fi
         # No headset level: auto leaves it alone, true falls back to the

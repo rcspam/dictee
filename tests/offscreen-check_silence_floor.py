@@ -46,13 +46,13 @@ def check(label, got, expected):
         failures.append(label)
 
 
-def page(saved_rms):
+def page(saved_rms="0.03", **conf):
     dlg = mod.DicteeSetupDialog.__new__(mod.DicteeSetupDialog)
     QDialog.__init__(dlg)
     dlg.wizard_mode = False
     host = QWidget()
     root.layout().addWidget(host)
-    dlg._build_mic_section(QVBoxLayout(host), {"DICTEE_SILENCE_RMS": saved_rms})
+    dlg._build_mic_section(QVBoxLayout(host), dict({"DICTEE_SILENCE_RMS": saved_rms}, **conf))
     return dlg
 
 
@@ -75,6 +75,36 @@ check("slider range still ends at 60", d.slider_silence.maximum(), 60)
 # collapsing to the bottom of the meter.
 d.slider_silence.setValue(5)
 check("label follows a low value", d.lbl_silence_val.text(), "0.005")
+
+# --- what happens to the playback, one row per kind of output ----------------
+# Left is muted, right is untouched. Speakers default to a mute, a headset to
+# untouched: nothing it plays reaches the microphone.
+
+d = page(DICTEE_DUCK_LEVEL="10", DICTEE_DUCK_LEVEL_HEADSET="30")
+check("the speakers have a slider", hasattr(d, "slider_duck"), True)
+check("the headset has a slider", hasattr(d, "slider_duck_headset"), True)
+check("the speaker level is read back", d.slider_duck.value(), 10)
+check("the headset level is read back", d.slider_duck_headset.value(), 30)
+
+d = page()
+check("speakers default to muted", d.slider_duck.value(), 0)
+check("and say so", d.lbl_duck_val.text(), "Muted")
+check("a headset defaults to untouched", d.slider_duck_headset.value(), 100)
+check("and says so", d.lbl_duck_headset_val.text(), "Untouched")
+
+check("both sliders start at 0", d.slider_duck.minimum(), 0)
+check("both sliders end at 100", d.slider_duck.maximum(), 100)
+check("a level out of range falls back to the default",
+      page(DICTEE_DUCK_LEVEL="900").slider_duck.value(), 0)
+check("garbage falls back to the default",
+      page(DICTEE_DUCK_LEVEL_HEADSET="abc").slider_duck_headset.value(), 100)
+
+d.slider_duck.setValue(25)
+check("the label follows the slider", d.lbl_duck_val.text(), "25 %")
+d.slider_duck_headset.setValue(0)
+check("a headset can be muted from here too", d.lbl_duck_headset_val.text(), "Muted")
+
+check("the mute combo is gone", hasattr(d, "cmb_mute_output"), False)
 
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")

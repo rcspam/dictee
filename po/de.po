@@ -4884,3 +4884,27 @@ msgstr "0 schaltet die Ausgabe stumm, wie bisher. Jeder andere Wert begrenzt sie
 #: dictee-setup.py
 msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
 msgstr "Ein Kopfhörer wird nie stummgeschaltet: nichts davon erreicht das Mikrofon. 0 lässt ihn unberührt, jeder andere Wert begrenzt ihn während der Aufnahme."
+
+#: dictee-setup.py
+msgid "Playback while recording:"
+msgstr "Wiedergabe während der Aufnahme:"
+
+#: dictee-setup.py
+msgid "Muted"
+msgstr "Stumm"
+
+#: dictee-setup.py
+msgid "Untouched"
+msgstr "Unverändert"
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate."
+msgstr "Hält die Lautsprecher aus der Aufnahme heraus. Links stumm, rechts unverändert, dazwischen auf diesen Wert begrenzt."
+
+#: dictee-setup.py
+msgid "Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."
+msgstr "Lautsprecher: standardmäßig stumm, da ihr Klang das Mikrofon erreicht und in der Transkription landet."
+
+#: dictee-setup.py
+msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
+msgstr "Kopfhörer: standardmäßig unverändert, nichts davon erreicht das Mikrofon. Absenken, um einen Anruf leiser weiterzuhören."
