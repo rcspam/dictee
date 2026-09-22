@@ -1,0 +1,124 @@
+Speaker 0:
+     On est dans la French et vous connaissez le jeu. Pour deviner l'invité, en 4 points, si vous l'avez immédiatement, 3 points si vous avez besoin d'indices, deux points si vous avez besoin de plus d'indices et un point quand tout est déjà dit. Vous êtes parti pour jouer, Steve ? Je suis parti. Moi, je suis gagné. Alors, en 4 points, notre invité est un chercheur extrêmement connu. Non, plaisante. C'est Yann Lecun.
+     Allons-y. On ne va pas passer de temps. Bienvenue, Yann.
+
+
+Speaker 1:
+     Plaisir d'être ici.
+     Merci de m'inviter.
+
+Speaker 0:
+    En plus, Néon Noir, c'est un lieu que tu connais. Tu passes de temps en temps quand tu viens en France.
+
+
+Speaker 1:
+     Oui, 2, 3 fois, je suis passé. Ça a beaucoup changé.
+     Ça s'est peuplé, meublé, agrandi.
+
+Speaker 0:
+     Vous connaissez avec Yann depuis plus de temps que nous.
+
+
+Speaker 2:
+     Oui, depuis le tout début de ZML.
+
+Speaker 1:
+     On a été présenté par Gabriel.
+
+
+Speaker 2:
+     Par Gabriel Sinev. Et alors, pour la petite histoire, on s'est accrochés, accrochés au sens… On s'est accrochés sur les langages de programmation. Oui. Et en particulier, ce qu'on appelle le multistage programming. Donc, en référence à un langage qui s'appelle Terra, qui était une sorte de superset de l'UA. Oui. L'idée, c'est d'avoir du métaprogramming dans le langage. En fait, tu as un seul contrôle flow où tu programmes le langage avec le langage lui-même. Par opposition au macro ou en template ou tout le métaprogramming. Et du coup, il m'avait dit…
+
+Speaker 0:
+     Et moi, je te vois aussi, Yann, à chaque fois, un tweet de très French Maxing avec de la raclette ou des trucs comme ça en Savoie, tout ça. Il y a un petit like d'yann Lequin. C'est un peu ça.
+
+Speaker 2:
+     Je peux toujours compter. Oui. Au début, j'étais content. J'y ai regardé.
+     Maintenant, j'ai oui.
+
+Speaker 3:
+     C'est un mot, ça, le French Maxing ?
+
+Speaker 1:
+     French Maxing, c'en est un maintenant.
+     Oui, c'est un mot.
+
+Speaker 2:
+     Maximisation de France. Maximisation.
+
+Speaker 1:
+     Comme disait Victor Hugo, qui avait utilisé je ne sais pas quel mot, puis quelqu'un lui avait dit mais ce n'est pas un mot français. Il a dit maintenant, si.
+
+Speaker 0:
+     C'est quand même classe de s'appeler Hugo quand tu peux définir. Le dictionnaire, c'est moi.
+
+Speaker 1:
+     Mais cette discussion, la raison pour laquelle on avait discuté de ça, c'est parce que moi, je suis un grand fan de l'ISP. Et l'ISP, c'est un langage…
+
+
+
+Speaker 2:
+     Exactement. Data is code.
+
+Speaker 1:
+     Data is code. Et puis, tu peux tripatouiller. C'est un langage de programmation programmable. Il y a beaucoup de parenthèses qu'on va faire.
+     Voilà. Ça, ce n'est pas un problème.
+
+
+Speaker 2:
+     Moi, je n'ai jamais pu m'y faire.
+
+
+Speaker 0:
+     C'est vrai ? J'ai fait beaucoup de closures.
+
+Speaker 3:
+     Tu n'étais pas un IMAX guy ?
+
+Speaker 2:
+     Non, mais dans IMAX, j'étais customer. Je n'étais pas programmateur. Je suis un programmeur à IMAX. Par contre, quand j'ai fait beaucoup de closures, que j'adore, d'ailleurs poussé par quelqu'un qui s'appelle Pierre-Yves Richard, qui est le CTO de Poolside maintenant, j'avais vraiment l'impression de faire un langage du futur, quelque part du passé, puisque la syntaxe et tout. C'est un peu le passé. Mais putain, je n'ai jamais réussi à m'y faire. Les parenthèses, ça me j'avais tout fait les colorations, les machins et tout.
+     Je n'ai jamais réussi à m'y faire.
+
+Speaker 1:
+     Et little known fact, en 80, en 87, quand je terminais mon doctorat, j'ai rencontré un jeune étudiant de Polytechnique qui s'appelait Léon Botou. Et puis, il a dit, je voudrais faire un projet pour ma fin d'études de Polytechnique. Est-ce que je peux faire un stage avec toi ? Je lui ai dit, tu ne peux pas parce que je n'ai pas fini ma thèse. Il m'a dit, ce n'est pas grave, je ne vais pas le dire à l'école. Et je lui ai dit, écoute, je commence à écrire un nouveau simulateur de réseau de neurones. Est-ce que tu veux m'aider ? Et je lui ai dit, j'aimerais bien avoir un langage d'interface. J'ai pensé à utiliser Force et des trucs comme ça. Plutôt que de réinventer un langage, en fait, il faudrait peut-être un Lisp. Donc, j'aurais bien un intrapate Lisp. Et on avait tous les deux des Amiga 1000. Je vois que tu n'en as pas ici, sur ta table. C'est un manque.
+
+
+Speaker 2:
+     Oui, la prochaine fois, ce sera agréable.
+     Mais n'empêche, je ne vous ai pas foutu de votre gueule, je vous ai ramené une B-Box.
+
+
+Speaker 1:
+     Une B-Box. Mais justement, la B-Box est inspirée de l'Amiga.
+
+
+Speaker 2:
+     exactement
+
+
+Speaker 1:
+     Voilà.
+
+
+Speaker 0:
+     Et tu l'avais fait exprès, bien sûr.
+
+
+Speaker 2:
+     Alors non, mais on a une conversation sur Twitter où justement, Yann avait rebondi et justement, il avait expliqué ça. C'est peut-être le plus dur à trouver des Amiga aujourd'hui, non ? Moins que des B-Box. Je peux te dire, c'est là…
+
+
+Speaker 1:
+     Et tu peux trouver des simulateurs et tout ça. Non, mais tu peux en acheter aussi. Et Léon, en 3 semaines, a écrit un intrapate Lisp en C, que j'ai utilisé comme front-end. Ensuite, je suis parti faire mon post-doc à Toronto. Et en fait, on a utilisé ce système-là, qui au début s'appelait SN, Simulator Neuronal, qui ensuite s'est appelé Lush, quand on l'a open-sourcé en 2002. Et je l'ai utilisé dans toute ma recherche avec mes étudiants jusqu'en 2011, où là, on est passé à Torch. À l'UA, du coup. Donc, il était basé sur l'UA et ensuite, pas à Torch, mais c'était bien plus tard. Donc, il y a eu une grande longévité. Bon, il y a eu des versions successives. Mais… C'était quoi ton sujet ?
+
+
+Speaker 3:
+     C'était écrit sur
+
+
+Speaker 1:
+     c'était sur la rétropropagation, les réseaux multicouches, etc.
+
+
+Speaker 0:
+     Justement, la rétropropagation du gradient, c'est un peu

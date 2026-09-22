@@ -85,6 +85,12 @@ DICTEE_VOSK_MODEL=fr
 # Also in dictee-setup, on the Microphone page next to the mute choice.
 #DICTEE_DUCK_LEVEL=
 
+# Same, on a headset. A headset is never muted (nothing of what it plays
+# reaches the microphone), so this is the only way to lower it: empty leaves
+# it untouched, 30 caps it at 30% while you dictate. Useful to keep hearing a
+# call at a lower volume. Also in dictee-setup, next to the one above.
+#DICTEE_DUCK_LEVEL_HEADSET=
+
 
 # ============================================================================
 # Live meetings

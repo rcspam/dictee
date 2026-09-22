@@ -1,0 +1,387 @@
+[
+  {
+    "start": 1.44,
+    "end": 13.76,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "On est dans la French et vous connaissez le jeu. Pour deviner l'invité en 4 points, si vous l'avez immédiatement, 3 points si vous avez besoin d'un indice, deux points si vous avez besoin de plus d'indices et un point quand tout est déjà dit. Vous êtes parti pour Joe Sive ?"
+  },
+  {
+    "start": 13.84,
+    "end": 14.36,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Je suis parti."
+  },
+  {
+    "start": 14.4,
+    "end": 14.96,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Parti pour ?"
+  },
+  {
+    "start": 15.0,
+    "end": 15.72,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Moi je gagne."
+  },
+  {
+    "start": 16.16,
+    "end": 20.84,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Alors 1 4 points. Notre invité est un chercheur extrêmement connu. Non plaisant, c'est Yann LeCun."
+  },
+  {
+    "start": 25.76,
+    "end": 26.44,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "voilà"
+  },
+  {
+    "start": 28.28,
+    "end": 30.16,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Voilà, on va pas passer de temps. Bienvenue Yann."
+  },
+  {
+    "start": 30.2,
+    "end": 31.8,
+    "speaker_id": "Speaker 3",
+    "speaker": "Yan",
+    "text": "Un plaisir d'être ici, merci de m'avité."
+  },
+  {
+    "start": 31.84,
+    "end": 35.56,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Écoute, en plus Néant Noir, c'est un lieu que tu connais. Tu passes de temps en temps quand tu viens en France."
+  },
+  {
+    "start": 35.6,
+    "end": 37.04,
+    "speaker_id": "Speaker 3",
+    "speaker": "Yan",
+    "text": "Oui, 2, 3 fois je suis passé, oui."
+  },
+  {
+    "start": 37.08,
+    "end": 38.04,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Ouais, ça a beaucoup changé."
+  },
+  {
+    "start": 38.08,
+    "end": 41.24,
+    "speaker_id": "Speaker 3",
+    "speaker": "Yan",
+    "text": "Ça s'est peuplé, meublé, agrandi."
+  },
+  {
+    "start": 42.56,
+    "end": 45.12,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Vous connaissez avec Yann depuis un petit, depuis plus de temps que nous ?"
+  },
+  {
+    "start": 45.16,
+    "end": 48.64,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Oui depuis le tout début de ZML."
+  },
+  {
+    "start": 48.68,
+    "end": 51.52,
+    "speaker_id": "Speaker 3",
+    "speaker": "Yan",
+    "text": "De ZML, oui. On a été présenté par Gabriel."
+  },
+  {
+    "start": 51.56,
+    "end": 63.12,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Par Gabriel Sinéve. Et alors pour la petite histoire, on s'est accroché, accroché au sens… On s'est mis sur la gueule. On s'est accroché sur les langages de programmation."
+  },
+  {
+    "start": 63.16,
+    "end": 63.64,
+    "speaker_id": "Speaker 3",
+    "speaker": "Yan",
+    "text": "Oui"
+  },
+  {
+    "start": 63.72,
+    "end": 73.64,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Et en particulier ce qu'on appelle le multistage programming. Donc en référence à un langage qui s'appelle Terra, qui était une sorte de super set de l'UA."
+  },
+  {
+    "start": 73.88,
+    "end": 74.36,
+    "speaker_id": "Speaker 3",
+    "speaker": "Yan",
+    "text": "Oui"
+  },
+  {
+    "start": 74.4,
+    "end": 85.0,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "L'idée, c'est d'avoir du meta-programming dans le langage. Tu vois, en fait, t'as un seul contrôle flow où tu programmes le langage avec le langage lui-même. Par opposition au macro, ou en template, ou tout le meta-programming."
+  },
+  {
+    "start": 85.04,
+    "end": 98.64,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Et du coup, il m'avait dit : « Ah ! » Et moi, je te vois aussi Yann à chaque fois parce que dès que Steve fait un tweet de très French maxing avec de la raclette ou des trucs comme ça en sa voix, tout ça, il y a un petit like d'yann LeCun."
+  },
+  {
+    "start": 99.08,
+    "end": 103.56,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Ça peut toujours compter. Au début, j'étais content, j'y ai regardé, maintenant, j'ai…"
+  },
+  {
+    "start": 103.6,
+    "end": 104.96,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "C'est un mot ça, le French maxing ?"
+  },
+  {
+    "start": 105.04,
+    "end": 106.56,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "French maxing, s'en vient maintenant."
+  },
+  {
+    "start": 106.6,
+    "end": 108.12,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Ouais, la maximisation de français."
+  },
+  {
+    "start": 109.24,
+    "end": 113.84,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Comme disait Victor Hugo qui avait utilisé, je sais pas quel mot, puis quelqu'un avait dit : « Mais c'est pas un mot français. » Il a dit : « maintenant, si. »"
+  },
+  {
+    "start": 117.72,
+    "end": 120.12,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "C'est quand même classe de s'appeler Hugo quand tu peux définir quoi."
+  },
+  {
+    "start": 120.16,
+    "end": 121.16,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Le dictionnaire, c'est moi quoi."
+  },
+  {
+    "start": 121.2,
+    "end": 128.8,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Mais cette discussion, la raison pour laquelle on avait discuté de ça, c'est parce que moi, je suis un grand fan de Lisp. Et Lisp, c'est un langage…"
+  },
+  {
+    "start": 128.84,
+    "end": 130.63,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Exactement. Data is code."
+  },
+  {
+    "start": 130.68,
+    "end": 136.63,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Oui, data is code et puis tu peux tripatouiller. C'est un langage de programmation programmable."
+  },
+  {
+    "start": 137.12,
+    "end": 138.04,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Il y a beaucoup de paroles."
+  },
+  {
+    "start": 138.08,
+    "end": 138.56,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "On va faire…"
+  },
+  {
+    "start": 139.84,
+    "end": 140.8,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Ça, c'est pas un problème."
+  },
+  {
+    "start": 141.88,
+    "end": 144.44,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Moi, j'ai jamais pu m'y faire. J'ai fait beaucoup de closures."
+  },
+  {
+    "start": 144.47,
+    "end": 145.76,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "T'étais pas un IMAX guy ?"
+  },
+  {
+    "start": 146.04,
+    "end": 159.88,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "J'étais… Non, mais dans IMAX, j'étais customer, j'étais pas programmeur IMAX. Par contre, quand j'ai fait beaucoup de closures, que j'adore. D'ailleurs, poussé par quelqu'un qui s'appelle Pierre Edrichard, qui est le CTO de Poolside maintenant."
+  },
+  {
+    "start": 162.04,
+    "end": 167.88,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "J'avais vraiment l'impression de faire un langage, tu vois, du futur. En quelque part du passé puisque la syntaxe et tout."
+  },
+  {
+    "start": 167.92,
+    "end": 168.4,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "C'est un peu le passé."
+  },
+  {
+    "start": 168.44,
+    "end": 175.96,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Mais putain, j'ai jamais réussi à m'y faire. Les parenthèses, ça me j'avais tout fait, t'sais, les colorations, les machins et tout. J'ai jamais réussi à m'y faire donc…"
+  },
+  {
+    "start": 176.0,
+    "end": 229.08,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Et little known fact, en 87, quand je terminais mon doctorat, j'ai rencontré un jeune étudiant de polytechnique qui s'appelait Léon Bautou. Et puis il est dit : « Je voudrais faire un projet pour mon fin de ma fin d'études de polytechnique, est-ce que je fais un stage avec toi ? » Je lui ai dit : « tu peux pas parce que j'ai pas fini ma thèse. » Il a dit : « C'est pas grave, je vais pas le dire à l'école. » Et je lui ai dit : « écoute, je commence à écrire un nouveau simulateur de réseaux neuronaux, est-ce que tu veux m'aider ? » Et je lui ai dit : « J'aurais bien à avoir un langage d'interface. » J'ai pensé à utiliser force et des trucs comme ça. Plutôt que de réinventer un langage, en fait, il faudrait peut-être un Lisp. Donc j'aurais bien un trappelet de Lisp. Et on avait tous les deux des Amiga 1000. Je vois que tu n'en as pas ici sur ta table et c'est un manque."
+  },
+  {
+    "start": 229.24,
+    "end": 234.32,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Oui, et bien la prochaine fois, ce sera réglé. Mais n'empêche, je vous ai ramené une bibo."
+  },
+  {
+    "start": 234.36,
+    "end": 238.56,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Une bibo, mais justement, la bibo est un inspiré de l'Amiga."
+  },
+  {
+    "start": 239.24,
+    "end": 239.92,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "exactement"
+  },
+  {
+    "start": 239.96,
+    "end": 241.4,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Voilà, et donc…"
+  },
+  {
+    "start": 241.44,
+    "end": 242.64,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "Et tu l'avais fait exprès bien sûr."
+  },
+  {
+    "start": 244.04,
+    "end": 248.44,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Alors non, mais on a une conversation sur Twitter, justement, Yann avait bondi et justement, il avait expliqué…"
+  },
+  {
+    "start": 248.48,
+    "end": 250.84,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "C'est peut-être le plus dur à trouver des Amiga aujourd'hui, non ?"
+  },
+  {
+    "start": 251.12,
+    "end": 252.84,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Moins que des bibos. Je peux te dire…"
+  },
+  {
+    "start": 254.12,
+    "end": 280.32,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Puis tu peux trouver des simulateurs et tout ça. Mais non, mais tu peux en acheter aussi. Et Léon, en 3 semaines, a écrit un trappelet de Lisp en C que j'ai utilisé comme frontaine, ensuite, je suis parti faire mon postdoc à Toronto. Et en fait, on a utilisé ce système-là qui au début s'appelait SN, Simulator Neural, qui ensuite s'est appelé Lush quand on l'a open-sourcé en 2002. Et je l'ai utilisé dans toute ma recherche avec mes étudiants jusqu'en 2011 où là, on est passé à Torch."
+  },
+  {
+    "start": 281.27,
+    "end": 282.04,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "À l'UA du coup."
+  },
+  {
+    "start": 282.56,
+    "end": 291.88,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "Donc, il était basé sur l'UA et ensuite PyTorch, mais c'était bien plus tard. Donc, il y a une grande longévité, bon, il y a des versions successives, mais…"
+  },
+  {
+    "start": 291.92,
+    "end": 292.72,
+    "speaker_id": "Speaker 0",
+    "speaker": "Mehdi",
+    "text": "C'était quoi ton suivi ?"
+  },
+  {
+    "start": 292.76,
+    "end": 297.2,
+    "speaker_id": "Speaker 1",
+    "speaker": "JB",
+    "text": "C'était écrit sur c'était sur rétropropagation, les réseaux multi-couches, etc."
+  },
+  {
+    "start": 297.24,
+    "end": 299.83,
+    "speaker_id": "Speaker 2",
+    "speaker": "Steve",
+    "text": "Justement, la rétropropagation du gradient, c'est un peu le…"
+  }
+]
