@@ -160,6 +160,43 @@ stop_animation() {
     fi
 }
 
+# Is the active output a headset? Reads a `pactl list sinks` description on
+# stdin (the sink block of the default sink). PipeWire names the type of the
+# active port: "Headphones" on the built-in jack when the plug is in, and
+# "Headphones" / "Headset" on a Bluetooth headset too, where a Bluetooth
+# speaker says "Speaker" (measured on Bose Sport Earbuds vs HK Onyx Studio 4).
+# device.form_factor backs it up. Anything else, including an audio interface
+# whose port has no usable type, answers "no" and keeps the historical mute.
+_sink_is_headset() {
+    local desc port type_
+    desc=$(cat)
+    port=$(printf '%s\n' "$desc" | grep -m1 "Active Port:" | sed "s/.*Active Port:[[:space:]]*//")
+    if [ -n "$port" ]; then
+        type_=$(printf '%s\n' "$desc" | grep -m1 "^[[:space:]]*${port}:" | sed -n "s/.*type: \([A-Za-z]*\).*/\1/p")
+        case "$type_" in
+            Headphones|Headset) echo "yes"; return ;;
+            Speaker|Line|HDMI|Mic|Analog) echo "no"; return ;;
+        esac
+    fi
+    if printf '%s\n' "$desc" | grep -q 'device.form_factor = "\(headphone\|headset\)"'; then
+        echo "yes"
+    else
+        echo "no"
+    fi
+}
+
+# Mute the playback while recording from the microphone? DICTEE_MUTE_OUTPUT:
+# auto (default) mutes unless the active output is a headset, true always
+# mutes, false never does. Prints yes or no.
+_should_mute_output() {
+    local setting="$1" is_headset="$2"
+    case "$setting" in
+        true)  echo "yes" ;;
+        false) echo "no" ;;
+        *)     [ "$is_headset" = "yes" ] && echo "no" || echo "yes" ;;
+    esac
+}
+
 # Restore audio state (re-mute mic if it was muted, unmute sink)
 restore_audio() {
     if [ -f "$MUT_FILE" ]; then
@@ -1917,15 +1954,29 @@ else
             pactl set-source-mute "$_PA_SOURCE" 0
             echo "MUT=1" >"$MUT_FILE"
         fi
-        # Save the output sink's prior mute state; only mute it when it was
-        # actually unmuted, so restore_audio can put it back exactly.
-        # Unconditionally muting then unmuting it clobbered a muted-output
+        # Mute the output so the speakers don't end up in the recording.
+        # Skipped on a headset, where there is nothing to keep out and the
+        # music stopped for nothing (#37): DICTEE_MUTE_OUTPUT=true forces the
+        # mute anyway, false disables it. Save the sink's prior state first and
+        # only mute when it was unmuted, so restore_audio puts it back exactly.
+        # Unconditionally muting then unmuting clobbered a muted-output
         # preference (the output came back unmuted after every dictation).
-        if pactl get-sink-mute @DEFAULT_SINK@ | grep -q -i -E 'oui|yes'; then
-            echo "SINK_MUT=1" >"$SINK_MUT_FILE"
-        else
-            echo "SINK_MUT=0" >"$SINK_MUT_FILE"
-            pactl set-sink-mute @DEFAULT_SINK@ 1
+        _mute_setting="${DICTEE_MUTE_OUTPUT:-auto}"
+        _is_headset="no"
+        if [ "$_mute_setting" != "true" ] && [ "$_mute_setting" != "false" ]; then
+            _default_sink=$(pactl get-default-sink 2>/dev/null)
+            _is_headset=$(LC_ALL=C pactl list sinks 2>/dev/null \
+                | awk -v s="$_default_sink" '$0 ~ "^Sink #" {p=0} $0 ~ "Name: " s "$" {p=1} p' \
+                | _sink_is_headset)
+        fi
+        _dbg "mute output: setting=$_mute_setting headset=$_is_headset decision=$(_should_mute_output "$_mute_setting" "$_is_headset")"
+        if [ "$(_should_mute_output "$_mute_setting" "$_is_headset")" = "yes" ]; then
+            if pactl get-sink-mute @DEFAULT_SINK@ | grep -q -i -E 'oui|yes'; then
+                echo "SINK_MUT=1" >"$SINK_MUT_FILE"
+            else
+                echo "SINK_MUT=0" >"$SINK_MUT_FILE"
+                pactl set-sink-mute @DEFAULT_SINK@ 1
+            fi
         fi
     fi
 

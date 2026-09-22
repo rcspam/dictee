@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# Should dictee mute the playback while recording from the microphone?
+#
+# It always did, to keep the speakers out of the microphone. On headphones
+# there is nothing to keep out and the music stopped for nothing (#37).
+# DICTEE_MUTE_OUTPUT now decides: auto (mute unless the active output is a
+# headset), true (always), false (never).
+#
+# Extracts _should_mute_output() from the dictee script and feeds it the
+# `pactl list sinks` output of real devices: the built-in jack on speakers,
+# Bose Sport Earbuds over Bluetooth, an HK Onyx Studio 4 speaker over
+# Bluetooth, and a sink whose port carries no usable type.
+#
+# Usage: bash tests/test-mute-output.sh
+set -u
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT="$ROOT/dictee"
+
+fn=$(awk '/^_sink_is_headset\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCRIPT")
+[[ -n "$fn" ]] || { echo "FAIL: _sink_is_headset() not found in $SCRIPT"; exit 1; }
+eval "$fn"
+fn2=$(awk '/^_should_mute_output\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCRIPT")
+[[ -n "$fn2" ]] || { echo "FAIL: _should_mute_output() not found in $SCRIPT"; exit 1; }
+eval "$fn2"
+
+fails=0
+check() {  # label, got, expected
+    if [[ "$2" == "$3" ]]; then echo "PASS $1"; else echo "FAIL $1: got '$2', expected '$3'"; fails=$((fails+1)); fi
+}
+
+# --- recorded `pactl list sinks` fragments (LC_ALL=C), one per device --------
+
+JACK_SPEAKERS='Sink #59
+	Name: alsa_output.pci-0000_00_1f.3.analog-stereo
+	Description: Built-in Audio Analog Stereo
+		device.form_factor = "internal"
+	Ports:
+		analog-output-speaker: Speakers (type: Speaker, priority: 10000, availability unknown)
+		analog-output-headphones: Headphones (type: Headphones, priority: 9900, not available)
+	Active Port: analog-output-speaker'
+
+JACK_HEADPHONES='Sink #59
+	Name: alsa_output.pci-0000_00_1f.3.analog-stereo
+	Description: Built-in Audio Analog Stereo
+		device.form_factor = "internal"
+	Ports:
+		analog-output-speaker: Speakers (type: Speaker, priority: 10000, availability unknown)
+		analog-output-headphones: Headphones (type: Headphones, priority: 9900, available)
+	Active Port: analog-output-headphones'
+
+BT_EARBUDS='Sink #300043
+	Name: bluez_output.60_AB_D2_9B_99_21.1
+	Description: Bose Sport Earbuds
+		device.bus = "bluetooth"
+		device.form_factor = "headphone"
+		device.icon_name = "audio-headphones-bluetooth"
+	Ports:
+		headphone-output: Headphone (type: Headphones, priority: 0, available)
+	Active Port: headphone-output'
+
+BT_SPEAKER='Sink #300168
+	Name: bluez_output.04_FE_A1_D4_86_B8.1
+	Description: HK Onyx Studio 4 D
+		device.bus = "bluetooth"
+		device.form_factor = "speaker"
+		device.icon_name = "audio-speakers-bluetooth"
+	Ports:
+		speaker-output: Speaker (type: Speaker, priority: 0, available)
+	Active Port: speaker-output'
+
+# A USB interface (the SSL 2 of #37): one nameless port, no type, no form factor.
+NO_TYPE='Sink #71
+	Name: alsa_output.usb-Solid_State_Logic_SSL_2-00.analog-stereo
+	Description: SSL 2 Analog Stereo
+	Ports:
+		analog-output: Analog Output (type: Analog, priority: 9900, availability unknown)
+	Active Port: analog-output'
+
+HEADSET_TYPE='Sink #77
+	Name: bluez_output.AA_BB_CC_DD_EE_FF.1
+	Description: Jabra Evolve
+	Ports:
+		headset-output: Headset (type: Headset, priority: 0, available)
+	Active Port: headset-output'
+
+# --- _sink_is_headset: reads the sink description on stdin ------------------
+
+check "jack on speakers is not a headset"      "$(printf '%s' "$JACK_SPEAKERS"    | _sink_is_headset)" "no"
+check "jack on headphones is a headset"        "$(printf '%s' "$JACK_HEADPHONES"  | _sink_is_headset)" "yes"
+check "bluetooth earbuds are a headset"        "$(printf '%s' "$BT_EARBUDS"       | _sink_is_headset)" "yes"
+check "bluetooth speaker is not a headset"     "$(printf '%s' "$BT_SPEAKER"       | _sink_is_headset)" "no"
+check "headset port type counts too"           "$(printf '%s' "$HEADSET_TYPE"     | _sink_is_headset)" "yes"
+check "no usable type: not a headset"          "$(printf '%s' "$NO_TYPE"          | _sink_is_headset)" "no"
+check "empty input: not a headset"             "$(printf '' | _sink_is_headset)" "no"
+
+# --- _should_mute_output: setting + headset answer --------------------------
+
+check "auto + speakers: mute"        "$(_should_mute_output auto  no)"  "yes"
+check "auto + headset: no mute"      "$(_should_mute_output auto  yes)" "no"
+check "unset behaves as auto"        "$(_should_mute_output ''    yes)" "no"
+check "true + headset: mute anyway"  "$(_should_mute_output true  yes)" "yes"
+check "true + speakers: mute"        "$(_should_mute_output true  no)"  "yes"
+check "false + speakers: no mute"    "$(_should_mute_output false no)"  "no"
+check "false + headset: no mute"     "$(_should_mute_output false yes)" "no"
+check "garbage value behaves as auto" "$(_should_mute_output banana no)" "yes"
+
+if [[ $fails -gt 0 ]]; then echo "$fails FAILED"; exit 1; fi
+echo OK
