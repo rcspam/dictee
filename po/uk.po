@@ -4811,3 +4811,23 @@ msgstr "Вимкнути"
 #: dictee-setup.py
 msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
 msgstr "0 вимикає звук, як раніше. Будь-яке інше значення обмежує його цим відсотком під час запису й не чіпає, якщо він уже нижчий."
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr "Знижувати до, на колонках:"
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr "Знижувати до, у навушниках:"
+
+#: dictee-setup.py
+msgid "Off"
+msgstr "Вимк."
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr "0 вимикає звук, як раніше. Будь-яке інше значення обмежує його цим відсотком під час запису."
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr "Навушники ніколи не вимикаються: ніщо з того, що вони грають, не потрапляє в мікрофон. 0 їх не чіпає, інше значення обмежує їх під час запису."

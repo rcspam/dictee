@@ -237,6 +237,36 @@ _should_mute_output() {
     esac
 }
 
+# What to do with the output while recording, in one place. Prints "mute",
+# "keep", or the percentage to cap at.
+#
+#   setting      DICTEE_MUTE_OUTPUT (auto, true, false)
+#   is_headset   yes when the active output is a headset
+#   level        DICTEE_DUCK_LEVEL, the ceiling on speakers ("" = mute)
+#   head_level   DICTEE_DUCK_LEVEL_HEADSET, the ceiling on a headset ("" =
+#                leave it alone). A headset has nothing to keep out of the
+#                recording, so it is never muted, only lowered when asked.
+#   current      current volume as a 0..1 fraction
+_output_action() {
+    local setting="$1" is_headset="$2" level="$3" head_level="$4" current="$5"
+    if [ "$is_headset" = "yes" ]; then
+        # Its own level wins wherever it is set, and never mutes.
+        if [ -n "$head_level" ]; then
+            local t
+            t=$(_duck_target "$head_level" "$current")
+            [ "$t" = "mute" ] && echo "keep" || echo "$t"
+            return
+        fi
+        # No headset level: auto leaves it alone, true falls back to the
+        # speaker level (and to a mute when that one is not set either).
+        [ "$(_should_mute_output "$setting" "$is_headset")" = "yes" ] || { echo "keep"; return ; }
+        _duck_target "$level" "$current"
+        return
+    fi
+    [ "$(_should_mute_output "$setting" "$is_headset")" = "yes" ] || { echo "keep"; return ; }
+    _duck_target "$level" "$current"
+}
+
 # Restore audio state (re-mute mic if it was muted, unmute sink)
 restore_audio() {
     if [ -f "$MUT_FILE" ]; then
@@ -2066,35 +2096,35 @@ else
         # preference (the output came back unmuted after every dictation).
         _mute_setting="${DICTEE_MUTE_OUTPUT:-auto}"
         _is_headset="no"
-        if [ "$_mute_setting" != "true" ] && [ "$_mute_setting" != "false" ]; then
+        # The headset answer is needed for its own duck level too, not just
+        # for the auto mute decision.
+        if [ "$_mute_setting" != "false" ] || [ -n "${DICTEE_DUCK_LEVEL_HEADSET:-}" ]; then
             _default_sink=$(pactl get-default-sink 2>/dev/null)
             _is_headset=$(LC_ALL=C pactl list sinks 2>/dev/null \
                 | awk -v s="$_default_sink" '$0 ~ "^Sink #" {p=0} $0 ~ "Name: " s "$" {p=1} p' \
                 | _sink_is_headset)
         fi
-        _dbg "mute output: setting=$_mute_setting headset=$_is_headset decision=$(_should_mute_output "$_mute_setting" "$_is_headset")"
-        if [ "$(_should_mute_output "$_mute_setting" "$_is_headset")" = "yes" ]; then
+        _duck_cur=$(_sink_volume)
+        _action=$(_output_action "$_mute_setting" "$_is_headset" \
+                                 "${DICTEE_DUCK_LEVEL:-}" "${DICTEE_DUCK_LEVEL_HEADSET:-}" \
+                                 "$_duck_cur")
+        _dbg "output: setting=$_mute_setting headset=$_is_headset level=${DICTEE_DUCK_LEVEL:-<mute>} head_level=${DICTEE_DUCK_LEVEL_HEADSET:-<none>} current=${_duck_cur:-?} action=$_action"
+        if [ "$_action" != "keep" ]; then
             if pactl get-sink-mute @DEFAULT_SINK@ | grep -q -i -E 'oui|yes'; then
+                # Already muted by the user: leave it, and remember so
+                # restore_audio does not unmute what it did not mute.
                 echo "SINK_MUT=1" >"$SINK_MUT_FILE"
             else
                 echo "SINK_MUT=0" >"$SINK_MUT_FILE"
-                # DICTEE_DUCK_LEVEL caps the output instead of muting it, for
-                # setups where the sound has to stay audible (a call kept on
-                # while dictating). Empty = mute, the historical behaviour.
-                _duck_cur=$(_sink_volume)
-                _duck=$(_duck_target "${DICTEE_DUCK_LEVEL:-}" "$_duck_cur")
-                _dbg "duck: level=${DICTEE_DUCK_LEVEL:-<mute>} current=${_duck_cur:-?} decision=$_duck"
-                case "$_duck" in
-                    mute) pactl set-sink-mute @DEFAULT_SINK@ 1 ;;
-                    keep) ;;
-                    *)
-                        # Remember the exact volume so restore_audio puts it
-                        # back; a crash here only leaves the sound low.
-                        [ -n "$_duck_cur" ] && echo "SINK_VOL=$_duck_cur" >>"$SINK_MUT_FILE"
-                        wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(_pct_to_fraction "$_duck")" 2>/dev/null || \
-                            pactl set-sink-mute @DEFAULT_SINK@ 1
-                        ;;
-                esac
+                if [ "$_action" = "mute" ]; then
+                    pactl set-sink-mute @DEFAULT_SINK@ 1
+                else
+                    # Remember the exact volume so restore_audio puts it back;
+                    # a crash here only leaves the sound low.
+                    [ -n "$_duck_cur" ] && echo "SINK_VOL=$_duck_cur" >>"$SINK_MUT_FILE"
+                    wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(_pct_to_fraction "$_action")" 2>/dev/null || \
+                        pactl set-sink-mute @DEFAULT_SINK@ 1
+                fi
             fi
         fi
     fi

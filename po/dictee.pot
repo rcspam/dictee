@@ -4212,3 +4212,23 @@ msgstr ""
 #: dictee-setup.py
 msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
 msgstr ""
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr ""
+
+#: dictee-setup.py
+msgid "Off"
+msgstr ""
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr ""
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr ""
