@@ -195,6 +195,84 @@ EXCLUDE_KEYBOARDS = []
 # main() from DICTEE_DEBUG ("Debug mode" checkbox in dictee-setup / dictee.conf).
 DEBUG = False
 
+
+# --- input group bridge -----------------------------------------------------
+# /dev/input/* and /dev/uinput belong to the `input` group. The post-install adds
+# the user to it, but the systemd user manager (and so this service) keeps the
+# groups it had at login, so a fresh install has no access until the next login.
+# sg / newgrp bridge that gap: they read /etc/group and hand the new group to the
+# command they run. Until 1.3.6 the unit hard-coded `sg input -c`; Arch dropped
+# /usr/bin/sg from shadow 4.20.0.arch1-1 and the service looped on 203/EXEC (#35).
+# util-linux's newgrp (what Arch ships instead) takes `-c <command>`; shadow's
+# newgrp (Debian, Ubuntu, Fedora) does not, but those still ship sg.
+
+def has_input_group():
+    """True when this process already carries the input group."""
+    import grp
+    try:
+        gid = grp.getgrnam("input").gr_gid
+    except KeyError:
+        return False
+    return gid in set(os.getgroups()) | {os.getgid(), os.getegid()}
+
+
+def input_group_bridge(has_group=None, which=None, newgrp_help=None):
+    """Command prefix that runs a command with the input group.
+
+    [] when the group is already effective, ["sg", "input", "-c"] where sg
+    exists, ["newgrp", "input", "-c"] when newgrp documents -c (util-linux),
+    None when nothing can bridge the gap (a logout is then the only way).
+    The lookups are parameters so the decision is testable without a system.
+    """
+    import shutil
+    if has_group is None:
+        has_group = has_input_group()
+    if which is None:
+        which = shutil.which
+    if newgrp_help is None:
+        def newgrp_help():
+            return subprocess.run(["newgrp", "--help"], capture_output=True,
+                                  text=True, timeout=5).stdout
+    if has_group:
+        return []
+    if which("sg"):
+        return ["sg", "input", "-c"]
+    if which("newgrp"):
+        try:
+            if "-c" in newgrp_help():
+                return ["newgrp", "input", "-c"]
+        except Exception:
+            pass
+    return None
+
+
+def reexec_with_input_group():
+    """Re-run this daemon under the input group when the session lacks it.
+
+    Called first thing in main(). DICTEE_PTT_BRIDGED marks the re-executed
+    process so a bridge that fails to deliver the group cannot loop.
+    """
+    if os.environ.get("DICTEE_PTT_BRIDGED"):
+        if not has_input_group():
+            print("[ptt] input group still missing after the bridge; "
+                  "log out and back in", flush=True)
+        return
+    bridge = input_group_bridge()
+    if bridge is None:
+        print("[ptt] user not in group 'input' for this session and neither sg "
+              "nor newgrp -c is available: log out and back in", flush=True)
+        return
+    if not bridge:
+        return
+    import shlex
+    cmd = shlex.join([sys.executable, os.path.abspath(__file__)] + sys.argv[1:])
+    print(f"[ptt] input group not effective yet, re-executing via {bridge[0]}", flush=True)
+    os.environ["DICTEE_PTT_BRIDGED"] = "1"
+    try:
+        os.execvp(bridge[0], bridge + [cmd])
+    except OSError as exc:
+        print(f"[ptt] {bridge[0]} failed ({exc}); continuing without the input group", flush=True)
+
 # /dev/input nodes already examined by find_keyboards_evdev(). What a node can
 # do never changes, so opening it a second time only buys its close() back, and
 # closing an evdev node costs 10 to 20 ms (RCU grace period in the kernel). With
@@ -1091,6 +1169,10 @@ def run_raw(ptt):
 
 def main():
     global DICTEE_BIN, EXTRA_KEYBOARDS, EXCLUDE_KEYBOARDS, DEBUG
+
+    # Before anything opens /dev/input: the unit starts us directly, the group
+    # bridge (sg, or newgrp -c on Arch) is our own business now.
+    reexec_with_input_group()
 
     mode = "toggle"
     key_dictee = 67   # F9
