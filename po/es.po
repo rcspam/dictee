@@ -6086,3 +6086,23 @@ msgstr "Silenciar"
 #: dictee-setup.py
 msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
 msgstr "0 silencia la salida, como antes. Cualquier otro valor la limita a ese porcentaje durante la grabación y la deja en paz si ya es más baja."
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr "Bajar a, en altavoces:"
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr "Bajar a, con auriculares:"
+
+#: dictee-setup.py
+msgid "Off"
+msgstr "Ninguno"
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr "0 silencia la salida, como antes. Cualquier otro valor la limita a ese porcentaje durante la grabación."
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr "Unos auriculares nunca se silencian: nada de lo que suena llega al micrófono. 0 no los toca, cualquier otro valor los limita durante la grabación."

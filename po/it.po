@@ -6087,3 +6087,23 @@ msgstr "Muto"
 #: dictee-setup.py
 msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
 msgstr "0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella percentuale durante la registrazione e lo lascia stare se è già più basso."
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr "Abbassa a, sugli altoparlanti:"
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr "Abbassa a, con le cuffie:"
+
+#: dictee-setup.py
+msgid "Off"
+msgstr "Nessuno"
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr "0 disattiva l'audio, come prima. Qualsiasi altro valore lo limita a quella percentuale durante la registrazione."
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr "Le cuffie non vengono mai disattivate: nulla di ciò che riproducono raggiunge il microfono. 0 non le tocca, qualsiasi altro valore le limita durante la registrazione."

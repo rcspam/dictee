@@ -6163,3 +6163,23 @@ msgstr "Couper"
 #: dictee-setup.py
 msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
 msgstr "0 coupe la sortie, comme avant. Toute autre valeur la plafonne à ce pourcentage pendant l'enregistrement, et la laisse tranquille si elle est déjà plus basse. Utile au casque ; sur des enceintes, même un son faible arrive au micro."
+
+#: dictee-setup.py
+msgid "Lower to, on speakers:"
+msgstr "Baisser à, sur enceintes :"
+
+#: dictee-setup.py
+msgid "Lower to, on a headset:"
+msgstr "Baisser à, au casque :"
+
+#: dictee-setup.py
+msgid "Off"
+msgstr "Aucun"
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."
+msgstr "0 coupe la sortie, comme avant. Toute autre valeur la plafonne à ce pourcentage pendant l'enregistrement, et la laisse tranquille si elle est déjà plus basse."
+
+#: dictee-setup.py
+msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
+msgstr "Un casque n'est jamais coupé : rien de ce qu'il joue n'arrive au micro. 0 n'y touche pas, toute autre valeur le plafonne pendant l'enregistrement."

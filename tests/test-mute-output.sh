@@ -138,5 +138,30 @@ check "1% is 0.01"   "$(_pct_to_fraction 1)"  "0.01"
 check "99% is 0.99"  "$(_pct_to_fraction 99)" "0.99"
 check "a dot even in a comma locale" "$(LC_ALL=fr_FR.UTF-8 _pct_to_fraction 10)" "0.10"
 
+# --- on a headset, its own level ---------------------------------------------
+# A headset has nothing to keep out of the recording, so auto leaves it alone.
+# DICTEE_DUCK_LEVEL_HEADSET lowers it anyway for those who want to keep hearing
+# a call at a lower volume. Empty means untouched; it never mutes.
+
+fn5=$(awk '/^_output_action\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCRIPT")
+[[ -n "$fn5" ]] || { echo "FAIL: _output_action() not found in $SCRIPT"; exit 1; }
+eval "$fn5"
+
+# args: setting, is_headset, duck level, headset level, current volume
+check "speakers, auto, no level: mute"        "$(_output_action auto  no  ''  ''  0.50)" "mute"
+check "speakers, auto, level 10: cap"         "$(_output_action auto  no  10  ''  0.50)" "10"
+check "headset, auto, no headset level: keep" "$(_output_action auto  yes 10  ''  0.50)" "keep"
+check "headset, auto, headset level 30: cap"  "$(_output_action auto  yes 10  30  0.50)" "30"
+check "headset level never mutes"             "$(_output_action auto  yes ''  0   0.50)" "keep"
+check "headset already below its level"       "$(_output_action auto  yes ''  30  0.20)" "keep"
+check "headset wins over the speaker level in always mode" \
+      "$(_output_action true  yes 10  30  0.50)" "30"
+check "always on a headset without its level: the speaker level applies" \
+      "$(_output_action true  yes 10  ''  0.50)" "10"
+check "always on a headset, no level at all: mute" \
+      "$(_output_action true  yes ''  ''  0.50)" "mute"
+check "never: nothing, whatever the levels"   "$(_output_action false no  10  30  0.50)" "keep"
+check "speakers ignore the headset level"     "$(_output_action auto  no  ''  30  0.50)" "mute"
+
 if [[ $fails -gt 0 ]]; then echo "$fails FAILED"; exit 1; fi
 echo OK
