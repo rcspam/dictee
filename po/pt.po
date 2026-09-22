@@ -6044,3 +6044,15 @@ msgstr "Nunca"
 #: dictee-setup.py
 msgid "Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out."
 msgstr "Evita que os altifalantes entrem na gravação. Automático não silencia quando a saída ativa são auscultadores."
+
+#: dictee-setup.py
+msgid "Lower to, instead of muting:"
+msgstr "Baixar para, em vez de silenciar:"
+
+#: dictee-setup.py
+msgid "Mute"
+msgstr "Silenciar"
+
+#: dictee-setup.py
+msgid "0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone."
+msgstr "0 silencia a saída, como antes. Qualquer outro valor limita-a a essa percentagem durante a gravação e deixa-a em paz se já for mais baixa."
