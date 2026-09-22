@@ -16520,28 +16520,15 @@ class DicteeSetupDialog(QDialog):
         # output, icon first (issue #37). Left is muted, right is untouched.
         # Speakers default to a mute, the historical behaviour; a headset is
         # left alone, nothing it plays reaches the microphone.
-        def _slashed(pm):
-            # No theme ships audio-speakers-muted or audio-headphones-muted,
-            # so the bar is drawn here, corner to corner.
-            if pm.isNull():
-                return pm
-            out = QPixmap(pm)
-            p = QPainter(out)
-            p.setRenderHint(QPainter.RenderHint.Antialiasing)
-            w, h = out.width(), out.height()
-            p.setPen(QPen(QColor("#e74c3c"), max(2, w // 9),
-                          Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-            p.drawLine(int(w * 0.15), int(h * 0.15),
-                       int(w * 0.85), int(h * 0.85))
-            p.end()
-            return out
-
         def _duck_row(icon_name, tip, key, default):
             lay = QHBoxLayout()
             lay.setSpacing(8)
             ico = QLabel()
-            pm_on = QIcon.fromTheme(icon_name).pixmap(22, 22)
-            pm_off = _slashed(pm_on)
+            # Greyed out at the muted end, the way the theme greys any
+            # disabled icon. No theme ships audio-speakers-muted.
+            _icon = QIcon.fromTheme(icon_name)
+            pm_on = _icon.pixmap(22, 22)
+            pm_off = _icon.pixmap(22, 22, QIcon.Mode.Disabled)
             ico.setToolTip(_tt(tip))
             sld = QSlider(Qt.Orientation.Horizontal)
             sld.setRange(0, 100)
