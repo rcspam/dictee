@@ -587,8 +587,8 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
         "DICTEE_MUTE_OUTPUT": _s(mute_output) if mute_output else "auto",
-        "DICTEE_DUCK_LEVEL": str(duck_level) if duck_level else "",
-        "DICTEE_DUCK_LEVEL_HEADSET": str(duck_headset) if duck_headset else "",
+        "DICTEE_DUCK_LEVEL": str(duck_level),
+        "DICTEE_DUCK_LEVEL_HEADSET": str(duck_headset),
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
@@ -15508,81 +15508,6 @@ class DicteeSetupDialog(QDialog):
         self.mic_level = LevelMeter()
         lay_mic.addWidget(self.mic_level)
 
-        # Mute the playback while recording? Auto keeps the speakers out of
-        # the recording and leaves a headset alone (issue #37). Hidden in
-        # wizard mode like the threshold below: the default is the safe one.
-        if not self.wizard_mode:
-            self.cmb_mute_output = QComboBox()
-            for _lbl, _key in ((_("Automatic (not on a headset)"), "auto"),
-                               (_("Always"), "true"),
-                               (_("Never"), "false")):
-                self.cmb_mute_output.addItem(_lbl, _key)
-            _saved_mute = (conf.get("DICTEE_MUTE_OUTPUT") or "auto").strip().lower()
-            _i = self.cmb_mute_output.findData(_saved_mute)
-            self.cmb_mute_output.setCurrentIndex(_i if _i >= 0 else 0)
-            lay_mute = QHBoxLayout()
-            lay_mute.setSpacing(8)
-            _lbl_mute = QLabel(_("Mute playback while recording:"))
-            _lbl_mute.setToolTip(_tt(_("Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out.")))
-            self.cmb_mute_output.setToolTip(_lbl_mute.toolTip())
-            lay_mute.addWidget(_lbl_mute)
-            lay_mute.addWidget(self.cmb_mute_output, 1)
-            lay_mic.addLayout(lay_mute)
-
-            # How far down, when the output is touched: a ceiling in percent.
-            # Sliders like the threshold below, rather than the conf only,
-            # where nothing would hint that any of this exists.
-            def _duck_row(label, tip, key, zero_text, default=0):
-                lay = QHBoxLayout()
-                lay.setSpacing(8)
-                lbl = QLabel(label)
-                lbl.setToolTip(_tt(tip))
-                sld = QSlider(Qt.Orientation.Horizontal)
-                sld.setRange(0, 99)
-                sld.setTickInterval(10)
-                sld.setTickPosition(QSlider.TickPosition.TicksBelow)
-                try:
-                    _v = int(conf.get(key) or default)
-                except ValueError:
-                    _v = default
-                sld.setValue(_v if 0 <= _v <= 99 else default)
-                sld.setToolTip(lbl.toolTip())
-                val = QLabel()
-                val.setMinimumWidth(48)
-                val.setStyleSheet("font-family: monospace;")
-
-                def _show(v):
-                    val.setText(zero_text if v == 0 else f"{v} %")
-
-                sld.valueChanged.connect(_show)
-                _show(sld.value())
-                lay.addWidget(lbl)
-                lay.addWidget(sld, 1)
-                lay.addWidget(val)
-                lay_mic.addLayout(lay)
-                return lbl, sld, val
-
-            _lbl_duck, self.slider_duck, self.lbl_duck_val = _duck_row(
-                _("Lower to, on speakers:"),
-                _("0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower."),
-                "DICTEE_DUCK_LEVEL", _("Mute"))
-            _lbl_duck_h, self.slider_duck_headset, self.lbl_duck_headset_val = _duck_row(
-                _("Lower to, on a headset:"),
-                _("A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."),
-                "DICTEE_DUCK_LEVEL_HEADSET", _("Off"))
-
-            def _sync_duck_enabled():
-                # Nothing to lower on speakers when the mute is off; the
-                # headset level stands on its own.
-                _on = self.cmb_mute_output.currentData() != "false"
-                self.slider_duck.setEnabled(_on)
-                self.lbl_duck_val.setEnabled(_on)
-                _lbl_duck.setEnabled(_on)
-
-            self.cmb_mute_output.currentIndexChanged.connect(
-                lambda _i: _sync_duck_enabled())
-            _sync_duck_enabled()
-
         # Silence threshold slider + calibration playground are hidden in
         # wizard mode — first-time users shouldn't be overwhelmed. The
         # conf key DICTEE_SILENCE_RMS keeps its default 0.03 until the
@@ -15657,6 +15582,54 @@ class DicteeSetupDialog(QDialog):
         lbl_sil_warn.setStyleSheet(
             "color: #e67e22; font-size: 11px; padding-left: 4px;")
         lay_mic.addWidget(lbl_sil_warn)
+
+        # What happens to the playback while recording, one row per kind of
+        # output, icon first (issue #37). Left is muted, right is untouched.
+        # Speakers default to a mute, the historical behaviour; a headset is
+        # left alone, nothing it plays reaches the microphone.
+        def _duck_row(icon_name, tip, key, default):
+            lay = QHBoxLayout()
+            lay.setSpacing(8)
+            ico = QLabel()
+            ico.setPixmap(QIcon.fromTheme(icon_name).pixmap(22, 22))
+            ico.setToolTip(_tt(tip))
+            sld = QSlider(Qt.Orientation.Horizontal)
+            sld.setRange(0, 100)
+            sld.setTickInterval(10)
+            sld.setTickPosition(QSlider.TickPosition.TicksBelow)
+            try:
+                _v = int(conf.get(key) if conf.get(key) not in (None, "") else default)
+            except ValueError:
+                _v = default
+            sld.setValue(_v if 0 <= _v <= 100 else default)
+            sld.setToolTip(ico.toolTip())
+            val = QLabel()
+            val.setMinimumWidth(78)
+            val.setStyleSheet("font-family: monospace;")
+
+            def _show(v):
+                val.setText(_("Muted") if v == 0 else
+                            _("Untouched") if v == 100 else f"{v} %")
+
+            sld.valueChanged.connect(_show)
+            _show(sld.value())
+            lay.addWidget(ico)
+            lay.addWidget(sld, 1)
+            lay.addWidget(val)
+            lay_mic.addLayout(lay)
+            return sld, val
+
+        lbl_duck = QLabel(_("Playback while recording:"))
+        lbl_duck.setToolTip(_tt(_("Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate.")))
+        lay_mic.addWidget(lbl_duck)
+        self.slider_duck, self.lbl_duck_val = _duck_row(
+            "audio-speakers",
+            _("Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."),
+            "DICTEE_DUCK_LEVEL", 0)
+        self.slider_duck_headset, self.lbl_duck_headset_val = _duck_row(
+            "audio-headphones",
+            _("Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."),
+            "DICTEE_DUCK_LEVEL_HEADSET", 100)
 
         # Calibration lab (record → measure RMS → transcribe → compare)
         self._build_calibration_section(lay_mic)
@@ -19379,8 +19352,9 @@ class DicteeSetupDialog(QDialog):
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
         silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
-        mute_output = (self.cmb_mute_output.currentData()
-                       if hasattr(self, 'cmb_mute_output') else 'auto')
+        # The two levels carry everything now; DICTEE_MUTE_OUTPUT stays in
+        # the conf for anyone who set it by hand, and keeps its meaning.
+        mute_output = (load_config().get("DICTEE_MUTE_OUTPUT") or "auto")
         duck_level = (self.slider_duck.value()
                       if hasattr(self, 'slider_duck') else 0)
         duck_headset = (self.slider_duck_headset.value()

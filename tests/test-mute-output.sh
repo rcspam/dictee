@@ -152,7 +152,9 @@ check "speakers, auto, no level: mute"        "$(_output_action auto  no  ''  ''
 check "speakers, auto, level 10: cap"         "$(_output_action auto  no  10  ''  0.50)" "10"
 check "headset, auto, no headset level: keep" "$(_output_action auto  yes 10  ''  0.50)" "keep"
 check "headset, auto, headset level 30: cap"  "$(_output_action auto  yes 10  30  0.50)" "30"
-check "headset level never mutes"             "$(_output_action auto  yes ''  0   0.50)" "keep"
+check "an explicit 0 mutes the headset too"   "$(_output_action auto  yes ''  0   0.50)" "mute"
+check "100 on a headset leaves it alone"      "$(_output_action auto  yes ''  100 0.50)" "keep"
+check "100 on speakers leaves them alone"     "$(_output_action auto  no   100 ''  0.50)" "keep"
 check "headset already below its level"       "$(_output_action auto  yes ''  30  0.20)" "keep"
 check "headset wins over the speaker level in always mode" \
       "$(_output_action true  yes 10  30  0.50)" "30"
