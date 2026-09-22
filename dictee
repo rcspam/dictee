@@ -2121,13 +2121,16 @@ else
             else
                 echo "SINK_MUT=0" >"$SINK_MUT_FILE"
                 if [ "$_action" = "mute" ]; then
-                    pactl set-sink-mute @DEFAULT_SINK@ 1
+                    # Guarded like every sound-server call on this path: a
+                    # failing pactl would fire trap ERR and cancel the
+                    # dictation. Not muting is a far smaller problem.
+                    pactl set-sink-mute @DEFAULT_SINK@ 1 || true
                 else
                     # Remember the exact volume so restore_audio puts it back;
                     # a crash here only leaves the sound low.
                     [ -n "$_duck_cur" ] && echo "SINK_VOL=$_duck_cur" >>"$SINK_MUT_FILE"
                     wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(_pct_to_fraction "$_action")" 2>/dev/null || \
-                        pactl set-sink-mute @DEFAULT_SINK@ 1
+                        pactl set-sink-mute @DEFAULT_SINK@ 1 || true
                 fi
             fi
         fi

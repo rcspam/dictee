@@ -130,6 +130,52 @@ else:
           d.ico_duck_headset.pixmap().cacheKey()
           != page().ico_duck_headset.pixmap().cacheKey(), True)
 
+
+# --- what the wizard writes -------------------------------------------------
+# The wizard has no Microphone page, so neither slider exists there. Writing
+# a default over the conf would silence a headset the user had set to 30:
+# on these sliders 0 means muted.
+
+def wizard(**conf):
+    dlg = mod.DicteeSetupDialog.__new__(mod.DicteeSetupDialog)
+    QDialog.__init__(dlg)
+    dlg.wizard_mode = True
+    host = QWidget()
+    root.layout().addWidget(host)
+    dlg._build_mic_section(QVBoxLayout(host), dict(conf))
+    return dlg
+
+
+with open(os.path.join(_cfg, "dictee.conf"), "w", encoding="utf-8") as f:
+    f.write("DICTEE_SETUP_DONE=true\n"
+            "DICTEE_DUCK_LEVEL=15\n"
+            "DICTEE_DUCK_LEVEL_HEADSET=30\n")
+
+w = wizard()
+check("the wizard builds no duck slider", hasattr(w, "slider_duck"), False)
+check("so it keeps the levels already in the conf",
+      w._duck_levels_to_save(), (15, 30))
+
+with open(os.path.join(_cfg, "dictee.conf"), "w", encoding="utf-8") as f:
+    f.write("DICTEE_SETUP_DONE=true\n")
+check("nothing set yet: speakers muted, headset untouched",
+      wizard()._duck_levels_to_save(), (0, 100))
+
+with open(os.path.join(_cfg, "dictee.conf"), "w", encoding="utf-8") as f:
+    f.write("DICTEE_SETUP_DONE=true\nDICTEE_DUCK_LEVEL_HEADSET=abc\n")
+check("garbage in the conf falls back to the default",
+      wizard()._duck_levels_to_save(), (0, 100))
+
+# An explicit 0 is a choice, not an absence: it must survive a wizard run.
+with open(os.path.join(_cfg, "dictee.conf"), "w", encoding="utf-8") as f:
+    f.write("DICTEE_SETUP_DONE=true\nDICTEE_DUCK_LEVEL_HEADSET=0\n")
+check("an explicit 0 on the headset survives",
+      wizard()._duck_levels_to_save(), (0, 0))
+
+# On the regular page the sliders win over the conf.
+d = page(DICTEE_DUCK_LEVEL="10", DICTEE_DUCK_LEVEL_HEADSET="40")
+check("the sliders win when they exist", d._duck_levels_to_save(), (10, 40))
+
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")
     sys.exit(1)
