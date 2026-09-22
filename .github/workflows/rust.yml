@@ -111,6 +111,10 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
         QT_QPA_PLATFORM: offscreen
+    # The sandboxed evdev loop on fake uinput keyboards: no key may stay
+    # pressed on the passthrough after a key capture, a hotplug or a stop.
+    - name: Run stuck-keys tests (sandboxed dictee-ptt)
+      run: python3 tests/test-ptt-stuck-keys.py -v
 
   test-keyboard-detection:
     runs-on: ubuntu-latest
