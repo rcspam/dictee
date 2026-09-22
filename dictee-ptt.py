@@ -385,6 +385,11 @@ class PttState:
         self.last_stop_time = 0
         self.last_cheatsheet_time = 0
         self.keys_held = set()
+        # The dictation key's press was passed to the applications (held with
+        # a modifier that is none of our chords): its repeats and its release
+        # must follow it, or the compositor keeps the key down and autorepeats
+        # it without end.
+        self.ptt_key_passed = False
 
     def _mod_held(self, mod_name):
         """Vérifie si un modificateur est maintenu."""
@@ -403,6 +408,8 @@ class PttState:
     def handle_event(self, code, value):
         """Traite un événement clavier. Retourne True si l'événement est consommé."""
         if value == KEY_REPEAT:
+            if code == self.key_dictee and self.ptt_key_passed:
+                return False
             return code in (self.key_dictee, self.key_translate, KEY_ESC)
 
         # Déduplique multi-claviers
@@ -458,6 +465,11 @@ class PttState:
             if self.key_translate and self.key_translate == self.key_dictee:
                 # Même touche pour dictée et traduction — router selon l'état
                 if value == KEY_UP:
+                    # The press went to the applications: so does the release,
+                    # else the passthrough keeps the key down for good.
+                    if self.ptt_key_passed:
+                        self.ptt_key_passed = False
+                        return False
                     # KEY_UP : router vers le handler actif, PAS selon le modificateur
                     # (l'utilisateur peut relâcher Alt avant F9)
                     if self.recording_translate:
@@ -477,7 +489,10 @@ class PttState:
                     elif not self._any_mod_held():
                         self._handle_dictee(value, now)
                     else:
-                        return False  # modificateur inconnu, laisser passer
+                        # Modificateur inconnu : la touche va aux applications,
+                        # avec ses répétitions et son relâchement (voir KEY_UP).
+                        self.ptt_key_passed = True
+                        return False
             else:
                 # Touches séparées — route directe
                 if self.mod_translate and self._mod_held(self.mod_translate):
