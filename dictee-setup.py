@@ -531,6 +531,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 audio_context=False, audio_context_timeout=30,
                 silence_rms=0.03,
                 mute_output="auto",
+                duck_level=0,
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False,
                 trpp_states=None, trpp_short_text_max=3,
@@ -585,6 +586,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
         "DICTEE_MUTE_OUTPUT": _s(mute_output) if mute_output else "auto",
+        "DICTEE_DUCK_LEVEL": str(duck_level) if duck_level else "",
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
     }
     # DICTEE_SETUP_DONE is added only when explicitly committing the wizard
@@ -15525,6 +15527,37 @@ class DicteeSetupDialog(QDialog):
             lay_mute.addWidget(self.cmb_mute_output, 1)
             lay_mic.addLayout(lay_mute)
 
+            # How far down, when a mute is decided: a ceiling in percent, 0
+            # meaning a plain mute. Sits here rather than in dictee.conf only,
+            # where nothing would hint that it exists.
+            lay_duck = QHBoxLayout()
+            lay_duck.setSpacing(8)
+            _lbl_duck = QLabel(_("Lower to, instead of muting:"))
+            _lbl_duck.setToolTip(_tt(_("0 mutes the output, as before. Any other value caps it at that percentage while recording, and leaves it alone when it is already lower. Useful on headphones; on speakers even a quiet output reaches the microphone.")))
+            self.spin_duck_level = QSpinBox()
+            self.spin_duck_level.setRange(0, 99)
+            self.spin_duck_level.setSuffix(" %")
+            self.spin_duck_level.setSpecialValueText(_("Mute"))
+            try:
+                _saved_duck = int(conf.get("DICTEE_DUCK_LEVEL") or 0)
+            except ValueError:
+                _saved_duck = 0
+            self.spin_duck_level.setValue(_saved_duck if 0 <= _saved_duck <= 99 else 0)
+            self.spin_duck_level.setToolTip(_lbl_duck.toolTip())
+
+            def _sync_duck_enabled():
+                _on = self.cmb_mute_output.currentData() != "false"
+                self.spin_duck_level.setEnabled(_on)
+                _lbl_duck.setEnabled(_on)
+
+            self.cmb_mute_output.currentIndexChanged.connect(
+                lambda _i: _sync_duck_enabled())
+            _sync_duck_enabled()
+            lay_duck.addWidget(_lbl_duck)
+            lay_duck.addWidget(self.spin_duck_level)
+            lay_duck.addStretch(1)
+            lay_mic.addLayout(lay_duck)
+
         # Silence threshold slider + calibration playground are hidden in
         # wizard mode — first-time users shouldn't be overwhelmed. The
         # conf key DICTEE_SILENCE_RMS keeps its default 0.03 until the
@@ -19323,6 +19356,8 @@ class DicteeSetupDialog(QDialog):
         silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
         mute_output = (self.cmb_mute_output.currentData()
                        if hasattr(self, 'cmb_mute_output') else 'auto')
+        duck_level = (self.spin_duck_level.value()
+                      if hasattr(self, 'spin_duck_level') else 0)
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         # Cheatsheet shortcut: persist the combo selection (and the captured
@@ -19377,6 +19412,7 @@ class DicteeSetupDialog(QDialog):
                     audio_context_timeout=audio_context_timeout,
                     silence_rms=silence_rms,
                     mute_output=mute_output,
+                    duck_level=duck_level,
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
                     command_suffixes=self._command_suffixes,

@@ -46,13 +46,13 @@ def check(label, got, expected):
         failures.append(label)
 
 
-def page(saved_rms):
+def page(saved_rms="0.03", **conf):
     dlg = mod.DicteeSetupDialog.__new__(mod.DicteeSetupDialog)
     QDialog.__init__(dlg)
     dlg.wizard_mode = False
     host = QWidget()
     root.layout().addWidget(host)
-    dlg._build_mic_section(QVBoxLayout(host), {"DICTEE_SILENCE_RMS": saved_rms})
+    dlg._build_mic_section(QVBoxLayout(host), dict({"DICTEE_SILENCE_RMS": saved_rms}, **conf))
     return dlg
 
 
@@ -75,6 +75,27 @@ check("slider range still ends at 60", d.slider_silence.maximum(), 60)
 # collapsing to the bottom of the meter.
 d.slider_silence.setValue(5)
 check("label follows a low value", d.lbl_silence_val.text(), "0.005")
+
+# --- the duck level sits next to the mute choice -----------------------------
+# Without a field here, DICTEE_DUCK_LEVEL could only be set by hand in
+# dictee.conf, and nothing in the window hints that it exists.
+
+d = page(DICTEE_MUTE_OUTPUT="true", DICTEE_DUCK_LEVEL="10")
+check("the duck level has a field", hasattr(d, "spin_duck_level"), True)
+check("it shows the configured level", d.spin_duck_level.value(), 10)
+check("enabled when the mute is asked for", d.spin_duck_level.isEnabled(), True)
+
+check("no level configured means a plain mute", page().spin_duck_level.value(), 0)
+check("a level out of range falls back to a mute",
+      page(DICTEE_DUCK_LEVEL="900").spin_duck_level.value(), 0)
+check("garbage falls back to a mute",
+      page(DICTEE_DUCK_LEVEL="abc").spin_duck_level.value(), 0)
+
+# Never muting means there is nothing to lower: the field follows the choice.
+d = page(DICTEE_MUTE_OUTPUT="false", DICTEE_DUCK_LEVEL="10")
+check("disabled when the mute is off", d.spin_duck_level.isEnabled(), False)
+d.cmb_mute_output.setCurrentIndex(d.cmb_mute_output.findData("auto"))
+check("re-enabled when the mute comes back", d.spin_duck_level.isEnabled(), True)
 
 if failures:
     print(f"\n{len(failures)} FAILED: {failures}")
