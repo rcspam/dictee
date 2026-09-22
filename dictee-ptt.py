@@ -748,7 +748,7 @@ def _rescan_keyboards(devices, ui=None):
             # startup grab). Leave it for the next rescan.
             try:
                 _held = new_dev.active_keys()
-            except OSError:
+            except (OSError, AttributeError):
                 _held = []
             if _held:
                 print(f"[ptt] hotplug grab deferred: key(s) still held on {new_dev.name}: {sorted(_held)}")
