@@ -723,8 +723,20 @@ mode_online() {
         git clone --depth 1 --branch "$RELEASE_TAG" "https://github.com/${REPO}.git" dictee-src
         cd dictee-src
 
-        info "Building via makepkg (this will compile from source)..."
-        makepkg -si --noconfirm || die "makepkg failed"
+        # BACKEND=gpu builds the CUDA variant (PKGBUILD-cuda, pkgname
+        # dictee-cuda); the default PKGBUILD is the CPU variant.
+        if [[ "$BACKEND" == "gpu" ]]; then
+            if [[ -f PKGBUILD-cuda ]]; then
+                info "Building the CUDA variant via makepkg (compiles from source)..."
+                makepkg -si --noconfirm -p PKGBUILD-cuda || die "makepkg failed"
+            else
+                warn "PKGBUILD-cuda not found in this release — building the CPU variant instead."
+                makepkg -si --noconfirm || die "makepkg failed"
+            fi
+        else
+            info "Building via makepkg (this will compile from source)..."
+            makepkg -si --noconfirm || die "makepkg failed"
+        fi
     }
 
     install_tarball_fallback() {
