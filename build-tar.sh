@@ -249,3 +249,19 @@ git archive --format=tar.gz --prefix="dictee-${VERSION}/" \
 echo ""
 echo "Built: $DIST_DIR/dictee-${VERSION}_amd64.tar.gz"
 echo "Built: $DIST_DIR/dictee-${VERSION}-source.tar.gz"
+
+# 8. install.sh + sha256 — release-anchored snapshot for auditable installs.
+# A user who wants to verify before piping to bash can:
+#     curl -fsSL .../releases/latest/download/install.sh -o install.sh
+#     curl -fsSL .../releases/latest/download/install.sh.sha256 -o install.sh.sha256
+#     sha256sum -c install.sh.sha256   # → install.sh: OK
+#     bash install.sh
+# The sha256 file is generated from inside DIST_DIR so it contains the bare
+# filename "install.sh" (no path prefix), which is what `sha256sum -c` expects
+# when the user runs it next to the downloaded install.sh.
+echo ""
+echo "=== [INSTALL.SH] release-anchored snapshot + sha256 ==="
+cp install.sh "$DIST_DIR/install.sh"
+( cd "$DIST_DIR" && sha256sum install.sh > install.sh.sha256 )
+echo "Built: $DIST_DIR/install.sh"
+echo "Built: $DIST_DIR/install.sh.sha256"
