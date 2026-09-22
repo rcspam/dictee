@@ -203,6 +203,7 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
                dictee-postprocess dictee-diarize-llm dictee-switch-backend \
                dictee-test-rules dictee-transcribe dictee-reset \
                dictee-translate-langs dictee-audio-sources \
+               dictee-meeting-live dictee-cheatsheet \
                transcribe-daemon-vosk transcribe-daemon-whisper \
                dictee-plasmoid-level dictee-plasmoid-level-daemon dictee-plasmoid-level-fft \
                dotool dotoold; do
