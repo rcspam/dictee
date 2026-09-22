@@ -4812,3 +4812,23 @@ msgstr "Documentazione"
 #: dictee-setup.py:6634
 msgid "Open the wiki page for the current section in your browser"
 msgstr "Apri nel browser la pagina del wiki di questa sezione"
+
+#: dictee-setup.py
+msgid "Mute playback while recording:"
+msgstr "Disattiva l'audio durante la registrazione:"
+
+#: dictee-setup.py
+msgid "Automatic (not on a headset)"
+msgstr "Automatico (non con le cuffie)"
+
+#: dictee-setup.py
+msgid "Always"
+msgstr "Sempre"
+
+#: dictee-setup.py
+msgid "Never"
+msgstr "Mai"
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out."
+msgstr "Evita che gli altoparlanti finiscano nella registrazione. Automatico non disattiva l'audio quando l'uscita attiva è una cuffia."

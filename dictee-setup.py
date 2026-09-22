@@ -588,6 +588,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 continuation_indicator=">>",
                 audio_context=False, audio_context_timeout=30,
                 silence_rms=0.03,
+                mute_output="auto",
                 notifications=True, notifications_text=True,
                 command_suffixes=None, debug=False,
                 trpp_states=None, trpp_short_text_max=3,
@@ -649,6 +650,7 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
         "DICTEE_AUDIO_CONTEXT": "true" if audio_context else "false",
         "DICTEE_AUDIO_CONTEXT_TIMEOUT": str(audio_context_timeout),
         "DICTEE_SILENCE_RMS": f"{silence_rms:.3f}",
+        "DICTEE_MUTE_OUTPUT": _s(mute_output) if mute_output else "auto",
         "DICTEE_HW_TIER": _s(hw_tier) if hw_tier else "auto",
         "DICTEE_STREAMING": "true" if streaming else "false",
         "DICTEE_STREAMING_FINAL_PASS": "true" if streaming_final_pass else "false",
@@ -16432,6 +16434,27 @@ class DicteeSetupDialog(QDialog):
         self.mic_level = LevelMeter()
         lay_mic.addWidget(self.mic_level)
 
+        # Mute the playback while recording? Auto keeps the speakers out of
+        # the recording and leaves a headset alone (issue #37). Hidden in
+        # wizard mode like the threshold below: the default is the safe one.
+        if not self.wizard_mode:
+            self.cmb_mute_output = QComboBox()
+            for _lbl, _key in ((_("Automatic (not on a headset)"), "auto"),
+                               (_("Always"), "true"),
+                               (_("Never"), "false")):
+                self.cmb_mute_output.addItem(_lbl, _key)
+            _saved_mute = (conf.get("DICTEE_MUTE_OUTPUT") or "auto").strip().lower()
+            _i = self.cmb_mute_output.findData(_saved_mute)
+            self.cmb_mute_output.setCurrentIndex(_i if _i >= 0 else 0)
+            lay_mute = QHBoxLayout()
+            lay_mute.setSpacing(8)
+            _lbl_mute = QLabel(_("Mute playback while recording:"))
+            _lbl_mute.setToolTip(_tt(_("Keeps the speakers out of the recording. Automatic skips the mute when the active output is a headset, where there is nothing to keep out.")))
+            self.cmb_mute_output.setToolTip(_lbl_mute.toolTip())
+            lay_mute.addWidget(_lbl_mute)
+            lay_mute.addWidget(self.cmb_mute_output, 1)
+            lay_mic.addLayout(lay_mute)
+
         # Silence threshold slider + calibration playground are hidden in
         # wizard mode — first-time users shouldn't be overwhelmed. The
         # conf key DICTEE_SILENCE_RMS keeps its default 0.03 until the
@@ -16452,19 +16475,23 @@ class DicteeSetupDialog(QDialog):
         Only called in non-wizard mode (regular setup).
         """
         # Silence threshold slider (anti-hallucination)
-        # Range 10..60 → 0.010..0.060. Default 30 (= 0.030).
+        # Range 3..60 → 0.003..0.060. Default 30 (= 0.030). The floor was
+        # 0.010 until 1.3.7: on an interface with the gain knob low, speech
+        # measures below that (0.013 to 0.018 on the setup of issue #37,
+        # against a calibrated 0.023), so everything was dropped as silence
+        # and a hand-written 0.008 was clamped back on the next setup run.
         try:
             _saved_rms = float(conf.get("DICTEE_SILENCE_RMS", "0.03"))
         except ValueError:
             _saved_rms = 0.03
-        _saved_rms_int = max(10, min(60, int(round(_saved_rms * 1000))))
+        _saved_rms_int = max(3, min(60, int(round(_saved_rms * 1000))))
 
         lay_sil = QHBoxLayout()
         lay_sil.setSpacing(8)
         lbl_sil = QLabel(_("Silence threshold:"))
         lbl_sil.setToolTip(_tt(_("RMS level below which the recording is considered silent and transcription is skipped. Prevents ASR hallucinations (parasitic phrases invented on background noise).")))
         self.slider_silence = QSlider(Qt.Orientation.Horizontal)
-        self.slider_silence.setRange(10, 60)
+        self.slider_silence.setRange(3, 60)
         self.slider_silence.setValue(_saved_rms_int)
         self.slider_silence.setTickInterval(10)
         self.slider_silence.setTickPosition(QSlider.TickPosition.TicksBelow)
@@ -16473,7 +16500,7 @@ class DicteeSetupDialog(QDialog):
         self.lbl_silence_val.setStyleSheet("font-family: monospace;")
 
         def _rms_to_meter_level(rms_int):
-            # rms_int is the slider value (10..60, representing 0.010..0.060).
+            # rms_int is the slider value (3..60, representing 0.003..0.060).
             # Meter level uses: level = (20*log10(rms_norm) + 50) * 2, same
             # formula as AudioLevelMonitor, so the marker lines up with
             # actual VU readings.
@@ -20287,6 +20314,8 @@ class DicteeSetupDialog(QDialog):
         audio_context = self.chk_audio_context.isChecked() if hasattr(self, 'chk_audio_context') else True
         audio_context_timeout = self.spin_audio_context_timeout.value() if hasattr(self, 'spin_audio_context_timeout') else 30
         silence_rms = (self.slider_silence.value() / 1000.0) if hasattr(self, 'slider_silence') else 0.03
+        mute_output = (self.cmb_mute_output.currentData()
+                       if hasattr(self, 'cmb_mute_output') else 'auto')
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         # Cheatsheet shortcut: persist the combo selection (and the captured
@@ -20341,6 +20370,7 @@ class DicteeSetupDialog(QDialog):
                     audio_context=audio_context,
                     audio_context_timeout=audio_context_timeout,
                     silence_rms=silence_rms,
+                    mute_output=mute_output,
                     notifications=self.chk_notifications.isChecked(),
                     notifications_text=self.chk_notifications_text.isChecked(),
                     command_suffixes=self._command_suffixes,
