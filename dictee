@@ -185,6 +185,45 @@ _sink_is_headset() {
     fi
 }
 
+# How far down the output goes while recording, when a mute was decided.
+# DICTEE_DUCK_LEVEL is a CEILING in percent, not a reduction: empty keeps the
+# historical mute, 10 caps the output at 10% and leaves it alone when it is
+# already lower (a user at 19% would otherwise land at 4% with a percentage).
+# Takes the level and the current volume as a 0..1 fraction (wpctl's format,
+# empty when unreadable). Prints "mute", "keep", or the ceiling to apply.
+_duck_target() {
+    local level="$1" current="$2"
+    case "$level" in
+        ""|*[!0-9]*) echo "mute"; return ;;
+    esac
+    [ "$level" -ge 1 ] 2>/dev/null || { echo "mute"; return ; }
+    [ "$level" -le 100 ] 2>/dev/null || { echo "mute"; return ; }
+    [ "$level" -eq 100 ] && { echo "keep"; return ; }
+    # Unreadable volume: cap, it is the safe side (never louder than asked).
+    [ -n "$current" ] || { echo "$level"; return ; }
+    local cur_pct
+    cur_pct=$(awk -v c="$current" 'BEGIN { printf "%d", c * 100 }' 2>/dev/null)
+    [ -n "$cur_pct" ] || { echo "$level"; return ; }
+    if [ "$cur_pct" -le "$level" ]; then
+        echo "keep"
+    else
+        echo "$level"
+    fi
+}
+
+# A percentage as the 0..1 fraction wpctl takes. Printed with a dot whatever
+# the locale (a comma would make wpctl set the volume to 0).
+_pct_to_fraction() {
+    LC_ALL=C awk -v p="$1" 'BEGIN { printf "%.2f", p / 100 }'
+}
+
+# Current output volume as a 0..1 fraction, empty when unreadable. wpctl
+# prints "Volume: 0.19" with a dot whatever the locale, unlike pactl which
+# reports one localized percentage per channel.
+_sink_volume() {
+    wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | awk '/Volume:/ { print $2; exit }'
+}
+
 # Mute the playback while recording from the microphone? DICTEE_MUTE_OUTPUT:
 # auto (default) mutes unless the active output is a headset, true always
 # mutes, false never does. Prints yes or no.
@@ -212,8 +251,15 @@ restore_audio() {
     # (it was unmuted before); if the user had it muted, leave it muted so we
     # don't clobber their muted-output preference.
     if [ -f "$SINK_MUT_FILE" ]; then
-        local sink_was=""
-        sink_was=$(awk -F"=" '{print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        local sink_was="" sink_vol=""
+        sink_was=$(awk -F"=" '/^SINK_MUT=/ {print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        # Ducked instead of muted: put the volume back where it was. Written
+        # by start-recording only when we actually lowered it.
+        sink_vol=$(awk -F"=" '/^SINK_VOL=/ {print $2}' "$SINK_MUT_FILE" 2>/dev/null)
+        if [ -n "$sink_vol" ]; then
+            wpctl set-volume @DEFAULT_AUDIO_SINK@ "$sink_vol" 2>/dev/null || true
+            _dbg "restore: output volume back to $sink_vol"
+        fi
         if [ "$sink_was" = "0" ]; then
             pactl set-sink-mute @DEFAULT_SINK@ 0
         fi
@@ -1975,7 +2021,23 @@ else
                 echo "SINK_MUT=1" >"$SINK_MUT_FILE"
             else
                 echo "SINK_MUT=0" >"$SINK_MUT_FILE"
-                pactl set-sink-mute @DEFAULT_SINK@ 1
+                # DICTEE_DUCK_LEVEL caps the output instead of muting it, for
+                # setups where the sound has to stay audible (a call kept on
+                # while dictating). Empty = mute, the historical behaviour.
+                _duck_cur=$(_sink_volume)
+                _duck=$(_duck_target "${DICTEE_DUCK_LEVEL:-}" "$_duck_cur")
+                _dbg "duck: level=${DICTEE_DUCK_LEVEL:-<mute>} current=${_duck_cur:-?} decision=$_duck"
+                case "$_duck" in
+                    mute) pactl set-sink-mute @DEFAULT_SINK@ 1 ;;
+                    keep) ;;
+                    *)
+                        # Remember the exact volume so restore_audio puts it
+                        # back; a crash here only leaves the sound low.
+                        [ -n "$_duck_cur" ] && echo "SINK_VOL=$_duck_cur" >>"$SINK_MUT_FILE"
+                        wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(_pct_to_fraction "$_duck")" 2>/dev/null || \
+                            pactl set-sink-mute @DEFAULT_SINK@ 1
+                        ;;
+                esac
             fi
         fi
     fi
