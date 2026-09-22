@@ -2098,7 +2098,12 @@ else
         # The headset answer is needed for its own duck level too, not just
         # for the auto mute decision.
         if [ "$_mute_setting" != "false" ] || [ -n "${DICTEE_DUCK_LEVEL_HEADSET:-}" ]; then
-            _default_sink=$(pactl get-default-sink 2>/dev/null)
+            # pactl fails while the sound server is busy (a Bluetooth sink
+            # reconnecting, say). Without the guard, the failed assignment
+            # fires trap ERR and cleanup_on_error cancels the dictation
+            # before it ever starts. An empty sink name is fine here: the
+            # headset test below just answers no.
+            _default_sink=$(pactl get-default-sink 2>/dev/null) || _default_sink=""
             _is_headset=$(LC_ALL=C pactl list sinks 2>/dev/null \
                 | awk -v s="$_default_sink" '$0 ~ "^Sink #" {p=0} $0 ~ "Name: " s "$" {p=1} p' \
                 | _sink_is_headset)
