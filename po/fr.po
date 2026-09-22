@@ -4880,3 +4880,27 @@ msgstr "0 coupe la sortie, comme avant. Toute autre valeur la plafonne à ce pou
 #: dictee-setup.py
 msgid "A headset is never muted: nothing of what it plays reaches the microphone. 0 leaves it untouched, any other value caps it while recording."
 msgstr "Un casque n'est jamais coupé : rien de ce qu'il joue n'arrive au micro. 0 n'y touche pas, toute autre valeur le plafonne pendant l'enregistrement."
+
+#: dictee-setup.py
+msgid "Playback while recording:"
+msgstr "Son pendant l'enregistrement :"
+
+#: dictee-setup.py
+msgid "Muted"
+msgstr "Coupé"
+
+#: dictee-setup.py
+msgid "Untouched"
+msgstr "Inchangé"
+
+#: dictee-setup.py
+msgid "Keeps the speakers out of the recording. Slide left to mute, right to leave the sound alone, anywhere between to cap it at that level while you dictate."
+msgstr "Évite que les haut-parleurs se retrouvent dans l'enregistrement. À gauche pour couper, à droite pour ne rien changer, entre les deux pour plafonner à ce niveau pendant la dictée."
+
+#: dictee-setup.py
+msgid "Speakers: muted by default, since what they play reaches the microphone and ends up in the transcription."
+msgstr "Haut-parleurs : coupés par défaut, puisque ce qu'ils jouent arrive au micro et finit dans la transcription."
+
+#: dictee-setup.py
+msgid "Headset: left alone by default, nothing it plays reaches the microphone. Lower it to keep hearing a call at a quieter level while you dictate."
+msgstr "Casque : inchangé par défaut, rien de ce qu'il joue n'arrive au micro. Baissez-le pour continuer à entendre un appel moins fort pendant la dictée."
