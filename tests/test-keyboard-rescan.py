@@ -28,6 +28,8 @@ class FakeDevice:
     """The slice of evdev.InputDevice that the detection code touches."""
 
     opened = 0
+    held_on = {}          # path -> keys physically down on that node
+    grab_refused = set()  # paths whose grab fails (EBUSY: someone else holds it)
 
     def __init__(self, path, name, caps):
         self.path = path
@@ -43,10 +45,12 @@ class FakeDevice:
     def active_keys(self, verbose=False):
         # The rescan reads this before grabbing: a keyboard with a key held
         # is left for the next pass, so its release is not stolen from the
-        # compositor. Nothing is held in these tests.
-        return []
+        # compositor.
+        return list(FakeDevice.held_on.get(self.path, []))
 
     def grab(self):
+        if self.path in FakeDevice.grab_refused:
+            raise OSError(16, "Device or resource busy")
         self.grabbed = True
 
     def close(self):
@@ -105,6 +109,8 @@ class TestRescanCost(unittest.TestCase):
                        for i in range(4, 28)]
         self.ptt = load_ptt(self.nodes)
         FakeDevice.opened = 0
+        FakeDevice.held_on = {}
+        FakeDevice.grab_refused = set()
 
     def test_first_scan_opens_every_node(self):
         """Nothing is known yet, so everything has to be looked at."""
@@ -161,6 +167,43 @@ class TestRescanCost(unittest.TestCase):
         self.assertEqual(FakeDevice.opened, 1,
                          "the lost keyboard's node was not examined again")
         self.assertEqual(len(devices), 1, "the keyboard was not grabbed back")
+
+    def test_a_keyboard_plugged_with_a_key_held_is_grabbed_once_released(self):
+        """Deferring the grab must not mean forgetting the keyboard.
+
+        The rescan leaves a hotplugged keyboard alone while a key is down on
+        it (grabbing then would steal the release from the compositor), but
+        find_keyboards_evdev(new_only=True) has already filed the node as
+        examined by then. Without clearing it, the next rescan skips the
+        node and the keyboard is never grabbed at all.
+        """
+        devices = self.ptt.find_keyboards_evdev()
+        self.nodes.append(a_keyboard("/dev/input/event28", "hotplugged board"))
+        FakeDevice.held_on["/dev/input/event28"] = [30]
+        self.ptt._rescan_keyboards(devices)
+        self.assertEqual(len(devices), 1,
+                         "grabbed with a key held: its release would be stolen")
+        FakeDevice.held_on.clear()                    # the hand comes off
+        FakeDevice.opened = 0
+        self.ptt._rescan_keyboards(devices)
+        self.assertEqual(FakeDevice.opened, 1,
+                         "the deferred keyboard was never looked at again")
+        self.assertEqual(len(devices), 2, "the deferred keyboard was never grabbed")
+        self.assertTrue(devices[1].grabbed)
+
+    def test_a_keyboard_whose_grab_fails_is_tried_again(self):
+        """EBUSY is transient (another program held the node): stay new."""
+        devices = self.ptt.find_keyboards_evdev()
+        self.nodes.append(a_keyboard("/dev/input/event28", "busy board"))
+        FakeDevice.grab_refused.add("/dev/input/event28")
+        self.ptt._rescan_keyboards(devices)
+        self.assertEqual(len(devices), 1, "a refused grab must not add the device")
+        FakeDevice.grab_refused.clear()               # the other program lets go
+        FakeDevice.opened = 0
+        self.ptt._rescan_keyboards(devices)
+        self.assertEqual(FakeDevice.opened, 1,
+                         "the busy keyboard was never looked at again")
+        self.assertEqual(len(devices), 2, "the busy keyboard was never grabbed")
 
     def test_a_rejected_node_is_never_reopened(self):
         """Non-keyboards are the bulk of the cost and never change."""

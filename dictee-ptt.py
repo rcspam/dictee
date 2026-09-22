@@ -108,6 +108,25 @@ def _transcribe_client_running():
         return False
 
 
+def _meeting_live_running():
+    """True if a dictee-meeting-live window is alive for the current user.
+
+    A Python script's comm is "python3", so pgrep -x is useless here: match
+    the command line instead ("python3 /usr/bin/dictee-meeting-live"). When
+    pgrep itself cannot answer, say yes: keys keep passing through, which is
+    the state before this check existed, rather than stealing them from a
+    window that may well be open.
+    """
+    try:
+        return subprocess.run(
+            ["pgrep", "-u", str(os.getuid()), "-f", r"[/ ]dictee-meeting-live( |$)"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).returncode == 0
+    except Exception:
+        return True
+
+
 def keys_pass_through(state):
     """True while the live meeting window owns the keyboard.
 
@@ -138,6 +157,19 @@ def read_state_with_cleanup():
             except OSError:
                 pass
             return "idle"
+    # The live meeting window writes these two and is the only thing that
+    # clears them. PyQt6 aborts the process on an unhandled exception in a
+    # slot, closeEvent never runs, and the state would say "window open"
+    # until the next reboot: every key passed through, dictation dead, no
+    # message. Put it back to idle once the window is gone.
+    if keys_pass_through(state) and not _meeting_live_running():
+        try:
+            with open(STATE_FILE, "w") as f:
+                f.write("idle\n")
+            print(f"[ptt] stale state cleanup: {state} -> idle (no live meeting window)")
+        except OSError:
+            pass
+        return "idle"
     return state
 
 
@@ -871,6 +903,9 @@ def _rescan_keyboards(devices, ui=None):
         if _held:
             print(f"[ptt] hotplug grab deferred: key(s) still held on {new_dev.name}: {sorted(_held)}")
             new_dev.close()
+            # find_keyboards_evdev(new_only=True) has already filed the node
+            # as examined: make it new again, or it is never grabbed at all.
+            _scanned_paths.discard(new_dev.path)
             continue
         try:
             new_dev.grab()
@@ -879,7 +914,9 @@ def _rescan_keyboards(devices, ui=None):
             if ui is not None and not _passthrough_covers(ui, new_dev):
                 needs_recreate = True
         except OSError:
+            # EBUSY: another program holds it for now. Same rule, stay new.
             new_dev.close()
+            _scanned_paths.discard(new_dev.path)
     if needs_recreate:
         try:
             new_ui = _make_passthrough(devices)
@@ -1091,6 +1128,11 @@ def run_evdev(ptt):
                 # figer la saisie, donc l'auto-répétition parasite (issue #8).
                 # Also the safe point to hand the devices over to dictee-setup
                 # while it captures a key, and to take them back afterwards.
+                # A meeting state whose window died would pass every key
+                # through for good: heal it here, once a second at most,
+                # never on the key path (the check is a pgrep).
+                if keys_pass_through(read_state()):
+                    read_state_with_cleanup()
                 now_paused = pause_requested()
                 if now_paused and not released:
                     print("[ptt] pause: devices released for key capture")
