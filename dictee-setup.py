@@ -15522,6 +15522,30 @@ class DicteeSetupDialog(QDialog):
         # and would otherwise block window paint for users who never visit
         # this page in the current session.
 
+    def _duck_levels_to_save(self):
+        """The speaker and headset levels to write, as (speakers, headset).
+
+        The wizard has no Microphone page, so the two sliders do not exist
+        there. Falling back to a default would write it over whatever the
+        user had: 0 means a mute, so a headset set to 30 would come back
+        silenced after a wizard run. Read the conf instead, and only use the
+        defaults when nothing was ever set.
+        """
+        conf = load_config()
+
+        def _level(attr, key, default):
+            widget = getattr(self, attr, None)
+            if widget is not None:
+                return widget.value()
+            try:
+                saved = conf.get(key)
+                return int(saved) if saved not in (None, "") else default
+            except ValueError:
+                return default
+
+        return (_level("slider_duck", "DICTEE_DUCK_LEVEL", 0),
+                _level("slider_duck_headset", "DICTEE_DUCK_LEVEL_HEADSET", 100))
+
     def _build_silence_threshold_section(self, lay_mic, conf):
         """Silence threshold slider + calibration playground.
 
@@ -19364,10 +19388,7 @@ class DicteeSetupDialog(QDialog):
         # The two levels carry everything now; DICTEE_MUTE_OUTPUT stays in
         # the conf for anyone who set it by hand, and keeps its meaning.
         mute_output = (load_config().get("DICTEE_MUTE_OUTPUT") or "auto")
-        duck_level = (self.slider_duck.value()
-                      if hasattr(self, 'slider_duck') else 0)
-        duck_headset = (self.slider_duck_headset.value()
-                        if hasattr(self, 'slider_duck_headset') else 0)
+        duck_level, duck_headset = self._duck_levels_to_save()
         debug = self.chk_debug.isChecked() if hasattr(self, 'chk_debug') else False
 
         # Cheatsheet shortcut: persist the combo selection (and the captured
