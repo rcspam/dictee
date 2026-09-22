@@ -40,6 +40,13 @@ DICTEE_VOSK_MODEL=fr
 # restored afterwards either way.
 #DICTEE_MUTE_OUTPUT=auto
 
+# How far down the output goes when it is muted, as a CEILING in percent.
+# Empty (the default) means a plain mute. Set to 10 and the output is capped
+# at 10% while you dictate, and left alone when it is already lower. Meant
+# for headphones or an output the microphone cannot hear: on speakers even a
+# quiet output reaches the microphone and ends up in the transcription.
+#DICTEE_DUCK_LEVEL=
+
 # ============================================================================
 # Translation
 # ============================================================================

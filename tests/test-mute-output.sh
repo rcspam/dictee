@@ -104,5 +104,39 @@ check "false + speakers: no mute"    "$(_should_mute_output false no)"  "no"
 check "false + headset: no mute"     "$(_should_mute_output false yes)" "no"
 check "garbage value behaves as auto" "$(_should_mute_output banana no)" "yes"
 
+# --- _duck_target: ceiling, not percentage ----------------------------------
+# DICTEE_DUCK_LEVEL empty keeps the historical mute. Set to a number, the
+# output is capped at that percentage while recording and left alone when it
+# is already lower, so a user at 19% does not end up at 4%.
+
+fn3=$(awk '/^_duck_target\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCRIPT")
+[[ -n "$fn3" ]] || { echo "FAIL: _duck_target() not found in $SCRIPT"; exit 1; }
+eval "$fn3"
+
+check "no duck level: mute as before"      "$(_duck_target ''    0.50)" "mute"
+check "level above current: nothing to do" "$(_duck_target 10    0.05)" "keep"
+check "level equal to current: nothing"    "$(_duck_target 10    0.10)" "keep"
+check "level below current: cap"           "$(_duck_target 10    0.50)" "10"
+check "level 0 is a mute"                  "$(_duck_target 0     0.50)" "mute"
+check "level 100 never caps"               "$(_duck_target 100   0.50)" "keep"
+check "garbage level: mute as before"      "$(_duck_target abc   0.50)" "mute"
+check "negative level: mute as before"     "$(_duck_target -5    0.50)" "mute"
+check "level over 100: mute as before"     "$(_duck_target 150   0.50)" "mute"
+check "unreadable volume: cap anyway"      "$(_duck_target 10    '')"   "10"
+
+# --- _pct_to_fraction: what wpctl is actually given -------------------------
+# "0.$level" would send 0.5 for a level of 5, i.e. 50%: the opposite of what
+# was asked. And a comma decimal separator makes wpctl set the volume to 0.
+
+fn4=$(awk '/^_pct_to_fraction\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCRIPT")
+[[ -n "$fn4" ]] || { echo "FAIL: _pct_to_fraction() not found in $SCRIPT"; exit 1; }
+eval "$fn4"
+
+check "10% is 0.10"  "$(_pct_to_fraction 10)" "0.10"
+check "5% is 0.05"   "$(_pct_to_fraction 5)"  "0.05"
+check "1% is 0.01"   "$(_pct_to_fraction 1)"  "0.01"
+check "99% is 0.99"  "$(_pct_to_fraction 99)" "0.99"
+check "a dot even in a comma locale" "$(LC_ALL=fr_FR.UTF-8 _pct_to_fraction 10)" "0.10"
+
 if [[ $fails -gt 0 ]]; then echo "$fails FAILED"; exit 1; fi
 echo OK
