@@ -536,8 +536,6 @@ mode_online() {
             /etc/modules-load.d/dictee-uinput.conf
             /etc/udev/rules.d/80-dotool.rules
             /etc/ld.so.conf.d/dictee.conf
-            /usr/lib/dictee/dictee-common.sh
-            /usr/lib/dictee/dictee_models.py
             /usr/lib/systemd/user/dictee.service
             /usr/lib/systemd/user/dictee-tray.service
             /usr/lib/systemd/user/dictee-ptt.service
@@ -561,6 +559,10 @@ mode_online() {
             "/usr/bin/diarize-only"
             "/usr/bin/transcribe"
             "/usr/bin/transcribe-"*
+            # Everything mode_tarball puts in /usr/lib/dictee: the two
+            # helpers, and on the CUDA tarball the ONNX Runtime libraries
+            # and setup-cuda-venv.sh, which PKGBUILD-cuda ships too.
+            "/usr/lib/dictee/"*
             "/usr/share/dictee/assets/banner-"*.svg
             "/usr/share/dictee/assets/logos/"*.svg
             "/usr/share/dictee/assets/icons/"*.svg
