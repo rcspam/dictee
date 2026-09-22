@@ -34,6 +34,12 @@ DICTEE_VOSK_MODEL=fr
 # Audio source: empty = default microphone, or app:<name> (e.g. app:firefox)
 #DICTEE_AUDIO_SOURCE=
 
+# Mute the playback while recording, so the speakers don't end up in the
+# recording. auto = mute unless the active output is a headset (jack or
+# Bluetooth), true = always mute, false = never. The previous state is
+# restored afterwards either way.
+#DICTEE_MUTE_OUTPUT=auto
+
 # ============================================================================
 # Translation
 # ============================================================================
