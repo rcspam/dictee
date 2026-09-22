@@ -117,6 +117,10 @@ jobs:
       run: python3 tests/offscreen-check_anim_speech_update.py
       env:
         QT_QPA_PLATFORM: offscreen
+    - name: Run silence-threshold floor tests
+      run: python3 tests/offscreen-check_silence_floor.py
+      env:
+        QT_QPA_PLATFORM: offscreen
 
   test-keyboard-detection:
     runs-on: ubuntu-latest
