@@ -1,6 +1,11 @@
 #!/bin/bash
 # Test du mode --stream de diarize-only
 set -e
+# The packaging build (packaging/cargo-glibc236.sh) lands in target/glibc236;
+# prefer it when present, a plain cargo build otherwise (CI).
+if [ -z "${BIN:-}" ] && [ -x target/glibc236/release/diarize-only ]; then
+  BIN=target/glibc236/release/diarize-only
+fi
 BIN="${BIN:-./target/release/diarize-only}"
 SAMPLE="${SAMPLE:-tests/fixtures/diarize_sample_30s.wav}"
 
