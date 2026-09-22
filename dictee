@@ -217,21 +217,49 @@ fi
 
 # dotool needs to write to /dev/uinput, which is restricted to the `input`
 # group. dictee is invoked from many parents whose group-set may differ:
-#  - dictee-ptt.service       → has `sg input -c …` in ExecStart, OK
+#  - dictee-ptt.service       → dictee-ptt bridges the group itself at start
 #  - tray clic / plasmoid clic → inherit plasmashell's groups, which were
 #    fixed at graphical login: if the user was added to `input` AFTER the
 #    login (postinst, %post, .install hook), plasmashell never picked the
 #    new group up → dotool here fails with "could not open device file".
 #
-# Detect the situation once at startup. When the input group is missing
-# from the running process's group-set, all dotool calls go through
-# `sg input -c`, which re-runs initgroups() against /etc/group and gets
-# the missing group without needing a logout.
-if id -nG 2>/dev/null | grep -qw input; then
-    _DOTOOL_NEEDS_SG=0
-else
-    _DOTOOL_NEEDS_SG=1
+# sg and newgrp bridge that gap: they read /etc/group and run a command with
+# the new group, no logout needed. Until 1.3.6 this was `sg input -c`,
+# hard-coded; Arch dropped /usr/bin/sg from shadow 4.20.0.arch1-1 (#35), and
+# ships util-linux's newgrp, which takes `-c <command>` (shadow's newgrp, on
+# Debian/Ubuntu/Fedora, does not, but those still have sg). Decide once at
+# startup. Prints the wrapper prefix, empty when the group is already there,
+# "none" when nothing can bridge it (the caller warns: logout needed).
+_dotool_group_bridge() {
+    if id -nG 2>/dev/null | grep -qw input; then
+        echo ""
+    elif command -v sg >/dev/null 2>&1; then
+        echo "sg input -c"
+    elif command -v newgrp >/dev/null 2>&1 && newgrp --help 2>&1 | grep -q -- '-c'; then
+        echo "newgrp input -c"
+    else
+        echo "none"
+    fi
+}
+_DOTOOL_WRAP=$(_dotool_group_bridge)
+if [[ "$_DOTOOL_WRAP" == "none" ]]; then
+    _DOTOOL_WRAP=""
+    _dbg "dotool: input group missing and neither sg nor newgrp -c available; typing will fail until the next login"
+    notify_dictee_async 0 dialog-warning-symbolic "Push-to-talk : déconnectez-vous et reconnectez-vous (groupe input)" 2>/dev/null || true
 fi
+
+# Run dotool with stdin from the caller, through the group bridge when one is
+# needed. Its stderr goes to the debug log (when DICTEE_DEBUG=true) instead of
+# /dev/null: a dotool that cannot open uinput used to fail without a trace.
+_run_dotool() {
+    local _err="${_DBG_LOG:-/dev/null}"
+    [ "$DICTEE_DEBUG" = "true" ] || _err=/dev/null
+    if [[ -n "$_DOTOOL_WRAP" ]]; then
+        $_DOTOOL_WRAP 'dotool' 2>>"$_err" || true
+    else
+        dotool 2>>"$_err" || true
+    fi
+}
 
 # Safe dotool wrapper for trap ERR.
 # DICTEE_DOTOOL_SETTLE (seconds, default 0 = off) delays the keystrokes after
@@ -243,11 +271,7 @@ fi
 # delays only the keystrokes, not the device creation.
 safe_dotool() {
     local settle="${DICTEE_DOTOOL_SETTLE:-0}"
-    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | sg input -c 'dotool' 2>/dev/null || true
-    else
-        { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | dotool 2>/dev/null || true
-    fi
+    { [[ "$settle" != 0 ]] && sleep "$settle"; cat; } | _run_dotool
 }
 
 # Release all keyboard modifiers — called from trap and before ctrl+* commands
@@ -256,11 +280,7 @@ safe_dotool() {
 # the bare ctrl/shift/alt/super are chord-modifier prefixes only and are rejected as
 # keys ("impossible key for layout"), which silently turned this release into a no-op.
 release_modifiers() {
-    if [[ $_DOTOOL_NEEDS_SG -eq 1 ]]; then
-        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | sg input -c 'dotool' 2>/dev/null || true
-    else
-        printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | dotool 2>/dev/null || true
-    fi
+    printf 'keyup leftctrl\nkeyup leftshift\nkeyup leftalt\nkeyup leftmeta\n' | _run_dotool
 }
 
 # (safe_dotool_key_ctrl was removed: its only caller was the non-Latin

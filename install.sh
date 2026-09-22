@@ -889,14 +889,13 @@ EOF
     fi
 
     # --- input group (dotool needs /dev/uinput) ---
-    # No reboot needed: dictee-ptt.service runs the daemon under
-    # `sg input -c …` so the new group is effective immediately.
-    # GUI apps started before the install (terminals, file managers)
-    # won't see the group until the next login, but dictee itself
-    # runs through dictee-ptt → sg input → /dev/uinput → fine.
+    # No reboot needed: dictee-ptt and dictee bridge the new group themselves
+    # (sg where shadow ships it, util-linux's `newgrp -c` on Arch, #35), so it
+    # is effective immediately. GUI apps started before the install won't see
+    # the group until the next login, but dictee does not depend on them.
     if ! id -nG "$REAL_USER" | grep -qw input; then
         usermod -aG input "$REAL_USER"
-        ok "$REAL_USER added to group 'input' (active immediately via dictee-ptt's sg wrapper)"
+        ok "$REAL_USER added to group 'input' (active immediately, dictee bridges it)"
     fi
 
     # --- docker group (LibreTranslate runs in Docker) ---
@@ -948,12 +947,10 @@ EOF
     chown -R "$REAL_USER:" "$REAL_HOME/.local/share/icons"
 
     # --- systemd user units (rewrite /usr/bin to /usr/local/bin) ---
-    # Only OUR binaries move to $PREFIX. A blanket s|/usr/bin/| rewrote
-    # /usr/bin/sg too — the group-switch helper from shadow, which exists only
-    # in /usr/bin — so dictee-ptt died at every start with
-    # "Unable to locate executable /usr/local/bin/sg" (203/EXEC) and the
-    # push-to-talk key never worked. Match the leading '=' or '"' so the
-    # command being rewritten is the one we ship.
+    # Only OUR binaries move to $PREFIX. A blanket s|/usr/bin/| once rewrote
+    # /usr/bin/sg too (the units no longer call it, dictee-ptt bridges the
+    # group itself), so keep matching the leading '=' or '"' and our own
+    # binary names only: anything else in an ExecStart stays where it is.
     info "Installing systemd user units"
     install -d "$SYSTEMD_USER_DIR"
     for svc in "$SCRIPT_DIR/usr/lib/systemd/user/"*.service; do
