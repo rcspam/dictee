@@ -44,7 +44,11 @@ case "$ref" in
     *'$RELEASE_TAG'*|*'${RELEASE_TAG}'*)
         # Installer clones the resolved latest-release tag. Resolve it the
         # same way install.sh does, so we exercise the real chain.
-        ref="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+        # Anonymous calls share one small quota per runner IP and get a
+        # 403 under load; authenticate when the caller gives us a token.
+        auth=()
+        [[ -n "${GITHUB_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+        ref="$(curl -fsSL "${auth[@]}" "https://api.github.com/repos/${REPO}/releases/latest" \
                 | grep -Po '"tag_name"\s*:\s*"\K[^"]+' | head -1)"
         [[ -n "$ref" ]] || fail "cannot resolve \$RELEASE_TAG from /releases/latest" ;;
     *'$'*)
