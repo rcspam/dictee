@@ -557,6 +557,17 @@ mode_online() {
             /usr/share/dictee/continuation.conf.default
             /usr/share/dictee/VERSION
             /usr/share/dictee/dictee.plasmoid
+            # What mode_tarball puts in /usr/lib/dictee and the package ships
+            # too, named one by one. No glob here: the CUDA post-install links
+            # the NVIDIA libraries of its venv into this directory and ldconfig
+            # adds libonnxruntime.so.1; no package owns them, they must stay,
+            # and none of them can conflict.
+            /usr/lib/dictee/dictee-common.sh
+            /usr/lib/dictee/dictee_models.py
+            /usr/lib/dictee/setup-cuda-venv.sh
+            /usr/lib/dictee/libonnxruntime.so
+            /usr/lib/dictee/libonnxruntime_providers_cuda.so
+            /usr/lib/dictee/libonnxruntime_providers_shared.so
         )
         local glob_patterns=(
             "/usr/bin/dictee"
@@ -564,10 +575,6 @@ mode_online() {
             "/usr/bin/diarize-only"
             "/usr/bin/transcribe"
             "/usr/bin/transcribe-"*
-            # Everything mode_tarball puts in /usr/lib/dictee: the two
-            # helpers, and on the CUDA tarball the ONNX Runtime libraries
-            # and setup-cuda-venv.sh, which PKGBUILD-cuda ships too.
-            "/usr/lib/dictee/"*
             "/usr/share/dictee/assets/banner-"*.svg
             "/usr/share/dictee/assets/logos/"*.svg
             "/usr/share/dictee/assets/icons/"*.svg
@@ -579,7 +586,8 @@ mode_online() {
 
         # -L as well as -e: a symlink whose target is gone still takes the
         # path, and pacman checks paths with lstat, so it refuses the package
-        # just the same (ldconfig leaves one in /usr/lib/dictee).
+        # just the same (a development install links these paths into a
+        # checkout, and the links dangle once the checkout moves).
         local candidates=()
         local f
         for f in "${static_files[@]}"; do
