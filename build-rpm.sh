@@ -212,12 +212,9 @@ build_rpm_cuda() {
     # CUDA 12 runtime the package provisions via pip (%post cuda-venv).
     DICTEE_REQUIRE_CUDART_SONAME=12 ./build-whisper-rust.sh cuda
 
-    # Hard guard: if the CUDA provider lib isn't there after the
-    # build, abort rather than silently shipping CPU binaries.
-    if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
-        echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing in target/release/" >&2
-        exit 1
-    fi
+    # No check on target/release here: a load-dynamic build writes no ONNX
+    # Runtime library there. The CUDA providers are checked below, next to
+    # the libonnxruntime.so that gets packaged.
 
     # Kyutai daemon — separate candle crate (CUDA-only, needs nvcc). Reuses the
     # CUDA runtime libs already symlinked into /usr/lib/dictee at %post; no extra

@@ -92,12 +92,9 @@ cargo build --release --no-default-features \
 # CUDA 12 runtime install.sh provisions via pip (mode_tarball cuda-venv).
 DICTEE_REQUIRE_CUDART_SONAME=12 ./build-whisper-rust.sh cuda
 
-# Hard guard: only the load-dynamic CUDA build emits this provider lib.
-# Without it the binaries would silently fall back to CPU at runtime.
-if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
-    echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing in target/release/" >&2
-    exit 1
-fi
+# No check on target/release here: a load-dynamic build writes no ONNX
+# Runtime library there. The CUDA providers are checked below, next to the
+# libonnxruntime.so that gets packaged.
 
 # Kyutai daemon — separate candle crate (CUDA-only, needs nvcc). The universal
 # tarball is CUDA-only, so it always ships kyutai. Reuses the CUDA runtime libs
