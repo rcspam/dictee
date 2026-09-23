@@ -66,6 +66,8 @@ tarball_leftovers() {
     echo x > "$FAKE/usr/bin/dictee-setup"
     echo x > "$FAKE/usr/bin/transcribe"
     own "$FAKE/usr/bin/transcribe"
+    mkdir -p "$FAKE/usr/share/dictee"
+    echo x > "$FAKE/usr/share/dictee/short_text_keepcaps.conf.default"
     local f
     for f in libonnxruntime.so libonnxruntime_providers_cuda.so \
              libonnxruntime_providers_shared.so setup-cuda-venv.sh dictee_models.py; do
@@ -115,6 +117,8 @@ tarball_leftovers
 out=$(bash "$(case_script 1)" 2>&1); rc=$?
 listed() { local f n=""; for f in "$@"; do n="$n$(grep -cxF "WARN   $f" <<<"$out")"; done; echo "$n"; }
 check "leftover file reported" "$(listed "$FAKE/usr/bin/dictee-setup")" "1"
+check "the tarball's default configs reported" \
+    "$(listed "$FAKE/usr/share/dictee/short_text_keepcaps.conf.default")" "1"
 check "the tarball's files in /usr/lib/dictee reported" \
     "$(listed "$LIB/libonnxruntime.so" "$LIB/libonnxruntime_providers_cuda.so" \
               "$LIB/libonnxruntime_providers_shared.so" "$LIB/setup-cuda-venv.sh" \
@@ -127,7 +131,7 @@ check "ldconfig and CUDA venv links not reported" \
     "$(listed "$LIB/libonnxruntime.so.1" "$LIB/libcublas.so.12" "$LIB/libcudnn.so.9")" "000"
 check "nothing else reported, no unexpanded glob" \
     "$(grep -c '^WARN Detected' <<<"$out") $(grep -o 'Detected [0-9]* orphan' <<<"$out")" \
-    "1 Detected 8 orphan"
+    "1 Detected 9 orphan"
 check "non-interactive mode stops before makepkg" "$rc" "1"
 
 # --- The package alone: nothing to report, a --non-interactive run goes on.
