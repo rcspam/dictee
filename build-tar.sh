@@ -86,12 +86,9 @@ echo "=== [TAR.GZ] Cargo build CUDA (forced) ==="
 # Refuse binaries that would not start on Debian 12 (issue #32).
 dict_check_built_bins
 
-# Hard guard: only the load-dynamic CUDA build emits this provider lib.
-# Without it the binaries would silently fall back to CPU at runtime.
-if [ ! -f target/release/libonnxruntime_providers_cuda.so ]; then
-    echo "FATAL: CUDA build failed — libonnxruntime_providers_cuda.so missing in target/release/" >&2
-    exit 1
-fi
+# No check on target/release here: a load-dynamic build writes no ONNX
+# Runtime library there. The CUDA providers are checked below, next to the
+# libonnxruntime.so that gets packaged.
 
 # 4. Find libonnxruntime.so. With load-dynamic, ort doesn't bundle the
 #    main shared lib in target/release/ — we have to source it from the
