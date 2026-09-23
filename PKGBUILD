@@ -219,6 +219,7 @@ package() {
     install -Dm644 rules.conf.default "$pkgdir/usr/share/dictee/rules.conf.default"
     install -Dm644 dictionary.conf.default "$pkgdir/usr/share/dictee/dictionary.conf.default"
     install -Dm644 continuation.conf.default "$pkgdir/usr/share/dictee/continuation.conf.default"
+    install -Dm644 short_text_keepcaps.conf.default "$pkgdir/usr/share/dictee/short_text_keepcaps.conf.default"
 
     # VERSION file (generated at build time)
     echo "$pkgver build $(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \

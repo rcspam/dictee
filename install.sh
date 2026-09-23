@@ -555,6 +555,7 @@ mode_online() {
             /usr/share/dictee/rules.conf.default
             /usr/share/dictee/dictionary.conf.default
             /usr/share/dictee/continuation.conf.default
+            /usr/share/dictee/short_text_keepcaps.conf.default
             /usr/share/dictee/VERSION
             /usr/share/dictee/dictee.plasmoid
             # What mode_tarball puts in /usr/lib/dictee and the package ships
