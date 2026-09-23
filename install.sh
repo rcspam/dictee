@@ -41,6 +41,11 @@ warn() { echo "${C_YELLOW}⚠${C_OFF} $*"; }
 err()  { echo "${C_RED}✗${C_OFF} $*" >&2; }
 die()  { err "$@"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
+# True when /dev/tty can be opened, i.e. there is a terminal to ask on.
+# [[ -r /dev/tty ]] is not enough: the node is always there and readable, and
+# only open() fails when there is no controlling terminal (a service, a remote
+# command, CI). The probe's own error goes to /dev/null.
+have_tty() { ( : < /dev/tty ) 2>/dev/null; }
 
 # Closing notice when Docker is absent. Docker is shipped as `Suggests:` since
 # #21 and must NOT auto-install, and it is missing from the rpm dependencies
@@ -213,7 +218,7 @@ launch_wizard() {
     fi
 
     local ans=""
-    if [[ -r /dev/tty ]]; then
+    if have_tty; then
         echo
         read -p "Launch dictee-setup now? [Y/n] " -t 10 -r ans < /dev/tty || ans=""
     fi
@@ -321,7 +326,7 @@ mode_online() {
     if [[ -z "$BACKEND" ]]; then
         if detect_gpu; then
             info "NVIDIA GPU detected"
-            if [[ $NON_INTERACTIVE -eq 1 ]]; then
+            if [[ $NON_INTERACTIVE -eq 1 ]] || ! have_tty; then
                 BACKEND="gpu"
             else
                 read -rp "Install the GPU (CUDA) version? [Y/n] " REPLY < /dev/tty || REPLY="y"
@@ -613,8 +618,10 @@ mode_online() {
         fi
 
         echo
-        local REPLY=""
-        read -rp "Remove these orphan files now? [Y/n] " REPLY < /dev/tty || REPLY="y"
+        local REPLY="y"
+        if have_tty; then
+            read -rp "Remove these orphan files now? [Y/n] " REPLY < /dev/tty || REPLY="y"
+        fi
         if [[ "$REPLY" =~ ^[Nn] ]]; then
             die "Aborted. Remove orphan files manually and retry."
         fi
@@ -693,7 +700,7 @@ mode_online() {
             local install_docker="n"
             if [[ $NON_INTERACTIVE -eq 1 ]]; then
                 info "Docker not installed — skipping (non-interactive). Install later if you want LibreTranslate."
-            elif [[ -r /dev/tty ]]; then
+            elif have_tty; then
                 echo
                 echo "Docker is needed for LibreTranslate (offline self-hosted translation, ~250 MB)."
                 echo "Other translation backends (Google, Bing, Ollama) work without it."

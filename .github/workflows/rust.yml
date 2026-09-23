@@ -181,6 +181,8 @@ jobs:
       run: bash tests/test-dotool-group-bridge.sh
     - name: Run mute-output decision tests
       run: bash tests/test-mute-output.sh
+    - name: Run terminal prompt tests (install.sh, uninstall.sh)
+      run: bash tests/test-tty-prompts.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest

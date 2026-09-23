@@ -78,7 +78,15 @@ ask_yes_no() {
     else
         prompt="[y/N]"
     fi
-    read -rp "$question $prompt " REPLY < /dev/tty || REPLY="$default"
+    # Without a terminal (a service, a remote command) /dev/tty cannot be
+    # opened: take the default quietly instead of letting the shell print
+    # its error. The probe runs in a subshell so that error goes nowhere;
+    # read itself must keep stderr, where its prompt is written.
+    if ( : < /dev/tty ) 2>/dev/null; then
+        read -rp "$question $prompt " REPLY < /dev/tty || REPLY="$default"
+    else
+        REPLY="$default"
+    fi
     REPLY="${REPLY:-$default}"
     case "$REPLY" in
         [Yy]*) REPLY="y" ;;
