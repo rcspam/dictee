@@ -577,15 +577,18 @@ mode_online() {
             "/usr/share/man/fr/man1/dictee"*.1
         )
 
+        # -L as well as -e: a symlink whose target is gone still takes the
+        # path, and pacman checks paths with lstat, so it refuses the package
+        # just the same (ldconfig leaves one in /usr/lib/dictee).
         local candidates=()
         local f
         for f in "${static_files[@]}"; do
-            [[ -e "$f" ]] && candidates+=("$f")
+            [[ -e "$f" || -L "$f" ]] && candidates+=("$f")
         done
         local pattern
         for pattern in "${glob_patterns[@]}"; do
             for f in $pattern; do
-                [[ -e "$f" ]] && candidates+=("$f")
+                [[ -e "$f" || -L "$f" ]] && candidates+=("$f")
             done
         done
 
