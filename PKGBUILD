@@ -31,13 +31,14 @@ depends=(
     # The vulkan-built whisper-rust daemon has libvulkan.so.1 in DT_NEEDED:
     # without the loader it cannot exec, so this is a hard dep, not a hint.
     'vulkan-icd-loader'
+    # Recommends on .deb/.rpm; pacman never installs optdepends
+    'python-numpy'
+    'wl-clipboard'
 )
 optdepends=(
-    'wl-clipboard: clipboard copy (Wayland)'
     'xclip: clipboard copy (X11)'
     'curl: LibreTranslate translation'
     'translate-shell: translation via Google/Bing'
-    'python-numpy: plasmoid audio visualization'
     'ollama: 100% local translation'
     'docker: LibreTranslate local translation'
     'python-gobject: GNOME/Unity AppIndicator backend for dictee-tray'

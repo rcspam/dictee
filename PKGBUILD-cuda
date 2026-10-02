@@ -37,13 +37,14 @@ depends=(
     # package must stay installed at runtime, not only as a makedepend
     # (an orphan sweep like `pacman -Rns $(pacman -Qtdq)` would break it).
     'cuda'
+    # Recommends on .deb/.rpm; pacman never installs optdepends
+    'python-numpy'
+    'wl-clipboard'
 )
 optdepends=(
-    'wl-clipboard: clipboard copy (Wayland)'
     'xclip: clipboard copy (X11)'
     'curl: LibreTranslate translation'
     'translate-shell: translation via Google/Bing'
-    'python-numpy: plasmoid audio visualization'
     'ollama: 100% local translation'
     'docker: LibreTranslate local translation'
     'python-gobject: GNOME/Unity AppIndicator backend for dictee-tray'
