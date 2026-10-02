@@ -140,9 +140,15 @@ depends:
     why: rendu SVG des icônes systray / plasmoid
 
   # ---------- recommends / optionnel ----------
+  # apt et dnf installent les Recommends par défaut ; pacman n'installe JAMAIS
+  # les optdepends. Ce qui est Recommends ici et dont dictee a besoin à l'usage
+  # passe donc en depends sur Arch (arch_kind: hard) : sans ça, les modes
+  # « coller » et « presse-papiers » ne copiaient rien et l'indicateur de niveau
+  # du plasmoid restait mort sur Arch (1.3.7).
   - canonical: wl-clipboard
     variants: [cpu, cuda]
     kind: optional
+    arch_kind: hard
     deb: wl-clipboard
     rpm: wl-clipboard
     arch: wl-clipboard
@@ -151,6 +157,7 @@ depends:
   - canonical: xclip-or-xsel
     variants: [cpu, cuda]
     kind: optional
+    arch_kind: hard
     deb: xclip | xsel
     rpm: xclip   # divergence connue : xsel non listé côté RPM
     arch: xclip
@@ -175,6 +182,7 @@ depends:
   - canonical: numpy
     variants: [cpu, cuda, plasmoid]
     kind: optional
+    arch_kind: hard
     deb: python3-numpy
     rpm: python3-numpy
     arch: python-numpy

@@ -4,7 +4,10 @@
 # so on Arch these must be hard depends, or nothing installs them:
 #   python-numpy  the plasmoid level meter (dictee-plasmoid-level-fft)
 #   wl-clipboard  the "paste" and "clipboard" output modes on Wayland
-# Both used to sit in optdepends, and install.sh did not add them either.
+#   xclip         the same two modes on X11
+# All three used to sit in optdepends, and install.sh did not add them either.
+# packaging/dependencies.yaml carries the same rule (arch_kind: hard) and
+# packaging/audit-deps.py checks the builders against it.
 #
 # Sources each PKGBUILD in a subshell (top level is plain assignments) and
 # reads its arrays.
@@ -12,7 +15,7 @@
 # Usage: bash tests/test-arch-depends.sh
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REQUIRED=(python-numpy wl-clipboard)
+REQUIRED=(python-numpy wl-clipboard xclip)
 
 fails=0
 check() {  # label, got, expected
