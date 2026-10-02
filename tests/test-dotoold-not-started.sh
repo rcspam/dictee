@@ -7,8 +7,13 @@
 # fails in a loop; afterwards it runs for nothing.
 #
 # Every post-install must now leave dotoold alone, and switch off the one an
-# earlier version enabled. Reads the five installers; the rpm scriptlets are
-# the two %post sections of build-rpm.sh.
+# earlier version enabled. Stopped, dotoold exits 143 (its trap ends with the
+# status of the interrupted wait), which systemd records as a failure: the
+# unit stays "failed" and the user manager "degraded" (seen on kubuntu-2604
+# on 2026-10-02), so the post-install clears that state too.
+#
+# Reads the five installers; the rpm scriptlets are the two %post sections of
+# build-rpm.sh.
 #
 # Usage: bash tests/test-dotoold-not-started.sh
 set -u
@@ -28,6 +33,8 @@ for f in pkg/dictee/DEBIAN/postinst dictee.install dictee-cuda.install install.s
         "$(code "$ROOT/$f" | grep -cE 'restart[^#]*\bdotoold\b')" "0"
     check "$f: switches dotoold off" \
         "$(code "$ROOT/$f" | grep -cE 'disable --now dotoold')" "1"
+    check "$f: clears the failed state the stop leaves" \
+        "$(code "$ROOT/$f" | grep -cE 'reset-failed dotoold')" "1"
 done
 
 # build-rpm.sh carries two %post scriptlets (cpu, cuda): each must do the same.
@@ -38,6 +45,8 @@ check "build-rpm.sh %post: no 'restart dotoold'" \
     "$(grep -cE 'restart[^#]*\bdotoold\b' <<<"$rpm_post")" "0"
 check "build-rpm.sh %post: switches dotoold off in both variants" \
     "$(grep -cE 'disable --now dotoold' <<<"$rpm_post")" "2"
+check "build-rpm.sh %post: clears the failed state in both variants" \
+    "$(grep -cE 'reset-failed dotoold' <<<"$rpm_post")" "2"
 
 # The preset shipped with the packages must not enable it either.
 check "90-dictee.preset keeps dotoold disabled" \

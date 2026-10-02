@@ -1087,7 +1087,11 @@ EOF
         # through the one-shot dotool. Earlier versions enabled it anyway, and
         # started right after the install it could not open /dev/uinput before the
         # next login and failed in a loop. Switch off the one they left enabled.
+        # Stopped, it exits 143 (its trap ends with the status of the interrupted
+        # wait), which systemd records as a failure: clear it, or the unit stays
+        # "failed" and the user manager "degraded".
         $_run systemctl --user disable --now dotoold 2>/dev/null || true
+        $_run systemctl --user reset-failed dotoold 2>/dev/null || true
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
         if [[ -f "$REAL_HOME/.config/dictee.conf" ]]; then
             $_run systemctl --user restart dictee-tray 2>/dev/null || true
