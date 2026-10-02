@@ -117,10 +117,12 @@ jobs:
       run: python3 tests/offscreen-check_anim_speech_update.py
       env:
         QT_QPA_PLATFORM: offscreen
-    # Same ride: it loads dictee-setup.py whole. pacman is a stand-in on a
-    # private PATH, nothing runs for real.
-    - name: Run install type (Arch) tests
-      run: python3 tests/offscreen-check_install_type_arch.py
+    # Same ride: both load dictee-setup.py whole. pacman, sg and newgrp are
+    # stand-ins on a private PATH, nothing runs for real.
+    - name: Run install type (Arch) and docker group bridge tests
+      run: |
+        python3 tests/offscreen-check_install_type_arch.py
+        python3 tests/offscreen-check_docker_group_bridge.py
       env:
         QT_QPA_PLATFORM: offscreen
 
