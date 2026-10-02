@@ -6466,13 +6466,19 @@ class DicteeSetupDialog(QDialog):
         # pacman (Arch) — no binary asset published in the release (users
         # build from source via PKGBUILD + makepkg -si). _check_for_updates
         # surfaces the new version + manual install instructions.
+        # Both names: the CUDA PKGBUILD installs dictee-cuda, and pacman -Q
+        # matches names, not provides. It prints one line per installed
+        # name and exits 1 when any is missing, so read stdout regardless.
         if shutil.which("pacman"):
             try:
-                r = subprocess.run(["pacman", "-Q", "dictee"],
+                r = subprocess.run(["pacman", "-Q", "dictee-cuda", "dictee"],
                                    capture_output=True, text=True, timeout=5)
-                if r.returncode == 0 and r.stdout.strip():
-                    return {"kind": "pacman", "label": r.stdout.strip(),
-                            "asset_hint": ""}
+                for line in (r.stdout or "").splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return {"kind": "pacman", "label": line.strip(),
+                                "asset_hint": "",
+                                "pkg_name": parts[0]}
             except Exception as _e:
                 _dbg_setup(f"silenced: {_e!r}")
         # Source install detected via presence of Cargo.toml alongside
