@@ -8,7 +8,7 @@ Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, py
 Suggests: gnome-shell-extension-appindicator, docker.io
 Conflicts: dictee-cuda
 Provides: dictee
-Maintainer: rcspam <rcspams@gmail.com>
+Maintainer: rcspam <rcspam4gh@gmail.com>
 Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
  This version runs on CPU only (works on any computer, slower than GPU).

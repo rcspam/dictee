@@ -1,4 +1,4 @@
-# Maintainer: rcspam <rcspams@gmail.com>
+# Maintainer: rcspam <rcspam4gh@gmail.com>
 #
 # CPU build of dictee for Arch. ONNX Runtime is statically linked, the
 # binary works on any machine without GPU dependencies.
