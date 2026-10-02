@@ -1,7 +1,7 @@
 # French translations for Dictée plasmoid.
 # Copyright (C) 2024 rcspam
 # This file is distributed under the same license as the dictee package.
-# rcspam <rcspams@gmail.com>, 2024.
+# rcspam <rcspam4gh@gmail.com>, 2024.
 #
 msgid ""
 msgstr ""
@@ -9,7 +9,7 @@ msgstr ""
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-05-03 21:34+0200\n"
 "PO-Revision-Date: 2024-01-01 00:00+0000\n"
-"Last-Translator: rcspam <rcspams@gmail.com>\n"
+"Last-Translator: rcspam <rcspam4gh@gmail.com>\n"
 "Language-Team: French\n"
 "Language: fr\n"
 "MIME-Version: 1.0\n"
