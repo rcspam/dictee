@@ -200,6 +200,7 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
                dictee-test-rules dictee-transcribe dictee-reset \
                dictee-translate-langs dictee-audio-sources \
                dictee-stream dictee-meeting-live dictee-cheatsheet dictee-app-capture \
+               diarize-only transcribe-diarize-batch \
                transcribe-daemon-vosk transcribe-daemon-whisper \
                transcribe-daemon-whisper-rust \
                dictee-plasmoid-level dictee-plasmoid-level-daemon dictee-plasmoid-level-fft \
