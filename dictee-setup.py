@@ -1713,6 +1713,10 @@ class _PipelineDiagram:
 
 VOSK_VENV = os.path.join(DICTEE_DATA_DIR, "vosk-env")
 WHISPER_VENV = os.path.join(DICTEE_DATA_DIR, "whisper-env")
+# What pip installs for Whisper. faster-whisper 1.2.1 only asks for av>=11 and
+# opens every file with av.open(..., metadata_errors=...), an argument PyAV 19
+# removed (2026-09-29): without the pin every transcription raises TypeError.
+WHISPER_PIP_SPEC = "faster-whisper av<19"
 CANARY_VENV = os.path.join(DICTEE_DATA_DIR, "canary-env")  # Legacy, kept for cleanup
 CANARY_MODEL_DIR = os.path.join(MODEL_DIR, "canary")
 CANARY_HF_REPO = "istupakov/canary-1b-v2-onnx"
@@ -1828,9 +1832,12 @@ class VenvInstallThread(QThread):
                     _("Failed to upgrade pip in the venv:") + "\n\n"
                     + (r_pip.stderr.strip() or r_pip.stdout.strip())[-500:])
                 return
-            self.progress.emit(_("Installing {pkg}…").format(pkg=self.pip_package))
+            # pip_package may carry several requirements ("pkg other<N"): the
+            # first one is the name shown, each one is its own pip argument.
+            _reqs = self.pip_package.split()
+            self.progress.emit(_("Installing {pkg}…").format(pkg=_reqs[0]))
             result = subprocess.run(
-                pip_cmd + ["install", "--upgrade", self.pip_package],
+                pip_cmd + ["install", "--upgrade", *_reqs],
                 capture_output=True, text=True, timeout=600,
                 cwd=self.venv_path,
             )
@@ -9728,7 +9735,7 @@ class DicteeSetupDialog(QDialog):
         row.setContentsMargins(24, 0, 0, 0)
         whisper_installed = venv_is_installed(WHISPER_VENV)
         self.btn_install_whisper = QPushButton()
-        self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, "faster-whisper"))
+        self.btn_install_whisper.clicked.connect(lambda: self._install_venv("whisper", WHISPER_VENV, WHISPER_PIP_SPEC))
         self._update_venv_button(self.btn_install_whisper, "Whisper", whisper_installed)
 
         self._lbl_wh_model = QLabel(_("Model:"))
