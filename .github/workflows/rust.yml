@@ -191,6 +191,8 @@ jobs:
       run: bash tests/test-plasmoid-lt-check.sh
     - name: Run Arch depends tests (deb/rpm Recommends)
       run: bash tests/test-arch-depends.sh
+    - name: Run tarball binary list tests (build-tar / install / uninstall)
+      run: bash tests/test-tarball-bins.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest

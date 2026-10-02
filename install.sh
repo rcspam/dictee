@@ -863,8 +863,10 @@ EOF
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
         dictee-translate-langs dictee-audio-sources dictee-meeting-live
-        dictee-cheatsheet
+        dictee-cheatsheet diarize-only transcribe-diarize-batch
     )
+    # tests/test-tarball-bins.sh keeps this list, build-tar.sh and uninstall.sh
+    # on the same set of names.
     for b in "${bins[@]}"; do
         [[ -f "$SCRIPT_DIR/usr/bin/$b" ]] && install -Dm755 "$SCRIPT_DIR/usr/bin/$b" "$PREFIX/bin/$b"
     done
