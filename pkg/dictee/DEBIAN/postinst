@@ -158,8 +158,12 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
     fi
 done
 if [ "$GROUPS_CHANGED" = "true" ]; then
+    # No reboot needed for dictee itself: dictee-ptt and dictee bridge the new
+    # group (sg, or newgrp -c on Arch, #35) and the services are restarted
+    # below. Only applications started before the install keep the old
+    # groups until the next login.
     echo ""
-    echo "⚠ Groupe(s) ajouté(s) — redémarrez pour activer les raccourcis clavier."
+    echo "✓ Groupe(s) ajouté(s) — actifs tout de suite pour dictee ; les autres applications les verront à la prochaine connexion."
     # Notification desktop pour les installations graphiques
     for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
         user=$(id -nu "$uid" 2>/dev/null) || continue
@@ -167,7 +171,7 @@ if [ "$GROUPS_CHANGED" = "true" ]; then
         sudo -u "$user" DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
             notify-send -a "dictee" -i "dialog-information" \
             "dictee installed" \
-            "Please reboot to activate keyboard shortcuts." 2>/dev/null || true
+            "Ready to use. Log out and back in only if another application needs the new groups." 2>/dev/null || true
     done
 fi
 
