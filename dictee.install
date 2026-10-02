@@ -50,6 +50,12 @@ _switch_off_dotoold() {
         sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" \
             DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
             systemctl --user disable --now dotoold 2>/dev/null || true
+        # Stopped, it exits 143 (its trap ends with the status of the interrupted
+        # wait), which systemd records as a failure: clear it, or the unit stays
+        # "failed" and the user manager "degraded".
+        sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user reset-failed dotoold 2>/dev/null || true
     done
 }
 
