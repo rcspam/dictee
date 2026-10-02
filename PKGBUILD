@@ -31,9 +31,9 @@ depends=(
     # Recommends on .deb/.rpm; pacman never installs optdepends
     'python-numpy'
     'wl-clipboard'
+    'xclip'
 )
 optdepends=(
-    'xclip: clipboard copy (X11)'
     'curl: LibreTranslate translation'
     'translate-shell: translation via Google/Bing'
     'ollama: 100% local translation'
