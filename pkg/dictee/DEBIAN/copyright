@@ -3,7 +3,7 @@ Upstream-Name: dictee
 Source: https://github.com/rcspam/dictee
 
 Files: *
-Copyright: 2026 rcspam <rcspams@gmail.com>
+Copyright: 2026 rcspam <rcspam4gh@gmail.com>
 License: GPL-3.0-or-later
 
 Files: usr/bin/dotool usr/bin/dotoold

@@ -5,7 +5,7 @@ Priority: optional
 Architecture: all
 Depends: dictee
 Recommends: python3-numpy, pulseaudio-utils
-Maintainer: rcspam <rcspams@gmail.com>
+Maintainer: rcspam <rcspam4gh@gmail.com>
 Description: KDE Plasma 6 widget for dictee voice dictation
  A native KDE Plasma 6 widget for dictee voice dictation.
  Displays real-time audio visualization during recording, daemon status,

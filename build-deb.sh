@@ -126,7 +126,7 @@ Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, py
 Suggests: gnome-shell-extension-appindicator, docker.io, libvulkan1
 Conflicts: dictee-cpu
 Provides: dictee
-Maintainer: rcspam <rcspams@gmail.com>
+Maintainer: rcspam <rcspam4gh@gmail.com>
 Description: Fast speech-to-text with NVIDIA Parakeet (CUDA GPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
  This version uses CUDA for GPU acceleration (NVIDIA GPUs only).
@@ -289,7 +289,7 @@ Recommends: wl-clipboard, xclip | xsel, curl, translate-shell, python3-numpy, py
 Suggests: gnome-shell-extension-appindicator, docker.io
 Conflicts: dictee-cuda
 Provides: dictee
-Maintainer: rcspam <rcspams@gmail.com>
+Maintainer: rcspam <rcspam4gh@gmail.com>
 Description: Fast speech-to-text with NVIDIA Parakeet (CPU version)
  A daemon-based speech recognition system using NVIDIA's Parakeet TDT model.
  This version runs on CPU only (works on any computer, slower than GPU).
@@ -371,7 +371,7 @@ Priority: optional
 Architecture: all
 Depends: dictee
 Recommends: python3-numpy, pulseaudio-utils
-Maintainer: rcspam <rcspams@gmail.com>
+Maintainer: rcspam <rcspam4gh@gmail.com>
 Description: KDE Plasma 6 widget for dictee voice dictation
  A native KDE Plasma 6 widget for dictee voice dictation.
  Displays real-time audio visualization during recording, daemon status,

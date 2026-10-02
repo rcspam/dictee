@@ -1,4 +1,4 @@
-# Maintainer: rcspam <rcspams@gmail.com>
+# Maintainer: rcspam <rcspam4gh@gmail.com>
 #
 # CUDA variant of the Arch package for dictee. Builds the Rust binaries
 # with `cuda,sortformer,load-dynamic` features and bundles libonnxruntime.so

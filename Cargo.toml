@@ -4,7 +4,7 @@
 name = "dictee-asr"
 version = "1.4.0-beta"
 edition = "2021"
-authors = ["rcspam <contact@theia-ee.fr>", "altunenes (original parakeet-rs author)"]
+authors = ["rcspam <rcspam4gh@gmail.com>", "altunenes (original parakeet-rs author)"]
 description = "dictee ASR & speaker diarization engine (ONNX): Parakeet TDT, Canary, Nemotron, Sortformer"
 repository = "https://github.com/rcspam/dictee"
 license = "GPL-3.0-or-later"
