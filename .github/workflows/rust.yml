@@ -185,6 +185,8 @@ jobs:
       run: bash tests/test-tty-prompts.sh
     - name: Run Arch orphan scan tests
       run: bash tests/test-arch-orphans.sh
+    - name: Run plasmoid level meter tests (numpy missing)
+      run: bash tests/test-level-daemon-no-numpy.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest
