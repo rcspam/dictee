@@ -207,6 +207,58 @@ check("master engines: the saved Nemotron choice is honoured", wm._model_combo.c
 wm.close()
 os.remove(_conf_path)
 
+# --- 2c. application sources only when dictee-app-capture is there -----------
+# Recording one application needs the dictee-app-capture helper, which only the
+# development line ships. dictee-audio-sources lists the applications playing
+# sound anyway (the F9 selector takes them), so the 1.3 window offered "mpv",
+# saved it, and refused every start with "dictee-app-capture is not on this
+# system" (kubuntu-2604, 2026-10-02).
+
+def fake_sources_dir(app_capture):
+    d = tempfile.mkdtemp(prefix="dictee-fake-sources-")
+    p = os.path.join(d, "dictee-audio-sources")
+    with open(p, "w") as f:
+        f.write("#!/bin/sh\n"
+                "echo '|audio-input-microphone|System default'\n"
+                "echo 'alsa_input.pci-0000_00_1b.0.analog-stereo|audio-input-microphone|Built-in Audio'\n"
+                "echo 'app:mpv|mpv|mpv — video.webm'\n")
+    os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
+    if app_capture:
+        q = os.path.join(d, "dictee-app-capture")
+        with open(q, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(q, os.stat(q).st_mode | stat.S_IEXEC)
+    return d
+
+
+def source_values(w):
+    return [w.cmb_source.itemData(i) for i in range(w.cmb_source.count())]
+
+
+with open(_conf_path, "w", encoding="utf-8") as f:
+    f.write("DICTEE_MEETING_AUDIO_SOURCE=app:mpv\n")
+
+os.environ["PATH"] = fake_sources_dir(app_capture=False)
+ws = mod.MeetingWindow()
+check("no app-capture: application sources not offered",
+      [v for v in source_values(ws) if str(v).startswith("app:")], [])
+check("no app-capture: microphones still offered",
+      "alsa_input.pci-0000_00_1b.0.analog-stereo" in source_values(ws), True)
+check("no app-capture: a saved application source falls back to the mix",
+      ws.cmb_source.currentData(), "mix")
+ws.cmb_source.showPopup()
+ws.cmb_source.hidePopup()
+check("no app-capture: still not offered after a rescan",
+      [v for v in source_values(ws) if str(v).startswith("app:")], [])
+ws.close()
+
+os.environ["PATH"] = fake_sources_dir(app_capture=True)
+wa = mod.MeetingWindow()
+check("with app-capture: the application source is offered and kept",
+      wa.cmb_source.currentData(), "app:mpv")
+wa.close()
+os.remove(_conf_path)
+
 os.environ["PATH"] = saved_path
 mod.QMessageBox = saved_box
 
