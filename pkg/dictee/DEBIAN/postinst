@@ -267,10 +267,14 @@ for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' |
         # Appliquer les presets (auto-enable au premier install)
         $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
         # Activer les services essentiels (hors ASR — géré par backend)
-        $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
+        $_run systemctl --user enable dictee-ptt dictee-tray 2>/dev/null || true
         # Démarrer/redémarrer les services
-        $_run systemctl --user restart dotoold 2>/dev/null || true
-        echo "  ↳ dotoold démarré"
+        # dotoold, dotool's daemon, is nothing dictee talks to: the text is typed
+        # through the one-shot dotool. Earlier versions enabled it anyway, and
+        # started right after the install it could not open /dev/uinput before the
+        # next login and failed in a loop. Switch off the one they left enabled.
+        $_run systemctl --user disable --now dotoold 2>/dev/null || true
+        echo "  ↳ dotoold désactivé (dictee ne s'en sert pas)"
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
         echo "  ↳ dictee-ptt démarré"
         _user_home=$(getent passwd "$user" | cut -d: -f6)

@@ -1082,8 +1082,12 @@ EOF
         local _run="sudo -u $REAL_USER XDG_RUNTIME_DIR=/run/user/$REAL_UID DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$REAL_UID/bus"
         $_run systemctl --user daemon-reload 2>/dev/null || true
         $_run systemctl --user preset dictee dictee-vosk dictee-whisper dictee-canary dictee-ptt dictee-tray dotoold 2>/dev/null || true
-        $_run systemctl --user enable dotoold dictee-ptt dictee-tray 2>/dev/null || true
-        $_run systemctl --user restart dotoold 2>/dev/null || true
+        $_run systemctl --user enable dictee-ptt dictee-tray 2>/dev/null || true
+        # dotoold, dotool's daemon, is nothing dictee talks to: the text is typed
+        # through the one-shot dotool. Earlier versions enabled it anyway, and
+        # started right after the install it could not open /dev/uinput before the
+        # next login and failed in a loop. Switch off the one they left enabled.
+        $_run systemctl --user disable --now dotoold 2>/dev/null || true
         $_run systemctl --user restart dictee-ptt 2>/dev/null || true
         if [[ -f "$REAL_HOME/.config/dictee.conf" ]]; then
             $_run systemctl --user restart dictee-tray 2>/dev/null || true
