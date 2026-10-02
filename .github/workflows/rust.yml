@@ -187,6 +187,8 @@ jobs:
       run: bash tests/test-arch-orphans.sh
     - name: Run plasmoid level meter tests (numpy missing)
       run: bash tests/test-level-daemon-no-numpy.sh
+    - name: Run plasmoid LibreTranslate check tests (no sg)
+      run: bash tests/test-plasmoid-lt-check.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest
