@@ -100,8 +100,10 @@ if ! command -v parec >/dev/null 2>&1; then
     cleanup
 fi
 
-# Check that dictee-plasmoid-level-fft is available
-if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1; then
+# Check that dictee-plasmoid-level-fft is available. It imports numpy first
+# thing and dies without it, so a missing numpy also means RMS mode.
+if ! command -v dictee-plasmoid-level-fft >/dev/null 2>&1 \
+        || ! python3 -c 'import numpy' >/dev/null 2>&1; then
     # Fallback: simple RMS mode without FFT
     parec $PAREC_ARGS 2>/dev/null | \
     while true; do
