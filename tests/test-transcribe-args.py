@@ -47,7 +47,7 @@ _asr_model_env = _load_func("_asr_model_env")
 _build_arg_parser = _load_func("_build_arg_parser", {"argparse": argparse})
 _load_speakers_json = _load_func("_load_speakers_json", {"os": os, "json": json, "_dbg": lambda *a: None})
 _match_anchors = _load_func("_match_anchors_to_batch_speakers")
-list_past_meetings = _load_func("list_past_meetings", {"os": os, "json": json})
+list_past_meetings = _load_func("list_past_meetings", {"os": os, "json": json, "_read_conf": lambda: {}})
 
 
 class AsrModelEnvTests(unittest.TestCase):
@@ -188,6 +188,21 @@ class ListPastMeetingsTests(unittest.TestCase):
 
     def test_missing_base_is_empty(self):
         self.assertEqual(list_past_meetings("/nonexistent/dictee-meetings"), [])
+
+    def test_conf_dir_is_honoured(self):
+        # dictee-setup saves the folder in dictee.conf; with nothing in the
+        # environment the History list must look there, not in the default.
+        with tempfile.TemporaryDirectory() as base:
+            a = self._mk(base, "2026-09-01_10-00", "Kickoff")
+            fn = _load_func("list_past_meetings",
+                            {"os": os, "json": json,
+                             "_read_conf": lambda: {"DICTEE_MEETING_DIR": base}})
+            old = os.environ.pop("DICTEE_MEETING_DIR", None)
+            try:
+                self.assertEqual(fn(), [("2026-09-01_10-00: Kickoff", a)])
+            finally:
+                if old is not None:
+                    os.environ["DICTEE_MEETING_DIR"] = old
 
     def test_env_dir_is_honoured(self):
         with tempfile.TemporaryDirectory() as base:

@@ -197,10 +197,26 @@ def slug_title(title):
     return s[:40].strip("-")
 
 
+def _conf_value(key):
+    """One DICTEE_* value from ~/.config/dictee.conf, or None."""
+    conf = Path.home() / ".config/dictee.conf"
+    try:
+        for line in conf.read_text(encoding="utf-8").splitlines():
+            s = line.strip()
+            if s.startswith(key + "="):
+                return s.split("=", 1)[1].strip().strip('"').strip("'") or None
+    except OSError:
+        pass
+    return None
+
+
 def meeting_dir(timestamp=None, title=""):
-    base_dir = os.environ.get("DICTEE_MEETING_DIR",
-                              os.path.join(os.path.expanduser("~"),
-                                           ".local/share/dictee/meetings"))
+    # The folder chosen in dictee-setup lands in dictee.conf; the environment
+    # only carries the key when a caller set it on purpose (tests, scripts).
+    base_dir = (os.environ.get("DICTEE_MEETING_DIR")
+                or _conf_value("DICTEE_MEETING_DIR")
+                or os.path.join(os.path.expanduser("~"),
+                                ".local/share/dictee/meetings"))
     ts = timestamp or datetime.now().strftime("%Y-%m-%d-%H%M")
     sl = slug_title(title)
     name = f"{ts}_{sl}" if sl else ts

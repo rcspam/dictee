@@ -11,6 +11,7 @@ import importlib.machinery
 import importlib.util
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +64,49 @@ class TestPureHelpers(unittest.TestCase):
                          [{"text": "hi", "start_s": 1.0, "end_s": 2.0}])
         self.assertEqual(ml._parse_whisper_tokens(""), [])
         self.assertEqual(ml._parse_whisper_tokens("garbage no brackets"), [])
+
+
+class TestMeetingDir(unittest.TestCase):
+    """Where a meeting is saved. dictee-setup writes the chosen folder as
+    DICTEE_MEETING_DIR in dictee.conf; the window read the key from its
+    environment only, where nothing ever puts it, so the setting had no
+    effect. Order now: environment, then dictee.conf, then the default."""
+
+    def _with_home(self, conf_lines, env_dir=None):
+        home = tempfile.mkdtemp(prefix="dictee-meeting-dir-")
+        os.makedirs(os.path.join(home, ".config"))
+        if conf_lines:
+            with open(os.path.join(home, ".config", "dictee.conf"), "w") as f:
+                f.write("\n".join(conf_lines) + "\n")
+        saved = {k: os.environ.get(k) for k in ("HOME", "DICTEE_MEETING_DIR")}
+        os.environ["HOME"] = home
+        if env_dir is None:
+            os.environ.pop("DICTEE_MEETING_DIR", None)
+        else:
+            os.environ["DICTEE_MEETING_DIR"] = env_dir
+        try:
+            return home, str(ml.meeting_dir(timestamp="2026-10-02-1500", title="t"))
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+    def test_default_without_setting(self):
+        home, d = self._with_home([])
+        self.assertEqual(d, os.path.join(home, ".local/share/dictee/meetings", "2026-10-02-1500_t"))
+
+    def test_conf_folder_is_honoured(self):
+        want = tempfile.mkdtemp(prefix="dictee-meetings-conf-")
+        home, d = self._with_home([f'DICTEE_MEETING_DIR="{want}"', "DICTEE_MEETING_CHUNK_S=40"])
+        self.assertEqual(d, os.path.join(want, "2026-10-02-1500_t"))
+
+    def test_environment_wins_over_conf(self):
+        want = tempfile.mkdtemp(prefix="dictee-meetings-env-")
+        other = tempfile.mkdtemp(prefix="dictee-meetings-other-")
+        home, d = self._with_home([f"DICTEE_MEETING_DIR={other}"], env_dir=want)
+        self.assertEqual(d, os.path.join(want, "2026-10-02-1500_t"))
 
 
 if __name__ == "__main__":
