@@ -111,6 +111,12 @@ jobs:
       env:
         XDG_CONFIG_HOME: /tmp/dictee-ci-noconfig
         QT_QPA_PLATFORM: offscreen
+    # Rides in this job for its Qt packages: it loads dictee-setup.py whole.
+    # pacman is a stand-in on a private PATH, nothing runs for real.
+    - name: Run install type (Arch) tests
+      run: python3 tests/offscreen-check_install_type_arch.py
+      env:
+        QT_QPA_PLATFORM: offscreen
 
   test-keyboard-detection:
     runs-on: ubuntu-latest
