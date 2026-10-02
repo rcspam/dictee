@@ -348,6 +348,34 @@ modprobe uinput 2>/dev/null || true
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
+# Drop systemd user units left by a previous TARBALL install. Done before
+# the per-user loop, which the deb postinst does too: nested inside it,
+# this loop reused uid, user and home and the plasmoid install and the
+# dictee.conf lookup below then ran for the last session, not the one
+# being set up (one logged-in user hid it).
+# ~/.config/systemd/user wins over /usr/lib/systemd/user, so they silently
+# shadow the ones this package installs, pointing at /usr/local/bin paths the
+# package never uses. Measured on an Arch VM: a July tarball left a unit
+# calling /usr/local/bin/sg, dictee-ptt died 27 times with 203/EXEC, and
+# push-to-talk never worked after installing the package.
+for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+    user=\$(id -nu "\$uid" 2>/dev/null) || continue
+    [ "\$user" = "root" ] && continue
+    home=\$(getent passwd "\$user" | cut -d: -f6)
+    [ -d "\$home/.config/systemd/user" ] || continue
+    removed=0
+    for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+        [ -f "\$home/.config/systemd/user/\$unit.service" ] || continue
+        rm -f "\$home/.config/systemd/user/\$unit.service" && removed=\$((removed + 1))
+    done
+    if [ "\$removed" -gt 0 ]; then
+        echo "✓ \$removed unité(s) d'une install tarball retirée(s) pour \$user"
+        sudo -u "\$user" XDG_RUNTIME_DIR="/run/user/\$uid" \\
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
+            systemctl --user daemon-reload 2>/dev/null || true
+    fi
+done
+
 # Per-user setup for all logged-in users
 for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
@@ -370,30 +398,6 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
             usermod -aG docker "\$user"
         fi
     fi
-
-    # Drop systemd user units left by a previous TARBALL install:
-    # ~/.config/systemd/user wins over /usr/lib/systemd/user, so they silently
-    # shadow the ones this package installs, pointing at /usr/local/bin paths the
-    # package never uses. Measured on an Arch VM: a July tarball left a unit
-    # calling /usr/local/bin/sg, dictee-ptt died 27 times with 203/EXEC, and
-    # push-to-talk never worked after installing the package.
-    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
-        user=\$(id -nu "\$uid" 2>/dev/null) || continue
-        [ "\$user" = "root" ] && continue
-        home=\$(getent passwd "\$user" | cut -d: -f6)
-        [ -d "\$home/.config/systemd/user" ] || continue
-        removed=0
-        for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
-            [ -f "\$home/.config/systemd/user/\$unit.service" ] || continue
-            rm -f "\$home/.config/systemd/user/\$unit.service" && removed=\$((removed + 1))
-        done
-        if [ "\$removed" -gt 0 ]; then
-            echo "✓ \$removed unité(s) d'une install tarball retirée(s) pour \$user"
-            sudo -u "\$user" XDG_RUNTIME_DIR="/run/user/\$uid" \\
-                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
-                systemctl --user daemon-reload 2>/dev/null || true
-        fi
-    done
 
     # Install plasmoid if KDE Plasma 6 is available
     if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
@@ -593,6 +597,34 @@ modprobe uinput 2>/dev/null || true
 udevadm control --reload-rules 2>/dev/null || true
 udevadm trigger /dev/uinput 2>/dev/null || true
 
+# Drop systemd user units left by a previous TARBALL install. Done before
+# the per-user loop, which the deb postinst does too: nested inside it,
+# this loop reused uid, user and home and the plasmoid install and the
+# dictee.conf lookup below then ran for the last session, not the one
+# being set up (one logged-in user hid it).
+# ~/.config/systemd/user wins over /usr/lib/systemd/user, so they silently
+# shadow the ones this package installs, pointing at /usr/local/bin paths the
+# package never uses. Measured on an Arch VM: a July tarball left a unit
+# calling /usr/local/bin/sg, dictee-ptt died 27 times with 203/EXEC, and
+# push-to-talk never worked after installing the package.
+for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
+    user=\$(id -nu "\$uid" 2>/dev/null) || continue
+    [ "\$user" = "root" ] && continue
+    home=\$(getent passwd "\$user" | cut -d: -f6)
+    [ -d "\$home/.config/systemd/user" ] || continue
+    removed=0
+    for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
+        [ -f "\$home/.config/systemd/user/\$unit.service" ] || continue
+        rm -f "\$home/.config/systemd/user/\$unit.service" && removed=\$((removed + 1))
+    done
+    if [ "\$removed" -gt 0 ]; then
+        echo "✓ \$removed unité(s) d'une install tarball retirée(s) pour \$user"
+        sudo -u "\$user" XDG_RUNTIME_DIR="/run/user/\$uid" \\
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
+            systemctl --user daemon-reload 2>/dev/null || true
+    fi
+done
+
 # Per-user setup for all logged-in users
 for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
     user=\$(id -nu "\$uid" 2>/dev/null) || continue
@@ -615,30 +647,6 @@ for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}'
             usermod -aG docker "\$user"
         fi
     fi
-
-    # Drop systemd user units left by a previous TARBALL install:
-    # ~/.config/systemd/user wins over /usr/lib/systemd/user, so they silently
-    # shadow the ones this package installs, pointing at /usr/local/bin paths the
-    # package never uses. Measured on an Arch VM: a July tarball left a unit
-    # calling /usr/local/bin/sg, dictee-ptt died 27 times with 203/EXEC, and
-    # push-to-talk never worked after installing the package.
-    for uid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$2}' | sort -u); do
-        user=\$(id -nu "\$uid" 2>/dev/null) || continue
-        [ "\$user" = "root" ] && continue
-        home=\$(getent passwd "\$user" | cut -d: -f6)
-        [ -d "\$home/.config/systemd/user" ] || continue
-        removed=0
-        for unit in dictee dictee-tray dictee-ptt dotoold dictee-vosk dictee-whisper dictee-canary; do
-            [ -f "\$home/.config/systemd/user/\$unit.service" ] || continue
-            rm -f "\$home/.config/systemd/user/\$unit.service" && removed=\$((removed + 1))
-        done
-        if [ "\$removed" -gt 0 ]; then
-            echo "✓ \$removed unité(s) d'une install tarball retirée(s) pour \$user"
-            sudo -u "\$user" XDG_RUNTIME_DIR="/run/user/\$uid" \\
-                DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$uid/bus" \\
-                systemctl --user daemon-reload 2>/dev/null || true
-        fi
-    done
 
     # Install plasmoid if KDE Plasma 6 is available
     if command -v kpackagetool6 >/dev/null 2>&1 && [ -f /usr/share/dictee/dictee.plasmoid ]; then
