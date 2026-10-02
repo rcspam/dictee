@@ -354,12 +354,20 @@ PlasmoidItem {
     // the supplementary groups of the graphical login session — if the
     // user was added to docker after that login (install.sh, postinst,
     // wizard's pkexec usermod), the new group only takes effect at next
-    // login. Without `sg docker`, the inspect call fails with permission
+    // login. Without a bridge, the inspect call fails with permission
     // denied → echo false → the plasmoid shows LT as down even when the
     // container is running. `sg docker -c …` runs the command with docker
-    // as primary group, no reboot needed. id -nG "$USER" reads /etc/group
-    // (persistent), unlike groups/id without args (process-effective).
-    property string ltCheckCmd: "bash -c 'if id -nG \"$USER\" 2>/dev/null | grep -qw docker; then sg docker -c \"docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false\"; else echo false; fi'"
+    // as primary group, no reboot needed; Arch dropped sg (#35) and ships
+    // util-linux's newgrp, which takes -c. Same order as dictee's
+    // _dotool_group_bridge. id -nG "$USER" reads /etc/group (persistent),
+    // id -nG alone the groups this process actually has.
+    property string ltCheckCmd: "bash -c '" +
+        "q=\"docker inspect -f {{.State.Running}} dictee-libretranslate 2>/dev/null || echo false\"; " +
+        "if id -nG 2>/dev/null | grep -qw docker; then bash -c \"$q\"; " +
+        "elif ! id -nG \"$USER\" 2>/dev/null | grep -qw docker; then echo false; " +
+        "elif command -v sg >/dev/null 2>&1; then sg docker -c \"$q\"; " +
+        "elif newgrp --help 2>&1 | grep -q -- -c; then newgrp docker -c \"$q\"; " +
+        "else echo false; fi'"
     // Ollama status: "ok" = running + model present, "no-model" = running but model missing, "stopped" = service down
     property string ollamaStatus: "ok"
     property string ollamaCheckCmd: "bash -c '" +
