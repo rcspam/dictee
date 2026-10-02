@@ -36,6 +36,57 @@ warn() { echo "${C_YELLOW}⚠${C_OFF} $*"; }
 err()  { echo "${C_RED}✗${C_OFF} $*" >&2; }
 die()  { err "$@"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required tool: $1"; }
+# True when /dev/tty can be opened, i.e. there is a terminal to ask on.
+# [[ -r /dev/tty ]] is not enough: the node is always there and readable, and
+# only open() fails when there is no controlling terminal (a service, a remote
+# command, CI). The probe's own error goes to /dev/null.
+have_tty() { ( : < /dev/tty ) 2>/dev/null; }
+
+# Closing notice when Docker is absent. Docker is shipped as `Suggests:` since
+# #21 and must NOT auto-install, and it is missing from the rpm dependencies
+# altogether — so nothing installs it and, until now, nothing told the user
+# either: only the pacman branch asked the question. Everyone else discovered
+# the gap much later, in the setup's LibreTranslate page.
+# LibreTranslate is the ONLY feature that needs it; dictation, diarization,
+# post-processing, and the Google/Bing/Ollama translation backends all work
+# without Docker.
+docker_missing_notice() {
+    command -v docker >/dev/null 2>&1 && return 0
+
+    # Same ID + ID_LIKE detection as dictee-setup: this host reports ID=tuxedo
+    # and KDE neon reports ID=neon, both Ubuntu underneath.
+    local ids="" hint="sudo apt install docker.io / sudo dnf install moby-engine / sudo pacman -S docker"
+    if [[ -r /etc/os-release ]]; then
+        ids="$( . /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}" )"
+    fi
+    case " $ids " in
+        *" ubuntu "*|*" debian "*|*" linuxmint "*|*" pop "*) hint="sudo apt install docker.io" ;;
+        *" fedora "*|*" nobara "*|*" rhel "*|*" centos "*)   hint="sudo dnf install moby-engine" ;;
+        *" arch "*|*" manjaro "*|*" endeavouros "*)          hint="sudo pacman -S docker" ;;
+        *" suse "*|*" opensuse "*)                           hint="sudo zypper install docker" ;;
+    esac
+
+    echo
+    echo "${C_RED}${C_BOLD}⚠ Docker is not installed${C_OFF}"
+    echo "  LibreTranslate (offline, fully local translation) will stay unavailable."
+    echo "  Everything else works without it — dictation, and the Google, Bing and"
+    echo "  Ollama translation backends."
+    echo "  To enable it later:  ${C_BOLD}${hint}${C_OFF}"
+    echo "  Then reopen dictee-setup, Translation page."
+}
+
+# The GNOME tray on Arch. dictee-tray needs python-gobject and
+# libayatana-appindicator for its AppIndicator backend, and GNOME Shell needs
+# the appindicator extension to show it. The .deb and .rpm pull the two
+# libraries as Recommends and the Debian/Fedora paths below add the extension
+# on GNOME; on Arch all three are optdepends, which pacman never installs, so
+# this does it when the desktop is GNOME. All three live in `extra`.
+install_arch_gnome_tray() {
+    printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome || return 0
+    info "GNOME detected — installing the AppIndicator tray support..."
+    sudo pacman -S --needed --noconfirm python-gobject libayatana-appindicator gnome-shell-extension-appindicator \
+        || warn "Could not install the GNOME tray packages — the tray icon may not appear"
+}
 
 # Parse a package manager's dry-run output and echo the THIRD-PARTY packages it
 # would REMOVE (manager-specific). Empty output = nothing of yours removed.
@@ -175,7 +226,7 @@ launch_wizard() {
     fi
 
     local ans=""
-    if [[ -r /dev/tty ]]; then
+    if have_tty; then
         echo
         read -p "Launch dictee-setup now? [Y/n] " -t 10 -r ans < /dev/tty || ans=""
     fi
@@ -283,7 +334,7 @@ mode_online() {
     if [[ -z "$BACKEND" ]]; then
         if detect_gpu; then
             info "NVIDIA GPU detected"
-            if [[ $NON_INTERACTIVE -eq 1 ]]; then
+            if [[ $NON_INTERACTIVE -eq 1 ]] || ! have_tty; then
                 BACKEND="gpu"
             else
                 read -rp "Install the GPU (CUDA) version? [Y/n] " REPLY < /dev/tty || REPLY="y"
@@ -291,7 +342,6 @@ mode_online() {
             fi
         else
             info "No NVIDIA GPU detected — using the CPU version"
-            info "(it includes Vulkan GPU support for the Whisper backend)"
             BACKEND="cpu"
         fi
     fi
@@ -499,8 +549,6 @@ mode_online() {
             /etc/modules-load.d/dictee-uinput.conf
             /etc/udev/rules.d/80-dotool.rules
             /etc/ld.so.conf.d/dictee.conf
-            /usr/lib/dictee/dictee-common.sh
-            /usr/lib/dictee/dictee_models.py
             /usr/lib/systemd/user/dictee.service
             /usr/lib/systemd/user/dictee-tray.service
             /usr/lib/systemd/user/dictee-ptt.service
@@ -518,8 +566,20 @@ mode_online() {
             /usr/share/dictee/rules.conf.default
             /usr/share/dictee/dictionary.conf.default
             /usr/share/dictee/continuation.conf.default
+            /usr/share/dictee/short_text_keepcaps.conf.default
             /usr/share/dictee/VERSION
             /usr/share/dictee/dictee.plasmoid
+            # What mode_tarball puts in /usr/lib/dictee and the package ships
+            # too, named one by one. No glob here: the CUDA post-install links
+            # the NVIDIA libraries of its venv into this directory and ldconfig
+            # adds libonnxruntime.so.1; no package owns them, they must stay,
+            # and none of them can conflict.
+            /usr/lib/dictee/dictee-common.sh
+            /usr/lib/dictee/dictee_models.py
+            /usr/lib/dictee/setup-cuda-venv.sh
+            /usr/lib/dictee/libonnxruntime.so
+            /usr/lib/dictee/libonnxruntime_providers_cuda.so
+            /usr/lib/dictee/libonnxruntime_providers_shared.so
         )
         local glob_patterns=(
             "/usr/bin/dictee"
@@ -537,15 +597,19 @@ mode_online() {
             "/usr/share/man/fr/man1/dictee"*.1
         )
 
+        # -L as well as -e: a symlink whose target is gone still takes the
+        # path, and pacman checks paths with lstat, so it refuses the package
+        # just the same (a development install links these paths into a
+        # checkout, and the links dangle once the checkout moves).
         local candidates=()
         local f
         for f in "${static_files[@]}"; do
-            [[ -e "$f" ]] && candidates+=("$f")
+            [[ -e "$f" || -L "$f" ]] && candidates+=("$f")
         done
         local pattern
         for pattern in "${glob_patterns[@]}"; do
             for f in $pattern; do
-                [[ -e "$f" ]] && candidates+=("$f")
+                [[ -e "$f" || -L "$f" ]] && candidates+=("$f")
             done
         done
 
@@ -578,8 +642,10 @@ mode_online() {
         fi
 
         echo
-        local REPLY=""
-        read -rp "Remove these orphan files now? [Y/n] " REPLY < /dev/tty || REPLY="y"
+        local REPLY="y"
+        if have_tty; then
+            read -rp "Remove these orphan files now? [Y/n] " REPLY < /dev/tty || REPLY="y"
+        fi
         if [[ "$REPLY" =~ ^[Nn] ]]; then
             die "Aborted. Remove orphan files manually and retry."
         fi
@@ -649,6 +715,8 @@ mode_online() {
         sudo pacman -S --needed --noconfirm translate-shell \
             || warn "Failed to install translate-shell — Google/Bing translation will be unavailable"
 
+        install_arch_gnome_tray
+
         # Docker is needed only for LibreTranslate (offline self-hosted translation).
         # Other backends (Google, Bing, Ollama) work without it. .deb/.rpm install
         # docker via Recommends (docker.io / moby-engine), but pacman has no
@@ -658,7 +726,7 @@ mode_online() {
             local install_docker="n"
             if [[ $NON_INTERACTIVE -eq 1 ]]; then
                 info "Docker not installed — skipping (non-interactive). Install later if you want LibreTranslate."
-            elif [[ -r /dev/tty ]]; then
+            elif have_tty; then
                 echo
                 echo "Docker is needed for LibreTranslate (offline self-hosted translation, ~250 MB)."
                 echo "Other translation backends (Google, Bing, Ollama) work without it."
@@ -751,6 +819,8 @@ mode_online() {
     echo
     echo "Documentation: https://github.com/${REPO}"
 
+    docker_missing_notice
+
     auto_reset_services
     launch_wizard
 }
@@ -831,8 +901,10 @@ EOF
         dictee-plasmoid-level dictee-plasmoid-level-daemon
         dictee-plasmoid-level-fft dotool dotoold dictee-reset
         dictee-translate-langs dictee-audio-sources dictee-meeting-live
-        dictee-stream dictee-cheatsheet
+        dictee-stream dictee-cheatsheet diarize-only transcribe-diarize-batch
     )
+    # tests/test-tarball-bins.sh keeps this list, build-tar.sh and uninstall.sh
+    # on the same set of names.
     for b in "${bins[@]}"; do
         [[ -f "$SCRIPT_DIR/usr/bin/$b" ]] && install -Dm755 "$SCRIPT_DIR/usr/bin/$b" "$PREFIX/bin/$b"
     done
@@ -1125,6 +1197,8 @@ EOF
     echo "  ${C_BOLD}dictee --help${C_OFF}   # CLI usage"
     echo
     echo "Uninstall: sudo ./uninstall.sh"
+
+    docker_missing_notice
 
     auto_reset_services "${SUDO_USER:-}"
     launch_wizard "${SUDO_USER:-}"
