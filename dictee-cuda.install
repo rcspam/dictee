@@ -201,6 +201,13 @@ pre_remove() {
     _stop_user_services
     rm -rf /usr/share/dictee/postprocess-env
     rm -rf /opt/dictee/cuda-venv
+    # setup-cuda-venv.sh linked the venv's NVIDIA libraries into
+    # /usr/lib/dictee; pacman does not own those links, so without this they
+    # would dangle there after the removal (same cleanup as the deb postrm
+    # and the rpm %postun).
+    if [ -d /usr/lib/dictee ]; then
+        find /usr/lib/dictee -maxdepth 1 -type l ! -exec test -e '{}' \; -delete 2>/dev/null || true
+    fi
     rmdir /opt/dictee 2>/dev/null || true
     rm -f /etc/udev/rules.d/81-dictee-uinput.rules
 }
