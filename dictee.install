@@ -38,6 +38,21 @@ _enable_gnome_appindicator() {
     done
 }
 
+_switch_off_dotoold() {
+    # dotoold, dotool's daemon, is nothing dictee talks to: the text is typed
+    # through the one-shot dotool. Earlier versions enabled it anyway, and
+    # started right after the install it could not open /dev/uinput before the
+    # next login and failed in a loop. Switch off the one they left enabled.
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        [ -d "/run/user/$uid" ] || continue
+        sudo -u "$user" XDG_RUNTIME_DIR="/run/user/$uid" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            systemctl --user disable --now dotoold 2>/dev/null || true
+    done
+}
+
 _setup_user_groups() {
     # Add logged-in users to the 'input' group (dotool / dictee-ptt
     # need /dev/uinput access) and 'docker' group when docker is
@@ -69,6 +84,7 @@ post_install() {
     _install_uinput_drop_in
     _setup_user_groups
     _enable_gnome_appindicator
+    _switch_off_dotoold
 
     # Create Python venv for text2num (number conversion)
     PP_VENV="/usr/share/dictee/postprocess-env"
@@ -89,6 +105,7 @@ post_upgrade() {
     _install_uinput_drop_in
     _setup_user_groups
     _enable_gnome_appindicator
+    _switch_off_dotoold
 
     PP_VENV="/usr/share/dictee/postprocess-env"
     if [ -d "$PP_VENV" ] && command -v python3 >/dev/null 2>&1; then
