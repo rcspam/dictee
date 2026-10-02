@@ -2345,7 +2345,7 @@ def _detect_docker_sg_needed():
     """User belongs to docker group in /etc/group but not in this process's
     effective groups → group was added in a session ancestor (install.sh
     `usermod`, %post, postinst…) and won't take effect until next login.
-    Use `sg docker` to bridge the gap without forcing a reboot.
+    docker_cmd then bridges the gap (sg, or newgrp -c) without a reboot.
 
     Covers the case where dictee-setup is launched by install.sh right
     after `usermod -aG docker $USER` — without this, the wizard would
@@ -2372,13 +2372,45 @@ def _detect_docker_sg_needed():
 _docker_use_sg = _detect_docker_sg_needed()
 
 
+def _docker_group_bridge(which=None, newgrp_help=None):
+    """Command prefix that runs a command with the docker group.
+
+    ["sg", "docker", "-c"] where sg exists, ["newgrp", "docker", "-c"] when
+    newgrp documents -c (util-linux: Arch dropped sg from shadow 4.20, #35),
+    None when nothing can bridge the gap. Same order as dictee-ptt's
+    input_group_bridge; the lookups are parameters so it is testable.
+    """
+    if which is None:
+        which = shutil.which
+    if newgrp_help is None:
+        def newgrp_help():
+            r = subprocess.run(["newgrp", "--help"], capture_output=True,
+                               text=True, timeout=5)
+            return (r.stdout or "") + (r.stderr or "")
+    if which("sg"):
+        return ["sg", "docker", "-c"]
+    if which("newgrp"):
+        try:
+            if "-c" in newgrp_help():
+                return ["newgrp", "docker", "-c"]
+        except Exception:
+            pass
+    return None
+
+
 def docker_cmd(args, **kwargs):
-    """Run a docker command, using 'sg docker' if group was just added."""
+    """Run a docker command, through the group bridge if the group was just
+    added. Without a bridge the command runs as is: it then fails on the
+    socket like before, and the callers already treat that as no docker."""
+    cmd = args
     if _docker_use_sg:
-        import shlex
-        cmd = ["sg", "docker", "-c", shlex.join(args)]
-    else:
-        cmd = args
+        bridge = _docker_group_bridge()
+        if bridge:
+            import shlex
+            cmd = bridge + [shlex.join(args)]
+        else:
+            _dbg_setup("docker group not effective and neither sg nor "
+                       "newgrp -c available: running docker unbridged")
     return subprocess.run(cmd, **kwargs)
 
 
