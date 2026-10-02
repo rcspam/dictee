@@ -189,6 +189,8 @@ jobs:
       run: bash tests/test-level-daemon-no-numpy.sh
     - name: Run plasmoid LibreTranslate check tests (no sg)
       run: bash tests/test-plasmoid-lt-check.sh
+    - name: Run Arch depends tests (deb/rpm Recommends)
+      run: bash tests/test-arch-depends.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest
