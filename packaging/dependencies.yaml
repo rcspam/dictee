@@ -251,7 +251,10 @@ depends:
     #    present, so Fedora GNOME keeps the tray and Fedora KDE never pulls
     #    gnome-shell. The whole `(... if gnome-shell)` string is the rpm dep name.
     deb_kind: omit
-    arch_kind: omit   # Arch ne package pas cette extension GNOME
+    #  - arch: dans `extra`, mais hors PKGBUILD pour la même raison que deb ;
+    #    install.sh l'installe sur GNOME (install_arch_gnome_tray, avec
+    #    python-gobject et libayatana-appindicator).
+    arch_kind: omit
     deb: gnome-shell-extension-appindicator
     rpm: (gnome-shell-extension-appindicator if gnome-shell)
     arch: null

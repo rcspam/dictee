@@ -201,6 +201,8 @@ jobs:
       run: bash tests/test-arch-depends.sh
     - name: Run tarball binary list tests (build-tar / install / uninstall)
       run: bash tests/test-tarball-bins.sh
+    - name: Run Arch GNOME tray install tests
+      run: bash tests/test-install-arch-gnome.sh
 
   test-transcribe-routing:
     runs-on: ubuntu-latest

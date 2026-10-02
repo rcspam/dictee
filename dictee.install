@@ -105,6 +105,21 @@ _stop_user_services() {
     done
 }
 
+_enable_gnome_appindicator() {
+    # Same as the .deb postinst and the .rpm %post: on GNOME the tray icon
+    # only shows through the AppIndicator extension (install.sh installs it
+    # on GNOME). Enabling is per user and needs the session bus; a desktop
+    # without the extension just ignores this.
+    for uid in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $2}' | sort -u); do
+        user=$(id -nu "$uid" 2>/dev/null) || continue
+        [ "$user" = "root" ] && continue
+        [ -d "/run/user/$uid" ] || continue
+        sudo -u "$user" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+            gnome-extensions enable appindicatorsupport@rgcjonas.gmail.com 2>/dev/null \
+            && echo "✓ GNOME AppIndicator extension enabled for $user" || true
+    done
+}
+
 _setup_user_groups() {
     # Add logged-in users to the 'input' group (dotool / dictee-ptt
     # need /dev/uinput access) and 'docker' group when docker is
@@ -137,6 +152,7 @@ post_install() {
     _drop_stale_user_units
     _setup_user_groups
     _restart_user_services
+    _enable_gnome_appindicator
 
     # Create Python venv for text2num (number conversion)
     PP_VENV="/usr/share/dictee/postprocess-env"
@@ -158,6 +174,7 @@ post_upgrade() {
     _drop_stale_user_units
     _setup_user_groups
     _restart_user_services
+    _enable_gnome_appindicator
 
     PP_VENV="/usr/share/dictee/postprocess-env"
     if [ -d "$PP_VENV" ] && command -v python3 >/dev/null 2>&1; then

@@ -80,6 +80,19 @@ docker_missing_notice() {
     echo "  Then reopen dictee-setup, Translation page."
 }
 
+# The GNOME tray on Arch. dictee-tray needs python-gobject and
+# libayatana-appindicator for its AppIndicator backend, and GNOME Shell needs
+# the appindicator extension to show it. The .deb and .rpm pull the two
+# libraries as Recommends and the Debian/Fedora paths below add the extension
+# on GNOME; on Arch all three are optdepends, which pacman never installs, so
+# this does it when the desktop is GNOME. All three live in `extra`.
+install_arch_gnome_tray() {
+    printf '%s' "${XDG_CURRENT_DESKTOP:-}" | grep -qi gnome || return 0
+    info "GNOME detected — installing the AppIndicator tray support..."
+    sudo pacman -S --needed --noconfirm python-gobject libayatana-appindicator gnome-shell-extension-appindicator \
+        || warn "Could not install the GNOME tray packages — the tray icon may not appear"
+}
+
 # Parse a package manager's dry-run output and echo the THIRD-PARTY packages it
 # would REMOVE (manager-specific). Empty output = nothing of yours removed.
 # dictee's own packages are filtered out: dictee-cuda Conflicts dictee-cpu (and
@@ -702,6 +715,8 @@ mode_online() {
         info "Installing translate-shell (Google/Bing translation)..."
         sudo pacman -S --needed --noconfirm translate-shell \
             || warn "Failed to install translate-shell — Google/Bing translation will be unavailable"
+
+        install_arch_gnome_tray
 
         # Docker is needed only for LibreTranslate (offline self-hosted translation).
         # Other backends (Google, Bing, Ollama) work without it. .deb/.rpm install
