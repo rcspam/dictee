@@ -572,6 +572,11 @@ SPEAKER_COLORS = [
     "#61afef",  # blue
     "#98c379",  # green
     "#d19a66",  # orange
+    # Speakers 4 to 7 (Nemotron 3 Diarization, diarize-multi)
+    "#c678dd",  # purple
+    "#56b6c2",  # cyan
+    "#e5c07b",  # yellow
+    "#d16d9e",  # magenta
 ]
 
 DIARIZE_RE = re.compile(
@@ -836,6 +841,37 @@ def _sortformer_available():
     return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
 
 
+def _nemotron3_dir():
+    """Directory of Nemotron 3 Diarization when it is usable: model.onnx and
+    its weights in the user data dir (where dictee-setup downloads it), else
+    the system one, and a diarize-only that knows --engine. None otherwise.
+    The directory is handed to diarize-only, so both sides always agree on
+    the model."""
+    import shutil
+    candidates = [
+        os.path.join(os.environ.get("XDG_DATA_HOME",
+                                    os.path.expanduser("~/.local/share")),
+                     "dictee", "nemotron3-diar"),
+        os.path.expanduser("~/.local/share/dictee/nemotron3-diar"),
+        "/usr/share/dictee/nemotron3-diar",
+    ]
+    model_dir = next((d for d in candidates
+                      if os.path.isfile(os.path.join(d, "model.onnx"))
+                      and os.path.isfile(os.path.join(d, "model.onnx_data"))),
+                     None)
+    exe = shutil.which("diarize-only")
+    if model_dir is None or not exe:
+        return None
+    try:
+        help_text = subprocess.run(
+            [exe, "--help"], capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    if "--engine" not in help_text.stdout + help_text.stderr:
+        return None
+    return model_dir
+
+
 def _diar_multi_available():
     """Check if the in-house multi-speaker diarization engine is usable:
     diarize-multi binary on PATH + its models installed (sentinel =
@@ -876,9 +912,9 @@ def _moss_available():
 
 def _diarize_available():
     """True when at least one diarization engine (multi-speaker,
-    Sortformer or MOSS) is installed — gates the diarize toggle."""
+    Sortformer, Nemotron 3 or MOSS) is installed — gates the diarize toggle."""
     return (_diar_multi_available() or _sortformer_available()
-            or _moss_available())
+            or _nemotron3_dir() is not None or _moss_available())
 
 
 def _diar_threshold_from_sensitivity(sensitivity):
@@ -1365,8 +1401,9 @@ class _ChunkedPipelineWorker(QThread):
 
     With diarize=True (4 phases):
       Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
-      Phase 2: diarize-multi (preferred) or diarize-only on the full file
-               -> global speaker segments.
+      Phase 2: diarize-multi (preferred), or diarize-only (Sortformer, or
+               Nemotron 3 when chosen) on the full file -> global speaker
+               segments.
       Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
       Phase 4: merge global speakers onto tokens via argmax_overlap.
       Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
@@ -1390,15 +1427,19 @@ class _ChunkedPipelineWorker(QThread):
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
     def __init__(self, audio_path, sensitivity, diarize=True, parent=None,
-                 env_override=None, allow_diar_multi=True):
+                 env_override=None, allow_diar_multi=True, diar_engine="auto"):
         super().__init__(parent)
         self._audio_path = audio_path
         self._sensitivity = sensitivity
         self._diarize = diarize
         # Engine choice is frozen at job start (availability won't change
         # mid-run): multi-speaker engine preferred, Sortformer fallback.
-        # allow_diar_multi=False forces Sortformer (UI engine combo).
+        # allow_diar_multi=False forces Sortformer or Nemotron 3 (UI engine
+        # combo); _diar_engine_args picks between the two.
         self._use_diar_multi = allow_diar_multi and _diar_multi_available()
+        self._diar_engine_args = (_diarize_only_engine_args(
+            diar_engine, _nemotron3_dir(), _sortformer_available())
+            if diarize else [])
         self._duration = 0.0  # set in run(), used for the diarize timeout
         self._cancel = False
         self._tmp_dir = None
@@ -1553,8 +1594,9 @@ class _ChunkedPipelineWorker(QThread):
         """Run the global diarization pass. Stdout format:
         'start end speaker_id' per line (same contract for both engines).
 
-        diarize-multi (in-house, no 4-speaker cap) is preferred; Sortformer
-        diarize-only is the fallback when its models are not installed."""
+        diarize-multi (in-house, no 4-speaker cap) is preferred; diarize-only
+        is the fallback when its models are not installed, or the engine the
+        combo forces: Sortformer, or Nemotron 3 (_diar_engine_args)."""
         if self._use_diar_multi:
             threshold = _diar_threshold_from_sensitivity(self._sensitivity)
             cmd = ["diarize-multi", "--threshold", f"{threshold:.2f}",
@@ -1565,8 +1607,11 @@ class _ChunkedPipelineWorker(QThread):
             timeout = max(600, int(self._duration * 3))
         else:
             cmd = ["diarize-only", "--sensitivity", f"{self._sensitivity:.2f}",
-                   self._audio_path]
-            timeout = 600
+                   self._audio_path] + self._diar_engine_args
+            # Nemotron 3 runs ~45x faster than real time on the CPU (8
+            # threads); real time is a safe floor for a slow machine.
+            timeout = (max(600, int(self._duration)) if self._diar_engine_args
+                       else 600)
         self._current_proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             env=self._subprocess_env,
@@ -1941,10 +1986,24 @@ def _format_json(segments, name_map=None):
 
 # === Transcription routing ===
 
+def _diarize_only_engine_args(diar_engine, nemotron3_dir, sortformer_ok):
+    """Arguments that follow the audio path on a diarize-only command line.
+
+    Nemotron 3 Diarization (up to 8 speakers) runs when the engine combo
+    chooses it, or as the fallback when Sortformer is not installed;
+    Sortformer otherwise (no argument). nemotron3_dir is _nemotron3_dir():
+    None when Nemotron 3 is not usable. Pure function,
+    tests/test-transcribe-routing.py.
+    """
+    if nemotron3_dir and (diar_engine == "nemotron3" or not sortformer_ok):
+        return [nemotron3_dir, "--engine", "nemotron3"]
+    return []
+
+
 def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
                            has_diarize_only, has_transcribe_diarize,
                            has_diarize_multi=False, has_moss=False,
-                           diar_engine="auto"):
+                           diar_engine="auto", has_nemotron3=False):
     """Pick the ASR command and pipeline mode for a transcription run.
 
     Pure function (no I/O, no Qt) so the routing matrix stays
@@ -1966,6 +2025,11 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
         transcribe-diarize loads Parakeet-TDT itself (multilingual
         auto-detect). This is about the phase-2 TRANSCRIPTION engine,
         so it applies whatever diarization engine is installed.
+      diarize=True   + engine combo forced to Nemotron 3 and it is usable
+                     → ("diarize-only", True, None)
+        Explicit choice, never under "auto"; the caller adds
+        _diarize_only_engine_args. Falls through to the matrix when
+        Nemotron 3 is not usable.
       diarize=True   + diarize-multi usable → ("diarize-multi", True, None)
         Two-phase with the in-house multi-speaker engine (no 4-speaker
         cap): diarize-multi emits speaker timestamps, daemon socket
@@ -1985,6 +2049,7 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
         — typically `bool(shutil.which(<name>))`.
       has_diarize_multi: bool — binary on PATH AND its models installed
         (`_diar_multi_available()`, not a bare which()).
+      has_nemotron3: bool — `_nemotron3_dir() is not None`.
 
     Returns: (cmd, two_phase, error). On error, cmd is None and
     error is the missing-binary message ready for the status bar.
@@ -2001,6 +2066,9 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
 
     if daemon_is_canary and has_transcribe_diarize:
         return "transcribe-diarize", False, None
+
+    if diar_engine == "nemotron3" and has_nemotron3 and has_diarize_only:
+        return "diarize-only", True, None
 
     if has_diarize_multi:
         return "diarize-multi", True, None
@@ -3276,11 +3344,13 @@ class TranscribeWindow(QDialog):
         self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
         diar_multi_ok = _diar_multi_available()
         sortformer_ok = _sortformer_available()
+        nemotron3_ok = _nemotron3_dir() is not None
         moss_ok = _moss_available()
         # Cached for _update_transcribe_btn: its bare setEnabled(not_running)
         # used to re-arm the toggle on every file-input change even when no
         # diarization engine is installed.
-        self._diar_available = diar_multi_ok or sortformer_ok or moss_ok
+        self._diar_available = (diar_multi_ok or sortformer_ok or nemotron3_ok
+                                or moss_ok)
         self._chk_diarize.setEnabled(self._diar_available)
         if diar_multi_ok:
             self._chk_diarize.setToolTip(self._tip(
@@ -3289,6 +3359,10 @@ class TranscribeWindow(QDialog):
         elif sortformer_ok:
             self._chk_diarize.setToolTip(self._tip(
                 _("Identify speakers (max 4). Works on any duration "
+                  "thanks to the auto-chunking pipeline.")))
+        elif nemotron3_ok:
+            self._chk_diarize.setToolTip(self._tip(
+                _("Identify speakers (max 8). Works on any duration "
                   "thanks to the auto-chunking pipeline.")))
         else:
             self._chk_diarize.setToolTip(
@@ -3330,23 +3404,26 @@ class TranscribeWindow(QDialog):
         self._cmb_diar_engine.addItem(_("Auto"), "auto")
         self._cmb_diar_engine.addItem(_("Multi-speaker (no limit)"), "multi")
         self._cmb_diar_engine.addItem(_("Sortformer (max 4)"), "sortformer")
+        # Nemotron 3 Diarization (NVIDIA): same family as Sortformer, up to 8
+        # speakers, run by diarize-only --engine nemotron3.
+        self._cmb_diar_engine.addItem(_("Nemotron 3 (max 8)"), "nemotron3")
         # MOSS is a different animal: a single pass produces the transcript
         # AND the speakers (it replaces the ASR phase entirely), so the
         # threshold slider does not apply to it. Any GPU (Vulkan), not just
         # NVIDIA; CPU works but is slower than real time.
         self._cmb_diar_engine.addItem(_("MOSS (integrated, GPU)"), "moss")
-        if not diar_multi_ok:
-            self._cmb_diar_engine.model().item(1).setEnabled(False)
-        if not sortformer_ok:
-            self._cmb_diar_engine.model().item(2).setEnabled(False)
-        if not moss_ok:
-            self._cmb_diar_engine.model().item(3).setEnabled(False)
+        for _data, _ok in (("multi", diar_multi_ok), ("sortformer", sortformer_ok),
+                           ("nemotron3", nemotron3_ok), ("moss", moss_ok)):
+            if not _ok:
+                self._cmb_diar_engine.model().item(
+                    self._cmb_diar_engine.findData(_data)).setEnabled(False)
         self._cmb_diar_engine.setToolTip(self._tip(
             _("Diarization engine. Auto uses the multi-speaker engine when "
-              "installed, otherwise Sortformer (max 4 speakers). MOSS "
-              "transcribes and identifies speakers in a single pass (own "
-              "ASR); it needs a GPU — any brand — and is slower than real "
-              "time on the CPU.")))
+              "installed, otherwise Sortformer (max 4 speakers). Nemotron 3 "
+              "(NVIDIA) tells up to 8 speakers apart, on the GPU or the "
+              "CPU. MOSS transcribes and identifies speakers in a single "
+              "pass (own ASR); it needs a GPU — any brand — and is slower "
+              "than real time on the CPU.")))
         _qs_diar = QSettings("dictee", "transcribe")
         _i = self._cmb_diar_engine.findData(
             _qs_diar.value("diarize/engine", "auto"))
@@ -4797,8 +4874,10 @@ class TranscribeWindow(QDialog):
         self._refresh_window_icon()
 
     def _diar_allow_multi(self):
-        """False when the diarization-engine combo forces Sortformer."""
-        return (self._cmb_diar_engine.currentData() or "auto") != "sortformer"
+        """False when the diarization-engine combo forces Sortformer or
+        Nemotron 3."""
+        return ((self._cmb_diar_engine.currentData() or "auto")
+                not in ("sortformer", "nemotron3"))
 
     def _refresh_window_icon(self):
         """Switch the window icon between the violet 'diarize' and the
@@ -5203,7 +5282,8 @@ class TranscribeWindow(QDialog):
             self._chunked_worker = _ChunkedPipelineWorker(
                 audio_path, sensitivity, diarize=diarize, parent=self,
                 env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None),
-                allow_diar_multi=self._diar_allow_multi())
+                allow_diar_multi=self._diar_allow_multi(),
+                diar_engine=self._cmb_diar_engine.currentData() or "auto")
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -5250,6 +5330,8 @@ class TranscribeWindow(QDialog):
         # tests/test-transcribe-routing.py). Honours DICTEE_ASR_BACKEND
         # so a Canary PTT daemon doesn't hijack diarize phase-2.
         asr_backend = _read_conf().get("DICTEE_ASR_BACKEND", "")
+        diar_engine = self._cmb_diar_engine.currentData() or "auto"
+        nemotron3_dir = _nemotron3_dir() if diarize else None
         cmd, two_phase, missing = _select_transcribe_cmd(
             diarize=diarize,
             asr_backend=asr_backend,
@@ -5258,7 +5340,8 @@ class TranscribeWindow(QDialog):
             has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
             has_diarize_multi=self._diar_allow_multi() and _diar_multi_available(),
             has_moss=_moss_available(),
-            diar_engine=self._cmb_diar_engine.currentData() or "auto",
+            diar_engine=diar_engine,
+            has_nemotron3=nemotron3_dir is not None,
         )
         if cmd is None:
             self._progress.setVisible(False)
@@ -5314,6 +5397,9 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
         self._diarize_audio_path = audio_path
         args = [audio_path]
+        if diarize and cmd == "diarize-only":
+            args += _diarize_only_engine_args(
+                diar_engine, nemotron3_dir, _sortformer_available())
         # MOSS takes no tuning flag: the threshold slider drives the
         # clustering engines only (MOSS has no clustering stage).
         if diarize and cmd != "dictee-moss-diarize":
@@ -6483,7 +6569,7 @@ class TranscribeWindow(QDialog):
         content.setContentsMargins(8, 4, 8, 6)
         content.setSpacing(4)
 
-        # Two-column grid: up to 4 speakers fit on 2 rows × 2 cols.
+        # Two-column grid, one row per pair of speakers.
         self._rename_rows_layout = QGridLayout()
         self._rename_rows_layout.setHorizontalSpacing(16)
         self._rename_rows_layout.setVerticalSpacing(3)
@@ -6534,8 +6620,8 @@ class TranscribeWindow(QDialog):
     def _populate_rename_fields(self):
         """Rebuild rename inputs from the current self._segments.
 
-        Speakers are laid out in a 2-column grid (up to 4 speakers = 2
-        rows × 2 columns, matching Sortformer's max). Called after each
+        Speakers are laid out in a 2-column grid, one row per pair (4 rows
+        for the 8 speakers of Nemotron 3). Called after each
         successful diarization and on tab switches to the appropriate
         tab. Hides the group box when there is nothing to rename.
         """
@@ -7141,7 +7227,7 @@ def main():
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
     parser.add_argument("--diar-engine", default="",
-                        help="Diarization engine (auto|multi|sortformer|moss). "
+                        help="Diarization engine (auto|multi|sortformer|nemotron3|moss). "
                              "Empty = the choice persisted in the window. "
                              "An unavailable engine is ignored.")
     parser.add_argument("--asr-model", default="",

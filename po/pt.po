@@ -4787,3 +4787,24 @@ msgstr "Documentação"
 #: dictee-setup.py:6634
 msgid "Open the wiki page for the current section in your browser"
 msgstr "Abrir no navegador a página da wiki desta secção"
+
+#: dictee-setup.py:2367
+msgid ""
+"Speaker diarization add-on by NVIDIA (~400 MB). Identifies up to 8 speakers "
+"in a recording. Optional: only needed for speaker identification."
+msgstr "Complemento de diarização da NVIDIA (~400 MB). Identifica até 8 oradores numa gravação. Opcional: só é necessário para identificar oradores."
+
+#: dictee-setup.py:2371
+msgid ""
+"<b>Nemotron 3 Diarization</b>: NVIDIA speaker diarization "
+"model<br><br>Identifies and separates up to <b>8 different speakers</b> in "
+"an audio recording, on the GPU or the CPU.<br>Choose it in the Engine list "
+"of the file transcription window.<br><br>License: NVIDIA OpenMDW-1.1 (<a "
+"href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/license/1-1</"
+"a>)<br><b>Optional</b>: only needed if you want speaker identification."
+"<br>Used by: <code>diarize-only --engine nemotron3</code>"
+msgstr "<b>Nemotron 3 Diarization</b>: modelo de diarização da NVIDIA<br><br>Identifica e separa até <b>8 locutores diferentes</b> numa gravação de áudio, na GPU ou na CPU.<br>Escolha-o na lista de motores (Engine) da janela de transcrição de ficheiros.<br><br>Licença: NVIDIA OpenMDW-1.1 (<a href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/license/1-1</a>)<br><b>Opcional</b>: necessário apenas para identificação de locutores.<br>Usado por: <code>diarize-only --engine nemotron3</code>"
+
+#: dictee-setup.py:10004 dictee-setup.py:10056
+msgid "Nemotron 3 Diarization"
+msgstr "Nemotron 3 Diarization"

@@ -2273,6 +2273,10 @@ class _RuleTranscribeThread(QThread):
 
 NEMOTRON_HF = "https://huggingface.co/altunenes/parakeet-rs/resolve/main/nemotron-3.5-asr-streaming-0.6b-onnx"
 DIAR_HF = "https://huggingface.co/avencera/speakrs-models/resolve/main"
+# onnx-community export of nvidia/Nemotron-3-Diarization, pinned to the
+# revision checked on 2026-10-03 (fp32, weights in model.onnx_data).
+NEMOTRON3_DIAR_HF = ("https://huggingface.co/onnx-community/Nemotron-3-Diarization-ONNX"
+                     "/resolve/353b6f8ad2cac3580e982d7fbdf0a010786b0406/onnx")
 KYUTAI_HF = "https://huggingface.co/kyutai/stt-1b-en_fr-candle/resolve/main"
 
 ASR_MODELS = [
@@ -2350,6 +2354,34 @@ ASR_MODELS = [
         "check_file": "diar_streaming_sortformer_4spk-v2.1.onnx",
         "files": [
             ("https://huggingface.co/altunenes/parakeet-rs/resolve/main/diar_streaming_sortformer_4spk-v2.1.onnx", "diar_streaming_sortformer_4spk-v2.1.onnx"),
+        ],
+        "required": False,
+    },
+    {
+        # Nemotron 3 Diarization (NVIDIA, OpenMDW-1.1): Sortformer family, up
+        # to 8 speakers, run by diarize-only --engine nemotron3. The weights
+        # come first: model.onnx, the check file, only lands once both are
+        # complete (each file is written as .part, then renamed).
+        "id": "nemotron3-diar",
+        "name": "Nemotron 3 Diarization",
+        "desc": _("Speaker diarization add-on by NVIDIA (~400 MB). Identifies "
+                  "up to 8 speakers in a recording. Optional: only needed for "
+                  "speaker identification."),
+        "help": _(
+            "<b>Nemotron 3 Diarization</b>: NVIDIA speaker diarization model<br><br>"
+            "Identifies and separates up to <b>8 different speakers</b> in an audio "
+            "recording, on the GPU or the CPU.<br>"
+            "Choose it in the Engine list of the file transcription window.<br><br>"
+            "License: NVIDIA OpenMDW-1.1 "
+            "(<a href=\"https://openmdw.ai/license/1-1/\">openmdw.ai/license/1-1</a>)<br>"
+            "<b>Optional</b>: only needed if you want speaker identification.<br>"
+            "Used by: <code>diarize-only --engine nemotron3</code>"
+        ),
+        "dir": os.path.join(MODEL_DIR, "nemotron3-diar"),
+        "check_file": "model.onnx",
+        "files": [
+            (f"{NEMOTRON3_DIAR_HF}/model.onnx_data", "model.onnx_data"),
+            (f"{NEMOTRON3_DIAR_HF}/model.onnx", "model.onnx"),
         ],
         "required": False,
     },
@@ -9782,7 +9814,7 @@ class DicteeSetupDialog(QDialog):
         self._update_venv_button(btn, model["name"], installed)
         btn.clicked.connect(lambda checked, m=model: self._on_model_download(m))
 
-        if model["id"] == "sortformer":
+        if model["id"] in ("sortformer", "nemotron3-diar"):
             if not any_parakeet_installed() and not installed:
                 btn.setEnabled(False)
                 btn.setToolTip(_("Requires Parakeet-TDT 0.6B v3 (FP32 or int8) to be installed first"))
@@ -9968,6 +10000,15 @@ class DicteeSetupDialog(QDialog):
 
             lay_outer.addWidget(sortformer_box)
 
+            # === Nemotron 3 Diarization group box (up to 8 speakers) ===
+            nemotron3_box = QGroupBox(_("Nemotron 3 Diarization"))
+            nemotron3_lay = QVBoxLayout(nemotron3_box)
+            nemotron3_lay.setContentsMargins(12, 12, 12, 10)
+            nemotron3_lay.setSpacing(6)
+            for model in [m for m in ASR_MODELS if m["id"] == "nemotron3-diar"]:
+                _build_model_row(nemotron3_lay, model)
+            lay_outer.addWidget(nemotron3_box)
+
             # === Multi-speaker diarization group box (in-house engine) ===
             diar_box = QGroupBox(_("Multi-speaker diarization"))
             diar_lay = QVBoxLayout(diar_box)
@@ -10011,6 +10052,14 @@ class DicteeSetupDialog(QDialog):
         for model in [m for m in ASR_MODELS if m["id"] == "sortformer"]:
             self._build_model_row(sortformer_lay, model)
         lay.addWidget(sortformer_box)
+
+        nemotron3_box = QGroupBox(_("Nemotron 3 Diarization"))
+        nemotron3_lay = QVBoxLayout(nemotron3_box)
+        nemotron3_lay.setContentsMargins(12, 12, 12, 10)
+        nemotron3_lay.setSpacing(6)
+        for model in [m for m in ASR_MODELS if m["id"] == "nemotron3-diar"]:
+            self._build_model_row(nemotron3_lay, model)
+        lay.addWidget(nemotron3_box)
 
         diar_box = QGroupBox(_("Multi-speaker diarization"))
         diar_lay = QVBoxLayout(diar_box)
@@ -18604,12 +18653,13 @@ class DicteeSetupDialog(QDialog):
             self._update_venv_button(w["button"], model["name"], True)
             w["button"].setToolTip("")
             w["btn_delete"].setVisible(True)
-            # If TDT just installed, enable Sortformer button
-            if mid == "tdt" and "sortformer" in self._model_widgets:
-                dep_w = self._model_widgets["sortformer"]
-                if not model_is_installed(dep_w["model"]):
-                    self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
-                    dep_w["button"].setToolTip("")
+            # If TDT just installed, enable the diarization model buttons
+            for dep in ("sortformer", "nemotron3-diar"):
+                if mid == "tdt" and dep in self._model_widgets:
+                    dep_w = self._model_widgets[dep]
+                    if not model_is_installed(dep_w["model"]):
+                        self._update_venv_button(dep_w["button"], dep_w["model"]["name"], False)
+                        dep_w["button"].setToolTip("")
             # A TDT variant just appeared: re-enable the int8/FP32 toggle if
             # both variants are now installed (otherwise it stays greyed out
             # until the window is reopened).
@@ -18659,12 +18709,13 @@ class DicteeSetupDialog(QDialog):
         w = self._model_widgets[mid]
         self._update_venv_button(w["button"], name, False)
         w["btn_delete"].setVisible(False)
-        # If TDT deleted, disable Sortformer download
-        if mid == "tdt" and "sortformer" in self._model_widgets:
-            dep_w = self._model_widgets["sortformer"]
-            if not model_is_installed(dep_w["model"]):
-                dep_w["button"].setEnabled(False)
-                dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
+        # If TDT deleted, disable the diarization model downloads
+        for dep in ("sortformer", "nemotron3-diar"):
+            if mid == "tdt" and dep in self._model_widgets:
+                dep_w = self._model_widgets[dep]
+                if not model_is_installed(dep_w["model"]):
+                    dep_w["button"].setEnabled(False)
+                    dep_w["button"].setToolTip(_("Requires Parakeet-TDT 0.6B v3 to be installed first"))
         # A TDT variant was removed: a single remaining variant must be
         # auto-resolved and the toggle disabled.
         if mid in ("tdt", "tdt-int8"):

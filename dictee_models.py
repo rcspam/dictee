@@ -140,6 +140,22 @@ def find_diar_models():
     return models
 
 
+def find_nemotron3_diar_models():
+    """Find Nemotron 3 Diarization (diarize-only --engine nemotron3)."""
+    models = []
+    for base, location in [(SYS_DIR, "system"), (DICTEE_DATA, "user")]:
+        model_dir = os.path.join(base, "nemotron3-diar")
+        if os.path.isfile(os.path.join(model_dir, "model.onnx")):
+            models.append({
+                "backend": "nemotron3-diar",
+                "name": "nemotron-3-diarization",
+                "path": model_dir,
+                "location": location,
+                "size_mb": round(_dir_size_mb(model_dir)),
+            })
+    return models
+
+
 def find_vosk_models():
     """Find Vosk models."""
     models = []
@@ -269,6 +285,7 @@ def find_all_models():
     all_models.extend(find_nemotron_models())
     all_models.extend(find_sortformer_models())
     all_models.extend(find_diar_models())
+    all_models.extend(find_nemotron3_diar_models())
     all_models.extend(find_vosk_models())
     all_models.extend(find_whisper_models())
     return all_models

@@ -65,6 +65,7 @@ def _load_func(name, source_path=SCRIPT):
 
 
 _select_transcribe_cmd = _load_func("_select_transcribe_cmd")
+_diarize_only_engine_args = _load_func("_diarize_only_engine_args")
 _translate_available = _load_func("_translate_available")
 
 
@@ -308,6 +309,71 @@ class SelectTranscribeCmdTests(unittest.TestCase):
             "this test — silent regressions for non-Parakeet daemons "
             "have happened before (see commit acfefc0).")
         self.assertTrue(two_phase)
+
+
+class Nemotron3RoutingTests(unittest.TestCase):
+    """Nemotron 3 Diarization: an explicit engine choice, run through
+    diarize-only --engine nemotron3 with its model directory."""
+
+    BASE = dict(
+        has_transcribe=True,
+        has_diarize_only=True,
+        has_transcribe_diarize=True,
+    )
+
+    def test_chosen_and_installed_beats_the_multi_speaker_engine(self):
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet", has_diarize_multi=True,
+            has_nemotron3=True, diar_engine="nemotron3", **self.BASE)
+        self.assertEqual((cmd, two_phase, err), ("diarize-only", True, None))
+
+    def test_chosen_but_not_installed_falls_back_to_the_matrix(self):
+        cmd, two_phase, err = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet", has_diarize_multi=True,
+            has_nemotron3=False, diar_engine="nemotron3", **self.BASE)
+        self.assertEqual((cmd, two_phase, err), ("diarize-multi", True, None))
+
+    def test_never_wins_under_auto(self):
+        cmd, _, _ = _select_transcribe_cmd(
+            diarize=True, asr_backend="parakeet", has_diarize_multi=True,
+            has_nemotron3=True, diar_engine="auto", **self.BASE)
+        self.assertEqual(cmd, "diarize-multi")
+
+    def test_canary_daemon_keeps_its_priority(self):
+        # Phase 2 of a two-phase run would go through the Canary daemon,
+        # locked at DICTEE_LANG_SOURCE: the standalone binary wins.
+        cmd, two_phase, _ = _select_transcribe_cmd(
+            diarize=True, asr_backend="canary", has_nemotron3=True,
+            diar_engine="nemotron3", **self.BASE)
+        self.assertEqual((cmd, two_phase), ("transcribe-diarize", False))
+
+    def test_plain_transcription_ignores_the_choice(self):
+        cmd, _, _ = _select_transcribe_cmd(
+            diarize=False, asr_backend="parakeet", has_nemotron3=True,
+            diar_engine="nemotron3", **self.BASE)
+        self.assertEqual(cmd, "transcribe")
+
+    def test_engine_args_when_chosen(self):
+        self.assertEqual(
+            _diarize_only_engine_args("nemotron3", "/m/nemotron3-diar", True),
+            ["/m/nemotron3-diar", "--engine", "nemotron3"])
+
+    def test_no_engine_args_for_sortformer_or_auto(self):
+        for engine in ("sortformer", "auto", "multi", "moss"):
+            with self.subTest(engine=engine):
+                self.assertEqual(
+                    _diarize_only_engine_args(engine, "/m/nemotron3-diar", True), [])
+
+    def test_auto_falls_back_to_nemotron3_without_sortformer(self):
+        # Only Nemotron 3 installed: diarize-only would otherwise look for a
+        # Sortformer model that is not there.
+        self.assertEqual(
+            _diarize_only_engine_args("auto", "/m/nemotron3-diar", False),
+            ["/m/nemotron3-diar", "--engine", "nemotron3"])
+
+    def test_no_engine_args_without_the_model(self):
+        self.assertEqual(_diarize_only_engine_args("nemotron3", None, True), [])
+        self.assertEqual(_diarize_only_engine_args("auto", None, False), [])
 
 
 # ---------------------------------------------------------------------
