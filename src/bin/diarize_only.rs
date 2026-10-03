@@ -1,5 +1,7 @@
 #[cfg(feature = "sortformer")]
-use parakeet_rs::sortformer::{DiarizationConfig, Sortformer};
+use parakeet_rs::nemotron3_diar::Nemotron3Diarizer;
+#[cfg(feature = "sortformer")]
+use parakeet_rs::sortformer::{DiarizationConfig, Sortformer, SpeakerSegment};
 #[cfg(feature = "sortformer")]
 use parakeet_rs::ExecutionConfig;
 #[cfg(feature = "sortformer")]
@@ -11,6 +13,105 @@ use std::process::{Command, Stdio};
 
 #[cfg(feature = "sortformer")]
 const TEMP_CONVERTED: &str = "/tmp/diarize_only_converted.wav";
+
+#[cfg(feature = "sortformer")]
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Engine {
+    Sortformer,
+    Nemotron3,
+}
+
+#[cfg(feature = "sortformer")]
+#[derive(Debug)]
+struct DiarizeArgs {
+    sensitivity: f32,
+    stream: bool,
+    engine: Engine,
+    positional: Vec<String>,
+}
+
+/// Parse argv. Options and positional arguments mix in any order; an unknown `--engine` value is
+/// an error, anything else that is not an option stays a positional argument as before.
+#[cfg(feature = "sortformer")]
+fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
+    let mut out = DiarizeArgs {
+        sensitivity: 0.5,
+        stream: false,
+        engine: Engine::Sortformer,
+        positional: Vec::new(),
+    };
+    let mut i = 1; // skip argv[0]
+    while i < args.len() {
+        match args[i].as_str() {
+            "--sensitivity" if i + 1 < args.len() => {
+                out.sensitivity = args[i + 1].parse::<f32>().unwrap_or(0.5).clamp(0.0, 1.0);
+                i += 1;
+            }
+            "--stream" => out.stream = true,
+            "--engine" => {
+                out.engine = match args.get(i + 1).map(String::as_str) {
+                    Some("sortformer") => Engine::Sortformer,
+                    Some("nemotron3") => Engine::Nemotron3,
+                    Some(other) => {
+                        return Err(format!("unknown engine '{other}' (sortformer, nemotron3)"))
+                    }
+                    None => return Err("--engine needs a value (sortformer, nemotron3)".into()),
+                };
+                i += 1;
+            }
+            other => out.positional.push(other.to_string()),
+        }
+        i += 1;
+    }
+    if out.stream && out.engine == Engine::Nemotron3 {
+        return Err("--stream is only available with the sortformer engine".into());
+    }
+    Ok(out)
+}
+
+/// Nemotron 3 threshold from --sensitivity: the speaker probability above which a 10 ms frame is
+/// speech, 0.5 (the reference value) by default, kept away from the extremes.
+#[cfg(feature = "sortformer")]
+fn nemotron3_threshold(sensitivity: f32) -> f32 {
+    sensitivity.clamp(0.2, 0.8)
+}
+
+/// Loads Nemotron 3 from `model_dir/model.onnx` on the best provider, retrying on the CPU when
+/// the GPU fails to initialise.
+#[cfg(feature = "sortformer")]
+fn load_nemotron3(
+    model_dir: &str,
+    threshold: f32,
+) -> Result<Nemotron3Diarizer, Box<dyn std::error::Error>> {
+    let model_path = format!("{}/model.onnx", model_dir);
+    if !std::path::Path::new(&model_path).exists() {
+        return Err(format!(
+            "Nemotron 3 model not found: {} (install it from dictee-setup)",
+            model_path
+        )
+        .into());
+    }
+    let provider = parakeet_rs::best_provider();
+    let cfg = ExecutionConfig::new().with_execution_provider(provider);
+    match Nemotron3Diarizer::with_config(&model_path, Some(cfg), threshold) {
+        Ok(diarizer) => Ok(diarizer),
+        Err(e) if provider != parakeet_rs::ExecutionProvider::Cpu => {
+            eprintln!("[dictee] Nemotron 3 GPU init failed ({}); retrying on CPU.", e);
+            let cpu_cfg = ExecutionConfig::new()
+                .with_execution_provider(parakeet_rs::ExecutionProvider::Cpu);
+            Ok(Nemotron3Diarizer::with_config(&model_path, Some(cpu_cfg), threshold)?)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// Output contract shared by both engines: `start end speaker_id`, one segment per line.
+#[cfg(feature = "sortformer")]
+fn print_segments(segments: &[SpeakerSegment]) {
+    for seg in segments {
+        println!("{:.2} {:.2} {}", seg.start, seg.end, seg.speaker_id);
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "sortformer"))]
@@ -34,14 +135,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.iter().any(|a| a == "--help" || a == "-h") {
             eprintln!("diarize-only - Diarisation seule (Sortformer, sans transcription)");
             eprintln!();
-            eprintln!("Usage: diarize-only [OPTIONS] <audio> [sortformer_dir]");
-            eprintln!("       diarize-only --stream [OPTIONS] [sortformer_dir]");
+            eprintln!("Usage: diarize-only [OPTIONS] <audio> [model_dir]");
+            eprintln!("       diarize-only --stream [OPTIONS] [model_dir]");
             eprintln!();
             eprintln!("Arguments:");
             eprintln!("  <audio>          Fichier audio (tout format supporté par ffmpeg)");
-            eprintln!("  [sortformer_dir] Répertoire Sortformer (défaut: /usr/share/dictee/sortformer)");
+            eprintln!("  [model_dir]      Model directory (default: ~/.local/share/dictee/<engine dir>,");
+            eprintln!("                   else /usr/share/dictee/<engine dir>; sortformer or nemotron3-diar)");
             eprintln!();
             eprintln!("Options:");
+            eprintln!("  --engine <name>          sortformer (default, up to 4 speakers) or nemotron3 (up to 8)");
             eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5)");
             eprintln!("  --stream                 Streaming mode (reads FILE: <path> from stdin, keeps Sortformer alive)");
             eprintln!();
@@ -54,50 +157,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
 
-        // Parse options
-        let mut sensitivity: f32 = 0.5;
-        let mut stream_mode = false;
-        let mut positional_args: Vec<String> = Vec::new();
-        let mut i = 1;
-        while i < args.len() {
-            if args[i] == "--sensitivity" && i + 1 < args.len() {
-                sensitivity = args[i + 1].parse().unwrap_or(0.5);
-                sensitivity = sensitivity.clamp(0.0, 1.0);
-                i += 2;
-            } else if args[i] == "--stream" {
-                stream_mode = true;
-                i += 1;
-            } else {
-                positional_args.push(args[i].clone());
-                i += 1;
+        let parsed = match parse_diarize_args(&args) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("diarize-only: {}", e);
+                eprintln!("Try 'diarize-only --help' for usage.");
+                std::process::exit(2);
             }
-        }
+        };
+        let sensitivity = parsed.sensitivity;
+        let stream_mode = parsed.stream;
+        let engine = parsed.engine;
+        let positional_args = parsed.positional;
         if !stream_mode && positional_args.is_empty() {
             eprintln!("Error: missing audio file argument");
             std::process::exit(1);
         }
 
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
-        let default_sf = {
-            let user = format!("{}/.local/share/dictee/sortformer", home);
-            if std::path::Path::new(&user).exists() { user }
-            else { "/usr/share/dictee/sortformer".to_string() }
+        let model_subdir = match engine {
+            Engine::Sortformer => "sortformer",
+            Engine::Nemotron3 => "nemotron3-diar",
         };
-        // In stream mode, positional_args[0] is sortformer_dir (optional)
-        let sortformer_dir = if stream_mode {
-            positional_args.first().map(|s| s.to_string()).unwrap_or(default_sf)
+        let default_dir = {
+            let user = format!("{}/.local/share/dictee/{}", home, model_subdir);
+            if std::path::Path::new(&user).exists() { user }
+            else { format!("/usr/share/dictee/{}", model_subdir) }
+        };
+        // In stream mode, positional_args[0] is the model dir (optional)
+        let model_dir = if stream_mode {
+            positional_args.first().map(|s| s.to_string()).unwrap_or(default_dir)
         } else {
-            positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_sf)
+            positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_dir)
         };
 
         if stream_mode {
-            return run_stream_mode(&sortformer_dir, sensitivity);
+            return run_stream_mode(&model_dir, sensitivity);
         }
 
         let audio_path = resolve_path(&positional_args[0])?;
         dbg_print!("audio={}, sensitivity={:.2}", audio_path, sensitivity);
 
-        dbg_print!("sortformer_dir={}", sortformer_dir);
+        dbg_print!("engine={:?}, model_dir={}", engine, model_dir);
 
         // Convert to WAV 16kHz mono if needed
         let (wav_path, needs_cleanup) = ensure_wav(&audio_path)?;
@@ -119,8 +220,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = fs::remove_file(&wav_path);
         }
 
+        if engine == Engine::Nemotron3 {
+            let threshold = nemotron3_threshold(sensitivity);
+            let mut diarizer = load_nemotron3(&model_dir, threshold)?;
+            dbg_print!("model loaded, threshold={:.2}, audio={} samples", threshold, audio.len());
+            let segments = diarizer.diarize(audio, spec.sample_rate, spec.channels)?;
+            dbg_print!("done: {} segments", segments.len());
+            print_segments(&segments);
+            return Ok(());
+        }
+
         // Load Sortformer — try CUDA first, fallback to CPU
-        let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", sortformer_dir);
+        let sortformer_path = format!("{}/diar_streaming_sortformer_4spk-v2.1.onnx", model_dir);
         let diar_config = if (sensitivity - 0.5).abs() < 0.01 {
             dbg_print!("config=callhome (default)");
             DiarizationConfig::callhome()
@@ -153,9 +264,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let n_speakers: std::collections::HashSet<_> = segments.iter().map(|s| s.speaker_id).collect();
         dbg_print!("done: {} segments, {} speakers", segments.len(), n_speakers.len());
 
-        for seg in &segments {
-            println!("{:.2} {:.2} {}", seg.start, seg.end, seg.speaker_id);
-        }
+        print_segments(&segments);
 
         Ok(())
     }
@@ -300,4 +409,71 @@ fn diarize_chunk(
     }
     let segments = sortformer.diarize_streaming(audio, spec.sample_rate, spec.channels)?;
     Ok(segments)
+}
+
+#[cfg(all(test, feature = "sortformer"))]
+mod arg_tests {
+    use super::*;
+
+    fn argv(extra: &[&str]) -> Vec<String> {
+        std::iter::once("diarize-only")
+            .chain(extra.iter().copied())
+            .map(String::from)
+            .collect()
+    }
+
+    #[test]
+    fn sortformer_stays_the_default() {
+        let p = parse_diarize_args(&argv(&["rec.wav"])).unwrap();
+        assert_eq!(p.engine, Engine::Sortformer);
+        assert_eq!(p.positional, vec!["rec.wav".to_string()]);
+        assert_eq!(p.sensitivity, 0.5);
+        assert!(!p.stream);
+    }
+
+    #[test]
+    fn engine_nemotron3_with_sensitivity_and_model_dir() {
+        let p = parse_diarize_args(&argv(&[
+            "--engine", "nemotron3", "--sensitivity", "0.65", "rec.wav", "/models/n3",
+        ]))
+        .unwrap();
+        assert_eq!(p.engine, Engine::Nemotron3);
+        assert_eq!(p.sensitivity, 0.65);
+        assert_eq!(p.positional, vec!["rec.wav".to_string(), "/models/n3".to_string()]);
+    }
+
+    #[test]
+    fn engine_after_the_audio_path() {
+        let p = parse_diarize_args(&argv(&["rec.wav", "--engine", "sortformer"])).unwrap();
+        assert_eq!(p.engine, Engine::Sortformer);
+        assert_eq!(p.positional, vec!["rec.wav".to_string()]);
+    }
+
+    #[test]
+    fn unknown_or_missing_engine_is_an_error() {
+        assert!(parse_diarize_args(&argv(&["--engine", "pyannote", "rec.wav"])).is_err());
+        assert!(parse_diarize_args(&argv(&["rec.wav", "--engine"])).is_err());
+    }
+
+    #[test]
+    fn stream_mode_is_sortformer_only() {
+        let err = parse_diarize_args(&argv(&["--stream", "--engine", "nemotron3"])).unwrap_err();
+        assert!(err.contains("--stream"), "{err}");
+        assert!(parse_diarize_args(&argv(&["--stream"])).unwrap().stream);
+    }
+
+    #[test]
+    fn sensitivity_keeps_its_lenient_parsing() {
+        let p = parse_diarize_args(&argv(&["--sensitivity", "abc", "rec.wav"])).unwrap();
+        assert_eq!(p.sensitivity, 0.5);
+        let p = parse_diarize_args(&argv(&["--sensitivity", "3", "rec.wav"])).unwrap();
+        assert_eq!(p.sensitivity, 1.0);
+    }
+
+    #[test]
+    fn nemotron3_threshold_stays_in_its_useful_range() {
+        assert_eq!(nemotron3_threshold(0.5), 0.5);
+        assert_eq!(nemotron3_threshold(0.0), 0.2);
+        assert_eq!(nemotron3_threshold(1.0), 0.8);
+    }
 }
