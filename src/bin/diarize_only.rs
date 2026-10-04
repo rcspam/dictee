@@ -1,7 +1,7 @@
 #[cfg(feature = "sortformer")]
 use parakeet_rs::diar_pieces::PieceParams;
 #[cfg(feature = "sortformer")]
-use parakeet_rs::nemotron3_diar::Nemotron3Diarizer;
+use parakeet_rs::nemotron3_diar::{Latency, Nemotron3Diarizer};
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer, SpeakerSegment};
 #[cfg(feature = "sortformer")]
@@ -31,6 +31,8 @@ struct DiarizeArgs {
     engine: Engine,
     /// `--pieces`: transcription pieces instead of speaker segments (nemotron3 only).
     pieces: Option<PieceParams>,
+    /// `--latency`: Nemotron 3's chunking, offline for a file and low for a stream when not given.
+    latency: Option<Latency>,
     positional: Vec<String>,
 }
 
@@ -58,6 +60,7 @@ fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
         stream: false,
         engine: Engine::Sortformer,
         pieces: None,
+        latency: None,
         positional: Vec::new(),
     };
     let mut pieces = false;
@@ -82,6 +85,14 @@ fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
                 i += 1;
             }
             "--stream" => out.stream = true,
+            "--latency" => {
+                out.latency = Some(match args.get(i + 1).map(String::as_str) {
+                    Some("low") => Latency::LOW,
+                    Some("offline") => Latency::OFFLINE,
+                    _ => return Err("--latency needs low or offline".into()),
+                });
+                i += 1;
+            }
             "--engine" => {
                 out.engine = match args.get(i + 1).map(String::as_str) {
                     Some("sortformer") => Engine::Sortformer,
@@ -97,8 +108,8 @@ fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
         }
         i += 1;
     }
-    if out.stream && out.engine == Engine::Nemotron3 {
-        return Err("--stream is only available with the sortformer engine".into());
+    if out.latency.is_some() && out.engine != Engine::Nemotron3 {
+        return Err("--latency is only available with the nemotron3 engine".into());
     }
     if let (false, Some(option)) = (pieces, piece_option) {
         return Err(format!("{option} needs --pieces"));
@@ -190,7 +201,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Options:");
             eprintln!("  --engine <name>          sortformer (default, up to 4 speakers) or nemotron3 (up to 8)");
             eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5; nemotron3: probability 0.1 to 0.5)");
-            eprintln!("  --stream                 Streaming mode (reads FILE: <path> from stdin, keeps Sortformer alive)");
+            eprintln!("  --stream                 Streaming mode: reads FILE: <path> from stdin, the model kept alive.");
+            eprintln!("                           nemotron3: each file continues the recording; answers the pieces");
+            eprintln!("                           it settles, in seconds since the start; FLUSH ends it, RESET restarts");
+            eprintln!("  --latency <low|offline>  nemotron3 chunking: offline (30.4 s, files) or low (1.04 s, streams)");
             eprintln!("  --pieces                 nemotron3: pieces to transcribe one by one (one speaker at a time,");
             eprintln!("                           long turns cut in a pause the diarizer heard, else the quietest point)");
             eprintln!("  --max-piece <seconds>    Longest piece (default: 30)");
@@ -218,6 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let stream_mode = parsed.stream;
         let engine = parsed.engine;
         let pieces = parsed.pieces;
+        let latency = parsed.latency;
         let positional_args = parsed.positional;
         if !stream_mode && positional_args.is_empty() {
             eprintln!("Error: missing audio file argument");
@@ -241,6 +256,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             positional_args.get(1).map(|s| s.to_string()).unwrap_or(default_dir)
         };
 
+        if stream_mode && engine == Engine::Nemotron3 {
+            return run_nemotron3_stream(
+                &model_dir,
+                nemotron3_threshold(sensitivity),
+                latency.unwrap_or(Latency::LOW),
+                pieces.unwrap_or_default(),
+            );
+        }
         if stream_mode {
             return run_stream_mode(&model_dir, sensitivity);
         }
@@ -273,6 +296,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if engine == Engine::Nemotron3 {
             let threshold = nemotron3_threshold(sensitivity);
             let mut diarizer = load_nemotron3(&model_dir, threshold)?;
+            diarizer.set_latency(latency.unwrap_or(Latency::OFFLINE));
             dbg_print!("model loaded, threshold={:.2}, audio={} samples", threshold, audio.len());
             let segments = match &pieces {
                 Some(params) => diarizer.pieces(audio, spec.sample_rate, spec.channels, params)?,
@@ -437,6 +461,97 @@ fn run_stream_mode(sortformer_dir: &str, sensitivity: f32) -> Result<(), Box<dyn
     Ok(())
 }
 
+/// A recording followed as it arrives (`--stream --engine nemotron3`): every `FILE: <path>` line
+/// adds that file's audio (16 kHz mono after conversion) to the recording, and the answer is the
+/// pieces it settles, `start end speaker` in seconds since the start, then an empty line. `FLUSH`
+/// ends the recording with the pieces left and starts a new one; `RESET` starts a new one at once.
+#[cfg(feature = "sortformer")]
+fn run_nemotron3_stream(
+    model_dir: &str,
+    threshold: f32,
+    latency: Latency,
+    params: PieceParams,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::{BufRead, Write};
+    let mut diarizer = load_nemotron3(model_dir, threshold)?;
+    let mut stream = diarizer.stream(latency, params);
+    eprintln!("[diarize-only --stream] ready");
+    let stdin = std::io::stdin();
+    let mut reader = stdin.lock();
+    let mut stdout = std::io::stdout();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            eprintln!("[diarize-only --stream] EOF, exiting");
+            return Ok(());
+        }
+        let cmd = line.trim();
+        let answer = match cmd {
+            "" => continue,
+            "RESET" => {
+                stream = diarizer.stream(latency, params);
+                writeln!(stdout, "RESET_OK")?;
+                stdout.flush()?;
+                continue;
+            }
+            "FLUSH" => {
+                let pieces = diarizer.stream_finish(&mut stream);
+                stream = diarizer.stream(latency, params);
+                pieces.map_err(|e| e.to_string())
+            }
+            _ => match cmd.strip_prefix("FILE: ") {
+                Some(path) => read_mono_16k(path)
+                    .and_then(|audio| {
+                        diarizer.stream_push(&mut stream, &audio).map_err(|e| e.into())
+                    })
+                    .map_err(|e| e.to_string()),
+                None => Err("unknown command".to_string()),
+            },
+        };
+        match answer {
+            Ok(pieces) => {
+                for piece in &pieces {
+                    writeln!(stdout, "{:.2} {:.2} {}", piece.start, piece.end, piece.speaker_id)?;
+                }
+                writeln!(stdout)?;
+            }
+            Err(e) => writeln!(stdout, "ERROR: {}", e)?,
+        }
+        stdout.flush()?;
+    }
+}
+
+/// The audio of `path` as 16 kHz mono samples (converted by ffmpeg when needed, channels averaged).
+#[cfg(feature = "sortformer")]
+fn read_mono_16k(path: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    if !std::path::Path::new(path).exists() {
+        return Err(format!("file not found: {}", path).into());
+    }
+    let tmp_path = format!("/tmp/diarize_only_stream_{}.wav", std::process::id());
+    let (wav_path, needs_cleanup) = ensure_wav_with_tmp(path, &tmp_path)?;
+    let mut reader = hound::WavReader::open(&wav_path)?;
+    let spec = reader.spec();
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?,
+        hound::SampleFormat::Int => reader
+            .samples::<i16>()
+            .map(|s| s.map(|v| v as f32 / 32768.0))
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    if needs_cleanup {
+        let _ = fs::remove_file(&wav_path);
+    }
+    if spec.sample_rate != 16_000 {
+        return Err(format!("expected 16 kHz audio, got {} Hz", spec.sample_rate).into());
+    }
+    let channels = spec.channels.max(1) as usize;
+    Ok(samples
+        .chunks(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect())
+}
+
 #[cfg(feature = "sortformer")]
 fn diarize_chunk(
     sortformer: &mut Sortformer,
@@ -509,10 +624,26 @@ mod arg_tests {
     }
 
     #[test]
-    fn stream_mode_is_sortformer_only() {
-        let err = parse_diarize_args(&argv(&["--stream", "--engine", "nemotron3"])).unwrap_err();
-        assert!(err.contains("--stream"), "{err}");
+    fn both_engines_stream() {
         assert!(parse_diarize_args(&argv(&["--stream"])).unwrap().stream);
+        let p = parse_diarize_args(&argv(&["--stream", "--engine", "nemotron3"])).unwrap();
+        assert!(p.stream && p.engine == Engine::Nemotron3);
+    }
+
+    #[test]
+    fn nemotron3_latency_low_or_offline() {
+        let n3 = |extra: &[&str]| {
+            let mut args = vec!["--engine", "nemotron3"];
+            args.extend_from_slice(extra);
+            parse_diarize_args(&argv(&args))
+        };
+        assert_eq!(n3(&["rec.wav"]).unwrap().latency, None);
+        assert_eq!(n3(&["--latency", "low", "rec.wav"]).unwrap().latency, Some(Latency::LOW));
+        assert_eq!(n3(&["--latency", "offline", "--stream"]).unwrap().latency, Some(Latency::OFFLINE));
+        assert!(n3(&["--latency", "fast", "rec.wav"]).unwrap_err().contains("--latency"));
+        assert!(n3(&["rec.wav", "--latency"]).is_err());
+        let err = parse_diarize_args(&argv(&["--latency", "low", "rec.wav"])).unwrap_err();
+        assert!(err.contains("nemotron3"), "{err}");
     }
 
     #[test]

@@ -12,7 +12,7 @@
 //! numpy port `tests/nemotron3-ref/reference.py`, which `tests/nemotron3_golden.rs` compares
 //! against.
 
-use crate::diar_pieces::{transcription_pieces, PieceParams};
+use crate::diar_pieces::{transcription_pieces, PieceParams, PieceStream};
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig;
 use crate::sortformer::SpeakerSegment;
@@ -770,10 +770,32 @@ fn stack_rows(parts: Vec<Array2<f32>>) -> Array2<f32> {
     ndarray::concatenate(Axis(0), &views).expect("rows of the same width")
 }
 
+/// A recording diarized as it arrives: its transcription pieces as soon as they settle, from
+/// the speaker probabilities of a `ProbStream`.
+pub struct Nemotron3Stream {
+    probs: ProbStream,
+    pieces: PieceStream,
+}
+
+impl Nemotron3Stream {
+    fn push_with<M: StepModel>(&mut self, model: &mut M, audio: &[f32]) -> Result<Vec<SpeakerSegment>> {
+        let rows = self.probs.push(model, audio)?;
+        Ok(self.pieces.push(rows.view(), audio))
+    }
+
+    fn finish_with<M: StepModel>(&mut self, model: &mut M) -> Result<Vec<SpeakerSegment>> {
+        let rows = self.probs.finish(model)?;
+        let mut pieces = self.pieces.push(rows.view(), &[]);
+        pieces.extend(self.pieces.finish());
+        Ok(pieces)
+    }
+}
+
 /// Nemotron 3 Diarization engine.
 pub struct Nemotron3Diarizer {
     session: Session,
     threshold: f32,
+    latency: Latency,
 }
 
 impl Nemotron3Diarizer {
@@ -789,7 +811,39 @@ impl Nemotron3Diarizer {
             .unwrap_or_default()
             .apply_to_session_builder(Session::builder()?)?
             .commit_from_file(model_path.as_ref())?;
-        Ok(Self { session, threshold })
+        Ok(Self {
+            session,
+            threshold,
+            latency: Latency::OFFLINE,
+        })
+    }
+
+    /// Chunking of the whole-recording methods, `Latency::OFFLINE` unless set.
+    pub fn set_latency(&mut self, latency: Latency) {
+        self.latency = latency;
+    }
+
+    /// Starts diarizing a recording as it arrives.
+    pub fn stream(&self, latency: Latency, params: PieceParams) -> Nemotron3Stream {
+        Nemotron3Stream {
+            probs: ProbStream::new(latency),
+            pieces: PieceStream::new(self.threshold, params),
+        }
+    }
+
+    /// Adds the next audio of `stream` (16 kHz mono); returns the pieces it settles, in seconds
+    /// since the start of the stream.
+    pub fn stream_push(
+        &mut self,
+        stream: &mut Nemotron3Stream,
+        audio: &[f32],
+    ) -> Result<Vec<SpeakerSegment>> {
+        stream.push_with(&mut self.session, audio)
+    }
+
+    /// End of the recording of `stream`: the pieces left.
+    pub fn stream_finish(&mut self, stream: &mut Nemotron3Stream) -> Result<Vec<SpeakerSegment>> {
+        stream.finish_with(&mut self.session)
     }
 
     /// Speaker segments of a whole recording (16 kHz; several channels are averaged).
@@ -826,7 +880,7 @@ impl Nemotron3Diarizer {
     /// Speaker probabilities of 16 kHz mono audio: (frames, `NUM_SPEAKERS`), one frame every
     /// 10 ms, as `log_mel_features` counts them; zero on the frames past the end of the audio.
     pub fn speaker_probs(&mut self, audio: &[f32]) -> Result<Array2<f32>> {
-        probs_offline(&mut self.session, audio, Latency::OFFLINE)
+        probs_offline(&mut self.session, audio, self.latency)
     }
 }
 
@@ -960,6 +1014,91 @@ mod tests {
         parts.push(stream.finish());
         assert_eq!(stream.valid(), valid);
         assert_eq!(stacked(parts, N_MELS), whole.slice(s![..valid, ..]));
+    }
+
+    /// A stand-in that hears one speaker per frequency band: low, middle or high, and nobody in
+    /// silence. Its speakers hold still long enough for pieces to come out.
+    struct BandModel;
+
+    impl StepModel for BandModel {
+        fn step(
+            &mut self,
+            features: Array2<f32>,
+            cached: Array2<f32>,
+            _mask: &[bool],
+        ) -> Result<StepOutput> {
+            let chunk = features.nrows().div_ceil(SUBSAMPLING);
+            let n_cached = cached.nrows();
+            let speaker_of = |row: usize| -> Option<usize> {
+                let row = features.row(row.min(features.nrows() - 1));
+                // a pure tone fills one or two mel bins: the band's loudest bin tells it
+                let bands = [0..43, 43..86, 86..N_MELS]
+                    .map(|b| row.slice(s![b]).iter().copied().fold(f32::MIN, f32::max));
+                let loudest = (0..3).max_by(|&a, &b| bands[a].total_cmp(&bands[b])).unwrap();
+                (bands[loudest] > -5.0).then_some(loudest)
+            };
+            let logits = Array2::from_shape_fn(
+                ((n_cached + chunk) * SUBSAMPLING, NUM_SPEAKERS),
+                |(r, s)| {
+                    let own = r >= n_cached * SUBSAMPLING
+                        && speaker_of(r - n_cached * SUBSAMPLING) == Some(s);
+                    if own { 4.0 } else { -4.0 }
+                },
+            );
+            let chunk_embeds = Array2::from_shape_fn((chunk, HIDDEN), |(f, h)| {
+                let row = (f * SUBSAMPLING).min(features.nrows() - 1);
+                features[[row, h % N_MELS]] * 0.01
+            });
+            Ok(StepOutput {
+                logits,
+                chunk_embeds,
+                silence: vec![-1.0; HIDDEN],
+            })
+        }
+    }
+
+    /// 70 s of tones: low 0-6 s, middle 6.3-12 s, silence, high 14-50 s (a turn to cut), low
+    /// 50-60 s, then silence.
+    fn tone_audio() -> Vec<f32> {
+        (0..70 * 16_000)
+            .map(|i| {
+                let t = i as f32 / 16_000.0;
+                let tone = |hz: f32| 0.3 * (2.0 * std::f32::consts::PI * hz * t).sin();
+                match t {
+                    t if t < 6.0 => tone(300.0),
+                    t if (6.3..12.0).contains(&t) => tone(3_000.0),
+                    t if (14.0..50.0).contains(&t) => tone(6_500.0),
+                    t if (50.0..60.0).contains(&t) => tone(300.0),
+                    _ => 0.0,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_streamed_recording_gives_the_whole_file_pieces() {
+        let audio = tone_audio();
+        let (threshold, params) = (0.5, PieceParams::default());
+        let probs = probs_offline(&mut BandModel, &audio, Latency::LOW).unwrap();
+        let whole = transcription_pieces(probs.view(), &audio, threshold, &params);
+        let mut stream = Nemotron3Stream {
+            probs: ProbStream::new(Latency::LOW),
+            pieces: PieceStream::new(threshold, params),
+        };
+        let mut streamed = Vec::new();
+        let mut before_the_end = 0;
+        for piece in uneven_pieces(&audio) {
+            let fresh = stream.push_with(&mut BandModel, piece).unwrap();
+            before_the_end += fresh.len();
+            streamed.extend(fresh);
+        }
+        streamed.extend(stream.finish_with(&mut BandModel).unwrap());
+        let key = |p: &SpeakerSegment| (p.start, p.end, p.speaker_id);
+        let whole: Vec<_> = whole.iter().map(key).collect();
+        // three speakers, the 36 s turn cut in two
+        assert!(whole.len() >= 5, "{whole:?}");
+        assert_eq!(streamed.iter().map(key).collect::<Vec<_>>(), whole);
+        assert!(before_the_end >= 4, "only {before_the_end} pieces before the end");
     }
 
     #[test]
