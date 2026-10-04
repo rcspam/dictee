@@ -192,8 +192,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5; nemotron3: probability 0.1 to 0.5)");
             eprintln!("  --stream                 Streaming mode (reads FILE: <path> from stdin, keeps Sortformer alive)");
             eprintln!("  --pieces                 nemotron3: pieces to transcribe one by one (one speaker at a time,");
-            eprintln!("                           long turns cut at their quietest point)");
-            eprintln!("  --max-piece <seconds>    Longest piece (default: 15)");
+            eprintln!("                           long turns cut in a pause the diarizer heard, else the quietest point)");
+            eprintln!("  --max-piece <seconds>    Longest piece (default: 30)");
             eprintln!("  --gap <seconds>          Pause of a speaker kept inside a piece (default: 0.5)");
             eprintln!("  --margin <seconds>       Audio added before and after each piece (default: 0)");
             eprintln!();

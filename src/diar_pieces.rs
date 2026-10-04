@@ -4,8 +4,9 @@
 //! From the diarizer's speaker probabilities, one row every 10 ms: one speaker per frame, the most
 //! probable one above the threshold (speech two people say at once is not transcribed twice); a
 //! speaker's short pauses stay inside the piece; stretches too short to transcribe are dropped;
-//! turns longer than the maximum are cut at their quietest 100 ms, never closer than half the
-//! maximum to either end, so that a long turn does not reach the ASR model in one block.
+//! turns longer than the maximum (30 s, what Whisper takes at once) are cut in the longest pause
+//! the diarizer heard inside them, else at their quietest 100 ms, never closer than half the
+//! maximum to either end.
 
 use crate::sortformer::SpeakerSegment;
 use ndarray::ArrayView2;
@@ -31,7 +32,7 @@ pub struct PieceParams {
 impl Default for PieceParams {
     fn default() -> Self {
         Self {
-            max_len: 15.0,
+            max_len: 30.0,
             max_gap: 0.5,
             margin: 0.0,
             min_len: 0.3,
@@ -104,9 +105,30 @@ fn frame_energy(audio: &[f32]) -> Vec<f32> {
         .collect()
 }
 
-/// Cuts the runs longer than `max_len` frames at their quietest 100 ms, every piece at least half
-/// of `max_len` long.
-fn cut_long(runs: Vec<Run>, energy: &[f32], max_len: usize) -> Vec<Run> {
+/// Middle of the longest stretch of `silent` frames within `first..=last`, if any.
+fn longest_pause(silent: &[bool], first: usize, last: usize) -> Option<usize> {
+    let mut best: Option<(usize, usize)> = None; // (start, length)
+    let mut start = None;
+    for f in first..=last + 1 {
+        let quiet = f <= last && silent.get(f).copied().unwrap_or(false);
+        match (quiet, start) {
+            (true, None) => start = Some(f),
+            (false, Some(from)) => {
+                if best.is_none_or(|(_, len)| f - from > len) {
+                    best = Some((from, f - from));
+                }
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    best.map(|(from, len)| from + len / 2)
+}
+
+/// Cuts the runs longer than `max_len` frames, every piece at least half of `max_len` long: in the
+/// longest pause the diarizer heard (`silent`: no speaker above the threshold), else at the
+/// quietest 100 ms of the sound.
+fn cut_long(runs: Vec<Run>, energy: &[f32], silent: &[bool], max_len: usize) -> Vec<Run> {
     let half = max_len / 2;
     let loudness = |centre: usize| -> f32 {
         let from = centre.saturating_sub(QUIET_WINDOW / 2).min(energy.len());
@@ -118,12 +140,14 @@ fn cut_long(runs: Vec<Run>, energy: &[f32], max_len: usize) -> Vec<Run> {
         let mut start = run.start;
         while run.end - start > max_len {
             let (first, last) = (start + half, (start + max_len).min(run.end - half));
-            let cut = (first..=last).fold(first, |best, c| {
-                if loudness(c) < loudness(best) {
-                    c
-                } else {
-                    best
-                }
+            let cut = longest_pause(silent, first, last).unwrap_or_else(|| {
+                (first..=last).fold(first, |best, c| {
+                    if loudness(c) < loudness(best) {
+                        c
+                    } else {
+                        best
+                    }
+                })
             });
             out.push(Run {
                 start,
@@ -152,9 +176,15 @@ pub fn transcription_pieces(
         .into_iter()
         .filter(|run| run.end - run.start >= min_len)
         .collect();
+    let silent: Vec<bool> = probs
+        .rows()
+        .into_iter()
+        .map(|row| row.iter().all(|&p| p <= threshold))
+        .collect();
     let runs = cut_long(
         bridge(runs, max_gap),
         &frame_energy(audio),
+        &silent,
         frames(params.max_len),
     );
     let duration = audio.len() as f32 / (FRAME_SAMPLES * 100) as f32;
@@ -222,7 +252,23 @@ mod tests {
     }
 
     #[test]
-    fn long_turns_are_cut_at_their_quietest_point() {
+    fn long_turns_are_cut_in_the_longest_pause_the_diarizer_heard() {
+        // 50 s of one voice; the diarizer heard pauses at 12 s (0.2 s), 20 s (0.4 s), 26 s (0.1 s)
+        let energy = vec![1.0f32; 5000];
+        let mut silent = vec![false; 5000];
+        for (from, len) in [(1200, 20), (2000, 40), (2600, 10)] {
+            silent[from..from + len].fill(true);
+        }
+        // pieces of at most 30 s and at least 15 s: the pause at 12 s is too early, the one at
+        // 20 s the longest of the other two; cut in its middle
+        assert_eq!(
+            cut_long(vec![run(0, 5000, 1)], &energy, &silent, 3000),
+            vec![run(0, 2020, 1), run(2020, 5000, 1)]
+        );
+    }
+
+    #[test]
+    fn without_a_pause_long_turns_are_cut_at_their_quietest_point() {
         // 25 s of speech with quiet 100 ms at 3 s, 7 s, 16 s and 23 s; pieces of at most 10 s
         let mut energy = vec![1.0f32; 2500];
         for dip in [300, 700, 1600, 2300] {
@@ -230,7 +276,7 @@ mod tests {
         }
         // the dip at 3 s is too early (pieces of at least 5 s), the one at 23 s too late
         assert_eq!(
-            cut_long(vec![run(0, 2500, 4)], &energy, 1000),
+            cut_long(vec![run(0, 2500, 4)], &energy, &vec![false; 2500], 1000),
             vec![run(0, 700, 4), run(700, 1600, 4), run(1600, 2500, 4)]
         );
     }
@@ -239,7 +285,36 @@ mod tests {
     fn turns_within_the_maximum_are_left_whole() {
         let energy = vec![1.0f32; 1200];
         let runs = vec![run(0, 1000, 0), run(1000, 1100, 1)];
-        assert_eq!(cut_long(runs.clone(), &energy, 1000), runs);
+        assert_eq!(cut_long(runs.clone(), &energy, &vec![true; 1200], 1000), runs);
+    }
+
+    #[test]
+    fn pieces_cut_a_long_turn_where_the_diarizer_heard_a_pause() {
+        // 40 s of speaker 2 with a 0.3 s pause at 22 s, kept inside the turn (under max_gap);
+        // the sound is flat, so only the diarizer can place the cut
+        let mut probs = Array2::<f32>::zeros((4001, 8));
+        talk(&mut probs, 2, 0, 2200, 0.9);
+        talk(&mut probs, 2, 2230, 4000, 0.9);
+        let audio = vec![0.1f32; 640_000];
+        let pieces: Vec<(f32, f32, usize)> =
+            transcription_pieces(probs.view(), &audio, 0.5, &PieceParams::default())
+                .into_iter()
+                .map(|p| (p.start, p.end, p.speaker_id))
+                .collect();
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        let expected = [(0.0, 22.15, 2), (22.15, 40.0, 2)];
+        assert_eq!(pieces.len(), expected.len(), "{pieces:?}");
+        for (got, want) in pieces.iter().zip(expected) {
+            assert!(
+                close(got.0, want.0) && close(got.1, want.1) && got.2 == want.2,
+                "{pieces:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pieces_last_up_to_thirty_seconds_by_default() {
+        assert_eq!(PieceParams::default().max_len, 30.0);
     }
 
     #[test]
