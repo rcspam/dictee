@@ -267,9 +267,16 @@ impl PieceStream {
         let (max_gap, max_len) = (frames(self.params.max_gap), frames(self.params.max_len));
         let half = max_len / 2;
         let min_len = frames(self.params.min_len);
-        let runs: Vec<Run> = bridge(exclusive_runs(self.probs.view(), self.threshold), max_gap)
+        let bridged = bridge(exclusive_runs(self.probs.view(), self.threshold), max_gap);
+        // the last stretch can still grow, its speaker going on or back within max_gap: whether it
+        // is too short is not known yet, keep it for now
+        let unsure = bridged
+            .last()
+            .copied()
+            .filter(|run| !at_end && run.end + max_gap > frontier && run.end - run.start < min_len);
+        let runs: Vec<Run> = bridged
             .into_iter()
-            .filter(|run| run.end - run.start >= min_len)
+            .filter(|run| run.end - run.start >= min_len || Some(*run) == unsure)
             .collect();
         let silent: Vec<bool> = self
             .probs
@@ -280,16 +287,23 @@ impl PieceStream {
 
         let mut settled: Vec<Run> = Vec::new();
         let mut closed_until = None;
-        for run in bridge(runs, max_gap) {
+        for run in bridge(runs.clone(), max_gap) {
             if at_end || run.end + max_gap <= frontier {
                 // no later frame can bridge it: cut it as the whole recording would
                 settled.extend(cut_long(vec![run], &self.energy, &silent, max_len));
                 closed_until = Some(run.end);
                 continue;
             }
-            // the open turn: the cuts whose window is complete, whatever its end turns out to be
+            // the open turn: the cuts whose window is complete, whatever its end turns out to be.
+            // It ends at least where its stretches sure to stay end
+            let known_end = runs
+                .iter()
+                .filter(|r| r.start >= run.start && r.end <= run.end && Some(**r) != unsure)
+                .map(|r| r.end)
+                .max()
+                .unwrap_or(run.start);
             let mut start = run.start;
-            while frontier >= start + max_len + half {
+            while known_end >= start + max_len + half {
                 let cut = cut_point(&self.energy, &silent, start + half, start + max_len);
                 settled.push(Run {
                     start,
@@ -483,6 +497,126 @@ mod tests {
             whole.iter().map(key).collect::<Vec<_>>()
         );
         assert!(whole.len() >= 6, "{:?}", whole.iter().map(key).collect::<Vec<_>>());
+    }
+
+    /// Pieces of the whole recording, as (start, end, speaker).
+    fn whole_pieces(probs: &Array2<f32>, audio: &[f32]) -> Vec<(f32, f32, usize)> {
+        transcription_pieces(probs.view(), audio, 0.5, &PieceParams::default())
+            .iter()
+            .map(|p| (p.start, p.end, p.speaker_id))
+            .collect()
+    }
+
+    /// Pieces of the recording pushed `steps` frames at a time (in turn), as (start, end, speaker).
+    fn streamed_pieces(probs: &Array2<f32>, audio: &[f32], steps: &[usize]) -> Vec<(f32, f32, usize)> {
+        let mut stream = PieceStream::new(0.5, PieceParams::default());
+        let mut pieces = Vec::new();
+        let mut frame = 0;
+        for &step in steps.iter().cycle() {
+            if frame >= probs.nrows() {
+                break;
+            }
+            let end = (frame + step).min(probs.nrows());
+            let sound = &audio[(frame * 160).min(audio.len())..(end * 160).min(audio.len())];
+            pieces.extend(stream.push(probs.slice(s![frame..end, ..]), sound));
+            frame = end;
+        }
+        pieces.extend(stream.finish());
+        pieces.iter().map(|p| (p.start, p.end, p.speaker_id)).collect()
+    }
+
+    #[test]
+    fn a_turn_that_has_just_started_again_is_not_dropped_as_too_short() {
+        // speaker 0, a 0.25 s flicker of speaker 1, speaker 0 again 0.43 s after its end: the whole
+        // recording bridges the two halves (the flicker goes, the gap is under 0.5 s)
+        let mut probs = Array2::<f32>::zeros((2_101, 8));
+        talk(&mut probs, 0, 0, 1_000, 0.9);
+        talk(&mut probs, 1, 1_005, 1_030, 0.9);
+        talk(&mut probs, 0, 1_043, 2_000, 0.9);
+        let audio = vec![0.1f32; 2_100 * 160];
+        let whole = whole_pieces(&probs, &audio);
+        assert_eq!(whole.len(), 1, "{whole:?}");
+        // pushed 7 frames at a time, the stream sees the second half when it is a few frames long
+        assert_eq!(streamed_pieces(&probs, &audio, &[7]), whole);
+    }
+
+    #[test]
+    fn a_short_stretch_a_later_one_can_still_join_is_not_dropped_yet() {
+        // speaker 0, a flicker of speaker 1, 0.2 s of speaker 0, a 0.3 s silence, speaker 0 again:
+        // the 0.2 s joins what follows, the flicker goes, the whole recording is one piece
+        let mut probs = Array2::<f32>::zeros((1_601, 8));
+        talk(&mut probs, 0, 0, 1_000, 0.9);
+        talk(&mut probs, 1, 1_005, 1_015, 0.9);
+        talk(&mut probs, 0, 1_020, 1_040, 0.9);
+        talk(&mut probs, 0, 1_070, 1_500, 0.9);
+        let audio = vec![0.1f32; 1_600 * 160];
+        let whole = whole_pieces(&probs, &audio);
+        assert_eq!(whole, vec![(0.0, 15.0, 0)]);
+        // at 10.6 s the stream has the 0.2 s and the silence after it, not what comes next
+        assert_eq!(streamed_pieces(&probs, &audio, &[10]), whole);
+    }
+
+    #[test]
+    fn a_long_turn_that_has_just_stopped_is_cut_where_the_whole_recording_cuts_it() {
+        // a 44.8 s turn: its first cut must leave 15 s after it, so it goes in the pause at 20 s,
+        // not in the longer one at 29.9 s; the stream has heard 45 s when the turn may still resume
+        let mut probs = Array2::<f32>::zeros((5_001, 8));
+        talk(&mut probs, 0, 0, 4_480, 0.9);
+        talk(&mut probs, 0, 2_000, 2_003, 0.1);
+        talk(&mut probs, 0, 2_985, 2_995, 0.1);
+        let audio = vec![0.1f32; 5_000 * 160];
+        let whole = whole_pieces(&probs, &audio);
+        assert_eq!(whole, vec![(0.0, 20.01, 0), (20.01, 44.8, 0)]);
+        assert_eq!(streamed_pieces(&probs, &audio, &[10]), whole);
+    }
+
+    #[test]
+    fn random_recordings_streamed_give_the_whole_recording_pieces() {
+        // a linear congruential generator: the same recordings on every run
+        let mut seed: u64 = 7;
+        let mut next = move |n: usize| -> usize {
+            seed = seed
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (seed >> 33) as usize % n
+        };
+        for recording in 0..300 {
+            let len = 500 + next(4_500);
+            let mut probs = Array2::<f32>::zeros((len, 8));
+            let mut frame = 0;
+            while frame < len {
+                // a stretch of one of four speakers or of silence, from a flicker to a minute
+                let stretch = [1 + next(29), 30 + next(40), 40 + next(500), 1_000 + next(5_000)];
+                let end = (frame + stretch[next(4)]).min(len);
+                let speaker = next(5);
+                if speaker < 4 {
+                    talk(&mut probs, speaker, frame, end, 0.51 + next(49) as f32 / 100.0);
+                    if next(3) == 0 {
+                        // someone else at the same time
+                        let from = frame + next(end - frame);
+                        let to = (from + 1 + next(200)).min(end);
+                        talk(&mut probs, next(4), from, to, 0.51 + next(49) as f32 / 100.0);
+                    }
+                    for _ in 0..next(5) {
+                        // a pause the diarizer heard
+                        let from = frame + next(end - frame);
+                        talk(&mut probs, speaker, from, (from + 1 + next(80)).min(end), 0.1);
+                    }
+                }
+                frame = end;
+            }
+            let audio: Vec<f32> = (0..len * 160 - next(160))
+                .map(|i| ((i / 160 * 7_919) % 101) as f32 / 1_000.0)
+                .collect();
+            let steps: Vec<usize> = (0..5)
+                .map(|_| [1, 3, 7, 10, 49, 104, 333, 1_201][next(8)])
+                .collect();
+            assert_eq!(
+                streamed_pieces(&probs, &audio, &steps),
+                whole_pieces(&probs, &audio),
+                "recording {recording}, steps {steps:?}"
+            );
+        }
     }
 
     #[test]
