@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 """Tests for the dictee-transcribe ASR + translation backend routing.
 
-Two regressions motivated this file:
-
-1. The Canary PTT swap (DICTEE_ASR_BACKEND=canary) silently broke
-   dictee-transcribe diarize phase-2 routing. The two-phase pipeline
-   (diarize-only → transcribe-daemon socket) was designed for a
-   Parakeet daemon (commit 566202e). When the daemon is Canary, it
-   is locked at DICTEE_LANG_SOURCE — feeding it audio in another
-   language mistranscribes silently. Fix: route diarize through the
-   standalone transcribe-diarize binary when the daemon is Canary
-   (commit acfefc0).
+1. Diarization (refonte of 2026-10-04): Nemotron 3 cuts the recording into
+   pieces (diarize-only --pieces), then phase 2 sends one request per piece
+   to whatever daemon transcribes, Canary included; MOSS runs alone when
+   chosen. Before, a Canary daemon was bypassed by the standalone
+   transcribe-diarize (Parakeet + Sortformer), because the two-phase path
+   sent it the whole file in its fixed language (commit acfefc0).
 
 2. Translation backend availability checks drift quickly because
    each backend has its own dependency (trans CLI, ollama CLI,
@@ -66,6 +62,8 @@ def _load_func(name, source_path=SCRIPT):
 
 _select_transcribe_cmd = _load_func("_select_transcribe_cmd")
 _diarize_only_engine_args = _load_func("_diarize_only_engine_args")
+_phase2_per_piece = _load_func("_phase2_per_piece")
+_vram_needed_mb = _load_func("_vram_needed_mb")
 _translate_available = _load_func("_translate_available")
 
 
@@ -77,303 +75,97 @@ _translate_available = _load_func("_translate_available")
 class SelectTranscribeCmdTests(unittest.TestCase):
     """Routing matrix for _on_transcribe.
 
-    Inputs: (diarize, asr_backend, has_transcribe, has_diarize_only,
-             has_transcribe_diarize, has_diarize_multi)
-    Output: (cmd, two_phase, missing_binary)
+    Diarization runs Nemotron 3 in two phases (diarize-only, then the
+    daemon piece by piece), or MOSS in one pass when it is chosen and
+    installed. The F9 ASR backend no longer changes the command.
     """
 
-    # Default fixture: every legacy binary present, no backend env set.
-    # has_diarize_multi defaults to False here so the pre-existing matrix
-    # keeps documenting the Sortformer-era behaviour; the multi-speaker
-    # engine has its own test block below.
-    BASE = dict(
-        has_transcribe=True,
-        has_diarize_only=True,
-        has_transcribe_diarize=True,
-        has_diarize_multi=False,
-    )
-    # Fixture for hosts with the in-house multi-speaker engine installed
-    # (binary + models — the caller passes _diar_multi_available()).
-    BASE_MULTI = dict(BASE, has_diarize_multi=True)
-
-    # ── diarize=False (plain transcribe) ──────────────────────────────
+    def route(self, diarize=True, has_transcribe=True, has_diarize_only=True,
+              has_moss=False, diar_engine="nemotron3", has_nemotron3=True):
+        return _select_transcribe_cmd(
+            diarize=diarize, has_transcribe=has_transcribe,
+            has_diarize_only=has_diarize_only, has_moss=has_moss,
+            diar_engine=diar_engine, has_nemotron3=has_nemotron3)
 
     def test_plain_uses_transcribe_binary(self):
-        # Plain mode never touches the daemon — always Parakeet binary.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=False, asr_backend="canary", **self.BASE)
-        self.assertEqual(cmd, "transcribe")
-        self.assertFalse(two_phase)
-        self.assertIsNone(err)
-
-    def test_plain_unaffected_by_backend(self):
-        # The `transcribe` binary is hardcoded Parakeet-TDT — backend
-        # env var has no influence on plain transcription.
-        for backend in ("", "parakeet", "canary", "whisper", "vosk"):
-            with self.subTest(backend=backend):
-                cmd, _, _ = _select_transcribe_cmd(
-                    diarize=False, asr_backend=backend, **self.BASE)
-                self.assertEqual(cmd, "transcribe")
+        self.assertEqual(self.route(diarize=False), ("transcribe", False, None))
 
     def test_plain_missing_transcribe_returns_error(self):
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=False, asr_backend="",
-            has_transcribe=False, has_diarize_only=True,
-            has_transcribe_diarize=True)
-        self.assertIsNone(cmd)
-        self.assertFalse(two_phase)
-        self.assertEqual(err, "transcribe")
+        self.assertEqual(self.route(diarize=False, has_transcribe=False),
+                         (None, False, "transcribe"))
 
-    # ── diarize=True with Canary daemon (the regressed path) ──────────
+    def test_plain_ignores_the_diarization_engine(self):
+        self.assertEqual(self.route(diarize=False, has_moss=True, diar_engine="moss"),
+                         ("transcribe", False, None))
 
-    def test_canary_daemon_diarize_uses_standalone(self):
-        # The bug fixed in acfefc0: Canary daemon is locked at
-        # DICTEE_LANG_SOURCE. Phase-2 transcription via the daemon
-        # socket would mistranscribe audio in any other language.
-        # transcribe-diarize loads Parakeet-TDT itself (multilingual).
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="canary", **self.BASE)
-        self.assertEqual(cmd, "transcribe-diarize")
-        self.assertFalse(two_phase, "Canary path must NOT be two-phase")
-        self.assertIsNone(err)
+    def test_diarize_runs_nemotron3_in_two_phases(self):
+        self.assertEqual(self.route(), ("diarize-only", True, None))
 
-    def test_canary_case_insensitive(self):
-        # DICTEE_ASR_BACKEND is matched .lower() — defensive against
-        # users editing dictee.conf by hand.
-        for variant in ("canary", "Canary", "CANARY", " canary "):
-            with self.subTest(variant=repr(variant)):
-                # Strip whitespace handling is the caller's job; we
-                # only test case-insensitive match for the unstripped
-                # canonical forms.
-                cmd, _, _ = _select_transcribe_cmd(
-                    diarize=True, asr_backend=variant.strip(), **self.BASE)
-                self.assertEqual(cmd, "transcribe-diarize")
+    def test_moss_when_chosen_and_installed(self):
+        self.assertEqual(self.route(has_moss=True, diar_engine="moss"),
+                         ("dictee-moss-diarize", False, None))
 
-    def test_canary_falls_through_when_standalone_missing(self):
-        # If transcribe-diarize binary isn't installed, fall back to
-        # the daemon path — at least the user gets *something*. The
-        # existing fallback chain is preserved.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="canary",
-            has_transcribe=True, has_diarize_only=True,
-            has_transcribe_diarize=False)
-        self.assertEqual(cmd, "diarize-only")
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
+    def test_moss_chosen_but_missing_runs_nemotron3(self):
+        self.assertEqual(self.route(diar_engine="moss"), ("diarize-only", True, None))
 
-    # ── diarize=True with Parakeet daemon (default) ──────────────────
+    def test_moss_installed_but_not_chosen_never_wins(self):
+        self.assertEqual(self.route(has_moss=True), ("diarize-only", True, None))
 
-    def test_parakeet_daemon_diarize_uses_two_phase(self):
-        # Original 566202e design: leverage the loaded Parakeet daemon
-        # for phase-2 transcription. Saves model load time (~5-10 s).
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet", **self.BASE)
-        self.assertEqual(cmd, "diarize-only")
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
+    def test_retired_engine_names_run_nemotron3(self):
+        # QSettings or meeting-live can still hand over these names
+        for engine in ("auto", "multi", "sortformer"):
+            self.assertEqual(self.route(diar_engine=engine),
+                             ("diarize-only", True, None), engine)
 
-    def test_empty_backend_treated_as_parakeet(self):
-        # No DICTEE_ASR_BACKEND in conf → transcribe-daemon defaults
-        # to Parakeet. Routing must not flag this as Canary.
-        cmd, two_phase, _ = _select_transcribe_cmd(
-            diarize=True, asr_backend="", **self.BASE)
-        self.assertEqual(cmd, "diarize-only")
-        self.assertTrue(two_phase)
-
-    def test_parakeet_falls_back_when_diarize_only_missing(self):
-        # Pre-566202e single-binary path. Still supported (e.g. older
-        # /usr/bin/dictee-* that didn't ship diarize-only).
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet",
-            has_transcribe=True, has_diarize_only=False,
-            has_transcribe_diarize=True)
-        self.assertEqual(cmd, "transcribe-diarize")
-        self.assertFalse(two_phase)
-        self.assertIsNone(err)
-
-    def test_diarize_no_binaries_returns_error(self):
-        # User installed transcribe but neither diarize binary —
-        # surface "diarize-only not found" so they know what to install.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet",
-            has_transcribe=True, has_diarize_only=False,
-            has_transcribe_diarize=False)
-        self.assertIsNone(cmd)
-        self.assertFalse(two_phase)
-        self.assertEqual(err, "diarize-only")
-
-    # ── MOSS one-pass engine (explicit combo choice only) ──────────────
-
-    def test_moss_selected_and_available_wins(self):
-        # Explicit "moss" in the engine combo + usable install → the
-        # one-pass driver, no phase-2 (it emits the final transcript).
-        # It beats even the Canary special case: MOSS embeds its own ASR.
-        for backend in ("", "parakeet", "canary"):
-            with self.subTest(backend=backend):
-                cmd, two_phase, err = _select_transcribe_cmd(
-                    diarize=True, asr_backend=backend,
-                    has_moss=True, diar_engine="moss", **self.BASE)
-                self.assertEqual(cmd, "dictee-moss-diarize")
-                self.assertFalse(two_phase)
-                self.assertIsNone(err)
-
-    def test_moss_selected_but_unavailable_falls_back(self):
-        # Stale QSettings ("moss" persisted, engine later uninstalled):
-        # fall back to the normal matrix instead of failing.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet",
-            has_moss=False, diar_engine="moss", **self.BASE)
-        self.assertEqual(cmd, "diarize-only")   # BASE has no diarize-multi
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
-
-    def test_moss_available_but_not_selected_never_wins(self):
-        # MOSS must never be picked under "auto" — explicit choice only.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet",
-            has_moss=True, diar_engine="auto", **self.BASE)
-        self.assertEqual(cmd, "diarize-only")   # BASE has no diarize-multi
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
-
-    def test_moss_ignored_for_plain_transcription(self):
-        # The engine combo only applies to diarized runs.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=False, asr_backend="",
-            has_moss=True, diar_engine="moss", **self.BASE)
-        self.assertEqual(cmd, "transcribe")
-        self.assertFalse(two_phase)
-        self.assertIsNone(err)
-
-    # ── diarize=True with the in-house multi-speaker engine ───────────
-
-    def test_diar_multi_preferred_over_sortformer(self):
-        # The in-house engine (no 4-speaker cap, better DER) wins over
-        # the Sortformer two-phase path when its models are installed.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet", **self.BASE_MULTI)
-        self.assertEqual(cmd, "diarize-multi")
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
-
-    def test_diar_multi_ignored_for_plain_transcription(self):
-        cmd, _, _ = _select_transcribe_cmd(
-            diarize=False, asr_backend="parakeet", **self.BASE_MULTI)
-        self.assertEqual(cmd, "transcribe")
-
-    def test_canary_daemon_still_bypasses_diar_multi(self):
-        # The Canary bypass exists because of the PHASE-2 transcription
-        # engine (daemon locked at DICTEE_LANG_SOURCE), not because of
-        # the diarization engine — it must survive diarize-multi.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="canary", **self.BASE_MULTI)
-        self.assertEqual(cmd, "transcribe-diarize")
-        self.assertFalse(two_phase)
-        self.assertIsNone(err)
-
-    def test_canary_fallback_prefers_diar_multi(self):
-        # Canary without the standalone binary falls back to two-phase:
-        # the multi-speaker engine wins there too.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="canary",
-            has_transcribe=True, has_diarize_only=True,
-            has_transcribe_diarize=False, has_diarize_multi=True)
-        self.assertEqual(cmd, "diarize-multi")
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
-
-    def test_diar_multi_alone_is_sufficient(self):
-        # A future package without Sortformer at all: diarize-multi
-        # (binary + models) alone must carry the diarize path.
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet",
-            has_transcribe=True, has_diarize_only=False,
-            has_transcribe_diarize=False, has_diarize_multi=True)
-        self.assertEqual(cmd, "diarize-multi")
-        self.assertTrue(two_phase)
-        self.assertIsNone(err)
-
-    # ── Future-proofing for new daemon backends ───────────────────────
-
-    def test_unknown_backend_uses_two_phase(self):
-        # An unknown backend (e.g. future "whisper" daemon) currently
-        # routes to the daemon path. This test DOCUMENTS that
-        # behaviour — if a new daemon also needs to bypass the socket
-        # like Canary does, _select_transcribe_cmd must be updated and
-        # this test rewritten accordingly.
-        cmd, two_phase, _ = _select_transcribe_cmd(
-            diarize=True, asr_backend="whisper-future", **self.BASE)
-        self.assertEqual(cmd, "diarize-only",
-            "If you added a new daemon that should bypass phase-2 "
-            "(like Canary), update _select_transcribe_cmd and rewrite "
-            "this test — silent regressions for non-Parakeet daemons "
-            "have happened before (see commit acfefc0).")
-        self.assertTrue(two_phase)
+    def test_no_usable_engine_names_diarize_only(self):
+        self.assertEqual(self.route(has_nemotron3=False), (None, False, "diarize-only"))
+        self.assertEqual(self.route(has_diarize_only=False), (None, False, "diarize-only"))
 
 
-class Nemotron3RoutingTests(unittest.TestCase):
-    """Nemotron 3 Diarization: an explicit engine choice, run through
-    diarize-only --engine nemotron3 with its model directory."""
+class DiarizeOnlyArgsTests(unittest.TestCase):
+    def test_pieces_of_nemotron3_from_its_model_dir(self):
+        self.assertEqual(_diarize_only_engine_args("/models/n3", "canary"),
+                         ["/models/n3", "--engine", "nemotron3", "--pieces"])
 
-    BASE = dict(
-        has_transcribe=True,
-        has_diarize_only=True,
-        has_transcribe_diarize=True,
-    )
+    def test_parakeet_gets_short_pieces(self):
+        # longer pieces drift into English: the Masque on 2026-10-04 gave
+        # 2-3 English words at 5 s, 11-18 at 15 s, whole sentences translated
+        for backend in ("parakeet", "", None):
+            self.assertEqual(_diarize_only_engine_args("/m", backend),
+                             ["/m", "--engine", "nemotron3", "--pieces",
+                              "--max-piece", "5"], backend)
 
-    def test_chosen_and_installed_beats_the_multi_speaker_engine(self):
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet", has_diarize_multi=True,
-            has_nemotron3=True, diar_engine="nemotron3", **self.BASE)
-        self.assertEqual((cmd, two_phase, err), ("diarize-only", True, None))
+    def test_other_engines_keep_the_default_length(self):
+        for backend in ("canary", "nemotron", "kyutai", "whisper", "vosk"):
+            self.assertNotIn("--max-piece",
+                             _diarize_only_engine_args("/m", backend), backend)
 
-    def test_chosen_but_not_installed_falls_back_to_the_matrix(self):
-        cmd, two_phase, err = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet", has_diarize_multi=True,
-            has_nemotron3=False, diar_engine="nemotron3", **self.BASE)
-        self.assertEqual((cmd, two_phase, err), ("diarize-multi", True, None))
 
-    def test_never_wins_under_auto(self):
-        cmd, _, _ = _select_transcribe_cmd(
-            diarize=True, asr_backend="parakeet", has_diarize_multi=True,
-            has_nemotron3=True, diar_engine="auto", **self.BASE)
-        self.assertEqual(cmd, "diarize-multi")
+class PhaseTwoTests(unittest.TestCase):
+    """Which daemons transcribe the pieces one by one."""
 
-    def test_canary_daemon_keeps_its_priority(self):
-        # Phase 2 of a two-phase run would go through the Canary daemon,
-        # locked at DICTEE_LANG_SOURCE: the standalone binary wins.
-        cmd, two_phase, _ = _select_transcribe_cmd(
-            diarize=True, asr_backend="canary", has_nemotron3=True,
-            diar_engine="nemotron3", **self.BASE)
-        self.assertEqual((cmd, two_phase), ("transcribe-diarize", False))
+    def test_every_backend_but_whisper_goes_piece_by_piece(self):
+        # vosk reads the whole request as a path: a '\tdiarize' request fails
+        for backend in ("parakeet", "", "canary", "nemotron", "kyutai", "vosk"):
+            self.assertTrue(_phase2_per_piece(backend), backend)
 
-    def test_plain_transcription_ignores_the_choice(self):
-        cmd, _, _ = _select_transcribe_cmd(
-            diarize=False, asr_backend="parakeet", has_nemotron3=True,
-            diar_engine="nemotron3", **self.BASE)
-        self.assertEqual(cmd, "transcribe")
+    def test_whisper_keeps_its_timestamped_full_file_path(self):
+        for backend in ("whisper", "whisper-rust"):
+            self.assertFalse(_phase2_per_piece(backend), backend)
 
-    def test_engine_args_when_chosen(self):
-        self.assertEqual(
-            _diarize_only_engine_args("nemotron3", "/m/nemotron3-diar", True),
-            ["/m/nemotron3-diar", "--engine", "nemotron3"])
 
-    def test_no_engine_args_for_sortformer_or_auto(self):
-        for engine in ("sortformer", "auto", "multi", "moss"):
-            with self.subTest(engine=engine):
-                self.assertEqual(
-                    _diarize_only_engine_args(engine, "/m/nemotron3-diar", True), [])
+class VramNeededTests(unittest.TestCase):
+    """Free VRAM below which _on_transcribe stops the F9 daemon."""
 
-    def test_auto_falls_back_to_nemotron3_without_sortformer(self):
-        # Only Nemotron 3 installed: diarize-only would otherwise look for a
-        # Sortformer model that is not there.
-        self.assertEqual(
-            _diarize_only_engine_args("auto", "/m/nemotron3-diar", False),
-            ["/m/nemotron3-diar", "--engine", "nemotron3"])
+    def test_plain_run_loads_parakeet(self):
+        self.assertEqual(_vram_needed_mb(diarize=False, own_asr_model=False), 3584)
 
-    def test_no_engine_args_without_the_model(self):
-        self.assertEqual(_diarize_only_engine_args("nemotron3", None, True), [])
-        self.assertEqual(_diarize_only_engine_args("auto", None, False), [])
+    def test_nemotron3_beside_the_resident_daemon(self):
+        # 664 MiB peak on 21 and 50 min, measured 2026-10-04
+        self.assertEqual(_vram_needed_mb(diarize=True, own_asr_model=False), 1024)
+
+    def test_moss_or_an_isolated_engine_loads_its_own_model(self):
+        self.assertEqual(_vram_needed_mb(diarize=True, own_asr_model=True), 5120)
 
 
 # ---------------------------------------------------------------------

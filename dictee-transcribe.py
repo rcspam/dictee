@@ -150,6 +150,12 @@ def asr_spec_to_daemon(spec):
     if spec == "nemotron":
         return {"backend": "nemotron",
                 "env": {"DICTEE_ASR_BACKEND": "nemotron"}}
+    if spec == "canary":
+        # Canary transcribes in one fixed language: the dictation one, as
+        # the F9 Canary daemon does (its own default when the conf has none).
+        lang = (_read_conf().get("DICTEE_LANG_SOURCE") or "").strip()
+        return {"backend": "canary",
+                "env": {"DICTEE_LANG_SOURCE": lang} if lang else {}}
     if spec == "kyutai":
         # Dedicated candle daemon (transcribe-daemon-kyutai), GPU-only. Like
         # nemotron it emits no word timestamps, so callers fall back to
@@ -832,13 +838,15 @@ def _translate_text(text, lang_src="en", lang_tgt="fr", backend=None):
 
 # === Helpers ===
 
-def _sortformer_available():
-    """Check if the Sortformer diarization model is installed."""
-    dd = os.path.join(
-        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
-        "dictee", "sortformer",
-    )
-    return os.path.isdir("/usr/share/dictee/sortformer") or os.path.isdir(dd)
+def _canary_installed():
+    """True when the Canary model (fp32 or int8) is in the user data dir or
+    the system one, as dictee_models.canary_model_installed checks it."""
+    dirs = (os.path.join(os.environ.get("XDG_DATA_HOME",
+                                        os.path.expanduser("~/.local/share")),
+                         "dictee", "canary"),
+            "/usr/share/dictee/canary")
+    return any(os.path.isfile(os.path.join(d, f)) for d in dirs
+               for f in ("encoder-model.onnx", "encoder-model.int8.onnx"))
 
 
 def _nemotron3_dir():
@@ -872,24 +880,6 @@ def _nemotron3_dir():
     return model_dir
 
 
-def _diar_multi_available():
-    """Check if the in-house multi-speaker diarization engine is usable:
-    diarize-multi binary on PATH + its models installed (sentinel =
-    segmentation-3.0.onnx, same convention as the Rust default_models_dir).
-    When available it is preferred over Sortformer for batch diarization
-    (no 4-speaker cap, better DER)."""
-    import shutil
-    if not shutil.which("diarize-multi"):
-        return False
-    sentinel = "segmentation-3.0.onnx"
-    dd = os.path.join(
-        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
-        "dictee", "diar",
-    )
-    return (os.path.isfile(os.path.join(dd, sentinel))
-            or os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel)))
-
-
 def _moss_available():
     """True when the MOSS one-pass diarized-transcription engine is usable:
     dictee-moss-diarize on PATH and its --check passing (model + native
@@ -911,17 +901,9 @@ def _moss_available():
 
 
 def _diarize_available():
-    """True when at least one diarization engine (multi-speaker,
-    Sortformer, Nemotron 3 or MOSS) is installed — gates the diarize toggle."""
-    return (_diar_multi_available() or _sortformer_available()
-            or _nemotron3_dir() is not None or _moss_available())
-
-
-def _diar_threshold_from_sensitivity(sensitivity):
-    """Map the UI sensitivity slider (0.0-1.0, default 0.5) to the
-    diarize-multi AHC distance threshold (default 0.6, lower = more
-    speakers — same direction as the slider)."""
-    return sensitivity * 1.2
+    """True when a diarization engine (Nemotron 3 or MOSS) is installed —
+    gates the diarize toggle."""
+    return _nemotron3_dir() is not None or _moss_available()
 
 
 def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
@@ -1397,22 +1379,14 @@ class _DiarizeTranscribeWorker(QThread):
 
 
 class _ChunkedPipelineWorker(QThread):
-    """Long-file chunked pipeline (audio > VRAM-adaptive threshold + CUDA build).
-
-    With diarize=True (4 phases):
-      Phase 1: ffmpeg pre-cut into 2-min chunks with 15-s overlap (WAV 16k mono).
-      Phase 2: diarize-multi (preferred), or diarize-only (Sortformer, or
-               Nemotron 3 when chosen) on the full file -> global speaker
-               segments.
-      Phase 3: transcribe-diarize-batch --no-diarize on chunks -> timestamped tokens.
-      Phase 4: merge global speakers onto tokens via argmax_overlap.
-      Output: '[X.XXs - Y.YYs] Speaker N: text' per line — DIARIZE_RE-compatible.
-
-    With diarize=False (2 phases — extends chunking to plain transcription):
-      Phase 1: ffmpeg pre-cut into 2-min chunks (same as above).
+    """Long-file plain transcription (no diarization), in 2 phases:
+      Phase 1: ffmpeg pre-cut into overlapping chunks (WAV 16k mono).
       Phase 2: transcribe-diarize-batch --no-diarize on chunks -> tokens.
       Output: plain text, postprocessed downstream like the non-chunked
       `transcribe` batch path.
+
+    A diarized run never comes here: Nemotron 3 pieces go to the daemon one
+    by one (_DiarizeTranscribeWorker), which needs no chunking.
     """
     phase_changed = Signal(int, str)    # (phase_num, label)
     chunk_progress = Signal(int, int)   # (done, total) during chunked transcription
@@ -1426,21 +1400,9 @@ class _ChunkedPipelineWorker(QThread):
                           # (repeated sentences) at every chunk boundary.
     STEP_SECONDS = 105    # CHUNK - OVERLAP
 
-    def __init__(self, audio_path, sensitivity, diarize=True, parent=None,
-                 env_override=None, allow_diar_multi=True, diar_engine="auto"):
+    def __init__(self, audio_path, parent=None, env_override=None):
         super().__init__(parent)
         self._audio_path = audio_path
-        self._sensitivity = sensitivity
-        self._diarize = diarize
-        # Engine choice is frozen at job start (availability won't change
-        # mid-run): multi-speaker engine preferred, Sortformer fallback.
-        # allow_diar_multi=False forces Sortformer or Nemotron 3 (UI engine
-        # combo); _diar_engine_args picks between the two.
-        self._use_diar_multi = allow_diar_multi and _diar_multi_available()
-        self._diar_engine_args = (_diarize_only_engine_args(
-            diar_engine, _nemotron3_dir(), _sortformer_available())
-            if diarize else [])
-        self._duration = 0.0  # set in run(), used for the diarize timeout
         self._cancel = False
         self._tmp_dir = None
         self._current_proc = None
@@ -1484,9 +1446,8 @@ class _ChunkedPipelineWorker(QThread):
             if duration <= 0:
                 self.error.emit(_("Could not determine audio duration"))
                 return
-            self._duration = duration
 
-            n_phases = 4 if self._diarize else 2
+            n_phases = 2
             self.phase_changed.emit(
                 1, _("Phase 1/{n}: pre-cut audio").format(n=n_phases))
             self._tmp_dir = self._make_tmp_dir()
@@ -1498,19 +1459,7 @@ class _ChunkedPipelineWorker(QThread):
                 self.error.emit(_("No chunks produced from audio split"))
                 return
 
-            speaker_segments = None
-            if self._diarize:
-                self.phase_changed.emit(
-                    2, _("Phase 2/{n}: global diarization").format(n=n_phases))
-                speaker_segments = self._run_diarize_only()
-                if self._cancel:
-                    self.error.emit(_("Cancelled"))
-                    return
-                if not speaker_segments:
-                    self.error.emit(_("No speaker segments detected"))
-                    return
-
-            transcribe_phase = 3 if self._diarize else 2
+            transcribe_phase = 2
             self.phase_changed.emit(
                 transcribe_phase,
                 _("Phase {p}/{n}: chunked transcription").format(
@@ -1523,21 +1472,13 @@ class _ChunkedPipelineWorker(QThread):
                 self.error.emit(_("No transcription tokens produced"))
                 return
 
-            if self._diarize:
-                self.phase_changed.emit(
-                    4, _("Phase 4/{n}: merging speakers").format(n=n_phases))
-                output = self._merge(tokens_absolute, speaker_segments)
-                if not output:
-                    self.error.emit(_("Merge produced empty output"))
-                    return
-            else:
-                # Plain transcription: concatenate token texts. Downstream
-                # _finish_transcription will run dictee-postprocess once
-                # on the joined string, mirroring the non-chunked path.
-                output = " ".join(t["text"] for t in tokens_absolute).strip()
-                if not output:
-                    self.error.emit(_("Empty transcription output"))
-                    return
+            # Concatenate token texts. Downstream _finish_transcription runs
+            # dictee-postprocess once on the joined string, mirroring the
+            # non-chunked path.
+            output = " ".join(t["text"] for t in tokens_absolute).strip()
+            if not output:
+                self.error.emit(_("Empty transcription output"))
+                return
 
             self.finished.emit(output)
         except Exception as e:
@@ -1589,54 +1530,6 @@ class _ChunkedPipelineWorker(QThread):
             idx += 1
             start += self.STEP_SECONDS
         return chunks
-
-    def _run_diarize_only(self):
-        """Run the global diarization pass. Stdout format:
-        'start end speaker_id' per line (same contract for both engines).
-
-        diarize-multi (in-house, no 4-speaker cap) is preferred; diarize-only
-        is the fallback when its models are not installed, or the engine the
-        combo forces: Sortformer, or Nemotron 3 (_diar_engine_args)."""
-        if self._use_diar_multi:
-            threshold = _diar_threshold_from_sensitivity(self._sensitivity)
-            cmd = ["diarize-multi", "--threshold", f"{threshold:.2f}",
-                   self._audio_path]
-            # CPU-only hosts run diarize-multi at RTF ~0.9 (plus the
-            # clustering pass): the fixed 600 s cap would kill any file
-            # beyond ~10 min, so scale the timeout with the duration.
-            timeout = max(600, int(self._duration * 3))
-        else:
-            cmd = ["diarize-only", "--sensitivity", f"{self._sensitivity:.2f}",
-                   self._audio_path] + self._diar_engine_args
-            # Nemotron 3 runs ~45x faster than real time on the CPU (8
-            # threads); real time is a safe floor for a slow machine.
-            timeout = (max(600, int(self._duration)) if self._diar_engine_args
-                       else 600)
-        self._current_proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            env=self._subprocess_env,
-        )
-        try:
-            stdout_data, _err = self._current_proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self._current_proc.kill()
-            return []
-        finally:
-            self._current_proc = None
-
-        segments = []
-        for line in stdout_data.decode("utf-8", errors="replace").splitlines():
-            parts = line.strip().split()
-            if len(parts) >= 3:
-                try:
-                    segments.append({
-                        "start": float(parts[0]),
-                        "end": float(parts[1]),
-                        "speaker": int(parts[2]),
-                    })
-                except ValueError:
-                    continue
-        return segments
 
     def _run_transcribe_batch(self, chunks):
         """Run transcribe-diarize-batch --no-diarize on chunks via stdin.
@@ -1729,24 +1622,6 @@ class _ChunkedPipelineWorker(QThread):
         tokens_abs.sort(key=lambda t: t["start"])
         return tokens_abs
 
-    def _merge(self, tokens, speaker_segments):
-        """Merge speakers onto tokens via _assign_speakers (sequence-aware,
-        same fusion as the two-phase path: per-token argmax-overlap copied
-        diarizer islands/shifted boundaries onto the tokens as mid-clause
-        speaker flips, and left gap-drifted tokens UNKNOWN).
-
-        Output: '[X.XXs - Y.YYs] Speaker N: text' per line.
-        Speaker label is hardcoded English to stay DIARIZE_RE-compatible.
-        """
-        assigned = _assign_speakers(tokens, speaker_segments)
-        results = []
-        for tok, speaker in zip(tokens, assigned):
-            spk = f"Speaker {speaker}" if speaker >= 0 else "UNKNOWN"
-            results.append(
-                f"[{tok['start']:.2f}s - {tok['end']:.2f}s] {spk}: {tok['text']}"
-            )
-        return "\n".join(results)
-
     def _cleanup_tmp(self):
         if self._tmp_dir and os.path.exists(self._tmp_dir):
             try:
@@ -1761,9 +1636,8 @@ class IsolatedAsrDaemon:
     start() launches the process and returns the socket path immediately;
     the phase-2 worker waits for the socket (model cold-load can be slow).
     """
-    def __init__(self, recipe, model_dir="/usr/share/dictee/tdt"):
+    def __init__(self, recipe):
         self.recipe = recipe            # {"backend", "env"} from asr_spec_to_daemon
-        self.model_dir = model_dir
         self.sock = f"/tmp/dictee-adhoc-{os.getpid()}.sock"
         self.proc = None
 
@@ -1790,8 +1664,17 @@ class IsolatedAsrDaemon:
             # Separate candle crate with its own binary, like whisper-rust. It
             # resolves its model dir itself and takes --socket (main.rs).
             cmd = ["transcribe-daemon-kyutai", "--socket", self.sock]
-        else:  # parakeet ad-hoc (not used by the current routing, kept for completeness)
-            cmd = ["transcribe-daemon", "--socket", self.sock, self.model_dir]
+        elif self.recipe["backend"] == "canary":
+            # The backend is forced too: a window launched by dictee inherits
+            # dictee.conf (set -a), and DICTEE_ASR_BACKEND=whisper would win.
+            env["DICTEE_ASR_BACKEND"] = "canary"
+            cmd = ["transcribe-daemon", "--canary", "--socket", self.sock]
+        else:
+            # Parakeet, forced for the same reason (an inherited canary or
+            # nemotron backend would load that model). No model directory:
+            # the daemon looks in the user's data dir, then /usr/share.
+            env["DICTEE_ASR_BACKEND"] = "parakeet"
+            cmd = ["transcribe-daemon", "--socket", self.sock]
         return cmd, env
 
     def start(self):
@@ -1986,70 +1869,52 @@ def _format_json(segments, name_map=None):
 
 # === Transcription routing ===
 
-def _diarize_only_engine_args(diar_engine, nemotron3_dir, sortformer_ok):
-    """Arguments that follow the audio path on a diarize-only command line.
+def _diarize_only_engine_args(nemotron3_dir, backend):
+    """Arguments that follow the audio path on a diarize-only command line:
+    Nemotron 3 from nemotron3_dir (_nemotron3_dir()), printing the pieces
+    that phase 2 transcribes one by one with `backend`.
 
-    Nemotron 3 Diarization (up to 8 speakers) runs when the engine combo
-    chooses it, or as the fallback when Sortformer is not installed;
-    Sortformer otherwise (no argument). nemotron3_dir is _nemotron3_dir():
-    None when Nemotron 3 is not usable. Pure function,
-    tests/test-transcribe-routing.py.
-    """
-    if nemotron3_dir and (diar_engine == "nemotron3" or not sortformer_ok):
-        return [nemotron3_dir, "--engine", "nemotron3"]
-    return []
+    Parakeet gets pieces of 5 s at most: it has no language token and drifts
+    into English on longer inputs (the Masque on 2026-10-04: 2 and 3 English
+    words in two minutes at 5 s, 11 and 18 at 15 s, whole sentences
+    translated), for 1.7 points of WER on the SUMM-RE meeting 004c (29.8 %
+    against 28.1 %). The other engines keep diarize-only's 15 s, whole
+    sentences (Canary: 32.1 % at 15 s, 31.9 % at 5 s, no English).
+    Pure function, tests/test-transcribe-routing.py."""
+    args = [nemotron3_dir, "--engine", "nemotron3", "--pieces"]
+    if (backend or "parakeet") == "parakeet":
+        args += ["--max-piece", "5"]
+    return args
 
 
-def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
-                           has_diarize_only, has_transcribe_diarize,
-                           has_diarize_multi=False, has_moss=False,
-                           diar_engine="auto", has_nemotron3=False):
+def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
+                           has_moss=False, diar_engine="nemotron3",
+                           has_nemotron3=False):
     """Pick the ASR command and pipeline mode for a transcription run.
 
     Pure function (no I/O, no Qt) so the routing matrix stays
     regression-tested without spinning up a window. Called from
-    _on_transcribe with shutil.which() and conf-derived inputs.
+    _on_transcribe with shutil.which() and availability inputs.
 
     Routing rules:
-      diarize=False  + transcribe binary → ("transcribe", False, None)
-      diarize=True   + engine combo forced to MOSS and MOSS usable
-                     → ("dictee-moss-diarize", False, None)
+      diarize=False + transcribe binary -> ("transcribe", False, None)
+      diarize=True  + engine combo set to MOSS and MOSS usable
+                    -> ("dictee-moss-diarize", False, None)
         One-pass engine: MOSS emits the final diarized transcript itself
-        (DIARIZE_RE lines), so no phase-2 and no daemon involved. Explicit
-        user choice — it never wins under "auto". Falls through to the
-        normal matrix when MOSS is not usable.
-      diarize=True   + Canary daemon     → ("transcribe-diarize", False, None)
-        Canary path bypasses the daemon socket because the daemon is
-        locked at DICTEE_LANG_SOURCE — phase-2 transcription would
-        mistranscribe any audio in another language. Standalone
-        transcribe-diarize loads Parakeet-TDT itself (multilingual
-        auto-detect). This is about the phase-2 TRANSCRIPTION engine,
-        so it applies whatever diarization engine is installed.
-      diarize=True   + engine combo forced to Nemotron 3 and it is usable
-                     → ("diarize-only", True, None)
-        Explicit choice, never under "auto"; the caller adds
-        _diarize_only_engine_args. Falls through to the matrix when
-        Nemotron 3 is not usable.
-      diarize=True   + diarize-multi usable → ("diarize-multi", True, None)
-        Two-phase with the in-house multi-speaker engine (no 4-speaker
-        cap): diarize-multi emits speaker timestamps, daemon socket
-        transcribes each segment. Preferred over Sortformer.
-      diarize=True   + Parakeet daemon   → ("diarize-only", True, None)
-        Two-phase Sortformer fallback: diarize-only emits speaker
-        timestamps, daemon socket transcribes each segment.
-      diarize=True   + diarize-only missing → ("transcribe-diarize", False, None)
-        Legacy fallback when the two-phase binary is not installed.
-      Required binary missing → (None, False, error_string)
+        (DIARIZE_RE lines), so no phase 2 and no daemon involved.
+      diarize=True  + Nemotron 3 usable -> ("diarize-only", True, None)
+        Two phases: diarize-only prints Nemotron 3 pieces (one speaker
+        each), then phase 2 has the daemon transcribe them one by one,
+        whatever its backend (Canary included, in its own language).
+        Retired engine names (auto, multi, sortformer) still saved in
+        QSettings or handed over by meeting-live land here.
+      Required binary missing -> (None, False, error_string)
 
     Inputs:
-      diarize: bool — diarize checkbox state.
-      asr_backend: str — DICTEE_ASR_BACKEND from dictee.conf.
-        "" / "parakeet" / "canary" / etc. Case-insensitive.
-      has_transcribe / has_diarize_only / has_transcribe_diarize: bools
-        — typically `bool(shutil.which(<name>))`.
-      has_diarize_multi: bool — binary on PATH AND its models installed
-        (`_diar_multi_available()`, not a bare which()).
-      has_nemotron3: bool — `_nemotron3_dir() is not None`.
+      has_transcribe / has_diarize_only: bools, typically
+        `bool(shutil.which(<name>))`.
+      has_moss: `_moss_available()`.
+      has_nemotron3: `_nemotron3_dir() is not None`.
 
     Returns: (cmd, two_phase, error). On error, cmd is None and
     error is the missing-binary message ready for the status bar.
@@ -2062,24 +1927,33 @@ def _select_transcribe_cmd(diarize, asr_backend, has_transcribe,
     if diar_engine == "moss" and has_moss:
         return "dictee-moss-diarize", False, None
 
-    daemon_is_canary = (asr_backend or "").lower() == "canary"
-
-    if daemon_is_canary and has_transcribe_diarize:
-        return "transcribe-diarize", False, None
-
-    if diar_engine == "nemotron3" and has_nemotron3 and has_diarize_only:
+    if has_nemotron3 and has_diarize_only:
         return "diarize-only", True, None
-
-    if has_diarize_multi:
-        return "diarize-multi", True, None
-
-    if has_diarize_only:
-        return "diarize-only", True, None
-
-    if has_transcribe_diarize:
-        return "transcribe-diarize", False, None
 
     return None, False, "diarize-only"
+
+
+def _phase2_per_piece(backend):
+    """True when phase 2 sends the daemon one plain request per Nemotron 3
+    piece, so each piece keeps its speaker by construction: every backend
+    but the whisper ones, which still transcribe the whole file with
+    timestamps (their switch waits for the per-piece measurements). vosk
+    reads the whole request as a path, so a '\tdiarize' request fails on
+    it. Pure function, tests/test-transcribe-routing.py."""
+    return (backend or "parakeet") not in ("whisper", "whisper-rust")
+
+
+def _vram_needed_mb(diarize, own_asr_model):
+    """Free VRAM (MB) below which _on_transcribe stops the F9 daemon.
+
+    A plain run loads Parakeet in the transcribe CLI (~3.5 GB). A diarized
+    run adds Nemotron 3 (664 MiB peak on 21 and 50 min, 2026-10-04) to the
+    resident daemon that transcribes its pieces: the daemon stays. A MOSS
+    run, or a phase 2 on an isolated engine, loads a model of its own.
+    Pure function, tests/test-transcribe-routing.py."""
+    if not diarize:
+        return 3584
+    return 5120 if own_asr_model else 1024
 
 
 # === Search Bar ===
@@ -3106,6 +2980,14 @@ class TranscribeWindow(QDialog):
             ("Nemotron", "nemotron"),
         ):
             self._asr_model_combo.addItem(_lbl, _spec)
+        # Canary transcribes in the dictation language (DICTEE_LANG_SOURCE,
+        # the daemon's default "fr" without one), shown like the whisper
+        # sizes; greyed out until dictee-setup has downloaded it.
+        _cn_lang = (_conf_sizes.get("DICTEE_LANG_SOURCE") or "fr").strip()
+        self._asr_model_combo.addItem(f"Canary ({_cn_lang})", "canary")
+        if not _canary_installed():
+            self._asr_model_combo.model().item(
+                self._asr_model_combo.count() - 1).setEnabled(False)
         # Kyutai ships in the CUDA package only — offering it where the binary
         # cannot exist would be a dead entry (unlike whisper-rust, which is in
         # both packages).
@@ -3342,28 +3224,20 @@ class TranscribeWindow(QDialog):
         # always laid out next to the toggle (no separate row) so the
         # vertical rhythm of the pad doesn't change when it appears.
         self._chk_diarize = ToggleSwitch(_("Diarization (speaker identification)"))
-        diar_multi_ok = _diar_multi_available()
-        sortformer_ok = _sortformer_available()
         nemotron3_ok = _nemotron3_dir() is not None
         moss_ok = _moss_available()
         # Cached for _update_transcribe_btn: its bare setEnabled(not_running)
         # used to re-arm the toggle on every file-input change even when no
         # diarization engine is installed.
-        self._diar_available = (diar_multi_ok or sortformer_ok or nemotron3_ok
-                                or moss_ok)
+        self._diar_available = nemotron3_ok or moss_ok
         self._chk_diarize.setEnabled(self._diar_available)
-        if diar_multi_ok:
+        if nemotron3_ok:
             self._chk_diarize.setToolTip(self._tip(
-                _("Identify speakers (no speaker-count limit). Works on "
-                  "any duration thanks to the auto-chunking pipeline.")))
-        elif sortformer_ok:
+                _("Identify speakers (max 8), on recordings of any length.")))
+        elif moss_ok:
             self._chk_diarize.setToolTip(self._tip(
-                _("Identify speakers (max 4). Works on any duration "
-                  "thanks to the auto-chunking pipeline.")))
-        elif nemotron3_ok:
-            self._chk_diarize.setToolTip(self._tip(
-                _("Identify speakers (max 8). Works on any duration "
-                  "thanks to the auto-chunking pipeline.")))
+                _("Identify speakers with MOSS (transcript and speakers in "
+                  "one pass).")))
         else:
             self._chk_diarize.setToolTip(
                 _("No diarization model installed. Configure in dictee-setup."))
@@ -3389,9 +3263,9 @@ class TranscribeWindow(QDialog):
         self._w_threshold.setVisible(False)
 
         # Diarization engine combo (same visibility rhythm as the threshold
-        # widget). "Auto" preserves the historical preference (multi-speaker
-        # engine when installed, else Sortformer); the explicit entries let
-        # the user force one (e.g. Sortformer on heavily produced audio).
+        # widget): Nemotron 3 by default, MOSS on demand. An engine that is
+        # not installed is greyed out and the other one selected, without
+        # saving that fallback (installing Nemotron 3 later brings it back).
         # Persisted per window in QSettings, like the translate choices.
         self._w_diar_engine = QWidget()
         lay_diar_eng = QHBoxLayout(self._w_diar_engine)
@@ -3401,34 +3275,31 @@ class TranscribeWindow(QDialog):
         # combo (user got bitten on 2026-07-08).
         lay_diar_eng.addWidget(QLabel(_("Engine:")))
         self._cmb_diar_engine = QComboBox()
-        self._cmb_diar_engine.addItem(_("Auto"), "auto")
-        self._cmb_diar_engine.addItem(_("Multi-speaker (no limit)"), "multi")
-        self._cmb_diar_engine.addItem(_("Sortformer (max 4)"), "sortformer")
-        # Nemotron 3 Diarization (NVIDIA): same family as Sortformer, up to 8
-        # speakers, run by diarize-only --engine nemotron3.
+        # Nemotron 3 Diarization (NVIDIA): up to 8 speakers, run by
+        # diarize-only --engine nemotron3 --pieces.
         self._cmb_diar_engine.addItem(_("Nemotron 3 (max 8)"), "nemotron3")
         # MOSS is a different animal: a single pass produces the transcript
         # AND the speakers (it replaces the ASR phase entirely), so the
         # threshold slider does not apply to it. Any GPU (Vulkan), not just
         # NVIDIA; CPU works but is slower than real time.
         self._cmb_diar_engine.addItem(_("MOSS (integrated, GPU)"), "moss")
-        for _data, _ok in (("multi", diar_multi_ok), ("sortformer", sortformer_ok),
-                           ("nemotron3", nemotron3_ok), ("moss", moss_ok)):
+        for _data, _ok in (("nemotron3", nemotron3_ok), ("moss", moss_ok)):
             if not _ok:
                 self._cmb_diar_engine.model().item(
                     self._cmb_diar_engine.findData(_data)).setEnabled(False)
         self._cmb_diar_engine.setToolTip(self._tip(
-            _("Diarization engine. Auto uses the multi-speaker engine when "
-              "installed, otherwise Sortformer (max 4 speakers). Nemotron 3 "
-              "(NVIDIA) tells up to 8 speakers apart, on the GPU or the "
-              "CPU. MOSS transcribes and identifies speakers in a single "
-              "pass (own ASR); it needs a GPU — any brand — and is slower "
-              "than real time on the CPU.")))
+            _("Diarization engine. Nemotron 3 (NVIDIA) tells up to 8 "
+              "speakers apart, on the GPU or the CPU. MOSS transcribes and "
+              "identifies speakers in a single pass (own ASR); it needs a "
+              "GPU (any brand) and is slower than real time on the CPU.")))
         _qs_diar = QSettings("dictee", "transcribe")
         _i = self._cmb_diar_engine.findData(
-            _qs_diar.value("diarize/engine", "auto"))
+            _qs_diar.value("diarize/engine", "nemotron3"))
         if _i >= 0 and self._cmb_diar_engine.model().item(_i).isEnabled():
             self._cmb_diar_engine.setCurrentIndex(_i)
+        elif moss_ok and not nemotron3_ok:
+            self._cmb_diar_engine.setCurrentIndex(
+                self._cmb_diar_engine.findData("moss"))
         self._cmb_diar_engine.currentIndexChanged.connect(
             lambda _i: QSettings("dictee", "transcribe").setValue(
                 "diarize/engine", self._cmb_diar_engine.currentData()))
@@ -4873,12 +4744,6 @@ class TranscribeWindow(QDialog):
         self._update_long_audio_warning()
         self._refresh_window_icon()
 
-    def _diar_allow_multi(self):
-        """False when the diarization-engine combo forces Sortformer or
-        Nemotron 3."""
-        return ((self._cmb_diar_engine.currentData() or "auto")
-                not in ("sortformer", "nemotron3"))
-
     def _refresh_window_icon(self):
         """Switch the window icon between the violet 'diarize' and the
         blue 'transcribing' variants depending on whether the user has
@@ -4982,11 +4847,10 @@ class TranscribeWindow(QDialog):
 
     def _update_long_audio_warning(self):
         """No-op since v1.3 chunked pipeline merge — long-audio
-        diarization is now unbounded thanks to the auto-chunking
-        pipeline (ffmpeg pre-cut + diarize-only global +
-        transcribe-diarize-batch + speaker merge). The label is
-        kept hidden, and the attribute itself is preserved in case
-        some other call-site references it."""
+        diarization is unbounded: the daemon transcribes the Nemotron 3
+        pieces one by one, each one short. The label is kept hidden, and
+        the attribute itself is preserved in case some other call-site
+        references it."""
         if hasattr(self, "_lbl_long_audio_warning"):
             self._lbl_long_audio_warning.setVisible(False)
 
@@ -5130,6 +4994,12 @@ class TranscribeWindow(QDialog):
         self._text_edit._audio_duration = dur
         self._progress.setVisible(True)
 
+        # A MOSS run is decided here, before the VRAM check: it loads a model
+        # of its own. The combo is read first so that the MOSS --check
+        # subprocess only runs when MOSS is chosen.
+        _moss_run = (diarize
+                     and self._cmb_diar_engine.currentData() == "moss"
+                     and _moss_available())
         # Free GPU VRAM if needed: only stop processes when VRAM is tight
         _dbg("_on_transcribe: checking GPU VRAM")
         self._daemon_was_active = False
@@ -5143,8 +5013,13 @@ class TranscribeWindow(QDialog):
             free_str = result.stdout.strip().split("\n")[0] if result.returncode == 0 else ""
             if free_str and free_str.isdigit():
                 free_mb = int(free_str)
-                # Parakeet needs ~3.5 GB, Sortformer adds ~1.5 GB
-                vram_needed = 5120 if diarize else 3584
+                # An isolated phase-2 engine loads its own model, unless it
+                # is pinned to the CPU (Parakeet int8).
+                _recipe = self._isolated_recipe
+                vram_needed = _vram_needed_mb(
+                    diarize, own_asr_model=bool(
+                        _moss_run or (_recipe and _recipe["env"].get(
+                            "DICTEE_FORCE_CPU") != "1")))
                 _dbg(f"_on_transcribe: GPU VRAM free={free_mb} MB, needed={vram_needed} MB, diarize={diarize}")
                 if free_mb < vram_needed:
                     # Check what's using VRAM
@@ -5192,8 +5067,8 @@ class TranscribeWindow(QDialog):
         self._btn_translate.setEnabled(False)
         self._update_transcribe_btn()
 
-        # Long-file chunked pipeline: any file longer than a single chunk
-        # routes here, regardless of CUDA/CPU build or diarize on/off.
+        # Long-file chunked pipeline, for plain runs only: any file longer
+        # than a single chunk routes there, regardless of CUDA/CPU build.
         # Rationale: chunks of CHUNK_SECONDS = 180 s sit well below the
         # Parakeet-TDT v3 ONNX attention-mask bug (~320 s) so chunked is
         # the only path that avoids the model crash for *any* host
@@ -5205,33 +5080,14 @@ class TranscribeWindow(QDialog):
         # _long_audio_threshold_minutes() and _has_cuda_build() are kept
         # in case the upstream ONNX bug gets fixed and we want to revert
         # to a VRAM-aware threshold.
-        # Hybrid isolated-model routing: a diarized run with an isolated
-        # Parakeet quant selected goes through the chunked pipeline at ANY
-        # length (one chunk for short files), with the quant env forced onto
-        # the batch CLI subprocess. An isolated Whisper or Nemotron selection
-        # is handled by the two-phase socket path and must NOT enter here.
-        # Both _whisper_isolated and _nemotron_isolated are gated on diarize:
-        # non-diarized runs always fall through to the plain Parakeet CLI
-        # (known limitation — selecting whisper/nemotron for a non-diarized
-        # batch file currently yields Parakeet output via the transcribe CLI).
-        # Parakeet variants are honored for BOTH plain and diarized runs:
-        # the chunked pipeline's batch binary is Parakeet and applies the
-        # recipe env (quant/CPU) as-is.
+        # An isolated Parakeet quant also goes there at any length (one
+        # chunk for short files), its env forced onto the batch CLI.
+        # A diarized run never does: phase 2 sends the Nemotron 3 pieces,
+        # each one short, to the daemon (isolated Parakeet included), and
+        # MOSS ingests the whole file in one pass.
         _parakeet_isolated = bool(
             getattr(self, "_isolated_recipe", None)
             and self._isolated_recipe["backend"] == "parakeet")
-        _whisper_isolated = bool(
-            diarize and getattr(self, "_isolated_recipe", None)
-            and self._isolated_recipe["backend"] == "whisper")
-        _whisper_rust_isolated = bool(
-            diarize and getattr(self, "_isolated_recipe", None)
-            and self._isolated_recipe["backend"] == "whisper-rust")
-        _nemotron_isolated = bool(
-            diarize and getattr(self, "_isolated_recipe", None)
-            and self._isolated_recipe["backend"] == "nemotron")
-        _kyutai_isolated = bool(
-            diarize and getattr(self, "_isolated_recipe", None)
-            and self._isolated_recipe["backend"] == "kyutai")
         # Isolated Whisper-Rust needs its ggml model: fail fast with a
         # pointer to dictee-setup instead of a daemon-socket timeout.
         # Recipe-based (not the diarize-gated flag): plain runs use the
@@ -5249,41 +5105,27 @@ class TranscribeWindow(QDialog):
                 self._update_transcribe_btn()
                 self._stop_run_spinner()
                 return
-        # Plain run on an isolated whisper/whisper-rust/nemotron engine:
-        # the chunked batch binary and the standalone `transcribe` CLI are
-        # Parakeet-only, so the engine combo was silently IGNORED for plain
-        # runs (French audio came back anglicised by Parakeet). Honor it
-        # with the same ad-hoc isolated daemon phase 2 uses, plus one plain
-        # full-file request.
+        # Plain run on an isolated engine other than Parakeet: the chunked
+        # batch binary and the standalone `transcribe` CLI are Parakeet-only,
+        # so the engine combo was silently IGNORED for plain runs (French
+        # audio came back anglicised by Parakeet). Honor it with the same
+        # ad-hoc isolated daemon phase 2 uses, plus one plain full-file
+        # request.
         if (not diarize and getattr(self, "_isolated_recipe", None)
                 and self._isolated_recipe["backend"] in (
-                    "whisper", "whisper-rust", "nemotron", "kyutai")):
+                    "whisper", "whisper-rust", "nemotron", "kyutai", "canary")):
             self._start_isolated_plain_transcribe(audio_path, dur)
             return
 
-        # A MOSS diarized run never goes through the chunked pipeline: the
-        # model ingests the whole file in one pass (upstream supports hours
-        # of audio; ~85 MB RAM per minute) and chunking would break its
-        # global speaker labels.
-        _moss_run = (diarize and _moss_available()
-                     and (self._cmb_diar_engine.currentData() or "auto") == "moss")
-        if ((dur > _ChunkedPipelineWorker.CHUNK_SECONDS
-                or _parakeet_isolated) and not _whisper_isolated
-                and not _whisper_rust_isolated
-                and not _nemotron_isolated
-                and not _kyutai_isolated
-                and not _moss_run):
-            sensitivity = self._sld_sensitivity.value() / 100.0 if diarize else 0.0
+        if not diarize and (dur > _ChunkedPipelineWorker.CHUNK_SECONDS
+                            or _parakeet_isolated):
             _dbg(f"_on_transcribe: routing to chunked pipeline "
-                 f"(dur={dur:.1f}s, diarize={diarize}, "
-                 f"chunk={_ChunkedPipelineWorker.CHUNK_SECONDS}s, "
-                 f"sens={sensitivity:.2f})")
+                 f"(dur={dur:.1f}s, "
+                 f"chunk={_ChunkedPipelineWorker.CHUNK_SECONDS}s)")
             self._diarize_two_phase = False  # chunked replaces two-phase
             self._chunked_worker = _ChunkedPipelineWorker(
-                audio_path, sensitivity, diarize=diarize, parent=self,
-                env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None),
-                allow_diar_multi=self._diar_allow_multi(),
-                diar_engine=self._cmb_diar_engine.currentData() or "auto")
+                audio_path, parent=self,
+                env_override=(self._isolated_recipe["env"] if _parakeet_isolated else None))
             self._chunked_worker.phase_changed.connect(self._on_chunked_phase)
             self._chunked_worker.chunk_progress.connect(self._on_chunked_progress)
             self._chunked_worker.finished.connect(self._on_chunked_done)
@@ -5327,19 +5169,15 @@ class TranscribeWindow(QDialog):
 
         import shutil
         # Routing matrix lives in _select_transcribe_cmd (pure function,
-        # tests/test-transcribe-routing.py). Honours DICTEE_ASR_BACKEND
-        # so a Canary PTT daemon doesn't hijack diarize phase-2.
-        asr_backend = _read_conf().get("DICTEE_ASR_BACKEND", "")
-        diar_engine = self._cmb_diar_engine.currentData() or "auto"
+        # tests/test-transcribe-routing.py). The F9 backend no longer
+        # matters there: phase 2 sends the pieces to whatever daemon runs.
+        diar_engine = self._cmb_diar_engine.currentData() or "nemotron3"
         nemotron3_dir = _nemotron3_dir() if diarize else None
         cmd, two_phase, missing = _select_transcribe_cmd(
             diarize=diarize,
-            asr_backend=asr_backend,
             has_transcribe=bool(shutil.which("transcribe")),
             has_diarize_only=bool(shutil.which("diarize-only")),
-            has_transcribe_diarize=bool(shutil.which("transcribe-diarize")),
-            has_diarize_multi=self._diar_allow_multi() and _diar_multi_available(),
-            has_moss=_moss_available(),
+            has_moss=_moss_run,
             diar_engine=diar_engine,
             has_nemotron3=nemotron3_dir is not None,
         )
@@ -5358,31 +5196,6 @@ class TranscribeWindow(QDialog):
             self._process.deleteLater()
             self._process = None
             return
-        # Isolated Whisper/Whisper-Rust/Nemotron diarized run: force the
-        # two-phase path (diarization pass + phase-2 isolated daemon over a
-        # private socket), regardless of the F9 backend. Same engine
-        # preference as the routing matrix: diarize-multi first, Sortformer
-        # fallback. MOSS is exempt: it embeds its own ASR, so the isolated
-        # ASR choice does not apply to a MOSS run.
-        if ((_whisper_isolated or _whisper_rust_isolated or _nemotron_isolated
-                or _kyutai_isolated)
-                and cmd != "dictee-moss-diarize"):
-            if self._diar_allow_multi() and _diar_multi_available():
-                cmd, two_phase = "diarize-multi", True
-            elif shutil.which("diarize-only"):
-                cmd, two_phase = "diarize-only", True
-            else:
-                self._progress.setVisible(False)
-                self._lbl_status.setText(
-                    _("Command '{cmd}' not found. Install dictee first.").format(cmd="diarize-only"))
-                self._lbl_status.setVisible(True)
-                self._transcription_in_progress = False
-                self._update_transcribe_btn()
-                self._stop_run_spinner()
-                self._update_translate_btn()
-                self._process.deleteLater()
-                self._process = None
-                return
         self._diarize_two_phase = two_phase
         if two_phase:
             # Phase 1: keep stdout (segment lines) clean of stderr.
@@ -5391,24 +5204,21 @@ class TranscribeWindow(QDialog):
         else:
             self._process.setProcessChannelMode(
                 QProcess.ProcessChannelMode.MergedChannels)
-        if diarize and asr_backend.lower() == "canary" and not two_phase:
-            _dbg("_on_transcribe: Canary daemon detected — using "
-                 "standalone transcribe-diarize to keep diarize multilingual")
         _dbg(f"_on_transcribe: cmd={cmd}, two_phase={getattr(self, '_diarize_two_phase', False)}")
         self._diarize_audio_path = audio_path
         args = [audio_path]
         if diarize and cmd == "diarize-only":
-            args += _diarize_only_engine_args(
-                diar_engine, nemotron3_dir, _sortformer_available())
-        # MOSS takes no tuning flag: the threshold slider drives the
-        # clustering engines only (MOSS has no clustering stage).
+            # The engine that will transcribe the pieces in phase 2.
+            _phase2_backend = (self._isolated_recipe["backend"]
+                               if getattr(self, "_isolated_recipe", None)
+                               else _read_conf().get("DICTEE_ASR_BACKEND",
+                                                     "parakeet"))
+            args += _diarize_only_engine_args(nemotron3_dir, _phase2_backend)
+        # MOSS takes no tuning flag: the threshold slider drives Nemotron 3
+        # only (MOSS has no threshold).
         if diarize and cmd != "dictee-moss-diarize":
             sensitivity = self._sld_sensitivity.value() / 100.0
-            if cmd == "diarize-multi":
-                args += ["--threshold",
-                         f"{_diar_threshold_from_sensitivity(sensitivity):.2f}"]
-            else:
-                args += ["--sensitivity", f"{sensitivity:.2f}"]
+            args += ["--sensitivity", f"{sensitivity:.2f}"]
         self._process.start(cmd, args)
         # MOSS (one pass, own ASR) prints nothing until it finishes and can
         # run much slower than real time on mic audio (RTF up to ~7 measured
@@ -5596,24 +5406,18 @@ class TranscribeWindow(QDialog):
             self._update_translate_btn()
             return
 
-        if (getattr(self, "_isolated_recipe", None)
-                and self._isolated_recipe["backend"] in ("whisper",
-                                                         "whisper-rust",
-                                                         "nemotron",
-                                                         "kyutai")):
-            # Isolated whisper/whisper-rust/nemotron: spawn an ad-hoc daemon
-            # on a private socket (the F9 daemon/config/badge are untouched).
-            # Extended socket-wait timeout because these models cold-load
-            # slowly (whisper model download + init; nemotron 2.45 GB load;
-            # whisper-rust large-v3 ~1 GB ggml).
+        if getattr(self, "_isolated_recipe", None):
+            # Isolated engine (any model picked in the combo): spawn an
+            # ad-hoc daemon on a private socket (the F9 daemon/config/badge
+            # are untouched). Extended socket-wait timeout because these
+            # models cold-load slowly (whisper model download + init;
+            # nemotron 2.45 GB load; whisper-rust large-v3 ~1 GB ggml).
             self._isolated_daemon = IsolatedAsrDaemon(self._isolated_recipe)
             sock_path = self._isolated_daemon.start()
             _worker_timeout = 180
-            # Per-segment: engines whose daemon returns plain text with no word
-            # timestamps, so phase 2 must transcribe one speaker segment at a
-            # time instead of splitting a full-file result on timestamps.
-            _per_segment = self._isolated_recipe["backend"] in ("nemotron",
-                                                                "kyutai")
+            # One plain request per Nemotron 3 piece (exact speaker by
+            # construction), except for the whisper engines.
+            _per_segment = _phase2_per_piece(self._isolated_recipe["backend"])
         else:
             # Restart daemon
             self._daemon_was_active = False
@@ -5625,13 +5429,10 @@ class TranscribeWindow(QDialog):
             sock_path = (os.path.join(_xdg, "transcribe.sock") if _xdg
                          else f"/tmp/transcribe-{os.getuid()}.sock")
             _worker_timeout = None
-            # The F9 daemon itself may run a timestamp-less backend. Nemotron
-            # answers a full-audio '\tdiarize' with an empty body; kyutai
-            # ignores the flag entirely and answers with plain text (verified:
-            # its protocol splits on '\t' and keeps only the path), which
-            # matches no DIARIZE_RE line. Both must go per-segment.
-            _per_segment = (_read_conf().get("DICTEE_ASR_BACKEND", "parakeet")
-                            in ("nemotron", "kyutai"))
+            # Same rule for the F9 daemon, Canary included: it transcribes
+            # each piece in its own language.
+            _per_segment = _phase2_per_piece(
+                _read_conf().get("DICTEE_ASR_BACKEND", "parakeet"))
 
         self._run_status(_("Waiting for daemon..."))
 
@@ -7227,12 +7028,12 @@ def main():
     parser.add_argument("--diarize", "-d", action="store_true",
                         help="Enable speaker diarization")
     parser.add_argument("--diar-engine", default="",
-                        help="Diarization engine (auto|multi|sortformer|nemotron3|moss). "
+                        help="Diarization engine (nemotron3|moss). "
                              "Empty = the choice persisted in the window. "
-                             "An unavailable engine is ignored.")
+                             "An unavailable or retired engine is ignored.")
     parser.add_argument("--asr-model", default="",
                         help="ASR model spec (parakeet-int8|parakeet-fp32|"
-                             "whisper|whisper-rust|nemotron|kyutai; whisper sizes "
+                             "whisper|whisper-rust|nemotron|kyutai|canary; whisper sizes "
                              "follow dictee-setup, or force one with "
                              "whisper-tiny|whisper-small|whisper-medium|"
                              "whisper-rust-<size>). "

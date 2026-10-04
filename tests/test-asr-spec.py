@@ -79,13 +79,13 @@ def test_chunked_env_override():
     except ImportError:
         from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
-    w = dt._ChunkedPipelineWorker("/tmp/x.wav", 0.5, diarize=True,
+    w = dt._ChunkedPipelineWorker("/tmp/x.wav",
                                    env_override={"DICTEE_PARAKEET_QUANT": "int8",
                                                  "DICTEE_FORCE_CPU": "1"})
     assert w._subprocess_env["DICTEE_PARAKEET_QUANT"] == "int8"
     assert w._subprocess_env["DICTEE_FORCE_CPU"] == "1"
     # No override → conf-derived/default behavior, key may be absent or conf value
-    w2 = dt._ChunkedPipelineWorker("/tmp/x.wav", 0.5, diarize=True)
+    w2 = dt._ChunkedPipelineWorker("/tmp/x.wav")
     assert getattr(w2, "_subprocess_env", None) is not None
 
 
@@ -103,6 +103,36 @@ def test_isolated_daemon_parakeet_cmd_env():
     cmd, env = d._build_cmd_env()
     assert cmd[0] == "transcribe-daemon" and "--socket" in cmd
     assert env["DICTEE_PARAKEET_QUANT"] == "int8"
+    assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
+
+
+def test_isolated_daemon_parakeet_ignores_an_inherited_backend(monkeypatch):
+    # dictee exports dictee.conf (set -a): a window it launches inherits the
+    # F9 backend, which would make transcribe-daemon load Canary instead
+    monkeypatch.setenv("DICTEE_ASR_BACKEND", "canary")
+    d = dt.IsolatedAsrDaemon({"backend": "parakeet", "env": {"DICTEE_PARAKEET_QUANT": "fp32"}})
+    cmd, env = d._build_cmd_env()
+    # no model directory: the daemon looks in the user's data dir, then /usr/share
+    assert cmd == ["transcribe-daemon", "--socket", d.sock]
+    assert env["DICTEE_ASR_BACKEND"] == "parakeet"
+
+
+def test_canary_follows_the_dictation_language(monkeypatch):
+    monkeypatch.setattr(dt, "_read_conf", lambda: {"DICTEE_LANG_SOURCE": "de"})
+    assert dt.asr_spec_to_daemon("canary") == {
+        "backend": "canary", "env": {"DICTEE_LANG_SOURCE": "de"}}
+    # no language in dictee.conf: the daemon's own default, as for F9
+    monkeypatch.setattr(dt, "_read_conf", lambda: {})
+    assert dt.asr_spec_to_daemon("canary") == {"backend": "canary", "env": {}}
+
+
+def test_isolated_daemon_canary_cmd_env(monkeypatch):
+    monkeypatch.setenv("DICTEE_ASR_BACKEND", "whisper")
+    d = dt.IsolatedAsrDaemon({"backend": "canary", "env": {"DICTEE_LANG_SOURCE": "fr"}})
+    cmd, env = d._build_cmd_env()
+    assert cmd == ["transcribe-daemon", "--canary", "--socket", d.sock]
+    assert env["DICTEE_ASR_BACKEND"] == "canary"
+    assert env["DICTEE_LANG_SOURCE"] == "fr"
     assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
 
 
