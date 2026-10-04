@@ -12,6 +12,7 @@
 //! numpy port `tests/nemotron3-ref/reference.py`, which `tests/nemotron3_golden.rs` compares
 //! against.
 
+use crate::diar_pieces::{transcription_pieces, PieceParams};
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig;
 use crate::sortformer::SpeakerSegment;
@@ -387,6 +388,23 @@ fn speaker_segments(probs: ArrayView2<f32>, threshold: f32) -> Vec<SpeakerSegmen
     segments
 }
 
+/// 16 kHz audio with its channels averaged.
+fn mono_16k(audio: Vec<f32>, sample_rate: u32, channels: u16) -> Result<Vec<f32>> {
+    if sample_rate != SAMPLE_RATE {
+        return Err(Error::Audio(format!(
+            "Expected {SAMPLE_RATE} Hz, got {sample_rate} Hz"
+        )));
+    }
+    Ok(if channels > 1 {
+        audio
+            .chunks(channels as usize)
+            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+            .collect()
+    } else {
+        audio
+    })
+}
+
 /// (rows, columns) view of a (1, rows, columns) output of the graph.
 fn output_2d<'a>(outputs: &'a SessionOutputs<'_>, name: &str) -> Result<ArrayView2<'a, f32>> {
     outputs[name]
@@ -425,21 +443,28 @@ impl Nemotron3Diarizer {
         sample_rate: u32,
         channels: u16,
     ) -> Result<Vec<SpeakerSegment>> {
-        if sample_rate != SAMPLE_RATE {
-            return Err(Error::Audio(format!(
-                "Expected {SAMPLE_RATE} Hz, got {sample_rate} Hz"
-            )));
-        }
-        let audio = if channels > 1 {
-            audio
-                .chunks(channels as usize)
-                .map(|frame| frame.iter().sum::<f32>() / channels as f32)
-                .collect()
-        } else {
-            audio
-        };
+        let audio = mono_16k(audio, sample_rate, channels)?;
         let probs = self.speaker_probs(&audio)?;
         Ok(speaker_segments(probs.view(), self.threshold))
+    }
+
+    /// Transcription pieces of a whole recording (16 kHz; several channels are averaged), see
+    /// `diar_pieces`.
+    pub fn pieces(
+        &mut self,
+        audio: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        params: &PieceParams,
+    ) -> Result<Vec<SpeakerSegment>> {
+        let audio = mono_16k(audio, sample_rate, channels)?;
+        let probs = self.speaker_probs(&audio)?;
+        Ok(transcription_pieces(
+            probs.view(),
+            &audio,
+            self.threshold,
+            params,
+        ))
     }
 
     /// Speaker probabilities of 16 kHz mono audio: (frames, `NUM_SPEAKERS`), one frame every

@@ -1,4 +1,6 @@
 #[cfg(feature = "sortformer")]
+use parakeet_rs::diar_pieces::PieceParams;
+#[cfg(feature = "sortformer")]
 use parakeet_rs::nemotron3_diar::Nemotron3Diarizer;
 #[cfg(feature = "sortformer")]
 use parakeet_rs::sortformer::{DiarizationConfig, Sortformer, SpeakerSegment};
@@ -27,7 +29,24 @@ struct DiarizeArgs {
     sensitivity: f32,
     stream: bool,
     engine: Engine,
+    /// `--pieces`: transcription pieces instead of speaker segments (nemotron3 only).
+    pieces: Option<PieceParams>,
     positional: Vec<String>,
+}
+
+/// Seconds given to a piece option: a number, at least 1 for `--max-piece`, not negative for the
+/// others.
+#[cfg(feature = "sortformer")]
+fn piece_seconds(option: &str, value: Option<&String>) -> Result<f32, String> {
+    let seconds = value
+        .and_then(|v| v.parse::<f32>().ok())
+        .filter(|s| s.is_finite())
+        .ok_or_else(|| format!("{option} needs a number of seconds"))?;
+    let min = if option == "--max-piece" { 1.0 } else { 0.0 };
+    if seconds < min {
+        return Err(format!("{option} must be at least {min} s"));
+    }
+    Ok(seconds)
 }
 
 /// Parse argv. Options and positional arguments mix in any order; an unknown `--engine` value is
@@ -38,11 +57,26 @@ fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
         sensitivity: 0.5,
         stream: false,
         engine: Engine::Sortformer,
+        pieces: None,
         positional: Vec::new(),
     };
+    let mut pieces = false;
+    let mut params = PieceParams::default();
+    let mut piece_option = None; // first piece option met, for the error without --pieces
     let mut i = 1; // skip argv[0]
     while i < args.len() {
         match args[i].as_str() {
+            "--pieces" => pieces = true,
+            option @ ("--max-piece" | "--gap" | "--margin") => {
+                let seconds = piece_seconds(option, args.get(i + 1))?;
+                match option {
+                    "--max-piece" => params.max_len = seconds,
+                    "--gap" => params.max_gap = seconds,
+                    _ => params.margin = seconds,
+                }
+                piece_option.get_or_insert(option);
+                i += 1;
+            }
             "--sensitivity" if i + 1 < args.len() => {
                 out.sensitivity = args[i + 1].parse::<f32>().unwrap_or(0.5).clamp(0.0, 1.0);
                 i += 1;
@@ -66,6 +100,13 @@ fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
     if out.stream && out.engine == Engine::Nemotron3 {
         return Err("--stream is only available with the sortformer engine".into());
     }
+    if let (false, Some(option)) = (pieces, piece_option) {
+        return Err(format!("{option} needs --pieces"));
+    }
+    if pieces && out.engine != Engine::Nemotron3 {
+        return Err("--pieces is only available with the nemotron3 engine".into());
+    }
+    out.pieces = pieces.then_some(params);
     Ok(out)
 }
 
@@ -150,6 +191,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("  --engine <name>          sortformer (default, up to 4 speakers) or nemotron3 (up to 8)");
             eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5; nemotron3: probability 0.1 to 0.5)");
             eprintln!("  --stream                 Streaming mode (reads FILE: <path> from stdin, keeps Sortformer alive)");
+            eprintln!("  --pieces                 nemotron3: pieces to transcribe one by one (one speaker at a time,");
+            eprintln!("                           long turns cut at their quietest point)");
+            eprintln!("  --max-piece <seconds>    Longest piece (default: 15)");
+            eprintln!("  --gap <seconds>          Pause of a speaker kept inside a piece (default: 0.5)");
+            eprintln!("  --margin <seconds>       Audio added before and after each piece (default: 0)");
             eprintln!();
             eprintln!("Output: start_seconds end_seconds speaker_id (one segment per line)");
             return Ok(());
@@ -171,6 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sensitivity = parsed.sensitivity;
         let stream_mode = parsed.stream;
         let engine = parsed.engine;
+        let pieces = parsed.pieces;
         let positional_args = parsed.positional;
         if !stream_mode && positional_args.is_empty() {
             eprintln!("Error: missing audio file argument");
@@ -227,8 +274,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let threshold = nemotron3_threshold(sensitivity);
             let mut diarizer = load_nemotron3(&model_dir, threshold)?;
             dbg_print!("model loaded, threshold={:.2}, audio={} samples", threshold, audio.len());
-            let segments = diarizer.diarize(audio, spec.sample_rate, spec.channels)?;
-            dbg_print!("done: {} segments", segments.len());
+            let segments = match &pieces {
+                Some(params) => diarizer.pieces(audio, spec.sample_rate, spec.channels, params)?,
+                None => diarizer.diarize(audio, spec.sample_rate, spec.channels)?,
+            };
+            dbg_print!("done: {} segments (pieces: {:?})", segments.len(), pieces);
             print_segments(&segments);
             return Ok(());
         }
@@ -471,6 +521,52 @@ mod arg_tests {
         assert_eq!(p.sensitivity, 0.5);
         let p = parse_diarize_args(&argv(&["--sensitivity", "3", "rec.wav"])).unwrap();
         assert_eq!(p.sensitivity, 1.0);
+    }
+
+    #[test]
+    fn segments_unless_pieces_are_asked_for() {
+        let p = parse_diarize_args(&argv(&["--engine", "nemotron3", "rec.wav"])).unwrap();
+        assert_eq!(p.pieces, None);
+        let p = parse_diarize_args(&argv(&["--engine", "nemotron3", "--pieces", "rec.wav"])).unwrap();
+        assert_eq!(p.pieces, Some(PieceParams::default()));
+        assert_eq!(p.positional, vec!["rec.wav".to_string()]);
+    }
+
+    #[test]
+    fn piece_options_override_the_defaults() {
+        let p = parse_diarize_args(&argv(&[
+            "--engine", "nemotron3", "--pieces", "--max-piece", "8", "--gap", "1",
+            "--margin", "0.15", "rec.wav",
+        ]))
+        .unwrap();
+        let want = PieceParams {
+            max_len: 8.0,
+            max_gap: 1.0,
+            margin: 0.15,
+            ..PieceParams::default()
+        };
+        assert_eq!(p.pieces, Some(want));
+    }
+
+    #[test]
+    fn pieces_are_nemotron3_only() {
+        let err = parse_diarize_args(&argv(&["--pieces", "rec.wav"])).unwrap_err();
+        assert!(err.contains("--pieces"), "{err}");
+    }
+
+    #[test]
+    fn piece_options_need_pieces_and_sane_values() {
+        let n3 = |extra: &[&str]| {
+            let mut args = vec!["--engine", "nemotron3"];
+            args.extend_from_slice(extra);
+            args.push("rec.wav");
+            parse_diarize_args(&argv(&args))
+        };
+        assert!(n3(&["--max-piece", "8"]).unwrap_err().contains("--pieces"));
+        assert!(n3(&["--pieces", "--max-piece", "abc"]).is_err());
+        assert!(n3(&["--pieces", "--max-piece", "0.5"]).is_err());
+        assert!(n3(&["--pieces", "--gap", "-1"]).is_err());
+        assert!(n3(&["--pieces", "--margin"]).is_err());
     }
 
     #[test]

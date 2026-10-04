@@ -63,6 +63,8 @@ mod parakeet_tdt;
 #[cfg(feature = "diar")]
 pub mod diar;
 #[cfg(feature = "sortformer")]
+pub mod diar_pieces;
+#[cfg(feature = "sortformer")]
 pub mod nemotron3_diar;
 #[cfg(feature = "sortformer")]
 pub mod sortformer;
