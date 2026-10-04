@@ -1800,6 +1800,19 @@ def _parse_diarize_output(text, offset=0.0):
     return segments
 
 
+def _read_diarized_transcript(path):
+    """The '[a s - b s] Speaker N: text' lines of a transcript file, as one
+    diarized output (what phase 2 returns): the other lines, such as the
+    title of a dictee-meeting-live transcript, are left out. "" when the
+    file cannot be read."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return "\n".join(line.strip() for line in f
+                             if DIARIZE_RE.match(line.strip()))
+    except OSError:
+        return ""
+
+
 def _seconds_to_srt_time(seconds):
     """Convert seconds to SRT timestamp HH:MM:SS,mmm."""
     h = int(seconds // 3600)
@@ -2868,7 +2881,7 @@ class TranscribeWindow(QDialog):
     """Main transcription/diarization window."""
 
     def __init__(self, file_path=None, auto_diarize=False, asr_model="",
-                 diar_engine="", parent=None):
+                 diar_engine="", transcript="", parent=None):
         super().__init__(parent)
         self._asr_model = asr_model or ""
         self.setWindowTitle(_("Dictee - Transcribe file"))
@@ -2968,7 +2981,12 @@ class TranscribeWindow(QDialog):
             except Exception as _e:
                 _dbg(f"speakers.json load error: {_e!r}")
 
-        if file_path and auto_diarize:
+        if file_path and transcript:
+            # A meeting's live preview is its result: as accurate as a new
+            # analysis (measured on SUMM-RE, 2026-10-04), so it opens here
+            # without being transcribed again.
+            QTimer.singleShot(100, lambda: self._open_transcript(transcript))
+        elif file_path and auto_diarize:
             # Defer to event loop so window is fully initialized
             QTimer.singleShot(100, self._on_transcribe)
 
@@ -4888,6 +4906,43 @@ class TranscribeWindow(QDialog):
         if hasattr(self, "_lbl_long_audio_warning"):
             self._lbl_long_audio_warning.setVisible(False)
 
+    def _new_result_tab(self):
+        """A new result tab, not added yet; the active one, if it holds
+        text, becomes read-only."""
+        if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
+            self._text_edit.setReadOnly(True)
+        tab = QTextEdit()
+        tab.setReadOnly(self._btn_edit_mode.isChecked())
+        tab.setPlaceholderText(_("Transcription results will appear here..."))
+        tab.viewport().installEventFilter(self)
+        self._install_modified_overlay(tab)
+        return tab
+
+    def _open_transcript(self, path):
+        """Show a diarized transcript made elsewhere (dictee-meeting-live's
+        live preview) as the result of a run on the file in the Fichier
+        field, in a tab of its own, without transcribing anything."""
+        audio_path = self._file_input.text().strip()
+        raw_output = _read_diarized_transcript(path)
+        if not raw_output or not os.path.isfile(audio_path):
+            self._lbl_status.setText(_("No transcription result."))
+            self._lbl_status.setVisible(True)
+            return
+        self._transcription_counter = getattr(self, '_transcription_counter', 0) + 1
+        for i in range(self._tabs.count()):
+            if (self._tabs.tabText(i) == _("Original")
+                    and not self._tabs.widget(i).toPlainText().strip()):
+                self._tabs.removeTab(i)
+                break
+        self._text_edit = self._new_result_tab()
+        self._init_tab_state(self._text_edit, audio_path)
+        self._tabs.addTab(self._text_edit,
+                          f"#{self._transcription_counter} {_('Live meeting')}")
+        self._tabs.setCurrentWidget(self._text_edit)
+        self._start_time = time.monotonic()
+        self._text_edit._audio_duration = self._get_audio_duration(audio_path)
+        self._finish_transcription(raw_output, self._text_edit, was_diarized=True)
+
     def _on_transcribe(self, checked=False, *, retry_of=None):
         """Start a transcription run for the file in the Fichier field.
 
@@ -4992,16 +5047,7 @@ class TranscribeWindow(QDialog):
             tab_name = (getattr(self, '_spinning_tabs', {}).get(retry_of)
                         or self._tabs.tabText(self._tabs.indexOf(retry_of)))
         else:
-            # Make previous active tab read-only
-            if hasattr(self, '_text_edit') and self._text_edit.toPlainText().strip():
-                self._text_edit.setReadOnly(True)
-            # Create new tab at the right
-            self._text_edit = QTextEdit()
-            self._text_edit.setReadOnly(self._btn_edit_mode.isChecked())
-            self._text_edit.setPlaceholderText(
-                _("Transcription results will appear here..."))
-            self._text_edit.viewport().installEventFilter(self)
-            self._install_modified_overlay(self._text_edit)
+            self._text_edit = self._new_result_tab()
         # Canonical per-tab state; _audio_path lets a tab switch reload
         # the right file (and hence the right duration).
         # source_path, NOT audio_path: the tab's audio drives the player
@@ -7071,6 +7117,11 @@ def main():
                              "whisper-tiny|whisper-small|whisper-medium|"
                              "whisper-rust-<size>). "
                              "Empty = use the F9 daemon (default).")
+    parser.add_argument("--transcript", default="",
+                        help="Diarized transcript of --file to open as its "
+                             "result, without transcribing it ('[a s - b s] "
+                             "Speaker N: text' lines, as dictee-meeting-live "
+                             "writes them).")
     parser.add_argument("--debug", action="store_true",
                         help="Enable debug logging to stderr and /tmp/dictee-transcribe.log")
     # Positional args: receive %F from .desktop / file-manager open-with /
@@ -7110,6 +7161,7 @@ def main():
         auto_diarize=args.diarize,
         asr_model=args.asr_model,
         diar_engine=args.diar_engine,
+        transcript=args.transcript,
     )
     win.show()
     sys.exit(app.exec())

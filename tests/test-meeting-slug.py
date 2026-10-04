@@ -21,6 +21,31 @@ def test_default_meeting_asr():
     assert ml.default_meeting_asr({}) == "whisper-rust"
 
 
+def test_analysis_opens_the_live_preview_when_it_covers_the_meeting(tmp_path):
+    audio = tmp_path / "audio.wav"
+    preview = tmp_path / "transcript-live.md"
+    preview.write_text("# Réunion\n\n[0.500s - 3.200s] Speaker 0: Bonjour.\n",
+                       encoding="utf-8")
+    assert ml.analysis_command(audio, preview, "nemotron3", "whisper-rust", True) == [
+        "dictee-transcribe", "--file", str(audio), "--transcript", str(preview),
+        "--asr-model", "whisper-rust"]
+
+
+def test_analysis_runs_again_for_moss_or_a_preview_with_holes(tmp_path):
+    audio = tmp_path / "audio.wav"
+    preview = tmp_path / "transcript-live.md"
+    preview.write_text("[0.500s - 3.200s] Speaker 0: Bonjour.\n", encoding="utf-8")
+    empty = tmp_path / "empty.md"
+    empty.write_text("# Réunion\n\n", encoding="utf-8")
+    for transcript, engine, whole in ((preview, "moss", True),
+                                      (preview, "nemotron3", False),
+                                      (empty, "nemotron3", True),
+                                      (tmp_path / "missing.md", "nemotron3", True)):
+        assert ml.analysis_command(audio, transcript, engine, "canary", whole) == [
+            "dictee-transcribe", "--file", str(audio), "--diarize",
+            "--diar-engine", engine, "--asr-model", "canary"], (transcript, engine, whole)
+
+
 def test_live_asr_daemon_recipes(monkeypatch, tmp_path):
     monkeypatch.setattr(ml.shutil, "which", lambda name: f"/usr/bin/{name}")
     ggml = tmp_path / "ggml-large-v3-q5_0.bin"
