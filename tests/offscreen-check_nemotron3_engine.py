@@ -144,6 +144,29 @@ win = mod.TranscribeWindow(diar_engine="moss")
 assert win._cmb_diar_engine.currentData() == "moss", win._cmb_diar_engine.currentData()
 win.close()
 
+# ── the ASR list: no faster-whisper, no Parakeet while diarizing ──────
+# The throwaway dictee.conf sets no backend: F9 is Parakeet.
+stub(nemotron3=True, moss=False)
+win = mod.TranscribeWindow()
+asr = win._asr_model_combo
+specs = [asr.itemData(i) for i in range(asr.count())]
+assert "whisper" not in specs, specs
+assert "whisper-rust" in specs and "canary" in specs, specs
+
+
+def asr_item(data):
+    return asr.model().item(asr.findData(data))
+
+
+win._chk_diarize.setChecked(True)
+for data in ("parakeet-int8", "parakeet-fp32", ""):
+    assert not asr_item(data).isEnabled(), f"{data!r} usable while diarizing"
+assert asr.currentData() == "whisper-rust", asr.currentData()
+win._chk_diarize.setChecked(False)
+for data in ("parakeet-int8", "parakeet-fp32", ""):
+    assert asr_item(data).isEnabled(), f"{data!r} still greyed out without diarization"
+win.close()
+
 # ── eight distinct colors, the first four as before ───────────────────
 assert mod.SPEAKER_COLORS[:4] == ["#e06c75", "#61afef", "#98c379", "#d19a66"]
 assert len(mod.SPEAKER_COLORS) == 8 and len(set(mod.SPEAKER_COLORS)) == 8

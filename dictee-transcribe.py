@@ -1881,22 +1881,25 @@ def _format_json(segments, name_map=None):
 
 # === Transcription routing ===
 
-def _diarize_only_engine_args(nemotron3_dir, backend):
+def _diarize_only_engine_args(nemotron3_dir):
     """Arguments that follow the audio path on a diarize-only command line:
     Nemotron 3 from nemotron3_dir (_nemotron3_dir()), printing the pieces
-    that phase 2 transcribes one by one with `backend`.
+    that phase 2 transcribes one by one, up to diarize-only's 30 s. Pure
+    function, tests/test-transcribe-routing.py."""
+    return [nemotron3_dir, "--engine", "nemotron3", "--pieces"]
 
-    Parakeet gets pieces of 5 s at most: it has no language token and drifts
-    into English on longer inputs (the Masque on 2026-10-04: 2 and 3 English
-    words in two minutes at 5 s, 11 and 18 at 15 s, whole sentences
-    translated), for 1.7 points of WER on the SUMM-RE meeting 004c (29.8 %
-    against 28.1 %). The other engines keep diarize-only's 15 s, whole
-    sentences (Canary: 32.1 % at 15 s, 31.9 % at 5 s, no English).
-    Pure function, tests/test-transcribe-routing.py."""
-    args = [nemotron3_dir, "--engine", "nemotron3", "--pieces"]
-    if (backend or "parakeet") == "parakeet":
-        args += ["--max-piece", "5"]
-    return args
+
+def _diarized_asr_spec(spec, f9_backend):
+    """The ASR spec a diarized run uses for `spec` (the window's model combo,
+    "" for the F9 daemon). Parakeet translates some recordings into English
+    as soon as it hears more than a few seconds at once (the Masque, a LeCun
+    interview, a theatre recording; codec, level, noise and sound colour ruled
+    out on 2026-10-04), so a diarized run never transcribes with it:
+    Whisper-Rust does, with the model chosen in dictee-setup. Pure function,
+    tests/test-transcribe-routing.py."""
+    if spec.startswith("parakeet") or (not spec and (f9_backend or "parakeet") == "parakeet"):
+        return "whisper-rust"
+    return spec
 
 
 def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
@@ -2978,22 +2981,17 @@ class TranscribeWindow(QDialog):
 
         self._asr_model_combo = QComboBox()
         # (label, userData=spec). "" = Default (F9).
-        # Whisper entries are per ENGINE, not per size: the model size
-        # follows the dictee-setup selection (DICTEE_WHISPER_MODEL /
-        # DICTEE_WHISPER_RUST_MODEL) — keeps the list short and the size a
-        # single-source setting. The configured size is shown in
-        # parentheses (snapshot at window build).
+        # Whisper-Rust is listed per ENGINE, not per size: the model size
+        # follows the dictee-setup selection (DICTEE_WHISPER_RUST_MODEL),
+        # shown in parentheses (snapshot at window build). faster-whisper
+        # left the list on 2026-10-04 (its spec still works from the CLI).
         _conf_sizes = _read_conf()
-        _wh_size = (_conf_sizes.get("DICTEE_WHISPER_MODEL") or "small").strip()
-        if _wh_size not in ("tiny", "small", "medium"):
-            _wh_size = "small"
         _wr_size = (_conf_sizes.get("DICTEE_WHISPER_RUST_MODEL")
                     or "large-v3").strip()
         for _lbl, _spec in (
             (_("Default (F9)"), ""),
             ("Parakeet int8", "parakeet-int8"),
             ("Parakeet fp32", "parakeet-fp32"),
-            (f"faster-whisper ({_wh_size})", "whisper"),
             (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
             ("Nemotron", "nemotron"),
         ):
@@ -3013,8 +3011,9 @@ class TranscribeWindow(QDialog):
             self._asr_model_combo.addItem("Kyutai (fr/en, GPU)", "kyutai")
         self._asr_model_combo.setToolTip(self._tip(
             _("ASR model for this transcription (isolated from your F9 "
-              "setting). Whisper model sizes follow your dictee-setup "
-              "selection.")))
+              "setting). The Whisper-Rust size follows your dictee-setup "
+              "selection. With diarization, Whisper-Rust replaces Parakeet, "
+              "which translates some recordings into English.")))
         if self._asr_model:
             _i = self._asr_model_combo.findData(self._asr_model)
             if _i < 0:
@@ -4759,8 +4758,25 @@ class TranscribeWindow(QDialog):
         self._w_threshold.setVisible(checked and not _is_moss)
         self._w_diar_engine.setVisible(checked)
         self._w_moss_gap.setVisible(checked and _is_moss)
+        self._grey_parakeet_while_diarizing(checked)
         self._update_long_audio_warning()
         self._refresh_window_icon()
+
+    def _grey_parakeet_while_diarizing(self, diarizing):
+        """A diarized run never transcribes with Parakeet (_diarized_asr_spec):
+        grey out its entries, and Default (F9) when F9 is Parakeet, and show
+        Whisper-Rust selected instead, so the combo says what will run."""
+        f9 = _read_conf().get("DICTEE_ASR_BACKEND", "parakeet") or "parakeet"
+        combo = self._asr_model_combo
+        for spec in ("parakeet-int8", "parakeet-fp32", ""):
+            index = combo.findData(spec)
+            if index < 0 or (spec == "" and f9 != "parakeet"):
+                continue
+            combo.model().item(index).setEnabled(not diarizing)
+        if diarizing and not combo.model().item(combo.currentIndex()).isEnabled():
+            whisper_rust = combo.findData("whisper-rust")
+            if whisper_rust >= 0:
+                combo.setCurrentIndex(whisper_rust)
 
     def _refresh_window_icon(self):
         """Switch the window icon between the violet 'diarize' and the
@@ -4939,8 +4955,12 @@ class TranscribeWindow(QDialog):
         _dbg(f"_on_transcribe: file={audio_path}, diarize={diarize}")
 
         # Isolated ASR model selection (combo). None = Default F9 (unchanged).
-        # Only honored for diarized runs (see _ChunkedPipelineWorker / phase-2).
+        # A diarized run never transcribes with Parakeet (_diarized_asr_spec),
+        # whatever the combo or the CLI asked.
         _spec = self._asr_model_combo.currentData() if hasattr(self, "_asr_model_combo") else ""
+        if diarize:
+            _spec = _diarized_asr_spec(
+                _spec or "", _read_conf().get("DICTEE_ASR_BACKEND", "parakeet"))
         self._isolated_recipe = asr_spec_to_daemon(_spec)
 
         # Create a new tab for this transcription (keep previous tabs)
@@ -5226,12 +5246,7 @@ class TranscribeWindow(QDialog):
         self._diarize_audio_path = audio_path
         args = [audio_path]
         if diarize and cmd == "diarize-only":
-            # The engine that will transcribe the pieces in phase 2.
-            _phase2_backend = (self._isolated_recipe["backend"]
-                               if getattr(self, "_isolated_recipe", None)
-                               else _read_conf().get("DICTEE_ASR_BACKEND",
-                                                     "parakeet"))
-            args += _diarize_only_engine_args(nemotron3_dir, _phase2_backend)
+            args += _diarize_only_engine_args(nemotron3_dir)
         # MOSS takes no tuning flag: the threshold slider drives Nemotron 3
         # only (MOSS has no threshold).
         if diarize and cmd != "dictee-moss-diarize":

@@ -63,6 +63,7 @@ def _load_func(name, source_path=SCRIPT):
 _select_transcribe_cmd = _load_func("_select_transcribe_cmd")
 _diarize_only_engine_args = _load_func("_diarize_only_engine_args")
 _phase2_per_piece = _load_func("_phase2_per_piece")
+_diarized_asr_spec = _load_func("_diarized_asr_spec")
 _vram_needed_mb = _load_func("_vram_needed_mb")
 _translate_available = _load_func("_translate_available")
 
@@ -124,21 +125,32 @@ class SelectTranscribeCmdTests(unittest.TestCase):
 
 class DiarizeOnlyArgsTests(unittest.TestCase):
     def test_pieces_of_nemotron3_from_its_model_dir(self):
-        self.assertEqual(_diarize_only_engine_args("/models/n3", "canary"),
+        # pieces up to diarize-only's 30 s whatever the engine (Parakeet's 5 s
+        # cap went with Parakeet, out of diarized runs since 2026-10-04)
+        self.assertEqual(_diarize_only_engine_args("/models/n3"),
                          ["/models/n3", "--engine", "nemotron3", "--pieces"])
 
-    def test_parakeet_gets_short_pieces(self):
-        # longer pieces drift into English: the Masque on 2026-10-04 gave
-        # 2-3 English words at 5 s, 11-18 at 15 s, whole sentences translated
-        for backend in ("parakeet", "", None):
-            self.assertEqual(_diarize_only_engine_args("/m", backend),
-                             ["/m", "--engine", "nemotron3", "--pieces",
-                              "--max-piece", "5"], backend)
 
-    def test_other_engines_keep_the_default_length(self):
-        for backend in ("canary", "nemotron", "kyutai", "whisper", "vosk"):
-            self.assertNotIn("--max-piece",
-                             _diarize_only_engine_args("/m", backend), backend)
+class DiarizedAsrSpecTests(unittest.TestCase):
+    """Parakeet translates some recordings into English (2026-10-04): a
+    diarized run never transcribes with it, Whisper-Rust does instead."""
+
+    def test_parakeet_choices_become_whisper_rust(self):
+        for spec in ("parakeet-int8", "parakeet-fp32"):
+            for f9 in ("parakeet", "canary", ""):
+                self.assertEqual(_diarized_asr_spec(spec, f9), "whisper-rust", (spec, f9))
+
+    def test_the_f9_daemon_when_it_is_parakeet_becomes_whisper_rust(self):
+        for f9 in ("parakeet", "", None):
+            self.assertEqual(_diarized_asr_spec("", f9), "whisper-rust", f9)
+
+    def test_the_f9_daemon_on_another_engine_stays(self):
+        for f9 in ("canary", "whisper-rust", "nemotron", "kyutai"):
+            self.assertEqual(_diarized_asr_spec("", f9), "", f9)
+
+    def test_other_choices_stay(self):
+        for spec in ("canary", "whisper-rust", "whisper-rust-large-v3", "kyutai", "nemotron"):
+            self.assertEqual(_diarized_asr_spec(spec, "parakeet"), spec)
 
 
 class PhaseTwoTests(unittest.TestCase):
