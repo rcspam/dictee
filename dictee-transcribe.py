@@ -96,6 +96,15 @@ def _whisper_rust_ggml_path(size=None):
     return ""
 
 
+def _conf_lang_env(*keys):
+    """The language keys among `keys` that dictee.conf sets, for an isolated
+    daemon: it does not read the conf, and without them faster-whisper
+    detects the language on every request while transcribe-daemon falls
+    back to fr (transcribe_daemon.rs), whatever the user dictates in."""
+    conf = _read_conf()
+    return {k: conf[k].strip() for k in keys if (conf.get(k) or "").strip()}
+
+
 def asr_spec_to_daemon(spec):
     """Map an --asr-model spec to the isolated-daemon recipe, or None for the
     default F9 daemon.  Raises ValueError on an unknown non-empty spec.
@@ -129,33 +138,36 @@ def asr_spec_to_daemon(spec):
     if spec == "whisper-rust":
         return {"backend": "whisper-rust",
                 "env": {"DICTEE_ASR_BACKEND": "whisper",
-                        "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path()}}
+                        "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path(),
+                        **_conf_lang_env("DICTEE_LANG_SOURCE")}}
     if spec.startswith("whisper-rust-"):
         size = spec[len("whisper-rust-"):]
         if size in _WHISPER_RUST_SIZES:
             return {"backend": "whisper-rust",
                     "env": {"DICTEE_ASR_BACKEND": "whisper",
                             "DICTEE_WHISPER_RUST_MODEL": size,
-                            "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path(size)}}
+                            "DICTEE_WHISPER_RUST_GGML": _whisper_rust_ggml_path(size),
+                            **_conf_lang_env("DICTEE_LANG_SOURCE")}}
         raise ValueError(f"unknown asr spec: {spec}")
     if spec == "whisper":
         size = (_read_conf().get("DICTEE_WHISPER_MODEL") or "small").strip()
         if size not in ("tiny", "small", "medium"):
             size = "small"
         return {"backend": "whisper",
-                "env": {"DICTEE_WHISPER_MODEL": size}}
+                "env": {"DICTEE_WHISPER_MODEL": size,
+                        **_conf_lang_env("DICTEE_WHISPER_LANG", "DICTEE_LANG_SOURCE")}}
     if spec in ("whisper-tiny", "whisper-small", "whisper-medium"):
         return {"backend": "whisper",
-                "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1]}}
+                "env": {"DICTEE_WHISPER_MODEL": spec.split("-", 1)[1],
+                        **_conf_lang_env("DICTEE_WHISPER_LANG", "DICTEE_LANG_SOURCE")}}
     if spec == "nemotron":
         return {"backend": "nemotron",
-                "env": {"DICTEE_ASR_BACKEND": "nemotron"}}
+                "env": {"DICTEE_ASR_BACKEND": "nemotron",
+                        **_conf_lang_env("DICTEE_LANG_SOURCE")}}
     if spec == "canary":
         # Canary transcribes in one fixed language: the dictation one, as
         # the F9 Canary daemon does (its own default when the conf has none).
-        lang = (_read_conf().get("DICTEE_LANG_SOURCE") or "").strip()
-        return {"backend": "canary",
-                "env": {"DICTEE_LANG_SOURCE": lang} if lang else {}}
+        return {"backend": "canary", "env": _conf_lang_env("DICTEE_LANG_SOURCE")}
     if spec == "kyutai":
         # Dedicated candle daemon (transcribe-daemon-kyutai), GPU-only. Like
         # nemotron it emits no word timestamps, so callers fall back to
@@ -1936,11 +1948,17 @@ def _select_transcribe_cmd(diarize, has_transcribe, has_diarize_only,
 def _phase2_per_piece(backend):
     """True when phase 2 sends the daemon one plain request per Nemotron 3
     piece, so each piece keeps its speaker by construction: every backend
-    but the whisper ones, which still transcribe the whole file with
-    timestamps (their switch waits for the per-piece measurements). vosk
-    reads the whole request as a path, so a '\tdiarize' request fails on
-    it. Pure function, tests/test-transcribe-routing.py."""
-    return (backend or "parakeet") not in ("whisper", "whisper-rust")
+    but faster-whisper, which still transcribes the whole file with
+    timestamps. vosk reads the whole request as a path, so a '\tdiarize'
+    request fails on it.
+
+    Measured on SUMM-RE on 2026-10-04: whisper-rust gains on both counts
+    piece by piece (WER 46.8 -> 30.7 % on 004c, 44.0 -> 39.2 % on 006b;
+    right speaker 78.7 -> 87.7 % and 74.7 -> 82.2 %), its timestamped path
+    skipping whole passages. faster-whisper tiny invents words on short
+    pieces (006b WER 59.2 -> 75.2 %, 766 insertions).
+    Pure function, tests/test-transcribe-routing.py."""
+    return (backend or "parakeet") != "whisper"
 
 
 def _vram_needed_mb(diarize, own_asr_model):

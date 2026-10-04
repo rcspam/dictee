@@ -144,14 +144,17 @@ class DiarizeOnlyArgsTests(unittest.TestCase):
 class PhaseTwoTests(unittest.TestCase):
     """Which daemons transcribe the pieces one by one."""
 
-    def test_every_backend_but_whisper_goes_piece_by_piece(self):
-        # vosk reads the whole request as a path: a '\tdiarize' request fails
-        for backend in ("parakeet", "", "canary", "nemotron", "kyutai", "vosk"):
+    def test_every_backend_but_faster_whisper_goes_piece_by_piece(self):
+        # vosk reads the whole request as a path: a '\tdiarize' request fails.
+        # whisper-rust, SUMM-RE on 2026-10-04: WER 46.8 -> 30.7 % (004c) and
+        # 44.0 -> 39.2 % (006b), right speaker 78.7 -> 87.7 % and 74.7 -> 82.2 %
+        for backend in ("parakeet", "", "canary", "nemotron", "kyutai", "vosk",
+                        "whisper-rust"):
             self.assertTrue(_phase2_per_piece(backend), backend)
 
-    def test_whisper_keeps_its_timestamped_full_file_path(self):
-        for backend in ("whisper", "whisper-rust"):
-            self.assertFalse(_phase2_per_piece(backend), backend)
+    def test_faster_whisper_keeps_its_timestamped_full_file_path(self):
+        # tiny invents words on short pieces: 006b WER 59.2 -> 75.2 %
+        self.assertFalse(_phase2_per_piece("whisper"))
 
 
 class VramNeededTests(unittest.TestCase):

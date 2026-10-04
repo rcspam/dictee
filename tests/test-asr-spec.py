@@ -21,7 +21,8 @@ def test_parakeet_fp32():
     }
 
 
-def test_whisper_medium():
+def test_whisper_medium(monkeypatch):
+    monkeypatch.setattr(dt, "_read_conf", lambda: {})
     assert dt.asr_spec_to_daemon("whisper-medium") == {
         "backend": "whisper",
         "env": {"DICTEE_WHISPER_MODEL": "medium"},
@@ -202,3 +203,28 @@ def test_isolated_daemon_whisper_rust_cmd_env():
     assert cmd == ["transcribe-daemon-whisper-rust", "--socket", d.sock]
     assert env["DICTEE_WHISPER_RUST_GGML"] == "/x/ggml.bin"
     assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
+
+
+def test_isolated_engines_follow_the_dictation_language(monkeypatch):
+    # An isolated daemon does not read dictee.conf: without the language,
+    # faster-whisper detects it on every request (piece by piece, 35 English
+    # words on SUMM-RE 004c on 2026-10-04) and transcribe-daemon falls back
+    # to fr (transcribe_daemon.rs), whatever the user dictates in.
+    monkeypatch.setattr(dt, "_read_conf", lambda: {"DICTEE_LANG_SOURCE": "de"})
+    for spec in ("whisper", "whisper-medium", "whisper-rust", "whisper-rust-medium",
+                 "nemotron", "canary"):
+        assert dt.asr_spec_to_daemon(spec)["env"]["DICTEE_LANG_SOURCE"] == "de", spec
+
+
+def test_whisper_keeps_a_language_of_its_own(monkeypatch):
+    # the faster-whisper daemon reads DICTEE_WHISPER_LANG before DICTEE_LANG_SOURCE
+    monkeypatch.setattr(dt, "_read_conf", lambda: {
+        "DICTEE_LANG_SOURCE": "fr", "DICTEE_WHISPER_LANG": "en"})
+    env = dt.asr_spec_to_daemon("whisper")["env"]
+    assert env["DICTEE_WHISPER_LANG"] == "en" and env["DICTEE_LANG_SOURCE"] == "fr"
+
+
+def test_no_language_in_the_conf_leaves_the_daemon_default(monkeypatch):
+    monkeypatch.setattr(dt, "_read_conf", lambda: {})
+    for spec in ("whisper", "nemotron", "canary"):
+        assert "DICTEE_LANG_SOURCE" not in dt.asr_spec_to_daemon(spec)["env"], spec
