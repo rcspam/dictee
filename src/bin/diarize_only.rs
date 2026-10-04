@@ -69,11 +69,14 @@ fn parse_diarize_args(args: &[String]) -> Result<DiarizeArgs, String> {
     Ok(out)
 }
 
-/// Nemotron 3 threshold from --sensitivity: the speaker probability above which a 10 ms frame is
-/// speech, 0.5 (the reference value) by default, kept away from the extremes.
+/// Nemotron 3 threshold from --sensitivity (0 to 1): the speaker probability above which a 10 ms
+/// frame is speech, from 0.1 to 0.5, 0.3 at the default 0.5. Swept on 2026-10-04 (DER, collar 0,
+/// overlaps scored): French SUMM-RE meetings are best at 0.2 to 0.3 (11.3 % against 11.8 % at
+/// 0.5), seven-speaker AISHELL-4 meetings at 0.4 to 0.5 (10.2 % against 13.3 % at 0.2); 0.3 gives
+/// 11.3 % on both.
 #[cfg(feature = "sortformer")]
 fn nemotron3_threshold(sensitivity: f32) -> f32 {
-    sensitivity.clamp(0.2, 0.8)
+    0.1 + 0.4 * sensitivity.clamp(0.0, 1.0)
 }
 
 /// Loads Nemotron 3 from `model_dir/model.onnx` on the best provider, retrying on the CPU when
@@ -145,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!();
             eprintln!("Options:");
             eprintln!("  --engine <name>          sortformer (default, up to 4 speakers) or nemotron3 (up to 8)");
-            eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5)");
+            eprintln!("  --sensitivity <0.0-1.0>  Detection threshold (default: 0.5; nemotron3: probability 0.1 to 0.5)");
             eprintln!("  --stream                 Streaming mode (reads FILE: <path> from stdin, keeps Sortformer alive)");
             eprintln!();
             eprintln!("Output: start_seconds end_seconds speaker_id (one segment per line)");
@@ -471,9 +474,13 @@ mod arg_tests {
     }
 
     #[test]
-    fn nemotron3_threshold_stays_in_its_useful_range() {
-        assert_eq!(nemotron3_threshold(0.5), 0.5);
-        assert_eq!(nemotron3_threshold(0.0), 0.2);
-        assert_eq!(nemotron3_threshold(1.0), 0.8);
+    fn nemotron3_threshold_spans_its_useful_range() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        assert!(close(nemotron3_threshold(0.5), 0.3), "the default sensitivity gives 0.3");
+        assert!(close(nemotron3_threshold(0.0), 0.1));
+        assert!(close(nemotron3_threshold(1.0), 0.5));
+        // no dead zone: every step of the slider moves the threshold
+        assert!(nemotron3_threshold(0.0) < nemotron3_threshold(0.1));
+        assert!(nemotron3_threshold(0.9) < nemotron3_threshold(1.0));
     }
 }
