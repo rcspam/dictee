@@ -9,7 +9,7 @@
 //! maximum to either end.
 
 use crate::sortformer::SpeakerSegment;
-use ndarray::ArrayView2;
+use ndarray::{s, Array2, ArrayView2, Axis};
 
 /// Audio samples in a 10 ms frame at 16 kHz.
 const FRAME_SAMPLES: usize = 160;
@@ -105,6 +105,25 @@ fn frame_energy(audio: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+/// Where to cut within `first..=last`: the longest pause the diarizer heard, else the quietest
+/// 100 ms.
+fn cut_point(energy: &[f32], silent: &[bool], first: usize, last: usize) -> usize {
+    let loudness = |centre: usize| -> f32 {
+        let from = centre.saturating_sub(QUIET_WINDOW / 2).min(energy.len());
+        let to = (centre + QUIET_WINDOW / 2).min(energy.len());
+        energy[from..to].iter().sum()
+    };
+    longest_pause(silent, first, last).unwrap_or_else(|| {
+        (first..=last).fold(first, |best, c| {
+            if loudness(c) < loudness(best) {
+                c
+            } else {
+                best
+            }
+        })
+    })
+}
+
 /// Middle of the longest stretch of `silent` frames within `first..=last`, if any.
 fn longest_pause(silent: &[bool], first: usize, last: usize) -> Option<usize> {
     let mut best: Option<(usize, usize)> = None; // (start, length)
@@ -130,25 +149,12 @@ fn longest_pause(silent: &[bool], first: usize, last: usize) -> Option<usize> {
 /// quietest 100 ms of the sound.
 fn cut_long(runs: Vec<Run>, energy: &[f32], silent: &[bool], max_len: usize) -> Vec<Run> {
     let half = max_len / 2;
-    let loudness = |centre: usize| -> f32 {
-        let from = centre.saturating_sub(QUIET_WINDOW / 2).min(energy.len());
-        let to = (centre + QUIET_WINDOW / 2).min(energy.len());
-        energy[from..to].iter().sum()
-    };
     let mut out = Vec::with_capacity(runs.len());
     for run in runs {
         let mut start = run.start;
         while run.end - start > max_len {
             let (first, last) = (start + half, (start + max_len).min(run.end - half));
-            let cut = longest_pause(silent, first, last).unwrap_or_else(|| {
-                (first..=last).fold(first, |best, c| {
-                    if loudness(c) < loudness(best) {
-                        c
-                    } else {
-                        best
-                    }
-                })
-            });
+            let cut = cut_point(energy, silent, first, last);
             out.push(Run {
                 start,
                 end: cut,
@@ -197,10 +203,136 @@ pub fn transcription_pieces(
         .collect()
 }
 
+/// The pieces of `transcription_pieces` for a recording that arrives bit by bit, its speaker
+/// probabilities a little behind its audio. A piece comes out once no later frame can change it: a
+/// pause of `max_gap` after it, or, inside a long turn, a cut whose window can no longer move.
+/// `finish` gives the rest.
+pub struct PieceStream {
+    threshold: f32,
+    params: PieceParams,
+    /// Probabilities of the open frames, from frame `base` on.
+    probs: Array2<f32>,
+    /// Energy of the frames from `base` on, as far as the audio goes.
+    energy: Vec<f32>,
+    /// Audio of a frame not complete yet.
+    partial: Vec<f32>,
+    base: usize,
+    samples: usize,
+    /// Pieces already given out end there (a long turn comes out in several).
+    emitted_until: usize,
+}
+
+impl PieceStream {
+    pub fn new(threshold: f32, params: PieceParams) -> Self {
+        Self {
+            threshold,
+            params,
+            probs: Array2::zeros((0, 0)),
+            energy: Vec::new(),
+            partial: Vec::new(),
+            base: 0,
+            samples: 0,
+            emitted_until: 0,
+        }
+    }
+
+    /// Adds the probabilities of the next 10 ms frames and the next audio (16 kHz mono, possibly
+    /// ahead of them); returns the pieces this settles, in seconds since the start.
+    pub fn push(&mut self, probs: ArrayView2<f32>, audio: &[f32]) -> Vec<SpeakerSegment> {
+        self.probs = if self.probs.ncols() == 0 {
+            probs.to_owned()
+        } else {
+            ndarray::concatenate![Axis(0), self.probs, probs]
+        };
+        self.samples += audio.len();
+        self.partial.extend_from_slice(audio);
+        let complete = self.partial.len() / FRAME_SAMPLES * FRAME_SAMPLES;
+        self.energy.extend(frame_energy(&self.partial[..complete]));
+        self.partial.drain(..complete);
+        self.settle(false)
+    }
+
+    /// End of the recording: the pieces left.
+    pub fn finish(&mut self) -> Vec<SpeakerSegment> {
+        let partial = std::mem::take(&mut self.partial);
+        self.energy.extend(frame_energy(&partial));
+        self.settle(true)
+    }
+
+    fn settle(&mut self, at_end: bool) -> Vec<SpeakerSegment> {
+        let frontier = self.probs.nrows();
+        if frontier == 0 {
+            return Vec::new();
+        }
+        let (max_gap, max_len) = (frames(self.params.max_gap), frames(self.params.max_len));
+        let half = max_len / 2;
+        let min_len = frames(self.params.min_len);
+        let runs: Vec<Run> = bridge(exclusive_runs(self.probs.view(), self.threshold), max_gap)
+            .into_iter()
+            .filter(|run| run.end - run.start >= min_len)
+            .collect();
+        let silent: Vec<bool> = self
+            .probs
+            .rows()
+            .into_iter()
+            .map(|row| row.iter().all(|&p| p <= self.threshold))
+            .collect();
+
+        let mut settled: Vec<Run> = Vec::new();
+        let mut closed_until = None;
+        for run in bridge(runs, max_gap) {
+            if at_end || run.end + max_gap <= frontier {
+                // no later frame can bridge it: cut it as the whole recording would
+                settled.extend(cut_long(vec![run], &self.energy, &silent, max_len));
+                closed_until = Some(run.end);
+                continue;
+            }
+            // the open turn: the cuts whose window is complete, whatever its end turns out to be
+            let mut start = run.start;
+            while frontier >= start + max_len + half {
+                let cut = cut_point(&self.energy, &silent, start + half, start + max_len);
+                settled.push(Run {
+                    start,
+                    end: cut,
+                    speaker: run.speaker,
+                });
+                start = cut;
+            }
+            break; // a later turn ends later still
+        }
+
+        let duration = self.samples as f32 / (FRAME_SAMPLES * 100) as f32;
+        let margin = self.params.margin;
+        let (base, emitted_until) = (self.base, self.emitted_until);
+        let fresh: Vec<Run> = settled
+            .into_iter()
+            .filter(|run| base + run.end > emitted_until)
+            .collect();
+        if let Some(last) = fresh.last() {
+            self.emitted_until = base + last.end;
+        }
+        let pieces: Vec<SpeakerSegment> = fresh
+            .into_iter()
+            .map(|run| SpeakerSegment {
+                start: ((base + run.start) as f32 / 100.0 - margin).max(0.0),
+                end: ((base + run.end) as f32 / 100.0 + margin).min(duration),
+                speaker_id: run.speaker,
+            })
+            .collect();
+        // the frames before the last closed turn can go: no piece will start there any more
+        if let Some(until) = closed_until {
+            self.probs = self.probs.slice(s![until.., ..]).to_owned();
+            self.energy.drain(..until.min(self.energy.len()));
+            self.base += until;
+        }
+        pieces
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::Array2;
+    use ndarray::{s, Array2};
 
     fn run(start: usize, end: usize, speaker: usize) -> Run {
         Run { start, end, speaker }
@@ -310,6 +442,59 @@ mod tests {
                 "{pieces:?}"
             );
         }
+    }
+
+    /// Two minutes of three speakers: a flicker to drop, a short pause to bridge, a silence, and a
+    /// 63 s turn with three short pauses where it gets cut.
+    fn meeting() -> (Array2<f32>, Vec<f32>) {
+        let mut probs = Array2::<f32>::zeros((12_001, 8));
+        talk(&mut probs, 0, 0, 1_000, 0.9);
+        talk(&mut probs, 1, 400, 410, 0.95); // flicker
+        talk(&mut probs, 0, 1_020, 1_400, 0.9); // after a 0.2 s pause
+        talk(&mut probs, 2, 1_400, 2_000, 0.8);
+        talk(&mut probs, 1, 2_200, 8_500, 0.9); // after 2 s of silence, 63 s long
+        for pause in [4_000, 5_500, 7_000] {
+            talk(&mut probs, 1, pause, pause + 30, 0.1);
+        }
+        talk(&mut probs, 0, 8_500, 9_000, 0.9);
+        let audio: Vec<f32> = (0..12_000 * 160).map(|i| 0.1 * ((i % 97) as f32 / 97.0)).collect();
+        (probs, audio)
+    }
+
+    #[test]
+    fn pieces_streamed_are_the_whole_recording_ones() {
+        let (probs, audio) = meeting();
+        let whole = transcription_pieces(probs.view(), &audio, 0.5, &PieceParams::default());
+        let mut stream = PieceStream::new(0.5, PieceParams::default());
+        let mut streamed = Vec::new();
+        let (mut frame, mut step) = (0, 0);
+        // the probabilities lag the audio by a little, as Nemotron 3's look-ahead makes them
+        while frame < probs.nrows() {
+            let n = [7, 100, 333, 1, 1_201][step % 5].min(probs.nrows() - frame);
+            let sound = &audio[(frame * 160).min(audio.len())..((frame + n) * 160).min(audio.len())];
+            streamed.extend(stream.push(probs.slice(s![frame..frame + n, ..]), sound));
+            frame += n;
+            step += 1;
+        }
+        streamed.extend(stream.finish());
+        let key = |p: &SpeakerSegment| (p.start, p.end, p.speaker_id);
+        assert_eq!(
+            streamed.iter().map(key).collect::<Vec<_>>(),
+            whole.iter().map(key).collect::<Vec<_>>()
+        );
+        assert!(whole.len() >= 6, "{:?}", whole.iter().map(key).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn a_piece_comes_out_once_nothing_can_change_it() {
+        let (probs, audio) = meeting();
+        let mut stream = PieceStream::new(0.5, PieceParams::default());
+        // up to 14.4 s: the first turn of speaker 0 (0-14 s) can still be bridged until 14.5 s
+        let early = stream.push(probs.slice(s![..1_440, ..]), &audio[..1_440 * 160]);
+        assert!(early.is_empty(), "{early:?}");
+        let later = stream.push(probs.slice(s![1_440..1_460, ..]), &audio[1_440 * 160..1_460 * 160]);
+        assert_eq!(later.len(), 1, "{later:?}");
+        assert_eq!((later[0].start, later[0].speaker_id), (0.0, 0));
     }
 
     #[test]
