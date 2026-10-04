@@ -11,22 +11,53 @@ def test_slug():
     assert ml.slug_title("") == ""
 
 
-def test_current_f9_spec():
-    assert ml.current_f9_spec({"DICTEE_ASR_BACKEND": "whisper", "DICTEE_WHISPER_MODEL": "medium"}) == "whisper-medium"
-    assert ml.current_f9_spec({"DICTEE_ASR_BACKEND": "parakeet", "DICTEE_PARAKEET_QUANT": "int8"}) == "parakeet-int8"
-    assert ml.current_f9_spec({}) == "parakeet-fp32"
-    assert ml.current_f9_spec({"DICTEE_ASR_BACKEND": "whisper"}) == "whisper-small"
-    assert ml.current_f9_spec({"DICTEE_ASR_BACKEND": "canary"}) == "parakeet-fp32"
+def test_default_meeting_asr():
+    # the F9 engine when the meeting offers it
+    for backend in ("whisper-rust", "canary", "nemotron", "kyutai"):
+        assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": backend}) == backend
+    # Parakeet and faster-whisper left meetings: Whisper-Rust instead
+    assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": "parakeet"}) == "whisper-rust"
+    assert ml.default_meeting_asr({"DICTEE_ASR_BACKEND": "whisper"}) == "whisper-rust"
+    assert ml.default_meeting_asr({}) == "whisper-rust"
 
 
-def test_parse_whisper_tokens():
-    text = "[0.00s - 0.50s] Bonjour\n[0.50s - 1.20s] le\n[1.20s - 2.00s] monde\n"
-    assert ml._parse_whisper_tokens(text) == [
-        {"text": "Bonjour", "start_s": 0.0, "end_s": 0.5},
-        {"text": "le", "start_s": 0.5, "end_s": 1.2},
-        {"text": "monde", "start_s": 1.2, "end_s": 2.0},
-    ]
-    # sentence-level lines (no 's' suffix variations) and blanks/garbage are robust
-    assert ml._parse_whisper_tokens("[1 - 2] hi") == [{"text": "hi", "start_s": 1.0, "end_s": 2.0}]
-    assert ml._parse_whisper_tokens("") == []
-    assert ml._parse_whisper_tokens("garbage no brackets") == []
+def test_live_asr_daemon_recipes(monkeypatch, tmp_path):
+    monkeypatch.setattr(ml.shutil, "which", lambda name: f"/usr/bin/{name}")
+    ggml = tmp_path / "ggml-large-v3-q5_0.bin"
+    ggml.write_bytes(b"")
+    conf = {"DICTEE_WHISPER_RUST_GGML": str(ggml)}
+    cmd, env = ml.live_asr_daemon("whisper-rust", conf, "/tmp/s.sock")
+    assert cmd == ["transcribe-daemon-whisper-rust", "--socket", "/tmp/s.sock"]
+    # the whisper branch of the daemon, whatever the F9 backend in the conf
+    assert env["DICTEE_ASR_BACKEND"] == "whisper"
+    assert env["DICTEE_WHISPER_RUST_GGML"] == str(ggml)
+    assert env["DICTEE_DAEMON_NO_PROVIDER"] == "1"
+    cmd, env = ml.live_asr_daemon("nemotron", conf, "/tmp/s.sock")
+    assert cmd == ["transcribe-daemon", "--socket", "/tmp/s.sock"]
+    assert env["DICTEE_ASR_BACKEND"] == "nemotron"
+    cmd, env = ml.live_asr_daemon("kyutai", conf, "/tmp/s.sock")
+    assert cmd == ["transcribe-daemon-kyutai", "--socket", "/tmp/s.sock"]
+    monkeypatch.setattr(ml, "_canary_installed", lambda: True)
+    cmd, env = ml.live_asr_daemon("canary", conf, "/tmp/s.sock")
+    assert cmd == ["transcribe-daemon", "--canary", "--socket", "/tmp/s.sock"]
+    assert env["DICTEE_ASR_BACKEND"] == "canary"
+
+
+def test_live_asr_daemon_says_what_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(ml, "_data_dirs", lambda name: (str(tmp_path / name),))
+    monkeypatch.setattr(ml.shutil, "which", lambda name: None)
+    cmd, why = ml.live_asr_daemon("whisper-rust", {}, "/tmp/s.sock")
+    assert cmd is None and "Whisper-Rust" in why
+    cmd, why = ml.live_asr_daemon("canary", {}, "/tmp/s.sock")
+    assert cmd is None and "Canary" in why
+    cmd, why = ml.live_asr_daemon("nemotron", {}, "/tmp/s.sock")
+    assert cmd is None and "transcribe-daemon" in why
+    cmd, why = ml.live_asr_daemon("parakeet-fp32", {}, "/tmp/s.sock")
+    assert cmd is None
+    # a model of the configured size, found without the conf's path
+    (tmp_path / "whisper-rust").mkdir()
+    (tmp_path / "whisper-rust" / "ggml-large-v3-turbo.bin").write_bytes(b"")
+    monkeypatch.setattr(ml.shutil, "which", lambda name: f"/usr/bin/{name}")
+    cmd, env = ml.live_asr_daemon(
+        "whisper-rust", {"DICTEE_WHISPER_RUST_MODEL": "large-v3-turbo"}, "/tmp/s.sock")
+    assert env["DICTEE_WHISPER_RUST_GGML"].endswith("ggml-large-v3-turbo.bin")

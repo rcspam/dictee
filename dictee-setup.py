@@ -595,7 +595,6 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
                 parakeet_quant=None,
                 force_cpu=None,
                 meeting_dir="",
-                meeting_chunk_s=40,
                 meeting_always_on_top=True,
                 meeting_all_desktops=False,
                 hw_tier="auto",
@@ -782,7 +781,6 @@ def save_config(backend, lang_source, lang_target, clipboard=False,
     # Live meeting settings
     if meeting_dir:
         values["DICTEE_MEETING_DIR"] = _s(meeting_dir)
-    values["DICTEE_MEETING_CHUNK_S"] = str(max(20, min(60, int(meeting_chunk_s))))
     values["DICTEE_MEETING_ALWAYS_ON_TOP"] = "true" if meeting_always_on_top else "false"
     values["DICTEE_MEETING_ALL_DESKTOPS"] = "true" if meeting_all_desktops else "false"
 
@@ -6832,23 +6830,6 @@ class DicteeSetupDialog(QDialog):
         lay_dir.addWidget(self.led_meeting_dir, 1)
         lay_dir.addWidget(btn_browse_meeting_dir)
         layout.addLayout(lay_dir)
-
-        layout.addSpacing(12)
-        lay_chunk = QHBoxLayout()
-        lay_chunk.setSpacing(8)
-        lay_chunk.addWidget(QLabel(_("Live preview chunk duration:")))
-        self.sld_chunk = QSlider(Qt.Orientation.Horizontal)
-        self.sld_chunk.setMinimum(20)
-        self.sld_chunk.setMaximum(60)
-        try:
-            self.sld_chunk.setValue(int(self.conf.get("DICTEE_MEETING_CHUNK_S", "40")))
-        except ValueError:
-            self.sld_chunk.setValue(40)
-        self.lbl_chunk = QLabel(f"{self.sld_chunk.value()} s")
-        self.sld_chunk.valueChanged.connect(lambda v: self.lbl_chunk.setText(f"{v} s"))
-        lay_chunk.addWidget(self.sld_chunk, 1)
-        lay_chunk.addWidget(self.lbl_chunk)
-        layout.addLayout(lay_chunk)
 
         layout.addSpacing(12)
         layout.addWidget(QLabel("<b>" + _("Window behavior") + "</b>"))
@@ -20451,9 +20432,6 @@ class DicteeSetupDialog(QDialog):
                     meeting_dir=(
                         self.led_meeting_dir.text()
                         if hasattr(self, 'led_meeting_dir') else ""),
-                    meeting_chunk_s=(
-                        self.sld_chunk.value()
-                        if hasattr(self, 'sld_chunk') else 40),
                     meeting_always_on_top=(
                         self.chk_meeting_on_top.isChecked()
                         if hasattr(self, 'chk_meeting_on_top') else True),

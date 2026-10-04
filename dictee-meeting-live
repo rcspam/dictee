@@ -5,28 +5,33 @@ Captures audio with pw-record into audio.wav until the user clicks Stop, then
 launches `dictee-transcribe --file <audio.wav> --diarize` which handles
 transcription + diarization + LLM analysis + export.
 
-A collapsible live preview accordion streams chunk-by-chunk transcript during
+A collapsible live preview accordion shows the transcript turn by turn during
 recording (bonus preview — the real analysis is done by dictee-transcribe at Stop).
 """
 
+import collections
 import fcntl
+import glob
 import json
 import os
 import re
 import select
 import shutil
 import signal
+import socket
 import struct
 import sys
+import tempfile
 import threading
 import time
+import wave
 import argparse
 import subprocess
 from pathlib import Path
 from datetime import datetime
 
 from PyQt6.QtCore import (
-    QObject, QThread, pyqtSignal, QFileSystemWatcher, QTimer, Qt,
+    QThread, pyqtSignal, QFileSystemWatcher, QTimer, Qt,
     QPropertyAnimation, QEasingCurve, pyqtProperty, QRectF,
 )
 from PyQt6.QtGui import QColor, QPainter
@@ -103,23 +108,18 @@ def _acquire_singleton_lock():
     return fd
 
 
-def current_f9_spec(conf):
-    """Map the F9 dictee.conf settings to an --asr-model spec (combo default).
+def default_meeting_asr(conf):
+    """The meeting's ASR model when none was chosen: the F9 engine when the
+    meeting offers it, else Whisper-Rust. Parakeet left meetings on
+    2026-10-04 (it turns some recordings into English), faster-whisper too.
 
-    Whisper specs are per ENGINE ("whisper" / "whisper-rust"): the model
-    size follows the dictee-setup selection in dictee.conf, so the combo
-    doesn't duplicate the size choice."""
-    backend = (conf.get("DICTEE_ASR_BACKEND") or "parakeet").strip().lower()
-    if backend == "whisper":
-        return "whisper"
-    if backend == "whisper-rust":
-        return "whisper-rust"
-    if backend == "nemotron":
-        return "nemotron"
-    if backend == "kyutai":
-        return "kyutai"
-    quant = (conf.get("DICTEE_PARAKEET_QUANT") or "fp32").strip().lower()
-    return "parakeet-int8" if quant == "int8" else "parakeet-fp32"
+    Whisper-Rust is listed per ENGINE: the model size follows the
+    dictee-setup selection in dictee.conf, so the combo doesn't duplicate
+    the size choice."""
+    backend = (conf.get("DICTEE_ASR_BACKEND") or "").strip().lower()
+    if backend in ("whisper-rust", "canary", "nemotron", "kyutai"):
+        return backend
+    return "whisper-rust"
 
 
 def normalize_asr_spec(spec):
@@ -219,21 +219,100 @@ def normalize_wav(wav):
         print(f"[meeting-live] normalization skipped: {e}", file=sys.stderr)
 
 
-def _parse_whisper_tokens(text):
-    """Parse the whisper daemon's '\\ttimestamps' output ('[start s - end s]
-    word' lines) into live-preview tokens [{'text', 'start_s', 'end_s'}, ...]."""
-    out = []
-    pat = re.compile(r"^\[(\d+\.?\d*)s?\s*-\s*(\d+\.?\d*)s?\]\s*(.+)$")
-    for line in (text or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        m = pat.match(line)
-        if m:
-            out.append({"text": m.group(3).strip(),
-                        "start_s": float(m.group(1)),
-                        "end_s": float(m.group(2))})
-    return out
+def wav_data_offset(head):
+    """Where the samples start in a WAV file whose first bytes are `head`:
+    past the RIFF header and every chunk before 'data' (pw-record writes 44
+    bytes, ffmpeg adds a LIST chunk). None while the header is incomplete."""
+    if len(head) < 12 or head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+        return None
+    pos = 12
+    while pos + 8 <= len(head):
+        if head[pos:pos + 4] == b"data":
+            return pos + 8
+        size = struct.unpack_from("<I", head, pos + 4)[0]
+        pos += 8 + size + (size & 1)
+    return None
+
+
+def write_wav(path, pcm):
+    """A 16 kHz mono 16-bit WAV of the raw samples `pcm`."""
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(16000)
+        out.writeframes(pcm)
+
+
+def _data_dirs(name):
+    """A dictee model's directory in the user data dir, then the system one."""
+    return (os.path.join(os.environ.get("XDG_DATA_HOME",
+                                        os.path.expanduser("~/.local/share")),
+                         "dictee", name),
+            os.path.join("/usr/share/dictee", name))
+
+
+def _nemotron3_dir():
+    """Directory of Nemotron 3 Diarization (model.onnx and its weights), the
+    user's first, as dictee-transcribe finds it; None when it is missing."""
+    for d in _data_dirs("nemotron3-diar"):
+        if (os.path.isfile(os.path.join(d, "model.onnx"))
+                and os.path.isfile(os.path.join(d, "model.onnx_data"))):
+            return d
+    return None
+
+
+def _whisper_rust_ggml(conf):
+    """The Whisper-Rust model file: the one dictee-setup selected
+    (DICTEE_WHISPER_RUST_GGML), else one of the configured size in the user
+    or system model dir, as dictee-transcribe resolves it; "" when none."""
+    path = (conf.get("DICTEE_WHISPER_RUST_GGML") or "").strip()
+    if path and os.path.isfile(path):
+        return path
+    size = (conf.get("DICTEE_WHISPER_RUST_MODEL") or "large-v3").strip()
+    for d in _data_dirs("whisper-rust"):
+        for pattern in (f"ggml-{size}-q*.bin", f"ggml-{size}.bin"):
+            hits = sorted(glob.glob(os.path.join(d, pattern)))
+            if hits:
+                return hits[0]
+    return ""
+
+
+def _canary_installed():
+    return any(os.path.isfile(os.path.join(d, f)) for d in _data_dirs("canary")
+               for f in ("encoder-model.onnx", "encoder-model.int8.onnx"))
+
+
+def live_asr_daemon(spec, conf, sock):
+    """(command, environment additions) of the isolated daemon that
+    transcribes the live preview's turns with `spec`, listening on `sock`;
+    (None, reason) when this machine cannot. Same recipes as
+    dictee-transcribe's IsolatedAsrDaemon; the dictation language reaches
+    the daemon with the rest of dictee.conf (_build_subprocess_env)."""
+    env = {"DICTEE_DAEMON_NO_PROVIDER": "1"}   # never clobber the F9 badge
+    if spec == "whisper-rust":
+        ggml = _whisper_rust_ggml(conf)
+        if not ggml:
+            return None, "aucun modèle Whisper-Rust installé (voir dictee-setup)"
+        # DICTEE_ASR_BACKEND=whisper flips the daemon to its whisper branch:
+        # a conf-level backend (parakeet…) would silently win otherwise.
+        env.update(DICTEE_ASR_BACKEND="whisper", DICTEE_WHISPER_RUST_GGML=ggml)
+        cmd = ["transcribe-daemon-whisper-rust", "--socket", sock]
+    elif spec == "canary":
+        if not _canary_installed():
+            return None, "Canary n'est pas installé (voir dictee-setup)"
+        env["DICTEE_ASR_BACKEND"] = "canary"
+        cmd = ["transcribe-daemon", "--canary", "--socket", sock]
+    elif spec == "nemotron":
+        env["DICTEE_ASR_BACKEND"] = "nemotron"
+        cmd = ["transcribe-daemon", "--socket", sock]
+    elif spec == "kyutai":
+        env["DICTEE_ASR_BACKEND"] = "kyutai"
+        cmd = ["transcribe-daemon-kyutai", "--socket", sock]
+    else:
+        return None, f"modèle inconnu : {spec}"
+    if not shutil.which(cmd[0]):
+        return None, f"{cmd[0]} introuvable"
+    return cmd, env
 
 
 def _build_subprocess_env():
@@ -635,280 +714,255 @@ class LevelMeterWorker(QThread):
         self.wait(2500)   # join the QThread (terminate closed the pipe → run() exits)
 
 
-class ChunkerWorker(QThread):
-    """Splits the growing audio.wav into chunks with overlap via ffmpeg.
+class LivePreview:
+    """The live preview, cut by voices.
 
-    Emits `chunk_ready(int chunk_id, str path)` once each chunk is extracted.
-    Strategy: poll every 1 s; once duration >= start_t + chunk_duration,
-    extract [start_t, start_t+chunk_duration] into chunk_NNN.wav and advance
-    start_t by (chunk_duration - overlap).
+    The recording pw-record is writing goes to Nemotron 3 as it grows, the
+    new audio of each poll in one file (`diarize-only --stream --engine
+    nemotron3 --pieces`, NVIDIA's 1.04 s low-latency setting). Each piece it
+    settles, one speaker and at most 30 s, is cut out of the recording and
+    sent to the meeting's ASR daemon; its text comes back through on_line a
+    second or two after the turn ended. Once the recording has stopped,
+    finish(): run() feeds the rest, flushes the stream, transcribes the last
+    pieces and returns.
+
+    This replaces the 40 s blocks overlapping by 10 s and the word-by-word
+    alignment, which made up for diarizers that could not follow more than
+    4 voices in one go. No Qt here: MeetingWindow runs it in a QThread and
+    turns the callbacks into signals (on_ready(), on_line(dict),
+    on_error(str)).
     """
 
-    chunk_ready = pyqtSignal(int, str)
-    error = pyqtSignal(str)
+    def __init__(self, recording, diar_cmd, asr_sock, on_ready, on_line,
+                 on_error, env=None, poll=1.0, asr_wait=60.0):
+        self.recording = str(recording)
+        self.diar_cmd = diar_cmd
+        self.asr_sock = asr_sock
+        self.on_ready = on_ready
+        self.on_line = on_line
+        self.on_error = on_error
+        self.env = env
+        self.poll = poll
+        self.asr_wait = asr_wait          # for a daemon still loading its model
+        self._finishing = threading.Event()
+        self._aborted = threading.Event()
+        self._proc = None
+        self._drain = None
+        self._stderr = collections.deque(maxlen=5)
+        self._sock = None
+        self._offset = None               # where the samples start in the recording
+        self._fed = 0                     # bytes of samples the diarizer has had
+        self._asr_deadline = None
+        self._asr_missing = False
 
-    def __init__(self, audio_wav: Path, chunks_dir: Path,
-                 chunk_duration: int = 40, overlap: int = 10):
-        super().__init__()
-        self.audio_wav = audio_wav
-        self.chunks_dir = chunks_dir
-        self.chunk_duration = chunk_duration
-        self.overlap = overlap
-        self.advance = chunk_duration - overlap
-        self._stop = False
-        self.chunk_id = 0
+    def finish(self):
+        """The recording has stopped and its file is complete."""
+        self._finishing.set()
+
+    def abort(self):
+        """Stop at once, leaving the pieces not transcribed yet."""
+        self._aborted.set()
+        self._finishing.set()
+        proc, sock = self._proc, self._sock
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
 
     def run(self):
-        self.chunks_dir.mkdir(parents=True, exist_ok=True)
-        start_t = 0
-        while not self._stop:
-            duration = self._wav_duration(self.audio_wav)
-            if duration >= start_t + self.chunk_duration:
-                chunk_path = self.chunks_dir / f"chunk_{self.chunk_id:04d}.wav"
-                rc = self._extract(start_t, self.chunk_duration, chunk_path)
-                if rc == 0:
-                    self.chunk_ready.emit(self.chunk_id, str(chunk_path))
-                    self.chunk_id += 1
-                    start_t += self.advance
-                else:
-                    self.error.emit(f"ffmpeg extract failed (chunk {self.chunk_id})")
+        tmp = tempfile.mkdtemp(prefix="dictee-meeting-live-")
+        try:
+            self._start_diarizer()
+            self.on_ready()
+            while not self._aborted.is_set():
+                last = self._finishing.is_set()
+                pcm = self._read_new()
+                if pcm:
+                    feed = os.path.join(tmp, "feed.wav")
+                    write_wav(feed, pcm)
+                    self._transcribe(self._ask(f"FILE: {feed}"), tmp)
+                if last:
+                    self._transcribe(self._ask("FLUSH"), tmp)
                     return
-            time.sleep(1)
-        # Stopped: flush the final partial chunk so the live preview captures
-        # the tail (audio recorded after the last full chunk).
-        self._flush_tail(start_t)
+                self._finishing.wait(self.poll)
+        except Exception as e:
+            if not self._aborted.is_set():
+                self.on_error(str(e))
+        finally:
+            self._stop_diarizer()
+            shutil.rmtree(tmp, ignore_errors=True)
 
-    def _flush_tail(self, start_t):
-        """Emit a final partial chunk [start_t, end] on stop, but only if there
-        is NEW content beyond the overlap the last full chunk already covered."""
-        duration = self._wav_duration(self.audio_wav)
-        if duration <= start_t + self.overlap:
-            return
-        chunk_path = self.chunks_dir / f"chunk_{self.chunk_id:04d}.wav"
-        if self._extract(start_t, duration - start_t, chunk_path) == 0:
-            self.chunk_ready.emit(self.chunk_id, str(chunk_path))
-            self.chunk_id += 1
-
-    def _wav_duration(self, path: Path) -> float:
-        # 44 byte header + raw PCM s16le mono 16 kHz = 32000 B/s
-        try:
-            size = path.stat().st_size
-            return max(0.0, (size - 44) / 32000.0)
-        except FileNotFoundError:
-            return 0.0
-
-    def _extract(self, start_s: int, dur_s: int, out_path: Path) -> int:
-        cmd = [
-            "ffmpeg", "-y",
-            "-ss", str(start_s),
-            "-t", str(dur_s),
-            "-i", str(self.audio_wav),
-            "-ar", "16000", "-ac", "1",
-            "-c:a", "pcm_s16le",
-            str(out_path),
-        ]
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        return proc.returncode
-
-    def stop(self):
-        self._stop = True
-        self.wait(3000)   # join the QThread (run() checks _stop within ~1 s)
-
-
-class TranscriptionWorker(QObject):
-    """For each ready chunk, calls transcribe-client and emits (chunk_id, tokens).
-
-    tokens = [{"text": str, "start_s": float, "end_s": float}, ...]
-    Uses the existing transcribe-daemon (Parakeet already in RAM via systemd).
-    """
-
-    transcribed = pyqtSignal(int, list)
-    error = pyqtSignal(int, str)
-
-    # Nemotron mode only: pre-aligned lines emitted straight to the preview
-    # (same contract as AlignerWorker.aligned — the aligner is bypassed).
-    aligned_direct = pyqtSignal(int, list)
-
-    def __init__(self, whisper_sock=None, nemotron_sock=None):
-        super().__init__()
-        # When set, the live preview transcribes via a dedicated isolated whisper
-        # daemon on this private socket (chosen model = Whisper) instead of the F9
-        # Parakeet daemon — so the live text matches the final-analysis language.
-        self._whisper_sock = whisper_sock
-        # When set, the live preview runs per-Sortformer-segment transcription
-        # via an isolated nemotron daemon (transcribe_segments); transcribe()
-        # is never called in that mode.
-        self._nemotron_sock = nemotron_sock
-        xdg = os.environ.get("XDG_RUNTIME_DIR")
-        if xdg:
-            self.daemon_socket = os.path.join(xdg, "transcribe.sock")
+    def _start_diarizer(self):
+        self._proc = subprocess.Popen(
+            self.diar_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, bufsize=1, env=self.env)
+        if self._aborted.is_set():
+            raise RuntimeError("aborted")
+        # It reads its commands once the model is loaded, and says so on stderr.
+        for line in self._proc.stderr:
+            self._stderr.append(line.strip())
+            if "ready" in line:
+                break
         else:
-            # Must match the daemon's fallback (transcribe_daemon.rs): the dash
-            # goes before the uid, not after ".sock".
-            self.daemon_socket = f"/tmp/transcribe-{os.getuid()}.sock"
+            raise RuntimeError(self._died())
+        self._drain = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._drain.start()
 
-    def transcribe(self, chunk_id: int, chunk_path: str):
-        if self._whisper_sock:
-            self._transcribe_whisper(chunk_id, chunk_path)
-            return
-        if not os.path.exists(self.daemon_socket):
-            self.error.emit(
-                chunk_id,
-                f"socket transcribe-daemon absente ({self.daemon_socket})",
-            )
-            return
+    def _drain_stderr(self):
         try:
-            proc = subprocess.run(
-                ["transcribe-client", chunk_path, "--json-timestamps"],
-                capture_output=True,
-                text=True,
-                timeout=20,
-                env=_build_subprocess_env(),
-            )
-            if proc.returncode != 0:
-                self.error.emit(
-                    chunk_id,
-                    f"transcribe-client exit {proc.returncode}: {proc.stderr.strip()}",
-                )
-                return
-            data = json.loads(proc.stdout)
-            tokens = data.get("tokens", [])
-            self.transcribed.emit(chunk_id, tokens)
+            for line in self._proc.stderr:
+                self._stderr.append(line.strip())
+        except (OSError, ValueError):
+            pass
+
+    def _died(self):
+        """Why the diarizer is gone, from its last words on stderr."""
+        try:
+            code = self._proc.wait(timeout=2)
         except subprocess.TimeoutExpired:
-            self.error.emit(chunk_id, "transcribe-client timeout (>20 s)")
-        except json.JSONDecodeError as e:
-            self.error.emit(chunk_id, f"JSON parse error: {e}")
+            code = None
+        if self._drain is not None:
+            self._drain.join(1)
+        said = " / ".join(line for line in self._stderr if line)
+        return (f"diarize-only arrêté (code {code})"
+                + (f" : {said}" if said else ""))
 
-    def _transcribe_whisper(self, chunk_id: int, chunk_path: str):
-        """Live transcription via the isolated whisper daemon (private socket).
-        Speaks the python daemon protocol directly: '<path>\\ttimestamps' →
-        '[start s - end s] word' lines → tokens. The daemon's cold model load
-        may not be ready for the first chunk(s); we surface that as a soft error
-        and the next chunk retries."""
-        import socket as _sock
-        # Cold start: the isolated daemon binds its socket only after loading
-        # the model (seconds for a 1.6 GB ggml). Giving up instantly relied on
-        # "the next chunk retries" — but the TAIL chunk of a short meeting has
-        # no next chunk, so the whole preview stayed empty (2026-07-19). Wait
-        # for the socket instead, bounded under the 25 s stop-finalize
-        # watchdog; runs on an executor thread, never the GUI.
-        _deadline = time.monotonic() + 20
-        while not os.path.exists(self._whisper_sock):
-            if time.monotonic() >= _deadline:
-                self.error.emit(chunk_id, "daemon Whisper live pas encore prêt (chargement du modèle)")
-                return
-            time.sleep(0.5)
-        try:
-            s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-            s.settimeout(60)
-            s.connect(self._whisper_sock)
-            s.sendall((chunk_path + "\ttimestamps\n").encode("utf-8"))
-            data = b""
-            while True:
-                buf = s.recv(4096)
-                if not buf:
-                    break
-                data += buf
-            s.close()
-            text = data.decode("utf-8", errors="replace").strip()
-            if text.startswith("ERROR:"):
-                self.error.emit(chunk_id, f"Whisper live: {text}")
-                return
-            self.transcribed.emit(chunk_id, _parse_whisper_tokens(text))
-        except (ConnectionRefusedError, OSError) as e:
-            self.error.emit(chunk_id, f"Whisper live: {e}")
-
-    def transcribe_segments(self, chunk_id: int, chunk_path: str,
-                            segments: list, offset: float = 0.0):
-        """Nemotron live: the daemon has no word timestamps (empty tokens), so
-        timestamp-overlap alignment is impossible. Instead, cut the chunk wav
-        on the Sortformer segments and transcribe each piece separately on the
-        private socket — speaker attribution is exact by construction. Emits
-        aligned_direct(chunk_id, lines); ALWAYS emits (even empty) because the
-        tail-chunk stop-finalize waits on that signal."""
-        import socket as _sock
-        import tempfile
-        import wave as _wave
-        if not os.path.exists(self._nemotron_sock):
-            self.error.emit(chunk_id,
-                            "daemon Nemotron live pas encore prêt (chargement du modèle)")
-            self.aligned_direct.emit(chunk_id, [])
+    def _stop_diarizer(self):
+        proc = self._proc
+        if proc is None:
             return
-        lines = []
         try:
-            with _wave.open(chunk_path, "rb") as wf:
-                rate = wf.getframerate()
-                width = wf.getsampwidth()
-                channels = wf.getnchannels()
-                total = wf.getnframes()
-                for seg in segments:
-                    start = max(0.0, float(seg["start_s"]))
-                    end = min(float(seg["end_s"]), total / rate)
-                    if end - start < 0.3:       # too short to transcribe (noise)
-                        continue
-                    wf.setpos(int(start * rate))
-                    frames = wf.readframes(int((end - start) * rate))
-                    tmp = tempfile.NamedTemporaryFile(
-                        prefix="dictee-meeting-seg-", suffix=".wav", delete=False)
-                    try:
-                        with _wave.open(tmp, "wb") as out:
-                            out.setnchannels(channels)
-                            out.setsampwidth(width)
-                            out.setframerate(rate)
-                            out.writeframes(frames)
-                        tmp.close()
-                        s = _sock.socket(_sock.AF_UNIX, _sock.SOCK_STREAM)
-                        s.settimeout(60)
-                        s.connect(self._nemotron_sock)
-                        s.sendall((tmp.name + "\n").encode("utf-8"))
-                        data = b""
-                        while True:
-                            buf = s.recv(4096)
-                            if not buf:
-                                break
-                            data += buf
-                        s.close()
-                        text = data.decode("utf-8", errors="replace").strip()
-                    finally:
-                        try:
-                            os.unlink(tmp.name)
-                        except OSError:
-                            pass
-                    if text.startswith("ERROR:"):
-                        self.error.emit(chunk_id, f"Nemotron live: {text}")
-                        continue
-                    if text:
-                        lines.append({
-                            "speaker": seg["speaker_id"],
-                            "text": text,
-                            "start_s": start + offset,
-                            "end_s": end + offset,
-                        })
-        except (ConnectionRefusedError, OSError, _wave.Error) as e:
-            self.error.emit(chunk_id, f"Nemotron live: {e}")
-        self.aligned_direct.emit(chunk_id, lines)
+            proc.stdin.close()             # end of input: diarize-only exits
+        except (OSError, ValueError):
+            pass
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
+    def _ask(self, command):
+        """The pieces the diarizer answers to one command, as (start, end,
+        speaker), in seconds since the start of the recording."""
+        try:
+            self._proc.stdin.write(command + "\n")
+            self._proc.stdin.flush()
+        except (OSError, ValueError):
+            raise RuntimeError(self._died())
+        pieces = []
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                raise RuntimeError(self._died())
+            line = line.strip()
+            if not line:
+                return pieces
+            if line.startswith("ERROR:"):
+                raise RuntimeError(f"diarize-only : {line}")
+            start, end, speaker = line.split()
+            pieces.append((float(start), float(end), int(speaker)))
 
-def _diar_multi_available():
-    """Check if the in-house multi-speaker diarization engine is usable:
-    diarize-multi binary on PATH + its models installed (sentinel =
-    segmentation-3.0.onnx, same convention as the Rust default_models_dir
-    and dictee-transcribe). When available its --live mode is preferred over
-    diarize-only --stream (no 4-speaker cap)."""
-    if not shutil.which("diarize-multi"):
-        return False
-    sentinel = "segmentation-3.0.onnx"
-    dd = os.path.join(
-        os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
-        "dictee", "diar",
-    )
-    if os.path.isfile(os.path.join(dd, sentinel)):
+    def _read_new(self):
+        """The samples pw-record has written since the last call (raw s16)."""
+        try:
+            with open(self.recording, "rb") as f:
+                if self._offset is None:
+                    self._offset = wav_data_offset(f.read(4096))
+                    if self._offset is None:
+                        return b""
+                start = self._offset + self._fed
+                size = f.seek(0, os.SEEK_END)
+                if size - start < 2:
+                    return b""
+                f.seek(start)
+                pcm = f.read((size - start) // 2 * 2)
+        except FileNotFoundError:
+            return b""
+        pcm = pcm[:len(pcm) // 2 * 2]
+        self._fed += len(pcm)
+        return pcm
+
+    def _transcribe(self, pieces, tmp):
+        for start, end, speaker in pieces:
+            if self._aborted.is_set():
+                return
+            path = os.path.join(tmp, "piece.wav")
+            with open(self.recording, "rb") as f:
+                f.seek(self._offset + round(start * 16000) * 2)
+                write_wav(path, f.read((round(end * 16000) - round(start * 16000)) * 2))
+            text = self._asr(path)
+            if text:
+                self.on_line({"speaker": speaker, "text": text,
+                              "start_s": start, "end_s": end})
+
+    def _asr(self, path):
+        """The daemon's text for one piece; "" when it failed, the reason
+        going to on_error."""
+        if not self._asr_up():
+            return ""
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock = sock
+        data = b""
+        try:
+            sock.settimeout(120)
+            sock.connect(self.asr_sock)
+            sock.sendall((path + "\n").encode("utf-8"))
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        except OSError as e:
+            if not self._aborted.is_set():
+                self.on_error(f"transcription : {e}")
+            return ""
+        finally:
+            self._sock = None
+            sock.close()
+        text = data.decode("utf-8", errors="replace").strip()
+        if text.startswith("ERROR:"):
+            self.on_error(f"transcription : {text}")
+            return ""
+        return text
+
+    def _asr_up(self):
+        """Whether the ASR daemon listens, waiting asr_wait seconds from the
+        first piece for one still loading its model. A daemon that never
+        came is reported once."""
+        if self._asr_deadline is None:
+            self._asr_deadline = time.monotonic() + self.asr_wait
+        while not os.path.exists(self.asr_sock):
+            if self._aborted.is_set():
+                return False
+            if time.monotonic() >= self._asr_deadline:
+                if not self._asr_missing:
+                    self._asr_missing = True
+                    self.on_error("le démon de transcription ne répond pas")
+                return False
+            time.sleep(0.2)
         return True
-    return os.path.isfile(os.path.join("/usr/share/dictee/diar", sentinel))
+
+
+class LivePreviewThread(QThread):
+    """Runs a LivePreview off the GUI thread, its callbacks as signals.
+    QThread.finished: it is over (after finish(), with every piece in)."""
+
+    ready = pyqtSignal()
+    line = pyqtSignal(dict)
+    error = pyqtSignal(str)
+
+    def __init__(self, recording, diar_cmd, asr_sock, env):
+        super().__init__()
+        self.preview = LivePreview(recording, diar_cmd, asr_sock,
+                                   on_ready=self.ready.emit,
+                                   on_line=self.line.emit,
+                                   on_error=self.error.emit, env=env)
+
+    def run(self):
+        self.preview.run()
 
 
 def _moss_available():
@@ -925,332 +979,6 @@ def _moss_available():
                               timeout=10).returncode == 0
     except Exception:
         return False
-
-
-class DiarizationWorker(QObject):
-    """Keeps a streaming diarizer subprocess alive and sends chunks via stdin.
-
-    Engine: diarize-multi --live when installed (in-house engine, no
-    speaker-count cap, ids kept stable by centroid matching), else
-    diarize-only --stream (Sortformer, 4-speaker cap, ids kept stable by
-    its streaming state). Both speak the same wire protocol.
-
-    Emits (chunk_id, segments) where segments = [{"start_s", "end_s", "speaker_id"}, ...]
-    """
-
-    diarized = pyqtSignal(int, list)
-    error = pyqtSignal(int, str)
-    ready = pyqtSignal()           # emitted once the model has finished loading
-
-    def __init__(self, overlap: int = 10, engine: str = "auto",
-                 sensitivity: float = 0.5):
-        super().__init__()
-        self.proc = None
-        # engine: "auto" (multi-speaker engine when installed, else
-        # Sortformer), "multi", or "sortformer" (UI combo; unavailable
-        # engines are greyed out there). sensitivity (0.0-1.0, 0.5 =
-        # engine default) maps to each engine's own knob, mirroring
-        # dictee-transcribe: multi AHC threshold = sensitivity * 1.2.
-        use_multi = engine == "multi" or (
-            engine == "auto" and _diar_multi_available())
-        if use_multi:
-            self.cmd = ["diarize-multi", "--live", "--overlap-secs", str(overlap),
-                        "--threshold", f"{sensitivity * 1.2:.2f}"]
-        else:
-            self.cmd = ["diarize-only", "--stream",
-                        "--sensitivity", f"{sensitivity:.2f}"]
-        self.label = " ".join(self.cmd[:2])
-        # One persistent stdin/stdout pipe shared by the executor's workers:
-        # serialize diarize() calls so two chunks can't interleave their
-        # request+response (which mis-attributes segments to the wrong chunk).
-        self._lock = threading.Lock()
-
-    def start(self) -> bool:
-        """Launch the diarizer WITHOUT blocking the caller. The model load
-        (a few seconds of ONNX + CUDA init) is awaited on a background
-        thread that emits `ready` (or `error`). The first live chunk only
-        arrives at chunk_duration (~40 s), so the model has ample time to
-        load. Returns True if the process spawned, False on spawn failure."""
-        try:
-            self.proc = subprocess.Popen(
-                self.cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                env=_build_subprocess_env(),
-            )
-        except FileNotFoundError:
-            self.error.emit(0, f"{self.cmd[0]} binary not found. Diarization feature built?")
-            return False
-        threading.Thread(target=self._await_ready, daemon=True).start()
-        return True
-
-    def _await_ready(self):
-        """Background: wait for the 'ready' line on stderr, then keep draining
-        stderr so its pipe never fills and blocks the daemon."""
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            line = self.proc.stderr.readline()
-            if not line:
-                self.error.emit(0, f"{self.label} stderr EOF before ready")
-                return
-            if "ready" in line:
-                self.ready.emit()
-                break
-        else:
-            self.error.emit(0, f"{self.label} startup timeout (30s)")
-            return
-        try:
-            for _ in self.proc.stderr:   # drain (discard) until the proc exits
-                pass
-        except Exception:
-            pass
-
-    def diarize(self, chunk_id: int, chunk_path: str):
-        if not self.proc:
-            self.error.emit(chunk_id, "DiarizationWorker not started")
-            return
-        if self.proc.poll() is not None:
-            self.error.emit(chunk_id, f"{self.cmd[0]} exited with code {self.proc.returncode}")
-            return
-        try:
-            with self._lock:
-                self.proc.stdin.write(f"FILE: {chunk_path}\n")
-                self.proc.stdin.flush()
-                self._collect_response(chunk_id)
-        except BrokenPipeError:
-            self.error.emit(chunk_id, f"{self.cmd[0]} stdin pipe broken")
-
-    def _collect_response(self, chunk_id: int):
-        segments = []
-        while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                self.error.emit(chunk_id, f"{self.cmd[0]} stdout EOF unexpected")
-                return
-            line = line.rstrip("\n")
-            if line == "":
-                self.diarized.emit(chunk_id, segments)
-                return
-            if line.startswith("ERROR:"):
-                self.error.emit(chunk_id, line)
-                return
-            parts = line.split()
-            if len(parts) == 3:
-                try:
-                    segments.append({
-                        "start_s": float(parts[0]),
-                        "end_s": float(parts[1]),
-                        "speaker_id": int(parts[2]),
-                    })
-                except ValueError:
-                    self.error.emit(chunk_id, f"malformed segment line: {line}")
-                    return
-
-    def stop(self):
-        if self.proc:
-            try:
-                if self.proc.stdin and not self.proc.stdin.closed:
-                    self.proc.stdin.close()
-                self.proc.wait(timeout=5)
-            except (subprocess.TimeoutExpired, BrokenPipeError):
-                self.proc.kill()
-                self.proc.wait()
-            self.proc = None
-
-
-def _assign_speakers(words, speaker_segments, switch_penalty=1.5, free_gap=1.0):
-    """Assign one speaker per word token, sequence-aware (engine-agnostic).
-
-    COPY of dictee-transcribe.py's _assign_speakers (a323876 then d5cafd4).
-    Both scripts are installed as standalone executables with no shared
-    module, so the fusion is duplicated rather than imported; everything below
-    this paragraph is byte-identical to the original, so a plain diff of the
-    two function bodies shows any divergence.
-
-    The diarization timeline is authoritative but locally imperfect: in fast
-    exchanges every engine tested (community-1, Sortformer, diarizen) emits
-    spurious overlapping islands or boundaries shifted by a few hundred ms,
-    and any per-word geometric rule (nearest segment, max overlap) faithfully
-    copies those defects onto the words as mid-clause speaker flips.
-
-    So words are assigned as a SEQUENCE (min-cost dynamic program):
-    - per-word cost for a speaker = temporal distance from the word midpoint
-      to that speaker's nearest segment (0 when inside — the same primitive
-      as the previous nearest-segment rule);
-    - changing speaker between consecutive words costs switch_penalty
-      (seconds-equivalent), EXCEPT at a clause boundary — previous word ends
-      with sentence-final punctuation — or after an inter-word silence
-      >= free_gap, where switching is free.
-
-    A 1-2 word island captured by a spurious segment cannot pay the switch
-    cost and stays with its clause; a genuine turn switches freely at the
-    clause boundary (even with zero pause — common in fast interviews), and
-    a genuine mid-clause interruption still switches because the per-word
-    distances of staying on the old speaker quickly exceed the penalty.
-    switch_penalty must sit between the flip cost of spurious islands
-    (<= ~0.6 s of distance mass on the reference sample) and that of the
-    shortest legitimate turn to protect (~1.75 s for a 2-word turn right
-    next to the other speaker's segment).
-    Punctuation is the boundary signal, not pauses: on the reference sample
-    the real turn had a 0.00 s gap while a 0.42 s pause sat mid-sentence.
-
-    words: [{"start", "end", "text"}] in chronological order.
-    speaker_segments: [{"start", "end", "speaker"}], may overlap.
-    Returns one speaker id per word (-1 only when speaker_segments is empty).
-    """
-    if not words:
-        return []
-    if not speaker_segments:
-        return [-1] * len(words)
-
-    def ends_clause(text):
-        return text.rstrip("\"'»«)]}").endswith((".", "!", "?", "…"))
-
-    def free_boundary(prev_word, word):
-        return (ends_clause(prev_word["text"])
-                or word["start"] - prev_word["end"] >= free_gap)
-
-    # NOTE — known limitation, deliberately NOT handled here: a WRONG
-    # diarization segment of ~2 s with real mass strictly inside a clause
-    # (e.g. a phantom speaker over "notre invité est un chercheur
-    # extrêmement connu.") cannot be told apart, on geometry + text alone,
-    # from a CORRECT segment in the mirrored configuration — a clause-
-    # enclosed-flanked-by-same-other-speaker filter was tried and rejected
-    # the true presenter segment of the reference sample (same trap as the
-    # Rust enforce_min_turn absorption, see project memory 2026-07-09).
-    # Distinguishing them needs voice-level evidence (clustering confidence
-    # / embeddings), i.e. the diarizer side, not this fusion.
-    speakers = sorted({s["speaker"] for s in speaker_segments})
-    n_spk = len(speakers)
-
-    # Per-word emission costs: distance to each speaker's nearest segment.
-    emissions = []
-    for word in words:
-        mid = 0.5 * (word["start"] + word["end"])
-        best = {spk: float("inf") for spk in speakers}
-        for seg in speaker_segments:
-            if seg["start"] <= mid <= seg["end"]:
-                dist = 0.0
-            else:
-                dist = min(abs(mid - seg["start"]), abs(mid - seg["end"]))
-            if dist < best[seg["speaker"]]:
-                best[seg["speaker"]] = dist
-        emissions.append([best[spk] for spk in speakers])
-
-    # Viterbi over (word, speaker) with backpointers.
-    cost = list(emissions[0])
-    backptrs = []
-    for i in range(1, len(words)):
-        free = free_boundary(words[i - 1], words[i])
-        new_cost = []
-        new_back = []
-        for j in range(n_spk):
-            best_prev, best_cost = j, cost[j]
-            if not free:
-                for k in range(n_spk):
-                    c = cost[k] + (0.0 if k == j else switch_penalty)
-                    if c < best_cost:
-                        best_cost, best_prev = c, k
-            else:
-                for k in range(n_spk):
-                    if cost[k] < best_cost:
-                        best_cost, best_prev = cost[k], k
-            new_cost.append(best_cost + emissions[i][j])
-            new_back.append(best_prev)
-        cost = new_cost
-        backptrs.append(new_back)
-
-    j = min(range(n_spk), key=lambda x: cost[x])
-    path = [j]
-    for back in reversed(backptrs):
-        j = back[j]
-        path.append(j)
-    path.reverse()
-    return [speakers[j] for j in path]
-
-
-class AlignerWorker(QObject):
-    """Aligns transcription tokens with diarization segments, sequence-aware.
-
-    Tokens are WORDS here (the daemon is queried in 'timestamps' mode, i.e.
-    TimestampMode::Words), so the fusion is the same one the file path uses:
-    _assign_speakers scores the whole chunk at once instead of picking a
-    speaker per token in isolation. The previous per-token max-overlap rule
-    copied every diarizer blip onto the words (a 0.4 s spurious segment split
-    a continuous turn into three lines) and left a token with no overlap at
-    all speakerless.
-    Consecutive tokens with the same speaker are grouped into one line.
-    Local chunk timestamps are offset to absolute meeting timestamps via chunk_offset.
-
-    Emits aligned(chunk_id, lines) where:
-      lines = [{"speaker": int, "text": str, "start_s": float, "end_s": float}, ...]
-    """
-
-    aligned = pyqtSignal(int, list)
-
-    def __init__(self):
-        super().__init__()
-        self.chunk_offset = {}      # chunk_id → absolute offset in seconds
-        self._transcription = {}    # chunk_id → tokens
-        self._diarization = {}      # chunk_id → segments
-
-    def on_transcribed(self, chunk_id: int, tokens: list):
-        self._transcription[chunk_id] = tokens
-        self._try_align(chunk_id)
-
-    def on_diarized(self, chunk_id: int, segments: list):
-        self._diarization[chunk_id] = segments
-        self._try_align(chunk_id)
-
-    def _try_align(self, chunk_id: int):
-        if chunk_id not in self._transcription or chunk_id not in self._diarization:
-            return
-        tokens = self._transcription.pop(chunk_id)
-        segments = self._diarization.pop(chunk_id)
-        offset = self.chunk_offset.get(chunk_id, 0.0)
-
-        # _assign_speakers speaks the file path's field names; translate both
-        # ends rather than fork the copied function.
-        assigned = _assign_speakers(
-            [{"start": t["start_s"], "end": t["end_s"], "text": t["text"]}
-             for t in tokens],
-            [{"start": s["start_s"], "end": s["end_s"], "speaker": s["speaker_id"]}
-             for s in segments])
-
-        lines = []
-        current_speaker = None
-        current_text = []
-        current_start = None
-        current_end = None
-
-        for tok, spk in zip(tokens, assigned):
-            if spk != current_speaker:
-                if current_speaker is not None:
-                    lines.append({
-                        "speaker": current_speaker,
-                        "text": " ".join(current_text).strip(),
-                        "start_s": current_start + offset,
-                        "end_s": current_end + offset,
-                    })
-                current_speaker = spk
-                current_text = [tok["text"]]
-                current_start = tok["start_s"]
-            else:
-                current_text.append(tok["text"])
-            current_end = tok["end_s"]
-
-        if current_speaker is not None:
-            lines.append({
-                "speaker": current_speaker,
-                "text": " ".join(current_text).strip(),
-                "start_s": current_start + offset,
-                "end_s": current_end + offset,
-            })
-
-        self.aligned.emit(chunk_id, lines)
 
 
 class SourceComboBox(QComboBox):
@@ -1484,7 +1212,7 @@ class MeetingWindow(QWidget):
     `dictee-transcribe --file <audio.wav> --diarize` to open the familiar
     transcription window for diarization + LLM analysis + export.
 
-    The live preview accordion streams chunk-by-chunk transcript during
+    The live preview accordion shows the transcript turn by turn during
     recording — it is a bonus preview only.
     """
 
@@ -1493,6 +1221,11 @@ class MeetingWindow(QWidget):
         "#388E3C",  # green
         "#F57C00",  # orange
         "#C62828",  # red
+        # Speakers 4 to 7 (Nemotron 3 tells up to 8 apart)
+        "#7B1FA2",  # purple
+        "#00838F",  # cyan
+        "#AD1457",  # pink
+        "#5D4037",  # brown
     ]
 
     def __init__(self):
@@ -1524,10 +1257,7 @@ class MeetingWindow(QWidget):
         self._speaker_name_map = {}      # {speaker_id: user_provided_name}
         self._speaker_row_widgets = {}   # {speaker_id: QLineEdit} for dynamic update
 
-        self.chunker = None
-        self.transcriber = None
-        self.diarizer = None
-        self.aligner = None
+        self._live = None            # LivePreviewThread while recording
 
         self._tick_timer = QTimer(self)
         self._tick_timer.timeout.connect(self._tick)
@@ -1589,9 +1319,6 @@ class MeetingWindow(QWidget):
         self.cmb_source.setEnabled(state in ("idle", "stopped"))
         self.chk_include_mic.setEnabled(state in ("idle", "stopped"))
         self._title_edit.setEnabled(state in ("idle", "stopped"))
-        # Live chunking indicators: only meaningful while capturing.
-        if getattr(self, "_chunk_indicators", None) is not None:
-            self._chunk_indicators.setVisible(state in ("recording", "paused"))
 
         self.status_label.setText({
             "idle": "Prêt à enregistrer",
@@ -1685,38 +1412,42 @@ class MeetingWindow(QWidget):
         left_col.addLayout(src_row)
 
         # ASR model selector: persisted in DICTEE_MEETING_ASR_MODEL, defaults to
-        # the current F9 model (backend + quant from dictee.conf).
+        # the F9 engine when the meeting offers it, else Whisper-Rust.
         model_row = QHBoxLayout()
         self._model_lbl = QLabel("Modèle :")
         model_row.addWidget(self._model_lbl)
         self._model_combo = QComboBox()
-        # One entry per whisper ENGINE: the model size follows the
-        # dictee-setup selection (DICTEE_WHISPER_MODEL /
-        # DICTEE_WHISPER_RUST_MODEL in dictee.conf). The configured size is
-        # shown in parentheses (snapshot at window build).
+        # Whisper-Rust is listed per ENGINE: the model size follows the
+        # dictee-setup selection (DICTEE_WHISPER_RUST_MODEL), shown in
+        # parentheses (snapshot at window build). Parakeet and faster-whisper
+        # left the list on 2026-10-04: Parakeet turns some recordings into
+        # English. Entries this machine cannot run are greyed out.
         _conf = self._conf_dict()
-        _wh_size = (_conf.get("DICTEE_WHISPER_MODEL") or "small").strip()
-        if _wh_size not in ("tiny", "small", "medium"):
-            _wh_size = "small"
         _wr_size = (_conf.get("DICTEE_WHISPER_RUST_MODEL") or "large-v3").strip()
-        for _lbl, _spec in (("Parakeet int8", "parakeet-int8"),
-                            ("Parakeet fp32", "parakeet-fp32"),
-                            (f"faster-whisper ({_wh_size})", "whisper"),
-                            (f"Whisper-Rust ({_wr_size})", "whisper-rust"),
-                            ("Nemotron", "nemotron")):
-            self._model_combo.addItem(_lbl, _spec)
+        _lang = (_conf.get("DICTEE_LANG_SOURCE") or "fr").strip()
+        _entries = [(f"Whisper-Rust ({_wr_size})", "whisper-rust"),
+                    ("Nemotron", "nemotron"),
+                    (f"Canary ({_lang})", "canary")]
         # Kyutai ships in the CUDA package only — offering it where the binary
         # cannot exist would be a dead entry (unlike whisper-rust, in both).
         if shutil.which("transcribe-daemon-kyutai"):
-            self._model_combo.addItem("Kyutai (fr/en, GPU)", "kyutai")
+            _entries.append(("Kyutai (fr/en, GPU)", "kyutai"))
+        for _lbl, _spec in _entries:
+            self._model_combo.addItem(_lbl, _spec)
+            if live_asr_daemon(_spec, _conf, "")[0] is None:
+                self._model_combo.model().item(
+                    self._model_combo.count() - 1).setEnabled(False)
         self._model_combo.setToolTip(
-            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
+            "Modèle ASR pour cette réunion. La taille de Whisper-Rust suit "
             "le choix fait dans dictee-setup.")
-        # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper specs
-        # folded into the engine-level ones), else the current F9 model.
-        _saved = normalize_asr_spec(
-            _conf.get("DICTEE_MEETING_ASR_MODEL") or current_f9_spec(_conf))
-        _i = self._model_combo.findData(_saved)
+        # Default: saved DICTEE_MEETING_ASR_MODEL (older sized whisper-rust
+        # specs folded into the engine-level one) when still offered, else
+        # default_meeting_asr.
+        _default = default_meeting_asr(_conf)
+        _i = self._model_combo.findData(normalize_asr_spec(
+            _conf.get("DICTEE_MEETING_ASR_MODEL") or _default))
+        if _i < 0 or not self._model_combo.model().item(_i).isEnabled():
+            _i = self._model_combo.findData(_default)
         if _i >= 0:
             self._model_combo.setCurrentIndex(_i)
         self._model_combo.currentIndexChanged.connect(
@@ -1726,34 +1457,31 @@ class MeetingWindow(QWidget):
         left_col.addLayout(model_row)
 
         # Diarization engine selector: persisted in DICTEE_MEETING_DIAR_ENGINE.
-        # "auto" keeps the historical behavior (multi-speaker engine when
-        # installed, else Sortformer); the explicit entries let the user pick
-        # per meeting (e.g. Sortformer on heavily produced/musical audio).
+        # Nemotron 3 cuts the live preview by voices and runs the final
+        # analysis; MOSS only runs the final analysis (no streaming mode).
+        # Values saved by older versions (auto, multi, sortformer) fall back
+        # to Nemotron 3.
         diar_row = QHBoxLayout()
         diar_row.addWidget(QLabel("Diarisation :"))
         self._diar_combo = QComboBox()
-        _multi_ok = _diar_multi_available()
-        _sf_ok = bool(shutil.which("diarize-only"))
-        _moss_ok = _moss_available()
-        for _lbl, _key in (("Auto", "auto"),
-                           ("Multi-locuteurs (sans limite)", "multi"),
-                           ("Sortformer (4 max)", "sortformer"),
-                           ("MOSS (analyse finale seule)", "moss")):
+        for _lbl, _key, _ok in (
+                ("Nemotron 3 (8 max)", "nemotron3",
+                 _nemotron3_dir() is not None and bool(shutil.which("diarize-only"))),
+                ("MOSS (analyse finale seule)", "moss", _moss_available())):
             self._diar_combo.addItem(_lbl, _key)
-        if not _multi_ok:
-            self._diar_combo.model().item(1).setEnabled(False)
-        if not _sf_ok:
-            self._diar_combo.model().item(2).setEnabled(False)
-        if not _moss_ok:
-            self._diar_combo.model().item(3).setEnabled(False)
+            if not _ok:
+                self._diar_combo.model().item(
+                    self._diar_combo.count() - 1).setEnabled(False)
         self._diar_combo.setToolTip(
             "Moteur de séparation des locuteurs.\n"
-            "Auto = multi-locuteurs si installé, sinon Sortformer.\n"
+            "Nemotron 3 (NVIDIA) distingue jusqu'à 8 voix : il découpe "
+            "l'aperçu en direct par tours de parole, puis fait l'analyse "
+            "finale.\n"
             "MOSS transcrit et identifie les locuteurs en une passe, avec "
             "son propre moteur ASR : il ne sert QUE l'analyse finale au "
-            "Stop (pas de mode flux, donc l'aperçu live garde le moteur "
-            "ci-dessus et le modèle choisi est ignoré).")
-        _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "auto").strip()
+            "Stop (pas de mode flux, donc l'aperçu live garde Nemotron 3 et "
+            "le modèle choisi ne sert qu'à l'aperçu).")
+        _saved_diar = (_conf.get("DICTEE_MEETING_DIAR_ENGINE") or "nemotron3").strip()
         _i = self._diar_combo.findData(_saved_diar)
         if _i >= 0 and self._diar_combo.model().item(_i).isEnabled():
             self._diar_combo.setCurrentIndex(_i)
@@ -1903,57 +1631,6 @@ class MeetingWindow(QWidget):
             "QToolButton { border: none; font-weight: bold; padding: 6px; text-align: left; }"
             "QToolButton:hover { background-color: rgba(0,0,0,0.05); }"
         )
-
-        # Live chunking indicators (thin bars + small fonts) just above the
-        # "Aperçu en direct" accordion. Bar 1 ("Chunk en cours") = the new audio
-        # accumulating toward the next live update (also = the tail still pending
-        # if you stop now). Bar 2 ("Contexte") = the overlap window reused as
-        # look-back context by the model. Driven by _tick, visible while recording.
-        self._chunk_indicators = QWidget()
-        _ind = QVBoxLayout(self._chunk_indicators)
-        _ind.setContentsMargins(6, 0, 6, 2)
-        _ind.setSpacing(1)
-        _SMALL = "font-size: 8pt; color: gray;"
-
-        def _ind_row(caption, color):
-            row = QHBoxLayout()
-            row.setSpacing(4)
-            cap = QLabel(caption)
-            cap.setStyleSheet(_SMALL)
-            cap.setFixedWidth(90)
-            bar = QProgressBar()
-            bar.setTextVisible(False)
-            bar.setRange(0, 100)
-            bar.setFixedHeight(5)
-            bar.setStyleSheet(
-                "QProgressBar { border: none; background: rgba(0,0,0,0.08); "
-                "border-radius: 2px; }"
-                f"QProgressBar::chunk {{ background-color: {color}; border-radius: 2px; }}")
-            val = QLabel("")
-            val.setStyleSheet(_SMALL)
-            val.setFixedWidth(70)
-            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            row.addWidget(cap)
-            row.addWidget(bar, 1)
-            row.addWidget(val)
-            _ind.addLayout(row)
-            return bar, val, cap
-
-        # Chunk caption is dynamic ("Chunk N", updated in _update_chunk_indicators);
-        # its fixed width reserves space so the bar never shifts as N grows.
-        self._bar_chunk, self._chunk_val, self._lbl_chunk = _ind_row("Chunk 1", "#e74c3c")
-        self._bar_ctx, self._ctx_val, _ = _ind_row("Contexte", "#27ae60")
-        # Smooth the per-second jumps: animate each bar toward its new target
-        # over ~1 s (linear) instead of snapping. _update_chunk_indicators sets
-        # the targets once per tick; these slide there continuously.
-        self._anim_chunk = QPropertyAnimation(self._bar_chunk, b"value")
-        self._anim_chunk.setDuration(950)
-        self._anim_chunk.setEasingCurve(QEasingCurve.Type.Linear)
-        self._anim_ctx = QPropertyAnimation(self._bar_ctx, b"value")
-        self._anim_ctx.setDuration(950)
-        self._anim_ctx.setEasingCurve(QEasingCurve.Type.Linear)
-        self._chunk_indicators.setVisible(False)   # only while recording
-        layout.addWidget(self._chunk_indicators)
 
         layout.addWidget(self.preview_toggle)
 
@@ -2442,13 +2119,13 @@ class MeetingWindow(QWidget):
         """MOSS brings its own ASR: the model combo then only drives the
         live preview, not the final transcript. Say so instead of letting
         the user believe their model choice shapes the result."""
-        _moss = (self._diar_combo.currentData() or "auto") == "moss"
+        _moss = self._diar_combo.currentData() == "moss"
         self._model_lbl.setText("Modèle (aperçu) :" if _moss else "Modèle :")
         self._model_combo.setToolTip(
             "Modèle ASR de l'APERÇU LIVE uniquement : MOSS transcrit le "
             "fichier final avec son propre moteur."
             if _moss else
-            "Modèle ASR pour cette réunion. Les tailles Whisper suivent "
+            "Modèle ASR pour cette réunion. La taille de Whisper-Rust suit "
             "le choix fait dans dictee-setup.")
 
     def _write_conf_key(self, key, value):
@@ -2534,7 +2211,7 @@ class MeetingWindow(QWidget):
 
     def start_meeting(self):
         # Re-entrancy guard: never start a second capture over a live one
-        # (would orphan the previous worker/chunker/diarizer/executor).
+        # (would orphan the previous capture and live preview).
         if self._state in ("recording", "paused") or self.audio_worker:
             return
         # Guard rail: an "app:" source needs the dictee-app-capture helper.
@@ -2559,7 +2236,6 @@ class MeetingWindow(QWidget):
         self.meeting_dir = meeting_dir(title=self._title_edit.text())
         self._title = self._title_edit.text().strip()
         self.audio_wav = self.meeting_dir / "audio.wav"
-        chunks_dir = self.meeting_dir / "chunks"
         self.transcript_path = self.meeting_dir / "transcript-live.md"
 
         # Init transcript markdown header
@@ -2600,203 +2276,11 @@ class MeetingWindow(QWidget):
         self.audio_worker.ready.connect(self._on_capture_ready)
         self.audio_worker.start()
 
-        # Read chunk duration from conf (default 40s, range 20-60)
-        chunk_duration = 40
-        try:
-            conf_path = Path.home() / ".config/dictee.conf"
-            if conf_path.exists():
-                for line in conf_path.read_text().splitlines():
-                    if line.startswith("DICTEE_MEETING_CHUNK_S="):
-                        val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                        chunk_duration = max(20, min(60, int(val)))
-                        break
-        except (OSError, ValueError):
-            pass
-        self.chunk_duration = chunk_duration
-        self._last_emit_elapsed = 0   # for the "chunk en cours" indicator bar
-        self._finalized = False       # stop-finalize guard (tail flush flow)
+        self._finalized = False       # stop-finalize guard
         self._finalizing = False
-        self._tail_chunk_id = None
-
-        # Workers for live preview
-        self.chunker = ChunkerWorker(self.audio_wav, chunks_dir,
-                                     chunk_duration=chunk_duration, overlap=10)
-        self.chunker.chunk_ready.connect(self._on_chunk_ready)
-        self.chunker.error.connect(self._on_error_msg)
-        self.chunker.start()
-
-        # If the chosen ASR model is Whisper or Nemotron, spawn a dedicated
-        # isolated daemon (private socket) for the live preview so the live text
-        # comes out in the right language — the F9 daemon is Parakeet, which
-        # anglicizes French. Other models keep using the F9 daemon for the live
-        # preview.
         self._live_asr_proc = None
         self._live_asr_sock = None
         self._daemon_was_active = False   # F9 services stopped to free VRAM
-        _spec = self._model_combo.currentData()
-        if _spec == "whisper-rust":
-            # Isolated whisper.cpp daemon on a private socket. The ggml model
-            # is the one selected in dictee-setup: _build_subprocess_env()
-            # forwards DICTEE_WHISPER_RUST_GGML from dictee.conf.
-            _env = _build_subprocess_env()
-            _ggml = _env.get("DICTEE_WHISPER_RUST_GGML", "")
-            if not (_ggml and os.path.isfile(_ggml)):
-                self._on_error_msg("Aucun modèle Whisper-Rust installé "
-                                   "(voir dictee-setup) — live en Parakeet")
-            elif not shutil.which("transcribe-daemon-whisper-rust"):
-                # Checked BEFORE _free_vram_for_live_daemon(): that call
-                # stops the F9 services, so a failed Popen after it left NO
-                # live engine at all — the promised Parakeet fallback needs
-                # the F9 daemon still running (2026-07-19: a whole meeting
-                # recorded with a dead live preview and no visible error).
-                self._on_error_msg("transcribe-daemon-whisper-rust "
-                                   "introuvable — live en Parakeet")
-            else:
-                self._live_asr_sock = \
-                    f"/tmp/dictee-meeting-whisper-rust-{os.getpid()}.sock"
-                self._free_vram_for_live_daemon()
-                _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
-                # Flip the daemon to its whisper branch: the conf-level
-                # DICTEE_ASR_BACKEND (e.g. parakeet) forwarded by
-                # _build_subprocess_env would silently win otherwise and the
-                # "Whisper-Rust" live preview would transcribe with Parakeet.
-                _env["DICTEE_ASR_BACKEND"] = "whisper"
-                try:
-                    os.unlink(self._live_asr_sock)
-                except OSError:
-                    pass
-                try:
-                    self._live_asr_proc = subprocess.Popen(
-                        ["transcribe-daemon-whisper-rust",
-                         "--socket", self._live_asr_sock],
-                        env=_env,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except FileNotFoundError:
-                    self._on_error_msg("transcribe-daemon-whisper-rust "
-                                       "introuvable — live en Parakeet")
-                    self._live_asr_sock = None
-        elif _spec == "whisper" or (_spec and _spec.startswith("whisper-")):
-            self._live_asr_sock = f"/tmp/dictee-meeting-whisper-{os.getpid()}.sock"
-            _env = _build_subprocess_env()
-            if _spec != "whisper":
-                # Legacy sized spec (saved before the engine-level combo);
-                # plain "whisper" follows DICTEE_WHISPER_MODEL from the conf.
-                _env["DICTEE_WHISPER_MODEL"] = _spec.split("-", 1)[1]
-            _env["DICTEE_TRANSCRIBE_SOCKET"] = self._live_asr_sock
-            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
-            try:
-                os.unlink(self._live_asr_sock)
-            except OSError:
-                pass
-            try:
-                self._live_asr_proc = subprocess.Popen(
-                    ["transcribe-daemon-whisper"], env=_env,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except FileNotFoundError:
-                self._on_error_msg("transcribe-daemon-whisper introuvable — live en Parakeet")
-                self._live_asr_sock = None
-        elif _spec == "nemotron" and not shutil.which("transcribe-daemon"):
-            # Same guard as whisper-rust: never stop the F9 services for a
-            # daemon binary that isn't there — the fallback needs them alive.
-            self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
-        elif _spec == "nemotron":
-            # Nemotron emits no word timestamps, so the live preview switches to
-            # per-Sortformer-segment transcription on this private daemon (see
-            # TranscriptionWorker.transcribe_segments). Recipe mirrors
-            # dictee-transcribe's IsolatedAsrDaemon.
-            self._live_asr_sock = f"/tmp/dictee-meeting-nemotron-{os.getpid()}.sock"
-            self._free_vram_for_live_daemon()
-            _env = _build_subprocess_env()
-            _env["DICTEE_ASR_BACKEND"] = "nemotron"
-            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
-            _ort = "/usr/lib/dictee/libonnxruntime.so"
-            if os.path.isfile(_ort):
-                _env.setdefault("ORT_DYLIB_PATH", _ort)
-            try:
-                os.unlink(self._live_asr_sock)
-            except OSError:
-                pass
-            try:
-                self._live_asr_proc = subprocess.Popen(
-                    ["transcribe-daemon", "--socket", self._live_asr_sock],
-                    env=_env,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except FileNotFoundError:
-                self._on_error_msg("transcribe-daemon introuvable — live en Parakeet")
-                self._live_asr_sock = None
-        elif _spec == "kyutai" and not shutil.which("transcribe-daemon-kyutai"):
-            # Checked BEFORE _free_vram_for_live_daemon(), like whisper-rust:
-            # stopping the F9 services for a missing binary would leave no live
-            # engine at all, and the promised Parakeet fallback needs them up.
-            self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
-        elif _spec == "kyutai":
-            # Kyutai emits no word timestamps either, so it takes the same
-            # per-Sortformer-segment path as nemotron. Its own binary resolves
-            # the model dir itself and takes --socket (candle crate).
-            self._live_asr_sock = f"/tmp/dictee-meeting-kyutai-{os.getpid()}.sock"
-            self._free_vram_for_live_daemon()
-            _env = _build_subprocess_env()
-            _env["DICTEE_ASR_BACKEND"] = "kyutai"
-            _env["DICTEE_DAEMON_NO_PROVIDER"] = "1"   # never clobber the F9 badge
-            try:
-                os.unlink(self._live_asr_sock)
-            except OSError:
-                pass
-            try:
-                self._live_asr_proc = subprocess.Popen(
-                    ["transcribe-daemon-kyutai", "--socket", self._live_asr_sock],
-                    env=_env,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            except FileNotFoundError:
-                self._on_error_msg("transcribe-daemon-kyutai introuvable — live en Parakeet")
-                self._live_asr_sock = None
-
-        # "nemotron_live" really means "timestamp-less engine": the live preview
-        # transcribes one Sortformer segment at a time instead of splitting on
-        # word timestamps. Kyutai is in the same case (see dictee's dual-
-        # transcription list).
-        self._nemotron_live = (bool(self._live_asr_sock)
-                               and _spec in ("nemotron", "kyutai"))
-        self._chunk_paths = {}            # chunk_id → wav path (nemotron live)
-        # Any whisper-family private socket (faster-whisper AND whisper-rust:
-        # both daemons speak the same protocol with word timestamps).
-        _whisper_sock = None if self._nemotron_live else self._live_asr_sock
-        _nemotron_sock = self._live_asr_sock if self._nemotron_live else None
-        self.transcriber = TranscriptionWorker(whisper_sock=_whisper_sock,
-                                               nemotron_sock=_nemotron_sock)
-        # MOSS has no streaming mode: the live preview falls back to the
-        # streaming engines ("auto"), and MOSS is applied at Stop only —
-        # the handoff passes it to dictee-transcribe via --diar-engine.
-        _diar_live = self._diar_combo.currentData() or "auto"
-        if _diar_live == "moss":
-            _diar_live = "auto"
-        self.diarizer = DiarizationWorker(
-            overlap=10,  # same overlap as ChunkerWorker
-            engine=_diar_live,
-            sensitivity=self._diar_slider.value() / 100.0)
-        self._diarizer_ready = False
-        self.diarizer.ready.connect(self._on_diarizer_ready)
-        if not self.diarizer.start():   # non-blocking: model loads in background
-            self._on_error_msg(f"Failed to start {self.diarizer.label}")
-
-        self.aligner = AlignerWorker()
-        self.aligner.chunk_offset = {}
-
-        self.transcriber.transcribed.connect(self.aligner.on_transcribed)
-        if self._nemotron_live:
-            # Per-segment mode: the diarizer drives transcription and the
-            # aligner is bypassed (Nemotron has no word timestamps).
-            self.diarizer.diarized.connect(self._on_diarized_nemotron)
-            self.transcriber.aligned_direct.connect(self._on_aligned)
-        else:
-            self.diarizer.diarized.connect(self.aligner.on_diarized)
-        self.aligner.aligned.connect(self._on_aligned)
-        self.transcriber.error.connect(self._on_chunk_error)
-        self.diarizer.error.connect(self._on_chunk_error)
-
-        # Background executor for blocking subprocess calls
-        import concurrent.futures
-        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
         # File watcher for the preview view
         self.watcher = QFileSystemWatcher([str(self.transcript_path)])
@@ -2804,33 +2288,70 @@ class MeetingWindow(QWidget):
 
         self._tick_timer.start()
         self._set_state("recording")
+        self._start_live_preview()
+
+    def _start_live_preview(self):
+        """The live preview: Nemotron 3 in low latency cuts the recording by
+        voices, the chosen ASR model transcribes each turn on an isolated
+        daemon (Parakeet's F9 daemon is never used: it turns some recordings
+        into English). The recording does not depend on it: without the
+        models, the meeting is recorded and analysed at Stop."""
+        diar_dir = _nemotron3_dir()
+        if diar_dir is None or not shutil.which("diarize-only"):
+            self._preview_unavailable("Nemotron 3 n'est pas installé (voir dictee-setup)")
+            return
+        sock = f"/tmp/dictee-meeting-asr-{os.getpid()}.sock"
+        env = _build_subprocess_env()
+        cmd, extra = live_asr_daemon(self._model_combo.currentData(), env, sock)
+        if cmd is None:
+            # Checked BEFORE _free_vram_for_live_daemon(): stopping the F9
+            # services for an engine that cannot start would be for nothing.
+            self._preview_unavailable(extra)
+            return
+        self._free_vram_for_live_daemon()
+        env.update(extra)
+        try:
+            os.unlink(sock)
+        except OSError:
+            pass
+        try:
+            self._live_asr_proc = subprocess.Popen(
+                cmd, env=env,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            self._preview_unavailable(f"{cmd[0]} : {e}")
+            self._stop_live_asr_daemon()     # restarts F9 if it was stopped
+            return
+        self._live_asr_sock = sock
+        self._live = LivePreviewThread(
+            self.audio_wav,
+            ["diarize-only", "--stream", "--engine", "nemotron3", "--pieces",
+             "--sensitivity", f"{self._diar_slider.value() / 100.0:.2f}",
+             diar_dir],
+            sock, _build_subprocess_env())
+        self._live.ready.connect(self._on_diarizer_ready)
+        self._live.line.connect(self._on_live_line)
+        self._live.error.connect(self._on_live_error)
+        self._live.finished.connect(self._on_live_finished)
+        self._live.start()
         # Models load in the background (no UI freeze); keep the user informed.
-        _loading = ["diarisation"]
-        if self._live_asr_proc is not None:
-            _loading.append("Nemotron" if self._nemotron_live else "Whisper")
-        self.status_label.setText("⏳ Chargement du modèle : " + " + ".join(_loading) + "…")
+        self.status_label.setText(
+            "⏳ Chargement des modèles : Nemotron 3 + "
+            f"{self._model_combo.currentText()}…")
+
+    def _preview_unavailable(self, reason):
+        self.status_label.setText(
+            f"Aperçu indisponible : {reason} — l'enregistrement continue")
+        print(f"[meeting-live] no live preview: {reason}", file=sys.stderr)
 
     def _on_diarizer_ready(self):
-        self._diarizer_ready = True
         if self._state == "recording":
             self.status_label.setText("Enregistrement en cours — modèles prêts")
-
-    def _on_diarized_nemotron(self, chunk_id: int, segments: list):
-        """Nemotron live: a chunk's Sortformer segments just arrived — launch
-        the per-segment transcription (the aligner is bypassed)."""
-        if getattr(self, "_finalized", False):
-            return
-        chunk_path = self._chunk_paths.pop(chunk_id, None)
-        if chunk_path is None:
-            return
-        offset = self.aligner.chunk_offset.get(chunk_id, 0.0)
-        self._executor.submit(self.transcriber.transcribe_segments,
-                              chunk_id, chunk_path, segments, offset)
 
     def _free_vram_for_live_daemon(self):
         """Stop the F9 daemon services when free VRAM is too tight for the
         isolated live ASR daemon (whisper-rust ~1.6 GB, nemotron ~3.5 GB)
-        next to streaming Sortformer. Mirrors dictee-transcribe's VRAM-free
+        next to Nemotron 3 Diarization. Mirrors dictee-transcribe's VRAM-free
         block; services are restarted in _stop_live_asr_daemon()."""
         try:
             result = subprocess.run(
@@ -2841,7 +2362,7 @@ class MeetingWindow(QWidget):
                         if result.returncode == 0 else "")
             if not (free_str and free_str.isdigit()):
                 return
-            if int(free_str) >= 5120:   # nemotron ~3.5 GB + Sortformer margin
+            if int(free_str) >= 5120:   # nemotron ~3.5 GB + Nemotron 3 margin
                 return
             result2 = subprocess.run(
                 ["nvidia-smi", "--query-compute-apps=name",
@@ -2886,43 +2407,26 @@ class MeetingWindow(QWidget):
         except Exception:
             pass
 
-    def _on_chunk_ready(self, chunk_id: int, chunk_path: str):
-        # Guard against a tail chunk_ready that arrives after the pipeline was
-        # already finalized (e.g. the chunker join timed out and _on_stop took
-        # the no-tail path): submitting to the shut-down executor would raise.
-        if getattr(self, "_finalized", False):
-            return
-        # A chunk was just extracted → reset the "chunk en cours" bar baseline.
-        self._last_emit_elapsed = self.elapsed_seconds
-        # Compute absolute offset for aligner: chunk N starts at N * advance
-        self.aligner.chunk_offset[chunk_id] = chunk_id * (self.chunk_duration - 10)
-        if getattr(self, "_nemotron_live", False):
-            # Per-segment mode: transcription waits for this chunk's Sortformer
-            # segments (_on_diarized_nemotron); only the diarizer runs now.
-            self._chunk_paths[chunk_id] = chunk_path
-        else:
-            self._executor.submit(self.transcriber.transcribe, chunk_id, chunk_path)
-        self._executor.submit(self.diarizer.diarize, chunk_id, chunk_path)
-        if not getattr(self, "_finalizing", False):
-            self.status_label.setText(
-                f"⚙ Chunk {chunk_id + 1} : transcription + diarisation…")
-
-    def _on_aligned(self, chunk_id: int, lines: list):
+    def _on_live_line(self, ln):
+        """A turn the live preview has transcribed: one transcript line."""
+        spk = ln["speaker"]
         with open(self.transcript_path, "a", encoding="utf-8") as f:
-            for ln in lines:
-                spk = ln["speaker"]
-                if spk == -1:
-                    continue
-                f.write(f"[{ln['start_s']:.3f}s - {ln['end_s']:.3f}s] Speaker {spk}: {ln['text']}\n")
+            f.write(f"[{ln['start_s']:.3f}s - {ln['end_s']:.3f}s] Speaker {spk}: {ln['text']}\n")
+        # A brand-new speaker gets a naming row in the panel
+        if spk not in self.speakers_seen:
+            self.speakers_seen.add(spk)
+            self._add_speaker_row(spk)
 
-                # NEW: if this is a brand-new speaker, add a naming row in the panel
-                if spk not in self.speakers_seen:
-                    self.speakers_seen.add(spk)
-                    self._add_speaker_row(spk)
+    def _on_live_error(self, msg):
+        # Not fatal: the recording goes on, only the preview is missing.
+        print(f"[meeting-live] live preview: {msg}", file=sys.stderr)
         if not getattr(self, "_finalizing", False):
-            self.status_label.setText(f"✓ Chunk {chunk_id + 1} ajouté à l'aperçu")
-        # The tail chunk (flushed on stop) just landed → finalize the stop.
-        if getattr(self, "_finalizing", False) and chunk_id == getattr(self, "_tail_chunk_id", None):
+            self.status_label.setText(f"⚠ Aperçu : {msg}")
+
+    def _on_live_finished(self):
+        # After finish(), the last turns are in: the stop can complete. An
+        # end while recording means the preview failed (already reported).
+        if getattr(self, "_finalizing", False):
             self._finalize_stop()
 
     def _add_speaker_row(self, spk_id: int):
@@ -2945,13 +2449,6 @@ class MeetingWindow(QWidget):
             self._speaker_name_map.pop(spk_id, None)
         # Trigger transcript view re-render to reflect the new name
         self._reload_transcript()
-
-    def _on_chunk_error(self, chunk_id: int, msg: str):
-        print(f"[meeting-live] chunk {chunk_id}: {msg}", file=sys.stderr)
-        # Surface transient chunk issues (e.g. Whisper model still cold-loading)
-        # in the status bar so the user knows what's happening.
-        if not getattr(self, "_finalizing", False):
-            self.status_label.setText(f"⚠ Chunk {chunk_id + 1} : {msg}")
 
     def _reload_transcript(self):
         if not self.transcript_path:
@@ -3075,43 +2572,42 @@ class MeetingWindow(QWidget):
     def _on_stop(self):
         # Stop the recording and freeze the WAV. Does NOT launch the analysis —
         # the user clicks "Démarrer l'analyse" (btn_analyze) for that.
-        # The chunker flushes a final partial chunk; we keep the live pipeline
-        # alive until that tail is transcribed (so the live preview captures the
-        # end), showing a pie on the stop button meanwhile, then finalize.
+        # The live preview then gets the end of the recording, closes the
+        # turn still open and transcribes the last turns, showing a pie on
+        # the stop button meanwhile, then the stop is finalized.
         self._tick_timer.stop()
 
         if self.audio_worker:
             self.audio_worker.resume()   # ensure not paused so stop() is clean
-            self.audio_worker.stop()
+            self.audio_worker.stop()     # joined: the WAV is complete
             self.audio_worker = None
         self._refresh_meters()           # private app sink gone → re-resolve meters
 
-        # Stop the chunker → it flushes the tail (queued chunk_ready). chunk_id
-        # grows iff a tail chunk was actually emitted.
-        tail_id = None
-        if getattr(self, "chunker", None):
-            before = self.chunker.chunk_id
-            self.chunker.stop()
-            if self.chunker.chunk_id > before:
-                tail_id = self.chunker.chunk_id - 1
-
-        if tail_id is not None:
-            # Keep diarizer / executor / live ASR daemon ALIVE so the queued tail chunk
-            # gets transcribed + diarized; finalize when it aligns (or watchdog).
+        if self._live is not None and self._live.isRunning():
+            # Keep the preview and its ASR daemon ALIVE until the last turns
+            # are in; finalize when its thread ends (or on the watchdog).
             self.btn_stop.setEnabled(False)
             self._blink_timer.stop()
             self.rec_dot.setVisible(False)
             self._apply_icon(False)
-            self._tail_chunk_id = tail_id
             self._finalizing = True
             self._start_stop_pie()
             self._finalize_watchdog = QTimer(self)
             self._finalize_watchdog.setSingleShot(True)
             self._finalize_watchdog.timeout.connect(self._finalize_stop)
-            self._finalize_watchdog.start(25000)   # safety net
-            self.status_label.setText("Finalisation du dernier segment…")
+            self._finalize_watchdog.start(60000)   # safety net
+            self.status_label.setText("Finalisation des dernières répliques…")
+            self._live.preview.finish()
         else:
             self._finalize_stop()
+
+    def _stop_live_preview(self):
+        """Stop the live preview at once (idempotent): its diarizer goes,
+        the turns not transcribed yet are dropped."""
+        live, self._live = self._live, None
+        if live is not None:
+            live.preview.abort()
+            live.wait(5000)
 
     def _start_stop_pie(self):
         """Animate the stop button's pie while the last chunk is processed.
@@ -3150,22 +2646,18 @@ class MeetingWindow(QWidget):
 
     def _finalize_stop(self):
         """Tear down the live pipeline and switch to 'stopped'. Idempotent:
-        runs when the tail chunk aligns, on the watchdog, or directly when
-        there was no tail to flush."""
+        runs when the live preview is done, on the watchdog, or directly
+        when there was no preview to finish."""
         if getattr(self, "_finalized", False):
             return
         self._finalized = True
         self._finalizing = False
-        self._tail_chunk_id = None
         if getattr(self, "_finalize_watchdog", None):
             self._finalize_watchdog.stop()
         self._complete_stop_pie()   # sweep the pie around, then clear
         self._uninhibit_notifications()
 
-        if getattr(self, "diarizer", None):
-            self.diarizer.stop()
-        if getattr(self, "_executor", None):
-            self._executor.shutdown(wait=False)
+        self._stop_live_preview()
         self._stop_live_asr_daemon()
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
@@ -3279,7 +2771,7 @@ class MeetingWindow(QWidget):
         try:
             subprocess.Popen(
                 ["dictee-transcribe", "--file", str(self.audio_wav), "--diarize",
-                 "--diar-engine", self._diar_combo.currentData() or "auto",
+                 "--diar-engine", self._diar_combo.currentData() or "nemotron3",
                  "--asr-model", self._model_combo.currentData()],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
@@ -3322,42 +2814,6 @@ class MeetingWindow(QWidget):
             self.duration_label.setText(f"{h:02d}:{m:02d}:{s:02d}")
         else:
             self.duration_label.setText(f"{m:02d}:{s:02d}")
-        self._update_chunk_indicators()
-
-    def _update_chunk_indicators(self):
-        """Drive the two thin bars above the accordion (called every second).
-        Bar 1 fills over the inter-chunk period (chunk_duration for the very
-        first chunk, then the advance = chunk_duration - overlap); at full a new
-        live block lands. Bar 2 shows the overlap context buffer (fills once,
-        then stays full)."""
-        ch = getattr(self, "chunker", None)
-        if ch is None or getattr(self, "_chunk_indicators", None) is None:
-            return
-        advance = ch.advance
-        overlap = max(0, self.chunk_duration - advance)
-        period = self.chunk_duration if ch.chunk_id == 0 else advance
-        since = max(0, self.elapsed_seconds - getattr(self, "_last_emit_elapsed", 0))
-        since = min(since, period)
-        # 1-indexed current chunk number (chunk_id is the next chunk to emit).
-        self._lbl_chunk.setText(f"Chunk {ch.chunk_id + 1}")
-        self._smooth_bar(self._anim_chunk, self._bar_chunk,
-                         int(100 * since / period) if period else 0)
-        self._chunk_val.setText(f"{since}s / {period}s")
-        # Contexte = the LAST `overlap` seconds of the current chunk — the slice
-        # that overlaps into (and becomes the look-back context of) the next
-        # chunk. Empty until the chunk enters its final `overlap` seconds.
-        ctx_into = max(0, since - (period - overlap))
-        self._smooth_bar(self._anim_ctx, self._bar_ctx,
-                         int(100 * ctx_into / overlap) if overlap else 100)
-        self._ctx_val.setText(f"{ctx_into}s / {overlap}s")
-
-    @staticmethod
-    def _smooth_bar(anim, bar, target):
-        """Animate a progress bar toward `target` from its current value."""
-        anim.stop()
-        anim.setStartValue(bar.value())
-        anim.setEndValue(int(target))
-        anim.start()
 
     def _on_error_msg(self, msg: str):
         self.status_label.setText(f"Erreur : {msg}")
@@ -3379,12 +2835,8 @@ class MeetingWindow(QWidget):
             self.audio_worker.resume()   # unfreeze if paused so stop() is clean
             self.audio_worker.stop()
             self.audio_worker = None
-        if getattr(self, "chunker", None):
-            self.chunker.stop()
-        if getattr(self, "diarizer", None):
-            self.diarizer.stop()
-        if getattr(self, "_executor", None):
-            self._executor.shutdown(wait=False)
+        self._stop_live_preview()
+        self._stop_live_asr_daemon()     # restarts F9 if it was stopped
         try:
             Path("/dev/shm/.dictee_state").write_text("idle\n")
         except OSError:
@@ -3410,14 +2862,9 @@ class MeetingWindow(QWidget):
                 self.audio_worker.resume()   # unfreeze if paused so stop() works
                 self.audio_worker.stop()
                 self.audio_worker = None
-            # Also tear down the analysis pipeline (else diarize-only --stream,
+            # Also tear down the live preview (else diarize-only --stream,
             # a model subprocess possibly holding VRAM, is orphaned on close).
-            if getattr(self, "chunker", None):
-                self.chunker.stop()
-            if getattr(self, "diarizer", None):
-                self.diarizer.stop()
-            if getattr(self, "_executor", None):
-                self._executor.shutdown(wait=False)
+            self._stop_live_preview()
             self._stop_live_asr_daemon()
         # Reset state on window close (regardless of recording state)
         try:

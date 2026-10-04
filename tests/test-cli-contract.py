@@ -29,7 +29,10 @@ ACCEPTED_FLAGS = {
         "--sensitivity", "--model-dir", "--sortformer-dir",
         "--stdin", "--no-postprocess", "--no-diarize", "--help", "-h",
     },
-    "diarize-only": {"--sensitivity", "--stream", "--engine", "--help", "-h"},
+    "diarize-only": {
+        "--sensitivity", "--stream", "--engine", "--pieces", "--max-piece",
+        "--gap", "--margin", "--latency", "--help", "-h",
+    },
     "transcribe-stream-diarize": {"--help", "-h"},
 }
 BINARIES = set(ACCEPTED_FLAGS)
