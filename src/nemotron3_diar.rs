@@ -39,11 +39,36 @@ const LOG_GUARD: f32 = 1.0 / 16_777_216.0; // 2^-24
 const SUBSAMPLING: usize = 8;
 const HIDDEN: usize = 512;
 
-// Offline mode (config.json), in encoder frames.
-const CHUNK_LEN: usize = 340;
-const RIGHT_CONTEXT: usize = 40;
-const FIFO_LEN: usize = 40;
-const UPDATE_PERIOD: usize = 300;
+/// How the speaker cache is fed, in encoder frames of 80 ms: NVIDIA's streaming configurations
+/// (model card). The input buffer latency is (`chunk_len` + `right_context`) x 80 ms.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Latency {
+    /// Encoder frames of a chunk.
+    pub chunk_len: usize,
+    /// Look-ahead frames the chunk takes from the next ones.
+    pub right_context: usize,
+    /// Capacity of the FIFO queue of the most recent frames.
+    pub fifo_len: usize,
+    /// Frames moved from the FIFO queue to the speaker cache when the queue overflows.
+    pub update_period: usize,
+}
+
+impl Latency {
+    /// Offline mode of config.json, 30.4 s: a whole recording.
+    pub const OFFLINE: Self = Self {
+        chunk_len: 340,
+        right_context: 40,
+        fifo_len: 40,
+        update_period: 300,
+    };
+    /// Low latency, 1.04 s: a meeting followed live.
+    pub const LOW: Self = Self {
+        chunk_len: 9,
+        right_context: 4,
+        fifo_len: 264,
+        update_period: 222,
+    };
+}
 
 // Speaker cache policy (streaming_config of config.json). The frame counts are floor(budget x rate)
 // for the rates 0.5, 0.75 and 1.5 of the config, in exact integer arithmetic.
@@ -73,30 +98,129 @@ pub fn log_mel_features(audio: &[f32]) -> (Array2<f32>, usize) {
         signal[pad + i] = audio[i] - PREEMPHASIS * audio[i - 1];
     }
 
-    let mut window = vec![0.0f32; N_FFT];
-    let offset = (N_FFT - WIN_LENGTH) / 2;
-    window[offset..offset + WIN_LENGTH].copy_from_slice(&symmetric_hann(WIN_LENGTH));
-
-    let filters = MelFilter::bank();
-    let fft = FftPlanner::<f32>::new().plan_fft_forward(N_FFT);
-    let mut buffer = vec![Complex::new(0.0f32, 0.0); N_FFT];
-    let mut scratch = vec![Complex::new(0.0f32, 0.0); fft.get_inplace_scratch_len()];
-    let mut power = vec![0.0f32; N_FFT / 2 + 1];
-
-    for (t, mut row) in features.rows_mut().into_iter().take(valid).enumerate() {
-        let frame = &signal[t * HOP_LENGTH..t * HOP_LENGTH + N_FFT];
-        for ((b, &x), &w) in buffer.iter_mut().zip(frame).zip(&window) {
-            *b = Complex::new(x * w, 0.0);
-        }
-        fft.process_with_scratch(&mut buffer, &mut scratch);
-        for (p, c) in power.iter_mut().zip(&buffer) {
-            *p = c.norm_sqr();
-        }
-        for (out, filter) in row.iter_mut().zip(&filters) {
-            *out = (filter.apply(&power) + LOG_GUARD).ln();
-        }
+    let mut spectrum = MelSpectrum::new();
+    for (t, row) in features.rows_mut().into_iter().take(valid).enumerate() {
+        spectrum.frame(&signal[t * HOP_LENGTH..t * HOP_LENGTH + N_FFT], row);
     }
     (features, valid)
+}
+
+/// Window, FFT and mel filterbank of one frame of the pre-emphasised, padded signal.
+struct MelSpectrum {
+    window: Vec<f32>,
+    filters: Vec<MelFilter>,
+    fft: std::sync::Arc<dyn rustfft::Fft<f32>>,
+    buffer: Vec<Complex<f32>>,
+    scratch: Vec<Complex<f32>>,
+    power: Vec<f32>,
+}
+
+impl MelSpectrum {
+    fn new() -> Self {
+        let mut window = vec![0.0f32; N_FFT];
+        let offset = (N_FFT - WIN_LENGTH) / 2;
+        window[offset..offset + WIN_LENGTH].copy_from_slice(&symmetric_hann(WIN_LENGTH));
+        let fft = FftPlanner::<f32>::new().plan_fft_forward(N_FFT);
+        let scratch = vec![Complex::new(0.0f32, 0.0); fft.get_inplace_scratch_len()];
+        Self {
+            window,
+            filters: MelFilter::bank(),
+            fft,
+            buffer: vec![Complex::new(0.0f32, 0.0); N_FFT],
+            scratch,
+            power: vec![0.0f32; N_FFT / 2 + 1],
+        }
+    }
+
+    /// Log-mel values of `frame` (`N_FFT` samples) into `row`.
+    fn frame(&mut self, frame: &[f32], mut row: ndarray::ArrayViewMut1<f32>) {
+        for ((b, &x), &w) in self.buffer.iter_mut().zip(frame).zip(&self.window) {
+            *b = Complex::new(x * w, 0.0);
+        }
+        self.fft
+            .process_with_scratch(&mut self.buffer, &mut self.scratch);
+        for (p, c) in self.power.iter_mut().zip(&self.buffer) {
+            *p = c.norm_sqr();
+        }
+        for (out, filter) in row.iter_mut().zip(&self.filters) {
+            *out = (filter.apply(&self.power) + LOG_GUARD).ln();
+        }
+    }
+}
+
+/// The frames of `log_mel_features` for audio that arrives piece by piece: a frame comes out as
+/// soon as its window is complete, the last ones at `finish`.
+struct MelStream {
+    spectrum: MelSpectrum,
+    /// The pre-emphasised signal with its leading pad, from padded sample `base` on.
+    signal: Vec<f32>,
+    base: usize,
+    last_sample: Option<f32>,
+    samples: usize,
+    next_frame: usize,
+}
+
+impl MelStream {
+    fn new() -> Self {
+        Self {
+            spectrum: MelSpectrum::new(),
+            signal: vec![0.0; N_FFT / 2],
+            base: 0,
+            last_sample: None,
+            samples: 0,
+            next_frame: 0,
+        }
+    }
+
+    /// Frames of the audio so far, `samples / HOP_LENGTH` once finished.
+    fn valid(&self) -> usize {
+        self.samples / HOP_LENGTH
+    }
+
+    /// Appends audio; returns the frames it completes.
+    fn push(&mut self, audio: &[f32]) -> Array2<f32> {
+        for &x in audio {
+            let y = match self.last_sample {
+                None => x,
+                Some(previous) => x - PREEMPHASIS * previous,
+            };
+            self.signal.push(y);
+            self.last_sample = Some(x);
+        }
+        self.samples += audio.len();
+        // frame t takes the padded samples t * HOP_LENGTH .. t * HOP_LENGTH + N_FFT
+        let padded = N_FFT / 2 + self.samples;
+        let complete = if padded >= N_FFT {
+            (padded - N_FFT) / HOP_LENGTH + 1
+        } else {
+            0
+        };
+        self.frames_until(complete)
+    }
+
+    /// End of the audio: the trailing pad, and the frames left.
+    fn finish(&mut self) -> Array2<f32> {
+        self.signal.extend(std::iter::repeat_n(0.0, N_FFT / 2));
+        self.frames_until(self.valid())
+    }
+
+    fn frames_until(&mut self, count: usize) -> Array2<f32> {
+        let n = count.saturating_sub(self.next_frame);
+        let mut out = Array2::<f32>::zeros((n, N_MELS));
+        for (i, row) in out.rows_mut().into_iter().enumerate() {
+            let start = (self.next_frame + i) * HOP_LENGTH - self.base;
+            self.spectrum
+                .frame(&self.signal[start..start + N_FFT], row);
+        }
+        self.next_frame += n;
+        // no later frame needs the samples before its own start
+        let keep_from = self.next_frame * HOP_LENGTH;
+        if keep_from > self.base {
+            self.signal.drain(..keep_from - self.base);
+            self.base = keep_from;
+        }
+        out
+    }
 }
 
 /// `torch.hann_window(len, periodic=False)`, i.e. numpy's `hanning`.
@@ -164,11 +288,14 @@ fn pool_probs(logits: ArrayView2<f32>, valid: &[bool]) -> Array2<f32> {
 
 /// Frames moved from the FIFO queue to the speaker cache: none until the queue overflows, then at
 /// least an update period, and whatever else brings the queue back to its capacity.
-fn popped_frames(fifo_frames: usize) -> usize {
-    if fifo_frames <= FIFO_LEN {
+fn popped_frames(fifo_frames: usize, latency: &Latency) -> usize {
+    if fifo_frames <= latency.fifo_len {
         0
     } else {
-        UPDATE_PERIOD.max(fifo_frames - FIFO_LEN).min(fifo_frames)
+        latency
+            .update_period
+            .max(fifo_frames - latency.fifo_len)
+            .min(fifo_frames)
     }
 }
 
@@ -288,9 +415,10 @@ fn gather(
     (kept_embeds, kept_probs)
 }
 
-/// Arrival-order speaker cache and FIFO queue of the most recent encoder frames, in their offline
-/// sizes: every chunk attends to them.
+/// Arrival-order speaker cache and FIFO queue of the most recent encoder frames, sized by the
+/// latency: every chunk attends to them.
 struct SpeakerCache {
+    latency: Latency,
     embeds: Array2<f32>,
     /// Probabilities of the cache frames; the only ones left once the cache is out of time order.
     probs: Array2<f32>,
@@ -299,8 +427,9 @@ struct SpeakerCache {
 }
 
 impl SpeakerCache {
-    fn new() -> Self {
+    fn new(latency: Latency) -> Self {
         Self {
+            latency,
             embeds: Array2::zeros((0, HIDDEN)),
             probs: Array2::zeros((0, NUM_SPEAKERS)),
             fifo: Array2::zeros((0, HIDDEN)),
@@ -330,7 +459,7 @@ impl SpeakerCache {
             self.fifo,
             step_embeds.slice(s![start..start + chunk_frames, ..])
         ];
-        let popped = popped_frames(fifo.nrows());
+        let popped = popped_frames(fifo.nrows(), &self.latency);
         if popped == 0 {
             self.fifo = fifo;
             return;
@@ -414,6 +543,233 @@ fn output_2d<'a>(outputs: &'a SessionOutputs<'_>, name: &str) -> Result<ArrayVie
         .map_err(|e| Error::Model(format!("unexpected shape of {name}: {e}")))
 }
 
+/// What one forward of the graph gives back: logits every 10 ms over the cached frames, the chunk
+/// and its look-ahead; the chunk's encoder frames; the learned silence embedding.
+struct StepOutput {
+    logits: Array2<f32>,
+    chunk_embeds: Array2<f32>,
+    silence: Vec<f32>,
+}
+
+/// One forward of the graph, behind a trait so that the chunking can be tested without it.
+trait StepModel {
+    fn step(
+        &mut self,
+        features: Array2<f32>,
+        cached: Array2<f32>,
+        mask: &[bool],
+    ) -> Result<StepOutput>;
+}
+
+impl StepModel for Session {
+    fn step(
+        &mut self,
+        features: Array2<f32>,
+        cached: Array2<f32>,
+        mask: &[bool],
+    ) -> Result<StepOutput> {
+        let mask = Array2::from_shape_vec((1, mask.len()), mask.iter().map(|&v| v as i64).collect())
+            .map_err(|e| Error::Model(e.to_string()))?;
+        let outputs = self.run(ort::inputs![
+            "input_features" => Tensor::from_array(features.insert_axis(Axis(0)))?,
+            "cached_embeds" => Tensor::from_array(cached.insert_axis(Axis(0)))?,
+            "attention_mask" => Tensor::from_array(mask)?,
+        ])?;
+        Ok(StepOutput {
+            logits: output_2d(&outputs, "logits")?.to_owned(),
+            chunk_embeds: output_2d(&outputs, "chunk_embeds")?.to_owned(),
+            silence: outputs["silence_embeds"]
+                .try_extract_array::<f32>()?
+                .iter()
+                .copied()
+                .collect(),
+        })
+    }
+}
+
+/// The model's memory from one chunk to the next: the speaker cache with its FIFO queue, and the
+/// learned silence embedding.
+struct Tracker {
+    cache: SpeakerCache,
+    silence: Option<Vec<f32>>,
+}
+
+impl Tracker {
+    fn new(latency: Latency) -> Self {
+        Self {
+            cache: SpeakerCache::new(latency),
+            silence: None,
+        }
+    }
+
+    /// Runs the chunk of `chunk_frames` encoder frames: `features` holds the mel frames of the
+    /// chunk and its look-ahead, `valid` whether each of their encoder frames is real audio.
+    /// Returns the speaker probabilities of the chunk's own first `mel_frames` mel frames.
+    fn step<M: StepModel>(
+        &mut self,
+        model: &mut M,
+        features: Array2<f32>,
+        valid: &[bool],
+        chunk_frames: usize,
+        mel_frames: usize,
+    ) -> Result<Array2<f32>> {
+        let cached = self.cache.frames();
+        let n_cached = cached.nrows();
+        let step_valid: Vec<bool> = std::iter::repeat_n(true, n_cached)
+            .chain(valid.iter().copied())
+            .collect();
+        let out = model.step(features, cached.clone(), &step_valid)?;
+        if self.silence.is_none() {
+            self.silence = Some(out.silence);
+        }
+        let step_probs = pool_probs(out.logits.view(), &step_valid);
+        let step_embeds = concatenate![Axis(0), cached, out.chunk_embeds];
+        self.cache.update(
+            step_embeds.view(),
+            step_probs.view(),
+            self.silence.as_deref().unwrap_or_default(),
+            chunk_frames,
+        );
+        // the chunk's own frames; its look-ahead frames are scored with the next chunk
+        let offset = n_cached * SUBSAMPLING;
+        Ok(out
+            .logits
+            .slice(s![offset..offset + mel_frames, ..])
+            .mapv(sigmoid))
+    }
+}
+
+/// Speaker probabilities of a whole 16 kHz mono recording, chunked by `latency`: (frames,
+/// `NUM_SPEAKERS`), one frame every 10 ms as `log_mel_features` counts them; zero past the audio.
+fn probs_offline<M: StepModel>(model: &mut M, audio: &[f32], latency: Latency) -> Result<Array2<f32>> {
+    let (features, valid) = log_mel_features(audio);
+    let n_frames = features.nrows();
+    let mut probs = Array2::<f32>::zeros((n_frames, NUM_SPEAKERS));
+    if valid == 0 {
+        return Ok(probs);
+    }
+    let n_embeds = n_frames.div_ceil(SUBSAMPLING);
+    let embed_valid: Vec<bool> = (0..n_embeds).map(|j| j * SUBSAMPLING < valid).collect();
+    let mut tracker = Tracker::new(latency);
+    for start in (0..n_embeds).step_by(latency.chunk_len) {
+        let end = (start + latency.chunk_len).min(n_embeds);
+        let stop = (end + latency.right_context).min(n_embeds);
+        let input = features
+            .slice(s![start * SUBSAMPLING..(stop * SUBSAMPLING).min(n_frames), ..])
+            .to_owned();
+        let first = start * SUBSAMPLING;
+        let last = (end * SUBSAMPLING).min(n_frames);
+        let rows = tracker.step(model, input, &embed_valid[start..stop], end - start, last - first)?;
+        probs.slice_mut(s![first..last, ..]).assign(&rows);
+    }
+    probs.slice_mut(s![valid.., ..]).fill(0.0);
+    Ok(probs)
+}
+
+/// The speaker probabilities of `probs_offline` for audio that arrives piece by piece: a chunk is
+/// run as soon as its look-ahead is there, the last ones at `finish`.
+struct ProbStream {
+    latency: Latency,
+    mel: MelStream,
+    tracker: Tracker,
+    /// Mel frames not yet consumed by a chunk, from mel frame `features_base` on.
+    features: Array2<f32>,
+    features_base: usize,
+    next_embed: usize,
+}
+
+impl ProbStream {
+    fn new(latency: Latency) -> Self {
+        Self {
+            latency,
+            mel: MelStream::new(),
+            tracker: Tracker::new(latency),
+            features: Array2::zeros((0, N_MELS)),
+            features_base: 0,
+            next_embed: 0,
+        }
+    }
+
+    /// Appends audio; returns the probabilities of the 10 ms frames it settles.
+    fn push<M: StepModel>(&mut self, model: &mut M, audio: &[f32]) -> Result<Array2<f32>> {
+        let fresh = self.mel.push(audio);
+        self.features = concatenate![Axis(0), self.features, fresh];
+        let mut parts = Vec::new();
+        let (chunk, look_ahead) = (self.latency.chunk_len, self.latency.right_context);
+        // a chunk runs once the mel frames of its look-ahead are all there (all real audio)
+        while (self.next_embed + chunk + look_ahead) * SUBSAMPLING
+            <= self.features_base + self.features.nrows()
+        {
+            let start = self.next_embed;
+            let (end, stop) = (start + chunk, start + chunk + look_ahead);
+            parts.push(self.run_chunk(model, start, end, stop, &vec![true; stop - start], chunk * SUBSAMPLING)?);
+        }
+        Ok(stack_rows(parts))
+    }
+
+    /// End of the audio: the probabilities of every frame left, `probs_offline`'s last rows.
+    fn finish<M: StepModel>(&mut self, model: &mut M) -> Result<Array2<f32>> {
+        let fresh = self.mel.finish();
+        let valid = self.mel.valid();
+        // log_mel_features counts one frame past the valid ones, zero
+        self.features = concatenate![Axis(0), self.features, fresh, Array2::<f32>::zeros((1, N_MELS))];
+        let n_frames = valid + 1;
+        let n_embeds = n_frames.div_ceil(SUBSAMPLING);
+        // the mel frame the rows below start at (the last chunk stops at n_frames, not at its end)
+        let first_row = self.next_embed * SUBSAMPLING;
+        let mut parts = Vec::new();
+        while valid > 0 && self.next_embed < n_embeds {
+            let start = self.next_embed;
+            let end = (start + self.latency.chunk_len).min(n_embeds);
+            let stop = (end + self.latency.right_context).min(n_embeds);
+            let embed_valid: Vec<bool> = (start..stop).map(|j| j * SUBSAMPLING < valid).collect();
+            let mel_frames = (end * SUBSAMPLING).min(n_frames) - start * SUBSAMPLING;
+            parts.push(self.run_chunk(model, start, end, stop, &embed_valid, mel_frames)?);
+        }
+        let mut rows = stack_rows(parts);
+        // the frames past the audio are zero, as in probs_offline; a silent stream has one zero row
+        if valid == 0 {
+            rows = Array2::zeros((n_frames.saturating_sub(first_row), NUM_SPEAKERS));
+        } else {
+            let zero_from = valid.saturating_sub(first_row).min(rows.nrows());
+            rows.slice_mut(s![zero_from.., ..]).fill(0.0);
+            rows = rows.slice(s![..n_frames - first_row, ..]).to_owned();
+        }
+        Ok(rows)
+    }
+
+    fn run_chunk<M: StepModel>(
+        &mut self,
+        model: &mut M,
+        start: usize,
+        end: usize,
+        stop: usize,
+        valid: &[bool],
+        mel_frames: usize,
+    ) -> Result<Array2<f32>> {
+        let available = self.features_base + self.features.nrows();
+        let from = start * SUBSAMPLING - self.features_base;
+        let to = (stop * SUBSAMPLING).min(available) - self.features_base;
+        let input = self.features.slice(s![from..to, ..]).to_owned();
+        let rows = self.tracker.step(model, input, valid, end - start, mel_frames)?;
+        self.next_embed = end;
+        // later chunks start at `end`: drop the frames before it
+        let drop = (end * SUBSAMPLING).min(available) - self.features_base;
+        self.features = self.features.slice(s![drop.., ..]).to_owned();
+        self.features_base += drop;
+        Ok(rows)
+    }
+}
+
+/// `parts` one under the other.
+fn stack_rows(parts: Vec<Array2<f32>>) -> Array2<f32> {
+    let views: Vec<_> = parts.iter().map(|p| p.view()).collect();
+    if views.is_empty() {
+        return Array2::zeros((0, NUM_SPEAKERS));
+    }
+    ndarray::concatenate(Axis(0), &views).expect("rows of the same width")
+}
+
 /// Nemotron 3 Diarization engine.
 pub struct Nemotron3Diarizer {
     session: Session,
@@ -470,78 +826,14 @@ impl Nemotron3Diarizer {
     /// Speaker probabilities of 16 kHz mono audio: (frames, `NUM_SPEAKERS`), one frame every
     /// 10 ms, as `log_mel_features` counts them; zero on the frames past the end of the audio.
     pub fn speaker_probs(&mut self, audio: &[f32]) -> Result<Array2<f32>> {
-        let (features, valid) = log_mel_features(audio);
-        let n_frames = features.nrows();
-        let mut probs = Array2::<f32>::zeros((n_frames, NUM_SPEAKERS));
-        if valid == 0 {
-            return Ok(probs);
-        }
-
-        let n_embeds = n_frames.div_ceil(SUBSAMPLING);
-        let embed_valid: Vec<bool> = (0..n_embeds).map(|j| j * SUBSAMPLING < valid).collect();
-        let mut cache = SpeakerCache::new();
-        let mut silence: Option<Vec<f32>> = None;
-
-        for start in (0..n_embeds).step_by(CHUNK_LEN) {
-            let end = (start + CHUNK_LEN).min(n_embeds);
-            let stop = (end + RIGHT_CONTEXT).min(n_embeds);
-            let cached = cache.frames();
-            let n_cached = cached.nrows();
-            let step_valid: Vec<bool> = std::iter::repeat_n(true, n_cached)
-                .chain(embed_valid[start..stop].iter().copied())
-                .collect();
-
-            let input = features
-                .slice(s![
-                    start * SUBSAMPLING..(stop * SUBSAMPLING).min(n_frames),
-                    ..
-                ])
-                .insert_axis(Axis(0))
-                .to_owned();
-            let mask = Array2::from_shape_vec(
-                (1, step_valid.len()),
-                step_valid.iter().map(|&v| v as i64).collect(),
-            )
-            .map_err(|e| Error::Model(e.to_string()))?;
-            let outputs = self.session.run(ort::inputs![
-                "input_features" => Tensor::from_array(input)?,
-                "cached_embeds" => Tensor::from_array(cached.clone().insert_axis(Axis(0)))?,
-                "attention_mask" => Tensor::from_array(mask)?,
-            ])?;
-            let logits = output_2d(&outputs, "logits")?;
-            let chunk_embeds = output_2d(&outputs, "chunk_embeds")?;
-            if silence.is_none() {
-                let learned = outputs["silence_embeds"].try_extract_array::<f32>()?;
-                silence = Some(learned.iter().copied().collect());
-            }
-
-            let step_probs = pool_probs(logits, &step_valid);
-            let step_embeds = concatenate![Axis(0), cached, chunk_embeds];
-            cache.update(
-                step_embeds.view(),
-                step_probs.view(),
-                silence.as_deref().unwrap_or_default(),
-                end - start,
-            );
-
-            // the chunk's own frames; its look-ahead frames are scored with the next chunk
-            let first = start * SUBSAMPLING;
-            let last = (end * SUBSAMPLING).min(n_frames);
-            let offset = n_cached * SUBSAMPLING;
-            let rows = logits.slice(s![offset..offset + (last - first), ..]);
-            probs
-                .slice_mut(s![first..last, ..])
-                .zip_mut_with(&rows, |p, &x| *p = sigmoid(x));
-        }
-        probs.slice_mut(s![valid.., ..]).fill(0.0);
-        Ok(probs)
+        probs_offline(&mut self.session, audio, Latency::OFFLINE)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{array, s, Array2};
+    use ndarray::{array, concatenate, s, Array2, Axis};
 
     #[test]
     fn hann_window_is_the_symmetric_one() {
@@ -565,11 +857,127 @@ mod tests {
 
     #[test]
     fn the_fifo_pops_once_full_then_by_update_periods() {
-        assert_eq!(popped_frames(0), 0);
-        assert_eq!(popped_frames(40), 0);
-        assert_eq!(popped_frames(41), 41);
-        assert_eq!(popped_frames(340), 300);
-        assert_eq!(popped_frames(380), 340);
+        let offline = Latency::OFFLINE;
+        assert_eq!(popped_frames(0, &offline), 0);
+        assert_eq!(popped_frames(40, &offline), 0);
+        assert_eq!(popped_frames(41, &offline), 41);
+        assert_eq!(popped_frames(340, &offline), 300);
+        assert_eq!(popped_frames(380, &offline), 340);
+        let low = Latency::LOW;
+        assert_eq!(popped_frames(264, &low), 0);
+        assert_eq!(popped_frames(273, &low), 222);
+    }
+
+    #[test]
+    fn latencies_are_nvidias_input_buffers() {
+        let buffer = |l: Latency| (l.chunk_len + l.right_context) * SUBSAMPLING * 10;
+        assert_eq!(buffer(Latency::OFFLINE), 30_400); // ms
+        assert_eq!(buffer(Latency::LOW), 1_040);
+    }
+
+    /// A stand-in for the ONNX graph, with its shapes: the logits depend on the cached frames and
+    /// on the chunk's features, so any chunking or state difference between two runs shows.
+    struct FakeModel;
+
+    impl StepModel for FakeModel {
+        fn step(
+            &mut self,
+            features: Array2<f32>,
+            cached: Array2<f32>,
+            mask: &[bool],
+        ) -> Result<StepOutput> {
+            let chunk = features.nrows().div_ceil(SUBSAMPLING);
+            let n_cached = cached.nrows();
+            assert_eq!(mask.len(), n_cached + chunk);
+            let logits = Array2::from_shape_fn(
+                ((n_cached + chunk) * SUBSAMPLING, NUM_SPEAKERS),
+                |(r, s)| {
+                    let v = if r < n_cached * SUBSAMPLING {
+                        cached.row(r / SUBSAMPLING).sum()
+                    } else {
+                        let f = (r - n_cached * SUBSAMPLING).min(features.nrows() - 1);
+                        features.row(f).sum()
+                    };
+                    (v * 0.013 + s as f32 * 0.7).sin() * 4.0
+                },
+            );
+            let chunk_embeds = Array2::from_shape_fn((chunk, HIDDEN), |(f, h)| {
+                let row = (f * SUBSAMPLING).min(features.nrows() - 1);
+                features[[row, h % N_MELS]] * 0.01 + h as f32 * 1e-3
+            });
+            Ok(StepOutput {
+                logits,
+                chunk_embeds,
+                silence: vec![-1.0; HIDDEN],
+            })
+        }
+    }
+
+    /// Tones switched on and off over a little noise, deterministic.
+    fn test_audio(seconds: usize) -> Vec<f32> {
+        let mut state = 12_345u32;
+        (0..seconds * 16_000 + 77)
+            .map(|i| {
+                state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                let noise = (state >> 9) as f32 / (1u32 << 23) as f32 - 0.5;
+                let gate = ((i / 4_000) % 2) as f32;
+                0.3 * (i as f32 * 0.05).sin() + 0.2 * gate * (i as f32 * 0.31).sin() + 0.05 * noise
+            })
+            .collect()
+    }
+
+    /// `audio` in uneven pieces of 1, 159, 160, 513 and 7_919 samples, over and over.
+    fn uneven_pieces(audio: &[f32]) -> Vec<&[f32]> {
+        let sizes = [1, 159, 160, 513, 7_919];
+        let mut pieces = Vec::new();
+        let mut at = 0;
+        for size in sizes.iter().cycle() {
+            if at >= audio.len() {
+                break;
+            }
+            let end = (at + size).min(audio.len());
+            pieces.push(&audio[at..end]);
+            at = end;
+        }
+        pieces
+    }
+
+    fn stacked(parts: Vec<Array2<f32>>, columns: usize) -> Array2<f32> {
+        let views: Vec<_> = parts.iter().map(|p| p.view()).collect();
+        if views.is_empty() {
+            return Array2::zeros((0, columns));
+        }
+        concatenate(Axis(0), &views).unwrap()
+    }
+
+    #[test]
+    fn mel_frames_arriving_piece_by_piece_are_the_whole_file_ones() {
+        let audio = test_audio(3);
+        let (whole, valid) = log_mel_features(&audio);
+        let mut stream = MelStream::new();
+        let mut parts: Vec<Array2<f32>> =
+            uneven_pieces(&audio).into_iter().map(|p| stream.push(p)).collect();
+        parts.push(stream.finish());
+        assert_eq!(stream.valid(), valid);
+        assert_eq!(stacked(parts, N_MELS), whole.slice(s![..valid, ..]));
+    }
+
+    #[test]
+    fn probabilities_streamed_are_the_whole_file_ones() {
+        // 70 s: enough low-latency steps for the speaker cache to fill and be compressed
+        let audio = test_audio(70);
+        for latency in [Latency::OFFLINE, Latency::LOW] {
+            let whole = probs_offline(&mut FakeModel, &audio, latency).unwrap();
+            let mut stream = ProbStream::new(latency);
+            let mut parts: Vec<Array2<f32>> = uneven_pieces(&audio)
+                .into_iter()
+                .map(|p| stream.push(&mut FakeModel, p).unwrap())
+                .collect();
+            parts.push(stream.finish(&mut FakeModel).unwrap());
+            let streamed = stacked(parts, NUM_SPEAKERS);
+            assert_eq!(streamed.dim(), whole.dim(), "{latency:?}");
+            assert_eq!(streamed, whole, "{latency:?}");
+        }
     }
 
     #[test]
@@ -607,7 +1015,7 @@ mod tests {
 
     #[test]
     fn the_cache_fills_then_stays_at_its_capacity() {
-        let mut cache = SpeakerCache::new();
+        let mut cache = SpeakerCache::new(Latency::OFFLINE);
         let silence = vec![-1.0f32; 512];
         for step in 0..3 {
             let n_cached = cache.embeds.nrows() + cache.fifo.nrows();
