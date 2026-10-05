@@ -178,8 +178,8 @@ pub fn extract_features_raw(
     // A header-only WAV (tap-and-release dictation) or a sub-hop clip would
     // panic in apply_preemphasis (audio[0]) or produce a single mel frame
     // whose Bessel-corrected normalization divides by zero (all-NaN
-    // features). Reject both upfront with a clean error; the diarization
-    // path has carried the equivalent guard in sortformer.rs all along.
+    // features). Reject both upfront with a clean error, as the retired
+    // Sortformer diarization did.
     if audio.len() < config.hop_length {
         return Err(Error::Audio(format!(
             "Audio too short to transcribe: {} samples (need at least {})",

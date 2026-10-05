@@ -8,6 +8,9 @@
 # two-phase diarization were missing on every tarball install.
 #
 # Reads the three lists straight from the scripts and compares them as sets.
+# Binaries retired since (install.sh deletes what an older install left of
+# them) are removed by uninstall.sh too, and must never be shipped again:
+# install.sh would delete them right after installing them.
 #
 # Usage: bash tests/test-tarball-bins.sh
 set -u
@@ -26,10 +29,15 @@ for var, items, body in re.findall(r"for (\w+) in ([^;]+); do\n(.*?)\n\s*done\b"
     if "$TARBALL_DIR/usr/bin/" in body:
         shipped.update(words(items))
 
-# install.sh: the bins=( … ) array of mode_tarball.
+# install.sh: the bins=( … ) array of mode_tarball, and the loop deleting
+# the retired binaries.
 inst = open(f"{root}/install.sh", encoding="utf-8").read()
 m = re.search(r"^mode_tarball\(\) \{.*?local bins=\((.*?)\)", inst, re.S | re.M)
 installed = set(words(m.group(1))) if m else set()
+retired = set()
+for var, items, body in re.findall(r"for (\w+) in ([^;]+); do\n(.*?)\n\s*done\b", inst, re.S):
+    if 'rm -f "$PREFIX/bin/$' + var in body:
+        retired.update(words(items))
 
 # uninstall.sh: the `for bin in …; do` loop that removes $PREFIX/bin/$bin.
 un = open(f"{root}/uninstall.sh", encoding="utf-8").read()
@@ -41,9 +49,12 @@ for var, items, body in re.findall(r"for (\w+) in ([^;]+); do\n(.*?)\n\s*done\b"
 print(" ".join(sorted(shipped)))
 print(" ".join(sorted(installed)))
 print(" ".join(sorted(removed)))
+print(" ".join(sorted(retired)))
+print(" ".join(sorted(retired & shipped)))
 EOF
 )
 shipped=$(sed -n 1p <<<"$lists"); installed=$(sed -n 2p <<<"$lists"); removed=$(sed -n 3p <<<"$lists")
+retired=$(sed -n 4p <<<"$lists"); retired_shipped=$(sed -n 5p <<<"$lists")
 [[ -n "$shipped" && -n "$installed" && -n "$removed" ]] || { echo "FAIL: could not read the three lists"; exit 1; }
 
 fails=0
@@ -58,7 +69,13 @@ diff_sets() {  # label, got, expected
     fi
 }
 diff_sets "install.sh installs every binary the tarball ships" "$installed" "$shipped"
-diff_sets "uninstall.sh removes every binary the tarball ships" "$removed" "$shipped"
+diff_sets "uninstall.sh removes every binary the tarball ships, and the retired ones" \
+    "$removed" "$shipped $retired"
+if [[ -z "$retired_shipped" ]]; then
+    echo "PASS no retired binary is shipped"
+else
+    echo "FAIL retired yet shipped (install.sh would delete them): $retired_shipped"; fails=$((fails+1))
+fi
 
 if [[ $fails -gt 0 ]]; then echo "$fails FAILED"; exit 1; fi
 echo OK

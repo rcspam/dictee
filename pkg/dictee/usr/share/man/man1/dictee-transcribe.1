@@ -15,8 +15,11 @@ with speaker segment markers, per-tab translation, and export to text/SRT/JSON.
 .I FILE
 Optional audio file to load on startup. Supported formats: WAV, MP3, FLAC, OGG, M4A, WebM, Opus.
 .SH DIARIZATION
-Two-phase diarization: phase 1 uses the Sortformer model to detect speakers,
-phase 2 sends the full audio to the ASR daemon for transcription with speaker labels.
+Two-phase diarization: phase 1 runs Nemotron 3 Diarization (up to 8 speakers)
+and cuts the recording into pieces, one speaker at a time, 30 s at most;
+phase 2 transcribes each piece with the chosen ASR model (Nemotron 3.5
+transcribes the whole file into timed words, each going to its piece).
+MOSS, when installed, does both in a single pass.
 .PP
 A sensitivity slider controls speaker detection threshold (0\-100%).
 .SH TRANSLATION

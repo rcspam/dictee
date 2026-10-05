@@ -1427,7 +1427,7 @@ class _DiarizeTranscribeWorker(QThread):
 class _ChunkedPipelineWorker(QThread):
     """Long-file plain transcription (no diarization), in 2 phases:
       Phase 1: ffmpeg pre-cut into overlapping chunks (WAV 16k mono).
-      Phase 2: transcribe-diarize-batch --no-diarize on chunks -> tokens.
+      Phase 2: transcribe-diarize-batch on chunks -> tokens.
       Output: plain text, postprocessed downstream like the non-chunked
       `transcribe` batch path.
 
@@ -1578,7 +1578,7 @@ class _ChunkedPipelineWorker(QThread):
         return chunks
 
     def _run_transcribe_batch(self, chunks):
-        """Run transcribe-diarize-batch --no-diarize on chunks via stdin.
+        """Run transcribe-diarize-batch (transcription only) on chunks via stdin.
 
         Stdout format per chunk:
             ===CHUNK <idx> <path>===
@@ -1595,8 +1595,7 @@ class _ChunkedPipelineWorker(QThread):
         # --no-postprocess: postprocess is applied per-segment in
         # _finish_transcription, matching the existing _DiarizeTranscribeWorker
         # pattern. Avoids double processing.
-        cmd = ["transcribe-diarize-batch", "--no-diarize",
-               "--no-postprocess", "--stdin"]
+        cmd = ["transcribe-diarize-batch", "--no-postprocess", "--stdin"]
         # The batch's stderr carries the engine diagnostics (execution
         # provider, model variant, per-chunk timings): keep it in the
         # transcribe log when debugging instead of dropping it — "is this

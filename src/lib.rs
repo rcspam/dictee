@@ -60,14 +60,8 @@ mod nemotron;
 mod parakeet;
 mod parakeet_eou;
 mod parakeet_tdt;
-#[cfg(feature = "diar")]
-pub mod diar;
-#[cfg(feature = "sortformer")]
 pub mod diar_pieces;
-#[cfg(feature = "sortformer")]
 pub mod nemotron3_diar;
-#[cfg(feature = "sortformer")]
-pub mod sortformer;
 pub mod stream_proto;
 mod timestamps;
 mod transcriber;

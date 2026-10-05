@@ -15,8 +15,11 @@ avec marqueurs de segments, traduction par onglet, export texte/SRT/JSON.
 .I FICHIER
 Fichier audio optionnel à charger au démarrage. Formats : WAV, MP3, FLAC, OGG, M4A, WebM, Opus.
 .SH DIARISATION
-Diarisation en deux phases : phase 1 utilise le modèle Sortformer pour détecter les locuteurs,
-phase 2 envoie l'audio complet au daemon ASR pour transcription avec labels de locuteurs.
+Diarisation en deux phases : la phase 1 passe Nemotron 3 Diarization (jusqu'à 8 locuteurs)
+et découpe l'enregistrement en morceaux, une voix à la fois, 30 s au plus ;
+la phase 2 transcrit chaque morceau avec le modèle ASR choisi (Nemotron 3.5
+transcrit le fichier entier en mots datés, chacun rangé dans son morceau).
+MOSS, s'il est installé, fait les deux en une passe.
 .PP
 Un curseur de sensibilité contrôle le seuil de détection (0\-100%).
 .SH TRADUCTION

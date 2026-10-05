@@ -891,9 +891,8 @@ EOF
     # --- Binaries ---
     info "Installing binaries into $PREFIX/bin/"
     local bins=(
-        transcribe transcribe-daemon transcribe-client transcribe-diarize
-        transcribe-stream-diarize transcribe-diarize-batch
-        diarize-only diarize-multi
+        transcribe transcribe-daemon transcribe-client transcribe-diarize-batch
+        diarize-only
         dictee dictee-setup dictee-tray dictee-ptt
         dictee-postprocess dictee-diarize-llm dictee-switch-backend dictee-test-rules
         dictee-transcribe transcribe-daemon-vosk transcribe-daemon-whisper
@@ -907,6 +906,11 @@ EOF
     # on the same set of names.
     for b in "${bins[@]}"; do
         [[ -f "$SCRIPT_DIR/usr/bin/$b" ]] && install -Dm755 "$SCRIPT_DIR/usr/bin/$b" "$PREFIX/bin/$b"
+    done
+    # Retired in 1.4 with Sortformer and diarize-multi: what an older tarball
+    # install left behind goes (the packages drop them on upgrade).
+    for b in transcribe-diarize transcribe-stream-diarize diarize-multi; do
+        rm -f "$PREFIX/bin/$b"
     done
 
     # --- Shared libs ---
@@ -1141,7 +1145,7 @@ EOF
     fi
 
     # --- Model directories (writable for dictee-setup) ---
-    for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/sortformer" "$MODEL_DIR/nemotron"; do
+    for d in "$MODEL_DIR" "$MODEL_DIR/tdt" "$MODEL_DIR/nemotron3-diar" "$MODEL_DIR/nemotron"; do
         mkdir -p "$d"
         chmod 777 "$d"
     done

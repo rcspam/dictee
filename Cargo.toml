@@ -5,7 +5,7 @@ name = "dictee-asr"
 version = "1.4.0-beta"
 edition = "2021"
 authors = ["rcspam <rcspam4gh@gmail.com>", "altunenes (original parakeet-rs author)"]
-description = "dictee ASR & speaker diarization engine (ONNX): Parakeet TDT, Canary, Nemotron, Sortformer"
+description = "dictee ASR & speaker diarization engine (ONNX): Parakeet TDT, Canary, Nemotron, Nemotron 3 Diarization"
 repository = "https://github.com/rcspam/dictee"
 license = "GPL-3.0-or-later"
 keywords = ["speech-recognition", "asr", "diarization", "onnx", "dictee"]
@@ -16,22 +16,12 @@ name = "parakeet_rs"
 path = "src/lib.rs"
 
 [[example]]
-name = "diarization"
-path = "examples/diarization.rs"
-
-[[example]]
 name = "raw"
 path = "examples/raw.rs"
 
 [[example]]
 name = "streaming"
 path = "examples/streaming.rs"
-
-# Live-diarization protocol POC (not shipped; requires --features diar).
-[[example]]
-name = "live-diarize-poc"
-path = "examples/live_diarize_poc.rs"
-required-features = ["diar"]
 
 [[bin]]
 name = "transcribe"
@@ -46,24 +36,12 @@ name = "transcribe-client"
 path = "src/bin/transcribe_client.rs"
 
 [[bin]]
-name = "transcribe-diarize"
-path = "src/bin/transcribe_diarize.rs"
-
-[[bin]]
 name = "transcribe-diarize-batch"
 path = "src/bin/transcribe_diarize_batch.rs"
 
 [[bin]]
-name = "transcribe-stream-diarize"
-path = "src/bin/transcribe_stream_diarize.rs"
-
-[[bin]]
 name = "diarize-only"
 path = "src/bin/diarize_only.rs"
-
-[[bin]]
-name = "diarize-multi"
-path = "src/bin/diarize_multi.rs"
 
 [[bin]]
 name = "transcribe-daemon-whisper-rust"
@@ -76,12 +54,6 @@ path = "src/bin/app_capture.rs"
 [dependencies]
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray"] }
 hound = "3.5"
-# diar feature (src/diar/): pure-Rust dependencies ON PURPOSE — ndarray-linalg
-# is forbidden here (it flips ndarray's `blas` feature on, which unifies into
-# every ASR binary and breaks linking with undefined cblas_sgemm).
-kodama = { version = "0.3", optional = true }
-nalgebra = { version = "0.34", default-features = false, features = ["std"], optional = true }
-ndarray-npy = { version = "0.10", default-features = false, optional = true }
 whisper-rs = { version = "0.16", default-features = false, optional = true }
 eyre = "0.6"
 ndarray = "0.17"
@@ -108,10 +80,7 @@ migraphx = ["ort/migraphx"]
 openvino = ["ort/openvino"]
 webgpu = ["ort/webgpu"]
 nnapi = ["ort/nnapi"]
-sortformer = []
-# In-house multi-speaker diarization engine (src/diar/, no 4-speaker cap).
-diar = ["dep:kodama", "dep:nalgebra", "dep:ndarray-npy"]
-whisper        = ["dep:whisper-rs", "whisper-rs/raw-api"]
+whisper       = ["dep:whisper-rs", "whisper-rs/raw-api"]
 whisper-vulkan = ["whisper", "whisper-rs/vulkan"]
 whisper-cuda   = ["whisper", "whisper-rs/cuda"]
 # api-23 pins the OrtApi bindings to ONNX Runtime 1.23 — must match the

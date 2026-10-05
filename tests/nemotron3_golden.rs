@@ -7,13 +7,12 @@
 //! ```text
 //! NEMOTRON3_MODEL=/path/to/model.onnx NEMOTRON3_REF=/path/to/ref_dir \
 //! NEMOTRON3_AUDIO=/path/to/004c_PAPH.wav ORT_DYLIB_PATH=/usr/lib/dictee/libonnxruntime.so \
-//! cargo test --release --no-default-features --features "cuda,sortformer,load-dynamic" \
+//! cargo test --release --no-default-features --features "cuda,load-dynamic" \
 //!     --test nemotron3_golden -- --ignored --nocapture --test-threads 1
 //! ```
 //!
 //! Both sides run on the CPU. Set NEMOTRON3_OUT to a directory to get the RTTM of the whole file,
 //! for a DER with dscore.
-#![cfg(feature = "sortformer")]
 
 use parakeet_rs::nemotron3_diar::{log_mel_features, Nemotron3Diarizer, NUM_SPEAKERS};
 use parakeet_rs::{ExecutionConfig, ExecutionProvider};

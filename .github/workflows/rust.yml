@@ -217,12 +217,11 @@ jobs:
       # without them.
       run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
-      # sortformer + diar are additive pure-Rust features (no system deps):
-      # building with them matches the shipped CPU package feature set and
-      # compiles the diarization engines that a default build skips.
-      run: cargo build --verbose --features "sortformer,diar"
+      # The default features are the shipped CPU package's feature set: the
+      # diarization (Nemotron 3) needs no feature since 1.4.
+      run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose --features "sortformer,diar"
+      run: cargo test --verbose
 
   test-arm64:
     runs-on: ubuntu-24.04-arm
@@ -235,9 +234,9 @@ jobs:
       run: sudo apt-get install -y libpipewire-0.3-dev libclang-dev
     - name: Build
       # Same feature set as test-x86 (see comment there).
-      run: cargo build --verbose --features "sortformer,diar"
+      run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose --features "sortformer,diar"
+      run: cargo test --verbose
 
   release:
     needs: [lint, test-postprocess, test-apply-continuation, test-transcribe-routing, packaging-audit, test-install-arch-source, test-x86, test-arm64]

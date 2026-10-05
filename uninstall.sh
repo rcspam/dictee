@@ -191,7 +191,8 @@ if [[ $TARBALL_INSTALL -eq 1 ]]; then
     info "Removing tarball install from /usr/local/..."
     PREFIX="/usr/local"
 
-    # Binaries
+    # Binaries (transcribe-diarize, transcribe-stream-diarize and diarize-multi
+    # were retired in 1.4 but an older install may still have them)
     for bin in transcribe transcribe-daemon transcribe-client transcribe-diarize \
                transcribe-stream-diarize transcribe-diarize-batch \
                diarize-only diarize-multi \

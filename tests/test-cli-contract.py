@@ -24,18 +24,17 @@ ACCEPTED_FLAGS = {
     "transcribe": {"--help", "-h"},
     "transcribe-daemon": {"--canary", "--socket", "--help", "-h"},
     "transcribe-client": {"--json-timestamps", "--help", "-h"},
-    "transcribe-diarize": {"--sensitivity", "--help", "-h"},
-    "transcribe-diarize-batch": {
-        "--sensitivity", "--model-dir", "--sortformer-dir",
-        "--stdin", "--no-postprocess", "--no-diarize", "--help", "-h",
-    },
+    "transcribe-diarize-batch": {"--model-dir", "--stdin", "--no-postprocess", "--help", "-h"},
     "diarize-only": {
         "--sensitivity", "--stream", "--engine", "--pieces", "--max-piece",
         "--gap", "--margin", "--latency", "--help", "-h",
     },
-    "transcribe-stream-diarize": {"--help", "-h"},
 }
 BINARIES = set(ACCEPTED_FLAGS)
+
+# Binaries retired with Sortformer and diarize-multi (1.4): nothing may run
+# them any more, the packages no longer ship them.
+RETIRED = {"transcribe-diarize", "transcribe-stream-diarize", "diarize-multi"}
 
 # dictee-meeting-live is a Python script with no .py extension.
 PY_CALLERS = [
@@ -111,15 +110,16 @@ def python_invocations(path, binaries=None):
     return found
 
 
-def shell_invocations(path):
+def shell_invocations(path, binaries=None):
     """Map binary -> set of flags, from a shell script.
 
     Only matches a binary used as a command word: at line start, after a pipe /
     ``;`` / ``(`` / ``&&`` / ``eval``, immediately followed by whitespace or EOL.
     Longest binary name wins, so ``transcribe-diarize-batch`` is not mistaken for
     ``transcribe-diarize`` nor ``transcribe.sock`` for ``transcribe``.
+    `binaries` defaults to the Rust BINARIES table.
     """
-    names = sorted(BINARIES, key=len, reverse=True)
+    names = sorted(BINARIES if binaries is None else binaries, key=len, reverse=True)
     bin_re = re.compile(
         r"(?:^|[|&;(]|\beval\s+|\s)(" + "|".join(re.escape(b) for b in names)
         + r")(?=\s|$)")
@@ -133,6 +133,18 @@ def shell_invocations(path):
 
 
 class CliContractTest(unittest.TestCase):
+    def test_no_caller_runs_a_retired_binary(self):
+        uses = []
+        for name in PY_CALLERS:
+            p = REPO / name
+            if p.exists():
+                uses += [f"{name}: {b}" for b in python_invocations(p, binaries=RETIRED)]
+        for name in SH_CALLERS:
+            p = REPO / name
+            if p.exists():
+                uses += [f"{name}: {b}" for b in shell_invocations(p, binaries=RETIRED)]
+        self.assertEqual(uses, [], "\n".join(uses))
+
     def test_python_callers_pass_only_accepted_flags(self):
         violations = []
         for name in PY_CALLERS:

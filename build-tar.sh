@@ -74,15 +74,12 @@ fi
 echo ""
 echo "=== [TAR.GZ] Cargo build CUDA (forced) ==="
 cargo build --release --no-default-features \
-    --features "cuda,sortformer,diar,load-dynamic" \
+    --features "cuda,load-dynamic" \
     --bin transcribe \
     --bin transcribe-daemon \
     --bin transcribe-client \
-    --bin transcribe-diarize \
-    --bin transcribe-stream-diarize \
     --bin transcribe-diarize-batch \
     --bin diarize-only \
-    --bin diarize-multi \
     --bin dictee-app-capture
 
 # whisper-rust daemon (CUDA variant — the tarball is the CUDA flavour).
@@ -172,8 +169,7 @@ done
 # them in CUDA mode, no risk of CPU contamination since this script
 # never invokes a CPU build).
 for bin in transcribe transcribe-daemon transcribe-client \
-           transcribe-diarize transcribe-stream-diarize \
-           transcribe-diarize-batch diarize-only diarize-multi \
+           transcribe-diarize-batch diarize-only \
            transcribe-daemon-whisper-rust \
            dictee-app-capture; do
     cp "target/release/$bin" "$TARBALL_DIR/usr/bin/"

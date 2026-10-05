@@ -12,10 +12,9 @@
 //! numpy port `tests/nemotron3-ref/reference.py`, which `tests/nemotron3_golden.rs` compares
 //! against.
 
-use crate::diar_pieces::{transcription_pieces, PieceParams, PieceStream};
+use crate::diar_pieces::{transcription_pieces, PieceParams, PieceStream, SpeakerSegment};
 use crate::error::{Error, Result};
 use crate::execution::ModelConfig;
-use crate::sortformer::SpeakerSegment;
 use ndarray::{concatenate, s, Array2, ArrayView1, ArrayView2, Axis, Ix3};
 use ort::session::{Session, SessionOutputs};
 use ort::value::Tensor;

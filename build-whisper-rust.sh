@@ -5,7 +5,7 @@
 set -euo pipefail
 case "${1:-}" in
   vulkan)  # needs glslc (shaderc) in PATH
-    cargo build --release --features "sortformer,whisper-vulkan" \
+    cargo build --release --features "whisper-vulkan" \
       --bin transcribe-daemon-whisper-rust ;;
   cuda)
     # nvcc discovery: NVIDIA repo/runfile installs /usr/local/cuda[-X.Y],
@@ -76,7 +76,7 @@ case "${1:-}" in
       mkdir -p "$TARGET_DIR" && printf '%s' "$STAMP_VAL" > "$STAMP"
     fi
     cargo build --release --no-default-features \
-      --features "cuda,sortformer,load-dynamic,whisper-cuda" \
+      --features "cuda,load-dynamic,whisper-cuda" \
       --bin transcribe-daemon-whisper-rust
     # Distribution guard: the packaging scripts export
     # DICTEE_REQUIRE_CUDART_SONAME=12 so a daemon accidentally linked against

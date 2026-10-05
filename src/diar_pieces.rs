@@ -8,8 +8,15 @@
 //! the diarizer heard inside them, else at their quietest 100 ms, never closer than half the
 //! maximum to either end.
 
-use crate::sortformer::SpeakerSegment;
 use ndarray::{s, Array2, ArrayView2, Axis};
+
+/// A speaker's stretch of a recording, in seconds.
+#[derive(Debug, Clone)]
+pub struct SpeakerSegment {
+    pub start: f32,
+    pub end: f32,
+    pub speaker_id: usize,
+}
 
 /// Audio samples in a 10 ms frame at 16 kHz.
 const FRAME_SAMPLES: usize = 160;
